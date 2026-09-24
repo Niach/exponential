@@ -35,6 +35,10 @@ pub mod adapters;
 // EXP-936: the run's own compaction ask — the verdict policy and the two
 // steps the command loop takes for an accepted one. Pure; `host` drives it.
 pub mod compaction;
+// EXP-1051: the `context_layout` frame's arithmetic — bytes → tokens, the
+// launcher's layers as estimated segments, and `base` by subtraction from the
+// prefix the agent measured. Pure; the adapters stamp it, the mapper emits it.
+pub mod context_layout;
 // EXP-920: the entity refs an Exponential MCP answer names, distilled on the
 // device for every client's chips (fixture-locked with web `lib/mcp/preview.ts`).
 pub mod exp_tool_refs;
@@ -54,6 +58,10 @@ mod terminals;
 pub mod transport;
 
 pub use adapters::{Adapter, AdapterKind, AdapterSpec};
+pub use context_layout::{
+    estimate_tokens, estimated_segments, layout, measure_base, BasePrefix,
+    CONTEXT_LAYOUT_META_KEY,
+};
 pub use compaction::{
     compact_command, CompactionPolicy, CompactionStep, COMPACT_CONTINUE_PROMPT, COMPACT_COOLDOWN,
     COMPACT_COOLDOWN_TURNS, COMPACT_MIN_CONTEXT_FRACTION,
@@ -69,7 +77,7 @@ pub use local::{
     SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY,
     TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
 };
-pub use mapper::{clamp_usage, AnswerDecision, MapOut, Mapper, MapperConfig, PendingAskKey};
+pub use mapper::{clamp_context_layout, clamp_usage, AnswerDecision, MapOut, Mapper, MapperConfig, PendingAskKey};
 pub use session::{
     start, start_with, ConfigValue, EngineError, EngineParts, EngineSession, EngineStart,
     HistoryHandle, OpenTranscript, ResumeHandle,

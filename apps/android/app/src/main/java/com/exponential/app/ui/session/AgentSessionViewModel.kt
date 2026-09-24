@@ -30,6 +30,7 @@ import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentUsagePresentation
+import com.exponential.app.domain.ContextSegment
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
@@ -619,6 +620,15 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  the Usage sheet's "Context" block. Null when the engine reports none. */
     val sessionUsage: StateFlow<SessionUsageState?> = connection.activity
         .map { it.usage }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** EXP-1051: how that window is laid out — the device's attribution of
+     *  the context it filled before the first turn, the second half of the
+     *  Usage sheet's "Context window" block. Null until a device publishes
+     *  one: the bar then draws the conversation alone. */
+    val sessionContextLayout: StateFlow<List<ContextSegment>?> = connection.activity
+        .map { it.contextLayout }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 

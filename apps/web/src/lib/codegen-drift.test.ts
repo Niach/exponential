@@ -24,6 +24,11 @@ const GENERATORS: { filter: string; pkg: string; outputs: string[] }[] = [
       `apps/ios/ExpCore/Sources/Domain/DomainContract.generated.swift`,
       `apps/android/app/src/main/java/com/exponential/app/domain/DomainContract.generated.kt`,
       `apps/desktop/crates/domain/src/contract.generated.rs`,
+      // EXP-1051: the run playbook the launcher appends to every session's
+      // system prompt, copied out of `crates/coding/src/skill.md` so the
+      // server can price the `playbook` layer of the context bar without
+      // reading the desktop crate at runtime.
+      `apps/web/src/lib/run-playbook.generated.ts`,
     ],
   },
   {

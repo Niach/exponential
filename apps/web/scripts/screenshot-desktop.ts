@@ -298,6 +298,20 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
     ],
   },
   { kind: `usage`, contextUsed: 122_000, contextSize: 200_000, costUsd: 1.42 },
+  // EXP-1051: the breakdown behind the usage popover's segmented bar — the
+  // same latest-wins slot family as `usage`; conversation/free are derived
+  // by every client from the meter above.
+  {
+    kind: `context_layout`,
+    segments: [
+      { key: `base`, tokens: 21_000, source: `measured` },
+      { key: `tools`, tokens: 2_400, source: `estimated` },
+      { key: `playbook`, tokens: 1_500, source: `estimated` },
+      { key: `team`, tokens: 800, source: `estimated` },
+      { key: `project`, tokens: 9_800, source: `estimated`, detail: `CLAUDE.md` },
+      { key: `task`, tokens: 600, source: `estimated` },
+    ],
+  },
   // EXP-927: the agent's own task list — the bottom strip's first block
   // (collapsed: the current entry + `2/4`).
   {

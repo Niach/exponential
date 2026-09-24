@@ -353,6 +353,29 @@ data class SessionUsageState(
     val costUsd: Double? = null,
 )
 
+/** EXP-1051: ONE attributed layer of the run's context window, as the device
+ *  accounted for it before the first turn — the launcher's own prompt parts
+ *  (`playbook`, `team`, `task`), what the agent CLI loads by itself (`base`,
+ *  `tools`, `project`), each `measured` (a real token count) or `estimated`
+ *  (chars / `contextLayoutCharsPerToken`). [key] is a contract
+ *  `contextLayout.segments` key; `conversation` and `free` are NEVER on the
+ *  wire — every client derives them from [SessionUsageState]
+ *  ([ContextLayoutPresentation]). */
+data class ContextSegment(
+    val key: String,
+    val tokens: Int,
+    val source: String,
+    val detail: String? = null,
+)
+
+/** EXP-1051: the device counted these tokens for real. */
+const val CONTEXT_SOURCE_MEASURED = "measured"
+
+/** EXP-1051: …and here it divided characters by `contextLayoutCharsPerToken`.
+ *  The conservative reading of an absent or unknown `source`, so a layer this
+ *  build cannot vouch for is never presented as measured. */
+const val CONTEXT_SOURCE_ESTIMATED = "estimated"
+
 /** EXP-784: the agent's rate-limit window as it last reported it — the
  *  fourth latest-wins slot beside [SessionUsageState]. [status] is the
  *  agent's own word (`allowed_warning`, `rejected`, …); the slot is CLEARED
@@ -1463,6 +1486,12 @@ data class ActivityFeedState(
     val config: SessionConfigState? = null,
     /** EXP-746: this run's context + spend meter, same latest-wins rule. */
     val usage: SessionUsageState? = null,
+    /** EXP-1051: how that window is laid out — the device's attribution of
+     *  the context it filled before the first turn, in the order it sent it.
+     *  Null = no `context_layout` published yet (an older device, a run that
+     *  has not started): the bar then draws the conversation alone. An EMPTY
+     *  list is a real layout with nothing attributed. */
+    val contextLayout: List<ContextSegment>? = null,
     /** EXP-784: the agent's rate-limit window, the fourth slot. Null = not
      *  limited (or cleared by an empty/`ok` status). */
     val rateLimit: SessionRateLimitState? = null,
@@ -1818,6 +1847,47 @@ fun ActivityFeedState.applyActivityEvent(
                     contextSize = size,
                     costUsd = event.dbl("costUsd")?.takeIf { it >= 0.0 },
                 ),
+            )
+        }
+    }
+    // EXP-1051: the breakdown of that window, the slot right behind `usage` —
+    // but with the `config_state` null rule, not the `usage` one: the layers
+    // do NOT change mid-conversation, so a frame carrying no `segments` ARRAY
+    // at all keeps the standing layout rather than collapsing the bar into one
+    // undifferentiated conversation block.
+    //
+    // Tolerant per entry, in the ×4 order `ContextLayoutPresentation` then
+    // renders in: an unknown key is dropped (a newer device naming a layer
+    // this build cannot label), a non-integer or negative count is dropped,
+    // the FIRST of a duplicate key wins, `detail` is cut to the contract's
+    // cap, and a missing or unknown `source` reads as `estimated` — the
+    // conservative claim.
+    "context_layout" -> {
+        val raw = event["segments"] as? JsonArray
+        if (raw == null) {
+            this
+        } else {
+            val seen = mutableSetOf<String>()
+            copy(
+                contextLayout = raw.orEmptyList { entry ->
+                    val key = entry.str("key")
+                        ?.takeIf { it in DomainContract.contextLayoutSegmentKeys }
+                        ?: return@orEmptyList null
+                    if (key in seen) return@orEmptyList null
+                    val tokens = entry.int("tokens")?.takeIf { it >= 0 }
+                        ?: return@orEmptyList null
+                    seen.add(key)
+                    ContextSegment(
+                        key = key,
+                        tokens = tokens,
+                        source = entry.str("source")
+                            ?.takeIf { it in DomainContract.contextLayoutSourceValues }
+                            ?: CONTEXT_SOURCE_ESTIMATED,
+                        detail = entry.str("detail")
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.take(DomainContract.contextLayoutDetailMax),
+                    )
+                },
             )
         }
     }

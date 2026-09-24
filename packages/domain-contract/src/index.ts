@@ -319,6 +319,25 @@ export interface DomainContract {
   workflowStatus: { values: readonly string[] }
   backgroundTaskKind: { values: readonly string[] }
   taskListStatus: { values: readonly string[] }
+  /**
+   * EXP-1051: the `context_layout` steer state — where a run's context window
+   * goes, layer by layer. `segments` = the wire keys in RENDER order, each
+   * with its legend label and bar tone (an Avatar hue, `neutral`, or `track`);
+   * `derived` = the two rows every client computes from `usage` and never
+   * receives (conversation, free); `sources` = measured|estimated;
+   * `compactMinPercent` = the bar's first tick (`sessions_compact` refuses
+   * below it); `charsPerToken` = the estimate every producer and editor
+   * uses; `detailMax` = the relay's cap on a segment's `detail`.
+   */
+  contextLayout: {
+    title: string
+    segments: readonly { key: string; label: string; tone: string }[]
+    derived: readonly { key: string; label: string; tone: string }[]
+    sources: readonly string[]
+    compactMinPercent: number
+    charsPerToken: number
+    detailMax: number
+  }
   steerWorking: {
     verbs: readonly string[]
     tokenTickMs: number

@@ -423,6 +423,53 @@ pub fn stack_extra(
     extra
 }
 
+/// EXP-1051: the [`RunRecord::extra`] key carrying the run's MEASURED base
+/// context — `{"tokens": <u64>, "model": "<string>"}`, written by the engine
+/// once the agent reports its own count for the run's opening turn.
+///
+/// A resume re-enters a transcript whose base this launch never built, so the
+/// predecessor's number is the only honest one to show; it rides `extra`
+/// rather than a declared field so an older host round-trips it untouched.
+pub const CONTEXT_BASE_KEY: &str = "contextBase";
+
+impl RunRecord {
+    /// EXP-1051: the recorded base context; `None` when the run never got
+    /// one, and for an entry this build cannot parse — a carried base is a
+    /// hint, never a gate.
+    pub fn context_base(&self) -> Option<crate::context_layout::CarriedBase> {
+        let value = self.extra.get(CONTEXT_BASE_KEY)?;
+        let tokens = value.get("tokens")?.as_u64()?;
+        let model = value
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        Some(crate::context_layout::CarriedBase { tokens, model })
+    }
+
+    /// EXP-1051: record (or, for `None`, clear) the measured base. Called
+    /// through [`update`] by the engine.
+    pub fn set_context_base(&mut self, base: Option<&crate::context_layout::CarriedBase>) {
+        self.extra.remove(CONTEXT_BASE_KEY);
+        self.extra.extend(context_base_extra(base));
+    }
+}
+
+/// EXP-1051: the `extra` entry a measured base writes — empty when there is
+/// none, so a record without one serializes exactly as before.
+pub fn context_base_extra(
+    base: Option<&crate::context_layout::CarriedBase>,
+) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = BTreeMap::new();
+    if let Some(base) = base {
+        extra.insert(
+            CONTEXT_BASE_KEY.to_string(),
+            serde_json::json!({ "tokens": base.tokens, "model": base.model }),
+        );
+    }
+    extra
+}
+
 /// EXP-792: everything a fresh record's `extra` carries off the launch
 /// options — the team server pick and the account profile.
 pub fn launch_extra(ids: &[String], account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
@@ -1247,6 +1294,76 @@ mod tests {
         );
         assert_eq!(latest_for_issue(&dir, "acc-1", "issue-nope"), None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1051: the measured base round-trips through `extra` and through
+    /// the file, and clearing it takes the key back out — a run without one
+    /// serializes exactly as it did before the key existed.
+    #[test]
+    fn context_base_round_trips_through_extra() {
+        let dir = temp_dir("context-base");
+        let base = crate::context_layout::CarriedBase {
+            tokens: 18_432,
+            model: "claude-opus-5".to_string(),
+        };
+        let mut written = sample("sess-1");
+        assert_eq!(written.context_base(), None);
+        written.set_context_base(Some(&base));
+        record(&dir, written.clone());
+
+        let loaded = get(&dir, "sess-1").expect("record");
+        assert_eq!(loaded, written);
+        assert_eq!(loaded.context_base(), Some(base.clone()));
+        assert_eq!(
+            loaded.extra.get(CONTEXT_BASE_KEY),
+            Some(&serde_json::json!({"tokens": 18_432, "model": "claude-opus-5"}))
+        );
+
+        // Through the registry's own read-modify-write.
+        assert!(update(&dir, "sess-1", |record| {
+            record.set_context_base(None);
+            true
+        }));
+        let cleared = get(&dir, "sess-1").expect("record");
+        assert_eq!(cleared.context_base(), None);
+        assert_eq!(cleared.extra.get(CONTEXT_BASE_KEY), None);
+        assert_eq!(cleared.extra, sample("sess-1").extra);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1051: a base is a hint — anything this build cannot read out of
+    /// the key reads as "no carried base", and the entry itself survives the
+    /// rewrite (forward compat, as ever).
+    #[test]
+    fn a_garbled_context_base_reads_as_none() {
+        for garbage in [
+            serde_json::json!("18432"),
+            serde_json::json!(18_432),
+            serde_json::json!(null),
+            serde_json::json!([18_432, "claude-opus-5"]),
+            serde_json::json!({"model": "claude-opus-5"}),
+            serde_json::json!({"tokens": "lots", "model": "claude-opus-5"}),
+            serde_json::json!({"tokens": -1, "model": "claude-opus-5"}),
+        ] {
+            let mut record = sample("sess-1");
+            record
+                .extra
+                .insert(CONTEXT_BASE_KEY.to_string(), garbage.clone());
+            assert_eq!(record.context_base(), None, "{garbage}");
+        }
+        // A missing MODEL is not garbage — the count still means something.
+        let mut record = sample("sess-1");
+        record.extra.insert(
+            CONTEXT_BASE_KEY.to_string(),
+            serde_json::json!({"tokens": 7}),
+        );
+        assert_eq!(
+            record.context_base(),
+            Some(crate::context_layout::CarriedBase {
+                tokens: 7,
+                model: String::new(),
+            })
+        );
     }
 
     #[test]

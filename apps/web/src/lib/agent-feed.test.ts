@@ -20,6 +20,7 @@ import {
   sessionModel,
   planModeToggle,
   parseRateLimit,
+  parseContextLayout,
   parseSessionUsage,
   parseToolKind,
   parseToolPreview,
@@ -1324,6 +1325,70 @@ describe(`config state`, () => {
         costUsd: -1,
       })
     ).toEqual({ contextUsed: 10, contextSize: 20 })
+  })
+
+  // EXP-1051: the context LAYOUT beside the meter. Tolerant per entry, in the
+  // contract's vocabulary — a device may know a layer this build does not.
+  it(`parseContextLayout keeps what it can label and drops the rest`, () => {
+    expect(
+      parseContextLayout({
+        kind: `context_layout`,
+        segments: [
+          { key: `base`, tokens: 21_000, source: `measured` },
+          {
+            key: `project`,
+            tokens: 9_800,
+            source: `estimated`,
+            detail: `CLAUDE.md, ~/.claude/CLAUDE.md`,
+          },
+        ],
+      })
+    ).toEqual([
+      { key: `base`, tokens: 21_000, source: `measured` },
+      {
+        key: `project`,
+        tokens: 9_800,
+        source: `estimated`,
+        detail: `CLAUDE.md, ~/.claude/CLAUDE.md`,
+      },
+    ])
+    // An empty list is a REAL layout (nothing attributed yet), never null:
+    // null is what keeps the previous layout standing.
+    expect(parseContextLayout({ kind: `context_layout`, segments: [] })).toEqual([])
+    // No `segments` array at all = unusable.
+    expect(parseContextLayout({ kind: `context_layout` })).toBeNull()
+    expect(parseContextLayout({ kind: `context_layout`, segments: {} })).toBeNull()
+    expect(parseContextLayout(`nope`)).toBeNull()
+    // An unknown key, a fractional/negative count and a non-record entry all
+    // go; the FIRST of a duplicate key wins; a garbled source reads as the
+    // conservative `estimated`.
+    expect(
+      parseContextLayout({
+        kind: `context_layout`,
+        segments: [
+          `nope`,
+          { key: `mystery`, tokens: 5_000, source: `estimated` },
+          { key: `tools`, tokens: 1.5, source: `measured` },
+          { key: `base`, tokens: 21_000, source: `measured` },
+          { key: `base`, tokens: 99_000, source: `estimated` },
+          { key: `task`, tokens: -1, source: `estimated` },
+          { key: `team`, tokens: 800, source: `vibes` },
+        ],
+      })
+    ).toEqual([
+      { key: `base`, tokens: 21_000, source: `measured` },
+      { key: `team`, tokens: 800, source: `estimated` },
+    ])
+    // `detail` is cut to the contract's cap, and an empty one is no detail.
+    const long = parseContextLayout({
+      kind: `context_layout`,
+      segments: [
+        { key: `project`, tokens: 10, source: `estimated`, detail: `x`.repeat(500) },
+        { key: `task`, tokens: 10, source: `estimated`, detail: `` },
+      ],
+    })
+    expect(long?.[0].detail?.length).toBe(contract.contextLayout.detailMax)
+    expect(long?.[1].detail).toBeUndefined()
   })
 
   // EXP-772: this name is mirrored ×4 - Android carries it verbatim, iOS as

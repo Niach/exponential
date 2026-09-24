@@ -96,6 +96,12 @@ pub struct AdapterSpec {
     /// launcher (`AcpLaunch::system_append`); claude `--append-system-prompt`,
     /// codex `developer_instructions`, on start AND resume.
     pub system_append: String,
+    /// EXP-1051: the raw byte counts of everything the launcher put into the
+    /// agent's context (the playbook, the team prompt, the project memory
+    /// files, the MCP surface, the seed prompt) plus a resume's carried base
+    /// — the adapter turns them into the `context_layout` frame once the
+    /// agent reports what its first request actually carried.
+    pub context_layers: coding::ContextLayers,
     /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
     /// so the run's bye is `exit:<code>`. An adapter that owns no child of
     /// ours never records, and the run ends as `ended`.

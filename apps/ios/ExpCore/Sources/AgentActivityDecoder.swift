@@ -151,6 +151,9 @@ public enum AgentActivityEvent: Equatable, Sendable {
     case permission(tool: String, detail: String?)
     case configState(AgentSlotUpdate<AgentSessionConfig>)
     case usage(AgentSlotUpdate<AgentSessionUsage>)
+    /// EXP-1051: the attributed layers of the run's context window — a
+    /// latest-wins slot beside `usage`, which is what gives them a scale.
+    case contextLayout(AgentSlotUpdate<[ContextSegment]>)
     case rateLimit(AgentSlotUpdate<AgentSessionRateLimit>)
     case turn(AgentTurnEdge)
     case compaction(AgentCompactionEdge)
@@ -234,6 +237,8 @@ public enum AgentActivityDecoder {
             return .configState(configState(event))
         case "usage":
             return .usage(usage(event))
+        case "context_layout":
+            return .contextLayout(contextLayout(event))
         case "rate_limit":
             return .rateLimit(rateLimit(event))
         case "turn":
@@ -348,6 +353,42 @@ public enum AgentActivityDecoder {
             contextSize: size,
             costUsd: (cost ?? -1) >= 0 ? cost : nil
         ))
+    }
+
+    /// EXP-1051: the run's context layers. A payload carrying no `segments`
+    /// ARRAY at all KEEPS the standing layout (the `config_state` rule): the
+    /// layers do not change mid-run, so a malformed frame is noise, never "the
+    /// window emptied". An EMPTY array is the device's real "nothing
+    /// attributed" and sets.
+    ///
+    /// Tolerant per entry, in web `parseContextLayout`'s order: an unknown key
+    /// is dropped (a newer device naming a layer this build cannot label), a
+    /// fractional or negative count is dropped, the FIRST of a duplicate key
+    /// wins, `detail` is cut to the contract's cap, and a missing or unknown
+    /// `source` reads as `estimated` — the conservative claim. Wire order is
+    /// kept; `ContextLayoutPresentation` is what renders in contract order.
+    static func contextLayout(_ event: [String: Any]) -> AgentSlotUpdate<[ContextSegment]> {
+        guard let rows = event["segments"] as? [Any] else { return .keep }
+        var out: [ContextSegment] = []
+        var seen = Set<String>()
+        for row in rows {
+            guard let row = row as? [String: Any] else { continue }
+            guard let key = row["key"] as? String,
+                  DomainContract.contextLayoutSegmentKeys.contains(key),
+                  !seen.contains(key) else { continue }
+            guard let tokens = wholeCount(row["tokens"]) else { continue }
+            seen.insert(key)
+            let raw = row["source"] as? String
+            let source = raw.flatMap {
+                DomainContract.contextLayoutSourceValues.contains($0) ? $0 : nil
+            } ?? contextSourceEstimated
+            var detail = string(row["detail"])
+            if let text = detail {
+                detail = String(text.prefix(DomainContract.contextLayoutDetailMax))
+            }
+            out.append(ContextSegment(key: key, tokens: tokens, source: source, detail: detail))
+        }
+        return .set(out)
     }
 
     static func rateLimit(_ event: [String: Any]) -> AgentSlotUpdate<AgentSessionRateLimit> {
@@ -501,5 +542,24 @@ public enum AgentActivityDecoder {
     private static func positiveInt(_ value: Any?) -> Int? {
         guard let number = int(value), number >= 1 else { return nil }
         return number
+    }
+
+    /// EXP-1051: the conservative `source` — what an entry that names none, or
+    /// names one this build cannot read, is taken to be. The second contract
+    /// value, spelled here because the generated list carries no per-value
+    /// constant.
+    static let contextSourceEstimated = "estimated"
+
+    /// A WHOLE, non-negative count as a token number: a fractional or negative
+    /// one (and a bool, which bridges to `NSNumber`) is a producer bug, and a
+    /// layer this build cannot trust the size of is a layer it does not draw.
+    private static func wholeCount(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber else { return nil }
+        guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let double = number.doubleValue
+        guard double >= 0, double <= Double(Int.max), double.rounded() == double else {
+            return nil
+        }
+        return Int(double)
     }
 }

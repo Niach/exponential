@@ -1464,6 +1464,25 @@
   "taskListStatus": {
     "values": ["pending", "in_progress", "completed"]
   },
+  "contextLayout": {
+    "title": "Context window",
+    "segments": [
+      { "key": "base", "label": "Base", "tone": "neutral" },
+      { "key": "tools", "label": "Tools", "tone": "green" },
+      { "key": "playbook", "label": "Playbook", "tone": "yellow" },
+      { "key": "team", "label": "Team prompt", "tone": "violet" },
+      { "key": "project", "label": "Project", "tone": "orange" },
+      { "key": "task", "label": "Task", "tone": "pink" }
+    ],
+    "derived": [
+      { "key": "conversation", "label": "Conversation", "tone": "blue" },
+      { "key": "free", "label": "Free", "tone": "track" }
+    ],
+    "sources": ["measured", "estimated"],
+    "compactMinPercent": 50,
+    "charsPerToken": 4,
+    "detailMax": 200
+  },
   "steerWorking": {
     "verbs": [
       "Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating",

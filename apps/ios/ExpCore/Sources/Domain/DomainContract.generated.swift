@@ -78,6 +78,17 @@ public enum DomainContract {
     public static let workflowStatusValues: [String] = ["running", "completed", "failed", "stopped"]
     public static let backgroundTaskKindValues: [String] = ["shell", "workflow", "agent", "other"]
     public static let taskListStatusValues: [String] = ["pending", "in_progress", "completed"]
+    public static let contextLayoutSegmentKeys: [String] = ["base", "tools", "playbook", "team", "project", "task"]
+    public static let contextLayoutSegmentLabels: [String] = ["Base", "Tools", "Playbook", "Team prompt", "Project", "Task"]
+    public static let contextLayoutSegmentTones: [String] = ["neutral", "green", "yellow", "violet", "orange", "pink"]
+    public static let contextLayoutDerivedKeys: [String] = ["conversation", "free"]
+    public static let contextLayoutDerivedLabels: [String] = ["Conversation", "Free"]
+    public static let contextLayoutDerivedTones: [String] = ["blue", "track"]
+    public static let contextLayoutSourceValues: [String] = ["measured", "estimated"]
+    public static let contextLayoutTitle: String = "Context window"
+    public static let contextLayoutCompactMinPercent: Int = 50
+    public static let contextLayoutCharsPerToken: Int = 4
+    public static let contextLayoutDetailMax: Int = 200
     public static let steerWorkingVerbs: [String] = ["Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating", "Noodling", "Simmering", "Weaving", "Tinkering", "Sketching", "Mulling", "Puzzling", "Churning", "Kneading", "Osmosing", "Crunching", "Distilling", "Composing", "Wrangling", "Untangling", "Scheming", "Hatching", "Marinating"]
     public static let steerWorkingTokenTickMs: Int = 2000
     public static let steerWorkingPreviewMax: Int = 160

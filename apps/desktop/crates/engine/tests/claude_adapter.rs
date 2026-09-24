@@ -415,6 +415,7 @@ fn spec_env(
         personal_key: Some("expu_test-key".to_string()),
         reaper_settings_path: Some(work.join("claude-hooks/1/row-1.settings.json")),
         system_append: coding::skill::system_append(None),
+        context_layers: coding::ContextLayers::default(),
         exit: engine::ChildExitLink::new(),
     }
 }
@@ -428,9 +429,24 @@ async fn drive_turns(
     permission: PermissionAnswer,
     elicitation: ElicitationAnswer,
 ) -> Run {
+    drive_turns_with(scenario, work, prompts, permission, elicitation, |_| {}).await
+}
+
+/// [`drive_turns`] with the run's [`AdapterSpec`] tweaked first — the seam
+/// EXP-1051 uses to hand the adapter a known set of context layers, since the
+/// bar's `base` is only meaningful against what the launcher put there.
+async fn drive_turns_with(
+    scenario: &str,
+    work: &Path,
+    prompts: &[&str],
+    permission: PermissionAnswer,
+    elicitation: ElicitationAnswer,
+    tweak: impl FnOnce(&mut AdapterSpec),
+) -> Run {
     let scenario_dir = Path::new(FIXTURES).join(scenario);
-    let adapter =
-        ClaudeAgent::new(spec_at(&scenario_dir, work, false)).expect("the adapter builds");
+    let mut spec = spec_at(&scenario_dir, work, false);
+    tweak(&mut spec);
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
     let permissions: Arc<Mutex<Vec<RequestPermissionRequest>>> = Arc::new(Mutex::new(Vec::new()));
     let elicitations: Arc<Mutex<Vec<CreateElicitationRequest>>> = Arc::new(Mutex::new(Vec::new()));
@@ -2973,5 +2989,109 @@ async fn a_cli_that_keeps_announcing_plan_wins_past_the_grace_window() {
         ],
         "the chip must tell the truth: {:?}",
         run.published_modes()
+    );
+}
+
+/// EXP-1051: the context bar. The adapter measures what the FIRST request of
+/// a conversation carried and subtracts everything the launcher accounted
+/// for, so `base` is claude's own system prompt and tool definitions — the
+/// part no launcher can see. Published ONCE per conversation, and again after
+/// a `/clear` re-inits under a new session id with a new prefix.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_context_layout_is_published_once_per_conversation() {
+    let work = workdir("context-layout");
+    let run = drive_turns_with(
+        "context-layout",
+        &work.0,
+        &["First.", "/clear then second."],
+        reject_all(),
+        cancel_elicitations(),
+        |spec| {
+            spec.context_layers = coding::ContextLayers {
+                // 4000 bytes of playbook = 1000 tokens, and nothing else — so
+                // the arithmetic under test is one subtraction.
+                playbook_bytes: 4_000,
+                ..Default::default()
+            };
+        },
+    )
+    .await;
+
+    let frames: Vec<&serde_json::Map<String, Value>> = run
+        .updates
+        .iter()
+        .filter_map(|notification| notification.meta.as_ref())
+        .filter_map(|meta| meta.get(engine::CONTEXT_LAYOUT_META_KEY))
+        .filter_map(Value::as_object)
+        .collect();
+    assert_eq!(
+        frames.len(),
+        2,
+        "one frame per conversation: the run, then the `/clear`"
+    );
+    let bases: Vec<i64> = frames
+        .iter()
+        .map(|frame| frame["segments"][0]["tokens"].as_i64().expect("a base"))
+        .collect();
+    // 4000 + 30000 carried, 1000 of it the playbook; then 1000 + 9000.
+    assert_eq!(bases, vec![34_000 - 1_000, 10_000 - 1_000]);
+    for frame in &frames {
+        assert_eq!(frame["segments"][0]["key"], "base");
+        assert_eq!(frame["segments"][0]["source"], "measured");
+        assert_eq!(frame["segments"][1]["key"], "playbook");
+        assert_eq!(frame["segments"][1]["tokens"], 1_000);
+        assert_eq!(frame["segments"][1]["source"], "estimated");
+        assert_eq!(frame["model"], "claude-opus-5[1m]");
+    }
+}
+
+/// EXP-1051: a NATIVE resume reloads the transcript, so its first request
+/// re-sends the whole conversation — no prefix to measure. The bar draws the
+/// base the predecessor recorded (still `measured`: it was, by that run), and
+/// a `/clear` afterwards is a fresh conversation again, measured for real.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resumed_conversation_carries_its_base_instead_of_measuring() {
+    let work = workdir("context-layout-resume");
+    let run = drive_turns_with(
+        "context-layout",
+        &work.0,
+        &["First.", "/clear then second."],
+        reject_all(),
+        cancel_elicitations(),
+        |spec| {
+            spec.resume = Some(engine::ResumeHandle::Native(
+                "11111111-2222-3333-4444-555555555555".to_string(),
+            ));
+            spec.context_layers = coding::ContextLayers {
+                playbook_bytes: 4_000,
+                carried_base: Some(coding::CarriedBase {
+                    tokens: 21_000,
+                    model: "claude-opus-5[1m]".to_string(),
+                }),
+                ..Default::default()
+            };
+        },
+    )
+    .await;
+
+    let bases: Vec<(String, i64)> = run
+        .updates
+        .iter()
+        .filter_map(|notification| notification.meta.as_ref())
+        .filter_map(|meta| meta.get(engine::CONTEXT_LAYOUT_META_KEY))
+        .map(|frame| {
+            let base = &frame["segments"][0];
+            assert_eq!(base["key"], "base");
+            (
+                base["source"].as_str().expect("a source").to_string(),
+                base["tokens"].as_i64().expect("a base"),
+            )
+        })
+        .collect();
+    // The carried 21k, never 34k − 1k off the reloaded transcript; then the
+    // `/clear` measures 10k − 1k like a fresh run.
+    assert_eq!(
+        bases,
+        vec![("measured".to_string(), 21_000), ("measured".to_string(), 9_000)]
     );
 }

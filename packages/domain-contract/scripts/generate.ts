@@ -147,6 +147,16 @@ interface Contract {
   workflowStatus: Section
   backgroundTaskKind: Section
   taskListStatus: Section
+  // EXP-1051: the context_layout segment catalog (keys, labels, tones).
+  contextLayout: {
+    title: string
+    segments: { key: string; label: string; tone: string }[]
+    derived: { key: string; label: string; tone: string }[]
+    sources: string[]
+    compactMinPercent: number
+    charsPerToken: number
+    detailMax: number
+  }
   steerWorking: { verbs: string[]; tokenTickMs: number; previewMax: number }
   // EXP-920: the tool-answer chip kinds + the engine's per-tool preview spec.
   entityRefKind: Section
@@ -241,6 +251,16 @@ const steerCommandDescriptions = steerCommands.map((c) => c.description)
 const steerCommandArgHints = steerCommands.map((c) => c.argHint)
 const steerCommandAgents = steerCommands.map((c) => c.agents.join(","))
 const steerCommandConfirm = steerCommands.map((c) => c.confirm)
+
+// EXP-1051: the context_layout catalog, flattened into parallel arrays.
+const contextSegments = contract.contextLayout.segments
+const contextSegmentKeys = contextSegments.map((s) => s.key)
+const contextSegmentLabels = contextSegments.map((s) => s.label)
+const contextSegmentTones = contextSegments.map((s) => s.tone)
+const contextDerived = contract.contextLayout.derived
+const contextDerivedKeys = contextDerived.map((s) => s.key)
+const contextDerivedLabels = contextDerived.map((s) => s.label)
+const contextDerivedTones = contextDerived.map((s) => s.tone)
 
 // EXP-846: the Exponential MCP tool display table — one row per tool the
 // server registers, emitted as parallel arrays (names/progressive/done/
@@ -441,6 +461,17 @@ ${swiftStringArray("workflowAgentStateValues", contract.workflowAgentState.value
 ${swiftStringArray("workflowStatusValues", contract.workflowStatus.values)}
 ${swiftStringArray("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
 ${swiftStringArray("taskListStatusValues", contract.taskListStatus.values)}
+${swiftStringArray("contextLayoutSegmentKeys", contextSegmentKeys)}
+${swiftStringArray("contextLayoutSegmentLabels", contextSegmentLabels)}
+${swiftStringArray("contextLayoutSegmentTones", contextSegmentTones)}
+${swiftStringArray("contextLayoutDerivedKeys", contextDerivedKeys)}
+${swiftStringArray("contextLayoutDerivedLabels", contextDerivedLabels)}
+${swiftStringArray("contextLayoutDerivedTones", contextDerivedTones)}
+${swiftStringArray("contextLayoutSourceValues", contract.contextLayout.sources)}
+    public static let contextLayoutTitle: String = "${contract.contextLayout.title}"
+    public static let contextLayoutCompactMinPercent: Int = ${contract.contextLayout.compactMinPercent}
+    public static let contextLayoutCharsPerToken: Int = ${contract.contextLayout.charsPerToken}
+    public static let contextLayoutDetailMax: Int = ${contract.contextLayout.detailMax}
 ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let steerWorkingTokenTickMs: Int = ${contract.steerWorking.tokenTickMs}
     public static let steerWorkingPreviewMax: Int = ${contract.steerWorking.previewMax}
@@ -578,6 +609,17 @@ ${kotlinStringArray("workflowAgentStateValues", contract.workflowAgentState.valu
 ${kotlinStringArray("workflowStatusValues", contract.workflowStatus.values)}
 ${kotlinStringArray("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
 ${kotlinStringArray("taskListStatusValues", contract.taskListStatus.values)}
+${kotlinStringArray("contextLayoutSegmentKeys", contextSegmentKeys)}
+${kotlinStringArray("contextLayoutSegmentLabels", contextSegmentLabels)}
+${kotlinStringArray("contextLayoutSegmentTones", contextSegmentTones)}
+${kotlinStringArray("contextLayoutDerivedKeys", contextDerivedKeys)}
+${kotlinStringArray("contextLayoutDerivedLabels", contextDerivedLabels)}
+${kotlinStringArray("contextLayoutDerivedTones", contextDerivedTones)}
+${kotlinStringArray("contextLayoutSourceValues", contract.contextLayout.sources)}
+    const val contextLayoutTitle: String = "${contract.contextLayout.title}"
+    const val contextLayoutCompactMinPercent: Int = ${contract.contextLayout.compactMinPercent}
+    const val contextLayoutCharsPerToken: Int = ${contract.contextLayout.charsPerToken}
+    const val contextLayoutDetailMax: Int = ${contract.contextLayout.detailMax}
 ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val steerWorkingTokenTickMs: Long = ${contract.steerWorking.tokenTickMs}L
     const val steerWorkingPreviewMax: Int = ${contract.steerWorking.previewMax}
@@ -719,6 +761,17 @@ ${rustStrSlice("workflowAgentStateValues", contract.workflowAgentState.values)}
 ${rustStrSlice("workflowStatusValues", contract.workflowStatus.values)}
 ${rustStrSlice("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
 ${rustStrSlice("taskListStatusValues", contract.taskListStatus.values)}
+${rustStrSlice("contextLayoutSegmentKeys", contextSegmentKeys)}
+${rustStrSlice("contextLayoutSegmentLabels", contextSegmentLabels)}
+${rustStrSlice("contextLayoutSegmentTones", contextSegmentTones)}
+${rustStrSlice("contextLayoutDerivedKeys", contextDerivedKeys)}
+${rustStrSlice("contextLayoutDerivedLabels", contextDerivedLabels)}
+${rustStrSlice("contextLayoutDerivedTones", contextDerivedTones)}
+${rustStrSlice("contextLayoutSourceValues", contract.contextLayout.sources)}
+pub const CONTEXT_LAYOUT_TITLE: &str = "${contract.contextLayout.title}";
+pub const CONTEXT_LAYOUT_COMPACT_MIN_PERCENT: u8 = ${contract.contextLayout.compactMinPercent};
+pub const CONTEXT_LAYOUT_CHARS_PER_TOKEN: usize = ${contract.contextLayout.charsPerToken};
+pub const CONTEXT_LAYOUT_DETAIL_MAX: usize = ${contract.contextLayout.detailMax};
 ${rustStrSlice("steerWorkingVerbs", contract.steerWorking.verbs)}
 pub const STEER_WORKING_TOKEN_TICK_MS: i64 = ${contract.steerWorking.tokenTickMs};
 pub const STEER_WORKING_PREVIEW_MAX: usize = ${contract.steerWorking.previewMax};
@@ -798,6 +851,25 @@ mkdirSync(dirname(rustPath), { recursive: true })
 writeFileSync(swiftPath, swift)
 writeFileSync(kotlinPath, kotlin)
 writeFileSync(rustPath, rust)
+
+// EXP-1051: the run playbook, copied for the web so the usage popover's
+// Playbook legend row can open it read-only. The desktop crate's `skill.md`
+// stays the ONE source (its byte cap is `context-budget.test.ts`'); the web
+// image carries no desktop sources, so the copy is committed and drift-gated
+// like the other outputs (`codegen-drift.test.ts`).
+const playbookSource = join(repoRoot, "apps/desktop/crates/coding/src/skill.md")
+const playbookPath = join(repoRoot, "apps/web/src/lib/run-playbook.generated.ts")
+const playbook = readFileSync(playbookSource, "utf8")
+writeFileSync(
+  playbookPath,
+  `// AUTO-GENERATED by packages/domain-contract/scripts/generate.ts from
+// apps/desktop/crates/coding/src/skill.md — do not edit.
+/** EXP-1051: the run playbook every coding run gets on its system prompt
+ *  (\`coding::skill::RUN_SKILL\`), byte for byte, for the read-only viewer. */
+export const RUN_PLAYBOOK = ${JSON.stringify(playbook)}
+`
+)
+console.log(`Wrote ${playbookPath}`)
 
 console.log(`Wrote ${swiftPath}`)
 console.log(`Wrote ${kotlinPath}`)

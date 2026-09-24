@@ -37,7 +37,6 @@ import {
   Pill,
   Textarea,
   Progress,
-  Meter,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
@@ -79,12 +78,11 @@ import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
 import { useSessionUsageRefreshOnOpen } from "@/hooks/use-session-usage-refresh"
 import { useKillSession } from "@/hooks/use-kill-session"
 import { UsageWindows } from "@/components/agent-usage-bar"
+import { ContextWindowBlock } from "@/components/context-window-block"
 import {
   ACCOUNTS_SECTION_TITLE,
   activeAccountIndex,
-  globalSwitchBlocker,
   SessionAccountRows,
-  SWITCH_COST_NOTE,
   useSessionAccountSwitch,
   WALL_SWITCH_LABEL,
   type SessionAccountSwitch,
@@ -95,12 +93,10 @@ import {
   blockedBadgeLabel,
   contextPercent,
   formatContextCompact,
-  formatContextUsage,
   formatUsageCost,
   healthBadgeLabel,
   severity,
   usageState,
-  CONTEXT_SECTION_TITLE,
 } from "@/lib/agent-usage"
 import type { SessionIdentity } from "@/lib/session-identity"
 import {
@@ -149,6 +145,7 @@ import {
   workflowSubagentIds,
   type AnswerState,
   type AnswerStates,
+  type ContextSegment,
   type ExpToolDisplay,
   type ExpToolPreview,
   type RowClass,
@@ -430,6 +427,7 @@ export function AgentSessionView({
     compacting,
     config,
     usage: sessionUsage,
+    contextLayout,
     rateLimit,
     turnState,
     turnStartedAt,
@@ -1045,6 +1043,8 @@ export function AgentSessionView({
       >
         <SessionUsageSections
           sessionUsage={sessionUsage}
+          contextLayout={contextLayout}
+          teamId={session.teamId}
           agentUsage={agentUsage}
           agent={session.agent}
           accountSwitch={accountSwitch}
@@ -1871,33 +1871,42 @@ export function AgentSessionView({
   )
 }
 
-/** EXP-863/EXP-909: the usage overlay — the SAME layout on all four clients
- *  (desktop `usage_sheet.rs`, iOS `AgentUsageSheet`, Android's Usage sheet),
- *  sections separated by hairlines and every meter the same `Meter`:
+/** EXP-863/EXP-909/EXP-1051: the usage overlay — the SAME layout on all four
+ *  clients (desktop `usage_sheet.rs`, iOS `AgentUsageSheet`, Android's Usage
+ *  sheet), sections separated by hairlines and every window meter the same
+ *  `Meter`:
  *
- *  1. header — the RUN's account: brand mark, its caption (email, else plan,
+ *  1. "Context window" — the headline (`147k / 1000k (14%)`), the run's cost
+ *     and the segmented bar, with the LAYOUT legend behind the chevron
+ *     (`ContextWindowBlock`). It leads the overlay because it is the run's
+ *     own number; EXP-746's rule still holds — a token count has no percent
+ *     window of its own, so it never folds into `usageGroups`;
+ *  2. header — the RUN's account: brand mark, its caption (email, else plan,
  *     else signed in/out), and trailing either the health badge or the plan.
  *     The plan string appears HERE and nowhere else in the overlay;
- *  2. its windows — two lines each (title + countdown, then meter + `NN%`),
+ *  3. its windows — two lines each (title + countdown, then meter + `NN%`),
  *     dimmed and captioned `as of …` when the report is not current
  *     (`usageAge`), `Checking…` while that login has no windows yet. Never
  *     hidden for staleness: aged numbers still beat no numbers;
- *  3. "Context" — one line (`147k / 1000k (14%)` + the cost) over its meter.
- *     EXP-746: THIS run's window, a sibling of the machine's windows — a token
- *     count has no percent window of its own, and folding it into
- *     `usageGroups` would break the ×4 fixture lock;
- *  4. "Accounts" — ONLY the other accounts, each with its icon-only switch,
- *     its `UsageMini` line and its row-specific refusal; hidden when none;
- *  5. ONE footer note — the run-level blocker when every other account is
- *     refused for the same one, else the one-time cost. */
+ *  4. "Accounts" — ONLY the other accounts, each with its icon-only switch and
+ *     its `UsageMini` line; hidden when none.
+ *
+ *  EXP-1051 dropped the footer note: a refusal and the switch's cost both live
+ *  in the switch button's OWN tooltip now, where the control is. */
 function SessionUsageSections({
   sessionUsage,
+  contextLayout,
+  teamId,
   agentUsage,
   agent,
   accountSwitch,
   now,
 }: {
   sessionUsage: SessionUsageState | null
+  /** EXP-1051: the device's context accounting, or null before it sent one. */
+  contextLayout: ContextSegment[] | null
+  /** The run's team — the legend's team-prompt row links into its settings. */
+  teamId: string | null | undefined
   agentUsage: ReturnType<typeof useSessionAgentUsage>
   /** The run's own agent — the header's brand mark. */
   agent: string | null
@@ -1939,13 +1948,22 @@ function SessionUsageSections({
       usage: active.row.usage,
     }) === `checking`
   const cost = sessionUsage ? formatUsageCost(sessionUsage) : null
-  // ONE footer sentence: the blocker every other row shares, else the cost.
-  const blocker = globalSwitchBlocker(others)
-  const footer = others.length > 0 ? (blocker ?? SWITCH_COST_NOTE) : null
   const section = `border-t border-border/60 px-3 py-2.5`
   const title = `text-[11px] uppercase tracking-wide text-muted-foreground`
   return (
     <>
+      {/* EXP-1051: the run's OWN window leads — headline, cost, the stacked
+          bar, and the layout legend one chevron away. */}
+      {/* Its own BOTTOM hairline, not the next section's top one: the block
+          renders nothing at all before the engine reports a window, and a
+          stray rule over the account header would be the only thing left. */}
+      <ContextWindowBlock
+        sessionUsage={sessionUsage}
+        contextLayout={contextLayout}
+        teamId={teamId}
+        cost={cost}
+        className="border-b border-border/60"
+      />
       <div className="flex min-w-0 items-center gap-2 px-3 py-2.5">
         {agent && <AgentMark agent={agent} className="size-3.5" />}
         <span className="min-w-0 flex-1 truncate text-xs" title={header ?? undefined}>
@@ -1973,25 +1991,10 @@ function SessionUsageSections({
           <p className="text-[11px] text-muted-foreground">Checking…</p>
         </div>
       ) : null}
-      {sessionUsage && (
-        <div className={cn(section, `space-y-1.5`)}>
-          <div className="flex items-baseline gap-2 text-xs">
-            <span className={title}>{CONTEXT_SECTION_TITLE}</span>
-            <span className="tabular-nums">{formatContextUsage(sessionUsage)}</span>
-            {cost && (
-              <span className="ml-auto text-muted-foreground">{cost}</span>
-            )}
-          </div>
-          <Meter
-            value={contextPercent(sessionUsage) ?? 0}
-            tone={severity(contextPercent(sessionUsage) ?? 0)}
-            className="h-1"
-          />
-        </div>
-      )}
       {/* EXP-849: the OTHER accounts on this run's machine — their own mini
-          bars and the icon-only switch (claude, own machine, between turns;
-          disabled with the reason otherwise). A switch opens the
+          bars and the icon-only switch (claude, own machine, between turns).
+          EXP-1051: the refusal and the switch's cost are the button's own
+          tooltip now, so a row carries no sentence. A switch opens the
           continuation run's page by itself. */}
       {others.length > 0 && (
         <div className={cn(section, `space-y-1.5`)}>
@@ -2001,13 +2004,7 @@ function SessionUsageSections({
             switchingTo={accountSwitch.switchingTo}
             onSwitch={accountSwitch.switchTo}
             now={now}
-            omitReason={blocker}
           />
-        </div>
-      )}
-      {footer && (
-        <div className={section}>
-          <p className="text-[11px] text-muted-foreground/70">{footer}</p>
         </div>
       )}
     </>

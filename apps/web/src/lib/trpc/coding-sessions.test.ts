@@ -53,6 +53,17 @@ vi.mock(`@/lib/steer-child-messages`, () => ({
   notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
 }))
 
+// EXP-1051: `contextBudget` lazily imports the MCP measurement (the tool table
+// imports appRouter, which imports this router). Stubbed here so the smoke
+// test asserts the WIRING without registering 90 tools — the numbers
+// themselves are `lib/mcp/context-budget.test.ts`'s job.
+vi.mock(`@/lib/mcp/context-budget`, () => ({
+  mcpContextBudget: () => ({
+    mcpAlwaysLoadBytes: 8_192,
+    mcpInstructionsBytes: 1_024,
+  }),
+}))
+
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { codingSessions, sessionAttachments, workflowNodes } from "@/db/schema"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
@@ -189,6 +200,20 @@ beforeEach(() => {
   h.applySessionPrState.mockClear()
   h.loadRepositoryByFullName.mockClear()
   h.mergeRepositoryPull.mockClear()
+})
+
+// EXP-1051: a deploy constant, not a per-run one — no input, no db read, and
+// available to any signed-in caller (the launcher asks once and caches).
+describe(`codingSessions.contextBudget`, () => {
+  it(`returns the MCP surface's byte cost without touching the db`, async () => {
+    const budget = await caller.contextBudget()
+    expect(budget).toEqual({
+      mcpAlwaysLoadBytes: 8_192,
+      mcpInstructionsBytes: 1_024,
+    })
+    expect(selectWheres.length).toBe(0)
+    expect(inserts.length).toBe(0)
+  })
 })
 
 // EXP-734: a run's own chore PR merges through the session row.

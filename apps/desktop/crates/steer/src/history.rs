@@ -323,15 +323,16 @@ fn count_lines(path: &Path) -> u64 {
 
 /// Which latest-wins slot an event owns, if any — the file's mirror of
 /// `journal::slot_of`. Replay order is the relay's `LATEST_REPLAY_ORDER`
-/// (`config_state`, `usage`, `rate_limit`, `turn`, `queue`, `workflow`,
-/// `background_tasks`, `task_list`, `diff`; EXP-784 added the third, EXP-848
-/// the fourth, EXP-861 the fifth, EXP-850 the keyed workflow block and the
-/// background-task strip, EXP-927 the task list). Eight slots in all.
-const SLOT_COUNT: usize = 8;
+/// (`config_state`, `usage`, `context_layout`, `rate_limit`, `turn`, `queue`,
+/// `workflow`, `background_tasks`, `task_list`, `diff`; EXP-784 added
+/// `rate_limit`, EXP-848 `turn`, EXP-861 `queue`, EXP-850 the keyed workflow
+/// block and the background-task strip, EXP-927 the task list, EXP-1051 the
+/// context breakdown right after `usage`). Nine slots in all.
+const SLOT_COUNT: usize = 9;
 /// The slots replayed BEFORE the keyed workflow cards (`config_state`,
-/// `usage`, `rate_limit`, `turn`, `queue`); `background_tasks`, `task_list`
-/// and `diff` follow them.
-const SLOTS_BEFORE_WORKFLOWS: usize = 5;
+/// `usage`, `context_layout`, `rate_limit`, `turn`, `queue`);
+/// `background_tasks`, `task_list` and `diff` follow them.
+const SLOTS_BEFORE_WORKFLOWS: usize = 6;
 
 /// EXP-850 §3: how many workflow cards one file's fold keeps — the in-memory
 /// journal's [`crate::journal::JOURNAL_WORKFLOW_CAP`], mirrored so a replay
@@ -342,13 +343,15 @@ fn slot_of(event: &ActivityEvent) -> Option<usize> {
     match event {
         ActivityEvent::ConfigState { .. } => Some(0),
         ActivityEvent::Usage { .. } => Some(1),
-        ActivityEvent::RateLimit { .. } => Some(2),
-        ActivityEvent::Turn { .. } => Some(3),
+        // EXP-1051: the context breakdown, right after `usage`.
+        ActivityEvent::ContextLayout { .. } => Some(2),
+        ActivityEvent::RateLimit { .. } => Some(3),
+        ActivityEvent::Turn { .. } => Some(4),
         // EXP-861: the queue slot, right after `turn`.
-        ActivityEvent::Queue { .. } => Some(4),
-        ActivityEvent::BackgroundTasks { .. } => Some(5),
-        ActivityEvent::TaskList { .. } => Some(6),
-        ActivityEvent::Diff { .. } => Some(7),
+        ActivityEvent::Queue { .. } => Some(5),
+        ActivityEvent::BackgroundTasks { .. } => Some(6),
+        ActivityEvent::TaskList { .. } => Some(7),
+        ActivityEvent::Diff { .. } => Some(8),
         _ => None,
     }
 }
@@ -385,7 +388,7 @@ pub fn read_journal_seq(
     let file = File::open(&path).ok()?;
     let mut events: Vec<(u64, ActivityEvent)> = Vec::new();
     let mut slots: [Option<(u64, ActivityEvent)>; SLOT_COUNT] =
-        [None, None, None, None, None, None, None, None];
+        [None, None, None, None, None, None, None, None, None];
     // EXP-850 §3: the keyed `workflow` fold — the newest line per workflow id,
     // in first-appearance order, capped like the in-memory journal.
     let mut workflows: Vec<(String, u64, ActivityEvent)> = Vec::new();
@@ -848,6 +851,16 @@ mod tests {
         dir
     }
 
+    /// EXP-1051: a one-segment context breakdown, keyed by its base size.
+    fn context_layout(base: i64) -> ActivityEvent {
+        ActivityEvent::context_layout(vec![crate::frames::ContextSegment {
+            key: crate::frames::ContextSegmentKey::Base,
+            tokens: base,
+            source: crate::frames::ContextSegmentSource::Measured,
+            detail: None,
+        }])
+    }
+
     #[test]
     fn journal_path_rejects_ids_that_escape_the_directory() {
         let dir = Path::new("/data");
@@ -995,25 +1008,30 @@ mod tests {
         // EXP-785: a tool_update is a ROW — it pages and replays in place.
         writer.append(&ActivityEvent::tool_update("tc-1", None, None));
         writer.append(&ActivityEvent::rate_limit("rejected", Some(9), None));
+        // EXP-1051: the context breakdown folds too, right behind `usage` —
+        // a `/clear` republishes it and only the newest survives.
+        writer.append(&context_layout(21_000));
+        writer.append(&context_layout(18_500));
         // EXP-848: the turn slot folds too — only the newest edge survives.
         writer.append(&ActivityEvent::turn(crate::frames::TurnState::Started));
         writer.append(&ActivityEvent::turn(crate::frames::TurnState::Ended));
         drop(writer);
 
         let events = read_journal(&dir, "sess-1").unwrap();
-        assert_eq!(events.len(), 7, "two rows + five folded slots");
+        assert_eq!(events.len(), 8, "two rows + six folded slots");
         assert_eq!(events[0], ActivityEvent::narration("prose"));
         assert_eq!(events[1], ActivityEvent::tool_update("tc-1", None, None));
-        // LATEST_REPLAY_ORDER: config_state, usage, rate_limit, turn, diff —
-        // newest of each.
+        // LATEST_REPLAY_ORDER: config_state, usage, context_layout,
+        // rate_limit, turn, diff — newest of each.
         assert!(matches!(
             &events[2],
             ActivityEvent::ConfigState { current_mode: Some(mode), .. } if mode == "bypassPermissions"
         ));
         assert!(matches!(&events[3], ActivityEvent::Usage { .. }));
-        assert_eq!(events[4], ActivityEvent::rate_limit("rejected", Some(9), None));
-        assert_eq!(events[5], ActivityEvent::turn(crate::frames::TurnState::Ended));
-        assert_eq!(events[6], ActivityEvent::diff("new diff"));
+        assert_eq!(events[4], context_layout(18_500));
+        assert_eq!(events[5], ActivityEvent::rate_limit("rejected", Some(9), None));
+        assert_eq!(events[6], ActivityEvent::turn(crate::frames::TurnState::Ended));
+        assert_eq!(events[7], ActivityEvent::diff("new diff"));
         // A page carries the rows and never a slot.
         let page = read_journal_page(&dir, "sess-1", u64::MAX, 10).unwrap();
         let kinds: Vec<&ActivityEvent> = page.iter().map(|(_, event)| event).collect();

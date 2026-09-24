@@ -1,9 +1,12 @@
 import { expect, it, vi } from "vitest"
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { z } from "zod"
 
 // EXP-353/EXP-637: what the MCP tool surface costs an agent's context window.
+//
+// EXP-1051 moved the `tools/list` serializer itself to `lib/mcp/context-budget.ts`
+// — the SAME numbers now ride `codingSessions.contextBudget` into a run's
+// context bar, so the measurement and the budget cannot drift apart.
 //
 // History: until EXP-637 every client loaded EVERY tool definition verbatim,
 // so the whole surface shared one ~24.6k ceiling and each new tool was paid
@@ -65,53 +68,18 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
 // self-hosted subset.
 vi.stubEnv(`CLOUD_INSTANCE`, `true`)
 
-import { registerExponentialTools } from "@/lib/mcp/tools"
-import { FULL_ACCESS } from "@/lib/mcp/scope"
+import {
+  mcpContextBudget,
+  serializeToolDefs,
+} from "@/lib/mcp/context-budget"
 import {
   ALWAYS_LOAD_TOOLS,
   GATED_ALWAYS_LOAD_TOOLS,
 } from "@/lib/mcp/always-load"
-import { ALL_MCP_TOOL_GATES } from "@/lib/mcp/gates"
 import {
   MCP_SERVER_INSTRUCTIONS,
   mcpServerInstructions,
 } from "@/lib/mcp/instructions"
-import type { McpUser } from "@/lib/mcp/server"
-
-type ToolDef = {
-  description?: string
-  // EXP-705: every tool passes a strict z.object INSTANCE, not a raw shape.
-  inputSchema?: z.ZodType
-  _meta?: Record<string, unknown>
-}
-
-function serializeToolDefs(gates = ALL_MCP_TOOL_GATES) {
-  const defs: Array<Record<string, unknown>> = []
-  const fakeServer = {
-    registerTool: (name: string, def: ToolDef) => {
-      // Mirror the MCP SDK's tools/list serialization (name + description +
-      // JSON-schema'd input; draft-7 target like zod-json-schema-compat).
-      defs.push({
-        name,
-        description: def.description,
-        inputSchema: z.toJSONSchema(def.inputSchema ?? z.strictObject({}), {
-          io: `input`,
-          target: `draft-7`,
-        }),
-        ...(def._meta ? { _meta: def._meta } : {}),
-      })
-    },
-  }
-  registerExponentialTools(
-    fakeServer as never,
-    { id: `u` } as unknown as McpUser,
-    new Request(`https://x.test/api/mcp`),
-    FULL_ACCESS,
-    null,
-    gates
-  )
-  return defs
-}
 
 it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   const defs = serializeToolDefs()
@@ -245,6 +213,21 @@ it(`keeps the serialized MCP tool context within budget`, () => {
   // What EVERY session pays, on every turn. Keep it lean — a tool added here
   // is a tool every agent carries whether it needs it or not.
   expect(JSON.stringify(alwaysLoaded).length).toBeLessThan(10_000)
+  // EXP-1051: the shipped helper measures the same set, in UTF-8 BYTES (never
+  // fewer than the JS string length, and within the same ceiling) — the
+  // number `codingSessions.contextBudget` hands the launcher for the `tools`
+  // segment of the context bar.
+  const budget = mcpContextBudget()
+  expect(budget.mcpAlwaysLoadBytes).toBeGreaterThanOrEqual(
+    JSON.stringify(alwaysLoaded).length
+  )
+  expect(budget.mcpAlwaysLoadBytes).toBeLessThan(10_000)
+  expect(budget.mcpInstructionsBytes).toBeGreaterThanOrEqual(
+    MCP_SERVER_INSTRUCTIONS.length
+  )
+  expect(budget.mcpInstructionsBytes).toBeLessThan(2_000)
+  // Memoized per process: the same object back, never a re-registration.
+  expect(mcpContextBudget()).toBe(budget)
   // The deferred remainder is fetched on demand, so the whole surface only
   // needs a sanity ceiling (it was 24.6k when everything loaded eagerly).
   expect(JSON.stringify(defs).length).toBeLessThan(60_000)

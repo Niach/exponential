@@ -2167,17 +2167,116 @@ describe(`live config + usage (EXP-746)`, () => {
     store.dispose()
   })
 
+  // EXP-1051: the context LAYOUT beside the meter — a slot, never a row, with
+  // the `config_state` null rule (the layers do not change mid-conversation).
+  const layoutEvent = (over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: {
+      kind: `context_layout`,
+      segments: [
+        { key: `base`, tokens: 21_000, source: `measured` },
+        {
+          key: `project`,
+          tokens: 9_800,
+          source: `estimated`,
+          detail: `CLAUDE.md`,
+        },
+      ],
+      ...over,
+    },
+  })
+
+  it(`context_layout lands in the snapshot as a slot, never a feed row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(layoutEvent())
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toEqual([])
+    expect(store.getSnapshot().contextLayout).toEqual([
+      { key: `base`, tokens: 21_000, source: `measured` },
+      {
+        key: `project`,
+        tokens: 9_800,
+        source: `estimated`,
+        detail: `CLAUDE.md`,
+      },
+    ])
+    // The republish after a `/clear` replaces the whole list.
+    socket.frame(
+      layoutEvent({
+        segments: [{ key: `base`, tokens: 21_000, source: `measured` }],
+      })
+    )
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().contextLayout).toEqual([
+      { key: `base`, tokens: 21_000, source: `measured` },
+    ])
+    store.dispose()
+  })
+
+  it(`a malformed context_layout leaves the previous layout standing`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(layoutEvent())
+    await vi.advanceTimersByTimeAsync(100)
+    const before = store.getSnapshot().contextLayout
+    socket.frame({ t: `activity`, event: { kind: `context_layout` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().contextLayout).toBe(before)
+    store.dispose()
+  })
+
+  // EXP-1051: the slot belongs to the NEWEST frames — an older page folding
+  // its own layout through the reducer would repaint the bar with history.
+  it(`an older history page never repaints the context layout`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `narration`, text: `live` }, seq: 10 })
+    socket.frame(layoutEvent())
+    socket.frame({ t: `activity_synced`, truncated: true, firstSeq: 10 })
+    await vi.advanceTimersByTimeAsync(100)
+    store.loadEarlier()
+    const request = JSON.parse(socket.sent[socket.sent.length - 1]!) as {
+      requestId: string
+    }
+    socket.frame({
+      t: `history_chunk`,
+      requestId: request.requestId,
+      done: true,
+      events: [
+        { kind: `narration`, text: `older` },
+        {
+          kind: `context_layout`,
+          segments: [{ key: `task`, tokens: 600, source: `estimated` }],
+        },
+      ],
+      seqs: [1, 2],
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    // The page DID land (otherwise the assertion below would pass vacuously).
+    expect(
+      store.getSnapshot().feed.map((item) => (item as { text?: string }).text)
+    ).toEqual([`older`, `live`])
+    expect(store.getSnapshot().contextLayout?.map((s) => s.key)).toEqual([
+      `base`,
+      `project`,
+    ])
+    store.dispose()
+  })
+
   it(`a committed replay that carries neither drops the config and usage slots`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
     socket.frame(configEvent())
     socket.frame(usageEvent())
+    socket.frame(layoutEvent())
     await vi.advanceTimersByTimeAsync(100)
     socket.frame({ t: `activity_reset` })
     socket.frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().config).toBeNull()
     expect(store.getSnapshot().usage).toBeNull()
+    expect(store.getSnapshot().contextLayout).toBeNull()
     store.dispose()
   })
 

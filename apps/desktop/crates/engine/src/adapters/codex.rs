@@ -352,6 +352,10 @@ struct Shared {
     compacted: Mutex<HashSet<String>>,
     usage: CodexUsage,
     closed: AtomicBool,
+    /// EXP-1051: the `context_layout` frame has gone out for this thread.
+    /// One-shot like claude's, and re-armed by `thread/start`/`thread/resume`
+    /// — a new thread is a new conversation with a new prefix.
+    context_layout_published: AtomicBool,
     /// [`start_pumps`] already ran. Both entry points call it — `thread/start`
     /// and a resuming `session/load` — and the receivers they hold are clones
     /// of ONE queue, so a second pump would steal half the frames.
@@ -479,6 +483,7 @@ impl ConnectTo<Client> for CodexAgent {
                 compacted: Mutex::new(HashSet::new()),
                 usage,
                 closed: AtomicBool::new(false),
+                context_layout_published: AtomicBool::new(false),
                 pumping: AtomicBool::new(false),
             });
             let notifications = connection.notifications.clone();
@@ -817,6 +822,9 @@ async fn open_thread(
     if let Ok(mut slot) = shared.session_id.lock() {
         *slot = Some(session_id.clone());
     }
+    // EXP-1051: a thread that just started (or resumed) has not measured its
+    // prefix yet — the next `thread/tokenUsage/updated` draws the bar.
+    shared.context_layout_published.store(false, Ordering::SeqCst);
 
     // Only now: the channels buffer from spawn, so nothing said during the
     // handshake is lost by starting the pumps here.
@@ -1532,10 +1540,83 @@ fn on_notification(
         }
     }
 
+    // EXP-1051: the context bar. codex reports the thread's token usage per
+    // turn; the FIRST report's input halves are what the conversation carried
+    // in, which is the one measured number the bar has. One-shot per thread.
+    if method == "thread/tokenUsage/updated" {
+        publish_context_layout(shared, cx, prefix_tokens(params.get("tokenUsage")));
+    }
+
     // 3. The feed.
     for update in feed_updates(&shared.items, method, params) {
         emit(shared, cx, update);
     }
+}
+
+/// EXP-1051: the tokens the LAST request carried in — codex's `inputTokens`,
+/// never its output. `cachedInputTokens` is a SUBSET of the input (OpenAI's
+/// `prompt_tokens_details.cached_tokens`), so it is never added on top; it
+/// stands in alone only when the input count itself is missing. `None` when
+/// the payload names neither: a thread whose prefix we cannot measure still
+/// draws the estimated segments, it just has no `base` band.
+fn prefix_tokens(usage: Option<&Value>) -> Option<u64> {
+    let last = usage?.get("last")?;
+    let input = last.get("inputTokens").and_then(Value::as_u64);
+    let cached = last.get("cachedInputTokens").and_then(Value::as_u64);
+    match (input, cached) {
+        (None, None) => None,
+        (input, cached) => Some(input.unwrap_or(0).max(cached.unwrap_or(0))),
+    }
+}
+
+/// EXP-1051: the `context_layout` slot, on a no-op `session_info_update` with
+/// the frame on its `_meta` — the same carrier claude uses, read by the one
+/// mapper both adapters feed.
+fn publish_context_layout(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, prefix: Option<u64>) {
+    if shared.spec.replay {
+        return;
+    }
+    let base = match prefix {
+        Some(prefix) => Some(crate::context_layout::BasePrefix::Measured(prefix)),
+        None => shared
+            .spec
+            .context_layers
+            .carried_base
+            .as_ref()
+            .map(|carried| crate::context_layout::BasePrefix::Carried(carried.tokens)),
+    };
+    let segments = crate::context_layout::layout(&shared.spec.context_layers, base);
+    if segments.is_empty() {
+        return;
+    }
+    // Claim the one-shot only once there is something to publish, so a thread
+    // that reported no usable usage yet can still measure a later one.
+    if shared
+        .context_layout_published
+        .swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+    let Some(session_id) = shared.session_id() else {
+        shared.context_layout_published.store(false, Ordering::SeqCst);
+        return;
+    };
+    let model = shared
+        .config
+        .lock()
+        .ok()
+        .map(|config| config.model.clone())
+        .unwrap_or_default();
+    let meta = crate::context_layout::meta(&segments, Some(&model));
+    let _ = cx.send_notification(
+        SessionNotification::new(
+            session_id,
+            SessionUpdate::SessionInfoUpdate(
+                agent_client_protocol::schema::v1::SessionInfoUpdate::new(),
+            ),
+        )
+        .meta(meta),
+    );
 }
 
 /// A compaction ended: release whatever `/compact` is waiting on it.
@@ -2746,6 +2827,36 @@ mod tests {
             text_of(&only(feed_updates(&items, "item/completed", &completed))),
             "done"
         );
+    }
+
+    /// EXP-1051: the context bar's one measured number, off codex's usage
+    /// frame — the LAST request's input, never its output, and never the
+    /// cached subset counted twice.
+    #[test]
+    fn the_context_prefix_is_codexs_input_halves() {
+        let usage = json!({
+            "last": { "inputTokens": 18_000, "cachedInputTokens": 3_000, "outputTokens": 900 },
+            "modelContextWindow": 200_000,
+        });
+        assert_eq!(prefix_tokens(Some(&usage)), Some(18_000));
+        // Either half alone is still a measurement (the cached subset is a
+        // lower bound of the input).
+        assert_eq!(
+            prefix_tokens(Some(&json!({ "last": { "inputTokens": 18_000 } }))),
+            Some(18_000)
+        );
+        assert_eq!(
+            prefix_tokens(Some(&json!({ "last": { "cachedInputTokens": 3_000 } }))),
+            Some(3_000)
+        );
+        // Neither half is NOT a measurement of zero: a thread whose prefix we
+        // cannot see draws the estimates and no `base` band.
+        assert_eq!(
+            prefix_tokens(Some(&json!({ "last": { "totalTokens": 1_200 } }))),
+            None
+        );
+        assert_eq!(prefix_tokens(Some(&json!({}))), None);
+        assert_eq!(prefix_tokens(None), None);
     }
 
     #[test]

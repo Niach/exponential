@@ -77,6 +77,17 @@ object DomainContract {
     val workflowStatusValues: List<String> = listOf("running", "completed", "failed", "stopped")
     val backgroundTaskKindValues: List<String> = listOf("shell", "workflow", "agent", "other")
     val taskListStatusValues: List<String> = listOf("pending", "in_progress", "completed")
+    val contextLayoutSegmentKeys: List<String> = listOf("base", "tools", "playbook", "team", "project", "task")
+    val contextLayoutSegmentLabels: List<String> = listOf("Base", "Tools", "Playbook", "Team prompt", "Project", "Task")
+    val contextLayoutSegmentTones: List<String> = listOf("neutral", "green", "yellow", "violet", "orange", "pink")
+    val contextLayoutDerivedKeys: List<String> = listOf("conversation", "free")
+    val contextLayoutDerivedLabels: List<String> = listOf("Conversation", "Free")
+    val contextLayoutDerivedTones: List<String> = listOf("blue", "track")
+    val contextLayoutSourceValues: List<String> = listOf("measured", "estimated")
+    const val contextLayoutTitle: String = "Context window"
+    const val contextLayoutCompactMinPercent: Int = 50
+    const val contextLayoutCharsPerToken: Int = 4
+    const val contextLayoutDetailMax: Int = 200
     val steerWorkingVerbs: List<String> = listOf("Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating", "Noodling", "Simmering", "Weaving", "Tinkering", "Sketching", "Mulling", "Puzzling", "Churning", "Kneading", "Osmosing", "Crunching", "Distilling", "Composing", "Wrangling", "Untangling", "Scheming", "Hatching", "Marinating")
     const val steerWorkingTokenTickMs: Long = 2000L
     const val steerWorkingPreviewMax: Int = 160

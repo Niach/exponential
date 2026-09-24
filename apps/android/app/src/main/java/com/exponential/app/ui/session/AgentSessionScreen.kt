@@ -144,6 +144,7 @@ import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AgentUsagePresentation
+import com.exponential.app.domain.ContextLayoutPresentation
 import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ToolCallSummary
 import com.exponential.app.domain.ExpToolDisplay
@@ -228,7 +229,9 @@ import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.UsageTrack
+import com.exponential.app.ui.components.GlassNotice
+import com.exponential.app.ui.components.SegmentedTrack
+import com.exponential.app.ui.components.contextToneColor
 import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.ExponentialMark
@@ -308,6 +311,11 @@ internal val LostGray = Color(0xFF71717A)
 /** EXP-550: the one explanation of a paused (offline-machine) session. */
 private const val DEVICE_OFFLINE_DETAIL =
     "The agent is paused on that machine and continues when it comes back online."
+
+/** EXP-1051: how long the Usage sheet's transient notice (a refused account
+ *  switch) stays up — long enough to read one sentence, short enough that it
+ *  never becomes the standing caption it replaced. */
+private const val USAGE_NOTICE_MS = 2_500L
 
 /**
  * EXP-550: the phases whose caption is "we are waiting for the publisher" —
@@ -411,6 +419,10 @@ fun RunFace(
     // which publishes neither.
     val sessionConfig by viewModel.sessionConfig.collectAsStateWithLifecycle()
     val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
+    // EXP-1051: …and how that window is laid out — the device's attribution of
+    // what it put in the context before the first turn. Null until a device
+    // publishes one; the bar then draws the conversation alone.
+    val sessionContextLayout by viewModel.sessionContextLayout.collectAsStateWithLifecycle()
     // EXP-746: the `/` hint counts the MERGED catalog — an agent that
     // advertises commands has a menu even if the contract had none for it.
     // An agent-less run that publishes a `config_state` is an EXTERNAL agent
@@ -620,6 +632,19 @@ fun RunFace(
     // EXP-688/893: the Usage sheet, opened by the bar's ring (and the wall's
     // "Switch account" pill).
     var usageSheetOpen by remember { mutableStateOf(false) }
+    // EXP-1051: the context-window legend is folded by default — the bar and
+    // its headline are the glance, the per-layer numbers the follow-up.
+    var contextLayoutExpanded by rememberSaveable { mutableStateOf(false) }
+    // EXP-1051: the sheet's transient line — a refused account switch says why
+    // when its disabled control is tapped, instead of a permanent caption under
+    // every row that cannot move right now.
+    var usageNotice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(usageNotice) {
+        if (usageNotice != null) {
+            delay(USAGE_NOTICE_MS)
+            usageNotice = null
+        }
+    }
 
     // EXP-656: the reader's place in the feed lives at the FACE level, not
     // inside ActivityFeed. Held there, a single frame of empty feed flipped the
@@ -1335,6 +1360,10 @@ fun RunFace(
         val nowMs = rememberUsageClock()
         val runAccount = switchOptions.firstOrNull { it.current }
         val otherAccounts = switchOptions.filter { it != runAccount }
+        // Whose limits the header names — read one block early, so the context
+        // window above it knows whether anything follows it (EXP-1051).
+        val headerCaption = runAccount?.caption
+            ?: agentAccount?.let(AgentUsagePresentation::accountCaption)
         GlassSheet(title = "Usage", onDismiss = { usageSheetOpen = false }) {
             Column(
                 modifier = Modifier
@@ -1344,12 +1373,134 @@ fun RunFace(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // ── EXP-1051: where this run's context window actually GOES.
+                // FIRST, above the machine's plan limits: the window is the
+                // thing the person can act on (compact, start fresh), and the
+                // layers say whether acting would even help. Folded to the bar
+                // + headline; the legend is the tap.
+                val contextWindow = ContextLayoutPresentation.contextWindowView(
+                    contextUsage,
+                    sessionContextLayout,
+                )
+                if (contextWindow != null) {
+                    val fg = MaterialTheme.colorScheme.onSurface
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("session-context-window"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { contextLayoutExpanded = !contextLayoutExpanded },
+                        ) {
+                            Text(
+                                ContextLayoutPresentation.TITLE.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = fg.copy(alpha = TextEmphasis.Tertiary),
+                            )
+                            Spacer(Modifier.weight(1f))
+                            // The spend rides beside the numbers, where the
+                            // old one-line Context block carried it.
+                            AgentUsagePresentation.formatUsageCost(contextUsage)?.let { cost ->
+                                Text(
+                                    cost,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = fg.copy(alpha = TextEmphasis.Tertiary),
+                                    maxLines = 1,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(
+                                contextWindow.headline,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = fg,
+                                maxLines = 1,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Icon(
+                                if (contextLayoutExpanded) {
+                                    ExpIcons.uiChevronDown
+                                } else {
+                                    ExpIcons.uiChevronRight
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = fg.copy(alpha = TextEmphasis.Tertiary),
+                            )
+                        }
+                        SegmentedTrack(
+                            slices = contextWindow.bar.map { slice ->
+                                contextToneColor(slice.tone, fg) to slice.percent
+                            },
+                            ticks = contextWindow.ticks,
+                        )
+                        if (contextLayoutExpanded) {
+                            contextWindow.legend.forEach { row ->
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(contextToneColor(row.tone, fg)),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            row.label,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = fg.copy(alpha = TextEmphasis.Secondary),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Text(
+                                            // `≈` on every layer the device
+                                            // guessed rather than counted.
+                                            if (row.estimated) "≈${row.tokens}" else row.tokens,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = fg.copy(alpha = TextEmphasis.Tertiary),
+                                            maxLines = 1,
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            row.percent,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = fg.copy(alpha = TextEmphasis.Secondary),
+                                            maxLines = 1,
+                                        )
+                                    }
+                                    // What the layer is made of, when the
+                                    // device named it (`project`'s CLAUDE.md
+                                    // list) — under the label, not beside it.
+                                    row.detail?.let { detail ->
+                                        Text(
+                                            detail,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = fg.copy(alpha = TextEmphasis.Quaternary),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(start = 18.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (headerCaption != null || sheetUsage != null) GroupDivider()
+                }
                 // ── Header: whose limits these are. The brand mark says the
                 // agent, the caption the login, and the trailing slot carries
                 // the health badge when there is one — else the plan, which is
                 // then the only place the plan string appears.
-                val headerCaption = runAccount?.caption
-                    ?: agentAccount?.let(AgentUsagePresentation::accountCaption)
                 if (headerCaption != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1405,48 +1556,9 @@ fun RunFace(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
                 }
-                // ── EXP-746: this conversation's context window + spend. ONE
-                // line (title · numbers · cost), then the same meter primitive
-                // the windows use.
-                if (contextUsage != null) {
-                    GroupDivider()
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            AgentUsagePresentation.CONTEXT_SECTION_TITLE,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Secondary,
-                            ),
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            AgentUsagePresentation.formatContextUsage(contextUsage),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f),
-                        )
-                        AgentUsagePresentation.formatUsageCost(contextUsage)?.let { cost ->
-                            Text(
-                                cost,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = TextEmphasis.Tertiary,
-                                ),
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                    AgentUsagePresentation.contextPercent(contextUsage)?.let { percent ->
-                        UsageTrack(
-                            percent = percent.toDouble(),
-                            severity = AgentUsagePresentation.severity(percent.toDouble()),
-                        )
-                    }
-                }
+                // EXP-1051: the old one-line "Context" block (title · numbers ·
+                // cost + a single-fill meter) is GONE — the block at the top of
+                // this sheet is the same reading, broken down.
                 // ── EXP-849 phase 3 / EXP-909: the OTHER logins this machine
                 // holds for the agent — the readout IS the switch control.
                 // Claude only, idle only, owner only; a refused row keeps its
@@ -1469,13 +1581,18 @@ fun RunFace(
                                 usageSheetOpen = false
                                 viewModel.switchAccount(option)
                             },
+                            // EXP-1051: a refused row no longer carries its
+                            // reason as a permanent caption — tapping the
+                            // disabled control says it, once.
+                            onRefused = { usageNotice = it },
                         )
                     }
-                    Text(
-                        SessionAccountSwitch.COST_NOTE,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
+                }
+                // EXP-1051: the sheet's ONE transient line, where the
+                // permanent COST_NOTE footer used to sit — the refusal a
+                // disabled switch was just tapped for.
+                usageNotice?.let { notice ->
+                    GlassNotice(text = notice, modifier = Modifier.fillMaxWidth())
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -4888,10 +5005,14 @@ private fun ExpandedSteerComposer(
 /**
  * EXP-849 phase 3 / EXP-909: ONE OTHER login of this run's agent on its
  * machine — the identity line, its health, its own numbers in the mini form,
- * and an ICON-ONLY switch. A refused switch keeps the button and says why
- * underneath: the reason is nearly always something the person can change
- * (wait for the turn, sign in on the machine), and a control that vanishes
- * mid-run reads as a bug.
+ * and an ICON-ONLY switch. A refused switch keeps the button — the reason is
+ * nearly always something the person can change (wait for the turn, sign in on
+ * the machine), and a control that vanishes mid-run reads as a bug.
+ *
+ * EXP-1051: the reason is no longer a caption UNDER the row. Three of those
+ * stacked under three rows pushed the sheet's real content off a phone, and
+ * the reason is only wanted by whoever just tried: tapping the disabled
+ * control hands it to [onRefused], which floats it once.
  *
  * No "Active login" / "Default" caption: the header above names the login the
  * run is ON, so every row here is by definition another one.
@@ -4903,6 +5024,7 @@ private fun SessionAccountRow(
     switching: Boolean,
     nowMs: Long,
     onSwitch: () -> Unit,
+    onRefused: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -4938,14 +5060,25 @@ private fun SessionAccountRow(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 )
             } else {
-                CircleIconButton(
-                    ExpIcons.uiSwap,
-                    contentDescription = SessionAccountSwitch.SWITCH_LABEL,
-                    onClick = onSwitch,
-                    enabled = refusal == null,
-                    borderless = true,
-                    modifier = Modifier.testTag("switch-account-${option.profileId}"),
-                )
+                // A refused switch: the button stays, disabled, and the AREA
+                // around it takes the tap so the reason has somewhere to come
+                // from (a disabled control swallows nothing).
+                Box(
+                    modifier = if (refusal != null) {
+                        Modifier.clickable { onRefused(refusal) }
+                    } else {
+                        Modifier
+                    },
+                ) {
+                    CircleIconButton(
+                        ExpIcons.uiSwap,
+                        contentDescription = SessionAccountSwitch.SWITCH_LABEL,
+                        onClick = onSwitch,
+                        enabled = refusal == null,
+                        borderless = true,
+                        modifier = Modifier.testTag("switch-account-${option.profileId}"),
+                    )
+                }
             }
         }
         AgentUsageMini(usage = option.usage)
@@ -4954,13 +5087,6 @@ private fun SessionAccountRow(
                 age,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
-            )
-        }
-        if (refusal != null) {
-            Text(
-                refusal,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
         }
     }

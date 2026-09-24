@@ -309,6 +309,7 @@ fn spec() -> engine::adapters::AdapterSpec {
         personal_key: Some("expu_test".to_string()),
         reaper_settings_path: None,
         system_append: coding::skill::system_append(None),
+        context_layers: coding::ContextLayers::default(),
         exit: engine::ChildExitLink::new(),
     }
 }

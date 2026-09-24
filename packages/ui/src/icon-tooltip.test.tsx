@@ -59,6 +59,22 @@ describe(`IconTooltip`, () => {
     expect(screen.getByRole(`tooltip`).textContent).toBe(`Next issueJ`)
   })
 
+  // EXP-1051: the second line — what the control costs, said under its label
+  // instead of as a footnote three rows away from the button.
+  it(`renders the hint as a second muted line`, () => {
+    renderTooltip(
+      <IconTooltip label="Switch to this account" hint="It costs tokens.">
+        <Button aria-label="Switch to this account">icon</Button>
+      </IconTooltip>
+    )
+
+    hover(screen.getByLabelText(`Switch to this account`))
+
+    expect(screen.getByRole(`tooltip`).textContent).toBe(
+      `Switch to this accountIt costs tokens.`
+    )
+  })
+
   // The reason the trigger wraps a span instead of binding to the button: a
   // disabled button emits no pointer events, which would silently drop the
   // tooltip exactly when the user wants to know why the control is dead.

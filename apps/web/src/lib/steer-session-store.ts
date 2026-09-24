@@ -4,6 +4,7 @@ import {
   ackAnswer,
   answerKey,
   parseConfigState,
+  parseContextLayout,
   parseRateLimit,
   parseSessionUsage,
   parseBackgroundTasks,
@@ -37,6 +38,7 @@ import {
   type TaskListEntry,
   type EchoEntry,
   type QueuedMessage,
+  type ContextSegment,
   type SessionConfigState,
   type SessionRateLimitState,
   type SessionUsageState,
@@ -283,6 +285,21 @@ export type ActivityEvent =
       contextUsed: number
       contextSize: number
       costUsd?: number
+      at?: number
+    }
+  // EXP-1051: where the window `usage` measures actually WENT — the layers the
+  // launcher put in before the first turn. A latest-wins slot beside `usage`
+  // (the device publishes one per conversation, again after a `/clear`,
+  // nothing on a compaction); `conversation`/`free` are derived from `usage`
+  // by `lib/context-layout.ts` and are never on the wire.
+  | {
+      kind: `context_layout`
+      segments: {
+        key: string
+        tokens: number
+        source: `measured` | `estimated`
+        detail?: string
+      }[]
       at?: number
     }
   // EXP-784: the rate-limit window, the fourth latest-wins slot. An empty or
@@ -565,6 +582,10 @@ export interface SteerSessionSnapshot {
   config: SessionConfigState | null
   /** EXP-746: the run's own context/spend meter, same latest-wins rule. */
   usage: SessionUsageState | null
+  /** EXP-1051: how that window is laid out — the attributed layers, in the
+   *  device's order. Null until the run publishes one (every pre-EXP-1051
+   *  device stays null, and the bar then reads as conversation alone). */
+  contextLayout: ContextSegment[] | null
   /** EXP-784: the agent's rate-limit window, the fourth slot. Null = not
    *  limited (or cleared by an empty/`ok` status). */
   rateLimit: SessionRateLimitState | null
@@ -738,6 +759,8 @@ export function createSteerSessionStore(
   let compacting: CompactionState | null = null
   let config: SessionConfigState | null = null
   let usage: SessionUsageState | null = null
+  // EXP-1051: the context-window layout, latest-wins beside `usage`.
+  let contextLayout: ContextSegment[] | null = null
   let rateLimit: SessionRateLimitState | null = null
   // EXP-848: idle until the publisher says otherwise.
   let turnState: TurnState = `ended`
@@ -806,6 +829,7 @@ export function createSteerSessionStore(
     compacting,
     config,
     usage,
+    contextLayout,
     rateLimit,
     turnState,
     turnStartedAt,
@@ -832,6 +856,7 @@ export function createSteerSessionStore(
       compacting,
       config,
       usage,
+      contextLayout,
       rateLimit,
       turnState,
       turnStartedAt,
@@ -1205,6 +1230,15 @@ export function createSteerSessionStore(
         usage = parseSessionUsage(event)
         return
       }
+      case `context_layout`: {
+        // EXP-1051: the `config_state` null rule, not the `usage` one — the
+        // layers do NOT change mid-conversation, so an unreadable frame keeps
+        // the standing layout rather than collapsing the bar into one
+        // undifferentiated conversation block.
+        const next = parseContextLayout(event)
+        if (next) contextLayout = next
+        return
+      }
       case `rate_limit`: {
         // EXP-784: the fourth slot. Null clears — an empty/`ok` status says
         // the window lifted, and an unreadable payload must not leave a
@@ -1425,6 +1459,8 @@ export function createSteerSessionStore(
     latestDiff = null
     config = null
     usage = null
+    // EXP-1051: the replay restates the device's layout too.
+    contextLayout = null
     rateLimit = null
     // EXP-848: the replay carries the device's latest `turn` — until it lands,
     // idle (the same rule as a fresh store).
@@ -1515,6 +1551,7 @@ export function createSteerSessionStore(
     const savedSlots = {
       config,
       usage,
+      contextLayout,
       rateLimit,
       turnState,
       turnStartedAt,
@@ -1547,6 +1584,7 @@ export function createSteerSessionStore(
     nextId = savedNextId
     config = savedSlots.config
     usage = savedSlots.usage
+    contextLayout = savedSlots.contextLayout
     rateLimit = savedSlots.rateLimit
     turnState = savedSlots.turnState
     turnStartedAt = savedSlots.turnStartedAt

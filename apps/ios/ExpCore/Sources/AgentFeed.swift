@@ -336,6 +336,36 @@ public struct AgentSessionUsage: Equatable, Sendable {
     }
 }
 
+/// EXP-1051: ONE attributed layer of the run's context window, as the device
+/// accounted for it before the first turn — the launcher's own prompt parts
+/// (`playbook`, `team`, `task`), what the agent CLI loads by itself (`base`,
+/// `tools`, `project`), each `measured` (a real token count) or `estimated`
+/// (chars / `DomainContract.contextLayoutCharsPerToken`). `key` is a contract
+/// `contextLayoutSegmentKeys` value; `conversation` and `free` are NEVER on
+/// the wire — every client DERIVES them from the `usage` slot
+/// (`ContextLayoutPresentation`).
+///
+/// The slot they live in is latest-wins and the device publishes one per
+/// conversation (again after a `/clear`, nothing on a compaction), so an empty
+/// array is a real layout with nothing attributed and nil is "no layout
+/// published yet".
+public struct ContextSegment: Equatable, Sendable {
+    public let key: String
+    public let tokens: Int
+    /// `measured` / `estimated` (`DomainContract.contextLayoutSourceValues`).
+    public let source: String
+    /// What the layer is made of, when the device named it (`CLAUDE.md,
+    /// ~/.claude/CLAUDE.md`).
+    public let detail: String?
+
+    public init(key: String, tokens: Int, source: String, detail: String? = nil) {
+        self.key = key
+        self.tokens = tokens
+        self.source = source
+        self.detail = detail
+    }
+}
+
 /// EXP-784: the agent's rate-limit window as it last reported it — the fourth
 /// latest-wins slot beside `AgentSessionUsage`. `status` is the agent's own
 /// word (`allowed_warning`, `rejected`, …); the slot is CLEARED by an
@@ -1305,6 +1335,16 @@ public enum AgentFeed {
         _ current: AgentSessionUsage?, event: [String: Any]
     ) -> AgentSessionUsage? {
         AgentActivityDecoder.usage(event).applied(to: current)
+    }
+
+    /// EXP-1051: fold a `context_layout` activity event. An unreadable payload
+    /// (no `segments` array) keeps `current` standing — the layers do not
+    /// change mid-run, so a malformed frame is noise; an EMPTY array is the
+    /// device's real "nothing attributed".
+    public static func applyContextLayout(
+        _ current: [ContextSegment]?, event: [String: Any]
+    ) -> [ContextSegment]? {
+        AgentActivityDecoder.contextLayout(event).applied(to: current)
     }
 
     /// The composer's ONE chip (EXP-772): the agent's mode, or nil when the

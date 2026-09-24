@@ -109,6 +109,7 @@ import {
   ListRow,
   ListEmpty,
   Meter,
+  SegmentedBar,
   MobileWorkCapsule,
   OpenAiIcon,
   PasswordInput,
@@ -2360,6 +2361,44 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         <Meter value={81} tone="warning" />
         <Meter value={100} tone="danger" />
         <Meter value={73} tone="normal" className="h-1" />
+      </div>
+    ),
+  },
+  {
+    id: `segmented-bar`,
+    title: `Segmented bar`,
+    kind: `Feedback`,
+    blurb: `EXP-1051: the context window's breakdown — the Meter's track, filled left to right by one slice per layer the run's context_layout named (base, tools, playbook, team prompt, project, task) and the derived conversation, in the contract's tones, clipped at 100% and never rescaled; free space is the bare track. Three hairline ticks mark the compaction floor (50%) and the two usage thresholds (75%, 95%). The legend swatch beside each row reuses the slice's tone, so a square and its slice cannot disagree.`,
+    status: {
+      web: ok(`SegmentedBar`, `packages/ui/src/segmented-bar.tsx`),
+      desktop: ok(`render_context_window`, `apps/desktop/crates/ui/src/usage_sheet.rs`),
+      ios: ok(`SegmentedTrack`, `apps/ios/ExpUI/Sources/SegmentedTrack.swift`),
+      android: ok(
+        `SegmentedTrack`,
+        `${ANDROID_COMPONENTS}/SegmentedTrack.kt`
+      ),
+    },
+    island: () => (
+      <div className="grid w-[260px] gap-3">
+        <SegmentedBar
+          segments={[
+            { key: `base`, tone: `neutral`, percent: 10.5 },
+            { key: `tools`, tone: `green`, percent: 1.2 },
+            { key: `playbook`, tone: `yellow`, percent: 0.75 },
+            { key: `team`, tone: `violet`, percent: 0.4 },
+            { key: `project`, tone: `orange`, percent: 4.9 },
+            { key: `task`, tone: `pink`, percent: 0.3 },
+            { key: `conversation`, tone: `blue`, percent: 14.45 },
+          ]}
+          ticks={[50, 75, 95]}
+        />
+        <SegmentedBar
+          segments={[
+            { key: `base`, tone: `neutral`, percent: 12 },
+            { key: `conversation`, tone: `blue`, percent: 70 },
+          ]}
+          ticks={[50, 75, 95]}
+        />
       </div>
     ),
   },

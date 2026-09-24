@@ -1679,6 +1679,83 @@ describe(`activity event kinds`, () => {
     expect(room(hub).activityLog.length).toBe(1)
   })
 
+  // EXP-1051: `context_layout` is a latest-wins slot too — where the window
+  // the `usage` meter measures actually went, published once per conversation
+  // (again after a `/clear`). Replayed right BEHIND `usage`, before
+  // `rate_limit`.
+  test(`context_layout is latest-wins, replayed between usage and rate_limit`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, usage)
+    activity(hub, pub, {
+      kind: `context_layout`,
+      segments: [{ key: `base`, tokens: 21_000, source: `measured` }],
+    })
+    activity(hub, pub, { kind: `rate_limit`, status: `allowed_warning` })
+    // The republish after a `/clear`: same slot, every declared field at once.
+    const latest = {
+      kind: `context_layout`,
+      segments: [
+        { key: `base`, tokens: 21_000, source: `measured` },
+        {
+          key: `project`,
+          tokens: 9_800,
+          source: `estimated`,
+          detail: `CLAUDE.md, ~/.claude/CLAUDE.md`,
+        },
+      ],
+      at: 7,
+    }
+    activity(hub, pub, latest)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `usage`,
+      `context_layout`,
+      `rate_limit`,
+    ])
+    // Only the NEWEST frame replays, with every declared field surviving the
+    // re-serialize.
+    expect(member.events()[2]).toEqual(latest as never)
+    expect(slot(hub, `context_layout`)).toEqual(latest)
+    // Not a transcript row.
+    expect(room(hub).activityLog.length).toBe(1)
+  })
+
+  // A key outside the contract's `contextLayout.segments` drops the WHOLE
+  // frame: a client cannot label a layer it has never heard of, and a partial
+  // layout would silently mis-attribute the remainder to the conversation.
+  test(`a context_layout naming an out-of-contract key is dropped whole`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const good = {
+      kind: `context_layout`,
+      segments: [{ key: `base`, tokens: 21_000, source: `measured` }],
+    }
+    activity(hub, pub, good)
+    activity(hub, pub, {
+      kind: `context_layout`,
+      segments: [{ key: `mystery`, tokens: 5_000, source: `estimated` }],
+    })
+    // Same for an unknown source, a negative count and a fractional one.
+    activity(hub, pub, {
+      kind: `context_layout`,
+      segments: [{ key: `tools`, tokens: 100, source: `guessed` }],
+    })
+    activity(hub, pub, {
+      kind: `context_layout`,
+      segments: [{ key: `tools`, tokens: -1, source: `measured` }],
+    })
+    activity(hub, pub, {
+      kind: `context_layout`,
+      segments: [{ key: `tools`, tokens: 1.5, source: `measured` }],
+    })
+    expect(slot(hub, `context_layout`)).toEqual(good)
+  })
+
   // EXP-784: rate_limit is the fourth latest-wins slot, replayed between
   // usage and the diff; an empty/`ok` status is a frame like any other here
   // (the CLEAR is the clients' rule — the relay just keeps the newest).

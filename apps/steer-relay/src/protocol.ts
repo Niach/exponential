@@ -119,6 +119,7 @@ export const setModeFrame = z.object({
 //   compaction:        context compaction     { kind, phase, trigger? }  (started|ended)
 //   config_state:      live agent config      { kind, options[], currentMode?, modes[]?, commands[]? }  (latest replaces prior)
 //   usage:             context + spend meter  { kind, contextUsed, contextSize, costUsd? }              (latest replaces prior)
+//   context_layout:    where the window WENT   { kind, segments[{key,tokens,source,detail?}] }          (latest replaces prior)
 //   rate_limit:        the agent's wall       { kind, status, resetsAt?, message? }                     (latest replaces prior)
 //   turn:              the turn edge          { kind, state, startedAt?, tokens? }                      (latest replaces prior)
 //   background_tasks:  the bottom strip       { kind, tasks[] }                                         (latest replaces prior)
@@ -280,6 +281,20 @@ export const QUEUE_MAX = 20
 export const QUEUE_TEXT_MAX = 8192
 export const WORKFLOW_PHASES_MAX = 32
 export const WORKFLOW_AGENTS_MAX = 64
+
+/** EXP-1051: the attributed layers of a run's context window — the contract's
+ *  `contextLayout` keys (a device naming anything else is publishing a layer
+ *  no client can label), how it came by each number, and the cap on the
+ *  human-readable `detail` behind one. A frame carries each key at most once
+ *  and never more keys than the contract has. */
+export const CONTEXT_SEGMENT_KEYS = contract.contextLayout.segments.map(
+  (segment) => segment.key
+) as [string, ...string[]]
+export const CONTEXT_SEGMENT_SOURCES = contract.contextLayout.sources as [
+  string,
+  ...string[],
+]
+export const CONTEXT_DETAIL_MAX = contract.contextLayout.detailMax
 
 export const activityEventSchema = z.discriminatedUnion(`kind`, [
   z.object({
@@ -508,6 +523,31 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     contextUsed: z.number().int().min(0).max(1_000_000_000),
     contextSize: z.number().int().min(0).max(1_000_000_000),
     costUsd: z.number().min(0).max(1_000_000).optional(),
+    at: z.number().optional(),
+  }),
+  // EXP-1051: where the window the `usage` meter measures actually WENT — the
+  // layers the launcher put in before the first turn (`base`, `tools`,
+  // `playbook`, `team`, `project`, `task`), each `measured` or `estimated`.
+  // LATEST-WINS state beside `usage` (LATEST_WINS_KINDS/LATEST_REPLAY_ORDER in
+  // hub.ts), never a feed row: the device publishes ONE per conversation and
+  // again after a `/clear`, nothing on a compaction (the layers survive it).
+  // A segment the device cannot attribute is simply omitted; `conversation`
+  // and `free` are DERIVED by every client from `usage` and are not wire keys.
+  z.object({
+    kind: z.literal(`context_layout`),
+    segments: z
+      .array(
+        z.object({
+          key: z.enum(CONTEXT_SEGMENT_KEYS),
+          // The same bounds as `usage`'s counts — a token is a token.
+          tokens: z.number().int().min(0).max(1_000_000_000),
+          source: z.enum(CONTEXT_SEGMENT_SOURCES),
+          // What the layer is made of, as the device named it (`CLAUDE.md,
+          // ~/.claude/CLAUDE.md`). The publisher cuts to the same cap.
+          detail: z.string().max(CONTEXT_DETAIL_MAX).optional(),
+        })
+      )
+      .max(CONTEXT_SEGMENT_KEYS.length),
     at: z.number().optional(),
   }),
   // EXP-784: the agent's rate-limit window as it last reported it. LATEST-WINS

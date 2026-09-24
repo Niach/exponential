@@ -563,6 +563,27 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+    /// EXP-1051: what the run's context window is SPENT ON, segment by
+    /// segment — the system prompt's base, the tool definitions, the
+    /// playbook, the team prompt, the project files, the task. LATEST-WINS
+    /// state like [`ActivityEvent::Usage`], and it takes the slot RIGHT AFTER
+    /// `usage` in every registry (`journal.rs`, `history.rs`, the engine's
+    /// `FeedState`, `feed.rs`, the relay's `LATEST_WINS_KINDS`).
+    ///
+    /// Published ONCE per conversation, after the first request is measured,
+    /// and again after a `/clear` — the layout only changes when the seed
+    /// does. `conversation` and `free` are NOT on the wire: every client
+    /// derives them from the `usage` slot (the contract's
+    /// `contextLayout.derived` keys), so the two meters can never disagree.
+    ///
+    /// Field order here IS serialization order and the relay's zod is
+    /// declared in the same one — never reorder.
+    #[serde(rename_all = "camelCase")]
+    ContextLayout {
+        segments: Vec<ContextSegment>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
     /// EXP-784: the agent is rate-limited (or was, and is not any more).
     /// LATEST-WINS state like [`ActivityEvent::Usage`], the fourth slot in
     /// every registry (`journal.rs`, `history.rs`, the engine's `FeedState`,
@@ -772,6 +793,88 @@ impl TaskListStatus {
 /// EXP-927: how many entries one `task_list` frame may carry (the relay's
 /// zod cap); the publisher cuts the tail.
 pub const TASK_LIST_MAX: usize = 50;
+
+/// EXP-1051: one segment of the [`ActivityEvent::ContextLayout`] breakdown —
+/// how many tokens one part of the seeded context costs, and whether that
+/// number was MEASURED or estimated. Clients paint the segments in contract
+/// order; nothing here is derived, the derived `conversation`/`free` pair
+/// comes off the `usage` slot instead.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextSegment {
+    pub key: ContextSegmentKey,
+    pub tokens: i64,
+    pub source: ContextSegmentSource,
+    /// What the segment is made of, when the publisher can name it (the
+    /// project files it counted, say). Machine-derived labels, cut to
+    /// [`CONTEXT_SEGMENT_DETAIL_MAX`] by the publisher.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Contract `contextLayout.segments` — the keys, in the order a meter draws
+/// them.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextSegmentKey {
+    #[default]
+    Base,
+    Tools,
+    Playbook,
+    Team,
+    Project,
+    Task,
+}
+
+impl ContextSegmentKey {
+    /// Every value, in contract order.
+    pub const ALL: [ContextSegmentKey; 6] = [
+        ContextSegmentKey::Base,
+        ContextSegmentKey::Tools,
+        ContextSegmentKey::Playbook,
+        ContextSegmentKey::Team,
+        ContextSegmentKey::Project,
+        ContextSegmentKey::Task,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ContextSegmentKey::Base => "base",
+            ContextSegmentKey::Tools => "tools",
+            ContextSegmentKey::Playbook => "playbook",
+            ContextSegmentKey::Team => "team",
+            ContextSegmentKey::Project => "project",
+            ContextSegmentKey::Task => "task",
+        }
+    }
+}
+
+/// Contract `contextLayout.sources` — whether a segment's token count came
+/// off a real measurement or an estimate.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextSegmentSource {
+    Measured,
+    #[default]
+    Estimated,
+}
+
+impl ContextSegmentSource {
+    /// Every value, in contract order.
+    pub const ALL: [ContextSegmentSource; 2] =
+        [ContextSegmentSource::Measured, ContextSegmentSource::Estimated];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ContextSegmentSource::Measured => "measured",
+            ContextSegmentSource::Estimated => "estimated",
+        }
+    }
+}
+
+/// EXP-1051: how long a [`ContextSegment::detail`] may be (the relay's zod
+/// cap); the publisher cuts it.
+pub const CONTEXT_SEGMENT_DETAIL_MAX: usize = domain::contract::CONTEXT_LAYOUT_DETAIL_MAX;
 
 /// EXP-846: what an Exponential MCP call settled on, as the tool itself
 /// reported it. Every field optional and independently meaningful — a
@@ -1217,6 +1320,12 @@ impl ActivityEvent {
         }
     }
 
+    /// EXP-1051 context breakdown — the segments the publisher measured, in
+    /// contract order.
+    pub fn context_layout(segments: Vec<ContextSegment>) -> Self {
+        ActivityEvent::ContextLayout { segments, at: None }
+    }
+
     /// Every FREE-TEXT field of the event, mutably (EXP-511: the publisher
     /// walks them to put a localized image path back to the embed token the
     /// steerer sent — a local path must never reach the published feed,
@@ -1315,7 +1424,11 @@ impl ActivityEvent {
                 }
                 fields
             }
-            ActivityEvent::Usage { .. } | ActivityEvent::Turn { .. } => Vec::new(),
+            // EXP-1051: a segment's `detail` is a machine-derived file label
+            // the publisher already capped — no free text to rewrite.
+            ActivityEvent::Usage { .. }
+            | ActivityEvent::ContextLayout { .. }
+            | ActivityEvent::Turn { .. } => Vec::new(),
             // EXP-850: descriptions and previews are the AGENT's free text
             // and pass through the redactor; ids, `toolId` and the enum
             // values are machine fields a rewrite must never touch.
@@ -1366,6 +1479,7 @@ impl ActivityEvent {
             | ActivityEvent::Compaction { at, .. }
             | ActivityEvent::ConfigState { at, .. }
             | ActivityEvent::Usage { at, .. }
+            | ActivityEvent::ContextLayout { at, .. }
             | ActivityEvent::ToolUpdate { at, .. }
             | ActivityEvent::RateLimit { at, .. }
             | ActivityEvent::BackgroundTasks { at, .. }
@@ -2840,6 +2954,16 @@ mod tests {
         );
         // `usage` carries no free text at all.
         assert!(ActivityEvent::usage(1, 2, None).text_fields_mut().is_empty());
+        // EXP-1051: neither does `context_layout` — a segment's `detail` is a
+        // machine-derived file label, not something a rewrite may touch.
+        assert!(ActivityEvent::context_layout(vec![ContextSegment {
+            key: ContextSegmentKey::Project,
+            tokens: 9800,
+            source: ContextSegmentSource::Estimated,
+            detail: Some("CLAUDE.md".to_string()),
+        }])
+        .text_fields_mut()
+        .is_empty());
     }
 
     #[test]
@@ -2894,6 +3018,12 @@ mod tests {
                 at: None,
             },
             ActivityEvent::usage(1, 2, None),
+            ActivityEvent::context_layout(vec![ContextSegment {
+                key: ContextSegmentKey::Base,
+                tokens: 21_000,
+                source: ContextSegmentSource::Measured,
+                detail: None,
+            }]),
             ActivityEvent::tool_update("t", None, None),
             ActivityEvent::rate_limit("rejected", None, None),
         ];
@@ -4140,6 +4270,44 @@ mod exp850_tests {
             TaskListStatus::ALL.map(TaskListStatus::as_str).as_slice(),
             domain::contract::TASK_LIST_STATUS_VALUES
         );
+    }
+
+    /// EXP-1051: the `context_layout` slot, byte for byte the relay's zod
+    /// shape — the keys in contract order, `detail` only where the publisher
+    /// named one, `at` absent until the history buffer stamps it.
+    #[test]
+    fn a_context_layout_serializes_to_the_relay_schema() {
+        assert_eq!(
+            ContextSegmentKey::ALL.map(ContextSegmentKey::as_str).as_slice(),
+            domain::contract::CONTEXT_LAYOUT_SEGMENT_KEYS
+        );
+        assert_eq!(
+            ContextSegmentSource::ALL.map(ContextSegmentSource::as_str).as_slice(),
+            domain::contract::CONTEXT_LAYOUT_SOURCE_VALUES
+        );
+        let segment = |key: ContextSegmentKey, tokens: i64, source: ContextSegmentSource| {
+            ContextSegment { key, tokens, source, detail: None }
+        };
+        let event = ActivityEvent::context_layout(vec![
+            segment(ContextSegmentKey::Base, 21_000, ContextSegmentSource::Measured),
+            segment(ContextSegmentKey::Tools, 2_400, ContextSegmentSource::Estimated),
+            segment(ContextSegmentKey::Playbook, 1_500, ContextSegmentSource::Estimated),
+            segment(ContextSegmentKey::Team, 800, ContextSegmentSource::Estimated),
+            ContextSegment {
+                key: ContextSegmentKey::Project,
+                tokens: 9_800,
+                source: ContextSegmentSource::Estimated,
+                detail: Some("CLAUDE.md, ~/.claude/CLAUDE.md".to_string()),
+            },
+            segment(ContextSegmentKey::Task, 600, ContextSegmentSource::Estimated),
+        ]);
+        let wire = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            wire,
+            r#"{"kind":"context_layout","segments":[{"key":"base","tokens":21000,"source":"measured"},{"key":"tools","tokens":2400,"source":"estimated"},{"key":"playbook","tokens":1500,"source":"estimated"},{"key":"team","tokens":800,"source":"estimated"},{"key":"project","tokens":9800,"source":"estimated","detail":"CLAUDE.md, ~/.claude/CLAUDE.md"},{"key":"task","tokens":600,"source":"estimated"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&wire).unwrap(), event);
+        assert_eq!(CONTEXT_SEGMENT_DETAIL_MAX, 200);
     }
 
     #[test]

@@ -1179,6 +1179,27 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.applyUsage(usage, event: ["contextUsed": 10]), usage)
     }
 
+    /// EXP-1051: the layers beside that meter. Latest-wins like the usage, and
+    /// an EMPTY layout is a real one — only a frame with no `segments` array
+    /// leaves the previous layers standing.
+    func testApplyContextLayoutKeepsTheLayersOnAnUnreadableFrame() {
+        let layout = AgentFeed.applyContextLayout(nil, event: [
+            "segments": [
+                ["key": "base", "tokens": 21_000, "source": "measured"],
+                ["key": "project", "tokens": 9_800, "source": "estimated", "detail": "CLAUDE.md"],
+            ],
+        ])
+        XCTAssertEqual(layout, [
+            ContextSegment(key: "base", tokens: 21_000, source: "measured"),
+            ContextSegment(key: "project", tokens: 9_800, source: "estimated", detail: "CLAUDE.md"),
+        ])
+        // The device's real "nothing attributed".
+        XCTAssertEqual(AgentFeed.applyContextLayout(layout, event: ["segments": []]), [])
+        // No list at all: the layers do not change mid-run, so the frame is
+        // noise.
+        XCTAssertEqual(AgentFeed.applyContextLayout(layout, event: [:]), layout)
+    }
+
     /// EXP-772: the mode is the ONLY steering chip left. Advertised options
     /// (the engine now publishes none) never reach the composer again.
     func testOnlyTheModeReachesTheComposer() {
