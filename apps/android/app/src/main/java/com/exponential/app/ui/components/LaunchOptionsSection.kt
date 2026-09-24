@@ -124,6 +124,14 @@ internal fun LaunchOptionsSection(
      * elsewhere).
      */
     accountRow: (@Composable () -> Unit)? = null,
+    /**
+     * EXP-1020: the card's LAST row(s), after the toggles — the device sheet's
+     * "Workflow settings" sub-shell row. Like [resumeSlot] it is a ROW of the
+     * one group (rendered after its own [GroupDivider]), never a card of its
+     * own, so the agent defaults stay ONE card on all four clients (desktop
+     * `LaunchOptions::trailing`).
+     */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val automation = variant == LaunchOptionsVariant.Automation
     val deviceVariant = variant == LaunchOptionsVariant.Device
@@ -273,6 +281,13 @@ internal fun LaunchOptionsSection(
                     onCheckedChange = onPlanModeChange,
                 )
             }
+        }
+
+        // The caller's own last row, whatever the variant (the toggles above
+        // are Launch-only).
+        if (trailing != null) {
+            GroupDivider()
+            trailing()
         }
     }
 

@@ -574,6 +574,10 @@ impl AgentsPane {
         // EXP-872: "Default agent" became "Default account" — the ONE shared
         // account picker over THIS install's logins, across agents. A pick
         // writes both fields: the agent derives from the login.
+        // EXP-1020: `device_account_options`, so an agent with no login here
+        // still gets an ambient row — otherwise a claude-only install offers
+        // one option, the picker renders it as a plain label, and the
+        // default cannot be changed at all.
         let pane = cx.entity();
         let (accounts, usage) = crate::device_settings::own_agent_status(cx);
         let settings = Settings {
@@ -581,7 +585,7 @@ impl AgentsPane {
             default_account: self.default_account.clone(),
             ..Settings::default()
         };
-        let options = crate::launch_options::machine_account_options(
+        let options = crate::launch_options::device_account_options(
             &accounts,
             &usage,
             &settings,

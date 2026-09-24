@@ -420,6 +420,14 @@ fun DeviceSettingsSheet(
                     // inset-grouped card. EXP-862: NO accounts or usage in here — those
                     // belong to Devices → Accounts, the one surface that owns them.
                     val draft = drafts[agentTab] ?: agentDraft(device, agentTab)
+                    // ── Workflow settings (EXP-1043) ─────────────────────────
+                    // Both agents' workflows run on the DEFAULT agent's models, so
+                    // this row is the same one whatever tab is selected above — it
+                    // belongs to the machine, not to the tab. A stored name that
+                    // belongs to the other agent falls back to the contract pair
+                    // (see [workflowDefaults]).
+                    val (workflowModel, workflowStrongModel) = workflowDefaults(defaultAgent, workflow)
+                    val workflowModels = modelValuesFor(defaultAgent)
                     LaunchOptionsSection(
                         variant = LaunchOptionsVariant.Device,
                         // The sheet already IS the machine — no "Runs on" row.
@@ -445,79 +453,76 @@ fun DeviceSettingsSheet(
                         onPlanModeChange = { next ->
                             editDraft(agentTab) { it.copy(planMode = next) }
                         },
-                    )
-                    ErrorCaption(defaultsError)
-                    Spacer(Modifier.height(8.dp))
-
-                    // ── Workflow settings (EXP-1043) ─────────────────────────
-                    // Both agents' workflows run on the DEFAULT agent's models, so
-                    // this row is the same one whatever tab is selected above — it
-                    // belongs to the machine, not to the tab. A stored name that
-                    // belongs to the other agent falls back to the contract pair
-                    // (see [workflowDefaults]).
-                    val (workflowModel, workflowStrongModel) = workflowDefaults(defaultAgent, workflow)
-                    val workflowModels = modelValuesFor(defaultAgent)
-                    OptionGroup {
-                        SubShell(
-                            label = "Workflow settings",
-                            // The `nav-workflows` CONCEPT, the glyph the web row
-                            // carries and the one Workflows wears everywhere.
-                            icon = ExpIcons.navWorkflows,
-                            value = "${modelLabel(workflowModel)} · ${modelLabel(workflowStrongModel)}",
-                            title = "Workflow settings",
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                OptionGroup {
-                                    PickerRow(
-                                        label = "Model",
-                                        value = modelLabel(workflowModel),
-                                        options = workflowModels,
-                                        selected = workflowModel,
-                                        optionLabel = ::modelLabel,
-                                        onSelect = { next ->
-                                            val edited = DeviceWorkflowDefaults(
-                                                model = next,
-                                                strongModel = workflowStrongModel,
-                                            )
-                                            workflow = edited
-                                            queueDefaults(stored = edited)
-                                        },
+                        // EXP-1020: the LAST row of that same card, never a card
+                        // of its own — the four clients read alike.
+                        trailing = {
+                            SubShell(
+                                label = "Workflow settings",
+                                // The `nav-workflows` CONCEPT, the glyph the web row
+                                // carries and the one Workflows wears everywhere.
+                                icon = ExpIcons.navWorkflows,
+                                value = "${modelLabel(workflowModel)} · " +
+                                    modelLabel(workflowStrongModel),
+                                title = "Workflow settings",
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    OptionGroup {
+                                        PickerRow(
+                                            label = "Model",
+                                            value = modelLabel(workflowModel),
+                                            options = workflowModels,
+                                            selected = workflowModel,
+                                            optionLabel = ::modelLabel,
+                                            onSelect = { next ->
+                                                val edited = DeviceWorkflowDefaults(
+                                                    model = next,
+                                                    strongModel = workflowStrongModel,
+                                                )
+                                                workflow = edited
+                                                queueDefaults(stored = edited)
+                                            },
+                                        )
+                                        GroupDivider()
+                                        PickerRow(
+                                            label = "Strong model",
+                                            value = modelLabel(workflowStrongModel),
+                                            options = workflowModels,
+                                            selected = workflowStrongModel,
+                                            optionLabel = ::modelLabel,
+                                            onSelect = { next ->
+                                                val edited = DeviceWorkflowDefaults(
+                                                    model = workflowModel,
+                                                    strongModel = next,
+                                                )
+                                                workflow = edited
+                                                queueDefaults(stored = edited)
+                                            },
+                                        )
+                                    }
+                                    // One line per row above, in the same order.
+                                    Text(
+                                        "Leaf nodes and the subagents inside them.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                            .copy(alpha = TextEmphasis.Tertiary),
+                                        modifier = Modifier
+                                            .padding(horizontal = 32.dp, vertical = 2.dp),
                                     )
-                                    GroupDivider()
-                                    PickerRow(
-                                        label = "Strong model",
-                                        value = modelLabel(workflowStrongModel),
-                                        options = workflowModels,
-                                        selected = workflowStrongModel,
-                                        optionLabel = ::modelLabel,
-                                        onSelect = { next ->
-                                            val edited = DeviceWorkflowDefaults(
-                                                model = workflowModel,
-                                                strongModel = next,
-                                            )
-                                            workflow = edited
-                                            queueDefaults(stored = edited)
-                                        },
+                                    Text(
+                                        "Contract, integration and risky nodes, and every review.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                            .copy(alpha = TextEmphasis.Tertiary),
+                                        modifier = Modifier
+                                            .padding(horizontal = 32.dp, vertical = 2.dp),
                                     )
                                 }
-                                // One line per row above, in the same order.
-                                Text(
-                                    "Leaf nodes and the subagents inside them.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                        .copy(alpha = TextEmphasis.Tertiary),
-                                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                                )
-                                Text(
-                                    "Contract, integration and risky nodes, and every review.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                        .copy(alpha = TextEmphasis.Tertiary),
-                                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                                )
                             }
-                        }
-                    }
+                        },
+                    )
+                    // Whatever follows (Update, else Remove) opens with its own
+                    // 8dp gap — the card needs no second one.
+                    ErrorCaption(defaultsError)
 
                     // ── Update (server daemons only) ─────────────────────────
                     // Self-update is a SERVER capability: the desktop app updates
