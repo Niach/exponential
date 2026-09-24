@@ -156,6 +156,32 @@ describe(`Picker presentation (EXP-1029 → EXP-1021)`, () => {
     expect(picked[0]!.className).toContain(`ring-glass-stroke-active`)
   })
 
+  it(`single mode marks the picked row with a trailing check, never a wash`, () => {
+    setViewport(1280)
+    // EXP-1021 review r3 — the ×4 twin of the multi case above. The two
+    // rules are one language on all four clients:
+    //   single  a trailing `ui-check` on the picked row (EXP-957's rule,
+    //           matched to the natives), and NO wash — the wash means
+    //           "picked" only where there is more than one pick to see.
+    //   multi   the row's own highlight, never a glyph.
+    // iOS and Android had drifted to the wash for BOTH, which made a single
+    // pick on a phone read like a multi pick on a pointer device.
+    render(
+      <Picker mode="single" items={items} value="a" onChange={vi.fn()} trigger={trigger} />
+    )
+    open()
+    const checks = document.querySelectorAll(`[data-selected-glyph="check"]`)
+    expect(checks).toHaveLength(1)
+    const picked = rows().find((row) => row.textContent?.includes(`Alpha`))!
+    expect(picked.querySelector(`[data-selected-glyph="check"]`)).not.toBeNull()
+    // The single arm never borrows the multi arm's mark.
+    expect(picked.getAttribute(`data-picked`)).toBe(`true`)
+    expect(picked.className).not.toContain(`ring-glass-stroke-active`)
+    // …and never the circle pair the multi arm retired.
+    expect(document.querySelectorAll(`[data-selected-glyph="selected"]`)).toHaveLength(0)
+    expect(document.querySelectorAll(`[data-selected-glyph="unselected"]`)).toHaveLength(0)
+  })
+
   it(`a phone sheet closes on swipe down`, () => {
     setViewport(390)
     // The gesture only arms itself under the CSS `sm` breakpoint, and it

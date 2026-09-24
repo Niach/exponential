@@ -42,5 +42,14 @@ fun rememberIssueCandidates(
     }
 }
 
+/**
+ * EXP-892's best-match cue, shared by both linkers: while a query is being
+ * typed the TOP of the ranked pool reads as picked, which is the row Enter
+ * takes on the clients that have a keyboard. An empty query ranks nothing —
+ * it just lists the newest first — so it cues nothing either.
+ */
+fun bestMatch(ranked: List<IssueEntity>, query: String): Set<String> =
+    if (query.isBlank()) emptySet() else setOfNotNull(ranked.firstOrNull()?.id)
+
 /** The picker never lists more than this, ranked (the web picker's cap). */
 private const val CANDIDATE_LIMIT = 50

@@ -2,9 +2,6 @@ package com.exponential.app.ui.support
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -51,14 +47,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SupportLinkedIssue
 import com.exponential.app.data.api.SupportMessage
 import com.exponential.app.domain.IssueStatusResolver
-import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.LoadingState
@@ -66,12 +60,13 @@ import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.picker.BoardPicker
+import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.delay
 
 /** Amber accent for internal notes (member-only annotations). */
@@ -239,64 +234,20 @@ fun SupportThreadScreen(
         }
     }
 
-    if (escalateSheetOpen) {
-        // The shared glass sheet chrome (EXP-577) instead of a bare Material
-        // sheet with its own title.
-        GlassSheet(title = "Escalate to issue", onDismiss = { escalateSheetOpen = false }) {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    "Files an issue on a board of this team, linked to this ticket.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-                Spacer(Modifier.height(4.dp))
-                if (boards.isEmpty()) {
-                    Text(
-                        "No boards in this team.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                }
-                boards.forEach { board ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .glassRow()
-                            .clickable {
-                                escalateSheetOpen = false
-                                viewModel.escalate(board.id)
-                            }
-                            .padding(
-                                horizontal = GlassTokens.RowPaddingH,
-                                vertical = GlassTokens.RowPaddingV,
-                            ),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        BoardIcon(board)
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            board.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            board.prefix,
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    }
-                }
-            }
-        }
-    }
+    // EXP-1021: the shared board picker (glyph in the board's colour), so
+    // escalating reads like every other board pick on both phones. Opened by
+    // the `⋯` menu, so the sheet is CONTROLLED and there is no trigger.
+    BoardPicker(
+        boards = boards.map { it.toPickerBoard() },
+        value = null,
+        // A single pick closes the sheet itself (`onOpenChange`), so escalating
+        // is all this has to do.
+        onChange = { boardId -> viewModel.escalate(boardId) },
+        // The same words as the menu item that opens it.
+        title = "Escalate to issue",
+        open = escalateSheetOpen,
+        onOpenChange = { escalateSheetOpen = it },
+    )
 }
 
 /**

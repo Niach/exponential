@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.MemberAvatar
+import com.exponential.app.ui.icons.ExpIcons
 
 /**
  * EXP-1029 contract, EXP-1021 implementation — the assignee picker: the team's members by avatar +
@@ -35,7 +36,11 @@ fun assigneePickerItems(
             keywords = listOfNotNull(member.name, member.email).filter { it.isNotEmpty() },
         )
     }
-    return if (allowsNone) listOf(PickerItem(value = UNASSIGNED_VALUE, label = "Unassigned")) + rows else rows
+    // `Unassigned` carries its OWN glyph (iOS's `uiUnassigned`): every member
+    // row below it leads with an avatar, so a bare label there would read as a
+    // row with its picture still loading.
+    val none = PickerItem(value = UNASSIGNED_VALUE, label = "Unassigned", icon = ExpIcons.uiUnassigned)
+    return if (allowsNone) listOf(none) + rows else rows
 }
 
 /**

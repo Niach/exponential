@@ -36,7 +36,11 @@ import com.exponential.app.ui.components.AccountPill
 import com.exponential.app.ui.components.PickerValueRow
 import com.exponential.app.ui.components.picker.AccountPicker
 import com.exponential.app.ui.components.picker.BoardPickerBoard
+import com.exponential.app.ui.components.picker.LabelPickerLabel
+import com.exponential.app.ui.components.picker.StatusPickerStatus
 import com.exponential.app.ui.components.picker.boardPickerItems
+import com.exponential.app.ui.components.picker.labelPickerItems
+import com.exponential.app.ui.components.picker.statusPickerItems
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
@@ -55,7 +59,6 @@ import com.exponential.app.ui.components.toPickerAccount
 import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.agent.StartBoardOption
-import com.exponential.app.ui.agent.StartFilterOption
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The shared automation editor (EXP-583). TWO hosts render these fields: the
@@ -197,8 +200,8 @@ private fun intervalLabel(interval: String): String = when (interval) {
 internal fun AutomationTriggerFields(
     draft: AutomationDraft,
     boards: List<StartBoardOption>,
-    labels: List<StartFilterOption>,
-    statuses: List<StartFilterOption>,
+    labels: List<LabelPickerLabel>,
+    statuses: List<StatusPickerStatus>,
     onChange: (AutomationDraft) -> Unit,
     allowNone: Boolean = false,
 ) {
@@ -292,7 +295,8 @@ internal fun AutomationTriggerFields(
                 AutomationFilterPicker(
                     label = "Label",
                     anyLabel = "Any label",
-                    options = labels.map { it.toFilterRow() },
+                    // A label is a coloured DOT wherever it is listed.
+                    options = labelPickerItems(labels),
                     selected = draft.labelId,
                     onSelect = { onChange(draft.copy(labelId = it)) },
                 )
@@ -314,7 +318,8 @@ internal fun AutomationTriggerFields(
                 AutomationFilterPicker(
                     label = "To status",
                     anyLabel = "Any status",
-                    options = statuses.map { it.toFilterRow() },
+                    // A status is its glyph in its tone, resolved (EXP-314).
+                    options = statusPickerItems(statuses),
                     selected = draft.toStatusId,
                     onSelect = { onChange(draft.copy(toStatusId = it)) },
                 )
@@ -560,10 +565,10 @@ private fun AutomationTimeRow(time: String, onChange: (String) -> Unit) {
 // One "Any"-defaulted single-select filter row: the empty value is the
 // no-filter state and stays re-pickable as the first option.
 //
-// [options] arrive as picker ROWS rather than bare names so the BOARD filter
-// can hand over `boardPickerItems`' rows — a board is a glyph in its colour
-// everywhere else in the app, and a filter sheet is no place to start drawing
-// it as a bare label (EXP-1021).
+// [options] arrive as picker ROWS rather than bare names, so every filter
+// hands over the rows its subject already has — a board's glyph in its colour,
+// a label's dot, a status's resolved glyph. A filter sheet is no place to
+// start drawing any of them as a bare label (EXP-1021).
 @Composable
 private fun AutomationFilterPicker(
     label: String,
@@ -591,7 +596,3 @@ private fun AutomationFilterPicker(
         },
     )
 }
-
-/** A plain id/name filter option as a picker row. */
-private fun StartFilterOption.toFilterRow(): PickerItem<String> =
-    PickerItem(value = id, label = name)

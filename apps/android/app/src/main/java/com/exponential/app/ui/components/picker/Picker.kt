@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetDefaults
 import com.exponential.app.ui.components.GlassSheetSearchField
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -48,15 +49,15 @@ import com.exponential.app.ui.theme.TextEmphasis
  *
  * Presentation belongs to the primitive, never to the caller: on the phone
  * every picker is a bottom sheet ([com.exponential.app.ui.components.GlassSheet])
- * of PLAIN rows — no cards inside the sheet; multi-select marks rows by the
- * highlight colour, no circles; swipe down closes (the drag handle is the
- * sheet's only dismiss affordance, EXP-687). [search] adds the filter field at
- * the top. The trigger is whatever chip or button the caller hands in; the
- * primitive owns the sheet.
+ * of PLAIN rows — no cards inside the sheet; a pick is marked by
+ * [PickerDefaults.mark] and by nothing else; swipe down closes (the drag
+ * handle is the sheet's only dismiss affordance, EXP-687). [search] adds the
+ * filter field at the top. The trigger is whatever chip or button the caller
+ * hands in; the primitive owns the sheet.
  *
  * That selection language IS what EXP-1021 asked for: the picker that links a
  * relation and the picker that batches issues finally look like one thing, so
- * the highlight lives HERE and no caller can invent a second "this is picked"
+ * the mark lives HERE and no caller can invent a second "this is picked"
  * idiom.
  *
  * `PickerContractTest` carries the presentation rules and the typed-picker
@@ -104,11 +105,32 @@ enum class PickerChecked {
     /** Nothing: the row paints nothing at all. */
     None,
 
-    /** Some of what this row covers: the active wash alone. */
+    /** Some of what this row covers: the active wash alone (multi only). */
     Some,
 
-    /** All of it: the wash PLUS the inset active stroke. */
+    /** All of it: the wash PLUS the inset active stroke, or the check. */
     All,
+}
+
+/**
+ * THE paint a picked row takes, one per arity. Web's `combobox-core` states
+ * the rule for all four clients: "single — the picked row wears a trailing
+ * `ui-check`; multi — …". EXP-1021 only ever changed the MULTI half (circles
+ * → the row's own highlight), so the single half stays the check it has always
+ * been on web and in the IDE.
+ */
+enum class PickerMark {
+    /** An unpicked row paints nothing at all. */
+    None,
+
+    /** Single: the trailing muted check glyph, and nothing else moves. */
+    Check,
+
+    /** Multi, partial: the active row wash alone. */
+    Wash,
+
+    /** Multi, full: the wash PLUS the inset active stroke. */
+    WashAndStroke,
 }
 
 enum class PickerMode {
@@ -163,8 +185,8 @@ object PickerRules {
 }
 
 /**
- * The picker sheet's pinned chrome — the row metrics and the ONE paint a
- * picked row takes. iOS/desktop mirror these; `PickerContractTest` pins them
+ * The picker sheet's pinned chrome — the row metrics and the ONE mark a picked
+ * row takes, per arity. iOS/desktop mirror these; `PickerContractTest` pins them
  * the way `GlassSheetDefaultsTest` pins the sheet shell.
  */
 object PickerDefaults {
@@ -186,28 +208,48 @@ object PickerDefaults {
     /** The row's corner — the app's list-row rung (`flatRow`'s own). */
     val RowRadius: Dp = GlassTokens.RowRadius
 
-    /**
-     * THE selection mark: a picked row takes the app's active row wash and
-     * NOTHING else — no leading circle, no trailing check (EXP-1021). An
-     * unpicked row paints nothing at all, which is what makes the list read as
-     * plain rows on the sheet instead of a stack of cards.
-     *
-     * The wash IS what `Modifier.flatRow(active)` (the EXP-818 list row) lays
-     * down; named here so the contract test can pin the paint without a
-     * renderer.
-     */
-    fun rowBackground(checked: PickerChecked): Color =
-        if (checked == PickerChecked.None) Color.Transparent else GlassTokens.RowFillActive
+    /** The trailing check's box — the row's glyph size, so the two gutters agree. */
+    val CheckSize: Dp = 16.dp
 
     /**
-     * The second half of the mark, and the ONLY thing that tells a FULL row
-     * from a partial one: the inset active stroke (web's
-     * `ring-glass-stroke-active`). A [PickerChecked.Some] row wears the wash
+     * THE selection mark, decided by ARITY (EXP-957's rule, kept by all four
+     * clients): a SINGLE pick wears a trailing check and nothing else moves; a
+     * MULTI pick wears the row's own highlight — the wash, plus the inset
+     * stroke when the row is FULL rather than partial — and never a circle
+     * (EXP-1021). An unpicked row paints nothing at all either way, which is
+     * what makes the list read as plain rows on the sheet instead of a stack
+     * of cards.
+     */
+    fun mark(mode: PickerMode, checked: PickerChecked): PickerMark = when {
+        checked == PickerChecked.None -> PickerMark.None
+        // Tri-state is the bulk edit's, so it can only ever reach the multi
+        // arm; a single pick is one value and is either it or not.
+        mode == PickerMode.Single -> PickerMark.Check
+        checked == PickerChecked.Some -> PickerMark.Wash
+        else -> PickerMark.WashAndStroke
+    }
+
+    /**
+     * The highlight's fill. The wash IS what `Modifier.flatRow(active)` (the
+     * EXP-818 list row) lays down; named here so the contract test can pin the
+     * paint without a renderer.
+     */
+    fun rowBackground(mark: PickerMark): Color =
+        if (mark == PickerMark.Wash || mark == PickerMark.WashAndStroke) {
+            GlassTokens.RowFillActive
+        } else {
+            Color.Transparent
+        }
+
+    /**
+     * The second half of the highlight, and the ONLY thing that tells a FULL
+     * row from a partial one: the inset active stroke (web's
+     * `ring-glass-stroke-active`). A [PickerMark.Wash] row wears the wash
      * alone — "some of these, not all", said in paint rather than in a dash
      * glyph.
      */
-    fun rowStroke(checked: PickerChecked): Color =
-        if (checked == PickerChecked.All) GlassTokens.StrokeActive else Color.Transparent
+    fun rowStroke(mark: PickerMark): Color =
+        if (mark == PickerMark.WashAndStroke) GlassTokens.StrokeActive else Color.Transparent
 
     fun labelColor(enabled: Boolean): Color =
         Color.White.copy(alpha = if (enabled) 0.9f else TextEmphasis.Quaternary)
@@ -263,7 +305,7 @@ fun <T : Any> Picker(
      */
     panel: (@Composable (pick: (T) -> Unit) -> Unit)? = null,
     /**
-     * Replaces the row BODY, never its highlight or its click — so a custom
+     * Replaces the row BODY, never its [PickerMark] or its click — so a custom
      * row can not invent a second "this is picked" idiom. The one caller is
      * the assignee picker's avatar (a picker glyph is an icon, never a photo).
      */
@@ -348,7 +390,7 @@ fun <T : Any> Picker(
             items(rows, key = { it.value }) { item ->
                 PickerRow(
                     item = item,
-                    checked = PickerRules.checked(item, value),
+                    mark = PickerDefaults.mark(mode, PickerRules.checked(item, value)),
                     onClick = {
                         val next = PickerRules.select(mode, value, item) ?: return@PickerRow
                         onChange(next)
@@ -364,15 +406,15 @@ fun <T : Any> Picker(
 }
 
 /**
- * ONE picker row: the body over the row's own highlight. Plain on purpose — a
- * picker row is never a card, on any surface, and the ONLY mark a row carries
- * is [PickerDefaults.rowBackground] plus, when it is FULL rather than partial,
- * [PickerDefaults.rowStroke].
+ * ONE picker row: the body under whichever [PickerMark] its arity calls for.
+ * Plain on purpose — a picker row is never a card, on any surface — and the
+ * mark is drawn HERE, outside [body], so a `renderItem` caller can replace the
+ * row's contents without inventing a second "this is picked" idiom.
  */
 @Composable
 private fun <T> PickerRow(
     item: PickerItem<T>,
-    checked: PickerChecked,
+    mark: PickerMark,
     onClick: () -> Unit,
     body: (@Composable RowScope.(PickerItem<T>) -> Unit)? = null,
 ) {
@@ -387,13 +429,25 @@ private fun <T> PickerRow(
             // than the sheet rows beside it.
             .defaultMinSize(minHeight = PickerDefaults.RowHeight)
             .clip(shape)
-            .background(PickerDefaults.rowBackground(checked), shape)
-            .border(GlassTokens.Hairline, PickerDefaults.rowStroke(checked), shape)
+            .background(PickerDefaults.rowBackground(mark), shape)
+            .border(GlassTokens.Hairline, PickerDefaults.rowStroke(mark), shape)
             .clickable(enabled = !item.disabled, onClick = onClick)
             .padding(horizontal = PickerDefaults.RowInnerPadding, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (body != null) body(item) else PickerItemBody(item)
+        if (mark == PickerMark.Check) {
+            // The single arm's whole mark: muted, trailing, and the last thing
+            // in the row — every body above ends in a `weight(1f)` column, so
+            // it lands hard against the row's inner gutter (web's `ml-auto`).
+            Spacer(Modifier.width(PickerDefaults.LeadingGap))
+            Icon(
+                ExpIcons.uiCheck,
+                contentDescription = "Selected",
+                modifier = Modifier.size(PickerDefaults.CheckSize),
+                tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+            )
+        }
     }
 }
 
