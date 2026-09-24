@@ -6,7 +6,7 @@ use gpui::AnyElement;
 
 use domain::rows::User;
 
-use super::{OnPickerChange, Picker, PickerItem};
+use super::{OnPickerChange, Picker, PickerItem, PickerMode};
 
 /// The row that clears the pick.
 pub(crate) const UNASSIGNED_VALUE: &str = "";
@@ -28,14 +28,27 @@ pub(crate) fn assignee_items(members: &[User], allows_none: bool) -> Vec<PickerI
     }
 }
 
+/// `mode`: single for the issue chip / dialog (an empty `value` = unassigned;
+/// `allows_none` offers the `Unassigned` row, which reports an EMPTY set),
+/// multi for the board filter (`allows_none` ignored).
 pub(crate) fn assignee_picker(
     members: &[User],
-    value: Option<String>,
+    mode: PickerMode,
+    value: Vec<String>,
     allows_none: bool,
     trigger: AnyElement,
     on_change: OnPickerChange<String>,
 ) -> Picker<String> {
-    Picker::single(assignee_items(members, allows_none), value, trigger, on_change)
-        .search(true)
-        .empty_text("No members")
+    let picker = match mode {
+        PickerMode::Single => Picker::single(
+            assignee_items(members, allows_none),
+            value.into_iter().next(),
+            trigger,
+            on_change,
+        ),
+        PickerMode::Multi => {
+            Picker::multi(assignee_items(members, false), value, trigger, on_change)
+        }
+    };
+    picker.search(true).empty_text("No members")
 }

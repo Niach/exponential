@@ -32,22 +32,27 @@ fun assigneePickerItems(
     return if (allowsNone) listOf(PickerItem(value = UNASSIGNED_VALUE, label = "Unassigned")) + rows else rows
 }
 
+/**
+ * [mode]: [PickerMode.Single] for the issue properties / create sheet (an
+ * empty [value] = unassigned; [allowsNone] offers the `Unassigned` row, which
+ * reports an EMPTY set), [PickerMode.Multi] for a filter ([allowsNone]
+ * ignored).
+ */
 @Composable
 fun AssigneePicker(
     members: List<AssigneePickerMember>,
-    value: String?,
-    onChange: (String?) -> Unit,
+    value: Set<String>,
+    onChange: (Set<String>) -> Unit,
+    mode: PickerMode = PickerMode.Single,
     allowsNone: Boolean = true,
     trigger: @Composable (open: () -> Unit) -> Unit,
 ) {
+    val single = mode == PickerMode.Single
     Picker(
-        items = assigneePickerItems(members, allowsNone),
-        mode = PickerMode.Single,
-        value = setOfNotNull(value ?: if (allowsNone) UNASSIGNED_VALUE else null),
-        onChange = { picked ->
-            val first = picked.firstOrNull() ?: return@Picker
-            onChange(if (first == UNASSIGNED_VALUE) null else first)
-        },
+        items = assigneePickerItems(members, allowsNone = single && allowsNone),
+        mode = mode,
+        value = if (single && value.isEmpty() && allowsNone) setOf(UNASSIGNED_VALUE) else value,
+        onChange = { picked -> onChange(picked - UNASSIGNED_VALUE) },
         search = true,
         emptyText = "No members",
         title = "Assignee",
