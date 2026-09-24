@@ -381,6 +381,12 @@ interface WorkflowNodeDao {
     @Query("SELECT * FROM workflow_nodes WHERE workflow_id = :workflowId ORDER BY wave, lane")
     fun observeByWorkflow(workflowId: String): Flow<List<WorkflowNodeEntity>>
 
+    // EXP-1050: every node of the TEAM — the Agent page's session tree asks
+    // "which workflow owns this run?", and it has no one workflow to ask
+    // about. Same layout order; `team_id` is the denormalized shape column.
+    @Query("SELECT * FROM workflow_nodes WHERE team_id = :teamId ORDER BY wave, lane")
+    fun observeByTeam(teamId: String): Flow<List<WorkflowNodeEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: WorkflowNodeEntity)
 
