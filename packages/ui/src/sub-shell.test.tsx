@@ -32,12 +32,28 @@ describe(`SubShell (EXP-1029 contract)`, () => {
 })
 
 describe.skip(`SubShell navigation (EXP-1029 → EXP-1020)`, () => {
-  it(`clicking the row slides the child page in place of the WHOLE card`, () => {})
-  it(`the child page carries a back button on top that returns to the card`, () => {})
-  it(`the child page is the same shell: its own GlassGroups of rows`, () => {})
-  it(`a sub-shell inside the child page slides one level deeper, back returns one level`, () => {})
-  it(`the host's other groups are gone while a page is open — never a card inside a card`, () => {})
-  it(`controlled open/onOpenChange drives the page from outside`, () => {})
-  it(`Escape (pointer) and swipe back (phone) return to the card`, () => {})
-  it(`a disabled row never opens`, () => {})
+  it(`clicking the row slides the child page in place of the WHOLE card`, () => {
+    expect.fail(`EXP-1020 implements this case`)
+  })
+  it(`the child page carries a back button on top that returns to the card`, () => {
+    expect.fail(`EXP-1020 implements this case`)
+  })
+  it(`the child page is the same shell: its own GlassGroups of rows`, () => {
+    expect.fail(`EXP-1020 implements this case`)
+  })
+  it(`a sub-shell inside the child page slides one level deeper, back returns one level`, () => {
+    expect.fail(`EXP-1020 implements this case`)
+  })
+  it(`the host's other groups are gone while a page is open — never a card inside a card`, () => {
+    expect.fail(`EXP-1020 implements this case`)
+  })
+  it(`controlled open/onOpenChange drives the page from outside`, () => {
+    expect.fail(`EXP-1020 implements this case`)
+  })
+  it(`Escape (pointer) and swipe back (phone) return to the card`, () => {
+    expect.fail(`EXP-1020 implements this case`)
+  })
+  it(`a disabled row never opens`, () => {
+    expect.fail(`EXP-1020 implements this case`)
+  })
 })
