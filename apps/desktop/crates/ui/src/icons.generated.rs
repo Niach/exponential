@@ -620,6 +620,8 @@ pub const SETTINGS_GENERAL: ExpIcon = ExpIcon::Building2;
 pub const SETTINGS_HELPDESK: ExpIcon = ExpIcon::LifeBuoy;
 /// Registry concept `settings-import` -> Lucide `download`.
 pub const SETTINGS_IMPORT: ExpIcon = ExpIcon::Download;
+/// Registry concept `settings-issues` -> Lucide `list-checks`.
+pub const SETTINGS_ISSUES: ExpIcon = ExpIcon::ListChecks;
 /// Registry concept `settings-labels` -> Lucide `tag`.
 pub const SETTINGS_LABELS: ExpIcon = ExpIcon::Tag;
 /// Registry concept `settings-licenses` -> Lucide `scale`.

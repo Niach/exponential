@@ -141,6 +141,7 @@
     "settings-members": "users",
     "settings-labels": "tag",
     "settings-statuses": "circle-dot",
+    "settings-issues": "list-checks",
     "settings-boards": "square-kanban",
     "settings-billing": "credit-card",
     "settings-storage": "hard-drive",

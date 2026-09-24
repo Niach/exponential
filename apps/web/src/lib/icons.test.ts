@@ -385,8 +385,10 @@ describe(`icon call sites`, () => {
     // EXP-238: + the Personal group (Account, Notifications, API keys).
     // EXP-771: + Helpdesk as its own Features entry beside Feedback widget.
     // EXP-792: + MCP servers (Features), web-only for now.
-    // EXP-630: + Import (Team), web-only like Billing.
-    expect(webNav.size).toBe(15)
+    // EXP-630: + Import (Team), web-only like Billing, and + Issues (Team),
+    // the parent entry Labels and Statuses now nest under (web-only nesting;
+    // the desktop keeps them flat).
+    expect(webNav.size).toBe(16)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
     // EXP-771: + Feedback widget and Helpdesk, now on both clients.

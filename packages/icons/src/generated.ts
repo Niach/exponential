@@ -508,6 +508,7 @@ export const SEMANTIC_ICONS = {
   "settings-general": `building-2`,
   "settings-helpdesk": `life-buoy`,
   "settings-import": `download`,
+  "settings-issues": `list-checks`,
   "settings-labels": `tag`,
   "settings-licenses": `scale`,
   "settings-local-repos": `hard-drive`,

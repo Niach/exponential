@@ -105,6 +105,7 @@ import { Route as TTeamSlugSettingsNotificationsRouteImport } from './routes/t/$
 import { Route as TTeamSlugSettingsMembersRouteImport } from './routes/t/$teamSlug/settings/members'
 import { Route as TTeamSlugSettingsMcpServersRouteImport } from './routes/t/$teamSlug/settings/mcp-servers'
 import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
+import { Route as TTeamSlugSettingsIssuesRouteImport } from './routes/t/$teamSlug/settings/issues'
 import { Route as TTeamSlugSettingsImportRouteImport } from './routes/t/$teamSlug/settings/import'
 import { Route as TTeamSlugSettingsHelpdeskRouteImport } from './routes/t/$teamSlug/settings/helpdesk'
 import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
@@ -629,6 +630,11 @@ const TTeamSlugSettingsLabelsRoute = TTeamSlugSettingsLabelsRouteImport.update({
   path: '/labels',
   getParentRoute: () => TTeamSlugSettingsRouteRoute,
 } as any)
+const TTeamSlugSettingsIssuesRoute = TTeamSlugSettingsIssuesRouteImport.update({
+  id: '/issues',
+  path: '/issues',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+} as any)
 const TTeamSlugSettingsImportRoute = TTeamSlugSettingsImportRouteImport.update({
   id: '/import',
   path: '/import',
@@ -864,6 +870,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
+  '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
@@ -981,6 +988,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
+  '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
@@ -1103,6 +1111,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
+  '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
   '/t/$teamSlug/settings/mcp-servers': typeof TTeamSlugSettingsMcpServersRoute
   '/t/$teamSlug/settings/members': typeof TTeamSlugSettingsMembersRoute
@@ -1225,6 +1234,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/import'
+    | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
@@ -1342,6 +1352,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/import'
+    | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
@@ -1463,6 +1474,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/import'
+    | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
     | '/t/$teamSlug/settings/mcp-servers'
     | '/t/$teamSlug/settings/members'
@@ -2233,6 +2245,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsLabelsRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/issues': {
+      id: '/t/$teamSlug/settings/issues'
+      path: '/issues'
+      fullPath: '/t/$teamSlug/settings/issues'
+      preLoaderRoute: typeof TTeamSlugSettingsIssuesRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/import': {
       id: '/t/$teamSlug/settings/import'
       path: '/import'
@@ -2455,6 +2474,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsGeneralRoute: typeof TTeamSlugSettingsGeneralRoute
   TTeamSlugSettingsHelpdeskRoute: typeof TTeamSlugSettingsHelpdeskRoute
   TTeamSlugSettingsImportRoute: typeof TTeamSlugSettingsImportRoute
+  TTeamSlugSettingsIssuesRoute: typeof TTeamSlugSettingsIssuesRoute
   TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
   TTeamSlugSettingsMcpServersRoute: typeof TTeamSlugSettingsMcpServersRoute
   TTeamSlugSettingsMembersRoute: typeof TTeamSlugSettingsMembersRoute
@@ -2478,6 +2498,7 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsGeneralRoute: TTeamSlugSettingsGeneralRoute,
     TTeamSlugSettingsHelpdeskRoute: TTeamSlugSettingsHelpdeskRoute,
     TTeamSlugSettingsImportRoute: TTeamSlugSettingsImportRoute,
+    TTeamSlugSettingsIssuesRoute: TTeamSlugSettingsIssuesRoute,
     TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
     TTeamSlugSettingsMcpServersRoute: TTeamSlugSettingsMcpServersRoute,
     TTeamSlugSettingsMembersRoute: TTeamSlugSettingsMembersRoute,

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import {
+  flattenSettingsNav,
   NEW_BOARD_LABEL,
   SETTINGS_BOARDS_GROUP,
   SETTINGS_NAV,
@@ -33,7 +34,7 @@ function SettingsLayout() {
   const { team, permissions, config } = useSettingsPage(teamSlug)
   const navContext = { isCloud: Boolean(config?.isCloud) }
   const navItems = SETTINGS_NAV.flatMap((group) =>
-    group.items.filter((item) => item.visible(permissions, navContext))
+    flattenSettingsNav(group.items).filter((item) => item.visible(permissions, navContext))
   )
   // EXP-862: the Boards group lists every board, here as well as in the
   // sidebar panel — this strip is the ONLY settings nav on a phone.
@@ -126,7 +127,7 @@ function SettingsLayout() {
                   )}
                 </>
               )}
-              {group.items
+              {flattenSettingsNav(group.items)
                 .filter((item) => item.visible(permissions, navContext))
                 .map((item) => (
                   <Link

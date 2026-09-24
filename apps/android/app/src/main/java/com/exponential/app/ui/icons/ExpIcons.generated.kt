@@ -8233,6 +8233,8 @@ public object ExpIcons {
     public val settingsHelpdesk: ImageVector get() = `life-buoy`
     /** Concept `settings-import`. */
     public val settingsImport: ImageVector get() = `download`
+    /** Concept `settings-issues`. */
+    public val settingsIssues: ImageVector get() = `list-checks`
     /** Concept `settings-labels`. */
     public val settingsLabels: ImageVector get() = `tag`
     /** Concept `settings-licenses`. */

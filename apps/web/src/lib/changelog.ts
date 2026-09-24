@@ -33,6 +33,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Relations come along**: sub-issues, blocking, duplicate and related links are recreated between imported issues.
 - **Archived issues**: an option puts a source's archived issues on a separate board per team, archived once the import is through, or leaves them out.
 - **Estimates**: a team setting picks an estimate scale (exponential, fibonacci, linear or t-shirt sizes), off by default. With one on, issues take an estimate from their properties row, over the API and the agent tools; a Linear import brings its estimates and switches the matching scale on.
+- **Settings**: a new Issues section holds the estimate scale and the pull request automation, with Labels and Statuses as its sub-pages.
 - **Resumable and repeatable**: an import that stops resumes where it left off, and running it again adds nothing twice.
 - **Bundles**: the same importer accepts a provider-neutral bundle over the API, so other trackers can follow without a new code path.`,
   },
