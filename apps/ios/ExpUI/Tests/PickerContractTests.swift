@@ -1,5 +1,6 @@
 import SwiftUI
 import XCTest
+import ExpCore
 import ExpUI
 
 // EXP-1029 contract — the shared picker API on iOS. The live cases pin what
@@ -32,7 +33,7 @@ final class PickerContractTests: XCTestCase {
             AssigneePicker<EmptyView>.items([AssigneePickerMember(id: "u", name: "Ada")], allowsNone: true).map(\.label),
             ["Unassigned", "Ada"]
         )
-        XCTAssertEqual(IconPicker.items(for: .device).count, 6)
+        XCTAssertEqual(IconPicker.items(for: .device).count, DomainContract.deviceIconValues.count)
     }
 
     func testEveryTypedPickerRendersThroughThePrimitive() throws {

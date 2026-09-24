@@ -109,8 +109,8 @@ public enum DomainContract {
     public static let workflowLaunchClaudeStrongModel: String = "fable"
     public static let workflowLaunchCodexModel: String = "gpt-5.6-sol"
     public static let workflowLaunchCodexStrongModel: String = "gpt-5.6-luna"
-    public static let deviceAgentDefaultsModel: String = "opus"
-    public static let deviceAgentDefaultsSubagentModel: String = "opus"
+    public static let deviceAgentDefaultsModel: String = "fable"
+    public static let deviceAgentDefaultsSubagentModel: String = ""
     public static let deviceAgentDefaultsWorkflowModel: String = "opus"
     public static let deviceAgentDefaultsWorkflowStrongModel: String = "fable"
     public static let actionInputsMax: Int = 10

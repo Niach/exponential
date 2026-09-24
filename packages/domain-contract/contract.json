@@ -286,8 +286,8 @@
     "onlineWindowSeconds": 90
   },
   "deviceAgentDefaults": {
-    "model": "opus",
-    "subagentModel": "opus",
+    "model": "fable",
+    "subagentModel": "",
     "workflowModel": "opus",
     "workflowStrongModel": "fable"
   },

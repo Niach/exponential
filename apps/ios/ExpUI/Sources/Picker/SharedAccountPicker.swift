@@ -31,7 +31,7 @@ public struct AccountPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    public static func items(_ options: [AccountOption]) -> [PickerItem<String>] {
+    nonisolated public static func items(_ options: [AccountOption]) -> [PickerItem<String>] {
         options.map { option in
             PickerItem(value: option.id, label: option.email, keywords: [option.email, option.agent])
         }

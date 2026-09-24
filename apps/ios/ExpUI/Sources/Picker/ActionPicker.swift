@@ -37,7 +37,7 @@ public struct ActionPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    public static func items(_ actions: [ActionPickerAction]) -> [PickerItem<String>] {
+    nonisolated public static func items(_ actions: [ActionPickerAction]) -> [PickerItem<String>] {
         actions.map { action in
             PickerItem(value: action.id, label: action.name, icon: action.icon, description: action.description)
         }

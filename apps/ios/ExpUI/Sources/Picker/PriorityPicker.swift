@@ -42,7 +42,7 @@ public struct PriorityPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    public static func items(_ options: [PriorityPickerOption]) -> [PickerItem<String>] {
+    nonisolated public static func items(_ options: [PriorityPickerOption]) -> [PickerItem<String>] {
         options.map { option in
             PickerItem(
                 value: option.value,
