@@ -53,6 +53,31 @@ describe(`WorkFaceToggle`, () => {
     expect(onRun).toHaveBeenCalled()
   })
 
+  // EXP-1024: the workflow node panel reuses the toggle as a way OUT of the
+  // graph — no face is on show, so no segment is active, and every one of
+  // them still selects.
+  it(`a null face leaves every segment inactive and selectable`, () => {
+    const onIssue = vi.fn()
+    render(
+      <WorkFaceToggle
+        face={null}
+        items={[
+          { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: onIssue },
+          { face: `run`, label: RUN_FACE_LABEL, onSelect: vi.fn() },
+        ]}
+      />
+    )
+    const segments = screen
+      .getByTestId(`work-face-toggle`)
+      .querySelectorAll(`[data-slot="tabs-trigger"]`)
+    expect(segments).toHaveLength(2)
+    for (const segment of segments) {
+      expect(segment.getAttribute(`data-state`)).toBe(`inactive`)
+    }
+    fireEvent.mouseDown(screen.getByText(`Issue`))
+    fireEvent.click(screen.getByText(`Issue`))
+    expect(onIssue).toHaveBeenCalled()
+  })
 })
 
 describe(`WorkHeader`, () => {

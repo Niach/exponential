@@ -441,8 +441,9 @@ impl WorkflowView {
             .into_any_element()
     }
 
-    /// The picked node's panel: its issue, its members, Kind / Risk, the
-    /// `touches` globs and a way into the issue.
+    /// The picked node's panel: its issue, its members, Kind / Risk and a
+    /// way into the issue. EXP-1024: the node's `touches` globs are the
+    /// planner's bookkeeping and stay off the panel (web too).
     fn render_node_panel(
         &mut self,
         row: &domain::rows::WorkflowRow,
@@ -474,19 +475,6 @@ impl WorkflowView {
                 Some(issue_chip_for(target.issue_id.as_deref()?, cx))
             })
             .collect();
-        let touches: Vec<gpui::AnyElement> = node
-            .touches
-            .iter()
-            .map(|glob| {
-                div()
-                    .font_family("monospace")
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(glob.clone()))
-                    .into_any_element()
-            })
-            .collect();
-
         Some(
             v_flex()
                 .w(gpui::px(280.))
@@ -610,15 +598,6 @@ impl WorkflowView {
                         cx,
                     ),
                 ]))
-                .when(!touches.is_empty(), |this| {
-                    this.child(
-                        v_flex()
-                            .min_w_0()
-                            .gap_1()
-                            .child(div().text_xs().text_color(muted).child("Touches"))
-                            .children(touches),
-                    )
-                })
                 // EXP-984: the latest AGENT review — its verdict line in the
                 // tone it earned, the findings themselves, and the command
                 // the reviewer actually ran.

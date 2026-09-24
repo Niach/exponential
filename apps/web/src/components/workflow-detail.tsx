@@ -17,7 +17,6 @@ import {
   GlassGroup,
   GlassSectionHeader,
   Input,
-  SegmentedControl,
   Sheet,
   SheetContent,
   SheetHeader,
@@ -39,11 +38,17 @@ import {
 import { contract } from "@exp/domain-contract"
 import {
   availableFaces,
-  faceLabel,
+  CHANGES_FACE_LABEL,
   type WorkFaceKind,
 } from "@/lib/work-faces"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
 import { IssueChip } from "@/components/issue-chip"
+import {
+  ISSUE_FACE_LABEL,
+  RUN_FACE_LABEL,
+  WorkFaceToggle,
+  type WorkFaceItem,
+} from "@/components/team/work-face-toggle"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { WorkflowGraph } from "@/components/workflow-graph"
 import {
@@ -1151,23 +1156,11 @@ export function WorkflowNodePanel({
           }}
         />
       </GlassGroup>
-      {node.touches.length > 0 && (
-        <div
-          className="flex flex-col gap-0.5"
-          data-testid="workflow-node-touches"
-        >
-          {node.touches.map((glob) => (
-            <span key={glob} className="truncate font-mono text-xs text-muted-foreground">
-              {glob}
-            </span>
-          ))}
-        </div>
-      )}
-      {/* EXP-1002: the node's surfaces read as the app's OWN face switcher —
-          same labels, same order, same `availableFaces` rule as the Work
-          screen — rather than a stack of differently-shaped buttons. Nothing
-          is selected: the reader is on the graph, not on a face, so every
-          segment is a way OUT of it. */}
+      {/* EXP-1024: the node's `touches` globs are the planner's bookkeeping
+          and stay off the panel. EXP-1002: the node's surfaces are the app's
+          OWN face toggle — same labels, same order, same `availableFaces`
+          rule as the Work screen. Nothing is selected: the reader is on the
+          graph, not on a face, so every segment is a way OUT of it. */}
       {issue && (
         <NodeFaceStrip
           teamSlug={teamSlug}
@@ -1296,27 +1289,39 @@ function readNodeReview(value: unknown): PanelReview | null {
   }
 }
 
-// ── The node's faces (EXP-1002) ─────────────────────────────────────────────
+// ── The node's faces (EXP-1002 / EXP-1024) ──────────────────────────────────
 
-/** The face glyphs the phone switcher already uses, so one node reads the same
- *  wherever it is opened from. */
-const FACE_ICON: Record<WorkFaceKind, ReturnType<typeof conceptIcon>> = {
-  issue: conceptIcon(`ui-issue`),
-  run: conceptIcon(`nav-devices`),
-  changes: conceptIcon(`coding-diff`),
-  results: conceptIcon(`work-results`),
+/** A Work-screen face as the toggle's segment: the toggle names the run's
+ *  changes `diff`; `results` never appears here (the panel has no run feed to
+ *  publish from), so it has no segment. */
+function faceItem(
+  face: WorkFaceKind,
+  go: (face: WorkFaceKind) => void
+): WorkFaceItem | null {
+  switch (face) {
+    case `issue`:
+      return { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: () => go(face) }
+    case `run`:
+      return { face: `run`, label: RUN_FACE_LABEL, onSelect: () => go(face) }
+    case `changes`:
+      // The pull request's files, with no live diff to count: the word the
+      // phone switcher's menu uses for the same face.
+      return { face: `diff`, label: CHANGES_FACE_LABEL, onSelect: () => go(face) }
+    case `results`:
+      return null
+  }
 }
 
 /**
- * Issue · Run · Changes for the picked node, as the app's own segmented
- * control. Which segments exist is `availableFaces` — the SAME rule the Work
- * screen applies — so a node with no run shows no Run, and one with no pull
- * request shows no Changes. `results` never appears: the panel has no run
- * feed to publish from.
+ * Issue · Run · Changes for the picked node, as the work header's OWN face
+ * toggle (`WorkFaceToggle`, EXP-1024) — so a node reads exactly like the Work
+ * screen it opens into. Which segments exist is `availableFaces`, the SAME
+ * rule the Work screen applies: a node with no run shows no Run, one with no
+ * pull request no Changes. Under two faces the toggle is absent, as it is
+ * everywhere else: the chip above is already the way into the issue.
  *
  * Nothing is selected on purpose. The reader is on the graph, so the strip is
- * a way out of it rather than a picture of where they are; a value no segment
- * carries leaves them all inactive, which is exactly that.
+ * a way out of it rather than a picture of where they are.
  */
 function NodeFaceStrip({
   teamSlug,
@@ -1338,7 +1343,6 @@ function NodeFaceStrip({
     hasChanges: issue.prNumber != null,
     hasResults: false,
   })
-  if (faces.length === 0) return null
 
   const go = (face: WorkFaceKind) => {
     onNavigate()
@@ -1364,18 +1368,14 @@ function NodeFaceStrip({
     }
   }
 
+  const items = faces
+    .map((face) => faceItem(face, go))
+    .filter((item): item is WorkFaceItem => item !== null)
+  if (items.length < 2) return null
+
   return (
     <div data-testid="workflow-node-faces">
-      <SegmentedControl
-        fill
-        value=""
-        onValueChange={(face) => go(face as WorkFaceKind)}
-        options={faces.map((face) => ({
-          value: face,
-          label: faceLabel(face),
-          icon: FACE_ICON[face],
-        }))}
-      />
+      <WorkFaceToggle face={null} items={items} />
     </div>
   )
 }
