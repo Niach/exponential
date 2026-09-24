@@ -573,17 +573,18 @@ struct WorkScreen: View {
                         ActivityShareSheet(items: [target.text, target.url])
                     }
             }
+            // EXP-1021: the shared board picker, opened by the `…` menu item
+            // rather than by a trigger of its own.
             .background {
-                Color.clear
-                    .sheet(isPresented: $showMoveBoard, onDismiss: promoteMoveTarget) {
-                        if let vm = issueVM, let issue = vm.issue {
-                            MoveBoardPickerSheet(
-                                boards: vm.moveTargetBoards,
-                                selectedId: issue.boardId,
-                                onSelect: { target in pendingMoveTarget = target }
-                            )
-                        }
-                    }
+                if let vm = issueVM, let issue = vm.issue {
+                    MoveBoardPicker(
+                        boards: vm.moveTargetBoards,
+                        selectedId: issue.boardId,
+                        open: $showMoveBoard,
+                        onDismiss: promoteMoveTarget,
+                        onSelect: { target in pendingMoveTarget = target }
+                    )
+                }
             }
             .moveBoardConfirm(
                 target: $moveTarget,

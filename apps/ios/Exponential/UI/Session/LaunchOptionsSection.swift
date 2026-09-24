@@ -111,13 +111,21 @@ struct LaunchOptionsSection: View {
             .listRowBackground(glassFormRowFill)
         } else if showsDevicePicker {
             Section {
-                GlassPickerRow(
-                    deviceTitle,
-                    selection: $deviceId,
-                    options: devices.map(\.deviceId),
-                    label: { id in
-                        devices.first { $0.deviceId == id }
-                            .map(LaunchVocabulary.deviceCaption) ?? id
+                // EXP-1021: the shared `DevicePicker`; the row is its trigger.
+                DevicePicker(
+                    devices: devices.map {
+                        DevicePickerDevice(
+                            id: $0.deviceId, name: LaunchVocabulary.deviceCaption($0)
+                        )
+                    },
+                    value: deviceId,
+                    onChange: { deviceId = $0 },
+                    trigger: {
+                        GlassPickerRowLabel(
+                            deviceTitle,
+                            value: devices.first { $0.deviceId == deviceId }
+                                .map(LaunchVocabulary.deviceCaption) ?? deviceId
+                        )
                     }
                 )
             }

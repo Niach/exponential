@@ -2,10 +2,14 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// "Add relation" (EXP-736), in two stages inside ONE sheet: pick the KIND of
-/// link (the six shared picks, in the shared order), then pick the issue on
-/// the other end from the same searchable list the duplicate picker uses.
-/// Backing out of stage two returns to the picks rather than dismissing.
+/// "Add relation" (EXP-736), in two stages: pick the KIND of link (the six
+/// shared picks, in the shared order), then pick the issue on the other end.
+///
+/// EXP-1021 moved stage two onto the SHARED `IssuePicker`
+/// (`IssueCandidatePicker`, the same rows the duplicate picker shows), so it
+/// stacks OVER this sheet instead of replacing its content. Backing out of it
+/// is a swipe down, which lands back on the picks exactly as the in-content
+/// back button used to — and there is one fewer bespoke list in the app.
 struct RelationPickerSheet: View {
     /// Candidate issues (same team, self excluded), newest first.
     let loadCandidates: () async -> [IssueEntity]
@@ -16,88 +20,61 @@ struct RelationPickerSheet: View {
     let onSelect: (RelationPick, IssueEntity) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    /// nil = stage one (the kind picker).
+    /// nil = stage one (the kind picker) is the only thing on screen.
     @State private var pick: RelationPick?
     @State private var candidates: [IssueEntity]?
-    @State private var searchText = ""
 
     var body: some View {
-        GlassSheetChrome(
-            title: pick?.title ?? "Add relation",
-            pinnedHeader: {
-                if pick != nil {
-                    GlassSheetSearchField(placeholder: "Search issues", text: $searchText)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                }
-            },
-            content: {
-                if let pick {
-                    VStack(alignment: .leading, spacing: 0) {
-                        // The drill-down's own back control lives inside the
-                        // content (EXP-687).
-                        Button {
+        GlassSheetChrome(title: "Add relation") {
+            kindPicker
+                // Stage two is its own presentation, on its own node.
+                .background {
+                    IssueCandidatePicker(
+                        candidates: candidates,
+                        open: Binding(
+                            get: { pick != nil },
+                            set: { isOpen in if !isOpen { pick = nil } }
+                        ),
+                        serverSearch: serverSearch,
+                        onSelect: { issue in
+                            guard let pick else { return }
+                            onSelect(pick, issue)
                             self.pick = nil
-                            searchText = ""
-                        } label: {
-                            HStack(spacing: 6) {
-                                AppIcon(AppIcons.uiBack, size: AppIcon.Size.small)
-                                Text("Add relation")
-                                    .font(.subheadline)
-                            }
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .padding(.horizontal, 20)
-                            .frame(height: 36)
-                            .contentShape(Rectangle())
+                            dismiss()
                         }
-                        .buttonStyle(.plain)
-
-                        IssueCandidateList(
-                            candidates: candidates,
-                            searchText: searchText,
-                            emptyIcon: pick.iconName,
-                            emptyHint: "Pick the issue on the other end of this relation.",
-                            serverSearch: serverSearch,
-                            onSelect: { issue in
-                                onSelect(pick, issue)
-                                dismiss()
-                            }
-                        )
-                    }
-                } else {
-                    kindPicker
+                    )
                 }
-            }
-        )
+        }
     }
 
     private var kindPicker: some View {
-        LazyVStack(spacing: 2) {
+        LazyVStack(spacing: GlassPickerTokens.rowSpacing) {
             ForEach(RelationPick.all) { entry in
                 Button {
-                    searchText = ""
                     pick = entry
                     // Loaded on demand: stage one is instant, and a sheet the
                     // user closes again never touches the store.
-                    Task { candidates = await loadCandidates() }
+                    if candidates == nil {
+                        Task { candidates = await loadCandidates() }
+                    }
                 } label: {
                     HStack(spacing: 10) {
                         AppIcon(entry.iconName, size: AppIcon.Size.medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: 24)
+                            .frame(width: GlassPickerTokens.markWidth)
                         Text(entry.title)
                             .font(.subheadline)
                             .foregroundStyle(.white)
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 44)
+                    .padding(.horizontal, GlassPickerTokens.rowHPadding)
+                    .frame(minHeight: GlassPickerTokens.rowMinHeight)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.bottom, 16)
+        .padding(.horizontal, GlassPickerTokens.listHPadding)
+        .padding(.bottom, GlassPickerTokens.listBottomPadding)
     }
 }

@@ -36,7 +36,13 @@ public func memberDisplayName(_ user: UserEntity?, id: String?, generic: String 
 /// `._-+`; two-plus parts yield the first letter of the first two, otherwise the
 /// first two characters. Never empty (falls back to "?").
 public func memberInitials(_ user: UserEntity?, id: String?) -> String {
-    let nameOrEmail = memberDisplayName(user, id: id, generic: "")
+    memberInitials(forDisplayName: memberDisplayName(user, id: id, generic: ""))
+}
+
+/// The same rule over a display name that did NOT come from a synced row —
+/// the shared assignee picker (EXP-1021) carries a member's name and email as
+/// fields, never the `users` row itself.
+public func memberInitials(forDisplayName nameOrEmail: String) -> String {
     let base = nameOrEmail.trimmingCharacters(in: .whitespacesAndNewlines)
     if base.isEmpty { return "?" }
     let local = base.contains("@") ? String(base.prefix(while: { $0 != "@" })) : base

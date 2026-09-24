@@ -137,15 +137,13 @@ struct IssueListView: View {
                 }
             }
         }
-        .sheet(item: $bulkSheet) { sheet in
-            if let vm = viewModel {
-                bulkSheetContent(sheet, vm: vm)
-            }
+        // EXP-1021: every bulk edit is a TYPED picker driven by `open` — the
+        // bar's glyphs are the triggers, and they live in the toolbar.
+        .background {
+            if let vm = viewModel { bulkPickers(vm) }
         }
-        .sheet(item: $inlineEdit) { edit in
-            if let vm = viewModel {
-                inlineEditContent(edit, vm: vm)
-            }
+        .background {
+            if let vm = viewModel { inlineEditPickers(vm) }
         }
         // EXP-980: the row badge's mini-graph — the issue's transitive
         // blockers and blocked work, a tap on a node opening that issue.
@@ -892,62 +890,100 @@ struct IssueListView: View {
         return assignees.count == 1 ? (assignees.first ?? nil) : nil
     }
 
+    /// One bulk picker's open state (EXP-1021).
+    private func bulkOpen(_ target: BulkSheet) -> Binding<Bool> {
+        Binding(
+            get: { bulkSheet == target },
+            set: { isOpen in if !isOpen, bulkSheet == target { bulkSheet = nil } }
+        )
+    }
+
+    /// The selection bar's property pickers — the SAME typed pickers the issue
+    /// face uses, over the same sheet. Bulk status has no duplicate category:
+    /// bulk marking has no canonical-issue picker (web parity), so the
+    /// vocabulary is `pickableStatuses`.
     @ViewBuilder
-    private func bulkSheetContent(_ sheet: BulkSheet, vm: IssueListViewModel) -> some View {
-        switch sheet {
-        case .status:
-            // No duplicate category: bulk marking has no canonical-issue picker
-            // (web parity).
-            GlassPickerSheet(
-                title: "Status",
-                items: vm.pickableStatuses,
-                selectedID: sharedStatus(vm)?.id,
-                idFor: { $0.id },
-                onSelect: { selected in bulkSetStatus(vm, selected) }
-            ) { status in
-                Label {
-                    Text(status.name)
-                } icon: {
-                    AppIcon(status.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(status.color)
-                }
-            }
-        case .priority:
-            GlassPickerSheet(
-                title: "Priority",
-                items: IssuePriority.displayOrder,
-                selectedID: sharedPriority(vm)?.id,
-                idFor: { $0.id },
-                onSelect: { selected in bulkSetPriority(vm, selected) }
-            ) { priority in
-                Label {
-                    Text(priority.label)
-                } icon: {
-                    AppIcon(priority.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(priority.color)
-                }
-            }
-        case .assignee:
-            AssigneeSheet(
-                users: vm.teamUsers,
-                selectedId: sharedAssigneeId(vm),
-                onSelect: { userId in bulkSetAssignee(vm, userId) }
-            )
-        case .labels:
-            BulkLabelsSheet(
-                labels: vm.teamLabels.sorted {
-                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+    private func bulkPickers(_ vm: IssueListViewModel) -> some View {
+        ZStack {
+            StatusPicker(
+                statuses: vm.pickableStatuses.map(StatusPickerStatus.init),
+                value: sharedStatus(vm).map { [$0.id] } ?? [],
+                onChange: { picked in
+                    guard let selected = vm.pickableStatuses.first(where: { picked.contains($0.id) })
+                    else { return }
+                    bulkSetStatus(vm, selected)
                 },
-                stateFor: { labelId in labelToggleState(vm, labelId: labelId) },
-                onToggle: { labelId, add in
-                    Task { await vm.bulkToggleLabel(issueIds: Array(selectedIds), labelId: labelId, add: add) }
-                }
+                open: bulkOpen(.status),
+                hideTrigger: true,
+                trigger: { EmptyView() }
             )
+
+            PriorityPicker(
+                options: IssuePriority.displayOrder.map(PriorityPickerOption.init),
+                value: sharedPriority(vm).map { [$0.id] } ?? [],
+                onChange: { picked in
+                    guard let selected = IssuePriority.displayOrder
+                        .first(where: { picked.contains($0.id) }) else { return }
+                    bulkSetPriority(vm, selected)
+                },
+                open: bulkOpen(.priority),
+                hideTrigger: true,
+                trigger: { EmptyView() }
+            )
+
+            AssigneePicker(
+                members: vm.teamUsers.map(AssigneePickerMember.init),
+                value: sharedAssigneeId(vm).map { [$0] } ?? [],
+                onChange: { picked in bulkSetAssignee(vm, picked.first) },
+                open: bulkOpen(.assignee),
+                hideTrigger: true,
+                trigger: { EmptyView() }
+            )
+
+            bulkLabelPicker(vm)
         }
     }
 
+    /// The TRI-STATE bulk label picker (EXP-247, EXP-1021): a label every
+    /// selected issue carries reads fully picked, one only SOME of them carry
+    /// reads partial — three weights of the one highlight, no check-and-minus
+    /// column. Tapping removes the label from all when every issue has it,
+    /// else adds it to the ones missing it.
+    @ViewBuilder
+    private func bulkLabelPicker(_ vm: IssueListViewModel) -> some View {
+        let sorted = vm.teamLabels.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        let states = Dictionary(
+            uniqueKeysWithValues: sorted.map { ($0.id, labelToggleState(vm, labelId: $0.id)) }
+        )
+        let onAll = Set(sorted.filter { states[$0.id] == .all }.map(\.id))
+        LabelPicker(
+            labels: sorted.map {
+                LabelPickerLabel(
+                    id: $0.id, name: $0.name, colorHex: $0.color, checked: states[$0.id] ?? .none
+                )
+            },
+            value: onAll,
+            // The picker reports the whole new set; exactly one row moved.
+            onChange: { picked in
+                guard let tapped = picked.symmetricDifference(onAll).first else { return }
+                Task {
+                    await vm.bulkToggleLabel(
+                        issueIds: Array(selectedIds),
+                        labelId: tapped,
+                        add: states[tapped] != .all
+                    )
+                }
+            },
+            open: bulkOpen(.labels),
+            hideTrigger: true,
+            trigger: { EmptyView() }
+        )
+    }
+
     /// Tri-state assignment of one label across the current selection.
-    private func labelToggleState(_ vm: IssueListViewModel, labelId: String) -> LabelToggleState {
+    private func labelToggleState(_ vm: IssueListViewModel, labelId: String) -> PickerChecked {
         let ids = selectedIds
         guard !ids.isEmpty else { return .none }
         let assigned = ids.filter { issueId in
@@ -958,43 +994,45 @@ struct IssueListView: View {
         return .some
     }
 
+    /// One inline edit's open state: the row's own status / priority glyph
+    /// opens the same typed picker the bar does (EXP-1021).
+    private func inlineOpen(_ kind: InlineEdit.Kind) -> Binding<Bool> {
+        Binding(
+            get: { inlineEdit?.kind == kind },
+            set: { isOpen in if !isOpen, inlineEdit?.kind == kind { inlineEdit = nil } }
+        )
+    }
+
     @ViewBuilder
-    private func inlineEditContent(_ edit: InlineEdit, vm: IssueListViewModel) -> some View {
-        switch edit.kind {
-        case .status:
-            GlassPickerSheet(
-                title: "Status",
-                items: vm.pickableStatuses,
-                selectedID: vm.resolved(edit.issue).id,
-                idFor: { $0.id },
-                onSelect: { selected in
-                    Task { await vm.setStatus(issueId: edit.issue.id, resolved: selected) }
-                }
-            ) { status in
-                Label {
-                    Text(status.name)
-                } icon: {
-                    AppIcon(status.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(status.color)
-                }
-            }
-        case .priority:
-            GlassPickerSheet(
-                title: "Priority",
-                items: IssuePriority.displayOrder,
-                selectedID: IssuePriority.from(edit.issue.priority).id,
-                idFor: { $0.id },
-                onSelect: { selected in
-                    Task { await vm.setPriority(issueId: edit.issue.id, priority: selected) }
-                }
-            ) { priority in
-                Label {
-                    Text(priority.label)
-                } icon: {
-                    AppIcon(priority.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(priority.color)
-                }
-            }
+    private func inlineEditPickers(_ vm: IssueListViewModel) -> some View {
+        ZStack {
+            StatusPicker(
+                statuses: vm.pickableStatuses.map(StatusPickerStatus.init),
+                value: inlineEdit.map { [vm.resolved($0.issue).id] } ?? [],
+                onChange: { picked in
+                    guard let issue = inlineEdit?.issue,
+                          let selected = vm.pickableStatuses.first(where: { picked.contains($0.id) })
+                    else { return }
+                    Task { await vm.setStatus(issueId: issue.id, resolved: selected) }
+                },
+                open: inlineOpen(.status),
+                hideTrigger: true,
+                trigger: { EmptyView() }
+            )
+
+            PriorityPicker(
+                options: IssuePriority.displayOrder.map(PriorityPickerOption.init),
+                value: inlineEdit.map { [IssuePriority.from($0.issue.priority).id] } ?? [],
+                onChange: { picked in
+                    guard let issue = inlineEdit?.issue,
+                          let selected = IssuePriority.displayOrder
+                            .first(where: { picked.contains($0.id) }) else { return }
+                    Task { await vm.setPriority(issueId: issue.id, priority: selected) }
+                },
+                open: inlineOpen(.priority),
+                hideTrigger: true,
+                trigger: { EmptyView() }
+            )
         }
     }
 
@@ -1140,7 +1178,9 @@ private struct StartNotice: Equatable {
     let isError: Bool
 }
 
-/// Which bulk-property picker the selection bar is presenting (EXP-247).
+/// Which bulk-property picker the selection bar has open (EXP-247). Every one
+/// of them is a typed picker over the shared sheet now (EXP-1021), so this is
+/// an open-state key rather than a sheet item.
 private enum BulkSheet: String, Identifiable {
     case status
     case priority
@@ -1158,90 +1198,3 @@ private struct InlineEdit: Identifiable {
 
     var id: String { "\(kind.rawValue)-\(issue.id)" }
 }
-
-/// Assignment of one label across a multi-issue selection (EXP-247).
-private enum LabelToggleState {
-    case all
-    case some
-    case none
-}
-
-/// Tri-state bulk label sheet (EXP-247): each row shows a full checkmark when
-/// ALL selected issues carry the label, a `minus` when only SOME do, and
-/// nothing otherwise. Tapping removes the label from all when every issue has
-/// it, else adds it to the ones missing it. The sheet STAYS open across
-/// toggles (dismiss by swipe) — chrome/row styling mirrors the detail
-/// `LabelsSheet`.
-private struct BulkLabelsSheet: View {
-    let labels: [LabelEntity]
-    let stateFor: (String) -> LabelToggleState
-    let onToggle: (String, Bool) -> Void
-
-    @State private var searchText = ""
-
-    private var trimmedQuery: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var filtered: [LabelEntity] {
-        guard !trimmedQuery.isEmpty else { return labels }
-        return labels.filter { $0.name.localizedCaseInsensitiveContains(trimmedQuery) }
-    }
-
-    var body: some View {
-        GlassSheetChrome(
-            title: "Labels",
-            pinnedHeader: {
-                GlassSheetSearchField(placeholder: "Search labels", text: $searchText)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-            },
-            content: {
-                VStack(spacing: 2) {
-                    ForEach(filtered, id: \.id) { label in
-                        let state = stateFor(label.id)
-                        Button {
-                            onToggle(label.id, state != .all)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Circle()
-                                    .fill(Color(hex: label.color) ?? .gray)
-                                    .frame(width: 10, height: 10)
-                                    .frame(width: 24)
-                                Text(label.name)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                                switch state {
-                                case .all:
-                                    AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                                        .foregroundStyle(Color.white)
-                                case .some:
-                                    AppIcon(AppIcons.uiMinus, size: 15, weight: .semibold)
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                case .none:
-                                    EmptyView()
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    if filtered.isEmpty {
-                        Text("No labels yet.")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .padding(.top, 16)
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 16)
-            }
-        )
-    }
-}
-
