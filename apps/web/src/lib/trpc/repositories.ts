@@ -361,7 +361,7 @@ export async function resolveBoardRepository(boardId: string) {
   }
 }
 
-async function loadRepository(repositoryId: string) {
+export async function loadRepository(repositoryId: string) {
   const { db } = await import(`@/db/connection`)
   const [repo] = await db
     .select({

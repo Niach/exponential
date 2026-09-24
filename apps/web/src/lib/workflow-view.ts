@@ -100,18 +100,15 @@ export interface CaptionNode {
 }
 
 /**
- * The ONE caption under a node. A draft has no states worth reading yet, so
- * it names the plan (`Contract`, `Leaf · high risk`); a started workflow names
- * the state, prefixed by the kind only for the two special nodes
- * (`Contract · Running`, `In review`).
+ * The ONE caption under a node: the bare STATE label once the workflow has
+ * started (`Running`, `In review`, `Landed`), nothing at all in a draft. The
+ * kind and the risk are the node panel's (EXP-1014: no `Leaf`, no
+ * `Contract · high risk` under the chips — the chip names the issue, the
+ * caption says only what is happening to it).
  */
 export function workflowNodeCaption(node: CaptionNode, workflowStatus: string): string {
-  if (workflowStatus === `draft`) {
-    const kind = workflowNodeKindLabel(node.kind)
-    return node.risk === `high` ? `${kind} · high risk` : kind
-  }
-  const state = workflowNodeStateLabel(node.state)
-  return node.kind === `leaf` ? state : `${workflowNodeKindLabel(node.kind)} · ${state}`
+  if (workflowStatus === `draft`) return ``
+  return workflowNodeStateLabel(node.state)
 }
 
 /** `EXP-14 +3` for a compound node (a parent run as one batch with its

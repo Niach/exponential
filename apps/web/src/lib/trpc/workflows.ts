@@ -1425,6 +1425,47 @@ export const workflowsRouter = router({
       return openWorkflowFinalPr(ctx.db, input.id, ctx.session.user.id)
     }),
 
+  /**
+   * EXP-1014: MEMBER: squash-merge the workflow's ONE final pull request
+   * (integration branch → the default branch) from the workflow screen, the
+   * one human review of the whole run. GitHub's acceptance completes the
+   * workflow right here (`applyWorkflowFinalPrState`: status `done`,
+   * `ended_at`, every covered issue to the team's PR-merge status), so a
+   * self-hosted instance with no inbound webhook completes too; the webhook's
+   * later echo is a no-op. Idempotent for an already merged PR.
+   */
+  mergeFinalPr: authedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const workflow = await loadWorkflow(input.id)
+      await assertTeamMember(ctx.session.user.id, workflow.teamId)
+      if (!workflow.finalPrUrl || workflow.finalPrNumber == null) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The workflow has no final pull request yet`,
+        })
+      }
+      if (workflow.finalPrState === `merged`) return { merged: true as const }
+      if (!workflow.repositoryId) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The workflow's repository is gone`,
+        })
+      }
+      const { loadRepository, mergeRepositoryPull } = await import(`@/lib/trpc/repositories`)
+      const repo = await loadRepository(workflow.repositoryId)
+      await mergeRepositoryPull({
+        repo,
+        prNumber: workflow.finalPrNumber,
+        userId: ctx.session.user.id,
+        viaAgent: ctx.viaMcp === true,
+        prUrl: workflow.finalPrUrl,
+      })
+      const { applyWorkflowFinalPrState } = await import(`@/lib/workflow-final-pr`)
+      await applyWorkflowFinalPrState(ctx.db, workflow.finalPrUrl, `merged`)
+      return { merged: true as const }
+    }),
+
   delete: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
