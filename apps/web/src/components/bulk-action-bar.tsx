@@ -65,6 +65,12 @@ interface BulkActionBarProps {
   // spans boards, so the selection alone cannot name the team.
   teamId: string
   onClear: () => void
+  // EXP-1048: the sidebar's 17rem list column — glyphs without their words,
+  // and the capsule may fold onto a second line. The IDE's narrow
+  // presentation (`render_bulk_bar(…, labels: false, wrap: true)`). Unset =
+  // today's bar, unchanged (board page, My Issues).
+  iconOnly?: boolean
+  wrap?: boolean
 }
 
 const BULK_CHUNK_SIZE = 200
@@ -98,8 +104,15 @@ export function BulkActionBar({
   users,
   teamId,
   onClear,
+  iconOnly = false,
+  wrap = false,
 }: BulkActionBarProps) {
   const [busy, setBusy] = useState(false)
+  // The phone already runs every action as a bare 32px glyph cell; icon-only
+  // is that same cell at every width.
+  const actionButtonClass = `shrink-0 text-muted-foreground ${
+    iconOnly ? `w-8 px-0!` : `max-md:w-8 max-md:px-0!`
+  }`
   const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
   const {
     options: teamStatusOptions,
@@ -323,7 +336,11 @@ export function BulkActionBar({
         // 360dp bar. `overflow-x-auto` is the safety net, not the plan: a
         // longer count or a translated label scrolls instead of pushing the
         // destructive button off the screen edge (EXP-698 r5 shot review).
-        className="flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto max-md:shadow-lg max-md:shadow-black/40"
+        className={`flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto max-md:shadow-lg max-md:shadow-black/40${
+          // EXP-1048: a column too narrow for one line folds instead of
+          // clipping — the IDE's `wrap` arm.
+          wrap ? ` max-w-full flex-wrap justify-center max-md:h-auto` : ``
+        }`}
         data-testid="bulk-action-bar"
       >
         <Button
@@ -339,22 +356,21 @@ export function BulkActionBar({
           {issues.length}
         </span>
 
-        <Separator
-          orientation="vertical"
-          className="mx-1 h-4! max-md:hidden"
-        />
+        {!iconOnly && (
+          <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
+              className={actionButtonClass}
               disabled={busy}
               aria-label="Set status"
             >
               <StatusIcon className="size-4" />
-              <span className="hidden md:inline">Status</span>
+              {!iconOnly && <span className="hidden md:inline">Status</span>}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -392,12 +408,12 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
+              className={actionButtonClass}
               disabled={busy}
               aria-label="Set priority"
             >
               <Flag className="size-4" />
-              <span className="hidden md:inline">Priority</span>
+              {!iconOnly && <span className="hidden md:inline">Priority</span>}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -427,12 +443,12 @@ export function BulkActionBar({
               <Button
                 variant="ghost"
                 size="sm"
-                className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
+                className={actionButtonClass}
                 disabled={busy}
                 aria-label="Set assignee"
               >
                 <AssigneeIcon className="size-4" />
-                <span className="hidden md:inline">Assignee</span>
+                {!iconOnly && <span className="hidden md:inline">Assignee</span>}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -475,12 +491,12 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
+              className={actionButtonClass}
               disabled={busy}
               aria-label="Set labels"
             >
               <LabelsIcon className="size-4" />
-              <span className="hidden md:inline">Labels</span>
+              {!iconOnly && <span className="hidden md:inline">Labels</span>}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -508,24 +524,26 @@ export function BulkActionBar({
           teamId={teamId}
           issues={issues}
           onClear={onClear}
+          iconOnly={iconOnly}
         />
 
-        <Separator
-          orientation="vertical"
-          className="mx-1 h-4! max-md:hidden"
-        />
+        {!iconOnly && (
+          <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 text-destructive hover:text-destructive max-md:w-8 max-md:px-0!"
+              className={`shrink-0 text-destructive hover:text-destructive ${
+                iconOnly ? `w-8 px-0!` : `max-md:w-8 max-md:px-0!`
+              }`}
               disabled={busy}
               aria-label="Delete selected"
             >
               <Trash2 className="size-4" />
-              <span className="hidden md:inline">Delete</span>
+              {!iconOnly && <span className="hidden md:inline">Delete</span>}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -566,10 +584,12 @@ function BulkStartCodingButton({
   teamId,
   issues,
   onClear,
+  iconOnly = false,
 }: {
   teamId: string
   issues: Issue[]
   onClear: () => void
+  iconOnly?: boolean
 }) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id
@@ -600,6 +620,7 @@ function BulkStartCodingButton({
       currentUserId={currentUserId}
       issueIds={startableIds}
       onClear={onClear}
+      iconOnly={iconOnly}
     />
   )
 }
@@ -617,11 +638,15 @@ export function BulkStartCodingControl({
   currentUserId,
   issueIds,
   onClear,
+  iconOnly = false,
 }: {
   teamId: string
   currentUserId: string
   issueIds: string[]
   onClear: () => void
+  /** EXP-1048: the narrow sidebar bar keeps the accent pill, drops its word
+   *  (the `aria-label` carries the name). */
+  iconOnly?: boolean
 }) {
   const remote = useRemoteStart({ currentUserId, teamId })
   const openComposer = useOpenComposer()
@@ -683,12 +708,14 @@ export function BulkStartCodingControl({
           size="md"
           mode="action"
           primary
-          className="mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs"
+          className={`mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs${
+            iconOnly ? ` px-2!` : ``
+          }`}
           aria-label="Start coding"
           data-testid="bulk-start-coding"
         >
           <StartCodingIcon className="size-4" />
-          Start coding
+          {!iconOnly && `Start coding`}
         </Pill>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" collisionPadding={12} className="w-[14rem]">

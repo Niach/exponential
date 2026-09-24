@@ -123,6 +123,10 @@ fun AgentScreen(
     // page's top bar beside its history button (web/desktop put them in the
     // sidebar after Automations).
     onOpenWorkflows: () -> Unit = {},
+    // EXP-1050: a WORKFLOW group row in the sessions list leads to its
+    // workflow. The default is the list, for a preview or a test that names no
+    // route — a group row that leads nowhere is worse than one a tap away.
+    onOpenWorkflow: (workflowId: String) -> Unit = { onOpenWorkflows() },
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // The sessions under the composer: the Devices tab's own model, reused
@@ -400,6 +404,8 @@ fun AgentScreen(
     var recentOpen by remember { mutableStateOf(false) }
     // EXP-897: which parents have their CHILD runs folded away — hoisted
     // because the list is a LazyListScope extension, not a composable.
+    // EXP-1050: keyed by the TREE node key, so a group folds the same way
+    // (`workflow:<id>` / `stack:<issueId>`, never a session id).
     var collapsedRunning by remember { mutableStateOf(emptySet<String>()) }
     // …and with nothing running, the composer column sits in the MIDDLE of the
     // page instead of hugging the top bar (web `justify-center`, desktop
@@ -661,6 +667,7 @@ fun AgentScreen(
             agentSessionsList(
                 rows = sessionsState.rows,
                 collapsedRunning = collapsedRunning,
+                treeContext = sessionsState.treeContext,
                 onToggleRunning = { id ->
                     collapsedRunning =
                         if (id in collapsedRunning) collapsedRunning - id else collapsedRunning + id
@@ -668,6 +675,7 @@ fun AgentScreen(
                 steerEnabled = steerEnabled == true,
                 onOpenSteer = onOpenSteer,
                 onOpenIssue = onOpenIssue,
+                onOpenWorkflow = onOpenWorkflow,
             )
         }
     }
