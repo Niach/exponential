@@ -116,69 +116,17 @@ public struct AccountPickerTriggerLabel: View {
     }
 }
 
-/// One login's menu row: the brand mark, the email (+ its health badge), a
-/// check on the current pick, and the inline limits under it.
-struct AccountPickerRow: View {
-    let option: AccountOption
-    let mark: Image?
-    let isSelected: Bool
-    let action: () -> Void
-
-    @Environment(\.glassMenuDismiss) private var dismissMenu
-
-    var body: some View {
-        Button {
-            dismissMenu()
-            action()
-        } label: {
-            HStack(spacing: 10) {
-                if let mark {
-                    mark
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 16, height: 16)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(option.email)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let badge = option.health.badgeLabel {
-                            Text(badge)
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .lineLimit(1)
-                        }
-                    }
-                    if let limits = option.limits {
-                        AccountLimitBars(limits: limits)
-                    }
-                }
-                Spacer(minLength: 0)
-                if isSelected {
-                    AppIcon(AppIcons.uiCheck, size: 14)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-            }
-            .padding(.horizontal, GlassMenuTokens.itemHPadding)
-            .padding(.vertical, 8)
-            .frame(
-                maxWidth: .infinity,
-                minHeight: GlassMenuTokens.itemMinHeight,
-                alignment: .leading
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// THE account picker: a `GlassMenu` over every login the machine reports.
-/// A single option is not a choice — it renders as the plain trigger label,
-/// chevron-less, exactly like a lone agent used to.
+/// THE account picker, as every launch surface names it: the trigger label
+/// above, and the SHARED picker (`AccountPicker`, EXP-1021) behind it — one
+/// sheet of plain rows, brand mark + email, the EXP-992 limit bars under
+/// each login. A single option is not a choice, so it renders as the plain
+/// trigger label, chevron-less, exactly like a lone agent used to.
+///
+/// EXP-1030 retired its own `GlassMenu` body (and the checkmarked row that
+/// came with it): a picker that draws its own menu is how the app's pickers
+/// drifted apart in the first place. The shim stays because the launch
+/// surfaces speak of an account picker with a trigger and a lone-option
+/// rule, and neither belongs inside the typed picker.
 public struct AccountPickerMenu: View {
     let options: [AccountOption]
     let selection: AccountOption?
@@ -205,21 +153,22 @@ public struct AccountPickerMenu: View {
 
     public var body: some View {
         if options.count > 1 {
-            GlassMenu {
-                ForEach(options, id: \.key) { option in
-                    AccountPickerRow(
-                        option: option,
-                        mark: mark(option.agent),
-                        isSelected: option.key == current?.key
-                    ) {
-                        onSelect(option)
-                    }
+            AccountPicker(
+                options: options,
+                // Keyed by `<agent>:<profileId>`: the ambient `system` login
+                // repeats across agents, so a profile id alone is not one row.
+                value: current?.key,
+                onChange: { key in
+                    guard let picked = options.first(where: { $0.key == key }) else { return }
+                    onSelect(picked)
+                },
+                mark: mark,
+                trigger: {
+                    AccountPickerTriggerLabel(
+                        option: current, mark: current.flatMap { mark($0.agent) }
+                    )
                 }
-            } label: {
-                AccountPickerTriggerLabel(
-                    option: current, mark: current.flatMap { mark($0.agent) }
-                )
-            }
+            )
             .accessibilityLabel(current?.email ?? "Account")
         } else {
             AccountPickerTriggerLabel(

@@ -61,6 +61,14 @@ public struct IssuePicker<Trigger: View>: View {
     public let open: Binding<Bool>?
     public let hideTrigger: Bool
     public let onDismiss: (() -> Void)?
+    /// EXP-1030 — what an empty list reads as; nil = "No issues". The
+    /// composer's pool says WHY it is empty ("No eligible issues to code").
+    public let emptyText: String?
+    /// EXP-1030 — a block under the rows: the composer's batch guards
+    /// (one repository per run, the batch cap), which caption the list.
+    public let footer: (() -> AnyView)?
+    /// EXP-1030 — an accessibility identifier for the presented sheet.
+    public let sheetIdentifier: String?
     private let trigger: () -> Trigger
 
     public init(
@@ -73,6 +81,9 @@ public struct IssuePicker<Trigger: View>: View {
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
+        emptyText: String? = nil,
+        footer: (() -> AnyView)? = nil,
+        sheetIdentifier: String? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.issues = issues
@@ -84,6 +95,9 @@ public struct IssuePicker<Trigger: View>: View {
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
+        self.emptyText = emptyText
+        self.footer = footer
+        self.sheetIdentifier = sheetIdentifier
         self.trigger = trigger
     }
 
@@ -109,13 +123,15 @@ public struct IssuePicker<Trigger: View>: View {
             value: value,
             onChange: onChange,
             search: true,
-            emptyText: "No issues",
+            emptyText: emptyText ?? "No issues",
             title: "Issues",
             query: query,
             loading: loading,
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,
+            footer: footer,
+            sheetIdentifier: sheetIdentifier,
             trigger: trigger
         )
     }

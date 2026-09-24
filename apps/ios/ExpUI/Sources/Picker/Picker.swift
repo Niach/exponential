@@ -254,6 +254,16 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     /// primitive's, so a custom mark can never invent a second "this is
     /// picked" idiom.
     public let renderMark: ((PickerItem<Value>) -> AnyView?)?
+    /// EXP-1030 — a row's own DETAIL, drawn under its label where the
+    /// description sits: the account picker's inline limit bars (EXP-992),
+    /// which are a drawing and not a string. Like `renderMark` it may not
+    /// touch the row's fill or its stroke, so the selection language stays
+    /// the primitive's.
+    public let renderDetail: ((PickerItem<Value>) -> AnyView?)?
+    /// EXP-1030 — an accessibility identifier for the SHEET, for a surface
+    /// whose flow is pinned by one (the composer's `#` and ▶ tools). The
+    /// trigger keeps `picker`; only the presented list takes this.
+    public let sheetIdentifier: String?
     private let trigger: () -> Trigger
 
     /// The sheet's presentation while no caller controls it. The primitive
@@ -278,6 +288,8 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         panel: (() -> AnyView)? = nil,
         footer: (() -> AnyView)? = nil,
         renderMark: ((PickerItem<Value>) -> AnyView?)? = nil,
+        renderDetail: ((PickerItem<Value>) -> AnyView?)? = nil,
+        sheetIdentifier: String? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.items = items
@@ -297,6 +309,8 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         self.panel = panel
         self.footer = footer
         self.renderMark = renderMark
+        self.renderDetail = renderDetail
+        self.sheetIdentifier = sheetIdentifier
         self.trigger = trigger
     }
 
@@ -339,11 +353,30 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
                 loading: loading,
                 panel: panel,
                 footer: footer,
-                renderMark: renderMark
+                renderMark: renderMark,
+                renderDetail: renderDetail
             )
             // Sheets present outside the host's environment, and the app is
             // dark-forced everywhere else (EXP-687).
             .preferredColorScheme(.dark)
+            .modifier(PickerSheetIdentifier(identifier: sheetIdentifier))
+        }
+    }
+}
+
+/// Names the presented sheet for the UI flows pinned to one, and nothing at
+/// all without an identifier — a modifier rather than an inline `if`, which
+/// would fork the sheet's view identity and re-present it.
+private struct PickerSheetIdentifier: ViewModifier {
+    let identifier: String?
+
+    func body(content: Content) -> some View {
+        if let identifier {
+            content
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(identifier)
+        } else {
+            content
         }
     }
 }
@@ -367,6 +400,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     let panel: (() -> AnyView)?
     let footer: (() -> AnyView)?
     let renderMark: ((PickerItem<Value>) -> AnyView?)?
+    let renderDetail: ((PickerItem<Value>) -> AnyView?)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var localQuery = ""
@@ -429,7 +463,8 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                     GlassPickerSheetRow(
                         item: item,
                         checked: item.checkedState(in: value),
-                        mark: renderMark?(item)
+                        mark: renderMark?(item),
+                        detail: renderDetail?(item)
                     ) {
                         onChange(PickerSelection.picking(item.value, in: value, mode: mode))
                         if PickerSelection.closesOnPick(mode) { dismiss() }
@@ -450,6 +485,8 @@ private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let checked: PickerChecked
     /// A caller-drawn leading slot (an avatar); nil = the item's own mark.
     let mark: AnyView?
+    /// A caller-drawn block under the label (the account limits bars).
+    let detail: AnyView?
     let action: () -> Void
 
     private var fill: Color {
@@ -485,6 +522,7 @@ private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                     }
+                    if let detail { detail }
                 }
                 Spacer(minLength: 0)
             }
