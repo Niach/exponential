@@ -14,7 +14,10 @@ pub(crate) fn account_items(options: &[coding::AccountOption]) -> Vec<PickerItem
     options
         .iter()
         .map(|option| {
+            // EXP-862: an account row says which agent it is with the
+            // brand MARK, never with the agent's name beside the login.
             PickerItem::new(option.account_option_key(), option.email.clone())
+                .icon(crate::coding_selects::agent_mark(option.agent))
                 .keywords(vec![option.email.clone().into(), option.agent.label().into()])
         })
         .collect()

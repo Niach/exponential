@@ -9,11 +9,13 @@
 //! [`NewIssue`] action, the window spec (EXP-288 compact-open + grow cap), and
 //! the titlebar strip's board breadcrumb/select (EXP-287/EXP-449).
 
+use std::rc::Rc;
+
 use gpui::{
-    div, px, size, AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement,
+    px, size, AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement,
     SharedString, Styled, Window,
 };
-use gpui_component::{h_flex, menu::DropdownMenu as _, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
 use crate::actions::NewIssue;
@@ -176,7 +178,7 @@ fn title_board_select(
         let current_id = board.id.clone();
         let team_id = team_id.to_string();
         let view = view.clone();
-        chip_button("create-board-chip", cx)
+        let trigger = chip_button("create-board-chip", cx)
             .icon(icon)
             .child(crate::pickers::chip_label(prefix, false, cx))
             .child(
@@ -184,46 +186,35 @@ fn title_board_select(
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
             )
-            // A plain dropdown menu, not the searchable `board_picker_popover`
-            // — that one needs a host-owned `Entity<InputState>` for its query,
-            // which this `Fn` title closure has nowhere to keep.
-            .dropdown_menu(move |mut menu, _window, cx| {
-                menu = menu.check_side(gpui_component::Side::Right);
-                for board in Store::global(cx).collections().boards_in_team(&team_id, cx) {
-                    let is_current = board.id == current_id;
-                    let tint = board
-                        .color
-                        .as_deref()
-                        .and_then(parse_hex_color)
-                        .unwrap_or(gpui::opaque_grey(0.5, 1.0));
-                    let icon = crate::icons::board_icon(&board).xsmall().text_color(tint);
-                    let name = SharedString::from(board.name.clone());
-                    let picked = board.id.clone();
-                    let view = view.clone();
-                    menu = menu.item(
-                        gpui_component::menu::PopupMenuItem::element(move |_, cx| {
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .child(icon.clone())
-                                .child(
-                                    div()
-                                        .text_color(cx.theme().popover_foreground)
-                                        .child(name.clone()),
-                                )
-                        })
-                        .checked(is_current)
-                        .disabled(is_current)
-                        .on_click(move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                this.set_board_id(picked.clone(), cx);
-                            });
-                        }),
-                    );
-                }
-                menu
-            })
-            .into_any_element()
+            .into_any_element();
+        // EXP-1021: THE board picker, searchable like every other one. This
+        // used to be a plain dropdown menu because the old searchable picker
+        // needed a host-owned `Entity<InputState>` for its query, which this
+        // `Fn` title closure had nowhere to keep — the shared primitive owns
+        // its query, so that reason is gone.
+        crate::picker::deferred(move |window, cx| {
+            let boards = Store::global(cx).collections().boards_in_team(&team_id, cx);
+            crate::picker::board_picker::board_picker(
+                &boards,
+                Some(current_id.clone()),
+                trigger,
+                Rc::new(move |picked, _window, cx| {
+                    let Some(board_id) = picked
+                        .into_iter()
+                        .next()
+                        .filter(|board_id| board_id != &current_id)
+                    else {
+                        return;
+                    };
+                    view.update(cx, |this, cx| {
+                        this.set_board_id(board_id.clone(), cx);
+                    });
+                }),
+            )
+            .id("create-board-picker")
+            .render(window, cx)
+        })
+        .into_any_element()
     };
 
     h_flex()
