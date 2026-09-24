@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
-  AccountPicker,
-  agentLabel,
   Button,
   Combobox,
   conceptIcon,
@@ -24,24 +22,18 @@ import {
   useIsMobile,
 } from "@exp/ui"
 import {
-  WORKFLOW_MAX_PARALLEL_CAP,
-  WORKFLOW_MAX_PARALLEL_DEFAULT,
   wfNodeKindValues,
   wfRiskValues,
-  wfStartOnValues,
-  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT,
   type WfNodeKind,
   type WfRisk,
-  type WfStartOn,
-  type WorkflowLaunchStored,
 } from "@exp/db-schema/domain"
-import { contract } from "@exp/domain-contract"
 import {
   availableFaces,
   CHANGES_FACE_LABEL,
   type WorkFaceKind,
 } from "@/lib/work-faces"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
+import type { WorkflowNodeRun } from "@/lib/workflow-run"
 import { IssueChip } from "@/components/issue-chip"
 import {
   ISSUE_FACE_LABEL,
@@ -51,12 +43,7 @@ import {
 } from "@/components/team/work-face-toggle"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { WorkflowGraph } from "@/components/workflow-graph"
-import {
-  CLI_DEFAULT_EFFORT,
-  CLI_DEFAULT_MODEL,
-  effortLabel,
-  modelLabel,
-} from "@/components/launch-dialog/launch-options-pane"
+import { modelLabel } from "@/components/launch-dialog/launch-options-pane"
 import { relativeTime } from "@/components/comment-rows/format"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -64,15 +51,8 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import { useWorkflowNodeRuns, useWorkflowNodes } from "@/hooks/use-workflows"
-import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
-import { accountOptionKey } from "@/lib/accounts/account-option"
-import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
-import {
-  agentEffortValues,
-  agentModelValues,
-  agentSupportsSubagentModel,
-} from "@/lib/coding-launch-prefs"
+import { modelForNode, normalizeWorkflowLaunch } from "@/lib/workflow-launch"
 import { workflowCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -97,34 +77,32 @@ import {
   CONTRACT_PUBLISHED_LABEL,
   DELETE_WORKFLOW_LABEL,
   DISMISS_NODE_LABEL,
+  FINAL_PR_TITLE,
+  MERGE_FINAL_PR_CONFIRM,
+  MERGE_FINAL_PR_LABEL,
   MERGE_TRAIN_EMPTY,
   MERGE_TRAIN_TITLE,
+  MERGES_IN_FIRST_LABEL,
   METRICS_TITLE,
+  NODE_MODEL_LABEL,
   PAUSE_WORKFLOW_LABEL,
   PLAN_WORKFLOW_LABEL,
   PROPOSED_NODE_NOTE,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
-  CONTRACT_MODEL_LABEL,
-  INTEGRATION_MODEL_LABEL,
-  REVIEW_MODEL_LABEL,
-  RISK_MODEL_LABEL,
-  SAME_AS_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
   START_WORKFLOW_LABEL,
   WITHDRAW_APPROVAL_LABEL,
 } from "@/lib/workflow-view"
 
-// EXP-981: ONE workflow — its name, the shape line, the graph, the node panel
-// beside it and the start configuration under it. Every write is a
-// `workflows.*` mutation whose txId the synced collection echoes back, so the
-// page never keeps a copy of the row.
+// EXP-981: ONE workflow — its name, the shape line, the graph and the node
+// panel beside it. Every write is a `workflows.*` mutation whose txId the
+// synced collection echoes back, so the page never keeps a copy of the row.
 //
 // EXP-982: a draft can be STARTED. The header's actions follow the status
-// (Start · Pause · Resume · Cancel workflow), the configuration turns
-// read-only the moment the workflow leaves draft, the merge train under the
-// graph says what lands next, and the node panel carries the two things only a
+// (Start · Pause · Resume · Cancel workflow), the merge train under the graph
+// says what lands next, and the node panel carries the two things only a
 // person can do: approve a PR for the train, and unstick a failed node.
 //
 // EXP-983: every start rule runs, so the Start picker no longer holds a draft
@@ -132,10 +110,18 @@ import {
 // contract this node published, and the sibling work it merges in first.
 //
 // EXP-984: the run learns to judge itself and to grow. The node panel gains
-// the agent reviewer's latest verdict, the two decisions a follow-up filed
-// mid-run needs (Admit · Dismiss); the
-// configuration gains the model reviews run on; and a started workflow
-// carries its counters under the graph.
+// the agent reviewer's latest verdict and the two decisions a follow-up filed
+// mid-run needs (Admit · Dismiss); a started workflow carries its counters
+// under the graph.
+//
+// EXP-1033: the screen CONFIGURES nothing. The "How it runs" block (agent,
+// four model pins, subagent model, effort, max parallel, gate, start rule)
+// was a settings panel on a picture, and every one of its rows is either
+// derived now (`lib/workflow-launch.ts` picks a node's model from the two
+// models the launch carries) or fixed (`startOn` = `contract`, the agent
+// reviews every node). The one pick a draft still cannot start without — the
+// runner DEVICE — moved up into the header row, and the node panel says which
+// model THIS node runs on as one read-only line.
 
 const WorkflowIcon = conceptIcon(`nav-workflows`)
 const DeleteIcon = conceptIcon(`ui-delete`)
@@ -144,23 +130,14 @@ const StartIcon = conceptIcon(`action-run`)
 const ResumeIcon = conceptIcon(`run-resume`)
 const CancelIcon = conceptIcon(`ui-stop`)
 
-/** The run configuration's labels. Byte-identical ×4 (the brief's words). */
-const START_ON_LABELS: Record<string, string> = {
-  contract: `On contract`,
-  pr_open: `On PR open`,
-  landed: `When landed`,
-}
 const RISK_LABELS: Record<string, string> = {
   low: `Low`,
   medium: `Medium`,
   high: `High`,
 }
-/** EXP-983: the node panel's serialization line. Byte-identical ×4. */
-const MERGES_IN_FIRST_LABEL = `Merges in first`
 
-/** EXP-1002: the phase rows' blank pick — the workflow's own Model, which
- *  is NOT `CLI_DEFAULT_MODEL` (that one means the device's default). */
-const SAME_AS_MODEL = `same-as-model`
+/** The runner device pick's name, in the header and in its sheet. */
+const RUNNER_DEVICE_LABEL = `Runner device`
 
 /** The four status-only mutations, and what to say when one is refused. */
 type WorkflowIntent = `start` | `pause` | `resume` | `cancel`
@@ -171,12 +148,11 @@ const INTENT_ERROR: Record<WorkflowIntent, string> = {
   cancel: `The workflow could not be cancelled`,
 }
 
-/** What one `workflows.update` call may carry. */
+/** What one `workflows.update` call may carry FROM THIS SCREEN: the name and
+ *  the runner device. Never a launch and never a start rule (EXP-1033). */
 interface WorkflowPatch {
   name?: string
   deviceId?: string | null
-  launch?: WorkflowLaunchStored
-  startOn?: WfStartOn
 }
 
 export function WorkflowDetail({
@@ -195,8 +171,8 @@ export function WorkflowDetail({
     [issues]
   )
   const runByNodeId = useWorkflowNodeRuns(workflow.teamId, nodes, issueById)
-  // The runs that are up right now, one tap away: a node's circle says THAT
-  // it runs, this strip is the way in. `nodes` is already in (wave, lane).
+  // The runs that are up right now, one tap away: a node's chip says THAT it
+  // runs, this strip is the way in. `nodes` is already in (wave, lane).
   const liveRuns = nodes.flatMap((node) => {
     const run = runByNodeId.get(node.id)
     return run?.live ? [{ node, run }] : []
@@ -205,6 +181,8 @@ export function WorkflowDetail({
   const [error, setError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [merging, setMerging] = useState(false)
   const openComposer = useOpenComposer()
 
   // A node that left the graph (a replan folded it into a compound one) must
@@ -263,6 +241,26 @@ export function WorkflowDetail({
     }
   }
 
+  // EXP-1033: the ONE human review of the whole run. The synced row carries
+  // the result back (`#42 · Merged`), so nothing is echoed into local state.
+  const mergeFinalPr = async () => {
+    setMergeOpen(false)
+    setError(null)
+    setMerging(true)
+    try {
+      await trpc.workflows.mergeFinalPr.mutate(
+        { id: workflow.id },
+        { context: { skipErrorToast: true } }
+      )
+    } catch (caught) {
+      setError(
+        trpcErrorMessage(caught, `The final pull request could not be merged`)
+      )
+    } finally {
+      setMerging(false)
+    }
+  }
+
   const cycleNote = workflowCycleNote(workflow.metrics)
   const startBlocker = workflowStartBlocker(workflow, workflow.metrics)
   // A cycle already has its own line above the buttons; saying it twice only
@@ -276,6 +274,8 @@ export function WorkflowDetail({
       issueById={issueById}
       teamSlug={teamSlug}
       workflowStatus={workflow.status}
+      launch={workflow.launch}
+      run={runByNodeId.get(selectedNode.id)}
       onError={setError}
       onClose={() => setSelectedNodeId(null)}
     />
@@ -300,6 +300,13 @@ export function WorkflowDetail({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2 pt-1">
+          {/* EXP-1033: the ONE thing this screen still configures — a draft
+              cannot start without the machine that runs it. Everything else
+              the old settings block asked for is derived or fixed. */}
+          <RunnerDevicePick
+            workflow={workflow}
+            onPick={(deviceId) => void save({ deviceId })}
+          />
           {workflow.status === `draft` && (
             <Button
               data-testid="workflow-start"
@@ -427,6 +434,21 @@ export function WorkflowDetail({
               workflow.finalPrNumber
             ),
             url: workflow.finalPrUrl,
+            // EXP-1033: merging it is the run's ONE human review, so the
+            // button sits on the chip that IS the pull request.
+            trailing:
+              workflow.finalPrState === `open` ? (
+                <Button
+                  size="inline"
+                  variant="text"
+                  className="shrink-0 pl-1 font-medium"
+                  disabled={merging}
+                  data-testid="workflow-final-pr-merge"
+                  onClick={() => setMergeOpen(true)}
+                >
+                  {MERGE_FINAL_PR_LABEL}
+                </Button>
+              ) : undefined,
           }}
           runByNodeId={runByNodeId}
           selectedNodeId={selectedNodeId}
@@ -465,7 +487,23 @@ export function WorkflowDetail({
         <MetricsSection metrics={workflow.metrics} />
       )}
 
-      <HowItRunsSection workflow={workflow} onSave={save} />
+      <Dialog open={mergeOpen} onOpenChange={setMergeOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{`${MERGE_FINAL_PR_LABEL} ${FINAL_PR_TITLE.toLowerCase()}`}</DialogTitle>
+            <DialogDescription>{MERGE_FINAL_PR_CONFIRM}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogCancel>Cancel</DialogCancel>
+            <Button
+              data-testid="workflow-final-pr-merge-confirm"
+              onClick={() => void mergeFinalPr()}
+            >
+              {MERGE_FINAL_PR_LABEL}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent className="sm:max-w-md">
@@ -637,27 +675,16 @@ function MetricsSection({ metrics }: { metrics: Record<string, unknown> }) {
   )
 }
 
-/** The launch as the web sends it: every EXP-1002 phase pin explicit, `null`
- *  when unset (the server keeps a pin whose key is absent). */
-export function explicitPhasePins(launch: WorkflowLaunchStored): WorkflowLaunchStored {
-  return {
-    ...launch,
-    contractModel: launch.contractModel ?? null,
-    integrationModel: launch.integrationModel ?? null,
-    riskModel: launch.riskModel ?? null,
-  }
-}
-
-/** The start configuration, persisted field by field with `workflows.update`.
- *  Same vocabulary as the Agent composer's options line — device, agent,
- *  model, subagent model (claude), effort, account — plus the workflow's own
- *  parallelism, gate and start rule. */
-function HowItRunsSection({
+/** EXP-1033: the runner DEVICE, the one pick this screen still makes — and
+ *  the only reason a ready draft ever refuses to start. It sits in the header
+ *  row as a property pill, editable while the workflow is a draft and frozen
+ *  after (the engine has been cutting branches off it since). */
+function RunnerDevicePick({
   workflow,
-  onSave,
+  onPick,
 }: {
   workflow: SyncedWorkflow
-  onSave: (patch: WorkflowPatch) => void | Promise<void>
+  onPick: (deviceId: string) => void
 }) {
   const { data: session } = useSession()
   const remote = useRemoteStart({
@@ -665,275 +692,32 @@ function HowItRunsSection({
     teamId: workflow.teamId,
   })
   const devices = remote.devices ?? []
-  const device = devices.find(
-    (candidate) => candidate.deviceId === workflow.deviceId
-  )
-  const launch = workflow.launch ?? {}
-  const agent = launch.agent || contract.codingAgent.values[0]!
-  // `workflows.update` replaces the launch whole, EXCEPT the three phase pins:
-  // there an ABSENT key means "keep what is stored" (older clients never send
-  // them), so this sender always names all three — `null` is how one clears.
-  const patchLaunch = (patch: Partial<WorkflowLaunchStored>) =>
-    void onSave({ launch: explicitPhasePins({ ...launch, ...patch }) })
-
-  // A different agent has a different model vocabulary, so every model pin is
-  // re-seeded from THAT agent's shipped split rather than blanked (stale
-  // values would only be refused by the router). Effort is cleared: it has no
-  // shipped default.
-  const agentSwitchPatch = (value: string): Partial<WorkflowLaunchStored> => ({
-    model: null,
-    contractModel: null,
-    integrationModel: null,
-    riskModel: null,
-    subagentModel: null,
-    ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[value],
-    agent: value,
-    effort: null,
-  })
-
-  // EXP-872: ONE account row — the machine's flattened logins (both agents,
-  // by email, the device default first); a pick implies the agent. The row
-  // reads the stored pair back: the named profile, else the agent's default
-  // login.
-  const accountOptions = accountOptionsOf(device).map((option) => ({
-    key: accountOptionKey(option),
-    agent: option.agent,
-    email: option.email,
-    hint: healthBadgeLabel(option.health) ?? undefined,
-    limits: option.limits,
-  }))
-  const pickedAccount =
-    accountOptions.find(
-      (option) => option.agent === agent && option.key.endsWith(`:${launch.account}`)
-    ) ?? accountOptions.find((option) => option.agent === agent)
-
-  const agents = device?.agents?.length
-    ? device.agents
-    : [...contract.codingAgent.values]
-
-  // EXP-982: a started workflow's configuration is history — the engine has
-  // been cutting branches off it. Every row stays readable, none of them
-  // writable.
-  const readOnly = workflow.status !== `draft`
-
   return (
-    <section className="flex flex-col" data-testid="workflow-how-it-runs">
-      <GlassSectionHeader label="How it runs" />
-      <GlassGroup>
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Runner device"
-          disabled={readOnly}
-          value={workflow.deviceId}
-          triggerLabel="Select a device"
-          options={devices.map((candidate) => ({
-            value: candidate.deviceId,
-            label: `${candidate.deviceLabel || candidate.deviceId}${
-              candidate.owner ? ` — ${candidate.owner.name}` : ``
-            }`,
-            icon: getDeviceIcon(candidate),
-          }))}
-          onChange={(value) => {
-            if (value !== null) void onSave({ deviceId: value })
-          }}
-        />
-        {accountOptions.length > 0 ? (
-          <AccountPicker
-            variant="row"
-            mobileTitle="Account"
-            disabled={readOnly}
-            value={pickedAccount?.key ?? null}
-            options={accountOptions}
-            onChange={(key) => {
-              const option = accountOptions.find((candidate) => candidate.key === key)
-              if (!option) return
-              const [, id] = key.split(`:`, 2)
-              // A different agent has a different model/effort vocabulary —
-              // stale values would only be refused by the router.
-              patchLaunch({
-                ...(option.agent !== agent ? agentSwitchPatch(option.agent) : {}),
-                account: id && id !== SYSTEM_PROFILE_ID ? id : null,
-              })
-            }}
-          />
-        ) : (
-          <Combobox
-            triggerVariant="row"
-            searchable={false}
-            mobileTitle="Agent"
-            disabled={readOnly}
-            value={agent}
-            options={agents.map((value) => ({
-              value,
-              label: agentLabel(value),
-            }))}
-            onChange={(value) => {
-              if (value !== null) patchLaunch(agentSwitchPatch(value))
-            }}
-          />
-        )}
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Model"
-          disabled={readOnly}
-          value={launch.model || CLI_DEFAULT_MODEL}
-          options={[
-            // A workflow always offers "no model picked" — an agent that
-            // cannot be launched blank (claude) still runs on ITS default, and
-            // a row with no matching option would simply read empty.
-            { value: CLI_DEFAULT_MODEL, label: `Default` },
-            ...agentModelValues(agent).map((value) => ({
-              value,
-              label: modelLabel(value),
-            })),
-          ]}
-          onChange={(value) => {
-            if (value !== null) {
-              patchLaunch({ model: value === CLI_DEFAULT_MODEL ? null : value })
-            }
-          }}
-        />
-        {/* EXP-1002: the pins that may opt OUT of the model above — the two
-            phases, and the risk that outranks them on a `risk: high` node.
-            Blank reads "Same as Model", never the CLI's own default. */}
-        {(
-          [
-            [CONTRACT_MODEL_LABEL, `contractModel`],
-            [INTEGRATION_MODEL_LABEL, `integrationModel`],
-            [RISK_MODEL_LABEL, `riskModel`],
-          ] as const
-        ).map(([label, field]) => (
-          <Combobox
-            key={field}
-            triggerVariant="row"
-            searchable={false}
-            mobileTitle={label}
-            disabled={readOnly}
-            value={launch[field] || SAME_AS_MODEL}
-            options={[
-              { value: SAME_AS_MODEL, label: SAME_AS_MODEL_LABEL },
-              ...agentModelValues(agent).map((value) => ({
-                value,
-                label: modelLabel(value),
-              })),
-            ]}
-            onChange={(value) => {
-              if (value !== null) {
-                patchLaunch({
-                  [field]: value === SAME_AS_MODEL ? null : value,
-                })
-              }
-            }}
-          />
-        ))}
-        {agentSupportsSubagentModel(agent) && (
-          <Combobox
-            triggerVariant="row"
-            searchable={false}
-            mobileTitle="Subagent model"
-            disabled={readOnly}
-            value={launch.subagentModel || CLI_DEFAULT_MODEL}
-            options={[
-              { value: CLI_DEFAULT_MODEL, label: `Default` },
-              ...contract.codingModel.values.map((value) => ({
-                value,
-                label: modelLabel(value),
-              })),
-            ]}
-            onChange={(value) => {
-              if (value !== null) {
-                patchLaunch({
-                  subagentModel: value === CLI_DEFAULT_MODEL ? null : value,
-                })
-              }
-            }}
-          />
-        )}
-        {/* EXP-1010: every node's PR gets an agent review, so the model it
-            runs on is always a question (a `risk: high` node is never
-            reviewed by its own model). */}
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle={REVIEW_MODEL_LABEL}
-          disabled={readOnly}
-          value={launch.reviewModel || CLI_DEFAULT_MODEL}
-          options={[
-            { value: CLI_DEFAULT_MODEL, label: `Default` },
-            ...contract.codingModel.values.map((value) => ({
-              value,
-              label: modelLabel(value),
-            })),
-          ]}
-          onChange={(value) => {
-            if (value !== null) {
-              patchLaunch({
-                reviewModel: value === CLI_DEFAULT_MODEL ? null : value,
-              })
-            }
-          }}
-        />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle={agent === `codex` ? `Reasoning` : `Effort`}
-          disabled={readOnly}
-          value={launch.effort || CLI_DEFAULT_EFFORT}
-          options={[
-            { value: CLI_DEFAULT_EFFORT, label: `CLI default` },
-            ...agentEffortValues(agent).map((value) => ({
-              value,
-              label: effortLabel(value),
-            })),
-          ]}
-          onChange={(value) => {
-            if (value !== null) {
-              patchLaunch({
-                effort: value === CLI_DEFAULT_EFFORT ? null : value,
-              })
-            }
-          }}
-        />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Max parallel"
-          disabled={readOnly}
-          value={String(launch.maxParallel ?? WORKFLOW_MAX_PARALLEL_DEFAULT)}
-          options={Array.from(
-            { length: WORKFLOW_MAX_PARALLEL_CAP },
-            (_, index) => ({
-              value: String(index + 1),
-              label: String(index + 1),
-            })
-          )}
-          onChange={(value) => {
-            if (value !== null) patchLaunch({ maxParallel: Number(value) })
-          }}
-        />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Start"
-          disabled={readOnly}
-          value={workflow.startOn}
-          options={wfStartOnValues.map((value) => ({
-            value: value as string,
-            label: START_ON_LABELS[value] ?? value,
-          }))}
-          onChange={(value) => {
-            if (value !== null) void onSave({ startOn: value as WfStartOn })
-          }}
-        />
-      </GlassGroup>
-    </section>
+    <span className="inline-flex min-w-0" data-testid="workflow-device">
+      <Combobox
+        searchable={false}
+        mobileTitle={RUNNER_DEVICE_LABEL}
+        disabled={workflow.status !== `draft`}
+        value={workflow.deviceId}
+        triggerLabel="Select a device"
+        options={devices.map((candidate) => ({
+          value: candidate.deviceId,
+          label: `${candidate.deviceLabel || candidate.deviceId}${
+            candidate.owner ? ` — ${candidate.owner.name}` : ``
+          }`,
+          icon: getDeviceIcon(candidate),
+        }))}
+        onChange={(value) => {
+          if (value !== null) onPick(value)
+        }}
+      />
+    </span>
   )
 }
 
 /** The selected node: what it is, what it covers, the two picks the planner's
- *  numbers can be corrected with, and — once the workflow runs — the things
+ *  numbers can be corrected with (a draft only; plain readings after, beside
+ *  the model `modelForNode` derives), and — once the workflow runs — the things
  *  only a person does: follow its run, approve its PR for the merge train,
  *  unstick it when it failed. */
 export function WorkflowNodePanel({
@@ -943,6 +727,8 @@ export function WorkflowNodePanel({
   issueById,
   teamSlug,
   workflowStatus,
+  launch,
+  run,
   onError,
   onClose,
 }: {
@@ -954,6 +740,11 @@ export function WorkflowNodePanel({
   issueById: ReadonlyMap<string, Issue>
   teamSlug: string
   workflowStatus: string
+  /** The workflow's stored `launch` jsonb — read through
+   *  `normalizeWorkflowLaunch` for the ONE model line (EXP-1033). */
+  launch: unknown
+  /** This node's synced coding session, when it has one. */
+  run?: WorkflowNodeRun
   onError: (message: string | null) => void
   onClose: () => void
 }) {
@@ -1046,6 +837,14 @@ export function WorkflowNodePanel({
   const canWithdraw =
     !proposed && Boolean(node.approvedAt) && node.state !== `landed`
   const review = readNodeReview(node.review)
+  const draft = workflowStatus === `draft`
+  // EXP-1033: the run's models are the launch's two, and which one THIS node
+  // takes is `modelForNode`'s call — kind and risk decide, nobody pins.
+  const nodeModel = modelForNode(
+    normalizeWorkflowLaunch(launch),
+    node.kind as WfNodeKind,
+    node.risk as WfRisk
+  )
 
   return (
     <div className="flex flex-col gap-3" data-testid="workflow-node-panel">
@@ -1078,6 +877,21 @@ export function WorkflowNodePanel({
         <p className="text-xs text-muted-foreground">
           This issue has not synced yet.
         </p>
+      )}
+      {/* EXP-1033: the node's run is up right now — the same pill the header
+          strip carries, so the panel says it without a second glyph set. */}
+      {run?.live && (
+        <Button variant="outline" size="xs" className="self-start" asChild>
+          <Link
+            to="/t/$teamSlug/sessions/$sessionId"
+            params={{ teamSlug, sessionId: run.sessionId }}
+            onClick={onClose}
+            data-testid="workflow-node-running"
+          >
+            <RunningIndicator state={run.state} working={run.working} />
+            {RUNNING_NOW_LABEL}
+          </Link>
+        </Button>
       )}
       {members.length > 0 && (
         <div className="flex flex-wrap gap-1.5" data-testid="workflow-node-members">
@@ -1125,36 +939,51 @@ export function WorkflowNodePanel({
       {review && (
         <AgentReviewBlock review={review} nodeApproved={Boolean(node.approvedAt)} />
       )}
+      {/* Kind and risk are the PLAN, so they are picks while the workflow is
+          a draft and plain readings after — the server refuses them anyway
+          once the engine has been cutting branches off them (`updateNode`).
+          EXP-1033: the third row is derived, never picked — `modelForNode`
+          says which of the launch's two models THIS node's run spawns on. */}
       <GlassGroup>
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Kind"
-          // The kind shapes the PLAN: the server refuses it once the workflow
-          // started (`updateNode`). Risk stays adjustable.
-          disabled={workflowStatus !== `draft`}
-          value={node.kind}
-          options={wfNodeKindValues.map((value) => ({
-            value: value as string,
-            label: workflowNodeKindLabel(value),
-          }))}
-          onChange={(value) => {
-            if (value !== null) void updateNode({ kind: value as WfNodeKind })
-          }}
-        />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Risk"
-          value={node.risk}
-          options={wfRiskValues.map((value) => ({
-            value: value as string,
-            label: RISK_LABELS[value] ?? value,
-          }))}
-          onChange={(value) => {
-            if (value !== null) void updateNode({ risk: value as WfRisk })
-          }}
-        />
+        {draft ? (
+          <>
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Kind"
+              value={node.kind}
+              options={wfNodeKindValues.map((value) => ({
+                value: value as string,
+                label: workflowNodeKindLabel(value),
+              }))}
+              onChange={(value) => {
+                if (value !== null) void updateNode({ kind: value as WfNodeKind })
+              }}
+            />
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Risk"
+              value={node.risk}
+              options={wfRiskValues.map((value) => ({
+                value: value as string,
+                label: RISK_LABELS[value] ?? value,
+              }))}
+              onChange={(value) => {
+                if (value !== null) void updateNode({ risk: value as WfRisk })
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <NodeReadingRow label="Kind" value={workflowNodeKindLabel(node.kind)} />
+            <NodeReadingRow
+              label="Risk"
+              value={RISK_LABELS[node.risk] ?? node.risk}
+            />
+          </>
+        )}
+        <NodeReadingRow label={NODE_MODEL_LABEL} value={modelLabel(nodeModel)} />
       </GlassGroup>
       {/* EXP-1024: the node's `touches` globs are the planner's bookkeeping
           and stay off the panel. EXP-1002: the node's surfaces are the app's
@@ -1250,6 +1079,22 @@ export function WorkflowNodePanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/** A panel row that only READS: the glass picker row's ladder without the
+ *  chevron (a value nobody can change must not look like a pick). */
+function NodeReadingRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      className="flex items-center gap-3 px-4 py-3"
+      data-testid={`workflow-node-row-${label}`}
+    >
+      <span className="shrink-0 text-sm text-foreground">{label}</span>
+      <span className="ml-auto min-w-0 truncate text-sm text-foreground/70">
+        {value}
+      </span>
     </div>
   )
 }

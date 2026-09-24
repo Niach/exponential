@@ -29,7 +29,10 @@ function WorkflowDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className={`mx-auto w-full max-w-3xl px-4 py-4 ${TAB_BAR_CLEARANCE}`}>
+      {/* EXP-1033: wider than a reading column — the graph fills the width it
+          is given and scales down from there, so a narrow page only ever made
+          the same picture smaller. */}
+      <div className={`mx-auto w-full max-w-5xl px-4 py-4 ${TAB_BAR_CLEARANCE}`}>
         {workflow ? (
           <WorkflowDetail workflow={workflow} teamSlug={teamSlug} />
         ) : (

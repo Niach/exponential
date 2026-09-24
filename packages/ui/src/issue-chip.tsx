@@ -103,3 +103,58 @@ export function IssueChip({
     />
   )
 }
+
+// EXP-1033 — a BATCHED issue as one chip. The workflow graph draws a compound
+// node (a parent run with its sub-issues on one branch) with it, and every
+// other surface that stands for several issues at once (the work header's
+// stack, a batch run's subject) takes the same picture: the front chip with
+// two ghosts of the SAME box peeking out behind it, offset top-right in 3px
+// steps. It wraps a chip rather than being one, so the front chip keeps its
+// own link, its ✕ and its hover preview.
+
+/** How far each ghost sits behind the front chip, front-most last. */
+const STACK_OFFSETS = [6, 3] as const
+
+export function IssueChipStack({
+  children,
+  count,
+  className,
+  testId,
+}: {
+  /** The front chip — an `IssueChip`, or anything chip-shaped. */
+  children: ReactNode
+  /** How many issues ride behind the front one. Omitted = no number (the
+   *  workflow graph's chip already reads `EXP-14 +3`). */
+  count?: number
+  className?: string
+  testId?: string
+}): ReactNode {
+  return (
+    <span
+      data-slot="issue-chip-stack"
+      data-testid={testId}
+      className={cn(`relative inline-flex min-w-0 max-w-full items-center`, className)}
+    >
+      {STACK_OFFSETS.map((offset) => (
+        <span
+          key={offset}
+          aria-hidden
+          className="issue-chip pointer-events-none absolute"
+          style={{ top: -offset, right: -offset, left: offset, bottom: offset }}
+        />
+      ))}
+      <span className="relative flex min-w-0 flex-1">{children}</span>
+      {count !== undefined && count > 0 && (
+        <span className="shrink-0 pl-1 font-mono text-xs text-muted-foreground">
+          {`+${count}`}
+        </span>
+      )}
+    </span>
+  )
+}
+
+// EXP-1029 forbids editing `index.ts` in this workflow and `index.ts` already
+// re-exports this file, so the two graph modules ride along here until the
+// integration node gives them their own lines.
+export * from "./wave-graph"
+export * from "./workflow-graph"
