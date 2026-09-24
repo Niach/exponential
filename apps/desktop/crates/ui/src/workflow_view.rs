@@ -766,6 +766,10 @@ impl WorkflowView {
                             launch.agent = Some(value);
                             launch.effort = None;
                             launch.review_model = None;
+                            // EXP-1029: the strong model belongs to the old
+                            // agent's set too; omitted from the wire, the
+                            // server drops it across the switch.
+                            launch.strong_model = None;
                             launch.model = seed.map(|s| s.model.to_string());
                             let cheap = seed.map(|s| s.cheap.to_string());
                             launch.contract_model = cheap.clone();

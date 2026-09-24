@@ -34,7 +34,7 @@ public struct LabelPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    public static func items(_ labels: [LabelPickerLabel]) -> [PickerItem<String>] {
+    nonisolated public static func items(_ labels: [LabelPickerLabel]) -> [PickerItem<String>] {
         labels.map { label in
             PickerItem(value: label.id, label: label.name, color: label.colorHex.flatMap { Color(hex: $0) })
         }

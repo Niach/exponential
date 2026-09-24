@@ -20,7 +20,7 @@ public enum IconPickerSet: Equatable {
 
 public extension IconPicker {
     /// The set's glyph names as picker items (the glyph is the icon itself).
-    static func items(for set: IconPickerSet) -> [PickerItem<String>] {
+    nonisolated static func items(for set: IconPickerSet) -> [PickerItem<String>] {
         let names: [String]
         switch set {
         case .board: names = DomainContract.boardIconValues

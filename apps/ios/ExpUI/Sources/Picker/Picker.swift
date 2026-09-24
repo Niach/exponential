@@ -19,7 +19,7 @@ import SwiftUI
 // the presentation rules and the typed-picker gate, skipped until EXP-1021.
 
 /// One row of a picker.
-public struct PickerItem<Value: Hashable>: Identifiable {
+public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: Sendable {
     public var id: Value { value }
     /// The stable identity of the row; also what search matches on.
     public let value: Value
@@ -58,7 +58,7 @@ public struct PickerItem<Value: Hashable>: Identifiable {
     public var searchKeywords: [String] { keywords.isEmpty ? [label] : keywords }
 }
 
-public enum PickerMode: Equatable {
+public enum PickerMode: Equatable, Sendable {
     /// Closes on a pick; `onChange` gets the one value.
     case single
     /// Toggles without closing; `onChange` gets the whole new set.
@@ -67,7 +67,7 @@ public enum PickerMode: Equatable {
 
 /// THE picker. Contract stub: renders the trigger only; the sheet comes with
 /// EXP-1021.
-public struct GlassPicker<Value: Hashable, Trigger: View>: View {
+public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     public let items: [PickerItem<Value>]
     public let mode: PickerMode
     /// The current selection (at most one value in `.single`).

@@ -332,6 +332,9 @@ final class WorkflowDetailModel {
             next.riskModel = nil
             next.effort = nil
             next.subagentModel = nil
+            // EXP-1029: the strong model is per agent too; omitted from the
+            // wire, the server drops it across an agent switch.
+            next.strongModel = nil
         }
         update(WorkflowPatch(launch: next))
     }
