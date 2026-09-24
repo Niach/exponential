@@ -1948,7 +1948,8 @@ fn spawn_device_worker(
             Arc::new(Mutex::new(coding::McpReadinessState::new()));
         // EXP-484: `agent_login` runs on its own thread (a PTY that lives
         // for minutes must not block this worker) — the set is what makes a
-        // REDELIVERED command id a no-op instead of a second sign-in.
+        // REDELIVERED command id a no-op instead of a second sign-in. An
+        // `agent_update` (minutes of download) claims the same set.
         let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
         // EXP-765: where a live login's requester drops the authorization
         // code claude's browser page showed (one slot per agent).
@@ -2400,6 +2401,68 @@ fn run_device_command(
                     ),
                 )
             }
+        }
+        // The agent CLI's own self-updater, requested from the device
+        // settings dialog (the FEED-36 twin for claude/codex). Minutes of
+        // download, so it owns its own thread and its own completion like a
+        // sign-in does — and the same claim set, since the pending row rides
+        // every heartbeat until `completeCommand` lands and a second pull
+        // must not start a second updater. Live sessions keep running (the
+        // binary they hold stays mapped); the doctor re-probes right after
+        // so the next beat's `agent_accounts.<agent>.version` moves.
+        coding::AGENT_UPDATE_COMMAND => {
+            let agent = command.payload["agent"].as_str().unwrap_or_default();
+            let Some(agent) = coding::CodingAgent::parse(agent) else {
+                let message = "Malformed command payload.".to_string();
+                if let Err(err) =
+                    api::devices::complete_command(&ctx.trpc, &command.id, false, Some(&message))
+                {
+                    log::debug!("completeCommand failed (redelivery will retry): {err}");
+                }
+                return;
+            };
+            {
+                let Ok(mut guard) = logins_inflight.lock() else {
+                    return;
+                };
+                if !guard.insert(command.id.clone()) {
+                    log::debug!(
+                        "agent_update {} already in flight — ignoring the redelivery",
+                        command.id
+                    );
+                    return;
+                }
+            }
+            let ctx = Arc::clone(ctx);
+            let command_id = command.id.clone();
+            let claimed = Arc::clone(logins_inflight);
+            let doctor_soon = Arc::clone(doctor_soon);
+            let spawned = std::thread::Builder::new()
+                .name("exp-agent-update".to_string())
+                .spawn(move || {
+                    log::info!("agent update (web): running {} update", agent.id());
+                    let (ok, message) = match coding::update_agent(&settings, agent) {
+                        Ok(outcome) => (true, outcome.message()),
+                        Err(error) => (false, error),
+                    };
+                    log::info!("agent update ({}): {message}", agent.id());
+                    if let Err(err) =
+                        api::devices::complete_command(&ctx.trpc, &command_id, ok, Some(&message))
+                    {
+                        log::debug!("completeCommand failed (redelivery will retry): {err}");
+                    }
+                    if let Ok(mut guard) = claimed.lock() {
+                        guard.remove(&command_id);
+                    }
+                    doctor_soon.store(true, Ordering::SeqCst);
+                });
+            if spawned.is_err() {
+                if let Ok(mut guard) = logins_inflight.lock() {
+                    guard.remove(&command.id);
+                }
+                log::info!("agent update: could not spawn the updater thread");
+            }
+            return;
         }
         other => {
             log::info!("device command {other:?} unsupported — reported back");

@@ -269,6 +269,16 @@ export function deviceCanUpdateNow(
   return (device.caps ?? []).includes(`update-now`)
 }
 
+/** The machine runs `agent_update` — the agent CLI's own self-updater
+ * (`claude update` / `codex update`), remotely. Without the cap the row
+ * would sit pending forever, so the device settings' Update section shows
+ * the agent's version alone and hides its "Update" control. */
+export function deviceCanUpdateAgents(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`agent-update`)
+}
+
 /** FEED-36: what a queued update is waiting on — the machine's live sessions
  * as the caller sees them on the synced `coding_sessions` shape, with the
  * issue identifier already joined by the caller. */

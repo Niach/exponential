@@ -1096,6 +1096,10 @@ fn collect_inner(
     apply_health(&mut accounts, &cache, data_dir);
     // EXP-1013: the usage probe may have named (or cleared) an email since.
     crate::agent_profiles::remember_emails(data_dir, &mut accounts);
+    // The install's CLI version rides every top-level row (the device
+    // settings' per-agent Update control reads it) — stamped last, since the
+    // probe rows folded in above carry none.
+    report.stamp_versions(&mut accounts);
     AgentStatusPayload { accounts, usage }
 }
 

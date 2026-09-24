@@ -1220,6 +1220,12 @@ export interface DeviceAgentAccount {
    * absent on pre-profile clients. The top-level fields stay the ACTIVE
    * profile. */
   profiles?: DeviceAgentProfileEntry[]
+  /** The agent CLI's installed version as the device's doctor last read it
+   * (`2.1.281`). A property of the INSTALL, never of a login, so it rides
+   * the top-level row only; absent on a device predating `agent_update`.
+   * The device settings' Update section shows it beside the per-agent
+   * "Update" control. */
+  version?: string
 }
 export interface DeviceAgentProfileEntry {
   id: string
@@ -1331,6 +1337,8 @@ export const deviceAgentAccountsSchema = z.record(
       // EXP-849: see `deviceAgentProfileSchema.health`.
       health: z.string().max(32).nullish(),
       profiles: z.array(deviceAgentProfileSchema.nullish()).nullish(),
+      // The install's CLI version (`DeviceAgentAccount.version`).
+      version: z.string().max(64).nullish(),
     })
     .nullish()
 )
@@ -1546,7 +1554,11 @@ export const deviceWorktrees = pgTable(
 // just re-heartbeats `agent_accounts`; gated on the `agent-login` cap like a
 // remote sign-in) |
 // `update_now` (FEED-36, payload {} — end every live session on the machine
-// and restart on the queued self-update; cap-gated on `update-now`).
+// and restart on the queued self-update; cap-gated on `update-now`) |
+// `agent_update` (payload {agent} — run that agent CLI's own self-updater on
+// the machine, `claude update`/`codex update`, and re-probe so the heartbeat's
+// `agent_accounts.<agent>.version` moves; the result names the version move;
+// cap-gated on `agent-update`, idempotent).
 export const deviceCommands = pgTable(
   `device_commands`,
   {

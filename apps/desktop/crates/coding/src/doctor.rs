@@ -126,10 +126,16 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   device with this cap (keeping it listed with its on-device transcript)
 ///   and still DELETES it elsewhere, since older builds read any `ended` flip
 ///   as a kill of a possibly-live child.
+/// - `agent-update` — this build runs `agent_update`: the agent CLI's own
+///   self-updater (`claude update` / `codex update`) on this machine, then a
+///   doctor re-probe so the heartbeat's `agent_accounts.<agent>.version`
+///   moves. An older build would leave the row pending forever, so the
+///   server refuses to queue it and the settings dialogs hide the per-agent
+///   "Update" control without the cap.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 9 = 22.
-pub const DEVICE_CAPS: [&str; 13] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 14 + 9 = 23.
+pub const DEVICE_CAPS: [&str; 14] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -143,7 +149,12 @@ pub const DEVICE_CAPS: [&str; 13] = [
     "update-now",
     STACKED_START_CAP,
     STALE_END_CAP,
+    AGENT_UPDATE_CAP,
 ];
+
+/// The agent-update cap, by name (see [`DEVICE_CAPS`]); mirrored by the
+/// server's `assertAgentUpdateCap` and the clients' `deviceCanUpdateAgents`.
+pub const AGENT_UPDATE_CAP: &str = "agent-update";
 
 /// EXP-888's stale-end cap, by name (mirrored by the server sweep's
 /// `STALE_END_CAP` in `apps/web/src/lib/coding-session-sweep.ts`).
@@ -430,7 +441,21 @@ impl DoctorReport {
                 accounts.insert(agent.id().to_string(), account);
             }
         }
+        self.stamp_versions(&mut accounts);
         accounts
+    }
+
+    /// Write each installed agent's CLI version onto its top-level account
+    /// row (`AgentAccount::version`). Runs LAST on every path that builds the
+    /// heartbeat map — the collector copies identity fields one by one and
+    /// a probe's row never carries a version, so a stamp taken earlier would
+    /// be lost. An agent the doctor could not run keeps no version.
+    pub fn stamp_versions(&self, accounts: &mut AgentAccounts) {
+        for agent in CodingAgent::ALL {
+            if let Some(account) = accounts.get_mut(agent.id()) {
+                account.version = self.check_for(agent).version.clone();
+            }
+        }
     }
 
     /// Whether the AMBIENT login of `agent` may be asked for usage windows
@@ -559,6 +584,9 @@ impl DoctorReport {
         }
         // EXP-1013: a signed-out login still names its last email.
         crate::agent_profiles::remember_emails(data_dir, &mut accounts);
+        // The rebuilt top-level rows above start from the probe's identity,
+        // which names no version — stamp last.
+        self.stamp_versions(&mut accounts);
         ProfileAccounts {
             accounts,
             usage_eligible,
@@ -1550,11 +1578,50 @@ mod tests {
         // FEED-36: the web's "Update now" shows only for a build that runs it.
         assert!(DEVICE_CAPS.contains(&"update-now"));
         assert!(!ACTION_CAPS.contains(&"update-now"));
+        // The per-agent "Update" control likewise: a BUILD cap, advertised
+        // while signed out (an update is how a signed-out install gets fixed).
+        assert!(DEVICE_CAPS.contains(&AGENT_UPDATE_CAP));
+        assert!(!ACTION_CAPS.contains(&AGENT_UPDATE_CAP));
         assert!(!ACTION_CAPS.contains(&"mcp"));
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"mcp".to_string()));
         assert!(signed_out.contains(&"agent-usage-refresh".to_string()));
         assert!(device_caps(&advert(&["claude"])).len() <= 24);
+    }
+
+    /// The install's CLI version rides each installed agent's top-level
+    /// account row (the device settings' per-agent Update control reads it);
+    /// an agent the doctor could not run keeps none, and stamping never
+    /// invents a row.
+    #[test]
+    fn stamp_versions_names_the_installed_cli_on_the_account_row() {
+        let report = DoctorReport {
+            claude: green(Tool::Claude, "2.1.281"),
+            codex: red(Tool::Codex),
+            git: green(Tool::Git, "2.45.0"),
+        };
+        let mut accounts = AgentAccounts::new();
+        accounts.insert(
+            "claude".to_string(),
+            AgentAccount {
+                signed_in: true,
+                checked_at: "T".into(),
+                ..AgentAccount::default()
+            },
+        );
+        accounts.insert(
+            "codex".to_string(),
+            AgentAccount {
+                signed_in: true,
+                checked_at: "T".into(),
+                version: Some("stale".into()),
+                ..AgentAccount::default()
+            },
+        );
+        report.stamp_versions(&mut accounts);
+        assert_eq!(accounts["claude"].version.as_deref(), Some("2.1.281"));
+        assert_eq!(accounts["codex"].version, None);
+        assert_eq!(accounts.len(), 2);
     }
 
     /// EXP-897: the server refuses a `stack`/`stackOn` start to a device

@@ -56,6 +56,7 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import {
+  deviceCanUpdateAgents,
   deviceCanUpdateNow,
   deviceRowIsOnline,
   deviceUpdateAvailable,
@@ -79,6 +80,11 @@ const UpdateIcon = conceptIcon(`ui-update`)
 
 /** FEED-36: the tooltip on a queued Update button — the daemon's own rules
  * for getting there (every session ends, or one sits idle for 2 hours). */
+/** The tracked-command key of an agent CLI update row (`update claude`) —
+ * shared with the desktop dialog's slot naming. */
+const agentUpdateKey = (agent: string) => `update ${agent}`
+const isAgentUpdateKey = (key: string) => key.startsWith(`update `)
+
 export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the device restarts itself once every session ends or sits idle for 2 hours.`
 
 // EXP-490 autosave cadence. Defaults debounce longer than the name: every
@@ -368,6 +374,10 @@ export function DeviceSettingsDialog({
   const [sectionErrors, setSectionErrors] = useState<Record<string, string>>(
     {}
   )
+  // A finished command's device-reported SUCCESS message, per key — the
+  // per-agent Update rows show theirs ("Claude Code updated: …"); a worktree
+  // removal shows nothing (its row simply vanishes).
+  const [sectionNotes, setSectionNotes] = useState<Record<string, string>>({})
   const runSection = async (section: string, work: () => Promise<void>) => {
     if (busySection) return
     setBusySection(section)
@@ -581,9 +591,11 @@ export function DeviceSettingsDialog({
     input:
       | { kind: `worktree_prune` }
       | { kind: `worktree_remove`; repoFullName: string; branch: string }
+      | { kind: `agent_update`; agent: string }
   ) => {
     if (!deviceId) return
     setSectionErrors((current) => ({ ...current, [key]: `` }))
+    setSectionNotes((current) => ({ ...current, [key]: `` }))
     try {
       const { id } = await trpc.devices.createCommand.mutate(
         {
@@ -623,6 +635,11 @@ export function DeviceSettingsDialog({
               [command.key]:
                 result.result ?? `The device reported a failure.`,
             }))
+          } else if (isAgentUpdateKey(command.key) && result.result) {
+            // The version move is the outcome — the row's version line
+            // follows on the next heartbeat; the message says it now.
+            const note = result.result
+            setSectionNotes((current) => ({ ...current, [command.key]: note }))
           }
         } catch {
           // Transient — keep polling.
@@ -648,7 +665,10 @@ export function DeviceSettingsDialog({
     const present = new Set(worktrees.map((worktree) => commandKey(worktree)))
     setTracked((current) =>
       current.filter(
-        (command) => command.key === `prune` || present.has(command.key)
+        (command) =>
+          command.key === `prune` ||
+          isAgentUpdateKey(command.key) ||
+          present.has(command.key)
       )
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -683,6 +703,17 @@ export function DeviceSettingsDialog({
   const showUpdateButton =
     (device ? showDeviceUpdateButton(device, latestVersion) : false) ||
     requestingUpdate
+  // The agent CLI rows: one per agent the machine reports an install for
+  // (its heartbeat account row), version off that row. The "Update" control
+  // queues `agent_update` (the CLI's own self-updater, run on the machine)
+  // and is hidden without the `agent-update` cap — an older build would
+  // leave the row pending forever — while the version still shows.
+  const agentUpdateRows = contract.codingAgent.values.flatMap((agent) => {
+    const account = row?.agentAccounts?.[agent]
+    return account ? [{ agent, version: account.version ?? null }] : []
+  })
+  const canUpdateAgents = device ? deviceCanUpdateAgents(device) : false
+  const showUpdateSection = kind === `server` || agentUpdateRows.length > 0
 
   const requestUpdate = async () => {
     if (!deviceId || requestingUpdate) return
@@ -1048,71 +1079,138 @@ export function DeviceSettingsDialog({
               )}
             </GlassGroup>
 
-            {/* ── Update (server devices only — desktop apps update
-                themselves, EXP-420/FEED-36) ─────────────────────────────── */}
-            {kind === `server` && (
+            {/* ── Update: the daemon row (server devices only — desktop apps
+                update themselves, EXP-420/FEED-36) plus one row per agent CLI
+                the machine reports, each with its own remote self-update. */}
+            {showUpdateSection && (
               <>
                 <GlassSectionHeader label="Update" />
                 <GlassGroup>
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm text-foreground">
-                        {version ? `v${version}` : `Version unknown`}
-                      </div>
-                      {outdated && (
-                        <div className="truncate text-xs text-amber-500">
-                          Update available: v{latestVersion}
+                  {kind === `server` && (
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm text-foreground">
+                          {version ? `v${version}` : `Version unknown`}
                         </div>
-                      )}
+                        {outdated && (
+                          <div className="truncate text-xs text-amber-500">
+                            Update available: v{latestVersion}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {showUpdateButton && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={
+                              outdated ? `text-amber-500` : `text-muted-foreground`
+                            }
+                            disabled={device?.updateRequested || requestingUpdate}
+                            title={
+                              updateQueued
+                                ? QUEUED_UPDATE_TOOLTIP
+                                : `Ask the daemon to self-update (it restarts when idle)`
+                            }
+                            onClick={() => void requestUpdate()}
+                          >
+                            {updateQueued ? (
+                              // EXP-411: parked behind live sessions — say so
+                              // instead of spinning until the last one closes.
+                              <>
+                                <UpdateIcon />
+                                Queued
+                              </>
+                            ) : device?.updateRequested || requestingUpdate ? (
+                              <>
+                                <LoaderCircle className="animate-spin" />
+                                Updating…
+                              </>
+                            ) : (
+                              <>
+                                <UpdateIcon />
+                                Update
+                              </>
+                            )}
+                          </Button>
+                        )}
+                        {updateQueued && device && deviceCanUpdateNow(device) && (
+                          <Pill
+                            mode="action"
+                            onClick={() => setUpdateNowOpen(true)}
+                            title={`End this device's live sessions and restart it on the new version now.`}
+                          >
+                            <UpdateIcon className="size-3" />
+                            Update now…
+                          </Pill>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {showUpdateButton && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={
-                            outdated ? `text-amber-500` : `text-muted-foreground`
-                          }
-                          disabled={device?.updateRequested || requestingUpdate}
-                          title={
-                            updateQueued
-                              ? QUEUED_UPDATE_TOOLTIP
-                              : `Ask the daemon to self-update (it restarts when idle)`
-                          }
-                          onClick={() => void requestUpdate()}
-                        >
-                          {updateQueued ? (
-                            // EXP-411: parked behind live sessions — say so
-                            // instead of spinning until the last one closes.
-                            <>
-                              <UpdateIcon />
-                              Queued
-                            </>
-                          ) : device?.updateRequested || requestingUpdate ? (
-                            <>
-                              <LoaderCircle className="animate-spin" />
-                              Updating…
-                            </>
-                          ) : (
-                            <>
-                              <UpdateIcon />
-                              Update
-                            </>
+                  )}
+                  {agentUpdateRows.map(({ agent, version: agentVersion }) => {
+                    const key = agentUpdateKey(agent)
+                    const updating = pendingKey(key)
+                    return (
+                      <div
+                        key={agent}
+                        className="flex flex-col gap-0.5 px-4 py-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1 truncate text-sm text-foreground">
+                            {agentLabel(agent)}
+                            {` `}
+                            <span className="text-muted-foreground">
+                              {agentVersion
+                                ? `v${agentVersion}`
+                                : `version unknown`}
+                            </span>
+                          </div>
+                          {canUpdateAgents && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="shrink-0 text-muted-foreground"
+                              disabled={updating}
+                              title={
+                                online
+                                  ? `Run \`${agent} update\` on this device.`
+                                  : `Run \`${agent} update\` on this device (queued until it comes online).`
+                              }
+                              onClick={() =>
+                                void queueCommand(key, {
+                                  kind: `agent_update`,
+                                  agent,
+                                })
+                              }
+                            >
+                              {updating ? (
+                                <>
+                                  <LoaderCircle className="animate-spin" />
+                                  Updating…
+                                </>
+                              ) : (
+                                <>
+                                  <UpdateIcon />
+                                  Update
+                                </>
+                              )}
+                            </Button>
                           )}
-                        </Button>
-                      )}
-                      {updateQueued && device && deviceCanUpdateNow(device) && (
-                        <Pill
-                          mode="action"
-                          onClick={() => setUpdateNowOpen(true)}
-                          title={`End this device's live sessions and restart it on the new version now.`}
-                        >
-                          <UpdateIcon className="size-3" />
-                          Update now…
-                        </Pill>
-                      )}
-                    </div>
-                  </div>
+                        </div>
+                        {sectionErrors[key] ? (
+                          <p className="text-xs text-destructive">
+                            {sectionErrors[key]}
+                          </p>
+                        ) : (
+                          sectionNotes[key] && (
+                            <p className="text-xs text-muted-foreground">
+                              {sectionNotes[key]}
+                            </p>
+                          )
+                        )}
+                      </div>
+                    )
+                  })}
                 </GlassGroup>
                 {updateQueued && (
                   <p className="px-1 text-xs text-amber-500">

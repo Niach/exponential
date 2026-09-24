@@ -174,6 +174,13 @@ pub struct AgentAccount {
     /// ACTIVE profile.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<AgentProfileEntry>,
+    /// The agent CLI's installed version as the doctor last read it
+    /// (`2.1.281`, the bare triple `parse_version_output` keeps). Absent on a
+    /// pre-agent-update device; the device settings' Update section shows it
+    /// beside the per-agent "Update" control. A property of the INSTALL, not
+    /// of any login, so it never lands on a `profiles` row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// One profile's row inside [`AgentAccount::profiles`] — the account
@@ -217,6 +224,9 @@ impl AgentProfileEntry {
             checked_at: self.checked_at.clone(),
             health: self.health.clone(),
             profiles: Vec::new(),
+            // A login row never names the install's version; the doctor
+            // stamps it onto the top-level row last.
+            version: None,
         }
     }
 
@@ -395,6 +405,19 @@ mod tests {
         let decoded: AgentAccount = serde_json::from_str(r#"{"signedIn":true}"#).unwrap();
         assert!(decoded.signed_in);
         assert_eq!(decoded.checked_at, "");
+        assert_eq!(decoded.version, None);
+        // The install's version rides the top-level row only, absent when the
+        // doctor named none.
+        let versioned = AgentAccount {
+            signed_in: true,
+            checked_at: "T".into(),
+            version: Some("2.1.281".into()),
+            ..AgentAccount::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&versioned).unwrap(),
+            r#"{"signedIn":true,"checkedAt":"T","version":"2.1.281"}"#
+        );
     }
 
 

@@ -1240,6 +1240,60 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
+  // `agent_update`: the agent CLI's own self-updater, run on the machine —
+  // the payload names the agent, the cap gates it, a repeat reuses the row.
+  it(`queues agent_update with the agent on a capable device`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-update`] }], []]
+    h.state.insertReturning = [[{ id: `cmd-au` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_update`,
+      agent: `claude`,
+    })
+    expect(result).toEqual({ id: `cmd-au` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `agent_update`,
+      payload: { agent: `claude` },
+    })
+    expect(h.relayPostNudge).toHaveBeenCalled()
+  })
+
+  it(`agent_update needs an agent`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-update`] }]]
+    await expect(
+      caller.createCommand({ deviceId: `dev-1`, kind: `agent_update` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`agent_update refuses a device that does not advertise the cap`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`update-now`] }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_update`,
+        agent: `codex`,
+      })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`reuses the pending row for a duplicate agent_update`, async () => {
+    h.state.selectQueue = [
+      [{ id: `row-1`, caps: [`agent-update`] }],
+      [{ id: `dup-au` }],
+    ]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_update`,
+        agent: `claude`,
+      })
+    ).resolves.toEqual({ id: `dup-au` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
   it(`completeCommand transitions pending → done once; duplicates are tolerated`, async () => {
     h.state.updateReturning = [[{ id: `cmd-9` }], []]
     const first = await caller.completeCommand({
@@ -1378,6 +1432,24 @@ describe(`agent status clamps (EXP-484)`, () => {
     expect(
       clampAgentAccounts({ codex: { signedIn: true, checkedAt: `yesterday` } })
     ).toEqual({ codex: { signedIn: true } })
+  })
+
+  // The install's CLI version rides the top-level row (the device settings'
+  // per-agent Update control reads it); blank means absent, long is cut.
+  it(`keeps the agent CLI version on the top-level row`, () => {
+    expect(
+      clampAgentAccounts({
+        claude: { signedIn: true, version: `2.1.281` },
+        codex: { signedIn: true, version: `` },
+      })
+    ).toEqual({
+      claude: { signedIn: true, version: `2.1.281` },
+      codex: { signedIn: true },
+    })
+    const long = clampAgentAccounts({
+      claude: { signedIn: true, version: `9`.repeat(64) },
+    })
+    expect(long.claude?.version).toHaveLength(64)
   })
 
   // EXP-849: an agent outside contract `codingAgent` (a retired `pi` report
