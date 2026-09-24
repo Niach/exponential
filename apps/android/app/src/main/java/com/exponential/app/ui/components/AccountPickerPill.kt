@@ -264,6 +264,26 @@ internal fun accountOptionsFor(
 }
 
 /**
+ * EXP-1043: [accountOptionsFor] for the DEVICE SETTINGS sheet, where the
+ * default-account row is the machine's "which agent do runs start on"
+ * setting and must therefore always be changeable: every agent in [agents]
+ * that reports no login of its own still contributes its AMBIENT one, so a
+ * machine signed into claude alone can still be pointed at codex. The launch
+ * surfaces keep [accountOptionsFor]'s stricter list — there, an agent with no
+ * login on the machine is not something to start a run on.
+ */
+internal fun deviceAccountOptions(
+    device: SteerDevice?,
+    agents: List<String>,
+): List<AccountOption> {
+    val reported = accountOptionsFor(device, agents)
+    val missing = agents.filter { agent -> reported.none { it.agent == agent } }
+    if (missing.isEmpty()) return reported
+    return reported + ambientAccountOptions(missing, preferred = null)
+        .map { it.copy(isDeviceDefault = false) }
+}
+
+/**
  * The ambient fallback on its own — one `system` option per agent, the
  * [preferred] one first. Split out for the surface that must stay editable
  * with NO machine bound at all (a workflow's runner block, where the agent is

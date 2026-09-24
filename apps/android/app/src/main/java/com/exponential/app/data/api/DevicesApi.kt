@@ -111,6 +111,12 @@ private val launchDefaultsJson = Json {
  * a `@Serializable` class: the server reads an ABSENT key as "an older client
  * that never sends it" and keeps the stored pin. Every other field encodes
  * exactly as [DeviceLaunchDefaults] always did; decoding is untouched.
+ *
+ * EXP-1043: that includes the `workflow` pair ([DeviceWorkflowDefaults]) —
+ * present, it rides as its own object; absent, `explicitNulls = false` leaves
+ * the KEY off, which the server reads as a client that predates the pair and
+ * keeps the stored one rather than wiping it. The settings sheet therefore
+ * sends the pair on EVERY save (the mutation replaces the whole object).
  */
 internal fun setLaunchDefaultsInput(
     deviceId: String,

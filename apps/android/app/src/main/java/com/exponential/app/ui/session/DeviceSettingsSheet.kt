@@ -13,8 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,21 +27,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
+import com.exponential.app.data.api.DeviceWorkflowDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
-import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.AccountPickerPill
-import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
@@ -53,14 +48,18 @@ import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
+import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
+import com.exponential.app.ui.components.SubShell
+import com.exponential.app.ui.components.SubShellHost
 import com.exponential.app.ui.components.SwitchRow
-import com.exponential.app.ui.components.accountOptionsFor
+import com.exponential.app.ui.components.deviceAccountOptions
 import com.exponential.app.ui.components.defaultModelFor
 import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
+import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.components.supportsSubagentModel
@@ -75,14 +74,19 @@ import com.exponential.app.ui.theme.TextEmphasis
 // status-bar inset, no drag handle). Replaces the Rename menu entry: name,
 // the EXP-622 default-machine toggle (which machine every device picker
 // prefills), team sharing (server machines only — the toggle was web-only
-// before), the
-// machine's per-agent launch defaults (SERVER-authoritative: editable while
-// the machine is OFFLINE, it converges on return), and the synced worktree
-// inventory with remove/prune commands (durable queue — an offline machine
-// runs them when it comes back). The EXP-909 follow-up added its last two
-// sections: Update (server daemons only) and Remove, which used to hang off
-// the device row's ⋯ menu — the row keeps ONE control now, the gear that
-// opens this sheet.
+// before) and the machine's per-agent launch defaults (SERVER-authoritative:
+// editable while the machine is OFFLINE, it converges on return). The
+// EXP-909 follow-up added its last two sections: Update (server daemons
+// only) and Remove, which used to hang off the device row's ⋯ menu — the row
+// keeps ONE control now, the gear that opens this sheet.
+//
+// EXP-1043 (EXP-1020's Android half): ONE layout on the four clients. No
+// worktrees — a machine's worktrees are a LOCAL surface, the IDE's own, and
+// the remote command queue that drove them from here went with them. The
+// agent-defaults block ends in a "Workflow settings" SUB-SHELL row (the
+// model pair a new workflow is seeded from, `launch_defaults.workflow`), and
+// "Remove device" is a plain row of the same shell rather than a section of
+// its own.
 //
 // EXP-490: settings sheet, not a form — there is no Cancel and no Save. Edits
 // AUTO-SAVE (debounced in the ViewModel, flushed on blur and on dismiss), and
@@ -109,7 +113,6 @@ fun DeviceSettingsSheet(
 
     LaunchedEffect(device.rowId) { viewModel.bind(device.rowId) }
 
-    val worktrees by viewModel.worktrees.collectAsStateWithLifecycle()
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val nameBusy by viewModel.nameBusy.collectAsStateWithLifecycle()
     val nameError by viewModel.nameError.collectAsStateWithLifecycle()
@@ -118,7 +121,6 @@ fun DeviceSettingsSheet(
     val defaultBusy by viewModel.defaultBusy.collectAsStateWithLifecycle()
     val defaultError by viewModel.defaultError.collectAsStateWithLifecycle()
     val defaultsError by viewModel.defaultsError.collectAsStateWithLifecycle()
-    val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
     val latestVersions by agentsViewModel.latestVersions.collectAsStateWithLifecycle()
     val deviceBusy by agentsViewModel.deviceBusy.collectAsStateWithLifecycle()
     val iconError by agentsViewModel.deviceIconError.collectAsStateWithLifecycle()
@@ -149,7 +151,11 @@ fun DeviceSettingsSheet(
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
-    var removeTarget by remember { mutableStateOf<DeviceWorktreeEntity?>(null) }
+    // EXP-1043: the STORED workflow pair, exactly as the row carries it. What
+    // the pickers show is [workflowDefaults] of it for the DEFAULT agent, so
+    // moving the default account to the other agent falls back to that
+    // agent's contract pair instead of showing a name it cannot run.
+    var workflow by remember { mutableStateOf(device.launchDefaults?.workflow) }
     // "Remove device" waiting on its confirm. The sheet needs no dismiss of
     // its own afterwards: the caller re-resolves the live row, which is gone.
     var confirmRemove by remember { mutableStateOf(false) }
@@ -171,6 +177,7 @@ fun DeviceSettingsSheet(
             defaultAgent = seededDefaultAgent(device, editableAgents)
             defaultAccount = device.launchDefaults?.defaultAccount.orEmpty()
             drafts = editableAgents.associateWith { agentDraft(device, it) }
+            workflow = device.launchDefaults?.workflow
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
         }
     }
@@ -181,13 +188,34 @@ fun DeviceSettingsSheet(
         onDispose { viewModel.flushPending() }
     }
 
+    /**
+     * Queue the WHOLE edited struct — `setLaunchDefaults` replaces the stored
+     * object, so every save carries the workflow pair too (resolved for the
+     * agent it is being saved under) or it would wipe it.
+     */
+    fun queueDefaults(
+        agent: String = defaultAgent,
+        account: String = defaultAccount,
+        next: Map<String, AgentDraft> = drafts,
+        stored: DeviceWorkflowDefaults? = workflow,
+    ) {
+        val (model, strongModel) = workflowDefaults(agent, stored)
+        viewModel.queueDefaults(
+            device.deviceId,
+            buildDefaults(
+                agent,
+                account,
+                editableAgents,
+                next,
+                DeviceWorkflowDefaults(model = model, strongModel = strongModel),
+            ),
+        )
+    }
+
     fun editDraft(agent: String, edit: (AgentDraft) -> AgentDraft) {
         val next = drafts + (agent to edit(drafts[agent] ?: agentDraft(device, agent)))
         drafts = next
-        viewModel.queueDefaults(
-            device.deviceId,
-            buildDefaults(defaultAgent, defaultAccount, editableAgents, next),
-        )
+        queueDefaults(next = next)
     }
 
     // EXP-686: the static sheet title — the machine's own name is the editable
@@ -205,388 +233,376 @@ fun DeviceSettingsSheet(
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
-            // ── Name ─────────────────────────────────────────────────────
-            // EXP-924: ONE identity row — the icon picker then the name, the
-            // board form's layout (a machine IS its glyph and its name). A
-            // pick writes straight through and is drawn optimistically until
-            // the devices shape echoes it back; a failure reverts and captions
-            // this row, exactly where a failed rename lands.
-            SectionHeader("Name", modifier = Modifier.padding(horizontal = 16.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            ) {
-                IconPicker(
-                    // The RESOLVED name, so a machine that never picked one
-                    // shows its kind default selected rather than nothing.
-                    selected = deviceIconName(iconPick ?: device.icon, device.isServer),
-                    onSelect = { picked ->
-                        val previous = iconPick
-                        iconPick = picked
-                        agentsViewModel.setDeviceIcon(device.deviceId, picked) {
-                            iconPick = previous
-                        }
-                    },
-                    pickable = ExpIcons.devicePickable,
-                )
-                Column(modifier = Modifier.weight(1f).glassGroup()) {
+            // EXP-1043: the whole settings list is ONE sub-shell card — a
+            // row that opens (Workflow settings) slides its page in place of
+            // all of it, with a back button on top, rather than nesting a
+            // second card inside the sheet.
+            SubShellHost {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // ── Name ─────────────────────────────────────────────────
+                    // EXP-924: ONE identity row — the icon picker then the name, the
+                    // board form's layout (a machine IS its glyph and its name). A
+                    // pick writes straight through and is drawn optimistically until
+                    // the devices shape echoes it back; a failure reverts and captions
+                    // this row, exactly where a failed rename lands.
+                    SectionHeader("Name", modifier = Modifier.padding(horizontal = 16.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     ) {
-                        GlassTextField(
-                            value = label,
-                            onValueChange = { next ->
-                                label = next.take(MAX_DEVICE_LABEL)
-                                viewModel.queueRename(
-                                    device.deviceId,
-                                    label.trim()
-                                        .takeIf { it.isNotEmpty() && it != device.deviceLabel },
+                        IconPicker(
+                            // The RESOLVED name, so a machine that never picked one
+                            // shows its kind default selected rather than nothing.
+                            selected = deviceIconName(iconPick ?: device.icon, device.isServer),
+                            onSelect = { picked ->
+                                val previous = iconPick
+                                iconPick = picked
+                                agentsViewModel.setDeviceIcon(device.deviceId, picked) {
+                                    iconPick = previous
+                                }
+                            },
+                            pickable = ExpIcons.devicePickable,
+                        )
+                        Column(modifier = Modifier.weight(1f).glassGroup()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                GlassTextField(
+                                    value = label,
+                                    onValueChange = { next ->
+                                        label = next.take(MAX_DEVICE_LABEL)
+                                        viewModel.queueRename(
+                                            device.deviceId,
+                                            label.trim()
+                                                .takeIf { it.isNotEmpty() && it != device.deviceLabel },
+                                        )
+                                    },
+                                    singleLine = true,
+                                    // Inside the group — the group owns the chrome.
+                                    bordered = false,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .onFocusChanged {
+                                            nameFocused = it.isFocused
+                                            if (!it.isFocused) {
+                                                // A rename that arrived while focused
+                                                // was deliberately skipped — catch up
+                                                // unless an edit is owed.
+                                                val hadPending = viewModel.hasPendingRename()
+                                                viewModel.flushPending()
+                                                if (!hadPending) {
+                                                    label = device.deviceLabel
+                                                        .ifBlank { device.deviceId }
+                                                }
+                                            }
+                                        },
                                 )
-                            },
-                            singleLine = true,
-                            // Inside the group — the group owns the chrome.
-                            bordered = false,
-                            modifier = Modifier
-                                .weight(1f)
-                                .onFocusChanged {
-                                    nameFocused = it.isFocused
-                                    if (!it.isFocused) {
-                                        // A rename that arrived while focused
-                                        // was deliberately skipped — catch up
-                                        // unless an edit is owed.
-                                        val hadPending = viewModel.hasPendingRename()
-                                        viewModel.flushPending()
-                                        if (!hadPending) {
-                                            label = device.deviceLabel
-                                                .ifBlank { device.deviceId }
-                                        }
-                                    }
-                                },
-                        )
-                        if (nameBusy) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(Modifier.width(12.dp))
+                                if (nameBusy) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp).padding(end = 2.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                }
+                            }
                         }
                     }
-                }
-            }
-            ErrorCaption(nameError ?: iconError)
-            Spacer(Modifier.height(8.dp))
+                    ErrorCaption(nameError ?: iconError)
+                    Spacer(Modifier.height(8.dp))
 
-            // ── Default machine (EXP-622) ───────────────────────────────
-            OptionGroup {
-                SwitchRow(
-                    title = "Default device",
-                    checked = device.isDefault,
-                    onCheckedChange = { next ->
-                        viewModel.setDefault(device.deviceId, next)
-                    },
-                    enabled = !defaultBusy,
-                )
-            }
-            ErrorCaption(defaultError)
-            Spacer(Modifier.height(8.dp))
-
-            // ── Sharing (server machines only, EXP-432/EXP-481/FEED-33) ─
-            // One switch per team, rendered straight off the live row like
-            // the default-device toggle: a machine may be shared with
-            // several teams at once.
-            if (device.isServer) {
-                SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 16.dp))
-                OptionGroup {
-                    // EXP-994: a grouped list of rows carries a hairline
-                    // between them — a stack of bare switches read as one
-                    // control with several thumbs.
-                    teams.forEachIndexed { index, team ->
-                        if (index > 0) GroupDivider()
+                    // ── Default machine (EXP-622) ───────────────────────────
+                    OptionGroup {
                         SwitchRow(
-                            title = team.name,
-                            checked = device.sharedTeamIds.contains(team.id),
+                            title = "Default device",
+                            checked = device.isDefault,
                             onCheckedChange = { next ->
-                                viewModel.setShared(device.deviceId, team.id, next)
+                                viewModel.setDefault(device.deviceId, next)
                             },
-                            enabled = !shareBusy,
+                            enabled = !defaultBusy,
                         )
                     }
-                }
-                Text(
-                    "Teammates of a shared team can start coding sessions on this " +
-                        "device. Runs are attributed to whoever starts them.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                )
-                ErrorCaption(shareError)
-                Spacer(Modifier.height(8.dp))
-            }
+                    ErrorCaption(defaultError)
+                    Spacer(Modifier.height(8.dp))
 
-            // ── Agent defaults (server-authoritative, EXP-481) ───────────
-            if (!device.online) {
-                Text(
-                    "Applies when the device comes online.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                )
-            }
-            // EXP-872: the SHARED account picker — the same trigger the
-            // composer's options row wears, so "which login" looks the same
-            // wherever it is asked. The machine's default AGENT rides the
-            // picked login; a machine that reports none offers one ambient
-            // option per editable agent so the setting stays editable offline.
-            val accountOptions = accountOptionsFor(device, editableAgents)
-            OptionGroup {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Default account",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    AccountPickerPill(
-                        options = accountOptions,
-                        selectedKey = defaultAccount
-                            .takeIf { it.isNotEmpty() }
-                            ?.let { "$defaultAgent:$it" },
-                        onSelect = { option ->
-                            defaultAgent = option.agent
-                            defaultAccount = option.id
-                            viewModel.queueDefaults(
-                                device.deviceId,
-                                buildDefaults(
-                                    option.agent,
-                                    option.id,
-                                    editableAgents,
-                                    drafts,
-                                ),
-                            )
-                        },
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            // EXP-694: the SAME agent card every launch surface renders — the
-            // embedded agent tabs, model/effort and the toggles, in one
-            // inset-grouped card. EXP-862: NO accounts or usage in here — those
-            // belong to Devices → Accounts, the one surface that owns them.
-            val draft = drafts[agentTab] ?: agentDraft(device, agentTab)
-            LaunchOptionsSection(
-                variant = LaunchOptionsVariant.Device,
-                // The sheet already IS the machine — no "Runs on" row.
-                devices = emptyList(),
-                device = null,
-                onDeviceChange = {},
-                agent = agentTab,
-                availableAgents = editableAgents,
-                onAgentChange = { agentTab = it },
-                model = draft.model,
-                onModelChange = { next -> editDraft(agentTab) { it.copy(model = next) } },
-                effort = draft.effort,
-                onEffortChange = { next -> editDraft(agentTab) { it.copy(effort = next) } },
-                subagentModel = draft.subagentModel,
-                onSubagentModelChange = { next ->
-                    editDraft(agentTab) { it.copy(subagentModel = next) }
-                },
-                ultracode = draft.ultracode,
-                onUltracodeChange = { next ->
-                    editDraft(agentTab) { it.copy(ultracode = next) }
-                },
-                planMode = draft.planMode,
-                onPlanModeChange = { next ->
-                    editDraft(agentTab) { it.copy(planMode = next) }
-                },
-            )
-            ErrorCaption(defaultsError)
-            Spacer(Modifier.height(8.dp))
-
-            // ── Worktrees (EXP-481) ──────────────────────────────────────
-            // 12dp + the header's own 4dp = 16: the label sits 4dp inside the
-            // OptionGroup edge below it, like web and iOS.
-            SectionHeader("Worktrees", modifier = Modifier.padding(horizontal = 16.dp)) {
-                val pruneState = commandStates[PRUNE_COMMAND_KEY]
-                if (worktrees.isNotEmpty()) {
-                    if (pruneState is DeviceCommandUiState.Sending ||
-                        pruneState is DeviceCommandUiState.Running
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
+                    // ── Sharing (server machines only, EXP-432/EXP-481/FEED-33) ─
+                    // One switch per team, rendered straight off the live row like
+                    // the default-device toggle: a machine may be shared with
+                    // several teams at once.
+                    if (device.isServer) {
+                        SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 16.dp))
+                        OptionGroup {
+                            // EXP-994: a grouped list of rows carries a hairline
+                            // between them — a stack of bare switches read as one
+                            // control with several thumbs.
+                            teams.forEachIndexed { index, team ->
+                                if (index > 0) GroupDivider()
+                                SwitchRow(
+                                    title = team.name,
+                                    checked = device.sharedTeamIds.contains(team.id),
+                                    onCheckedChange = { next ->
+                                        viewModel.setShared(device.deviceId, team.id, next)
+                                    },
+                                    enabled = !shareBusy,
+                                )
+                            }
+                        }
+                        Text(
+                            "Teammates of a shared team can start coding sessions on this " +
+                                "device. Runs are attributed to whoever starts them.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                         )
-                    } else {
-                        // EXP-688: icon-only, at the trailing edge of the
-                        // section header (web/desktop/iOS parity), on the one
-                        // 32dp control circle (EXP-698).
-                        CircleIconButton(
-                            ExpIcons.uiClean,
-                            "Prune merged worktrees",
-                            onClick = {
-                                viewModel.pruneWorktrees(device.deviceId, device.online)
-                            },
-                            borderless = true,
+                        ErrorCaption(shareError)
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    // ── Agent defaults (server-authoritative, EXP-481) ───────
+                    if (!device.online) {
+                        Text(
+                            "Applies when the device comes online.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                         )
                     }
-                }
-            }
-            if (!device.online && worktrees.isNotEmpty()) {
-                Text(
-                    "This device is offline — queued changes run when it comes online.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                )
-            }
-            CommandCaption(commandStates[PRUNE_COMMAND_KEY])
-            if (worktrees.isEmpty()) {
-                Text(
-                    "No worktrees reported by this device.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp),
-                )
-            } else {
-                OptionGroup {
-                    worktrees.forEachIndexed { index, worktree ->
-                        if (index > 0) GroupDivider()
-                        WorktreeRow(
-                            worktree = worktree,
-                            state = commandStates["${worktree.repoFullName} ${worktree.branch}"],
-                            onRemove = { removeTarget = worktree },
-                        )
-                    }
-                }
-            }
-
-            // ── Update (server daemons only) ─────────────────────────────
-            // Self-update is a SERVER capability: the desktop app updates
-            // itself through its own channel, so it has no control here. The
-            // row used to carry this; a device list is for curating machines,
-            // and curating one is what this sheet is.
-            if (device.isServer) {
-                Spacer(Modifier.height(8.dp))
-                SectionHeader("Update", modifier = Modifier.padding(horizontal = 16.dp))
-                OptionGroup {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                    // EXP-872: the SHARED account picker — the same trigger the
+                    // composer's options row wears, so "which login" looks the same
+                    // wherever it is asked. The machine's default AGENT rides the
+                    // picked login. EXP-1043: every editable agent contributes at
+                    // least its AMBIENT login here, so the default account is always
+                    // changeable — the setting is about which agent a run starts on,
+                    // and a machine that reports a login for one agent only must not
+                    // lock the other one away.
+                    val accountOptions = deviceAccountOptions(device, editableAgents)
+                    OptionGroup {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                device.version?.let { "v$it" } ?: "Version unknown",
+                                "Default account",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            if (outdated) {
-                                Text(
-                                    "Update available: v$latestVersion",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = NeedsInputAmber,
-                                )
-                            }
+                            Spacer(Modifier.weight(1f))
+                            AccountPickerPill(
+                                options = accountOptions,
+                                selectedKey = defaultAccount
+                                    .takeIf { it.isNotEmpty() }
+                                    ?.let { "$defaultAgent:$it" },
+                                onSelect = { option ->
+                                    defaultAgent = option.agent
+                                    defaultAccount = option.id
+                                    queueDefaults(agent = option.agent, account = option.id)
+                                },
+                            )
                         }
-                        // EXP-420 (web `showDeviceUpdateButton`): a control only
-                        // where the ask can land — an online, registered server
-                        // with a newer version out, or one already updating.
-                        // Otherwise the version line alone is the whole answer.
-                        if (device.online &&
-                            device.registered &&
-                            (outdated || device.updateRequested)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    // EXP-694: the SAME agent card every launch surface renders — the
+                    // embedded agent tabs, model/effort and the toggles, in one
+                    // inset-grouped card. EXP-862: NO accounts or usage in here — those
+                    // belong to Devices → Accounts, the one surface that owns them.
+                    val draft = drafts[agentTab] ?: agentDraft(device, agentTab)
+                    LaunchOptionsSection(
+                        variant = LaunchOptionsVariant.Device,
+                        // The sheet already IS the machine — no "Runs on" row.
+                        devices = emptyList(),
+                        device = null,
+                        onDeviceChange = {},
+                        agent = agentTab,
+                        availableAgents = editableAgents,
+                        onAgentChange = { agentTab = it },
+                        model = draft.model,
+                        onModelChange = { next -> editDraft(agentTab) { it.copy(model = next) } },
+                        effort = draft.effort,
+                        onEffortChange = { next -> editDraft(agentTab) { it.copy(effort = next) } },
+                        subagentModel = draft.subagentModel,
+                        onSubagentModelChange = { next ->
+                            editDraft(agentTab) { it.copy(subagentModel = next) }
+                        },
+                        ultracode = draft.ultracode,
+                        onUltracodeChange = { next ->
+                            editDraft(agentTab) { it.copy(ultracode = next) }
+                        },
+                        planMode = draft.planMode,
+                        onPlanModeChange = { next ->
+                            editDraft(agentTab) { it.copy(planMode = next) }
+                        },
+                    )
+                    ErrorCaption(defaultsError)
+                    Spacer(Modifier.height(8.dp))
+
+                    // ── Workflow settings (EXP-1043) ─────────────────────────
+                    // Both agents' workflows run on the DEFAULT agent's models, so
+                    // this row is the same one whatever tab is selected above — it
+                    // belongs to the machine, not to the tab. A stored name that
+                    // belongs to the other agent falls back to the contract pair
+                    // (see [workflowDefaults]).
+                    val (workflowModel, workflowStrongModel) = workflowDefaults(defaultAgent, workflow)
+                    val workflowModels = modelValuesFor(defaultAgent)
+                    OptionGroup {
+                        SubShell(
+                            label = "Workflow settings",
+                            value = "${modelLabel(workflowModel)} · ${modelLabel(workflowStrongModel)}",
+                            title = "Workflow settings",
                         ) {
-                            when {
-                                // EXP-411: parked behind live sessions — say so
-                                // instead of spinning until the last one closes.
-                                device.updateQueued -> GlassPill(
-                                    "Queued",
-                                    icon = ExpIcons.uiUpdate,
-                                    size = PillSize.Sm,
-                                    enabled = false,
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                OptionGroup {
+                                    PickerRow(
+                                        label = "Model",
+                                        value = modelLabel(workflowModel),
+                                        options = workflowModels,
+                                        selected = workflowModel,
+                                        optionLabel = ::modelLabel,
+                                        onSelect = { next ->
+                                            val edited = DeviceWorkflowDefaults(
+                                                model = next,
+                                                strongModel = workflowStrongModel,
+                                            )
+                                            workflow = edited
+                                            queueDefaults(stored = edited)
+                                        },
+                                    )
+                                    GroupDivider()
+                                    PickerRow(
+                                        label = "Strong model",
+                                        value = modelLabel(workflowStrongModel),
+                                        options = workflowModels,
+                                        selected = workflowStrongModel,
+                                        optionLabel = ::modelLabel,
+                                        onSelect = { next ->
+                                            val edited = DeviceWorkflowDefaults(
+                                                model = workflowModel,
+                                                strongModel = next,
+                                            )
+                                            workflow = edited
+                                            queueDefaults(stored = edited)
+                                        },
+                                    )
+                                }
+                                // One line per row above, in the same order.
+                                Text(
+                                    "Leaf nodes and the subagents inside them.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                        .copy(alpha = TextEmphasis.Tertiary),
+                                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                                 )
-                                device.updateRequested -> GlassPill(
-                                    "Updating…",
-                                    size = PillSize.Sm,
-                                    enabled = false,
-                                    loading = true,
-                                )
-                                else -> GlassPill(
-                                    "Update",
-                                    icon = ExpIcons.uiUpdate,
-                                    size = PillSize.Sm,
-                                    tint = NeedsInputAmber,
-                                    enabled = !deviceMutating,
-                                    onClick = {
-                                        agentsViewModel.requestDeviceUpdate(device.deviceId)
-                                    },
+                                Text(
+                                    "Contract, integration and risky nodes, and every review.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                        .copy(alpha = TextEmphasis.Tertiary),
+                                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                                 )
                             }
                         }
                     }
-                }
-                if (device.updateQueued) {
-                    // FEED-36, the pinned sentence ×4 (web QUEUED_UPDATE_TOOLTIP).
-                    Text(
-                        "Live sessions hold this update — the device restarts itself once " +
-                            "every session ends or sits idle for 2 hours.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NeedsInputAmber,
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+
+                    // ── Update (server daemons only) ─────────────────────────
+                    // Self-update is a SERVER capability: the desktop app updates
+                    // itself through its own channel, so it has no control here. The
+                    // row used to carry this; a device list is for curating machines,
+                    // and curating one is what this sheet is.
+                    if (device.isServer) {
+                        Spacer(Modifier.height(8.dp))
+                        SectionHeader("Update", modifier = Modifier.padding(horizontal = 16.dp))
+                        OptionGroup {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        device.version?.let { "v$it" } ?: "Version unknown",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    if (outdated) {
+                                        Text(
+                                            "Update available: v$latestVersion",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeedsInputAmber,
+                                        )
+                                    }
+                                }
+                                // EXP-420 (web `showDeviceUpdateButton`): a control only
+                                // where the ask can land — an online, registered server
+                                // with a newer version out, or one already updating.
+                                // Otherwise the version line alone is the whole answer.
+                                if (device.online &&
+                                    device.registered &&
+                                    (outdated || device.updateRequested)
+                                ) {
+                                    when {
+                                        // EXP-411: parked behind live sessions — say so
+                                        // instead of spinning until the last one closes.
+                                        device.updateQueued -> GlassPill(
+                                            "Queued",
+                                            icon = ExpIcons.uiUpdate,
+                                            size = PillSize.Sm,
+                                            enabled = false,
+                                        )
+                                        device.updateRequested -> GlassPill(
+                                            "Updating…",
+                                            size = PillSize.Sm,
+                                            enabled = false,
+                                            loading = true,
+                                        )
+                                        else -> GlassPill(
+                                            "Update",
+                                            icon = ExpIcons.uiUpdate,
+                                            size = PillSize.Sm,
+                                            tint = NeedsInputAmber,
+                                            enabled = !deviceMutating,
+                                            onClick = {
+                                                agentsViewModel.requestDeviceUpdate(device.deviceId)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (device.updateQueued) {
+                            // FEED-36, the pinned sentence ×4 (web QUEUED_UPDATE_TOOLTIP).
+                            Text(
+                                "Live sessions hold this update — the device restarts itself once " +
+                                    "every session ends or sits idle for 2 hours.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeedsInputAmber,
+                                modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+
+                    // ── Remove ───────────────────────────────────────────────
+                    // EXP-1043: a plain row of the same shell — a whole section band
+                    // over one destructive control read like a second settings page.
+                    Spacer(Modifier.height(8.dp))
+                    GlassPill(
+                        "Remove device",
+                        icon = ExpIcons.uiDelete,
+                        onClick = { confirmRemove = true },
+                        enabled = !deviceMutating,
+                        contentColor = DesignTokens.Semantic.Red,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .testTag("remove-device-button"),
                     )
+                    Spacer(Modifier.height(24.dp))
                 }
             }
-
-            // ── Remove ───────────────────────────────────────────────────
-            Spacer(Modifier.height(8.dp))
-            SectionHeader("Remove", modifier = Modifier.padding(horizontal = 16.dp))
-            GlassPill(
-                "Remove device",
-                icon = ExpIcons.uiDelete,
-                onClick = { confirmRemove = true },
-                enabled = !deviceMutating,
-                contentColor = DesignTokens.Semantic.Red,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .testTag("remove-device-button"),
-            )
-            Spacer(Modifier.height(24.dp))
         }
-    }
-
-    removeTarget?.let { worktree ->
-        AlertDialog(
-            onDismissRequest = { removeTarget = null },
-            title = { Text("Remove worktree?") },
-            text = {
-                Text(
-                    "Removes ${worktree.branch} from ${worktree.repoFullName} on " +
-                        "“${device.deviceLabel.ifBlank { device.deviceId }}”. The machine " +
-                        "refuses when uncommitted changes would be lost.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.removeWorktree(device.deviceId, worktree, device.online)
-                        removeTarget = null
-                    },
-                ) { Text("Remove") }
-            },
-            dismissButton = {
-                TextButton(onClick = { removeTarget = null }) { Text("Cancel") }
-            },
-        )
     }
 
     // Removing drops the registry row only — say so, or an owner who removes a
@@ -614,89 +630,6 @@ fun DeviceSettingsSheet(
                 TextButton(onClick = { confirmRemove = false }) { Text("Cancel") }
             },
         )
-    }
-}
-
-@Composable
-private fun WorktreeRow(
-    worktree: DeviceWorktreeEntity,
-    state: DeviceCommandUiState?,
-    onRemove: () -> Unit,
-) {
-    Column {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-        ) {
-            Icon(
-                ExpIcons.uiBranch,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        worktree.branch,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (worktree.busy) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "session live",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = com.exponential.app.ui.issue.ReviewGreen,
-                        )
-                    } else if (worktree.dirty == "tracked") {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "uncommitted changes",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = com.exponential.app.ui.issue.NeedsInputAmber,
-                        )
-                    }
-                }
-                Text(
-                    worktree.repoFullName +
-                        (worktree.issueIdentifier?.let { " · $it" } ?: ""),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            when (state) {
-                is DeviceCommandUiState.Sending, is DeviceCommandUiState.Running ->
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                else -> IconButton(onClick = onRemove, enabled = !worktree.busy) {
-                    Icon(
-                        ExpIcons.uiDelete,
-                        contentDescription = "Remove worktree",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = if (worktree.busy) {
-                                TextEmphasis.Quaternary
-                            } else {
-                                TextEmphasis.Tertiary
-                            },
-                        ),
-                    )
-                }
-            }
-        }
-        CommandCaption(state)
     }
 }
 
@@ -819,9 +752,18 @@ internal fun buildDefaults(
     defaultAccount: String,
     agents: List<String>,
     drafts: Map<String, AgentDraft>,
+    /**
+     * EXP-1043: the machine's WORKFLOW model pair, already resolved for
+     * [defaultAgent] ([workflowDefaults]). It rides EVERY save because the
+     * mutation REPLACES the stored object; null (a caller with nothing to
+     * say about it) leaves the key off, which the server reads as an older
+     * client and keeps what is stored.
+     */
+    workflow: DeviceWorkflowDefaults? = null,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
     defaultAgent = defaultAgent,
     defaultAccount = defaultAccount.takeIf { it.isNotEmpty() },
+    workflow = workflow,
     agents = agents.associateWith { agent ->
         val draft = drafts[agent]
             ?: AgentDraft(
@@ -839,3 +781,34 @@ internal fun buildDefaults(
         )
     },
 )
+
+/**
+ * EXP-1043: the machine's WORKFLOW model pair for [agent] — the cheap `model`
+ * (leaf nodes and the subagents inside them) and the `strongModel` (contract,
+ * integration and risky nodes, and every review) a new workflow is seeded
+ * from (`launch_defaults.workflow`).
+ *
+ * The two agents' vocabularies do not overlap, so a [stored] name only counts
+ * for the agent it belongs to: a machine that was on claude and moved its
+ * default account to codex reads as CODEX's contract pair rather than showing
+ * `opus` in a codex picker.
+ */
+internal fun workflowDefaults(
+    agent: String,
+    stored: DeviceWorkflowDefaults?,
+): Pair<String, String> {
+    val models = modelValuesFor(agent)
+    val (model, strongModel) = workflowFallback(agent)
+    return Pair(
+        stored?.model?.takeIf { it in models } ?: model,
+        stored?.strongModel?.takeIf { it in models } ?: strongModel,
+    )
+}
+
+/** Contract `workflowLaunch`'s per-agent pair; claude's for anything else. */
+private fun workflowFallback(agent: String): Pair<String, String> =
+    if (agent == "codex") {
+        DomainContract.workflowLaunchCodexModel to DomainContract.workflowLaunchCodexStrongModel
+    } else {
+        DomainContract.workflowLaunchClaudeModel to DomainContract.workflowLaunchClaudeStrongModel
+    }

@@ -3,9 +3,11 @@ package com.exponential.app.ui.session
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
+import com.exponential.app.data.api.DeviceWorkflowDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.setLaunchDefaultsInput
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.deviceAccountOptions
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -199,6 +201,101 @@ class DeviceSettingsDefaultsTest {
             defaults = DeviceLaunchDefaults(),
         ).getValue("launchDefaults").jsonObject
         assertFalse(agentless.containsKey("defaultAccount"))
+    }
+
+    /**
+     * EXP-1043: the sheet's default-account row is how a machine's default
+     * AGENT is changed, so an agent the machine reports no login for still
+     * offers its ambient one — otherwise a machine signed into claude alone
+     * could never be pointed at codex.
+     */
+    @Test
+    fun `the device sheet offers an option for every editable agent`() {
+        val signedIntoClaude = device(
+            agents = listOf("claude", "codex"),
+            accounts = mapOf("claude" to AgentAccount(signedIn = true, email = "me@acme.dev")),
+        )
+        val options = deviceAccountOptions(signedIntoClaude, listOf("claude", "codex"))
+        assertEquals(listOf("claude", "codex"), options.map { it.agent })
+        assertEquals("me@acme.dev", options.first().email)
+        // The reported login stays THE default; the ambient one never claims it.
+        assertEquals(1, options.count { it.isDeviceDefault })
+        assertTrue(options.first().isDeviceDefault)
+        // A machine that reports nothing at all is already one per agent.
+        assertEquals(
+            listOf("claude", "codex"),
+            deviceAccountOptions(device(), listOf("claude", "codex")).map { it.agent },
+        )
+    }
+
+    /**
+     * EXP-1043: the workflow pair is resolved for the DEFAULT agent, and the
+     * two vocabularies do not overlap — a stored name belonging to the other
+     * agent is not something that agent can run, so it falls back.
+     */
+    @Test
+    fun `workflow defaults take a stored pair only in the agent's own vocabulary`() {
+        // Stored and valid: it wins.
+        assertEquals(
+            "sonnet" to "opus",
+            workflowDefaults(
+                "claude",
+                DeviceWorkflowDefaults(model = "sonnet", strongModel = "opus"),
+            ),
+        )
+        // Claude's names in a codex row: codex's contract pair instead.
+        assertEquals(
+            DomainContract.workflowLaunchCodexModel to
+                DomainContract.workflowLaunchCodexStrongModel,
+            workflowDefaults(
+                "codex",
+                DeviceWorkflowDefaults(model = "opus", strongModel = "fable"),
+            ),
+        )
+        // Nothing stored at all (a machine from before the pair).
+        assertEquals(
+            DomainContract.workflowLaunchClaudeModel to
+                DomainContract.workflowLaunchClaudeStrongModel,
+            workflowDefaults("claude", null),
+        )
+        // Half a stored pair: the valid half stands, the other falls back.
+        assertEquals(
+            "fable" to DomainContract.workflowLaunchClaudeStrongModel,
+            workflowDefaults("claude", DeviceWorkflowDefaults(model = "fable")),
+        )
+    }
+
+    /**
+     * EXP-1043: `setLaunchDefaults` REPLACES the stored object, so the sheet's
+     * save carries the workflow pair with it — and a caller with nothing to
+     * say about it writes no `workflow` key, which the server reads as an
+     * older client and keeps what is stored.
+     */
+    @Test
+    fun `the workflow pair rides the setLaunchDefaults payload`() {
+        val built = buildDefaults(
+            defaultAgent = "claude",
+            defaultAccount = "work",
+            agents = listOf("claude"),
+            drafts = emptyMap(),
+            workflow = DeviceWorkflowDefaults(model = "opus", strongModel = "fable"),
+        )
+        val sent = setLaunchDefaultsInput(deviceId = "dev-1", defaults = built)
+            .getValue("launchDefaults").jsonObject
+        val workflow = sent.getValue("workflow").jsonObject
+        assertEquals(JsonPrimitive("opus"), workflow["model"])
+        assertEquals(JsonPrimitive("fable"), workflow["strongModel"])
+
+        val without = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = buildDefaults(
+                defaultAgent = "claude",
+                defaultAccount = "work",
+                agents = listOf("claude"),
+                drafts = emptyMap(),
+            ),
+        ).getValue("launchDefaults").jsonObject
+        assertFalse(without.containsKey("workflow"))
     }
 
     /** EXP-773 deleted the "Start in terminal" preference. An older server
