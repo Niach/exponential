@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components.picker
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -36,7 +39,6 @@ import com.exponential.app.ui.components.GlassSheetDefaults
 import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.flatRow
 
 /**
  * EXP-1029 contract, EXP-1021 implementation — THE picker primitive on
@@ -80,9 +82,33 @@ data class PickerItem<T>(
     val disabled: Boolean = false,
     /** Extra search terms (an identifier, an email). */
     val keywords: List<String> = emptyList(),
+    /**
+     * Multi mode only: what THIS row reads as when membership in the picker's
+     * `value` is not the whole story — a bulk edit over rows that disagree
+     * marks a label [PickerChecked.All] on all of them, [PickerChecked.Some]
+     * on only some. When set it WINS over membership; absent (the ordinary
+     * case) the state is derived from the set.
+     */
+    val checked: PickerChecked? = null,
 ) {
     /** The keywords the row matches on: the explicit ones, else its label. */
     val searchKeywords: List<String> get() = keywords.ifEmpty { listOf(label) }
+}
+
+/**
+ * What a row reads as, once tri-state exists: a bulk edit is the one caller
+ * whose rows can DISAGREE, and the highlight has to say so without growing a
+ * checkbox column (EXP-1021 — no circles, on any surface).
+ */
+enum class PickerChecked {
+    /** Nothing: the row paints nothing at all. */
+    None,
+
+    /** Some of what this row covers: the active wash alone. */
+    Some,
+
+    /** All of it: the wash PLUS the inset active stroke. */
+    All,
 }
 
 enum class PickerMode {
@@ -110,6 +136,13 @@ object PickerRules {
     /** The rows a query leaves; a blank query leaves the caller's order. */
     fun <T> filter(items: List<PickerItem<T>>, query: String): List<PickerItem<T>> =
         if (query.isBlank()) items else items.filter { matches(it, query) }
+
+    /**
+     * What a row reads as: its own [PickerItem.checked] when it carries one
+     * (the bulk edit's tri-state), else plain membership in [value].
+     */
+    fun <T> checked(item: PickerItem<T>, value: Set<T>): PickerChecked =
+        item.checked ?: if (item.value in value) PickerChecked.All else PickerChecked.None
 
     /** Single picks are a decision and close the sheet; multi toggles stay. */
     fun closesOnPick(mode: PickerMode): Boolean = mode == PickerMode.Single
@@ -150,18 +183,31 @@ object PickerDefaults {
     /** The gap between the leading slot and the label. */
     val LeadingGap: Dp = 12.dp
 
+    /** The row's corner — the app's list-row rung (`flatRow`'s own). */
+    val RowRadius: Dp = GlassTokens.RowRadius
+
     /**
      * THE selection mark: a picked row takes the app's active row wash and
      * NOTHING else — no leading circle, no trailing check (EXP-1021). An
      * unpicked row paints nothing at all, which is what makes the list read as
      * plain rows on the sheet instead of a stack of cards.
      *
-     * This IS what `Modifier.flatRow(active)` (the EXP-818 list row) lays
+     * The wash IS what `Modifier.flatRow(active)` (the EXP-818 list row) lays
      * down; named here so the contract test can pin the paint without a
      * renderer.
      */
-    fun rowBackground(picked: Boolean): Color =
-        if (picked) GlassTokens.RowFillActive else Color.Transparent
+    fun rowBackground(checked: PickerChecked): Color =
+        if (checked == PickerChecked.None) Color.Transparent else GlassTokens.RowFillActive
+
+    /**
+     * The second half of the mark, and the ONLY thing that tells a FULL row
+     * from a partial one: the inset active stroke (web's
+     * `ring-glass-stroke-active`). A [PickerChecked.Some] row wears the wash
+     * alone — "some of these, not all", said in paint rather than in a dash
+     * glyph.
+     */
+    fun rowStroke(checked: PickerChecked): Color =
+        if (checked == PickerChecked.All) GlassTokens.StrokeActive else Color.Transparent
 
     fun labelColor(enabled: Boolean): Color =
         Color.White.copy(alpha = if (enabled) 0.9f else TextEmphasis.Quaternary)
@@ -273,7 +319,7 @@ fun <T> Picker(
             items(rows, key = { it.value.toString() }) { item ->
                 PickerRow(
                     item = item,
-                    picked = item.value in value,
+                    checked = PickerRules.checked(item, value),
                     onClick = {
                         val next = PickerRules.select(mode, value, item) ?: return@PickerRow
                         onChange(next)
@@ -290,21 +336,25 @@ fun <T> Picker(
 
 /**
  * ONE picker row: the body over the row's own highlight. Plain on purpose — a
- * picker row is never a card, on any surface, and the ONLY mark a picked row
- * carries is [PickerDefaults.rowBackground].
+ * picker row is never a card, on any surface, and the ONLY mark a row carries
+ * is [PickerDefaults.rowBackground] plus, when it is FULL rather than partial,
+ * [PickerDefaults.rowStroke].
  */
 @Composable
 private fun <T> PickerRow(
     item: PickerItem<T>,
-    picked: Boolean,
+    checked: PickerChecked,
     onClick: () -> Unit,
     body: (@Composable RowScope.(PickerItem<T>) -> Unit)? = null,
 ) {
+    val shape = RoundedCornerShape(PickerDefaults.RowRadius)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = PickerDefaults.RowOuterPadding, vertical = 1.dp)
-            .flatRow(active = picked)
+            .clip(shape)
+            .background(PickerDefaults.rowBackground(checked), shape)
+            .border(GlassTokens.Hairline, PickerDefaults.rowStroke(checked), shape)
             .clickable(enabled = !item.disabled, onClick = onClick)
             .padding(horizontal = PickerDefaults.RowInnerPadding, vertical = 8.dp)
             .defaultMinSize(minHeight = PickerDefaults.RowHeight),

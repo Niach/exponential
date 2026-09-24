@@ -13,6 +13,12 @@ data class LabelPickerLabel(
     val name: String,
     /** The label's hex. */
     val colorHex: String? = null,
+    /**
+     * EXP-1021: the BULK edit's tri-state — [PickerChecked.Some] when only
+     * part of the selection carries this label. Absent everywhere else, where
+     * membership in `value` is the whole story.
+     */
+    val checked: PickerChecked? = null,
 )
 
 fun labelPickerItems(labels: List<LabelPickerLabel>): List<PickerItem<String>> =
@@ -23,6 +29,7 @@ fun labelPickerItems(labels: List<LabelPickerLabel>): List<PickerItem<String>> =
             value = label.id,
             label = label.name,
             color = label.colorHex?.takeIf { it.isNotBlank() }?.let(::parseColor),
+            checked = label.checked,
         )
     }
 

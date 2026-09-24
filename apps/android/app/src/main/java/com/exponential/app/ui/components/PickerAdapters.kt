@@ -5,7 +5,9 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.statusIcon
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.ui.components.picker.AssigneePickerMember
 import com.exponential.app.ui.components.picker.BoardPickerBoard
@@ -14,6 +16,7 @@ import com.exponential.app.ui.components.picker.LabelPickerLabel
 import com.exponential.app.ui.components.picker.PriorityPickerOption
 import com.exponential.app.ui.components.picker.StatusPickerStatus
 import com.exponential.app.ui.theme.resolvedStatusColor
+import com.exponential.app.ui.theme.statusColor
 
 /**
  * EXP-1021: the app's rows as the shared picker contract's rows. The picker
@@ -62,8 +65,23 @@ fun BoardEntity.toPickerBoard(): BoardPickerBoard = BoardPickerBoard(
 fun LabelEntity.toPickerLabel(): LabelPickerLabel =
     LabelPickerLabel(id = id, name = name, colorHex = color)
 
-fun IssueEntity.toPickerIssue(disabled: Boolean = false): IssuePickerIssue =
-    IssuePickerIssue(id = id, identifier = identifier, title = title, disabled = disabled)
+/**
+ * An issue as a picker row, with the STATUS glyph the relations linker and the
+ * duplicate picker have always drawn on it — the anchor enum's pair, exactly
+ * what [StatusIcon] renders in a list row, so the sheet and the list say the
+ * same thing about the same issue.
+ */
+fun IssueEntity.toPickerIssue(disabled: Boolean = false): IssuePickerIssue {
+    val anchor = IssueStatus.fromWire(status)
+    return IssuePickerIssue(
+        id = id,
+        identifier = identifier,
+        title = title,
+        disabled = disabled,
+        icon = statusIcon(anchor),
+        color = statusColor(anchor),
+    )
+}
 
 /** The priority a picker value names. */
 fun pickedPriority(values: Set<String>): IssuePriority? =

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components.picker
 
 import androidx.compose.ui.graphics.Color
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -37,6 +38,13 @@ class PickerContractTest {
             listOf("APP-1 Fix"),
             issuePickerItems(listOf(IssuePickerIssue("i", "APP-1", "Fix"))).map { it.label },
         )
+        // EXP-1021: the status glyph rides along, but the LABEL stays the
+        // one-line `IDENT Title` the four clients are fixture-locked to.
+        val withGlyph = issuePickerItems(
+            listOf(IssuePickerIssue("i", "APP-1", "Fix", icon = ExpIcons.statusBacklog)),
+        ).single()
+        assertEquals("APP-1 Fix", withGlyph.label)
+        assertTrue(withGlyph.icon != null)
         assertEquals(
             listOf("Unassigned", "Ada"),
             assigneePickerItems(listOf(AssigneePickerMember("u", "Ada")), allowsNone = true).map { it.label },
@@ -84,9 +92,9 @@ class PickerContractTest {
         for (card in listOf("glassCard(", "glassGroup(", "GlassCard(", "OptionGroup {")) {
             assertFalse("no $card inside the picker sheet", source.contains(card))
         }
-        // The row's only paint is the EXP-818 flat row: transparent at rest.
-        assertTrue(source.contains("flatRow(active = picked)"))
-        assertEquals(Color.Transparent, PickerDefaults.rowBackground(picked = false))
+        // A row at rest paints nothing at all — no fill, no stroke.
+        assertEquals(Color.Transparent, PickerDefaults.rowBackground(PickerChecked.None))
+        assertEquals(Color.Transparent, PickerDefaults.rowStroke(PickerChecked.None))
     }
 
     /**
@@ -95,12 +103,27 @@ class PickerContractTest {
      */
     @Test
     fun multiModeMarksPickedRowsByTheHighlightColourNeverACircle() {
-        assertEquals(GlassTokens.RowFillActive, PickerDefaults.rowBackground(picked = true))
-        assertEquals(Color.Transparent, PickerDefaults.rowBackground(picked = false))
+        assertEquals(GlassTokens.RowFillActive, PickerDefaults.rowBackground(PickerChecked.All))
+        assertEquals(GlassTokens.StrokeActive, PickerDefaults.rowStroke(PickerChecked.All))
+        assertEquals(Color.Transparent, PickerDefaults.rowBackground(PickerChecked.None))
         val source = pickerSource("Picker.kt")
         for (circle in listOf("uiCheck", "Checkbox", "RadioButton", "uiMinus")) {
             assertFalse("a picked row is a highlight, never a $circle", source.contains(circle))
         }
+        // Tri-state (the bulk edit): a PARTIAL row wears the wash alone, so
+        // "some of these" is said in paint and never in a dash glyph. An
+        // explicit `checked` wins over membership in the set; without one the
+        // state is derived from it.
+        assertEquals(GlassTokens.RowFillActive, PickerDefaults.rowBackground(PickerChecked.Some))
+        assertEquals(Color.Transparent, PickerDefaults.rowStroke(PickerChecked.Some))
+        val partial = PickerItem(value = "a", label = "Alpha", checked = PickerChecked.Some)
+        assertEquals(PickerChecked.Some, PickerRules.checked(partial, setOf("a")))
+        assertEquals(PickerChecked.Some, PickerRules.checked(partial, emptySet()))
+        assertEquals(PickerChecked.All, PickerRules.checked(items()[0], setOf("a")))
+        assertEquals(PickerChecked.None, PickerRules.checked(items()[0], emptySet()))
+        // A partial row still toggles ON: the bulk edit adds it to the rows
+        // that are missing it, which is what its absence from `value` means.
+        assertEquals(setOf("a"), PickerRules.select(PickerMode.Multi, emptySet(), partial))
         // Toggling reports the WHOLE new set, so the caller never has to
         // reconstruct it from a single row.
         val items = items()
@@ -164,6 +187,7 @@ class PickerContractTest {
         assertTrue("a board row carries its glyph", board.icon != null)
         val label = labelPickerItems(listOf(LabelPickerLabel(id = "l", name = "bug", colorHex = "#EF4444")))
             .single()
+        assertNull("an ordinary label row derives its state from the set", label.checked)
         assertNull("a label row is a coloured DOT, never a glyph", label.icon)
         assertTrue(label.color != null)
         val member = assigneePickerItems(
