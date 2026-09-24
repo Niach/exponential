@@ -177,25 +177,16 @@ pub struct CaptionNode<'a> {
     pub risk: &'a str,
 }
 
-/// The ONE caption under a node. A draft has no states worth reading yet, so
-/// it names the plan (`Contract`, `Leaf · high risk`); a started workflow
-/// names the state, prefixed by the kind only for the two special nodes
-/// (`Contract · Running`, `In review`).
+/// The ONE caption under a node: the bare STATE label once the workflow has
+/// started (`Running`, `In review`, `Landed`), nothing at all in a draft. The
+/// kind and the risk are the node panel's (EXP-1014: no `Leaf`, no
+/// `Contract · high risk` beside the chips — the chip names the issue, the
+/// caption says only what is happening to it).
 pub fn workflow_node_caption(node: CaptionNode<'_>, workflow_status: &str) -> String {
     if workflow_status == "draft" {
-        let kind = workflow_node_kind_label(node.kind);
-        return if node.risk == "high" {
-            format!("{kind} · high risk")
-        } else {
-            kind
-        };
+        return String::new();
     }
-    let state = workflow_node_state_label(node.state);
-    if node.kind == "leaf" {
-        state
-    } else {
-        format!("{} · {state}", workflow_node_kind_label(node.kind))
-    }
+    workflow_node_state_label(node.state)
 }
 
 /// `EXP-14 +3` for a compound node (a parent run as one batch with its
@@ -546,51 +537,12 @@ pub const ADMIT_NODE_LABEL: &str = "Admit";
 pub const DISMISS_NODE_LABEL: &str = "Dismiss";
 pub const PROPOSED_NODE_NOTE: &str =
     "Filed during the run. Admit it into the workflow or dismiss it.";
-/// The node panel's agent-review block, the launch row that picks its model,
-/// and the detail's counters section.
+/// The node panel's agent-review block and the detail's counters section.
+/// EXP-1014: a workflow configures NOTHING on its screen any more — the
+/// launch is two models (`coding::workflows::launch`), so the per-phase and
+/// review-model launch rows (and their labels) are gone.
 pub const AGENT_REVIEW_TITLE: &str = "Agent review";
-pub const REVIEW_MODEL_LABEL: &str = "Review model";
 pub const METRICS_TITLE: &str = "Metrics";
-
-// ── Per-phase models (EXP-1002) ───────────────────────────────────────
-
-/// The launch rows pinning what a `contract` / `integration` node runs on,
-/// and their blank pick: the workflow's own Model, never the CLI's default.
-pub const CONTRACT_MODEL_LABEL: &str = "Contract model";
-pub const INTEGRATION_MODEL_LABEL: &str = "Integration model";
-pub const RISK_MODEL_LABEL: &str = "High-risk model";
-pub const SAME_AS_MODEL_LABEL: &str = "Same as Model";
-
-/// EXP-1002: the shipped split for one agent — hand-mirrored with
-/// `WORKFLOW_DEFAULT_LAUNCH_BY_AGENT` (`db-schema/src/domain.ts`), which is
-/// what the server writes at create. Switching the agent row re-seeds every
-/// model pin from here rather than blanking them, so a codex-only machine
-/// gets a configured workflow in one tap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WorkflowDefaultModels {
-    /// The leaves that implement.
-    pub model: &'static str,
-    /// The contract / integration phases, and any `risk: high` node.
-    pub cheap: &'static str,
-    /// Claude only: the model its subagents run on.
-    pub subagent: Option<&'static str>,
-}
-
-pub fn workflow_default_models(agent: &str) -> Option<WorkflowDefaultModels> {
-    match agent {
-        "" | "claude" => Some(WorkflowDefaultModels {
-            model: "opus",
-            cheap: "fable",
-            subagent: Some("opus"),
-        }),
-        "codex" => Some(WorkflowDefaultModels {
-            model: "gpt-5.6-sol",
-            cheap: "gpt-5.6-luna",
-            subagent: None,
-        }),
-        _ => None,
-    }
-}
 
 /// What the review line reads off `workflow_nodes.review`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1227,26 +1179,24 @@ mod tests {
         assert_eq!(workflow_node_tone("brand-new"), WorkflowNodeTone::Muted);
     }
 
-    /// EXP-1002: the shipped split, byte-for-byte with
-    /// `WORKFLOW_DEFAULT_LAUNCH_BY_AGENT` in `db-schema/src/domain.ts` — the
-    /// server writes those values at create and this re-seeds the rows, so a
-    /// drift here is a workflow whose panel disagrees with its own run.
+    /// EXP-1014 — the caption is the STATE and nothing else: a draft node
+    /// carries none at all, and neither kind nor risk ever prefixes one.
     #[test]
-    fn the_shipped_split_matches_the_server_constant() {
-        let claude = workflow_default_models("claude").expect("claude");
-        assert_eq!(claude.model, "opus");
-        assert_eq!(claude.cheap, "fable");
-        assert_eq!(claude.subagent, Some("opus"));
-        // A blank agent row IS claude (the contract's first value).
-        assert_eq!(workflow_default_models(""), Some(claude));
-
-        let codex = workflow_default_models("codex").expect("codex");
-        assert_eq!(codex.model, "gpt-5.6-sol");
-        assert_eq!(codex.cheap, "gpt-5.6-luna");
-        assert_eq!(codex.subagent, None, "the subagent pin is claude-only");
-
-        // An agent this build does not know seeds nothing rather than
-        // seeding claude's models into it.
-        assert_eq!(workflow_default_models("brand-new"), None);
+    fn a_caption_never_names_the_kind_or_the_risk() {
+        let node = |kind: &'static str, state: &'static str, risk: &'static str| CaptionNode {
+            kind,
+            state,
+            risk,
+        };
+        assert_eq!(workflow_node_caption(node("contract", "blocked", "high"), "draft"), "");
+        assert_eq!(workflow_node_caption(node("leaf", "ready", "low"), "draft"), "");
+        assert_eq!(
+            workflow_node_caption(node("contract", "running", "high"), "running"),
+            "Running"
+        );
+        assert_eq!(
+            workflow_node_caption(node("integration", "in_review", "medium"), "paused"),
+            "In review"
+        );
     }
 }

@@ -2,6 +2,7 @@ package com.exponential.app.ui.workflows
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -43,45 +44,42 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.WorkflowsApi
+import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatus
-import com.exponential.app.domain.WorkflowLaunch
+import com.exponential.app.domain.NormalizedWorkflowLaunch
+import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.WorkflowNodeReview
 import com.exponential.app.domain.WorkflowView
+import com.exponential.app.domain.availableFaces
 import com.exponential.app.domain.captionNode
+import com.exponential.app.domain.faceLabel
 import com.exponential.app.domain.line
+import com.exponential.app.domain.modelForNode
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.workflowNodeReview
-import com.exponential.app.ui.components.AccountPickerPill
-import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
-import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassNotice
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IssueChip
+import com.exponential.app.ui.components.MetaRow
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
-import com.exponential.app.ui.components.SUBAGENT_MODEL_LABEL
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.accountOptionsFor
-import com.exponential.app.ui.components.ambientAccountOptions
+import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.deviceOptionLabel
-import com.exponential.app.ui.components.effortLabel
-import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.modelLabel
-import com.exponential.app.ui.components.modelOptionsFor
-import com.exponential.app.ui.components.subagentModelLabel
-import com.exponential.app.ui.components.subagentModelOptions
-import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.DesignTokens
@@ -197,14 +195,35 @@ fun WorkflowDetailScreen(
                                 }
                             },
                     )
-                    Text(
-                        WorkflowView.shapeLine(shape),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Tertiary,
-                        ),
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
+                    // EXP-1014: the header carries the ONE thing a workflow
+                    // still configures — the machine its nodes run on, a draft
+                    // needs one to start — beside the shape line. Everything
+                    // else about how it runs was decided when it was created.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            WorkflowView.shapeLine(shape),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Tertiary,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        RunnerPill(
+                            devices = devices,
+                            device = device,
+                            // The runner is a draft's pick: the server refuses
+                            // the write once the workflow started, so the pill
+                            // states the machine instead of bouncing it.
+                            enabled = isDraft && !busy,
+                            onSelect = viewModel::setDevice,
+                        )
+                    }
                     cycleNote?.let { note ->
                         Text(
                             note,
@@ -245,6 +264,7 @@ fun WorkflowDetailScreen(
                     onOpenRun = onOpenSession,
                     finalPrCaption = finalPrCaption,
                     finalPrUrl = row.finalPrUrl,
+                    selectedNodeId = sheetNode?.id,
                 )
             }
             // EXP-982: what is queued to land on the integration branch, in
@@ -255,21 +275,6 @@ fun WorkflowDetailScreen(
                         entries = mergeTrain,
                         graph = graph,
                         onSelectNode = { selectedNode = it },
-                    )
-                }
-            }
-            item(key = "__how_it_runs__") {
-                Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    SectionHeader("How it runs", modifier = Modifier.padding(horizontal = 16.dp))
-                    HowItRunsSection(
-                        devices = devices,
-                        device = device,
-                        launch = launch,
-                        startOn = row.startOn,
-                        enabled = isDraft && !busy,
-                        onDeviceChange = viewModel::setDevice,
-                        onLaunchChange = viewModel::setLaunch,
-                        onStartOnChange = viewModel::setStartOn,
                     )
                 }
             }
@@ -367,6 +372,7 @@ fun WorkflowDetailScreen(
             node = node,
             graph = graph,
             workflowStatus = row?.status.orEmpty(),
+            launch = launch,
             editable = isDraft && !busy,
             busy = busy,
             onKindChange = { viewModel.updateNode(node.issueId, kind = it) },
@@ -634,174 +640,94 @@ private fun WorkflowMetricsSection(rows: List<WorkflowView.MetricRow>) {
 }
 
 /**
- * The start configuration, persisted with `workflows.update` a row at a time.
- * The same launch vocabulary every composer speaks (agent, model, subagent
- * model, effort, account), plus the two rules that belong to a workflow: how
- * many nodes may run at once, what review each node passes, and when a
- * dependent may start. Locked once the workflow leaves draft — the server
- * refuses the write, so the rows disable rather than bounce.
+ * EXP-1014: the ONE control this screen still carries — the machine the
+ * workflow's nodes run on. A draft needs one to start (the server refuses a
+ * start without it, in [WorkflowView.startBlocker]'s own words) and a started
+ * workflow cannot move, so the pill reads as a plain label there. Everything
+ * else about how a workflow runs — the agent, the login, the two models — is
+ * decided where the workflow is created and only CARRIED here.
  */
 @Composable
-private fun HowItRunsSection(
+private fun RunnerPill(
     devices: List<SteerDevice>,
     device: SteerDevice?,
-    launch: WorkflowLaunch,
-    startOn: String,
     enabled: Boolean,
-    onDeviceChange: (String) -> Unit,
-    onLaunchChange: ((WorkflowLaunch) -> WorkflowLaunch) -> Unit,
-    onStartOnChange: (String) -> Unit,
+    onSelect: (String) -> Unit,
 ) {
-    // An unset agent means "the runner's own default", which is claude
-    // everywhere the vocabularies are checked.
-    val agent = launch.agent.ifEmpty { DEFAULT_AGENT }
-    OptionGroup {
-        PickerRow(
-            label = "Runner",
-            value = device?.let(::deviceOptionLabel) ?: "Select",
-            options = listOf("") + devices.map { it.deviceId },
-            selected = device?.deviceId ?: "",
-            optionLabel = { id ->
-                if (id.isEmpty()) {
-                    "No machine"
-                } else {
-                    devices.firstOrNull { it.deviceId == id }?.let(::deviceOptionLabel) ?: id
+    var open by remember { mutableStateOf(false) }
+    Box {
+        GlassPill(
+            device?.let(::deviceOptionLabel) ?: RUNNER_UNSET_LABEL,
+            size = PillSize.Sm,
+            icon = device?.let(::deviceIcon) ?: ExpIcons.uiDevice,
+            onClick = if (enabled) ({ open = true }) else null,
+            trailing = if (enabled) {
+                {
+                    Icon(
+                        ExpIcons.uiChevronDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(10.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Tertiary,
+                        ),
+                    )
                 }
+            } else {
+                null
             },
-            enabled = enabled,
-            onSelect = onDeviceChange,
+            contentDescription = RUNNER_LABEL,
+            modifier = Modifier.testTag("workflow-runner"),
         )
-        GroupDivider()
-        // EXP-872: ONE account row, not an Agent row plus an Account row — the
-        // agent RIDES the picked login, so a workflow configures which login
-        // its nodes spend and the agent follows. A machine with no login
-        // reported (and the state before a runner is even picked) still offers
-        // the ambient one per agent, so the block stays editable in draft.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "Account",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
-                ),
-            )
-            Spacer(Modifier.weight(1f))
-            AccountPickerPill(
-                options = if (device == null) {
-                    ambientAccountOptions(DomainContract.codingAgentValues, agent)
-                } else {
-                    accountOptionsFor(device, DomainContract.codingAgentValues)
+        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            // The blank pick UNBINDS the machine, which a draft may do.
+            GlassMenuItem(
+                text = { Text(RUNNER_NONE_LABEL) },
+                trailingIcon = if (device == null) ({ MenuCheck() }) else null,
+                onClick = {
+                    open = false
+                    onSelect("")
                 },
-                selectedKey = "$agent:${launch.account.ifEmpty { SYSTEM_PROFILE_ID }}",
-                // Locked once the workflow leaves draft, like every row here:
-                // the server refuses the write, so the pill states the pick
-                // instead of bouncing it.
-                enabled = enabled,
-                onSelect = { option ->
-                    onLaunchChange { current ->
-                        // Only an AGENT change invalidates the vocabularies
-                        // below it; another login of the same agent leaves
-                        // model, subagent model and effort exactly as picked.
-                        val agentChanged =
-                            option.agent != current.agent.ifEmpty { DEFAULT_AGENT }
-                        // EXP-1002: the phase pins are models of the OLD
-                        // agent too.
-                        (if (agentChanged) current.withoutPhaseModels() else current).copy(
-                            agent = option.agent,
-                            // "" is the machine's ACTIVE login, never an id on
-                            // the wire (`workflows.update` omits the key).
-                            account = option.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
-                            model = if (agentChanged) "" else current.model,
-                            subagentModel = if (agentChanged) "" else current.subagentModel,
-                            effort = if (agentChanged) "" else current.effort,
+            )
+            devices.forEach { row ->
+                GlassMenuItem(
+                    text = { Text(deviceOptionLabel(row)) },
+                    leadingIcon = {
+                        Icon(
+                            deviceIcon(row),
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
                         )
-                    }
-                },
-            )
+                    },
+                    trailingIcon = if (row.deviceId == device?.deviceId) ({ MenuCheck() }) else null,
+                    onClick = {
+                        open = false
+                        onSelect(row.deviceId)
+                    },
+                )
+            }
         }
-        GroupDivider()
-        PickerRow(
-            label = "Model",
-            value = modelLabel(launch.model),
-            options = modelOptionsFor(agent),
-            selected = launch.model,
-            optionLabel = ::modelLabel,
-            enabled = enabled,
-            onSelect = { next -> onLaunchChange { it.copy(model = next) } },
-        )
-        if (supportsSubagentModel(agent)) {
-            GroupDivider()
-            PickerRow(
-                label = SUBAGENT_MODEL_LABEL,
-                value = subagentModelLabel(launch.subagentModel),
-                options = subagentModelOptions(),
-                selected = launch.subagentModel,
-                optionLabel = ::subagentModelLabel,
-                enabled = enabled,
-                onSelect = { next -> onLaunchChange { it.copy(subagentModel = next) } },
-            )
-        }
-        GroupDivider()
-        PickerRow(
-            label = if (agent == "codex") "Reasoning" else "Effort",
-            value = effortLabel(launch.effort),
-            options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agent),
-            selected = launch.effort,
-            optionLabel = ::effortLabel,
-            enabled = enabled,
-            onSelect = { next -> onLaunchChange { it.copy(effort = next) } },
-        )
-        GroupDivider()
-        PickerRow(
-            label = "Max parallel",
-            value = launch.maxParallel.toString(),
-            options = MAX_PARALLEL_OPTIONS,
-            selected = launch.maxParallel.toString(),
-            optionLabel = { it },
-            enabled = enabled,
-            onSelect = { next ->
-                next.toIntOrNull()?.let { value -> onLaunchChange { it.copy(maxParallel = value) } }
-            },
-        )
-        GroupDivider()
-        // EXP-1010: every node's PR gets an agent review; this is the model it
-        // runs on. "" = the engine picks one.
-        PickerRow(
-            label = WorkflowView.REVIEW_MODEL_LABEL,
-            value = subagentModelLabel(launch.reviewModel),
-            options = subagentModelOptions(),
-            selected = launch.reviewModel,
-            optionLabel = ::subagentModelLabel,
-            enabled = enabled,
-            onSelect = { next -> onLaunchChange { it.copy(reviewModel = next) } },
-        )
-        GroupDivider()
-        PickerRow(
-            label = "Start",
-            value = WorkflowView.startOnLabel(startOn),
-            options = DomainContract.wfStartOnValues,
-            selected = startOn,
-            optionLabel = WorkflowView::startOnLabel,
-            enabled = enabled,
-            onSelect = onStartOnChange,
-        )
     }
 }
 
-/** 1 to 8 — the server's `WORKFLOW_MAX_PARALLEL_CAP`, default 3. */
-private val MAX_PARALLEL_OPTIONS: List<String> = (1..8).map { it.toString() }
+/** The pick's tick, in the menu's trailing slot (the launch pickers' recipe). */
+@Composable
+private fun MenuCheck() {
+    Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(16.dp))
+}
+
+/** What the runner pill says with no machine bound, and what names it. */
+private const val RUNNER_LABEL = "Runner"
+private const val RUNNER_UNSET_LABEL = "Select"
+private const val RUNNER_NONE_LABEL = "No machine"
 
 /**
- * One node, opened from the graph: what it is, what it covers, the two picks
- * the plan carries (Kind, Risk), the `touches` globs it declared, and the way
- * out to the issue itself. Once the workflow is running (EXP-982) it is also
- * where a person gives their verdict: approve the node's PR for the merge
- * train, or unstick a failed one with Retry / Skip.
+ * One node, opened from the graph — and the ONLY place a node's plan is read:
+ * the issue it covers, the two picks the plan carries (Kind, Risk, editable
+ * while the workflow is a draft), the MODEL its run spawns on (EXP-1029's
+ * rule, read-only: nothing on a workflow screen configures a model), its
+ * state and the verdicts that state offers, the faces the node opens into
+ * (EXP-1024) and the latest agent review. EXP-1014 took the `touches` globs
+ * off it — they are the planner's bookkeeping, not a panel row.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -809,6 +735,8 @@ private fun WorkflowNodeSheet(
     node: WorkflowNodeEntity,
     graph: WorkflowGraph,
     workflowStatus: String,
+    /** EXP-1029: what the workflow runs on — the sheet only NAMES the model. */
+    launch: NormalizedWorkflowLaunch,
     editable: Boolean,
     busy: Boolean,
     onKindChange: (String) -> Unit,
@@ -869,21 +797,24 @@ private fun WorkflowNodeSheet(
                     )
                 }
             }
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (workflowStatus != DomainContract.wfStatusDraft &&
-                    workflowStateHasGlyph(node.state)
+            // EXP-1014: a draft node has no caption at all — nothing has
+            // happened to it yet — so the state line is drawn only once the
+            // workflow is running.
+            if (caption.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    WorkflowStateGlyph(node.state)
-                    Spacer(Modifier.width(6.dp))
+                    if (workflowStateHasGlyph(node.state)) {
+                        WorkflowStateGlyph(node.state)
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        caption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = workflowToneColor(WorkflowView.nodeTone(node.state)),
+                    )
                 }
-                Text(
-                    caption,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = workflowToneColor(WorkflowView.nodeTone(node.state)),
-                )
             }
             // EXP-984: a follow-up somebody filed DURING the run that was not
             // plainly additive. It is drawn in the graph but is not part of
@@ -1001,30 +932,38 @@ private fun WorkflowNodeSheet(
                     enabled = true,
                     onSelect = onRiskChange,
                 )
-            }
-            // What the plan says this node changes — read-only, mono, one per
-            // line: they are globs, not prose.
-            if (node.touches.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Touches",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                GroupDivider()
+                // EXP-1029: the model this node's run spawns on — the strong
+                // one for a contract, an integration or a high-risk node, the
+                // cheap one otherwise. A statement, never a pick.
+                MetaRow(
+                    label = WorkflowView.MODEL_LABEL,
+                    enabled = false,
+                    onClick = {},
+                    value = {
+                        Text(
+                            modelLabel(modelForNode(launch, node.kind, node.risk)),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Secondary,
+                            ),
+                            maxLines = 1,
+                            modifier = Modifier.testTag("workflow-node-model"),
+                        )
+                    },
                 )
-                node.touches.forEach { glob ->
-                    Text(
-                        glob,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Secondary,
-                        ),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp),
-                    )
-                }
             }
+            // EXP-1024: the node's surfaces, as the Work screen's own faces —
+            // same labels, same order, same `availableFaces` rule. Nothing is
+            // selected: the reader is on the graph, so every one of them is a
+            // way OUT of it.
+            NodeFaceStrip(
+                issue = issue,
+                sessionId = node.sessionId?.takeIf { it.isNotBlank() },
+                onOpenIssue = onOpenIssue,
+                onOpenSession = onOpenSession,
+                onOpenChanges = onOpenChanges,
+            )
             Spacer(Modifier.height(12.dp))
             FlowRow(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -1097,24 +1036,6 @@ private fun WorkflowNodeSheet(
                         modifier = Modifier.testTag("workflow-node-skip"),
                     )
                 }
-                // The node's coding run, opened where every run is steered.
-                node.sessionId?.takeIf { it.isNotBlank() }?.let { sessionId ->
-                    GlassPill(
-                        "Open run",
-                        icon = ExpIcons.navActions,
-                        onClick = { onOpenSession(sessionId) },
-                        modifier = Modifier.testTag("workflow-node-run"),
-                    )
-                }
-                // The node's pull request, on the issue detail's Changes page.
-                if (issue != null && !issue.prUrl.isNullOrBlank()) {
-                    GlassPill(
-                        issue.prNumber?.let { "PR #$it" } ?: "Pull request",
-                        icon = ExpIcons.prOpen,
-                        onClick = { onOpenChanges(issue.id) },
-                        modifier = Modifier.testTag("workflow-node-pr"),
-                    )
-                }
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -1137,5 +1058,56 @@ private fun WorkflowNodeSheet(
                 TextButton(onClick = { confirmSkip = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/**
+ * EXP-1024: Issue · Run · Changes for the picked node, as the Work screen's
+ * own faces — the SAME `availableFaces` rule, the same labels, in the same
+ * order: a node with no run shows no Run, one with no pull request no
+ * Changes. Under two faces nothing is drawn at all; the chip above is already
+ * the way into the issue. Nothing is selected on purpose — the reader is on
+ * the graph, so the strip is a way out of it rather than a picture of where
+ * they are.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NodeFaceStrip(
+    issue: IssueEntity?,
+    sessionId: String?,
+    onOpenIssue: (String) -> Unit,
+    onOpenSession: (String) -> Unit,
+    onOpenChanges: (String) -> Unit,
+) {
+    if (issue == null) return
+    val faces = availableFaces(
+        hasIssue = true,
+        hasRun = sessionId != null,
+        hasChanges = !issue.prUrl.isNullOrBlank(),
+        hasResults = false,
+    )
+    if (faces.size < 2) return
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("workflow-node-faces"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        faces.forEach { face ->
+            GlassPill(
+                faceLabel(face),
+                size = PillSize.Sm,
+                onClick = {
+                    when (face) {
+                        WorkFaceKind.Issue -> onOpenIssue(issue.id)
+                        WorkFaceKind.Run -> sessionId?.let(onOpenSession)
+                        WorkFaceKind.Changes -> onOpenChanges(issue.id)
+                        WorkFaceKind.Results -> Unit
+                    }
+                },
+            )
+        }
     }
 }

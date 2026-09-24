@@ -10,10 +10,10 @@
 //! `risk: high` nodes and EVERY agent review). The EXP-1002 per-phase pins,
 //! `subagentModel` and `reviewModel` are deprecated (folded in here); the
 //! gate choice is gone (the agent reviews every node, the one human review
-//! is the final PR); `start_on` is fixed to `contract`.
+//! is the final PR); `start_on` is fixed to `contract` for new workflows.
 //!
-//! EXP-1014 owns the implementations and the wiring on both hosts; the
-//! ignored tests below are the acceptance table it un-ignores.
+//! The tests below are the acceptance table, case for case the same as web
+//! `workflow-launch.test.ts`.
 
 use domain::contract::{
     WORKFLOW_LAUNCH_CLAUDE_MODEL, WORKFLOW_LAUNCH_CLAUDE_STRONG_MODEL,
@@ -61,13 +61,20 @@ pub struct WorkflowLaunch {
     pub strong_model: String,
 }
 
+impl Default for WorkflowLaunch {
+    /// The claude defaults — what an empty (or absent) `launch` reads as.
+    fn default() -> Self {
+        normalize_workflow_launch(&serde_json::Value::Null)
+    }
+}
+
 /// The stored jsonb keys that fold into `strong_model`, in precedence order:
 /// the first one set wins.
 pub const STRONG_MODEL_LEGACY_KEYS: [&str; 4] =
     ["reviewModel", "riskModel", "contractModel", "integrationModel"];
 
 /// The stored `workflows.launch` (any vintage, or garbage) → the strict
-/// launch every run reads. Rules (the ignored table below):
+/// launch every run reads. Rules (the table below):
 /// - `agent`: `claude` or `codex`; anything else → claude.
 /// - `account`: a non-empty string stays, anything else is `None`.
 /// - `model`: the stored `model` when set, else the agent's default model.
@@ -75,8 +82,27 @@ pub const STRONG_MODEL_LEGACY_KEYS: [&str; 4] =
 ///   of [`STRONG_MODEL_LEGACY_KEYS`]; else the agent's default strong model.
 /// - `subagentModel`, `effort`, `maxParallel` are dropped.
 pub fn normalize_workflow_launch(raw: &serde_json::Value) -> WorkflowLaunch {
-    let _ = raw;
-    todo!("EXP-1014 implements coding::workflows::launch")
+    let agent = match raw.get("agent").and_then(|v| v.as_str()) {
+        Some("codex") => WorkflowLaunchAgent::Codex,
+        _ => WorkflowLaunchAgent::Claude,
+    };
+    let (default_model, default_strong) = agent.default_models();
+    let text = |key: &str| {
+        raw.get(key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    let strong_model = text("strongModel")
+        .or_else(|| STRONG_MODEL_LEGACY_KEYS.iter().find_map(|key| text(key)))
+        .unwrap_or_else(|| default_strong.to_string());
+    WorkflowLaunch {
+        agent,
+        account: text("account"),
+        model: text("model").unwrap_or_else(|| default_model.to_string()),
+        strong_model,
+    }
 }
 
 /// The model ONE node's run spawns on: `strong_model` for a `contract` or
@@ -84,14 +110,17 @@ pub fn normalize_workflow_launch(raw: &serde_json::Value) -> WorkflowLaunch {
 /// (contract `wfRisk`), else `model`. The `Task` subagents inside the run
 /// always take `model`.
 pub fn model_for_node(launch: &WorkflowLaunch, kind: &str, risk: &str) -> String {
-    let _ = (launch, kind, risk);
-    todo!("EXP-1014 implements coding::workflows::launch")
+    let strong = matches!(kind, "contract" | "integration") || risk == "high";
+    if strong {
+        launch.strong_model.clone()
+    } else {
+        launch.model.clone()
+    }
 }
 
 /// The model EVERY agent review runs on: `strong_model`, whatever the node.
 pub fn review_model_for(launch: &WorkflowLaunch) -> String {
-    let _ = launch;
-    todo!("EXP-1014 implements coding::workflows::launch")
+    launch.strong_model.clone()
 }
 
 #[cfg(test)]
@@ -118,7 +147,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn reads_the_new_shape_verbatim() {
         let launch = normalize_workflow_launch(&json!({
             "agent": "claude", "account": "p-1", "model": "sonnet", "strongModel": "opus"
@@ -130,7 +158,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn fills_an_empty_row_from_the_claude_defaults() {
         assert_eq!(normalize_workflow_launch(&json!({})), claude());
         assert_eq!(normalize_workflow_launch(&serde_json::Value::Null), claude());
@@ -138,7 +165,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn fills_a_codex_row_from_the_codex_defaults() {
         let launch = normalize_workflow_launch(&json!({ "agent": "codex" }));
         assert_eq!(launch.agent, WorkflowLaunchAgent::Codex);
@@ -147,7 +173,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn degrades_an_unknown_agent_to_claude() {
         assert_eq!(
             normalize_workflow_launch(&json!({ "agent": "pi" })).agent,
@@ -156,7 +181,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn folds_an_old_rows_pins_into_strong_model_review_model_first() {
         assert_eq!(
             normalize_workflow_launch(&json!({ "model": "opus", "contractModel": "sonnet" }))
@@ -175,7 +199,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn lets_a_stored_strong_model_win_over_every_legacy_pin() {
         assert_eq!(
             normalize_workflow_launch(&json!({ "strongModel": "opus", "contractModel": "sonnet" }))
@@ -185,7 +208,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn drops_subagent_model_effort_and_max_parallel() {
         assert_eq!(
             normalize_workflow_launch(&json!({
@@ -196,7 +218,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn keeps_model_as_model_even_beside_old_pins() {
         let launch = normalize_workflow_launch(&json!({ "model": "sonnet", "contractModel": "fable" }));
         assert_eq!(launch.agent, WorkflowLaunchAgent::Claude);
@@ -205,34 +226,29 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements normalize_workflow_launch"]
     fn drops_a_blank_account() {
         assert_eq!(normalize_workflow_launch(&json!({ "account": "" })), claude());
         assert_eq!(normalize_workflow_launch(&json!({ "account": null })), claude());
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements model_for_node"]
     fn runs_a_leaf_on_the_cheap_model() {
         assert_eq!(model_for_node(&claude(), "leaf", "low"), "opus");
         assert_eq!(model_for_node(&claude(), "leaf", "medium"), "opus");
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements model_for_node"]
     fn runs_contract_and_integration_nodes_on_the_strong_model() {
         assert_eq!(model_for_node(&claude(), "contract", "low"), "fable");
         assert_eq!(model_for_node(&claude(), "integration", "low"), "fable");
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements model_for_node"]
     fn runs_a_high_risk_node_on_the_strong_model_whatever_its_kind() {
         assert_eq!(model_for_node(&claude(), "leaf", "high"), "fable");
     }
 
     #[test]
-    #[ignore = "EXP-1029 contract: EXP-1014 implements review_model_for"]
     fn reviews_every_node_on_the_strong_model() {
         assert_eq!(review_model_for(&claude()), "fable");
     }

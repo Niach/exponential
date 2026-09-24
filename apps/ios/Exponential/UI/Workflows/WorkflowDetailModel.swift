@@ -19,10 +19,11 @@ struct WorkflowNodeRun: Equatable {
 /// ARE the edges, all LIVE off the two new shapes, plus the member-gated writes
 /// (`workflows.update` / `.updateNode` / `.delete`).
 ///
-/// There are no local drafts for the configuration: every picker reads the
-/// synced row and writes through the router, which echoes the change back — the
-/// same "other fields mutate immediately" rule the issue detail follows. Only
-/// the name is typed, so only the name is drafted.
+/// EXP-1014: the screen configures NOTHING about the run any more. The stored
+/// launch (EXP-1029: one agent, a cheap model and a strong one) is CARRIED —
+/// read to say what a node runs on, never written — and the only settable
+/// field left is the runner machine, which a draft needs before it can start.
+/// Only the name is typed, so only the name is drafted.
 @MainActor @Observable
 final class WorkflowDetailModel {
     let workflowId: String
@@ -34,6 +35,8 @@ final class WorkflowDetailModel {
     /// The covered issues by id — a node whose row has not synced renders
     /// without one rather than disappearing.
     private(set) var issues: [String: IssueEntity] = [:]
+    /// The `blocks` relations between covered issues — the graph's EDGES, and
+    /// the only dependency a phone can draw (`Blocked by` chips under a node).
     private(set) var relations: [IssueRelationEntity] = []
     /// The nodes' coding sessions by SESSION id — what the graph's live dots
     /// and the Running strip read. A session that has not synced is absent.
@@ -59,10 +62,13 @@ final class WorkflowDetailModel {
     // MARK: - Derived
 
     var metrics: WorkflowMetrics { workflow?.parsedMetrics ?? WorkflowMetrics() }
+
+    /// The stored launch, CARRIED (EXP-1029): the phone reads it to say which
+    /// model a node's run takes and never writes a byte of it back.
     var launch: WorkflowLaunch { workflow?.parsedLaunch ?? WorkflowLaunch() }
 
-    /// Configuration is DRAFT-only server-side; the pickers say so by going
-    /// inert rather than by bouncing on submit.
+    /// The runner machine is DRAFT-only server-side; the picker says so by
+    /// going inert rather than by bouncing on submit.
     var isDraft: Bool { workflow?.status == DomainContract.wfStatusDraft }
 
     var status: String { workflow?.status ?? DomainContract.wfStatusDraft }
@@ -105,64 +111,6 @@ final class WorkflowDetailModel {
     var boundDevice: SteerDevice? {
         guard let deviceId = workflow?.deviceId else { return nil }
         return devices.first { $0.deviceId == deviceId }
-    }
-
-    /// The bound machine's runnable agents; with no machine bound the contract
-    /// list, so the pick can be made before the runner is.
-    var availableAgents: [String] {
-        let agents = LaunchVocabulary.agents(of: boundDevice)
-        return agents.isEmpty ? DomainContract.codingAgentValues : agents
-    }
-
-    var agent: String {
-        launch.agent ?? availableAgents.first ?? "claude"
-    }
-
-    /// EXP-872: the ONE account list — every signed-in login the RUNNER
-    /// machine reports, across agents, its default first
-    /// (`AccountOptions.flatten`). Picking one picks the agent too: the
-    /// separate Agent row is gone.
-    ///
-    /// A machine that reports no login (and a draft with no runner bound yet)
-    /// still offers a row per available agent, named by the agent — the pick
-    /// has to be possible before the machine is.
-    var accountOptions: [AccountOption] {
-        let options = AccountOptions.flatten(
-            accounts: boundDevice?.agentAccounts,
-            usage: boundDevice?.agentUsage,
-            launchDefaults: boundDevice?.launchDefaults
-        )
-        if !options.isEmpty { return options }
-        let agents = availableAgents
-        return agents.map { value in
-            AccountOption(
-                id: AgentAccountsRows.systemProfileId,
-                agent: value,
-                email: LaunchVocabulary.agentLabel(value),
-                isDeviceDefault: value == agents.first
-            )
-        }
-    }
-
-    /// Which option the row reads back as: the stored (agent, account) pair,
-    /// else that agent's first login (a stored profile the machine no longer
-    /// reports), else the first row.
-    var selectedAccount: AccountOption? {
-        let options = accountOptions
-        let id = launch.account ?? AgentAccountsRows.systemProfileId
-        return options.first { $0.agent == agent && $0.id == id }
-            ?? options.first { $0.agent == agent }
-            ?? options.first
-    }
-
-    var maxParallel: Int {
-        launch.maxParallel ?? DomainContract.workflowMaxParallelDefault
-    }
-
-    /// The nodes by id — the serialization edges (`after_node_ids`, EXP-983)
-    /// name NODES, so the panel resolves them through this.
-    var nodesById: [String: WorkflowNodeEntity] {
-        Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     /// The node covering [issueId] — a member's id resolves to its compound
@@ -282,77 +230,10 @@ final class WorkflowDetailModel {
         update(WorkflowPatch(name: trimmed))
     }
 
-    /// Bind (or unbind) the runner machine.
+    /// Bind (or unbind) the runner machine — EXP-1014: the ONE thing this
+    /// screen still sets. The launch itself is carried, never written.
     func setDevice(_ deviceId: String?) {
         update(WorkflowPatch(deviceId: .some(deviceId)))
-    }
-
-    func setStartOn(_ value: String) {
-        update(WorkflowPatch(startOn: value))
-    }
-
-    func setModel(_ value: String?) {
-        var next = launch
-        next.agent = agent
-        next.model = value
-        update(WorkflowPatch(launch: next))
-    }
-
-    func setSubagentModel(_ value: String?) {
-        var next = launch
-        next.agent = agent
-        next.subagentModel = value
-        update(WorkflowPatch(launch: next))
-    }
-
-    func setEffort(_ value: String?) {
-        var next = launch
-        next.agent = agent
-        next.effort = value
-        update(WorkflowPatch(launch: next))
-    }
-
-    /// EXP-872: ONE pick for the agent AND its login (`system` = the machine's
-    /// ambient login, which a launch never names). A DIFFERENT agent has a
-    /// different model/effort vocabulary, so those clear — a stale value would
-    /// only be refused by the router. Web `workflow-detail.tsx`'s account row,
-    /// rule for rule.
-    func selectAccount(_ option: AccountOption) {
-        var next = launch
-        let switched = option.agent != agent
-        next.agent = option.agent
-        next.account = option.id == AgentAccountsRows.systemProfileId ? nil : option.id
-        if switched {
-            // EXP-1002: the phase pins are per agent too. They ride as explicit
-            // nulls, so the server CLEARS them rather than carrying the other
-            // agent's models forward.
-            next.model = nil
-            next.contractModel = nil
-            next.integrationModel = nil
-            next.riskModel = nil
-            next.effort = nil
-            next.subagentModel = nil
-            // EXP-1029: the strong model is per agent too; omitted from the
-            // wire, the server drops it across an agent switch.
-            next.strongModel = nil
-        }
-        update(WorkflowPatch(launch: next))
-    }
-
-    func setMaxParallel(_ value: Int) {
-        var next = launch
-        next.agent = agent
-        next.maxParallel = value
-        update(WorkflowPatch(launch: next))
-    }
-
-    /// EXP-984 — the model the gate's agent reviews run on; nil lets the engine
-    /// pick one.
-    func setReviewModel(_ value: String?) {
-        var next = launch
-        next.agent = agent
-        next.reviewModel = value
-        update(WorkflowPatch(launch: next))
     }
 
     private func update(_ patch: WorkflowPatch) {

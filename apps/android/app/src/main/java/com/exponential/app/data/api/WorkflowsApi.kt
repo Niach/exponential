@@ -193,6 +193,12 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
      * (draft only). [clearDevice] unbinds the runner; everything null is left
      * alone. Electric echoes the written row back, so a success needs no local
      * write.
+     *
+     * EXP-1014: the phone writes only [name] and the runner. [launch] and
+     * [startOn] stay on the signature because the wire contract still carries
+     * them (an older client, web, the desktop) — a workflow screen configures
+     * nothing: its two models are picked where the workflow is created and
+     * `startOn` is fixed to `contract`.
      */
     suspend fun update(
         accountId: String,

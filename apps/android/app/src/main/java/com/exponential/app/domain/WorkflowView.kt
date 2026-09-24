@@ -133,22 +133,15 @@ object WorkflowView {
     data class CaptionNode(val kind: String, val state: String, val risk: String)
 
     /**
-     * The ONE caption under a node. A draft has no states worth reading yet, so
-     * it names the plan (`Contract`, `Leaf · high risk`); a started workflow
-     * names the state, prefixed by the kind only for the two special nodes
-     * (`Contract · Running`, `In review`).
+     * The ONE caption under a node: the bare STATE label once the workflow has
+     * started (`Running`, `In review`, `Landed`), nothing at all in a draft.
+     * The kind and the risk are the node sheet's (EXP-1014: no `Leaf`, no
+     * `Contract · high risk` beside the chips — the chip names the issue, the
+     * caption says only what is happening to it).
      */
     fun nodeCaption(node: CaptionNode, workflowStatus: String): String {
-        if (workflowStatus == DomainContract.wfStatusDraft) {
-            val kind = nodeKindLabel(node.kind)
-            return if (node.risk == DomainContract.wfRiskHigh) "$kind · high risk" else kind
-        }
-        val state = nodeStateLabel(node.state)
-        return if (node.kind == DomainContract.wfNodeKindLeaf) {
-            state
-        } else {
-            "${nodeKindLabel(node.kind)} · $state"
-        }
+        if (workflowStatus == DomainContract.wfStatusDraft) return ""
+        return nodeStateLabel(node.state)
     }
 
     /**
@@ -410,17 +403,15 @@ object WorkflowView {
     const val PROPOSED_NODE_NOTE =
         "Filed during the run. Admit it into the workflow or dismiss it."
     const val AGENT_REVIEW_TITLE = "Agent review"
-    const val REVIEW_MODEL_LABEL = "Review model"
     const val METRICS_TITLE = "Metrics"
 
-    // ── Per-phase models (EXP-1002) ─────────────────────────────────
-
-    /** What a `contract` / `integration` node runs on, and the blank pick
-     * both rows carry: the workflow's own Model, never the CLI's default. */
-    const val CONTRACT_MODEL_LABEL = "Contract model"
-    const val INTEGRATION_MODEL_LABEL = "Integration model"
-    const val RISK_MODEL_LABEL = "High-risk model"
-    const val SAME_AS_MODEL_LABEL = "Same as Model"
+    /**
+     * EXP-1014: the node sheet's read-only line naming what the node's run
+     * spawns on ([modelForNode]). Nothing on a workflow screen CONFIGURES a
+     * model any more — the two the launch carries are picked where the
+     * workflow is created.
+     */
+    const val MODEL_LABEL = "Model"
 
     /**
      * The three fields [reviewLine] reads off `workflow_nodes.review`.

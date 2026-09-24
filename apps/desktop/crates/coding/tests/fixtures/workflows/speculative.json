@@ -7,10 +7,20 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
         { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
       ],
       "edges": [["a", "b"]],
@@ -29,10 +39,20 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
         { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
       ],
       "edges": [["a", "b"]],
@@ -43,7 +63,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1" }
+      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
     ]
   },
   {
@@ -54,10 +74,21 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "contract"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "running", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "checkpointAt": "2026-09-19T10:00:00.000Z" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "checkpointAt": "2026-09-19T10:00:00.000Z"
+        },
         { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
       ],
       "edges": [["a", "b"]],
@@ -67,7 +98,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1" }
+      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
     ]
   },
   {
@@ -78,10 +109,21 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "running", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "checkpointAt": "2026-09-19T10:00:00.000Z" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "checkpointAt": "2026-09-19T10:00:00.000Z"
+        },
         { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
       ],
       "edges": [["a", "b"]],
@@ -99,10 +141,20 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "contract"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "running", "wave": 0, "lane": 0, "sessionId": "s-a", "checkpointAt": "2026-09-19T10:00:00.000Z" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "checkpointAt": "2026-09-19T10:00:00.000Z"
+        },
         { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "ready", "wave": 1, "lane": 0 }
       ],
       "edges": [["a", "b"]],
@@ -120,10 +172,19 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "contract"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "landed", "wave": 0, "lane": 0, "branch": "exp/EXP-1" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "branch": "exp/EXP-1"
+        },
         { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
       ],
       "edges": [["a", "b"]],
@@ -132,7 +193,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12" }
+      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -143,22 +204,48 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12"
+        },
         { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
-      "tips": {
-        "exp/EXP-1": "sha-a1",
-        "exp/EXP-2": "sha-b1",
-        "exp/wf-abcdef12": "sha-i1"
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
       },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
+      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
       "propagated": {
         "a": { "exp/wf-abcdef12": "sha-i1" },
         "b": { "exp/wf-abcdef12": "sha-i1" }
@@ -174,7 +261,13 @@
         "baseBranch": "exp/wf-abcdef12-base-EXP-3",
         "sources": ["exp/EXP-1", "exp/EXP-2", "exp/wf-abcdef12"]
       },
-      { "kind": "startNode", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12-base-EXP-3" }
+      {
+        "kind": "startNode",
+        "nodeId": "c",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12-base-EXP-3",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -185,16 +278,46 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12"
+        },
         { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
+      },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
       "tips": {
         "exp/EXP-1": "sha-a1",
@@ -218,7 +341,13 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
-      { "kind": "startNode", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12-base-EXP-3" }
+      {
+        "kind": "startNode",
+        "nodeId": "c",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12-base-EXP-3",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -229,16 +358,57 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-c", "branch": "exp/EXP-3", "baseBranch": "exp/wf-abcdef12-base-EXP-3" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c",
+          "branch": "exp/EXP-3",
+          "baseBranch": "exp/wf-abcdef12-base-EXP-3"
+        }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true }, "s-c": { "live": true } },
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
+      },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true },
+        "s-c": { "live": true }
+      },
       "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
       "tips": {
         "exp/EXP-1": "sha-a2",
@@ -278,15 +448,38 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/EXP-1" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/EXP-1"
+        }
       ],
       "edges": [["a", "b"]],
       "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "tips": { "exp/EXP-1": "sha-a2" },
       "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
       "integrationBranchExists": true,
@@ -311,15 +504,38 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/EXP-1" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/EXP-1"
+        }
       ],
       "edges": [["a", "b"]],
       "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "tips": { "exp/EXP-1": "sha-a2" },
       "propagated": { "b": { "exp/EXP-1": "sha-a2" } },
       "integrationBranchExists": true,
@@ -335,15 +551,38 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/EXP-1" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/EXP-1"
+        }
       ],
       "edges": [["a", "b"]],
       "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true, "agentBusy": true } },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true, "agentBusy": true }
+      },
       "tips": { "exp/EXP-1": "sha-a2" },
       "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
       "integrationBranchExists": true,
@@ -359,15 +598,41 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/EXP-1" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/EXP-1"
+        }
       ],
       "edges": [["a", "b"]],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": false } },
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
+      },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": false }
+      },
       "tips": { "exp/EXP-1": "sha-a2" },
       "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
       "integrationBranchExists": true,
@@ -392,22 +657,45 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "running", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 0, "lane": 1, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12"
+        },
         { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 1, "lane": 0 }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
       "conflicts": [["a", "b"]],
-      "tips": {
-        "exp/EXP-1": "sha-a1",
-        "exp/EXP-2": "sha-b1",
-        "exp/wf-abcdef12": "sha-i1"
-      },
+      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
       "propagated": {
         "a": { "exp/wf-abcdef12": "sha-i1" },
         "b": { "exp/wf-abcdef12": "sha-i1" }
@@ -434,20 +722,40 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "running", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 0, "lane": 1, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12"
+        }
       ],
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "identifier": { "a": "EXP-1", "b": "EXP-2" },
       "conflicts": [["a", "b"]],
-      "tips": {
-        "exp/EXP-1": "sha-a1",
-        "exp/EXP-2": "sha-b1",
-        "exp/wf-abcdef12": "sha-i1"
-      },
+      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
       "propagated": {
         "a": { "exp/wf-abcdef12": "sha-i1" },
         "b": { "exp/wf-abcdef12": "sha-i1" }
@@ -465,22 +773,46 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "running", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 0, "lane": 1, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12", "afterNodeIds": ["a"] },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12",
+          "afterNodeIds": ["a"]
+        },
         { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 1, "lane": 0 }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
       "conflicts": [["b", "a"]],
-      "tips": {
-        "exp/EXP-1": "sha-a1",
-        "exp/EXP-2": "sha-b1",
-        "exp/wf-abcdef12": "sha-i1"
-      },
+      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
       "propagated": {
         "a": { "exp/wf-abcdef12": "sha-i1" },
         "b": { "exp/wf-abcdef12": "sha-i1", "exp/EXP-1": "sha-a1" }
@@ -498,14 +830,42 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "afterNodeIds": ["a"], "approvedAt": "2026-09-19T10:00:00.000Z" },
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-a", "branch": "exp/EXP-1", "approvedAt": "2026-09-19T10:00:00.000Z" }
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "afterNodeIds": ["a"],
+          "approvedAt": "2026-09-19T10:00:00.000Z"
+        },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "approvedAt": "2026-09-19T10:00:00.000Z"
+        }
       ],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": false }, "s-b": { "live": false } },
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
+      },
+      "sessions": {
+        "s-a": { "live": false },
+        "s-b": { "live": false }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -519,15 +879,41 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "approvedAt": "2026-09-19T10:00:00.000Z" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "approvedAt": "2026-09-19T10:00:00.000Z"
+        }
       ],
       "edges": [["a", "b"]],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": false }, "s-b": { "live": false } },
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
+      },
+      "sessions": {
+        "s-a": { "live": false },
+        "s-b": { "live": false }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -541,14 +927,44 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "landed", "wave": 0, "lane": 0, "branch": "exp/EXP-1" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "landed", "wave": 0, "lane": 1, "branch": "exp/EXP-2" },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "in_review", "wave": 1, "lane": 0, "sessionId": "s-c", "branch": "exp/EXP-3", "baseBranch": "exp/wf-abcdef12" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "branch": "exp/EXP-1"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1,
+          "branch": "exp/EXP-2"
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c",
+          "branch": "exp/EXP-3",
+          "baseBranch": "exp/wf-abcdef12"
+        }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
       "issues": { "i-c": { "prState": "open" } },
       "sessions": { "s-c": { "live": false } },
       "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
@@ -572,16 +988,41 @@
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-c", "baseBranch": "exp/wf-abcdef12-base-EXP-3" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c",
+          "baseBranch": "exp/wf-abcdef12-base-EXP-3"
+        }
       ],
       "edges": [["a", "c"]],
-      "sessions": { "s-a": { "live": false }, "s-c": { "live": false } },
+      "sessions": {
+        "s-a": { "live": false },
+        "s-c": { "live": false }
+      },
       "synthetic": {
-        "exp/wf-abcdef12-base-EXP-3": [["exp/EXP-1", "sha-a1"], ["exp/wf-abcdef12", "sha-i1"]]
+        "exp/wf-abcdef12-base-EXP-3": [
+          ["exp/EXP-1", "sha-a1"],
+          ["exp/wf-abcdef12", "sha-i1"]
+        ]
       },
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -599,15 +1040,38 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "waiting", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/EXP-1" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "waiting",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/EXP-1"
+        }
       ],
       "edges": [["a", "b"]],
       "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true, "needsInput": true } },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true, "needsInput": true }
+      },
       "tips": { "exp/EXP-1": "sha-a2" },
       "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
       "integrationBranchExists": true,
@@ -623,20 +1087,51 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/EXP-1" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/EXP-1"
+        },
         { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 2, "lane": 0 }
       ],
-      "edges": [["a", "b"], ["a", "c"], ["b", "c"]],
+      "edges": [
+        ["a", "b"],
+        ["a", "c"],
+        ["b", "c"]
+      ],
       "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
       "conflicts": [["a", "b"]],
       "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
-      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" }, "b": { "exp/EXP-1": "sha-a1" } },
+      "propagated": {
+        "a": { "exp/wf-abcdef12": "sha-i1" },
+        "b": { "exp/EXP-1": "sha-a1" }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -650,19 +1145,49 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "running", "wave": 0, "lane": 1, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12" },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12"
+        },
         { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 2, "lane": 0 }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
       "conflicts": [["a", "b"]],
       "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
-      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" }, "b": { "exp/wf-abcdef12": "sha-i1" } },
+      "propagated": {
+        "a": { "exp/wf-abcdef12": "sha-i1" },
+        "b": { "exp/wf-abcdef12": "sha-i1" }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -685,20 +1210,54 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "pr_open"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12", "afterNodeIds": ["a"] },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12",
+          "afterNodeIds": ["a"]
+        },
         { "id": "c", "issueId": "i-c", "kind": "integration", "state": "ready", "wave": 1, "lane": 0 }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
+      },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true }
+      },
       "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
       "conflicts": [["a", "b"]],
       "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
-      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" }, "b": { "exp/wf-abcdef12": "sha-i1", "exp/EXP-1": "sha-a1" } },
+      "propagated": {
+        "a": { "exp/wf-abcdef12": "sha-i1" },
+        "b": { "exp/wf-abcdef12": "sha-i1", "exp/EXP-1": "sha-a1" }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -719,10 +1278,21 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "updating", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "updating",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        }
       ],
       "issues": { "i-a": { "prState": "open" } },
       "sessions": { "s-a": { "live": false } },
@@ -743,10 +1313,22 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "updating", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12", "approvedAt": "2026-09-19T10:00:00.000Z" }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "updating",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12",
+          "approvedAt": "2026-09-19T10:00:00.000Z"
+        }
       ],
       "issues": { "i-a": { "prState": "open" } },
       "sessions": { "s-a": { "live": false } },

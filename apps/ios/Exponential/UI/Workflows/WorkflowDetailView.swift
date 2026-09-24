@@ -2,14 +2,19 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-981 — one workflow: what it is (the name and the shared shape line), its
-/// GRAPH, its merge train, how it runs, and what its status lets it do — a draft
-/// starts (or says why it cannot), gets planned and deleted; a live one pauses,
-/// resumes or is cancelled (EXP-982).
+/// EXP-981 — one workflow: what it is (the name, the shared shape line and the
+/// machine it runs on), its GRAPH, its merge train, its metrics, and what its
+/// status lets it do — a draft starts (or says why it cannot), gets planned and
+/// deleted; a live one pauses, resumes or is cancelled (EXP-982).
+///
+/// EXP-1014: the screen CONFIGURES nothing about the run. The launch (EXP-1029:
+/// one agent, a cheap model and a strong one) is picked where a workflow is
+/// planned and carried from there; the only control left is the runner machine,
+/// which a draft needs before it can start, and it sits in the header.
 ///
 /// The graph is the phone form (`WorkflowGraphView`): waves as bands, nodes as
-/// flat rows, blockers as chips. Tapping a node opens its panel — a SHEET here,
-/// where web and the IDE put a right-hand panel.
+/// issue chips. Tapping a node opens its panel — a SHEET here, where web and
+/// the IDE put a right-hand panel.
 struct WorkflowDetailView: View {
     let workflowId: String
 
@@ -40,7 +45,6 @@ struct WorkflowDetailView: View {
                             header(model)
                             graph(model)
                             mergeTrain(model)
-                            howItRuns(model)
                             metrics(model)
                             actions(model)
                         }
@@ -88,7 +92,7 @@ struct WorkflowDetailView: View {
                 WorkflowNodeSheet(
                     node: node,
                     issues: model.issues,
-                    nodesById: model.nodesById,
+                    launch: model.launch,
                     enabled: model.isDraft,
                     busy: model.busy,
                     onUpdate: { patch in
@@ -160,6 +164,8 @@ struct WorkflowDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
+            runner(model)
+
             // A cyclic plan cannot start, so the note is destructive, not a
             // hint — and it names the issues to unlink.
             if let note = WorkflowView.cycleNote(model.metrics) {
@@ -179,6 +185,30 @@ struct WorkflowDetailView: View {
         .padding(.vertical, 12)
         .glassCard()
         .padding(.bottom, 12)
+    }
+
+    /// EXP-1014 — the ONE thing this screen still sets: WHICH machine runs the
+    /// workflow. A draft needs one bound before it can start, and once it has
+    /// started the pick is history, so the row goes inert rather than bouncing
+    /// on submit. Everything else about the run (agent, models) is carried on
+    /// the stored launch and is not edited here.
+    @ViewBuilder
+    private func runner(_ model: WorkflowDetailModel) -> some View {
+        GlassPickerRow(
+            "Runs on",
+            selection: Binding(
+                get: { model.workflow?.deviceId ?? "" },
+                set: { model.setDevice($0.isEmpty ? nil : $0) }
+            ),
+            options: [""] + model.devices.map(\.deviceId),
+            label: { id in
+                model.devices.first { $0.deviceId == id }
+                    .map(LaunchVocabulary.deviceCaption) ?? "No machine"
+            },
+            enabled: model.isDraft
+        )
+        .font(.caption)
+        .accessibilityIdentifier("workflow-runner-row")
     }
 
     // MARK: - Graph
@@ -270,157 +300,6 @@ struct WorkflowDetailView: View {
         }
     }
 
-    // MARK: - How it runs
-
-    /// The start configuration, persisted field by field through
-    /// `workflows.update`. DRAFT-only server-side: once a workflow is running
-    /// the rows go inert rather than bouncing on submit.
-    @ViewBuilder
-    private func howItRuns(_ model: WorkflowDetailModel) -> some View {
-        let enabled = model.isDraft
-        VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand("How it runs")
-                .padding(.top, 12)
-
-            optionRow {
-                GlassPickerRow(
-                    "Runs on",
-                    selection: Binding(
-                        get: { model.workflow?.deviceId ?? "" },
-                        set: { model.setDevice($0.isEmpty ? nil : $0) }
-                    ),
-                    options: [""] + model.devices.map(\.deviceId),
-                    label: { id in
-                        model.devices.first { $0.deviceId == id }
-                            .map(LaunchVocabulary.deviceCaption) ?? "No machine"
-                    },
-                    enabled: enabled
-                )
-            }
-
-            // EXP-872: ONE account row — the runner machine's flattened logins
-            // (both agents, by email, its default first); a pick implies the
-            // agent, so there is no Agent row any more. A started workflow's
-            // configuration is history, so the row reads as a plain label.
-            optionRow {
-                HStack(spacing: 8) {
-                    Text("Account")
-                        .foregroundStyle(.white.opacity(TextOpacity.primary))
-                    Spacer(minLength: 8)
-                    if enabled {
-                        AccountPickerMenu(
-                            options: model.accountOptions,
-                            selection: model.selectedAccount,
-                            mark: { AgentBrandMark.image($0) },
-                            onSelect: { model.selectAccount($0) }
-                        )
-                    } else {
-                        AccountPickerTriggerLabel(
-                            option: model.selectedAccount,
-                            mark: model.selectedAccount.flatMap { AgentBrandMark.image($0.agent) },
-                            chevron: false
-                        )
-                    }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("workflow-account-row")
-            }
-
-            optionRow {
-                GlassPickerRow(
-                    "Model",
-                    selection: launchBinding(
-                        value: model.launch.model, set: { model.setModel($0) }
-                    ),
-                    // A binding offers "CLI default" for every agent: a blank
-                    // stores NULL and lets the machine decide.
-                    options: [LaunchVocabulary.cliDefault]
-                        + LaunchVocabulary.automationModelValues(for: model.agent),
-                    label: { LaunchVocabulary.modelLabel($0) },
-                    enabled: enabled
-                )
-            }
-
-            // EXP-981: claude only, exactly like the composer's row.
-            if LaunchVocabulary.supportsSubagentModel(model.agent) {
-                optionRow {
-                    GlassPickerRow(
-                        "Subagent model",
-                        selection: launchBinding(
-                            value: model.launch.subagentModel,
-                            set: { model.setSubagentModel($0) }
-                        ),
-                        options: LaunchVocabulary.subagentModelValues(),
-                        label: { LaunchVocabulary.subagentModelLabel($0) },
-                        enabled: enabled
-                    )
-                }
-            }
-
-            optionRow {
-                GlassPickerRow(
-                    LaunchVocabulary.effortTitle(for: model.agent),
-                    selection: launchBinding(
-                        value: model.launch.effort, set: { model.setEffort($0) }
-                    ),
-                    options: [LaunchVocabulary.cliDefault]
-                        + LaunchVocabulary.effortValues(for: model.agent),
-                    label: { value in
-                        value == LaunchVocabulary.cliDefault
-                            ? "CLI default"
-                            : LaunchVocabulary.effortLabel(value)
-                    },
-                    enabled: enabled
-                )
-            }
-
-            optionRow {
-                GlassPickerRow(
-                    "Max parallel",
-                    selection: Binding(
-                        get: { model.maxParallel },
-                        set: { model.setMaxParallel($0) }
-                    ),
-                    options: Array(1...Self.maxParallelCap),
-                    label: { "\($0)" },
-                    enabled: enabled
-                )
-            }
-
-            // EXP-1010: every node's PR gets an agent review; this is the model
-            // it runs on.
-            do {
-                optionRow {
-                    GlassPickerRow(
-                        WorkflowView.reviewModelLabel,
-                        selection: launchBinding(
-                            value: model.launch.reviewModel,
-                            set: { model.setReviewModel($0) }
-                        ),
-                        // The same claude list the subagent row offers, blank
-                        // row included: "Default" = the engine picks.
-                        options: LaunchVocabulary.subagentModelValues(),
-                        label: { LaunchVocabulary.subagentModelLabel($0) },
-                        enabled: enabled
-                    )
-                }
-            }
-
-            optionRow {
-                GlassPickerRow(
-                    "Start",
-                    selection: Binding(
-                        get: { model.workflow?.startOn ?? DomainContract.wfStartOnContract },
-                        set: { model.setStartOn($0) }
-                    ),
-                    options: DomainContract.wfStartOnValues,
-                    label: Self.startOnLabel,
-                    enabled: enabled
-                )
-            }
-        }
-    }
-
     // MARK: - Metrics
 
     /// EXP-984 — what the run cost and caught, the LAST section of a started
@@ -451,37 +330,6 @@ struct WorkflowDetailView: View {
             }
             .accessibilityIdentifier("workflow-metrics")
         }
-    }
-
-    /// The server's own cap (`WORKFLOW_MAX_PARALLEL_CAP`) — how many nodes the
-    /// engine may run at once.
-    private static let maxParallelCap = 8
-
-    private static func startOnLabel(_ value: String) -> String {
-        switch value {
-        case DomainContract.wfStartOnPrOpen: "On PR open"
-        case DomainContract.wfStartOnLanded: "When landed"
-        default: "On contract"
-        }
-    }
-
-    /// A launch field the "CLI default" sentinel stands in for: the picker
-    /// speaks the sentinel, the row stores NULL.
-    private func launchBinding(
-        value: String?, set: @escaping (String?) -> Void
-    ) -> Binding<String> {
-        Binding(
-            get: { (value?.isEmpty ?? true) ? LaunchVocabulary.cliDefault : value! },
-            set: { set($0 == LaunchVocabulary.cliDefault ? nil : $0) }
-        )
-    }
-
-    @ViewBuilder
-    private func optionRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        content()
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .flatRow()
     }
 
     // MARK: - Actions
@@ -611,16 +459,20 @@ struct WorkflowNodeTarget: Identifiable {
 }
 
 /// EXP-981 — one node's panel. Web and the IDE put it beside the graph; a phone
-/// gets a sheet. It names the node's issue, its members when it is a compound
-/// one, what the plan declares about it (Kind / Risk) and the `touches` globs
-/// the planner wrote, and it opens the issue.
+/// gets a sheet. EXP-1014 pares it to exactly what a reader decides on: the
+/// node's issue chip, what the plan declares (Kind / Risk — draft-only, and
+/// between them they pick the model), the model its run takes, its state and
+/// the actions that state allows, the way out to the Work faces, and the latest
+/// agent review. Nothing else: the planner's `touches` globs, the members of a
+/// compound node and the engine's serialization edges are bookkeeping, not
+/// something a reader acts on here.
 struct WorkflowNodeSheet: View {
     let node: WorkflowNodeEntity
     let issues: [String: IssueEntity]
-    /// EXP-983 — the workflow's nodes by id: `after_node_ids` names NODES, and
-    /// the panel chips the issues behind them.
-    let nodesById: [String: WorkflowNodeEntity]
-    /// Kind shapes the PLAN, so the server takes it on a draft only.
+    /// The workflow's stored launch, CARRIED (EXP-1029): the panel says which
+    /// of its two models this node's run takes and never writes it back.
+    let launch: WorkflowLaunch
+    /// Kind and risk shape the PLAN, so the server takes them on a draft only.
     let enabled: Bool
     /// A write is in flight; the run controls go inert rather than double-fire.
     let busy: Bool
@@ -646,78 +498,10 @@ struct WorkflowNodeSheet: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 subject
-
-                if !node.memberIssueIds.isEmpty {
-                    // A compound node runs as ONE batch: its members are part
-                    // of the same session, branch and pull request.
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Runs together with")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 4) {
-                                ForEach(node.memberIssueIds, id: \.self) { chip($0) }
-                            }
-                        }
-                    }
-                }
-
-                mergesInFirst
-
-                // EXP-994: one grouped card, hairline-separated rows.
-                VStack(spacing: 0) {
-                    GlassPickerRow(
-                        "Kind",
-                        selection: Binding(
-                            get: { node.kind },
-                            set: { onUpdate(WorkflowNodePatch(kind: $0)) }
-                        ),
-                        options: DomainContract.wfNodeKindValues,
-                        label: WorkflowView.nodeKindLabel,
-                        enabled: enabled
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-
-                    GlassDivider()
-
-                    GlassPickerRow(
-                        "Risk",
-                        selection: Binding(
-                            get: { node.risk },
-                            set: { onUpdate(WorkflowNodePatch(risk: $0)) }
-                        ),
-                        options: DomainContract.wfRiskValues,
-                        label: { $0.prefix(1).uppercased() + $0.dropFirst() }
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                }
-                .glassSection()
-
-                // What the node expects to change — the planner's own globs,
-                // read-only here.
-                if !node.touches.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Touches")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        ForEach(node.touches, id: \.self) { glob in
-                            Text(glob)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .glassRow()
-                }
-
-                agentReview
-
+                planRows
                 runControls
+                faces
+                agentReview
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding)
             .padding(.bottom, 16)
@@ -735,33 +519,149 @@ struct WorkflowNodeSheet: View {
         }
     }
 
-    // MARK: - Speculative starts (EXP-983)
+    // MARK: - The node
 
-    /// The serialization edges the engine wrote after two siblings' work
-    /// collided: this node merges those in before it pushes. Chipped as issues,
-    /// with the dashed border every speculative edge wears.
+    /// The node's own issue, as the chip the graph row draws — stacked when the
+    /// node is a compound one. The CHIP is the way into the issue; the faces
+    /// below are the way into its run and its changes.
     @ViewBuilder
-    private var mergesInFirst: some View {
-        let after = node.afterNodeIds.compactMap { nodesById[$0] }
-        if !after.isEmpty {
+    private var subject: some View {
+        Button { onOpenIssue(node.issueId) } label: {
             VStack(alignment: .leading, spacing: 6) {
-                Text(WorkflowView.mergesInFirstLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        ForEach(after) { other in
-                            chip(
-                                other.issueId,
-                                memberCount: other.memberIssueIds.count,
-                                cycle: other.onCycle
-                            )
-                            .overlay { SpeculativeChipBorder() }
-                        }
-                    }
+                chip
+                if let title = issues[node.issueId]?.title {
+                    Text(title)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .accessibilityIdentifier("workflow-node-merges-in-first")
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("workflow-node-issue")
+    }
+
+    /// The node's chip, drawn by the graph's own rules: the state's glyph in
+    /// its tone once the state has one, the issue's status glyph before that,
+    /// the workflow ring around a proposed or cyclic node, and the stack behind
+    /// a compound one.
+    @ViewBuilder
+    private var chip: some View {
+        let issue = issues[node.issueId]
+        let status = IssueStatus.from(issue?.status)
+        let stateIcon = WorkflowGraphView.stateIcon(node.state)
+        let face = IssueChip(
+            identifier: WorkflowView.nodeTitle(
+                identifier: issue?.identifier ?? node.issueId,
+                memberCount: node.memberIssueIds.count
+            ),
+            title: issue?.title,
+            iconName: stateIcon ?? status.iconName,
+            statusColor: stateIcon == nil ? status.color : Self.color(tone)
+        )
+        .overlay { WorkflowGraphView.ring(node) }
+        if node.memberIssueIds.isEmpty {
+            face
+        } else {
+            IssueChipStack { face }
+        }
+    }
+
+    /// What the plan declares about the node, and what that costs: kind and
+    /// risk (draft-only — they shape the run, and between them they decide
+    /// which of the workflow's two models it spawns on), then that model,
+    /// read-only. EXP-1029: the launch is set where a workflow is planned; a
+    /// node only says which half of it applies.
+    @ViewBuilder
+    private var planRows: some View {
+        // EXP-994: one grouped card, hairline-separated rows.
+        VStack(spacing: 0) {
+            GlassPickerRow(
+                "Kind",
+                selection: Binding(
+                    get: { node.kind },
+                    set: { onUpdate(WorkflowNodePatch(kind: $0)) }
+                ),
+                options: DomainContract.wfNodeKindValues,
+                label: WorkflowView.nodeKindLabel,
+                enabled: enabled
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+
+            GlassDivider()
+
+            GlassPickerRow(
+                "Risk",
+                selection: Binding(
+                    get: { node.risk },
+                    set: { onUpdate(WorkflowNodePatch(risk: $0)) }
+                ),
+                options: DomainContract.wfRiskValues,
+                label: { $0.prefix(1).uppercased() + $0.dropFirst() },
+                enabled: enabled
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+
+            GlassDivider()
+
+            HStack(spacing: 8) {
+                Text("Model")
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+                Spacer(minLength: 8)
+                Text(LaunchVocabulary.modelLabel(
+                    WorkflowView.modelForNode(launch, kind: node.kind, risk: node.risk)
+                ))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("workflow-node-model")
+        }
+        .glassSection()
+    }
+
+    // MARK: - The Work faces (EXP-1024)
+
+    /// Issue · Run · Changes for this node, as the Work screen's own faces — a
+    /// node reads exactly like the screen it opens into. Which faces exist is
+    /// the shared rule (`WorkFaces.availableFaces`): no run, no Run; no pull
+    /// request, no Changes. Under two there is nothing to choose, and the chip
+    /// above is already the way into the issue.
+    @ViewBuilder
+    private var faces: some View {
+        let available = WorkFaces.availableFaces(
+            hasIssue: true,
+            hasRun: node.sessionId != nil,
+            hasChanges: issues[node.issueId]?.prNumber != nil,
+            hasResults: false
+        )
+        if available.count > 1 {
+            HStack(spacing: 8) {
+                ForEach(available, id: \.self) { face in
+                    GlassPill(
+                        WorkFaces.faceLabel(face),
+                        icon: WorkFaceSwitcher.icon(.face(face)),
+                        mode: .action { open(face) }
+                    )
+                }
+            }
+            .accessibilityIdentifier("workflow-node-faces")
+        }
+    }
+
+    private func open(_ face: WorkFaceKind) {
+        switch face {
+        case .run:
+            if let sessionId = node.sessionId { onOpenRun(sessionId) }
+        case .changes:
+            onOpenChanges(node.issueId)
+        case .issue, .results:
+            onOpenIssue(node.issueId)
         }
     }
 
@@ -827,34 +727,33 @@ struct WorkflowNodeSheet: View {
             || findings.filter { $0 == "\n" }.count >= findingsLines
     }
 
-    // MARK: - Running it (EXP-982)
+    // MARK: - State and its actions (EXP-982)
 
-    /// The node's own run: why it is stuck, its live session, its pull request,
-    /// the gate, and the two ways out of a failure.
+    /// Where the node stands, and the only things a person can do about it:
+    /// admit or dismiss a proposal, retry or skip a failure, approve a PR or
+    /// take that approval back.
     @ViewBuilder
     private var runControls: some View {
-        let issue = issues[node.issueId]
         VStack(alignment: .leading, spacing: 10) {
-            // EXP-983: a `contract` start releases the dependents the moment
-            // the node announces its contract — so say when that happened.
-            if let checkpoint = node.checkpointAt, !checkpoint.isEmpty {
-                let when = relativeWireDate(checkpoint)
-                Text(
-                    when.isEmpty
-                        ? WorkflowView.contractPublishedLabel
-                        : "\(WorkflowView.contractPublishedLabel) · \(when)"
-                )
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("workflow-node-checkpoint")
+            // The state in full, in its own tone — the graph row's caption,
+            // said where the decisions are made.
+            HStack(spacing: 6) {
+                if let icon = WorkflowGraphView.stateIcon(node.state) {
+                    AppIcon(icon, size: AppIcon.Size.small)
+                        .foregroundStyle(Self.color(tone))
+                }
+                Text(WorkflowView.nodeStateLabel(node.state))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Self.color(tone))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("workflow-node-state")
 
             // The engine's own words for a `failed` / `waiting` node.
             if let note = node.note, !note.isEmpty {
                 Text(note)
                     .font(.caption)
-                    .foregroundStyle(Self.color(WorkflowView.nodeTone(node.state)))
+                    .foregroundStyle(Self.color(tone))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("workflow-node-note")
             }
@@ -931,75 +830,13 @@ struct WorkflowNodeSheet: View {
                     .accessibilityIdentifier("workflow-node-approve")
                 }
             }
-
-            HStack(spacing: 8) {
-                // The issue itself is reached through the badge above.
-                // The run the engine started for this node.
-                if let sessionId = node.sessionId {
-                    GlassPill(
-                        "Open run",
-                        icon: AppIcons.codingRunning,
-                        mode: .action { onOpenRun(sessionId) }
-                    )
-                    .accessibilityIdentifier("workflow-node-open-run")
-                }
-
-                // The node's pull request, through the issue's own Changes
-                // page — the affordance the issue detail uses.
-                if issue?.prUrl != nil {
-                    GlassPill(
-                        issue?.prNumber.map { "PR #\($0)" } ?? "Pull request",
-                        icon: AppIcons.prOpen,
-                        mode: .action { onOpenChanges(node.issueId) }
-                    )
-                    .accessibilityIdentifier("workflow-node-open-pr")
-                }
-            }
         }
     }
+
+    private var tone: WorkflowView.Tone { WorkflowView.nodeTone(node.state) }
 
     /// The node tones in this app's own state vocabulary — the graph's table.
     private static func color(_ tone: WorkflowView.Tone) -> Color {
         WorkflowGraphView.color(tone)
-    }
-
-    /// The node's own issue, with the caption the graph row carries. The BADGE
-    /// is the way into the issue — tapping the subject opens it, so the sheet
-    /// needs no "Open issue" pill of its own.
-    @ViewBuilder
-    private var subject: some View {
-        Button { onOpenIssue(node.issueId) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                chip(node.issueId, memberCount: node.memberIssueIds.count)
-                if let title = issues[node.issueId]?.title {
-                    Text(title)
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("workflow-node-issue")
-    }
-
-    /// One covered issue as the shared badge. `memberCount` names a compound
-    /// node the way the graph row does; `cycle` defaults to THIS node's, since
-    /// every chip but the serialization ones stands for this node's own work.
-    @ViewBuilder
-    private func chip(
-        _ issueId: String, memberCount: Int = 0, cycle: Bool? = nil
-    ) -> some View {
-        let issue = issues[issueId]
-        let status = IssueStatus.from(issue?.status)
-        IssueChip(
-            identifier: WorkflowView.nodeTitle(
-                identifier: issue?.identifier ?? issueId, memberCount: memberCount
-            ),
-            title: issue?.title,
-            iconName: status.iconName,
-            statusColor: (cycle ?? node.onCycle) ? DesignTokens.Semantic.red : status.color
-        )
     }
 }
