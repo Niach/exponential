@@ -514,8 +514,46 @@ fn synthetic_base(workflow_id: &str, identifier: &str) -> String {
 /// `exp/wf-<id8>-review-<IDENT>-r<round>`. It is cut from the node's own
 /// pushed branch, and it goes with the review's worktree at the end.
 pub fn review_branch(workflow_id: &str, identifier: &str, round: i64) -> String {
+    format!("{}{round}", review_branch_prefix(workflow_id, identifier))
+}
+
+/// Every review of one node runs on a branch under this prefix,
+/// `exp/wf-<id8>-review-<IDENT>-r` — the round follows, so `EXP-10`'s
+/// prefix never matches `EXP-103`'s branches.
+pub fn review_branch_prefix(workflow_id: &str, identifier: &str) -> String {
     let id8: String = workflow_id.chars().take(8).collect();
-    format!("exp/wf-{id8}-review-{identifier}-r{round}")
+    format!("exp/wf-{id8}-review-{identifier}-r")
+}
+
+/// The LIVE reviewer run of every node, found by its BRANCH rather than by
+/// the session id the host recorded: `node id → session id`. A resume — a
+/// person's "Switch account", the Resume button — ends the recorded run and
+/// starts another on the SAME review branch, and a host that only knew the
+/// recorded id read that end as a review that never submitted, released the
+/// head and started a third reviewer beside the resumed one (workflow
+/// 3b828f50: five live reviews of one node). `live_rows` = this team's live
+/// `(session id, branch)` rows OLDEST FIRST; the newest match wins.
+pub fn live_reviews_on_branches(
+    workflow_id: &str,
+    identifier: &HashMap<String, String>,
+    live_rows: impl IntoIterator<Item = (String, String)>,
+) -> HashMap<String, String> {
+    let prefixes: Vec<(String, String)> = identifier
+        .iter()
+        .map(|(node_id, ident)| (node_id.clone(), review_branch_prefix(workflow_id, ident)))
+        .collect();
+    let mut found = HashMap::new();
+    for (session_id, branch) in live_rows {
+        let Some((node_id, _)) = prefixes.iter().find(|(_, prefix)| {
+            branch
+                .strip_prefix(prefix.as_str())
+                .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+        }) else {
+            continue;
+        };
+        found.insert(node_id.clone(), session_id);
+    }
+    found
 }
 
 /// Whether a branch is one of this workflow's synthetic bases.
@@ -1620,17 +1658,30 @@ pub fn parse_wire_timestamp_ms(raw: &str) -> Option<i64> {
 /// node names the new run — so the ended row it still points at is neither
 /// resumed twice nor told anything, and the node holds its state. Entries
 /// past the grace, or no node points at any more, are dropped.
-pub fn apply_resuming(snapshot: &mut Snapshot, resuming: &mut HashMap<String, i64>) {
+///
+/// A hold on a REVIEWER run (`review_runs`, a person's resume of a review)
+/// is kept the same way but marks nothing: its liveness is settled by
+/// [`settle_review_runs`], which reads the hold there.
+pub fn apply_resuming(
+    snapshot: &mut Snapshot,
+    resuming: &mut HashMap<String, i64>,
+    review_runs: &HashMap<String, String>,
+) {
     let named: HashSet<&str> = snapshot
         .nodes
         .iter()
         .filter_map(|node| node.session_id.as_deref())
         .collect();
+    let reviewing: HashSet<&str> = review_runs.values().map(String::as_str).collect();
     let now_ms = snapshot.now_ms;
     resuming.retain(|session_id, at| {
-        named.contains(session_id.as_str()) && now_ms - *at < RESUME_GRACE_MS
+        (named.contains(session_id.as_str()) || reviewing.contains(session_id.as_str()))
+            && now_ms - *at < RESUME_GRACE_MS
     });
     for session_id in resuming.keys() {
+        if !named.contains(session_id.as_str()) {
+            continue; // a reviewer: settle_review_runs reads the hold
+        }
         // Live and mid-turn, nothing else: the ended row's clock and wall
         // belong to the run that ended, not to the one coming up.
         snapshot.sessions.insert(
@@ -1650,7 +1701,7 @@ pub fn prune_land_refused(refused: &mut HashMap<String, String>, pr_head: &HashM
     refused.retain(|node_id, head| pr_head.get(node_id).map_or(true, |current| current == head));
 }
 
-/// What [`settle_review_runs`] found for one node whose reviewer run ENDED.
+/// What [`settle_review_runs`] found for one node's reviewer run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReviewRunEnd {
     /// The round advanced: a verdict landed. Nothing to do.
@@ -1660,6 +1711,14 @@ pub enum ReviewRunEnd {
     /// No verdict for the last time: the head stays claimed and the node
     /// should say so (`note`).
     GaveUp { node_id: String, note: String },
+    /// The recorded run ended but a run on the node's review branch is
+    /// live — its resume. The node's record now names that run; nothing
+    /// was counted.
+    Followed { node_id: String, session_id: String },
+    /// A live run on the node's review branch nobody recorded (a resume
+    /// whose predecessor was already settled, a host restart). Recorded at
+    /// the node's current round, so its end is settled like any other.
+    Adopted { node_id: String, session_id: String },
 }
 
 /// Host bookkeeping (EXP-984), shared by both hosts: every reviewer run this
@@ -1670,10 +1729,19 @@ pub enum ReviewRunEnd {
 /// review runs again, at most [`MAX_REVIEW_RUN_FAILURES`] times per node.
 /// `session_live(id)` = `Some(live)` off the synced row, `None` while the row
 /// has not synced (left alone).
+///
+/// A reviewer that was RESUMED is not an ended review: `live_on_branch`
+/// ([`live_reviews_on_branches`]) names the live run on every node's review
+/// branch, and an ended record with one is re-pointed at it (`Followed`).
+/// Between a person's resume and the successor's sync the record is under a
+/// hold (`state.resuming`, [`RESUME_GRACE_MS`]) and waits. A live reviewer
+/// no record names is taken in (`Adopted`).
 pub fn settle_review_runs(
     state: &mut WorkflowState,
     review_round_of: &HashMap<String, i64>,
+    live_on_branch: &HashMap<String, String>,
     session_live: impl Fn(&str) -> Option<bool>,
+    now_ms: i64,
 ) -> Vec<ReviewRunEnd> {
     let mut ended: Vec<(String, String)> = state
         .review_runs
@@ -1683,7 +1751,29 @@ pub fn settle_review_runs(
         .collect();
     ended.sort();
     let mut outcomes = Vec::new();
-    for (node_id, _) in ended {
+    for (node_id, session_id) in ended {
+        if let Some(successor) = live_on_branch
+            .get(&node_id)
+            .filter(|successor| **successor != session_id)
+        {
+            state.resuming.remove(&session_id);
+            state
+                .review_runs
+                .insert(node_id.clone(), successor.clone());
+            outcomes.push(ReviewRunEnd::Followed {
+                node_id,
+                session_id: successor.clone(),
+            });
+            continue;
+        }
+        if state
+            .resuming
+            .get(&session_id)
+            .is_some_and(|at| now_ms - *at < RESUME_GRACE_MS)
+        {
+            continue; // a person's resume: the successor has not synced yet
+        }
+        state.resuming.remove(&session_id);
         state.review_runs.remove(&node_id);
         let launched_round = state.review_rounds.remove(&node_id).unwrap_or(0);
         let current_round = review_round_of.get(&node_id).copied().unwrap_or(0);
@@ -1704,6 +1794,24 @@ pub fn settle_review_runs(
                 note: format!("{NOTE_REVIEW_NO_VERDICT} ({failures} runs)"),
             });
         }
+    }
+    let mut untracked: Vec<(&String, &String)> = live_on_branch
+        .iter()
+        .filter(|(node_id, _)| !state.review_runs.contains_key(*node_id))
+        .collect();
+    untracked.sort();
+    for (node_id, session_id) in untracked {
+        state
+            .review_runs
+            .insert(node_id.clone(), session_id.clone());
+        state.review_rounds.insert(
+            node_id.clone(),
+            review_round_of.get(node_id).copied().unwrap_or(0),
+        );
+        outcomes.push(ReviewRunEnd::Adopted {
+            node_id: node_id.clone(),
+            session_id: session_id.clone(),
+        });
     }
     outcomes
 }
@@ -2266,7 +2374,7 @@ mod tests {
             "r-a" | "r-b" => Some(false),
             _ => None,
         };
-        let outcomes = settle_review_runs(&mut state, &rounds, live);
+        let outcomes = settle_review_runs(&mut state, &rounds, &HashMap::new(), live, 0);
         assert_eq!(
             outcomes,
             vec![
@@ -2291,10 +2399,16 @@ mod tests {
             state.review_runs.insert("b".to_string(), "r-b2".to_string());
             state.review_rounds.insert("b".to_string(), 0);
             state.reviewed_head.insert("b".to_string(), "sha-b1".to_string());
-            let outcomes = settle_review_runs(&mut state, &rounds, |id| match id {
-                "r-b2" => Some(false),
-                _ => None,
-            });
+            let outcomes = settle_review_runs(
+                &mut state,
+                &rounds,
+                &HashMap::new(),
+                |id| match id {
+                    "r-b2" => Some(false),
+                    _ => None,
+                },
+                0,
+            );
             if expected_failures < MAX_REVIEW_RUN_FAILURES {
                 assert_eq!(
                     outcomes,
@@ -2320,6 +2434,123 @@ mod tests {
         }
     }
 
+    /// A live run on a node's review branch is that node's reviewer, whatever
+    /// id the host recorded: the prefix names the workflow and the exact
+    /// issue (`EXP-10` never claims `EXP-103`'s branch), only a round may
+    /// follow it, and the newest live row wins.
+    #[test]
+    fn live_reviews_are_found_by_their_branch() {
+        let wf = "abcdef12-3456-7890-abcd-ef1234567890";
+        let identifier: HashMap<String, String> = [
+            ("n10".to_string(), "EXP-10".to_string()),
+            ("n103".to_string(), "EXP-103".to_string()),
+        ]
+        .into();
+        let rows = vec![
+            ("s-old".to_string(), review_branch(wf, "EXP-10", 1)),
+            ("s-103".to_string(), review_branch(wf, "EXP-103", 2)),
+            ("s-other-wf".to_string(), "exp/wf-00000000-review-EXP-10-r1".to_string()),
+            ("s-base".to_string(), "exp/wf-abcdef12-base-EXP-10".to_string()),
+            ("s-noround".to_string(), "exp/wf-abcdef12-review-EXP-10-r".to_string()),
+            ("s-new".to_string(), review_branch(wf, "EXP-10", 2)),
+        ];
+        let found = live_reviews_on_branches(wf, &identifier, rows);
+        assert_eq!(
+            found,
+            [
+                ("n10".to_string(), "s-new".to_string()),
+                ("n103".to_string(), "s-103".to_string()),
+            ]
+            .into()
+        );
+    }
+
+    /// The bug behind workflow 3b828f50's five reviewers of one node: a
+    /// person's account switch ENDS the recorded reviewer and resumes it on
+    /// the same branch. The ended record is re-pointed at the live resume,
+    /// nothing is counted and the head stays claimed; a live reviewer no
+    /// record names is adopted at the node's current round; a resume whose
+    /// successor has not synced yet is under a hold and waits, then settles
+    /// once the grace passed.
+    #[test]
+    fn a_resumed_reviewer_is_followed_not_counted_and_a_stray_one_adopted() {
+        let mut state = WorkflowState::default();
+        state.review_runs.insert("a".to_string(), "r-a1".to_string());
+        state.review_rounds.insert("a".to_string(), 1);
+        state.reviewed_head.insert("a".to_string(), "sha-a".to_string());
+        state.review_runs.insert("h".to_string(), "r-h1".to_string());
+        state.review_rounds.insert("h".to_string(), 0);
+        state.reviewed_head.insert("h".to_string(), "sha-h".to_string());
+        state.resuming.insert("r-h1".to_string(), 9_000);
+        let rounds: HashMap<String, i64> =
+            [("a".to_string(), 1), ("b".to_string(), 2), ("h".to_string(), 0)].into();
+        let live_on_branch: HashMap<String, String> = [
+            ("a".to_string(), "r-a2".to_string()),
+            ("b".to_string(), "r-b".to_string()),
+        ]
+        .into();
+        let live = |id: &str| match id {
+            "r-a1" | "r-h1" => Some(false),
+            "r-a2" | "r-b" => Some(true),
+            _ => None,
+        };
+        let outcomes = settle_review_runs(&mut state, &rounds, &live_on_branch, live, 10_000);
+        assert_eq!(
+            outcomes,
+            vec![
+                ReviewRunEnd::Followed {
+                    node_id: "a".to_string(),
+                    session_id: "r-a2".to_string()
+                },
+                ReviewRunEnd::Adopted {
+                    node_id: "b".to_string(),
+                    session_id: "r-b".to_string()
+                },
+            ]
+        );
+        assert_eq!(state.review_runs["a"], "r-a2");
+        assert_eq!(state.review_rounds["a"], 1, "the launch round rides along");
+        assert_eq!(state.reviewed_head["a"], "sha-a", "still claimed: no third reviewer");
+        assert!(state.review_failures.is_empty());
+        assert_eq!(state.review_runs["b"], "r-b");
+        assert_eq!(state.review_rounds["b"], 2);
+        // Held: the record stays until the grace passes …
+        assert_eq!(state.review_runs["h"], "r-h1");
+        // … then the end counts like any other.
+        let outcomes = settle_review_runs(
+            &mut state,
+            &rounds,
+            &HashMap::new(),
+            live,
+            9_000 + RESUME_GRACE_MS,
+        );
+        assert_eq!(
+            outcomes,
+            vec![ReviewRunEnd::Retry {
+                node_id: "h".to_string(),
+                failures: 1
+            }]
+        );
+        assert!(!state.resuming.contains_key("r-h1"));
+        // A record that already names the live run is simply live.
+        let outcomes = settle_review_runs(&mut state, &rounds, &live_on_branch, live, 20_000);
+        assert!(outcomes.is_empty());
+    }
+
+    /// A hold on a REVIEWER run survives `apply_resuming` (no node names a
+    /// reviewer) without marking any session live.
+    #[test]
+    fn a_reviewer_hold_survives_the_resume_pruning() {
+        let mut snapshot = running(vec![node("a", "in_review", 0, 0)]);
+        snapshot.now_ms = 10_000;
+        let mut resuming: HashMap<String, i64> =
+            [("r-a".to_string(), 9_000), ("s-gone".to_string(), 9_000)].into();
+        let review_runs: HashMap<String, String> = [("a".to_string(), "r-a".to_string())].into();
+        apply_resuming(&mut snapshot, &mut resuming, &review_runs);
+        assert_eq!(resuming.keys().collect::<Vec<_>>(), ["r-a"]);
+        assert!(!snapshot.sessions.contains_key("r-a"));
+    }
+
     /// A session the host is resuming reads as live and mid-turn until the
     /// node names the new run or the grace passes; both prune the entry.
     #[test]
@@ -2335,7 +2566,7 @@ mod tests {
             ("s-stale".to_string(), 10_000 - RESUME_GRACE_MS),
         ]
         .into();
-        apply_resuming(&mut snapshot, &mut resuming);
+        apply_resuming(&mut snapshot, &mut resuming, &HashMap::new());
         let facts = &snapshot.sessions["s-old"];
         assert!(facts.live && facts.agent_busy);
         assert_eq!(resuming.keys().collect::<Vec<_>>(), ["s-old"]);
@@ -2346,7 +2577,7 @@ mod tests {
 
         // The node names the new run: the entry goes.
         snapshot.nodes[0].session_id = Some("s-new".to_string());
-        apply_resuming(&mut snapshot, &mut resuming);
+        apply_resuming(&mut snapshot, &mut resuming, &HashMap::new());
         assert!(resuming.is_empty());
     }
 

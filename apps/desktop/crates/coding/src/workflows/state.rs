@@ -116,8 +116,14 @@ pub fn conflict_key(left: (&str, &str), right: (&str, &str)) -> String {
 /// row reads live until the node names the new run, or the grace passes.
 ///
 /// `nodes` = every synced `(workflow id, session id)` pair. Returns the
-/// workflow held; `None` when no node names the run (not a node run:
-/// nothing to hold, nothing to write).
+/// workflow held; `None` when no node names the run and no workflow's
+/// `review_runs` records it (not a workflow run: nothing to hold, nothing
+/// to write).
+///
+/// A REVIEWER run (`review_runs`) takes the same hold: its resume ends the
+/// recorded run before the resumed one syncs, and the settle step
+/// ([`super::settle_review_runs`]) would otherwise count that end as a
+/// review without a verdict and start a second reviewer beside the resume.
 pub fn hold_resume(
     states: &mut HashMap<String, WorkflowState>,
     nodes: impl IntoIterator<Item = (String, String)>,
@@ -127,7 +133,16 @@ pub fn hold_resume(
     let workflow_id = nodes
         .into_iter()
         .find(|(_, named)| named == session_id)
-        .map(|(workflow_id, _)| workflow_id)?;
+        .map(|(workflow_id, _)| workflow_id)
+        .or_else(|| {
+            let mut reviewing: Vec<&String> = states
+                .iter()
+                .filter(|(_, state)| state.review_runs.values().any(|id| id == session_id))
+                .map(|(workflow_id, _)| workflow_id)
+                .collect();
+            reviewing.sort();
+            reviewing.first().map(|id| (*id).clone())
+        })?;
     states
         .entry(workflow_id.clone())
         .or_default()
@@ -464,8 +479,19 @@ mod tests {
         assert_eq!(states["wf-2"].resuming.get("s-old"), Some(&1_000));
         assert!(!states.contains_key("wf-1"));
         // Not a node run: nothing held, nothing to write.
-        assert_eq!(hold_resume(&mut states, nodes, "s-plain", 2_000), None);
+        assert_eq!(hold_resume(&mut states, nodes.clone(), "s-plain", 2_000), None);
         assert_eq!(states.len(), 1);
+        // A reviewer run this host recorded holds its workflow the same way.
+        states
+            .entry("wf-3".to_string())
+            .or_default()
+            .review_runs
+            .insert("node-1".to_string(), "r-1".to_string());
+        assert_eq!(
+            hold_resume(&mut states, nodes, "r-1", 3_000),
+            Some("wf-3".to_string())
+        );
+        assert_eq!(states["wf-3"].resuming.get("r-1"), Some(&3_000));
         // A refused resume releases it; a second release finds nothing.
         assert!(release_resume(&mut states, "s-old"));
         assert!(states["wf-2"].resuming.is_empty());
