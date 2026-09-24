@@ -1241,9 +1241,10 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
   })
 
   // `agent_update`: the agent CLI's own self-updater, run on the machine —
-  // the payload names the agent, the cap gates it, a repeat reuses the row.
-  it(`queues agent_update with the agent on a capable device`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-update`] }], []]
+  // the payload names the agent, a repeat reuses the row. No cap: the
+  // release min-version gate retires builds that cannot run it.
+  it(`queues agent_update with the agent`, async () => {
+    h.state.selectQueue = [...deviceProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-au` }]]
     const result = await caller.createCommand({
       deviceId: `dev-1`,
@@ -1260,30 +1261,15 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
   })
 
   it(`agent_update needs an agent`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-update`] }]]
+    h.state.selectQueue = deviceProbe()
     await expect(
       caller.createCommand({ deviceId: `dev-1`, kind: `agent_update` })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
     expect(h.state.inserted).toHaveLength(0)
   })
 
-  it(`agent_update refuses a device that does not advertise the cap`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`update-now`] }]]
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_update`,
-        agent: `codex`,
-      })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    expect(h.state.inserted).toHaveLength(0)
-  })
-
   it(`reuses the pending row for a duplicate agent_update`, async () => {
-    h.state.selectQueue = [
-      [{ id: `row-1`, caps: [`agent-update`] }],
-      [{ id: `dup-au` }],
-    ]
+    h.state.selectQueue = [...deviceProbe(), [{ id: `dup-au` }]]
     await expect(
       caller.createCommand({
         deviceId: `dev-1`,

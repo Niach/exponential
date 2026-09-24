@@ -109,7 +109,7 @@ pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
     device_caps, parse_claude_version, parse_codex_version, run_doctor,
     AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus, DoctorReport, Tool,
-    ToolCheck, ACTION_CAPS, AGENT_UPDATE_CAP, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION,
+    ToolCheck, ACTION_CAPS, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION,
     MIN_CLAUDE_VERSION, MIN_CODEX_ACP_VERSION,
 };
 pub use agent_update::{update_agent, AgentUpdateOutcome, AGENT_UPDATE_COMMAND};

@@ -1907,11 +1907,8 @@ impl DeviceSettingsView {
         // The agent CLI rows: one per agent the machine reports an install
         // for, its version off the heartbeat's account row and an "Update"
         // that queues `agent_update` (the CLI's own self-updater, run there).
-        // Gated on the `agent-update` cap — an older build would leave the
-        // row pending forever, so the control is hidden, the version stays.
-        let can_update_agents = row.is_some_and(|row| {
-            row.cap_ids().iter().any(|cap| cap == coding::AGENT_UPDATE_CAP)
-        });
+        // No cap: every build past the release that shipped it runs it, and
+        // the min-version gate retires the ones that don't.
         let (accounts, _) = self.reported_agent_status(cx);
         let mut agent_rows: Vec<Div> = Vec::new();
         for agent in CodingAgent::ALL {
@@ -1930,28 +1927,26 @@ impl DeviceSettingsView {
                     )),
                 ),
             );
-            if can_update_agents {
-                agent_row = agent_row.child(
-                    gpui_component::button::Button::new(("device-agent-update", agent as usize))
-                        .ghost()
-                        .web_sm()
-                        .icon(Icon::new(registry::UI_UPDATE))
-                        .label(if updating { "Updating…" } else { "Update" })
-                        .loading(updating)
-                        .disabled(updating)
-                        .tooltip(if online {
-                            format!("Run `{} update` on this machine.", agent.id())
-                        } else {
-                            format!(
-                                "Run `{} update` on this machine (queued until it comes online).",
-                                agent.id()
-                            )
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.queue_agent_update(agent, cx);
-                        })),
-                );
-            }
+            agent_row = agent_row.child(
+                gpui_component::button::Button::new(("device-agent-update", agent as usize))
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::new(registry::UI_UPDATE))
+                    .label(if updating { "Updating…" } else { "Update" })
+                    .loading(updating)
+                    .disabled(updating)
+                    .tooltip(if online {
+                        format!("Run `{} update` on this machine.", agent.id())
+                    } else {
+                        format!(
+                            "Run `{} update` on this machine (queued until it comes online).",
+                            agent.id()
+                        )
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.queue_agent_update(agent, cx);
+                    })),
+            );
             let under = self
                 .error_line(&key, cx)
                 .or_else(|| self.note_line(&key, cx));

@@ -56,7 +56,6 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import {
-  deviceCanUpdateAgents,
   deviceCanUpdateNow,
   deviceRowIsOnline,
   deviceUpdateAvailable,
@@ -705,14 +704,12 @@ export function DeviceSettingsDialog({
     requestingUpdate
   // The agent CLI rows: one per agent the machine reports an install for
   // (its heartbeat account row), version off that row. The "Update" control
-  // queues `agent_update` (the CLI's own self-updater, run on the machine)
-  // and is hidden without the `agent-update` cap — an older build would
-  // leave the row pending forever — while the version still shows.
+  // queues `agent_update` (the CLI's own self-updater, run on the machine).
+  // No cap: the release min-version gate retires builds that cannot run it.
   const agentUpdateRows = contract.codingAgent.values.flatMap((agent) => {
     const account = row?.agentAccounts?.[agent]
     return account ? [{ agent, version: account.version ?? null }] : []
   })
-  const canUpdateAgents = device ? deviceCanUpdateAgents(device) : false
   const showUpdateSection = kind === `server` || agentUpdateRows.length > 0
 
   const requestUpdate = async () => {
@@ -1165,37 +1162,35 @@ export function DeviceSettingsDialog({
                                 : `version unknown`}
                             </span>
                           </div>
-                          {canUpdateAgents && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="shrink-0 text-muted-foreground"
-                              disabled={updating}
-                              title={
-                                online
-                                  ? `Run \`${agent} update\` on this device.`
-                                  : `Run \`${agent} update\` on this device (queued until it comes online).`
-                              }
-                              onClick={() =>
-                                void queueCommand(key, {
-                                  kind: `agent_update`,
-                                  agent,
-                                })
-                              }
-                            >
-                              {updating ? (
-                                <>
-                                  <LoaderCircle className="animate-spin" />
-                                  Updating…
-                                </>
-                              ) : (
-                                <>
-                                  <UpdateIcon />
-                                  Update
-                                </>
-                              )}
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 text-muted-foreground"
+                            disabled={updating}
+                            title={
+                              online
+                                ? `Run \`${agent} update\` on this device.`
+                                : `Run \`${agent} update\` on this device (queued until it comes online).`
+                            }
+                            onClick={() =>
+                              void queueCommand(key, {
+                                kind: `agent_update`,
+                                agent,
+                              })
+                            }
+                          >
+                            {updating ? (
+                              <>
+                                <LoaderCircle className="animate-spin" />
+                                Updating…
+                              </>
+                            ) : (
+                              <>
+                                <UpdateIcon />
+                                Update
+                              </>
+                            )}
+                          </Button>
                         </div>
                         {sectionErrors[key] ? (
                           <p className="text-xs text-destructive">

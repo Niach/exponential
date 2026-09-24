@@ -11,7 +11,6 @@ import {
   deviceCanRemoveAccount,
   deviceCanStackStart,
   deviceCanSwitchAccount,
-  deviceCanUpdateAgents,
   deviceCanUpdateNow,
   deviceDefaultAgent,
   deviceIsMine,
@@ -1003,13 +1002,5 @@ describe(`update blockers (FEED-36)`, () => {
     expect(deviceCanUpdateNow(server({ caps: [`update-now`] }))).toBe(true)
     expect(deviceCanUpdateNow(server({ caps: [`agent-login`] }))).toBe(false)
     expect(deviceCanUpdateNow(server())).toBe(false)
-  })
-
-  // The per-agent "Update" (the CLI's own self-updater, run remotely) is
-  // likewise cap-gated: a build without it would leave the row pending.
-  it(`offers the agent CLI update only behind the agent-update cap`, () => {
-    expect(deviceCanUpdateAgents(server({ caps: [`agent-update`] }))).toBe(true)
-    expect(deviceCanUpdateAgents(server({ caps: [`update-now`] }))).toBe(false)
-    expect(deviceCanUpdateAgents(server())).toBe(false)
   })
 })

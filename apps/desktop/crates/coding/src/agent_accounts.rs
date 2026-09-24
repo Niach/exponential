@@ -175,10 +175,10 @@ pub struct AgentAccount {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<AgentProfileEntry>,
     /// The agent CLI's installed version as the doctor last read it
-    /// (`2.1.281`, the bare triple `parse_version_output` keeps). Absent on a
-    /// pre-agent-update device; the device settings' Update section shows it
-    /// beside the per-agent "Update" control. A property of the INSTALL, not
-    /// of any login, so it never lands on a `profiles` row.
+    /// (`2.1.281`, the bare triple `parse_version_output` keeps); the device
+    /// settings' Update section shows it beside the per-agent "Update"
+    /// control. A property of the INSTALL, not of any login, so it never
+    /// lands on a `profiles` row. Absent only when the doctor named none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 }

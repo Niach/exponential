@@ -699,8 +699,8 @@ pub fn create_agent_usage_refresh_command(
 
 /// `devices.createCommand` for an `agent_update` — ask one of the CALLER's
 /// own machines to run `agent`'s self-updater (`claude update` /
-/// `codex update`) and report the version move. Gated server-side on the
-/// `agent-update` cap; a repeat while one is queued reuses the pending row.
+/// `codex update`) and report the version move. A repeat while one is queued
+/// reuses the pending row.
 pub fn create_agent_update_command(
     trpc: &TrpcClient,
     device_id: &str,

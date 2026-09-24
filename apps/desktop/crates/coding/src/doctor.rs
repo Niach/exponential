@@ -126,16 +126,10 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   device with this cap (keeping it listed with its on-device transcript)
 ///   and still DELETES it elsewhere, since older builds read any `ended` flip
 ///   as a kill of a possibly-live child.
-/// - `agent-update` — this build runs `agent_update`: the agent CLI's own
-///   self-updater (`claude update` / `codex update`) on this machine, then a
-///   doctor re-probe so the heartbeat's `agent_accounts.<agent>.version`
-///   moves. An older build would leave the row pending forever, so the
-///   server refuses to queue it and the settings dialogs hide the per-agent
-///   "Update" control without the cap.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 14 + 9 = 23.
-pub const DEVICE_CAPS: [&str; 14] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 9 = 22.
+pub const DEVICE_CAPS: [&str; 13] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -149,12 +143,7 @@ pub const DEVICE_CAPS: [&str; 14] = [
     "update-now",
     STACKED_START_CAP,
     STALE_END_CAP,
-    AGENT_UPDATE_CAP,
 ];
-
-/// The agent-update cap, by name (see [`DEVICE_CAPS`]); mirrored by the
-/// server's `assertAgentUpdateCap` and the clients' `deviceCanUpdateAgents`.
-pub const AGENT_UPDATE_CAP: &str = "agent-update";
 
 /// EXP-888's stale-end cap, by name (mirrored by the server sweep's
 /// `STALE_END_CAP` in `apps/web/src/lib/coding-session-sweep.ts`).
@@ -1578,10 +1567,6 @@ mod tests {
         // FEED-36: the web's "Update now" shows only for a build that runs it.
         assert!(DEVICE_CAPS.contains(&"update-now"));
         assert!(!ACTION_CAPS.contains(&"update-now"));
-        // The per-agent "Update" control likewise: a BUILD cap, advertised
-        // while signed out (an update is how a signed-out install gets fixed).
-        assert!(DEVICE_CAPS.contains(&AGENT_UPDATE_CAP));
-        assert!(!ACTION_CAPS.contains(&AGENT_UPDATE_CAP));
         assert!(!ACTION_CAPS.contains(&"mcp"));
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"mcp".to_string()));

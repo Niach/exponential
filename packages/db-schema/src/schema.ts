@@ -1222,9 +1222,8 @@ export interface DeviceAgentAccount {
   profiles?: DeviceAgentProfileEntry[]
   /** The agent CLI's installed version as the device's doctor last read it
    * (`2.1.281`). A property of the INSTALL, never of a login, so it rides
-   * the top-level row only; absent on a device predating `agent_update`.
-   * The device settings' Update section shows it beside the per-agent
-   * "Update" control. */
+   * the top-level row only. The device settings' Update section shows it
+   * beside the per-agent "Update" control. */
   version?: string
 }
 export interface DeviceAgentProfileEntry {
@@ -1558,7 +1557,7 @@ export const deviceWorktrees = pgTable(
 // `agent_update` (payload {agent} — run that agent CLI's own self-updater on
 // the machine, `claude update`/`codex update`, and re-probe so the heartbeat's
 // `agent_accounts.<agent>.version` moves; the result names the version move;
-// cap-gated on `agent-update`, idempotent).
+// idempotent).
 export const deviceCommands = pgTable(
   `device_commands`,
   {

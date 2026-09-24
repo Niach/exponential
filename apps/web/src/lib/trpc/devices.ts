@@ -78,11 +78,10 @@ import {
 // ACTION_CAPS); the ones this router gates on: `agent-login`,
 // `account-switch` (EXP-849: honours `account` on a live-run resume), `mcp`
 // (EXP-792: runs `mcp_oauth_*` and reports readiness), `agent-usage-refresh`
-// (EXP-747 C4), `update-now` (FEED-36: runs `update_now`), `agent-update`
-// (runs `agent_update`: the agent CLI's own self-updater) and
+// (EXP-747 C4), `update-now` (FEED-36: runs `update_now`) and
 // `account-remove` (EXP-862: runs `agent_profile_remove`) and `stacked-start`
-// (EXP-897: reads a start frame's `stack` payload). The daemon advertises 23
-// today (14 build + 9 action caps), so the ceiling sits at 24 with headroom,
+// (EXP-897: reads a start frame's `stack` payload). The daemon advertises 22
+// today (13 build + 9 action caps), so the ceiling sits at 24 with headroom,
 // not AT the count.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(24)
@@ -402,18 +401,6 @@ function assertUpdateNowCap(row: { caps: string[] | null }): void {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
       message: `This machine's daemon doesn't support Update now yet`,
-    })
-  }
-}
-
-/** `agent_update` needs a build that runs the agent CLI's self-updater
- * (`coding::update_agent`) — an older one would leave the row pending
- * forever, so the queue refuses instead (the dialogs hide the control). */
-function assertAgentUpdateCap(row: { caps: string[] | null }): void {
-  if (!(row.caps ?? []).includes(`agent-update`)) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `That machine runs an older Exponential app that cannot update its agents. Update it first.`,
     })
   }
 }
@@ -1007,8 +994,8 @@ export const devicesRouter = router({
   // FEED-36 adds `update_now` (payload {}): end every live session on the
   // machine and restart on the queued update, cap-gated on `update-now`.
   // `agent_update` (payload {agent}): run that agent CLI's own self-updater
-  // on the machine (`claude update` / `codex update`), cap-gated on
-  // `agent-update`; the completion names the version move. The
+  // on the machine (`claude update` / `codex update`); the completion names
+  // the version move (no cap: the release min-version gate covers it). The
   // EXP-792 `mcp_oauth_start`/`mcp_oauth_code` kinds are queued INTERNALLY
   // only (mcpServers.beginOAuth, the anonymous callback) and never accepted
   // here — a caller could otherwise relay an arbitrary code to a device.
@@ -1243,7 +1230,6 @@ export const devicesRouter = router({
             message: `agent_update needs an agent`,
           })
         }
-        assertAgentUpdateCap(row)
         payload = { agent: input.agent }
       }
 
