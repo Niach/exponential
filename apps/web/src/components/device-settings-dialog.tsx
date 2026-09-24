@@ -941,47 +941,48 @@ export function DeviceSettingsDialog({
               onUltracodeChange={(value) => patchDraft({ ultracode: value })}
               planMode={draft.planMode}
               onPlanModeChange={(value) => patchDraft({ planMode: value })}
+              /* EXP-1020: the LAST ROW of the agent card, not a card of its
+                 own — the model pair a workflow started on this machine is
+                 seeded from. Shown whichever agent is selected (it hangs off
+                 the DEFAULT account's agent, not the tab), and it opens as a
+                 page of this same shell rather than a second dialog. */
+              trailing={
+                <SubShell
+                  label="Workflow settings"
+                  icon={WorkflowIcon}
+                  value={workflowDefaultsSummary(workflowDraft, modelLabel)}
+                  data-testid="device-settings-workflow"
+                >
+                  <GlassGroup>
+                    <Combobox
+                      triggerVariant="row"
+                      searchable={false}
+                      mobileTitle="Model"
+                      value={workflowDraft.model}
+                      onChange={(value) => {
+                        if (value !== null) patchWorkflow({ model: value })
+                      }}
+                      options={workflowModelOptions}
+                    />
+                    <Combobox
+                      triggerVariant="row"
+                      searchable={false}
+                      mobileTitle="Strong model"
+                      value={workflowDraft.strongModel}
+                      onChange={(value) => {
+                        if (value !== null) patchWorkflow({ strongModel: value })
+                      }}
+                      options={workflowModelOptions}
+                    />
+                  </GlassGroup>
+                  <p className="px-1 text-xs text-muted-foreground">
+                    Leaf nodes and the subagents inside them run on the model.
+                    Contract, integration and risky nodes, and every review,
+                    run on the strong model.
+                  </p>
+                </SubShell>
+              }
             />
-            {/* EXP-1020: the model pair a workflow started on this machine is
-                seeded from. Shown whichever agent is selected — it hangs off
-                the DEFAULT account's agent, not the tab — and it opens as a
-                page of this same shell rather than a second dialog. */}
-            <GlassGroup>
-              <SubShell
-                label="Workflow settings"
-                icon={WorkflowIcon}
-                value={workflowDefaultsSummary(workflowDraft, modelLabel)}
-                data-testid="device-settings-workflow"
-              >
-                <GlassGroup>
-                  <Combobox
-                    triggerVariant="row"
-                    searchable={false}
-                    mobileTitle="Model"
-                    value={workflowDraft.model}
-                    onChange={(value) => {
-                      if (value !== null) patchWorkflow({ model: value })
-                    }}
-                    options={workflowModelOptions}
-                  />
-                  <Combobox
-                    triggerVariant="row"
-                    searchable={false}
-                    mobileTitle="Strong model"
-                    value={workflowDraft.strongModel}
-                    onChange={(value) => {
-                      if (value !== null) patchWorkflow({ strongModel: value })
-                    }}
-                    options={workflowModelOptions}
-                  />
-                </GlassGroup>
-                <p className="px-1 text-xs text-muted-foreground">
-                  Leaf nodes and the subagents inside them run on the model.
-                  Contract, integration and risky nodes, and every review, run
-                  on the strong model.
-                </p>
-              </SubShell>
-            </GlassGroup>
             {sectionErrors.defaults && (
               <p className="px-1 text-xs text-destructive">
                 {sectionErrors.defaults}

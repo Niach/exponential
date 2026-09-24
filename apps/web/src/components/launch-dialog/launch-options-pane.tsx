@@ -14,6 +14,8 @@ import {
   agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
+import type { ReactNode } from "react"
+
 import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 import { contract } from "@exp/domain-contract"
 
@@ -106,6 +108,15 @@ type AgentOptionsFieldsProps = {
    * the start). Absent (or a build that never reported) = no note.
    */
   device?: SteerDevice
+  /**
+   * EXP-1020: extra row(s) the card ends on, INSIDE its group — the device
+   * settings' "Workflow settings" sub-shell row. It is an entry of the agent
+   * card, not a card of its own, so it cannot simply be rendered after this
+   * component (which closes its own `GlassGroup`). The desktop's
+   * `AgentDefaultsGroup::trailing` and the two native `trailing` slots are
+   * the same seam.
+   */
+  trailing?: ReactNode
 } & (
   | ({ variant?: `launch` } & LaunchToggleProps)
   | { variant: `automation` }
@@ -127,6 +138,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
     effortValue,
     onEffortChange,
     device,
+    trailing,
   } = props
   const automation = props.variant === `automation`
   const toggles = props.variant === `automation` ? null : props
@@ -269,6 +281,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           onCheckedChange={toggles.onPlanModeChange}
         />
       )}
+      {trailing}
     </GlassGroup>
   )
 }

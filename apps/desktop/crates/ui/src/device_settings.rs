@@ -1590,9 +1590,11 @@ impl DeviceSettingsView {
     /// the profile id into [`Self::default_account`], then commits, because
     /// picking a second login of the SAME agent moves no select at all.
     ///
-    /// A machine that reports no login falls back to one row per editor
-    /// agent, named by the agent ([`machine_account_options`]) — the row
-    /// still has to be pickable on a machine that has not beaten yet.
+    /// EXP-1020: the options come from [`crate::launch_options::device_account_options`], not the
+    /// launch list — every editor agent that reports NO login contributes an
+    /// ambient row, so a machine signed into claude alone can still be
+    /// pointed at codex. With the launch rule it offered one option, which
+    /// the picker renders as a plain label, and the default was unchangeable.
     fn render_account_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let agent = CodingAgent::parse(&selected(&self.agent_select, cx))
             .unwrap_or(self.seeded.default_agent);
@@ -1600,7 +1602,7 @@ impl DeviceSettingsView {
         settings.default_agent = agent;
         settings.default_account = self.default_account.clone();
         let (accounts, usage) = self.reported_agent_status(cx);
-        let options = crate::launch_options::machine_account_options(
+        let options = crate::launch_options::device_account_options(
             &accounts,
             &usage,
             &settings,
