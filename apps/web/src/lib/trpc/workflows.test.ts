@@ -972,7 +972,7 @@ describe(`workflow completion (EXP-1032)`, () => {
 
   it(`every node landed + final PR merged -> status completed, endedAt set, member issues done`, async () => {
     // Every node landed: the engine opens the ONE final pull request.
-    selectQueue.push([running({ finalPrUrl: null })], [{ id: `device-row` }])
+    selectQueue.push([running({ finalPrUrl: null })])
     expect(await caller.openFinalPr({ id: WF })).toEqual({ url: `https://gh/pr/9` })
     expect(h.openWorkflowFinalPr).toHaveBeenCalledWith(fakeDb, WF, `user-1`)
 
@@ -1020,7 +1020,7 @@ describe(`workflow completion (EXP-1032)`, () => {
     // It counts as landed like any other, so the final PR opens and the
     // merge completes the workflow.
     written.length = 0
-    selectQueue.push([running({ finalPrUrl: null })], [{ id: `device-row` }])
+    selectQueue.push([running({ finalPrUrl: null })])
     expect(await caller.openFinalPr({ id: WF })).toEqual({ url: `https://gh/pr/9` })
     selectQueue.push([
       running({ finalPrUrl: `https://gh/pr/9`, finalPrNumber: 9, finalPrState: `open` }),

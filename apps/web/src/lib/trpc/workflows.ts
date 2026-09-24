@@ -1417,13 +1417,16 @@ export const workflowsRouter = router({
       return { merged: true, reason: null, retargeted }
     }),
 
-  /** ENGINE: every node landed — open the ONE final PR, integration branch →
-   *  the repository's default branch. Idempotent. */
+  /** Every node landed — open the ONE final PR, integration branch → the
+   *  repository's default branch. Idempotent. The engine calls it once the
+   *  last node lands; EXP-1032 lets any MEMBER call it too, so a runner
+   *  device retired after the last landing cannot strand the workflow
+   *  (`openWorkflowFinalPr` itself refuses while a node is still open). */
   openFinalPr: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const workflow = await loadWorkflow(input.id)
-      await assertEngine(workflow, ctx.session.user.id)
+      await assertTeamMember(ctx.session.user.id, workflow.teamId)
       if (workflow.finalPrUrl) return { url: workflow.finalPrUrl }
       const { openWorkflowFinalPr } = await import(`@/lib/workflow-final-pr`)
       return openWorkflowFinalPr(ctx.db, input.id, ctx.session.user.id)
