@@ -9,6 +9,7 @@ import com.exponential.app.domain.AccountOption
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.statusIcon
 import com.exponential.app.domain.issuePriorityOrder
@@ -91,12 +92,20 @@ fun IssueEntity.toPickerIssue(disabled: Boolean = false): IssuePickerIssue {
 /**
  * A machine as a device row (EXP-432: a teammate's shared server carries its
  * owner, so [deviceOptionLabel] is what a machine READS as everywhere).
+ *
+ * A machine that cannot take a start renders DISABLED with the reason as its
+ * description — the device picker's contract rule, and unreachable until the
+ * adapter fills those two in. [LaunchDeviceRules] owns both the verdict and
+ * the sentence (web parity), so a sheet row can never invent a third wording
+ * for "offline" or "nothing signed in".
  */
 fun SteerDevice.toPickerDevice(): DevicePickerDevice = DevicePickerDevice(
     id = deviceId,
     name = deviceOptionLabel(this),
     icon = icon,
     isServer = isServer,
+    description = if (!online) "Offline" else LaunchDeviceRules.blockedCaption(this),
+    disabled = !LaunchDeviceRules.startable(this),
 )
 
 /**

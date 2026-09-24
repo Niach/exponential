@@ -112,14 +112,23 @@ internal fun AccountLimitBars(
 }
 
 /**
- * The picker itself: the brand mark, the login's email, its health badge when
- * the credential is dead, and a chevron — a single login is a statement, not a
- * choice, so it renders as a plain capsule that opens nothing. [enabled] false
- * is the same statement for a LOCKED surface (a workflow past draft, whose
- * server refuses the write anyway): dimmed, chevron-less, still readable.
+ * The pill AND its dropdown: the brand mark, the login's email, its health
+ * badge when the credential is dead, and a chevron — a single login is a
+ * statement, not a choice, so it renders as a plain capsule that opens
+ * nothing. [enabled] false is the same statement for a LOCKED surface (a
+ * workflow past draft, whose server refuses the write anyway): dimmed,
+ * chevron-less, still readable.
  *
  * Renders NOTHING when [options] is empty: a machine with no login to pick has
  * no decision to offer, and the surface's own caption says what cannot start.
+ *
+ * EXP-1021 did NOT retire this: the shared `AccountPicker` sheet took the
+ * launch composer, and this dropdown SURVIVES on the three surfaces the sweep
+ * did not reach — `ui/agent/AgentOptionsRow` (EXP-1019 owns that file),
+ * `ui/workflows/WorkflowDetailScreen` and `ui/session/DeviceSettingsSheet`.
+ * Until those move, the app shows a login list two ways, and this file owes a
+ * deletion once they land. [AccountPill] is the part that outlives it — it is
+ * the picker's trigger.
  */
 @Composable
 internal fun AccountPickerPill(

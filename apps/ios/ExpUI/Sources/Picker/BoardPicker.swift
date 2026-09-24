@@ -26,6 +26,10 @@ public struct BoardPicker<Trigger: View>: View {
     public let value: String?
     public let onChange: (String) -> Void
     public let search: Bool
+    /// The sheet headline; the default names the picker. A flow that means
+    /// something more than "pick a board" — "Move to board", "Escalate to
+    /// issue" — says so here, exactly as on Android (`BoardPicker.kt`).
+    public let title: String
     /// EXP-1021 — the surface controls every typed picker forwards verbatim
     /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
     /// property row or `…` menu drives `open` and hides the trigger, and
@@ -41,6 +45,7 @@ public struct BoardPicker<Trigger: View>: View {
         value: String?,
         onChange: @escaping (String) -> Void,
         search: Bool = true,
+        title: String = "Board",
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
@@ -50,6 +55,7 @@ public struct BoardPicker<Trigger: View>: View {
         self.value = value
         self.onChange = onChange
         self.search = search
+        self.title = title
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
@@ -75,7 +81,9 @@ public struct BoardPicker<Trigger: View>: View {
             onChange: { picked in picked.first.map(onChange) },
             search: search,
             emptyText: "No boards",
-            title: "Board",
+            title: title,
+            // The placeholder keeps saying "boards" whatever the header says.
+            searchPlaceholder: "Search boards",
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,

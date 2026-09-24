@@ -32,6 +32,11 @@ use super::{is_owner, section};
 /// edges line up (web's `w-44` = 176px on the same two rows).
 const PR_PICKER_WIDTH: f32 = 176.;
 
+/// The picker key of the row that is NOT a status: `*Automation=false`
+/// (web's `none`). It can never collide with a real key — those are a row
+/// uuid or `builtin:<key>`.
+const PR_TARGET_NONE: &str = "none";
+
 
 /// The settings picker rows, in Linear's order and wording (web
 /// `ESTIMATION_TYPE_OPTIONS`).
@@ -336,7 +341,10 @@ impl IssuesPane {
                         ),
                 );
 
-            let current_key = current.as_ref().map(|status| status.group_key.clone());
+            let current_key = current
+                .as_ref()
+                .map(|status| status.group_key.clone())
+                .unwrap_or_else(|| PR_TARGET_NONE.to_string());
             let team_id = team.id.clone();
             // Every offered entry is a real synced row (the pane renders
             // "Loading…" while statuses are empty), so a pick always
@@ -345,11 +353,57 @@ impl IssuesPane {
             let candidates: Vec<ResolvedStatus> = statuses
                 .iter()
                 .filter(|(_, resolved)| resolved.category != IssueStatusCategory::Duplicate)
+                .filter(|(_, resolved)| resolved.row_id.is_some())
                 .map(|(_, resolved)| resolved.clone())
                 .collect();
-            // The menu closure moves its own weak handle; the card's outlives
+            // EXP-1021: the team's statuses as THE status picker's own rows
+            // (glyph in its colour, `status_picker::status_items`), plus the
+            // one row that is not a status: `*Automation=false` turns the
+            // automation off entirely, so "Do nothing" rides the same list —
+            // exactly how the web card builds it.
+            let mut items = crate::picker::status_picker::status_items(&candidates);
+            items.push(
+                crate::picker::PickerItem::new(PR_TARGET_NONE.to_string(), "Do nothing")
+                    // Web marks this row with `ban`; the registry maps that
+                    // glyph to `relation-blocks` alone, and a new concept is
+                    // minted in `packages/icons` for all four clients at once,
+                    // never here — the neutral minus keeps the row in the same
+                    // glyph column meanwhile.
+                    .icon(Icon::new(registry::UI_MINUS))
+                    .color(cx.theme().muted_foreground),
+            );
+            // `group_key` is what the rows are keyed on; the write needs the
+            // row uuid behind it (and the sentinel has none, which is what
+            // makes it the "off" target).
+            let targets: std::collections::HashMap<String, String> = candidates
+                .iter()
+                .filter_map(|status| Some((status.group_key.clone(), status.row_id.clone()?)))
+                .collect();
+            // The picker closure moves its own handle; the card's outlives
             // the loop for the switch row below.
             let pane = pane.clone();
+            let picker_id = SharedString::from(format!("{id}-picker"));
+            let control = crate::picker::deferred(move |window, cx| {
+                crate::picker::Picker::single(
+                    items,
+                    Some(current_key),
+                    trigger.into_any_element(),
+                    std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                        let Some(key) = next.into_iter().next() else {
+                            return;
+                        };
+                        let target = match targets.get(&key) {
+                            Some(row_id) => {
+                                api::statuses::PrAutomationTarget::Status(row_id.clone())
+                            }
+                            None => api::statuses::PrAutomationTarget::DoNothing,
+                        };
+                        set_pr_automation(pane.clone(), team_id.clone(), event, target, cx);
+                    }),
+                )
+                .id(picker_id)
+                .render(window, cx)
+            });
 
             card = card.child(
                 h_flex()
@@ -357,45 +411,7 @@ impl IssuesPane {
                     .items_center()
                     .justify_between()
                     .child(div().text_sm().child(label))
-                    .child(trigger.dropdown_menu(move |mut menu, _window, cx| {
-                        menu = menu.scrollable(true).max_h(gpui::px(240.));
-                        for status in &candidates {
-                            let Some(row_id) = status.row_id.clone() else {
-                                continue;
-                            };
-                            let team_id = team_id.clone();
-                            let pane = pane.clone();
-                            menu = menu.item(crate::pickers::option_item(
-                                SharedString::from(status.name.clone()),
-                                crate::icons::resolved_status_icon(status, cx),
-                                current_key.as_deref() == Some(status.group_key.as_str()),
-                                move |_window, cx| {
-                                    set_pr_automation(
-                                        pane.clone(),
-                                        team_id.clone(),
-                                        event,
-                                        api::statuses::PrAutomationTarget::Status(row_id.clone()),
-                                        cx,
-                                    );
-                                },
-                            ));
-                        }
-                        let team_id = team_id.clone();
-                        let pane = pane.clone();
-                        menu.item(
-                            PopupMenuItem::new("Do nothing")
-                                .checked(current_key.is_none())
-                                .on_click(move |_, _window, cx| {
-                                    set_pr_automation(
-                                        pane.clone(),
-                                        team_id.clone(),
-                                        event,
-                                        api::statuses::PrAutomationTarget::DoNothing,
-                                        cx,
-                                    );
-                                }),
-                        )
-                    })),
+                    .child(control),
             );
         }
 

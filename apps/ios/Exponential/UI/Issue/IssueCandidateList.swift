@@ -17,6 +17,11 @@ struct IssueCandidatePicker: View {
     /// Candidate issues (same team, self excluded), newest first. nil = still
     /// loading, which the picker draws as its own "loading" row.
     let candidates: [IssueEntity]?
+    /// The sheet headline. It is the ONLY thing naming the link being made —
+    /// "Duplicate of", or which of the six relations the linker's first stage
+    /// picked — so every caller says it (EXP-1021 review r2; Android's
+    /// linkers pass the same).
+    let title: String
     /// Host-driven, because both entry points are a menu item or a stacked
     /// sheet rather than a chip the picker could wrap.
     let open: Binding<Bool>
@@ -73,6 +78,10 @@ struct IssueCandidatePicker: View {
             // only reports what was typed.
             query: $searchText,
             loading: candidates == nil,
+            title: title,
+            // Both linkers filter a pool, so "nothing left" is always a
+            // SEARCH answer, never "this team has no issues".
+            emptyText: "No matching issues",
             open: open,
             hideTrigger: true,
             onDismiss: onDismiss,

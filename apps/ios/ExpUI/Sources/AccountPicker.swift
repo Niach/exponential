@@ -188,9 +188,16 @@ struct AccountPickerRow: View {
     }
 }
 
-/// THE account picker: a `GlassMenu` over every login the machine reports.
-/// A single option is not a choice — it renders as the plain trigger label,
-/// chevron-less, exactly like a lone agent used to.
+/// The MENU form of the account picker: a `GlassMenu` over every login the
+/// machine reports. A single option is not a choice — it renders as the plain
+/// trigger label, chevron-less, exactly like a lone agent used to.
+///
+/// EXP-1021 did NOT retire it. It survives for the three surfaces that node
+/// excluded and still open a menu rather than the shared sheet: the agent
+/// composer (`AgentOptionsRow`), the workflow detail runner row
+/// (`WorkflowDetailView`) and device settings (`DeviceSettingsSheet`). Its
+/// rows share `AccountOptionBody` with the shared `AccountPicker`, so the two
+/// cannot drift meanwhile — and it owes a deletion once those three move over.
 public struct AccountPickerMenu: View {
     let options: [AccountOption]
     let selection: AccountOption?

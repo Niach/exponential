@@ -29,9 +29,7 @@ import {
 import { useTeamBoards } from "@/hooks/use-team-data"
 import {
   IssueStatusIcon,
-  toStatusPickerStatus,
 } from "@/components/issue-properties/status-dropdown"
-import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
@@ -90,7 +88,6 @@ export function IssueSearchSheet({
   teamSlug,
 }: IssueSearchSheetProps) {
   const [query, setQuery] = useState(``)
-  const { resolve } = useTeamStatusesContext()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const boards = useTeamBoards(teamId)
@@ -138,25 +135,21 @@ export function IssueSearchSheet({
 
   // The item carries the IDENTITY only; the row it stands for is looked up
   // here (two issues can share a title).
-  // EXP-1021: the rows carry the issue's resolved STATUS glyph like every
-  // other issue picker's; this surface keeps its own two-line body (the board
-  // and the identifier under the title, EXP-922), so it draws that glyph
-  // itself rather than through the primitive's leading slot.
+  // EXP-1021: NO resolved status glyph on the item. This surface keeps its
+  // own two-line body (the board and the identifier under the title,
+  // EXP-922), so `renderItem` below replaces the row entirely and draws
+  // `IssueStatusIcon` itself — a glyph resolved into the item here would be
+  // built for every hit on every keystroke and then thrown away.
   const items = useMemo(
     () =>
       issuePickerItems(
-        results.map((issue) => {
-          const status = toStatusPickerStatus(resolve(issue))
-          return {
-            id: issue.id,
-            identifier: issue.identifier,
-            title: issue.title,
-            icon: status.icon,
-            color: status.colorHex ?? undefined,
-          }
-        })
+        results.map((issue) => ({
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+        }))
       ),
-    [results, resolve]
+    [results]
   )
   const resultById = useMemo(
     () => new Map<string, SearchResult>(results.map((i) => [i.id, i])),

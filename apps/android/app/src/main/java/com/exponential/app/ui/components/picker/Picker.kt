@@ -292,13 +292,23 @@ fun <T : Any> Picker(
 
     GlassSheet(title = title, onDismiss = { setOpen(false) }) {
         if (panel != null) {
-            panel { picked ->
-                // The panel hands back a VALUE; the rule that turns it into a
-                // selection is the same one a row goes through.
-                val next = PickerRules.select(mode, value, PickerItem(value = picked, label = ""))
-                if (next != null) {
-                    onChange(next)
-                    if (PickerRules.closesOnPick(mode)) setOpen(false)
+            // The panel is the ONE child here that may GROW, and only into
+            // what the footer leaves: `GlassSheet` caps its column (85 % of
+            // the screen on a fitted sheet), and an unweighted scrolling panel
+            // is measured first against that whole cap — the footer beside it
+            // then measures at maxHeight 0 and is simply not there. That is
+            // how the icon picker's "No icon" reset vanished on every phone
+            // (the board grid is taller than the cap on all of them).
+            // `fill = false` so a SHORT panel still only takes what it needs.
+            Box(modifier = Modifier.weight(1f, fill = false)) {
+                panel { picked ->
+                    // The panel hands back a VALUE; the rule that turns it into
+                    // a selection is the same one a row goes through.
+                    val next = PickerRules.select(mode, value, PickerItem(value = picked, label = ""))
+                    if (next != null) {
+                        onChange(next)
+                        if (PickerRules.closesOnPick(mode)) setOpen(false)
+                    }
                 }
             }
             // A panel replaces the ROWS, never the footer: the icon picker's

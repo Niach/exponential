@@ -27,6 +27,9 @@ struct MoveBoardPicker: View {
                 guard let board = boards.first(where: { $0.id == picked }) else { return }
                 onSelect(board)
             },
+            // The same words as the `…` item that opens it: the sheet must
+            // not read as a plain board switch.
+            title: "Move to board",
             open: open,
             hideTrigger: true,
             onDismiss: onDismiss,
