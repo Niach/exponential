@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components.picker
 
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 
 /**
@@ -38,6 +39,13 @@ fun AccountPicker(
     value: String?,
     onChange: (String) -> Unit,
     /**
+     * EXP-992: the login row's own body — the brand mark, the email, its
+     * health badge and the three rate-limit bars under it. The primitive
+     * keeps the highlight and the click, so a login row can carry its preview
+     * without inventing a second "this is picked" idiom.
+     */
+    renderItem: (@Composable RowScope.(item: PickerItem<String>) -> Unit)? = null,
+    /**
      * EXP-1021: the sheet CONTROLLED by the caller, for a picker that is a
      * state machine rather than a chip (the issue screens open theirs from a
      * properties sheet that has already closed).
@@ -52,6 +60,7 @@ fun AccountPicker(
         value = setOfNotNull(value),
         onChange = { picked -> picked.firstOrNull()?.let(onChange) },
         title = "Account",
+        renderItem = renderItem,
         open = open,
         onOpenChange = onOpenChange,
         trigger = trigger,

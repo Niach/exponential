@@ -1,19 +1,17 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,6 +26,9 @@ import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AgentHealth
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentUsagePresentation
+import com.exponential.app.ui.components.picker.AccountPicker
+import com.exponential.app.ui.components.picker.AccountPickerOption
+import com.exponential.app.ui.components.picker.PickerDefaults
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -118,6 +119,11 @@ internal fun AccountLimitBars(
  *
  * Renders NOTHING when [options] is empty: a machine with no login to pick has
  * no decision to offer, and the surface's own caption says what cannot start.
+ *
+ * EXP-1030: this pill is now only the TRIGGER — the list it opens is the
+ * shared [AccountPicker] (a sheet of plain rows, the pick marked by the row's
+ * own highlight like every other pick on the phone), and the EXP-992 limit
+ * preview rides the primitive's row slot rather than a menu of its own.
  */
 @Composable
 internal fun AccountPickerPill(
@@ -129,117 +135,113 @@ internal fun AccountPickerPill(
     contentDescription: String = "Account",
 ) {
     val current = options.firstOrNull { it.key == selectedKey } ?: options.firstOrNull() ?: return
-    var open by remember { mutableStateOf(false) }
     val pickable = enabled && options.size > 1
     val badge = AgentHealthRules.badgeLabel(current.health)
-    Box(modifier = modifier) {
-        GlassPill(
-            current.email,
-            onClick = if (pickable) ({ open = true }) else null,
-            enabled = enabled,
-            leading = {
-                Icon(
-                    agentIconPainter(current.agent),
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = agentIconTint(current.agent),
-                )
-            },
-            trailing = if (badge != null || pickable) {
-                {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (badge != null) {
-                            Text(
-                                badge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                                    .copy(alpha = TextEmphasis.Tertiary),
-                                maxLines = 1,
-                            )
-                        }
-                        if (pickable) {
-                            Icon(
-                                ExpIcons.uiChevronDown,
-                                contentDescription = null,
-                                modifier = Modifier.size(10.dp),
-                                tint = MaterialTheme.colorScheme.onSurface
-                                    .copy(alpha = TextEmphasis.Tertiary),
-                            )
+    val byKey = remember(options) { options.associateBy { it.key } }
+    AccountPicker(
+        options = options.map {
+            AccountPickerOption(
+                key = it.key,
+                agent = it.agent,
+                email = it.email,
+                healthNote = AgentHealthRules.badgeLabel(it.health),
+            )
+        },
+        value = current.key,
+        onChange = { key -> byKey[key]?.let(onSelect) },
+        // The login row keeps its brand mark and its three bars; the highlight
+        // and the click stay the primitive's.
+        renderItem = { item -> byKey[item.value]?.let { AccountPickerRowBody(it) } },
+        trigger = { open ->
+            GlassPill(
+                current.email,
+                onClick = if (pickable) ({ open() }) else null,
+                enabled = enabled,
+                leading = {
+                    Icon(
+                        agentIconPainter(current.agent),
+                        contentDescription = null,
+                        modifier = Modifier.size(13.dp),
+                        tint = agentIconTint(current.agent),
+                    )
+                },
+                trailing = if (badge != null || pickable) {
+                    {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (badge != null) {
+                                Text(
+                                    badge,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                        .copy(alpha = TextEmphasis.Tertiary),
+                                    maxLines = 1,
+                                )
+                            }
+                            if (pickable) {
+                                Icon(
+                                    ExpIcons.uiChevronDown,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(10.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                        .copy(alpha = TextEmphasis.Tertiary),
+                                )
+                            }
                         }
                     }
-                }
-            } else {
-                null
-            },
-            contentDescription = contentDescription,
-        )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            AccountMenuItems(
-                options = options,
-                selectedKey = current.key,
-                onSelect = {
-                    open = false
-                    onSelect(it)
+                } else {
+                    null
                 },
+                contentDescription = contentDescription,
+                modifier = modifier,
             )
-        }
-    }
+        },
+    )
 }
 
 /**
- * The login rows of a menu a surface already owns: the brand mark, the email
- * (plus its health badge), the three limit bars under it, and a check on the
- * current pick.
+ * ONE login row of the account picker: the brand mark, the email (plus its
+ * health badge) and the three limit bars under it. The row's paint and its
+ * click belong to the primitive — this is only the body.
  */
 @Composable
-internal fun AccountMenuItems(
-    options: List<AccountOption>,
-    selectedKey: String?,
-    onSelect: (AccountOption) -> Unit,
-) {
-    options.forEach { option ->
-        val badge = AgentHealthRules.badgeLabel(option.health)
-        GlassMenuItem(
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(option.email, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (badge != null) {
-                            Text(
-                                badge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                                    .copy(alpha = TextEmphasis.Tertiary),
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                    option.limits?.let {
-                        AccountLimitBars(it, modifier = Modifier.width(LimitBarsWidth))
-                    }
-                }
-            },
-            leadingIcon = {
-                Icon(
-                    agentIconPainter(option.agent),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = agentIconTint(option.agent),
+private fun RowScope.AccountPickerRowBody(option: AccountOption) {
+    val badge = AgentHealthRules.badgeLabel(option.health)
+    Icon(
+        agentIconPainter(option.agent),
+        contentDescription = null,
+        modifier = Modifier.size(PickerDefaults.IconSize),
+        tint = agentIconTint(option.agent),
+    )
+    Spacer(Modifier.width(PickerDefaults.LeadingGap))
+    Column(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                option.email,
+                style = MaterialTheme.typography.bodyMedium,
+                color = PickerDefaults.labelColor(enabled = true),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (badge != null) {
+                Text(
+                    badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                        .copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
                 )
-            },
-            trailingIcon = if (option.key == selectedKey) {
-                { Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(16.dp)) }
-            } else {
-                null
-            },
-            onClick = { onSelect(option) },
-        )
+            }
+        }
+        option.limits?.let { AccountLimitBars(it, modifier = Modifier.width(LimitBarsWidth)) }
     }
 }
 

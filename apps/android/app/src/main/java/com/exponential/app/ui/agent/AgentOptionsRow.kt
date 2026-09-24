@@ -49,6 +49,8 @@ import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.deviceIcon
+import com.exponential.app.ui.components.picker.DevicePicker
+import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
@@ -109,23 +111,32 @@ internal fun AgentOptionsRow(
         // desktop and web say it too); a menu only while there is a choice,
         // a lone machine reads as a plain label like a lone agent does.
         if (device != null) {
-            OptionMenuPill(
-                icon = deviceIcon(device),
-                text = deviceOptionLabel(device),
-                contentDescription = "Device",
-                options = devices.map { it.deviceId },
-                optionLabel = { id -> devices.firstOrNull { it.deviceId == id }?.let(::deviceOptionLabel) ?: id },
-                // EXP-862: a picker whose VALUE carries a glyph carries it on
-                // the items too — the machine's own icon, here (EXP-924: its
-                // owner's pick, else the kind default).
-                optionIcon = { id ->
-                    val row = devices.firstOrNull { it.deviceId == id }
-                    deviceIcon(row?.icon, row?.isServer == true)
+            // EXP-1030: the shared device picker — the machine glyph and its
+            // owner's name are `devicePickerItems`' job now (EXP-924: the
+            // owner's pick, else the kind default), and the pill is its
+            // trigger.
+            DevicePicker(
+                devices = devices.map { row ->
+                    DevicePickerDevice(
+                        id = row.deviceId,
+                        name = deviceOptionLabel(row),
+                        icon = row.icon,
+                        isServer = row.isServer,
+                    )
                 },
-                selected = device.deviceId,
-                onSelect = onDeviceChange,
-                enabled = devices.size > 1,
-                modifier = Modifier.testTag("agent-device-pill"),
+                value = device.deviceId,
+                onChange = onDeviceChange,
+                trigger = { open ->
+                    OptionPill(
+                        text = deviceOptionLabel(device),
+                        contentDescription = "Device",
+                        icon = deviceIcon(device),
+                        // A lone machine is a statement, not a choice.
+                        enabled = devices.size > 1,
+                        onOpen = open,
+                        modifier = Modifier.testTag("agent-device-pill"),
+                    )
+                },
             )
         }
         // EXP-872: the ACCOUNT — the ONE picker every launch surface renders.
@@ -235,23 +246,12 @@ private fun OptionMenuPill(
 ) {
     var open by remember { mutableStateOf(false) }
     Box(modifier = modifier) {
-        GlassPill(
-            text,
-            onClick = if (enabled) ({ open = true }) else null,
-            icon = icon,
-            trailing = if (enabled) {
-                {
-                    Icon(
-                        ExpIcons.uiChevronDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(10.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
-            } else {
-                null
-            },
+        OptionPill(
+            text = text,
             contentDescription = contentDescription,
+            icon = icon,
+            enabled = enabled,
+            onOpen = { open = true },
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { option ->
@@ -282,6 +282,43 @@ private fun OptionMenuPill(
             }
         }
     }
+}
+
+/**
+ * The capsule every option pill wears: a glyph, the picked value and the
+ * chevron that says it opens something. [enabled] false renders the label
+ * alone — a single value is a statement, not a choice. Shared by the pills
+ * that open a MENU ([OptionMenuPill]) and by the device pill, whose list is
+ * the shared picker's sheet.
+ */
+@Composable
+private fun OptionPill(
+    text: String,
+    contentDescription: String,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    GlassPill(
+        text,
+        onClick = if (enabled) onOpen else null,
+        icon = icon,
+        trailing = if (enabled) {
+            {
+                Icon(
+                    ExpIcons.uiChevronDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(10.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
+        } else {
+            null
+        },
+        contentDescription = contentDescription,
+        modifier = modifier,
+    )
 }
 
 /**

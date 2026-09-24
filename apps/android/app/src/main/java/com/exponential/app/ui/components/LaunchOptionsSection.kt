@@ -12,6 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.ui.components.picker.DevicePicker
+import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The ONE device/agent/model/effort block every launch surface renders
@@ -146,18 +148,32 @@ internal fun LaunchOptionsSection(
         } else if (automation || devices.size > 1) {
             // A single launch candidate needs no picker; a binding always names
             // the machine it will fire on.
+            // A binding row says where it fires; a launch picks the device —
+            // same wording as web/iOS/desktop on both. EXP-1030: the list is
+            // the shared device picker (machine glyph + owner), the form row
+            // its trigger.
+            val label = if (automation) "Runs on" else "Device"
             OptionGroup {
-                PickerRow(
-                    // A binding row says where it fires; a launch picks the
-                    // device — same wording as web/iOS/desktop on both.
-                    label = if (automation) "Runs on" else "Device",
-                    value = device?.let(::deviceOptionLabel) ?: "Select",
-                    options = devices.map { it.deviceId },
-                    selected = device?.deviceId,
-                    optionLabel = { id ->
-                        devices.firstOrNull { it.deviceId == id }?.let(::deviceOptionLabel) ?: id
+                DevicePicker(
+                    devices = devices.map { row ->
+                        DevicePickerDevice(
+                            id = row.deviceId,
+                            name = deviceOptionLabel(row),
+                            icon = row.icon,
+                            isServer = row.isServer,
+                        )
                     },
-                    onSelect = onDeviceChange,
+                    value = device?.deviceId,
+                    onChange = onDeviceChange,
+                    title = label,
+                    trigger = { open ->
+                        PickerValueRow(
+                            label = label,
+                            value = device?.let(::deviceOptionLabel) ?: "Select",
+                            valueIcon = device?.let(::deviceIcon),
+                            onClick = open,
+                        )
+                    },
                 )
             }
             Spacer(Modifier.height(8.dp))

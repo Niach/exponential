@@ -17,6 +17,8 @@ data class DevicePickerDevice(
     /** A muted reason under the name (`Offline`, `Update to run workflows`). */
     val description: String? = null,
     val disabled: Boolean = false,
+    /** A server daemon's kind default differs from a desktop's (`deviceIcon`). */
+    val isServer: Boolean = false,
 )
 
 fun devicePickerItems(devices: List<DevicePickerDevice>): List<PickerItem<String>> =
@@ -28,7 +30,7 @@ fun devicePickerItems(devices: List<DevicePickerDevice>): List<PickerItem<String
             disabled = device.disabled,
             // `deviceIcon` always resolves — a machine that never picked one
             // still draws its kind's default.
-            icon = deviceIcon(device.icon, isServer = false),
+            icon = deviceIcon(device.icon, isServer = device.isServer),
         )
     }
 

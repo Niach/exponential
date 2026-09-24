@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetDefaults
 import com.exponential.app.ui.components.GlassSheetSearchField
+import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -257,6 +258,25 @@ fun <T> Picker(
      */
     panel: (@Composable () -> Unit)? = null,
     /**
+     * The SHEET's modifier — a caller's `testTag`, never layout. The sheet
+     * belongs to the primitive, and the composer's two pickers are named by
+     * the store-shot flow, so the tag has to ride in rather than wrap.
+     */
+    sheetModifier: Modifier = Modifier,
+    /**
+     * The sheet's pinned submit. A picker needs none — a single pick closes
+     * and a multi pick is live the moment it is tapped — except where the
+     * multi picker IS the screen (the composer's batch sheet, whose "Done" is
+     * how a phone leaves it).
+     */
+    primaryAction: SheetPrimaryAction? = null,
+    /**
+     * Pinned UNDER the rows and above [primaryAction]: the composer's batch
+     * guards ("Pick issues from a single repository per run."), which say why
+     * a pick cannot start and must stay readable while the list scrolls.
+     */
+    caption: (@Composable () -> Unit)? = null,
+    /**
      * Replaces the row BODY, never its highlight or its click — so a custom
      * row can not invent a second "this is picked" idiom. The one caller is
      * the assignee picker's avatar (a picker glyph is an icon, never a photo).
@@ -284,7 +304,7 @@ fun <T> Picker(
         if (search && filter) PickerRules.filter(items, currentQuery) else items
     }
 
-    GlassSheet(title = title, onDismiss = { setOpen(false) }) {
+    GlassSheet(title = title, onDismiss = { setOpen(false) }, modifier = sheetModifier, primaryAction = primaryAction) {
         if (panel != null) {
             panel()
             return@GlassSheet
@@ -300,7 +320,13 @@ fun <T> Picker(
             )
             Spacer(Modifier.height(4.dp))
         }
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                // A caption is PINNED under the rows, so the list gives way to
+                // it instead of pushing it off the sheet.
+                .then(if (caption != null) Modifier.weight(1f, fill = false) else Modifier),
+        ) {
             if (rows.isEmpty() && emptyText != null) {
                 // The same text stands in for "nothing to pick" and "nothing
                 // matched" — one empty state, like every other client.
@@ -331,6 +357,7 @@ fun <T> Picker(
             if (footer != null) item { footer() }
             item { Spacer(Modifier.height(8.dp)) }
         }
+        if (caption != null) caption()
     }
 }
 
