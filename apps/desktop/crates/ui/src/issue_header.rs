@@ -7,7 +7,7 @@
 //! builders called from the host's render and assembled into the shared
 //! `work_header::WorkHeader` (EXP-877): [`IssueHeader::right_cluster`]
 //! (face toggle · pin · `…`), [`IssueHeader::chip_row`] (Status · Priority ·
-//! Assignee · Labels · Due date · Board · Origin, trailing
+//! Assignee · Labels · Due date · Estimate · Board · Origin, trailing
 //! [`IssueHeader::issue_actions`]: Merge PR + the ONE coding action) and
 //! [`IssueHeader::agent_row`] (the merge-error caption). The host observes
 //! this entity so a builder's `cx.notify()` reaches it.
@@ -36,11 +36,14 @@ use gpui_component::{
     h_flex,
     input::InputState,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _, Side,
 };
 use sync::Store;
 
 use domain::board::format_short_date;
+use domain::issue_estimate::{
+    estimate_label, estimate_picker_values, estimate_short_label, NO_ESTIMATE,
+};
 use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
@@ -521,6 +524,68 @@ impl IssueHeader {
         )
     }
 
+    /// EXP-630 (web `EstimateControl`): a gauge chip reading "Estimate"
+    /// while unset, else the short label ("L" / "5 pt"); the menu offers
+    /// "No estimate" first, then the team scale's ladder (plus an off-ladder
+    /// current value) labelled in full. `None` — no chip at all — while the
+    /// team's scale is `none`: estimates are OFF, not merely empty.
+    fn estimate_control(
+        &self,
+        issue: &Issue,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let team_id = self.team_id_of(issue, cx)?;
+        let scale = Store::global(cx)
+            .collections()
+            .teams
+            .read(cx)
+            .get(&team_id)
+            .map(|team| team.estimation().to_string())?;
+        if scale == domain::contract::ISSUE_ESTIMATION_NONE {
+            return None;
+        }
+        let current = issue.estimate;
+        let issue_id = issue.id.clone();
+        let label: SharedString = match current {
+            Some(value) => estimate_short_label(value, &scale).into(),
+            None => "Estimate".into(),
+        };
+        let trigger = chip_button("prop-estimate", cx)
+            .icon(
+                Icon::new(registry::UI_ESTIMATE)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(crate::pickers::chip_label(label, current.is_none(), cx));
+        Some(trigger.dropdown_menu(move |menu, _window, _cx| {
+            let mut menu = menu.min_w(px(PICKER_MENU_MIN_WIDTH)).check_side(Side::Right);
+            let clear_id = issue_id.clone();
+            menu = menu.item(
+                PopupMenuItem::new(SharedString::from(NO_ESTIMATE))
+                    .checked(current.is_none())
+                    .on_click(move |_, _window, cx| {
+                        let mut input = api::issues::IssuesUpdateInput::new(clear_id.clone());
+                        input.estimate = api::Patch::Null;
+                        spawn_issue_update(cx, input);
+                    }),
+            );
+            for value in estimate_picker_values(current, &scale) {
+                let issue_id = issue_id.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(SharedString::from(estimate_label(Some(value), &scale)))
+                        .checked(current == Some(value))
+                        .on_click(move |_, _window, cx| {
+                            let mut input =
+                                api::issues::IssuesUpdateInput::new(issue_id.clone());
+                            input.estimate = api::Patch::Set(value);
+                            spawn_issue_update(cx, input);
+                        }),
+                );
+            }
+            menu
+        }))
+    }
+
     /// Origin chip for widget-filed issues (web keys a "Feedback widget"
     /// origin off `issues.source`). Widget rows carry a null creator, so this
     /// is the only author/origin signal; renders NOTHING for `user`/None.
@@ -823,7 +888,7 @@ impl IssueHeader {
     }
 
     /// EXP-417: the mobile-style chip row under the title — Status ·
-    /// Priority · Assignee · Labels · Due date · Board · Origin, property-ish
+    /// Priority · Assignee · Labels · Due date · Estimate · Board · Origin, property-ish
     /// chips first and the navigation-ish Board last. Wraps inside the
     /// detail view's `centered_column`, which supplies the definite width
     /// `flex_wrap` needs.
@@ -854,6 +919,7 @@ impl IssueHeader {
             })
             .child(self.labels_control(issue, cx))
             .child(self.due_control(issue, cx))
+            .children(self.estimate_control(issue, cx))
             .children(self.board_chip(issue, cx))
             .children(self.origin_chip(issue, cx))
             .when(!actions.is_empty(), |tray| {

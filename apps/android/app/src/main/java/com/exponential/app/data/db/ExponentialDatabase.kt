@@ -332,9 +332,13 @@ import androidx.room.TypeConverters
     //      agent riding the pick). Nullable, new on the automations shape
     //      allowlist; destructive fallback wipes + resyncs so every row arrives
     //      carrying it.
+    // v72 (EXP-630): issues.estimate (story points, nullable) + teams
+    //      .estimation_type (the scale the points render on). Both new on
+    //      their shape allowlists; destructive fallback wipes + resyncs so
+    //      every row arrives carrying them.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 71,
+    version = 72,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

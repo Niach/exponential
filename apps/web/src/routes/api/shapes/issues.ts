@@ -41,6 +41,9 @@ export const ISSUE_COLUMNS = [
   `branch`,
   `pr_merged_at`,
   `pr_base_branch`,
+  // EXP-630: story points (nullable integer). Appended = one benign
+  // shape-identity rotation; old native builds drop it.
+  `estimate`,
   `created_at`,
   `updated_at`,
 ]

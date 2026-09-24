@@ -22,10 +22,12 @@ export interface SettingsNavContext {
 export type SettingsSectionPath =
   | `/t/$teamSlug/settings/general`
   | `/t/$teamSlug/settings/members`
+  | `/t/$teamSlug/settings/issues`
   | `/t/$teamSlug/settings/labels`
   | `/t/$teamSlug/settings/statuses`
   | `/t/$teamSlug/settings/billing`
   | `/t/$teamSlug/settings/storage`
+  | `/t/$teamSlug/settings/import`
   | `/t/$teamSlug/settings/boards/archived`
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/widget`
@@ -43,6 +45,14 @@ export interface SettingsNavItem {
     permissions: TeamPermissions,
     context: SettingsNavContext
   ) => boolean
+  // EXP-630: sub-pages nested under this entry (the sidebar folds them,
+  // the phone strip flattens them right after their parent).
+  children?: SettingsNavItem[]
+}
+
+/** Every entry in nav order, sub-pages right after their parent. */
+export function flattenSettingsNav(items: SettingsNavItem[]): SettingsNavItem[] {
+  return items.flatMap((item) => [item, ...(item.children ?? [])])
 }
 
 // Grouped Linear-style — General first (team name on top). Gating mirrors the
@@ -68,19 +78,31 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         icon: conceptIcon(`settings-members`),
         visible: () => true,
       },
+      // EXP-630: Issues — the estimate scale and the PR automation targets
+      // on the page itself, Labels and Statuses as its sub-pages. Visible to
+      // every member (the routers gate writes: automation at
+      // `mutate_resources`, the scale owner-only).
       {
-        label: `Labels`,
-        to: `/t/$teamSlug/settings/labels`,
-        icon: conceptIcon(`settings-labels`),
+        label: `Issues`,
+        to: `/t/$teamSlug/settings/issues`,
+        icon: conceptIcon(`settings-issues`),
         visible: () => true,
-      },
-      // EXP-314 custom issue statuses. Member-editable like Labels (the
-      // router gates writes at `mutate_resources`), so visible to everyone.
-      {
-        label: `Statuses`,
-        to: `/t/$teamSlug/settings/statuses`,
-        icon: conceptIcon(`settings-statuses`),
-        visible: () => true,
+        children: [
+          {
+            label: `Labels`,
+            to: `/t/$teamSlug/settings/labels`,
+            icon: conceptIcon(`settings-labels`),
+            visible: () => true,
+          },
+          // EXP-314 custom issue statuses. Member-editable like Labels (the
+          // router gates writes at `mutate_resources`), so visible to everyone.
+          {
+            label: `Statuses`,
+            to: `/t/$teamSlug/settings/statuses`,
+            icon: conceptIcon(`settings-statuses`),
+            visible: () => true,
+          },
+        ],
       },
       {
         label: `Plan & Billing`,
@@ -95,6 +117,15 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         label: `Storage`,
         to: `/t/$teamSlug/settings/storage`,
         icon: conceptIcon(`settings-storage`),
+        visible: (permissions) => permissions.isOwner,
+      },
+      // EXP-630: the tracker-import wizard (Linear today). Owner-only and
+      // web-only, like Billing: it creates boards, statuses and hundreds of
+      // issues under the owner's name.
+      {
+        label: `Import`,
+        to: `/t/$teamSlug/settings/import`,
+        icon: conceptIcon(`settings-import`),
         visible: (permissions) => permissions.isOwner,
       },
     ],

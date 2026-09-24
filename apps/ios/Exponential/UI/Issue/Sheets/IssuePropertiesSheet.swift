@@ -23,6 +23,8 @@ struct IssuePropertiesSheet<Child: View>: View {
     /// them ONLY here — the detail page keeps chips + timeline.
     let relations: [IssueRelationRow]
     let singleMemberTeam: Bool
+    /// EXP-630: the team's estimate scale; the row hides while it is `none`.
+    let estimationType: String
     /// The issue's own board — the row draws its glyph + color (EXP-449).
     let board: BoardEntity?
     let hasMoveTargets: Bool
@@ -84,6 +86,19 @@ struct IssuePropertiesSheet<Child: View>: View {
                         iconColor: .white.opacity(TextOpacity.secondary),
                         value: issue.dueDate.map(dueDateChipLabel) ?? "None"
                     ) { activeChild = .dueDate }
+
+                    // EXP-630: the estimate row, after Due date like the
+                    // web's phone sheet; hidden while the team's scale is off.
+                    if IssueEstimate.isEnabled(estimationType) {
+                        GlassDivider()
+
+                        GlassMetaRow(
+                            label: "Estimate",
+                            icon: AppIcons.uiEstimate,
+                            iconColor: .white.opacity(TextOpacity.secondary),
+                            value: estimateLabel(issue.estimate, scale: estimationType)
+                        ) { activeChild = .estimate }
+                    }
 
                     // The move picker hides when there is nowhere to move to.
                     if hasMoveTargets {

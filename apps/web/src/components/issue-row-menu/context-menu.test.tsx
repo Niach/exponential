@@ -176,6 +176,7 @@ function buildIssue(overrides: Partial<Issue> = {}): Issue {
     prMergedAt: null,
     prBaseBranch: null,
     prStackNumber: null,
+    estimate: null,
     createdAt: new Date(`2026-03-07T09:00:00Z`),
     updatedAt: new Date(`2026-03-07T09:00:00Z`),
     ...overrides,

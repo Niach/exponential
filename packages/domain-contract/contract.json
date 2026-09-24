@@ -89,6 +89,9 @@
   "issueSource": {
     "values": ["user", "widget", "agent"]
   },
+  "issueEstimation": {
+    "values": ["none", "exponential", "fibonacci", "linear", "tshirt"]
+  },
   "teamRole": {
     "values": ["owner", "member"]
   },
@@ -351,7 +354,8 @@
       "created",
       "priority_changed",
       "relation_added",
-      "relation_removed"
+      "relation_removed",
+      "estimate_changed"
     ]
   },
   "issueRelationType": {

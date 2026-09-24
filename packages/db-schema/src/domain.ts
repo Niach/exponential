@@ -532,6 +532,9 @@ export const issueEventTypeValues = [
   // Payload: { type, relatedIssueId, relatedIdentifier, direction, source }.
   `relation_added`,
   `relation_removed`,
+  // EXP-630 estimates: { from, to } point values (null = unset). Renders as
+  // a plain line; never folds (mirrors treat it like any unknown kind).
+  `estimate_changed`,
 ] as const
 
 // EXP-736 issue relations (issue_relations.type, pg enum). ONE row per pair,
@@ -850,6 +853,26 @@ export const automationTriggerSchema = z.discriminatedUnion(`kind`, [
 export const automationDeviceIdSchema = z.string().min(1).max(128)
 
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+// EXP-630: story points — a non-negative integer (issues.estimate). The
+// TEAM picks the scale (`teams.estimation_type`, contract `issueEstimation`,
+// default `none` = estimates off): the value stays a point number whatever
+// the scale, so switching scales never rewrites issues; t-shirt sizes are
+// the fibonacci points worn as XS…XL (Linear's mapping).
+export const ISSUE_ESTIMATE_MAX = 1000
+export const issueEstimateSchema = z.number().int().min(0).max(ISSUE_ESTIMATE_MAX)
+
+export const issueEstimationValues = [`none`, `exponential`, `fibonacci`, `linear`, `tshirt`] as const
+export type IssueEstimation = (typeof issueEstimationValues)[number]
+export const issueEstimationSchema = z.enum(issueEstimationValues)
+
+export const ISSUE_ESTIMATION_SCALES: Record<Exclude<IssueEstimation, `none`>, readonly number[]> = {
+  exponential: [1, 2, 4, 8, 16],
+  fibonacci: [1, 2, 3, 5, 8],
+  linear: [1, 2, 3, 4, 5],
+  tshirt: [1, 2, 3, 5, 8],
+}
+export const ISSUE_ESTIMATE_TSHIRT_LABELS = [`XS`, `S`, `M`, `L`, `XL`] as const
 
 // EXP-707: the ONE #rrggbb write schema (labels, statuses, boards, widget
 // theme) and the accent every color column defaults to (schema.ts varchar

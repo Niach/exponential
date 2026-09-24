@@ -1456,6 +1456,21 @@ impl Render for IssueTimeline {
             .as_deref()
             .map(|team_id| queries::team_statuses(cx, team_id))
             .unwrap_or_default();
+        // EXP-630: `estimate_changed` rows read on the team's scale; a team
+        // row that has not synced (or a scale of `none`) still renders a set
+        // value as points, so nothing degrades to a blank phrase.
+        let estimate_scale = self
+            .team_id
+            .as_deref()
+            .and_then(|team_id| {
+                Store::global(cx)
+                    .collections()
+                    .teams
+                    .read(cx)
+                    .get(team_id)
+                    .map(|team| team.estimation().to_string())
+            })
+            .unwrap_or_else(|| domain::contract::ISSUE_ESTIMATION_FIBONACCI.to_string());
 
         // EXP-698 round 5: the rail's first/last flags key on the RENDERED
         // rows, so unknown event kinds — `event_phrase` returns None for them,
@@ -1467,7 +1482,15 @@ impl Render for IssueTimeline {
             .iter()
             .filter(|item| match item {
                 TimelineItem::Event(event) => {
-                    event_phrase(event, &user_map, &label_map, &board_map, &statuses).is_some()
+                    event_phrase(
+                        event,
+                        &user_map,
+                        &label_map,
+                        &board_map,
+                        &statuses,
+                        &estimate_scale,
+                    )
+                    .is_some()
                 }
                 TimelineItem::Comment(_) => true,
             })
@@ -1504,6 +1527,7 @@ impl Render for IssueTimeline {
                         &label_map,
                         &board_map,
                         &statuses,
+                        &estimate_scale,
                         now_epoch,
                         line_above,
                         line_below,
@@ -1698,13 +1722,16 @@ impl EventGlyph {
 /// The phrase of one event, mirroring the web `EventRow` switch (plus the
 /// richer payload details — EXP-33: from→to status, PR number + link).
 /// The third element is a click-through URL (PR events). Returns `None` for
-/// unknown event types (web returns null).
+/// unknown event types (web returns null). `estimate_scale` = the team's
+/// `estimation_type`, which decides how an `estimate_changed` value reads
+/// (EXP-630).
 fn event_phrase(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
     board_map: &HashMap<String, Board>,
     statuses: &[domain::rows::IssueStatusRow],
+    estimate_scale: &str,
 ) -> Option<(EventGlyph, String, Option<String>)> {
     let payload = event.payload.as_ref();
     let payload_str = |key: &str| -> Option<String> {
@@ -1817,6 +1844,16 @@ fn event_phrase(
                 None,
             ))
         }
+        // EXP-630: "set the estimate to L" / "removed the estimate", on the
+        // team's scale (`domain::issue_estimate`, fixture-locked ×4).
+        "estimate_changed" => Some((
+            EventGlyph::Plain(registry::EVENT_ESTIMATE_CHANGED),
+            domain::issue_estimate::estimate_event_phrase(
+                payload.unwrap_or(&serde_json::Value::Null),
+                estimate_scale,
+            ),
+            None,
+        )),
         // EXP-736: the relation phrases live in `domain::relations` — ONE
         // table for all four clients, keyed on the payload's per-side
         // `direction` and the contract's label slices.
@@ -1850,12 +1887,14 @@ fn event_row(
     label_map: &HashMap<String, Label>,
     board_map: &HashMap<String, Board>,
     statuses: &[domain::rows::IssueStatusRow],
+    estimate_scale: &str,
     now_epoch: i64,
     line_above: bool,
     line_below: bool,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
-    let (glyph, phrase, link) = event_phrase(event, user_map, label_map, board_map, statuses)?;
+    let (glyph, phrase, link) =
+        event_phrase(event, user_map, label_map, board_map, statuses, estimate_scale)?;
     // EXP-723: the row reads "Actor did X · 2 days ago" on web and desktop.
     let time = event
         .created_at
@@ -2020,6 +2059,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "changed status to in progress");
@@ -2033,6 +2073,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "changed status from Todo to in progress");
@@ -2056,6 +2097,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "changed status from Building to In QA");
@@ -2066,6 +2108,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "changed status to In QA");
@@ -2076,6 +2119,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "assigned Ada");
@@ -2087,6 +2131,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "assigned someone");
@@ -2097,6 +2142,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "removed the assignee");
@@ -2107,6 +2153,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "added label bug");
@@ -2117,6 +2164,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "removed label a label");
@@ -2127,6 +2175,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "opened a pull request");
@@ -2138,6 +2187,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "merged the pull request");
@@ -2151,6 +2201,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "changed priority from Low to Urgent");
@@ -2161,9 +2212,52 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "changed priority from None to High");
+
+        // EXP-630: the estimate phrase reads on the TEAM's scale — the same
+        // point value is "L" on t-shirt and "5 points" on fibonacci; a
+        // cleared (or missing) `to` reads "removed the estimate".
+        let (glyph, phrase, _) = event_phrase(
+            &event("estimate_changed", json!({ "from": null, "to": 5 })),
+            &users,
+            &labels,
+            &boards,
+            &[],
+            "tshirt",
+        )
+        .unwrap();
+        assert_eq!(phrase, "set the estimate to L");
+        // `ExpIcon` carries no `PartialEq` — glyphs compare by asset path.
+        use gpui_component::IconNamed as _;
+        let EventGlyph::Plain(icon) = glyph else {
+            panic!("estimate rows lead with a plain registry glyph");
+        };
+        assert_eq!(icon.path(), registry::EVENT_ESTIMATE_CHANGED.path());
+
+        let (_, phrase, _) = event_phrase(
+            &event("estimate_changed", json!({ "from": null, "to": 5 })),
+            &users,
+            &labels,
+            &boards,
+            &[],
+            "fibonacci",
+        )
+        .unwrap();
+        assert_eq!(phrase, "set the estimate to 5 points");
+
+        let (_, phrase, _) = event_phrase(
+            &event("estimate_changed", json!({ "from": 5, "to": null })),
+            &users,
+            &labels,
+            &boards,
+            &[],
+            "tshirt",
+        )
+        .unwrap();
+        assert_eq!(phrase, "removed the estimate");
 
         // EXP-530: `created` is suppressed on every client — the issue header
         // already says who filed it.
@@ -2173,6 +2267,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .is_none());
 
@@ -2193,6 +2288,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "marked as blocks EXP-3");
@@ -2210,6 +2306,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "no longer blocked by EXP-3");
@@ -2228,6 +2325,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "added related issue EXP-12");
@@ -2240,6 +2338,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "marked as blocks an issue");
@@ -2254,6 +2353,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "added related issue EXP-3");
@@ -2265,6 +2365,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "removed related issue an issue");
@@ -2276,6 +2377,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .is_none());
     }
@@ -2300,6 +2402,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "opened pull request #42");
@@ -2312,6 +2415,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "merged pull request #42");
@@ -2351,6 +2455,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "moved this from Alpha (EXP-42) to Beta");
@@ -2370,6 +2475,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "moved this from another board (EXP-42) to Beta");
@@ -2381,6 +2487,7 @@ mod tests {
             &labels,
             &boards,
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "moved this from another board to this board");
@@ -2440,6 +2547,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &[],
+            "fibonacci",
         )
         .unwrap();
         assert_eq!(phrase, "changed status from Todo to in progress");

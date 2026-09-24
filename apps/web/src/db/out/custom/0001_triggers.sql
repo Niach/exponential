@@ -17,9 +17,18 @@
 --    (board_id + number + identifier) SHOULD bump the issue. App writes never
 --    touch board_deleted_at or board_id outside the move re-point, so the
 --    guards are no-ops for them.
+--    EXP-630: a tracker import must land rows with their SOURCE timestamps.
+--    The importer's transaction sets the transaction-local GUC
+--    exponential.preserve_timestamps = 'on' (set_config(..., true)); while it
+--    is on, this function and bump_issue_updated_at_from_comment (#3) leave
+--    updated_at alone. Nothing else in the app sets it; current_setting's
+--    missing_ok=true reads NULL (falsy) everywhere else.
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
+  IF current_setting('exponential.preserve_timestamps', true) = 'on' THEN
+    RETURN NEW;
+  END IF;
   NEW.updated_at = now();
   RETURN NEW;
 END;
@@ -106,6 +115,9 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON device_commands FOR
 -- never cover the webhook path, which is exactly the path a billing dispute is
 -- reconstructed from. The trigger covers both writers.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON creem_subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- EXP-630: import jobs are written by the wizard's router and by the worker
+-- (heartbeats, progress, terminal states) — one trigger covers both.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON import_jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 2. Auto-generate issue number and identifier per board, allocated from the
 --    per-board monotonic counter table issue_number_counters (migration
@@ -132,11 +144,26 @@ BEGIN
   FROM issues
   WHERE board_id = NEW.board_id;
 
-  INSERT INTO issue_number_counters AS c (board_id, counter)
-  VALUES (NEW.board_id, current_max + 1)
-  ON CONFLICT (board_id) DO UPDATE
-    SET counter = GREATEST(c.counter, current_max) + 1
-  RETURNING counter INTO next_number;
+  IF NEW.number IS NOT NULL AND NEW.number > 0 THEN
+    -- Import path (EXP-630): the caller supplied a source-system number so
+    -- identifiers survive migration (MET-1092 stays MET-1092). Still goes
+    -- through the counter upsert so it takes the same row lock as ordinary
+    -- inserts, and clamps the counter past the number so nothing allocated
+    -- later can collide; uniq_issues_board_number is the loud backstop when
+    -- the number is already taken. Ordinary inserts never hit this branch:
+    -- drizzle defaults number to 0 and issues.move renumbers via UPDATE.
+    INSERT INTO issue_number_counters AS c (board_id, counter)
+    VALUES (NEW.board_id, GREATEST(current_max, NEW.number))
+    ON CONFLICT (board_id) DO UPDATE
+      SET counter = GREATEST(c.counter, current_max, NEW.number);
+    next_number := NEW.number;
+  ELSE
+    INSERT INTO issue_number_counters AS c (board_id, counter)
+    VALUES (NEW.board_id, current_max + 1)
+    ON CONFLICT (board_id) DO UPDATE
+      SET counter = GREATEST(c.counter, current_max) + 1
+    RETURNING counter INTO next_number;
+  END IF;
 
   SELECT prefix INTO board_prefix
   FROM boards
@@ -167,6 +194,14 @@ BEGIN
     AND (NEW.board_deleted_at IS DISTINCT FROM OLD.board_deleted_at
       OR NEW.board_archived_at IS DISTINCT FROM OLD.board_archived_at
       OR NEW.board_id IS DISTINCT FROM OLD.board_id) THEN
+    RETURN NEW;
+  END IF;
+  -- EXP-630: an import lands historical comments under their own timestamps;
+  -- bumping the issue to now() would stamp a migrated issue as just edited.
+  IF current_setting('exponential.preserve_timestamps', true) = 'on' THEN
+    IF (TG_OP = 'DELETE') THEN
+      RETURN OLD;
+    END IF;
     RETURN NEW;
   END IF;
   IF (TG_OP = 'DELETE') THEN

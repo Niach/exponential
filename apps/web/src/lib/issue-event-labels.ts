@@ -8,6 +8,8 @@
 // the enum munge. Retired enum tokens keep their historic label (EXP-685:
 // `todo` is gone from the vocabulary, but old events still name it); iOS
 // EventPhrases, Android labelFor and desktop timeline.rs mirror this map.
+import { estimateEventPhrase } from "@/lib/issue-estimate"
+
 export const RETIRED_STATUS_LABELS: Record<string, string> = { todo: `Todo` }
 
 export function statusLabel(
@@ -50,6 +52,8 @@ export function issueEventPhrase(
       return `removed a label`
     case `priority_changed`:
       return `set priority to ${priorityLabel(p.to)}`
+    case `estimate_changed`:
+      return estimateEventPhrase(p)
     case `board_moved`:
       return `moved to another board`
     case `pr_opened`:

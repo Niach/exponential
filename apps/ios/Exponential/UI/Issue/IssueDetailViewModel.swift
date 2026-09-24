@@ -67,8 +67,12 @@ final class IssueDetailViewModel {
     /// name chip can resolve the backing repo (masterplan §6, R4).
     var board: BoardEntity?
     /// The issue's team — needed (with the board + issue identifier) to
-    /// build the shareable web URL.
+    /// build the shareable web URL, and (EXP-630) for the estimate scale.
     var team: TeamEntity?
+    /// EXP-630: the team's estimate scale (contract `issueEstimation`);
+    /// `none` (or no team row yet) hides the estimate control everywhere.
+    var estimationType: String { team?.estimationType ?? DomainContract.issueEstimationNone }
+    var estimatesEnabled: Bool { IssueEstimate.isEnabled(estimationType) }
     /// Every synced board (all teams) — filtered to the issue's
     /// team by `moveTargetBoards` for the "Move to board" picker
     /// (EXP-57). Trashed boards never reach the local store (the boards
@@ -342,6 +346,19 @@ final class IssueDetailViewModel {
             do {
                 for try await boards in boardObs.values(in: pool) {
                     self?.boards = boards
+                }
+            } catch {}
+        })
+
+        // EXP-630: the team row carries the estimate scale — a switch in
+        // Settings must re-render the chip band without remounting (the
+        // members observation's playbook: `refreshPermissions` re-reads it).
+        let teamObs = ValueObservation.tracking { db in try TeamEntity.fetchAll(db) }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await _ in teamObs.values(in: pool) {
+                    guard let self, let issue = self.issue else { continue }
+                    self.refreshPermissions(for: issue)
                 }
             } catch {}
         })
@@ -1014,6 +1031,19 @@ final class IssueDetailViewModel {
         } else {
             var input = UpdateIssueInput(id: issue.id)
             input.explicitNulls.insert("dueDate")
+            await update(input)
+        }
+    }
+
+    /// EXP-630: story points on the team's scale; nil clears (an explicit
+    /// null, the due-date convention).
+    func setEstimate(_ value: Int?) async {
+        guard let issue else { return }
+        if let value {
+            await update(UpdateIssueInput(id: issue.id, estimate: value))
+        } else {
+            var input = UpdateIssueInput(id: issue.id)
+            input.explicitNulls.insert("estimate")
             await update(input)
         }
     }

@@ -25,6 +25,8 @@ export interface IssuePropertyHandlers {
   handleToggleLabel: (labelId: string) => Promise<void>
   /** `YYYY-MM-DD`, or null to clear — the wire format (REV2-49). */
   handleDueDateSelect: (date: string | null) => Promise<void>
+  /** EXP-630: story points, or null to clear. */
+  handleEstimateChange: (estimate: number | null) => Promise<void>
   /** EXP-57: the server renumbers the issue in the target board, so both the
    *  board slug AND the identifier change — awaits the issues txId, then hops
    *  to the issue's new canonical URL. */
@@ -114,6 +116,11 @@ export function useIssuePropertyHandlers({
     await trpc.issues.update.mutate({ id: issueId, dueDate: date })
   }
 
+  const handleEstimateChange = async (estimate: number | null) => {
+    if (readOnly || !issueId) return
+    await trpc.issues.update.mutate({ id: issueId, estimate })
+  }
+
   const handleUnmarkDuplicate = () => {
     if (!issueId) return
     void trpc.issues.update.mutate({ id: issueId, duplicateOfId: null })
@@ -127,6 +134,7 @@ export function useIssuePropertyHandlers({
     handleAssigneeChange,
     handleToggleLabel,
     handleDueDateSelect,
+    handleEstimateChange,
     handleBoardChange,
     handleUnmarkDuplicate,
   }

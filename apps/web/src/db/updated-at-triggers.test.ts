@@ -78,6 +78,37 @@ describe(`updated_at triggers`, () => {
     expect(uncovered).toEqual([])
   })
 
+  // EXP-630: an import lands issues and comments under their SOURCE
+  // timestamps. Two triggers would otherwise stamp now(): the shared
+  // update_updated_at (the duplicate-link pass is an UPDATE) and the comment
+  // bump (an AFTER INSERT on comments that UPDATEs the issue). Both honour the
+  // transaction-local GUC the importer sets; nothing else reads it.
+  it(`lets an import preserve source timestamps through both stamping triggers`, () => {
+    const guard = `IF current_setting('exponential.preserve_timestamps', true) = 'on' THEN`
+    const updatedAtFn = triggersSql.slice(
+      triggersSql.indexOf(`CREATE OR REPLACE FUNCTION update_updated_at()`),
+      triggersSql.indexOf(`CREATE OR REPLACE TRIGGER update_updated_at`)
+    )
+    expect(updatedAtFn).toContain(guard)
+    expect(updatedAtFn.indexOf(guard)).toBeLessThan(
+      updatedAtFn.indexOf(`NEW.updated_at = now();`)
+    )
+    const bumpFn = triggersSql.slice(
+      triggersSql.indexOf(
+        `CREATE OR REPLACE FUNCTION bump_issue_updated_at_from_comment()`
+      ),
+      triggersSql.indexOf(
+        `CREATE OR REPLACE TRIGGER bump_issue_updated_at_from_comment`
+      )
+    )
+    expect(bumpFn).toContain(guard)
+    expect(bumpFn.indexOf(guard)).toBeLessThan(
+      bumpFn.indexOf(`UPDATE issues SET updated_at = now()`)
+    )
+    // The import job row itself is stamped like any other app table.
+    expect(hasUpdatedAtTrigger(`import_jobs`)).toBe(true)
+  })
+
   it(`stamps creem_subscriptions on seat/plan/binding and webhook updates`, () => {
     // The Creem plugin's model declares no updatedAt field, so better-auth's
     // adapter never stamps it and app-side .set() calls cannot cover the

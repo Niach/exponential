@@ -63,6 +63,9 @@ public struct UpdateIssueInput: Encodable, Sendable {
     /// Canonical issue this one duplicates — set together with
     /// `status = "duplicate"` in ONE update so the marking is atomic.
     public var duplicateOfId: String?
+    /// EXP-630: story points on the team's scale. Nil = untouched; listed in
+    /// `explicitNulls` = clear (the due-date convention).
+    public var estimate: Int?
 
     // Fields listed here are encoded as JSON null (not omitted).
     // Use this when the server must distinguish "clear this field" from "don't touch it".
@@ -78,6 +81,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         description: String? = nil,
         dueDate: String? = nil,
         duplicateOfId: String? = nil,
+        estimate: Int? = nil,
         explicitNulls: Set<String> = []
     ) {
         self.id = id
@@ -89,6 +93,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         self.description = description
         self.dueDate = dueDate
         self.duplicateOfId = duplicateOfId
+        self.estimate = estimate
         self.explicitNulls = explicitNulls
     }
 
@@ -96,6 +101,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         case id, title, status, statusId, priority, assigneeId, description
         case dueDate
         case duplicateOfId
+        case estimate
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -109,6 +115,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         try encodeNullable(description, forKey: .description, in: &c)
         try encodeNullable(dueDate, forKey: .dueDate, in: &c)
         try encodeNullable(duplicateOfId, forKey: .duplicateOfId, in: &c)
+        try encodeNullable(estimate, forKey: .estimate, in: &c)
     }
 
     private func encodeNullable<T: Encodable>(_ value: T?, forKey key: CodingKeys, in container: inout KeyedEncodingContainer<CodingKeys>) throws {
@@ -368,6 +375,9 @@ public struct FetchedIssue: Decodable, Sendable {
     /// server that predates the column decodes as nil rather than throwing.
     public let prBaseBranch: String?
     public let prMergedAt: String?
+    /// EXP-630: story points (`issues.estimate`). Optional, so a server that
+    /// predates the column decodes as nil rather than throwing.
+    public let estimate: Int?
     public let createdAt: String
     public let updatedAt: String
 }

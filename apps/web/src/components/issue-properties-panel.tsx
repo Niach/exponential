@@ -1,10 +1,15 @@
 import { Megaphone } from "lucide-react"
 import { conceptIcon, Combobox, Pill, DatePicker, BoardGlyph } from "@exp/ui"
 import type { User } from "@/db/schema"
-import type { IssuePriority, IssueSource } from "@/lib/domain"
+import type { IssueEstimation, IssuePriority, IssueSource } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import { cn } from "@/lib/utils"
+import {
+  estimatePickerOptions,
+  estimateShortLabel,
+  parseEstimatePick,
+} from "@/lib/issue-estimate"
 import {
   getPriorityConfig,
   priorities,
@@ -35,6 +40,12 @@ export interface IssuePropertiesPanelProps {
    *  `Date` (REV2-49: a due date has no time of day). */
   dueDate: string | null
   onDueDateSelect: (date: string | null) => void | Promise<void>
+  /** EXP-630: story points on the team's scale. The chip renders only when
+   *  a handler is given (the create form has none) and the team uses
+   *  estimates (`estimation` other than `none`). */
+  estimate?: number | null
+  estimation?: IssueEstimation
+  onEstimateChange?: (estimate: number | null) => void | Promise<void>
   // Where the issue came from. Only `widget` renders anything (a muted
   // "Feedback widget" pill); `user` (the default) shows nothing.
   source?: IssueSource
@@ -58,6 +69,39 @@ export interface IssuePropertiesPanelProps {
 }
 
 const DueDateGlyph = conceptIcon(`ui-due-date`)
+const EstimateGlyph = conceptIcon(`ui-estimate`)
+
+// EXP-630: story points as a chip + picker, the priority control's shape.
+// Options are strings (the picker's currency); `""` clears.
+function EstimateControl({
+  disabled,
+  estimate,
+  estimation,
+  onEstimateChange,
+}: {
+  disabled?: boolean
+  estimate: number | null
+  estimation: IssueEstimation
+  onEstimateChange: (estimate: number | null) => void | Promise<void>
+}) {
+  return (
+    <Combobox
+      searchable={false}
+      value={estimate === null ? `` : String(estimate)}
+      disabled={disabled}
+      options={estimatePickerOptions(estimate, estimation)}
+      width="sm"
+      onChange={(next) => void onEstimateChange(parseEstimatePick(next))}
+      mobileTitle="Estimate"
+      renderTrigger={() => (
+        <Pill mode="action" disabled={disabled}>
+          <EstimateGlyph className="size-3" />
+          {estimate === null ? `Estimate` : estimateShortLabel(estimate, estimation)}
+        </Pill>
+      )}
+    />
+  )
+}
 
 function DueDateControl({
   disabled,
@@ -229,6 +273,16 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     />
   )
 
+  const estimateControl =
+    props.onEstimateChange && props.estimation && props.estimation !== `none` ? (
+      <EstimateControl
+        disabled={disabled}
+        estimate={props.estimate ?? null}
+        estimation={props.estimation}
+        onEstimateChange={props.onEstimateChange}
+      />
+    ) : null
+
   const boardChip =
     props.boardId && props.onBoardChange ? (
       <BoardPicker
@@ -269,6 +323,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       {!isSolo && assigneeControl}
       {labelControl}
       {dueDateControl}
+      {estimateControl}
       {boardChip}
       {sourceChip}
     </div>

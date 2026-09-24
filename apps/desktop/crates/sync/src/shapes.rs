@@ -109,6 +109,8 @@ pub const SHAPES: [ShapeSpec; 24] = [
             "pr_merged_automation",
             // EXP-711: the merge-ends-sessions toggle.
             "end_sessions_on_merge",
+            // EXP-630: the estimate scale (Settings → Issues).
+            "estimation_type",
             "created_at",
             "updated_at",
         ],
@@ -189,6 +191,10 @@ pub const SHAPES: [ShapeSpec; 24] = [
             // request targets. `heal_missing_columns` ALTERs it onto existing
             // store tables and the shape-identity rotation's refetch fills it.
             "pr_base_branch",
+            // EXP-630: story points (always a point number; the team's
+            // `estimation_type` decides how it reads). `heal_missing_columns`
+            // ALTERs it onto existing store tables.
+            "estimate",
             "created_at",
             "updated_at",
         ],
@@ -881,6 +887,16 @@ mod tests {
     }
 
     #[test]
+    fn issues_sync_the_estimate_and_teams_the_scale() {
+        // EXP-630: the estimate chip reads `issues.estimate` on the team's
+        // `estimation_type` — dropping either silently hides every estimate.
+        let spec = shape_by_name("issues").unwrap();
+        assert!(spec.columns.contains(&"estimate"));
+        let teams = shape_by_name("teams").unwrap();
+        assert!(teams.columns.contains(&"estimation_type"));
+    }
+
+    #[test]
     fn coding_sessions_syncs_the_needs_input_flag() {
         // EXP-214/REV2-9: the amber "Needs input" badge reads this column —
         // dropping it from the allowlist silently kills the badge on desktop.
@@ -1037,6 +1053,8 @@ mod tests {
         // EXP-711: the same card's merge-ends-sessions switch, and the
         // batch self-close predicate in coding_flow.
         assert!(spec.columns.contains(&"end_sessions_on_merge"));
+        // EXP-630: the Issues pane's estimate scale.
+        assert!(spec.columns.contains(&"estimation_type"));
     }
 
     #[test]

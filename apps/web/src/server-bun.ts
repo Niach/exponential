@@ -42,6 +42,7 @@ import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
 import { startDeviceCodeSweepScheduler } from "@/lib/device-code-sweep"
 import { startDeviceCommandSweepScheduler } from "@/lib/device-command-sweep"
+import { startImportWorkerScheduler } from "@/lib/import/worker"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
@@ -112,6 +113,12 @@ startDeviceCodeSweepScheduler()
 // ever read live, so the rows are unread history that would otherwise grow
 // for the life of the instance. `pending` rows are never touched.
 startDeviceCommandSweepScheduler()
+
+// EXP-630: tracker imports. Claims `ready` / `previewing` / stale `running`
+// jobs atomically (one UPDATE with a fresh claim token), runs them in-process
+// and wipes stored credentials on terminal states and after 24 h. Multi-
+// replica safe by construction: a replica that lost its claim aborts.
+startImportWorkerScheduler()
 
 // REV2-6 warn-only boot check — see the header comment. Bun read
 // BUN_CONFIG_MAX_HTTP_REQUESTS before this code ran, so a bad value can only

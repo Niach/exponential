@@ -45,6 +45,9 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
     // Team-level helpdesk switch (EXP-180): when true, every member sees the
     // Support inbox (standalone tickets via the helpdesk tRPC router).
     public let helpdeskEnabled: Bool
+    /// EXP-630: the team's estimate scale (contract `issueEstimation`). NULL
+    /// (a pre-rotation snapshot) reads as `none` = estimates off.
+    public let estimationType: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -54,6 +57,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
         slug: String,
         iconUrl: String?,
         helpdeskEnabled: Bool = false,
+        estimationType: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -62,6 +66,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
         self.slug = slug
         self.iconUrl = iconUrl
         self.helpdeskEnabled = helpdeskEnabled
+        self.estimationType = estimationType
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -74,6 +79,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
         case id, name, slug
         case iconUrl = "icon_url"
         case helpdeskEnabled = "helpdesk_enabled"
+        case estimationType = "estimation_type"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -91,6 +97,7 @@ extension TeamEntity: Codable {
         slug = try c.decode(String.self, forKey: .slug)
         iconUrl = try c.decodeIfPresent(String.self, forKey: .iconUrl)
         helpdeskEnabled = c.decodeWireBool(forKey: .helpdeskEnabled, default: false)
+        estimationType = try c.decodeIfPresent(String.self, forKey: .estimationType)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
@@ -235,6 +242,9 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     /// the repo's default branch) = not stacked on anything of ours.
     public let prBaseBranch: String?
     public let prMergedAt: String?
+    /// EXP-630: story points — a point number whatever the team's scale
+    /// (`teams.estimation_type` decides how it renders). NULL = no estimate.
+    public let estimate: Int?
     public let createdAt: String
     public let updatedAt: String
 
@@ -261,6 +271,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         branch: String?,
         prBaseBranch: String? = nil,
         prMergedAt: String?,
+        estimate: Int? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -286,6 +297,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.branch = branch
         self.prBaseBranch = prBaseBranch
         self.prMergedAt = prMergedAt
+        self.estimate = estimate
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -305,6 +317,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case prState = "pr_state"
         case prBaseBranch = "pr_base_branch"
         case prMergedAt = "pr_merged_at"
+        case estimate
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -339,6 +352,9 @@ extension IssueEntity: Codable {
         branch = try container.decodeIfPresent(String.self, forKey: .branch)
         prBaseBranch = try container.decodeIfPresent(String.self, forKey: .prBaseBranch)
         prMergedAt = try container.decodeIfPresent(String.self, forKey: .prMergedAt)
+        // EXP-630: an integer off the wire as Postgres text, a scalar from
+        // tRPC; absent on a pre-rotation snapshot.
+        estimate = try container.decodeWireInt(forKey: .estimate)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
     }

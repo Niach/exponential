@@ -15,6 +15,7 @@ object DomainContract {
     val issuePriorityValues: List<String> = listOf("none", "urgent", "high", "medium", "low")
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
     val issueSourceValues: List<String> = listOf("user", "widget", "agent")
+    val issueEstimationValues: List<String> = listOf("none", "exponential", "fibonacci", "linear", "tshirt")
     val teamRoleValues: List<String> = listOf("owner", "member")
     val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car", "music", "camera", "video", "image", "headphones", "mic", "gift", "shopping-bag", "store", "truck", "map", "mountain", "tree-pine", "flame", "droplet", "moon", "anchor", "crown", "gem", "award", "dumbbell", "stethoscope", "microscope", "atom", "brain", "eye", "fingerprint", "hammer", "paintbrush", "calculator", "landmark", "wallet", "tag", "bookmark", "newspaper", "smartphone")
     val deviceIconValues: List<String> = listOf("monitor", "server", "laptop", "os-apple", "os-windows", "os-linux")
@@ -36,7 +37,7 @@ object DomainContract {
     val toolKindEditValues: List<String> = listOf("edit", "delete", "move")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val pinKindValues: List<String> = listOf("issue", "session", "action")
-    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed")
+    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed", "estimate_changed")
     val issueRelationTypeValues: List<String> = listOf("blocks", "parent", "duplicate", "related")
     val issueRelationTypeForwardLabels: List<String> = listOf("blocks", "parent of", "duplicate of", "related to")
     val issueRelationTypeInverseLabels: List<String> = listOf("blocked by", "sub-issue of", "duplicated by", "related to")
@@ -135,6 +136,11 @@ object DomainContract {
     const val issueSourceUser: String = "user"
     const val issueSourceWidget: String = "widget"
     const val issueSourceAgent: String = "agent"
+    const val issueEstimationNone: String = "none"
+    const val issueEstimationExponential: String = "exponential"
+    const val issueEstimationFibonacci: String = "fibonacci"
+    const val issueEstimationLinear: String = "linear"
+    const val issueEstimationTshirt: String = "tshirt"
     const val teamRoleOwner: String = "owner"
     const val teamRoleMember: String = "member"
     const val commentKindRegular: String = "regular"
@@ -209,6 +215,7 @@ object DomainContract {
     const val issueEventTypePriorityChanged: String = "priority_changed"
     const val issueEventTypeRelationAdded: String = "relation_added"
     const val issueEventTypeRelationRemoved: String = "relation_removed"
+    const val issueEventTypeEstimateChanged: String = "estimate_changed"
     const val issueRelationTypeBlocks: String = "blocks"
     const val issueRelationTypeParent: String = "parent"
     const val issueRelationTypeDuplicate: String = "duplicate"

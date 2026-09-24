@@ -1,0 +1,37 @@
+{
+  "$comment": "EXP-630: story points rendered on the TEAM's scale (teams.estimation_type, contract issueEstimation). The stored value is always a point number. Mirrored x4: web lib/issue-estimate.ts, iOS ExpCore IssueEstimate.swift, Android domain/IssueEstimate.kt, desktop domain::issue_estimate — same cases, same test names.",
+  "scales": {
+    "exponential": [1, 2, 4, 8, 16],
+    "fibonacci": [1, 2, 3, 5, 8],
+    "linear": [1, 2, 3, 4, 5],
+    "tshirt": [1, 2, 3, 5, 8]
+  },
+  "tshirtLabels": ["XS", "S", "M", "L", "XL"],
+  "noEstimate": "No estimate",
+  "labels": [
+    { "name": "tshirt on the ladder reads as its size", "scale": "tshirt", "value": 5, "label": "L", "short": "L" },
+    { "name": "tshirt off the ladder falls back to points", "scale": "tshirt", "value": 4, "label": "4 points", "short": "4 pt" },
+    { "name": "one point is singular", "scale": "fibonacci", "value": 1, "label": "1 point", "short": "1 pt" },
+    { "name": "null is no estimate", "scale": "linear", "value": null, "label": "No estimate", "short": null },
+    { "name": "scale none still renders a set value as points", "scale": "none", "value": 3, "label": "3 points", "short": "3 pt" },
+    { "name": "exponential top", "scale": "exponential", "value": 16, "label": "16 points", "short": "16 pt" },
+    { "name": "tshirt smallest", "scale": "tshirt", "value": 1, "label": "XS", "short": "XS" },
+    { "name": "an unknown scale renders points", "scale": "hexagonal", "value": 2, "label": "2 points", "short": "2 pt" }
+  ],
+  "pickers": [
+    { "name": "the fibonacci ladder", "scale": "fibonacci", "current": null, "values": [1, 2, 3, 5, 8] },
+    { "name": "an off-ladder current value joins the ladder in order", "scale": "fibonacci", "current": 4, "values": [1, 2, 3, 4, 5, 8] },
+    { "name": "an on-ladder current value is not duplicated", "scale": "tshirt", "current": 8, "values": [1, 2, 3, 5, 8] },
+    { "name": "scale none offers nothing", "scale": "none", "current": null, "values": [] },
+    { "name": "scale none keeps a set value pickable", "scale": "none", "current": 7, "values": [7] },
+    { "name": "zero is a value", "scale": "linear", "current": 0, "values": [0, 1, 2, 3, 4, 5] },
+    { "name": "exponential", "scale": "exponential", "current": null, "values": [1, 2, 4, 8, 16] }
+  ],
+  "phrases": [
+    { "name": "set on the tshirt scale", "scale": "tshirt", "payload": { "from": null, "to": 5 }, "phrase": "set the estimate to L" },
+    { "name": "cleared", "scale": "tshirt", "payload": { "from": 5, "to": null }, "phrase": "removed the estimate" },
+    { "name": "set on points", "scale": "fibonacci", "payload": { "from": null, "to": 3 }, "phrase": "set the estimate to 3 points" },
+    { "name": "missing to reads as cleared", "scale": "linear", "payload": {}, "phrase": "removed the estimate" },
+    { "name": "a string to still renders", "scale": "linear", "payload": { "to": "2" }, "phrase": "set the estimate to 2 points" }
+  ]
+}

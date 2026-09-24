@@ -17,6 +17,8 @@ import {
   dateOnlySchema,
   DEFAULT_ACCENT_COLOR,
   hexColorSchema,
+  issueEstimateSchema,
+  issueEstimationValues,
   MAX_ISSUE_DESCRIPTION,
   MAX_START_PROMPT,
   SESSION_RESULT_TEXT_MAX,
@@ -613,6 +615,7 @@ const boardIconEnumSchema = z
   .transform((v) => v as (typeof boardIconValues)[number])
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 const dateOnly = dateOnlySchema
+const issueEstimate = issueEstimateSchema
 // Same contract, no inline pattern (budget, see looseEnum below).
 const dateOnlyLoose = z
   .string()
@@ -1362,6 +1365,7 @@ export function registerExponentialTools(
           .optional()
           .describe(`Plain GFM text; no embedded images on creation`),
         dueDate: dateOnly.nullable().optional(),
+        estimate: issueEstimate.nullable().optional(),
         labelIds: z.array(uuidString).optional(),
       }),
     },
@@ -1408,6 +1412,7 @@ export function registerExponentialTools(
           .optional()
           .describe(`Plain GFM text; null clears`),
         dueDate: dateOnly.nullable().optional(),
+        estimate: issueEstimate.nullable().optional(),
       }),
     },
     async ({ id: idOrIdentifier, ...rest }) => {
@@ -5076,11 +5081,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_update`,
     {
-      description: `Update a team's name or icon (by its UUID). Team owner only. Teams are always private.`,
+      description: `Update a team's name, icon or estimate scale (by its UUID). Team owner only. Teams are always private.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
+        estimationType: z.enum(issueEstimationValues).optional(),
       }),
     },
     async ({ id, ...rest }) => {

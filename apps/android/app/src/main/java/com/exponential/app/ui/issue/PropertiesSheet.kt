@@ -21,8 +21,11 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.NO_ESTIMATE
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.estimateLabel
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
@@ -39,7 +42,8 @@ import com.exponential.app.ui.theme.dueDateColor
 
 /**
  * The combined Properties sheet (EXP-240): Status / Priority / Assignee / Due
- * date / Board rows, then the team's labels as toggle pills.
+ * date / Estimate (EXP-630, only while the team's scale is not `none`) / Board
+ * rows, then the team's labels as toggle pills.
  *
  * EXP-698 r5 made it the create-issue screen's rows exactly — the same
  * [MetaRow] in the same [OptionGroup], with the same value glyphs and the same
@@ -61,10 +65,13 @@ fun PropertiesSheet(
     issueLabels: List<LabelEntity>,
     currentBoard: BoardEntity?,
     hasMoveTargets: Boolean,
+    /** The team's `estimation_type`; `none`/null hides the Estimate row. */
+    estimationType: String?,
     onOpenStatus: () -> Unit,
     onOpenPriority: () -> Unit,
     onOpenAssignee: () -> Unit,
     onOpenDueDate: () -> Unit,
+    onOpenEstimate: () -> Unit,
     onOpenLabels: () -> Unit,
     onOpenMoveBoard: () -> Unit,
     onToggleLabel: (labelId: String, assigned: Boolean) -> Unit,
@@ -144,6 +151,29 @@ fun PropertiesSheet(
                             alpha = if (issue.dueDate != null) TextEmphasis.Primary else TextEmphasis.Tertiary,
                         ),
                     )
+                }
+                // EXP-630: the estimate on the team's scale — the web's phone
+                // sheet row after Due date; absent while estimates are off.
+                if (estimationType != null && estimationType != DomainContract.issueEstimationNone) {
+                    GroupDivider()
+                    MetaRow(label = "Estimate", enabled = true, onClick = onOpenEstimate) {
+                        Icon(
+                            ExpIcons.uiEstimate,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = if (issue.estimate != null) TextEmphasis.Secondary else TextEmphasis.Tertiary,
+                            ),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            issue.estimate?.let { estimateLabel(it, estimationType) } ?: NO_ESTIMATE,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = if (issue.estimate != null) TextEmphasis.Primary else TextEmphasis.Tertiary,
+                            ),
+                        )
+                    }
                 }
                 // Board is the one row the create screen has no twin for (it
                 // picks the board first) — hidden when there is nowhere to go.

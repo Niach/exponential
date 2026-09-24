@@ -117,7 +117,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v48_workflow_node_approval",
              "v49_workflow_node_checkpoint",
              "v50_workflow_node_review",
-             "v51_automation_account"]
+             "v51_automation_account",
+             "v52_issue_estimate"]
         )
     }
 
@@ -161,7 +162,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v48_workflow_node_approval",
              "v49_workflow_node_checkpoint",
              "v50_workflow_node_review",
-             "v51_automation_account"]
+             "v51_automation_account",
+             "v52_issue_estimate"]
         )
     }
 
@@ -197,6 +199,90 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(offset?["needs_refetch"] as Int?, 1)
         // Idempotent: a second pass is a no-op, never a duplicate column.
         XCTAssertNoThrow(try migrator.migrate(pool))
+    }
+
+    // v52 (EXP-630): a store migrated through v51 carries `issues` without
+    // `estimate` and `teams` without `estimation_type`; the guarded ALTERs add
+    // both and BOTH shapes' offsets reset so already-synced rows re-arrive
+    // carrying the columns (shape keys 'issues' and 'teams').
+    func testIssueEstimateColumnsAddedToExistingStore() throws {
+        let pool = try makePool("issue-estimate")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v51_automation_account")
+        try pool.write { db in
+            // Model the pre-v52 state: today's v1 create already declares the
+            // columns, which is exactly the overlap the guarded ALTER tolerates.
+            if try db.columns(in: "issues").contains(where: { $0.name == "estimate" }) {
+                try db.alter(table: "issues") { t in t.drop(column: "estimate") }
+            }
+            if try db.columns(in: "teams").contains(where: { $0.name == "estimation_type" }) {
+                try db.alter(table: "teams") { t in t.drop(column: "estimation_type") }
+            }
+            for shape in ["issues", "teams"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "issues").contains("estimate"))
+        XCTAssertFalse(try columnNames(pool, "teams").contains("estimation_type"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let estimate = try pool.read { db in
+            try db.columns(in: "issues").first { $0.name == "estimate" }
+        }
+        XCTAssertNotNil(estimate)
+        XCTAssertFalse(estimate?.isNotNull ?? true)
+        let estimationType = try pool.read { db in
+            try db.columns(in: "teams").first { $0.name == "estimation_type" }
+        }
+        XCTAssertNotNil(estimationType)
+        XCTAssertFalse(estimationType?.isNotNull ?? true)
+        for shape in ["issues", "teams"] {
+            let reset = try pool.read { db in
+                try Bool.fetchOne(
+                    db,
+                    sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                        + "AND \"is_live\" = 0 FROM \"electric_offsets\" WHERE \"shape\" = ?",
+                    arguments: [shape]
+                )
+            }
+            XCTAssertEqual(reset, true, shape)
+        }
+        // Idempotent: a second pass is a no-op, never a duplicate column.
+        XCTAssertNoThrow(try migrator.migrate(pool))
+    }
+
+    // v52 (EXP-630): a fresh store declares both columns in v1, so the guarded
+    // migration must NOT reset either shape's offset (a re-snapshot of every
+    // issue for a store that already has the column is pure cost).
+    func testIssueEstimateMigrationLeavesFreshStoreOffsetsAlone() throws {
+        let pool = try makePool("issue-estimate-fresh")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v51_automation_account")
+        try pool.write { db in
+            for shape in ["issues", "teams"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        for shape in ["issues", "teams"] {
+            let untouched = try pool.read { db in
+                try Row.fetchOne(
+                    db,
+                    sql: "SELECT \"handle\", \"needs_refetch\" FROM \"electric_offsets\" WHERE \"shape\" = ?",
+                    arguments: [shape]
+                )
+            }
+            XCTAssertEqual(untouched?["handle"] as String?, "h", shape)
+            XCTAssertEqual(untouched?["needs_refetch"] as Bool?, false, shape)
+        }
     }
 
     // v2 (EXP-180 helpdesk follow-up): a `-v5` store created before
@@ -267,7 +353,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v48_workflow_node_approval",
              "v49_workflow_node_checkpoint",
              "v50_workflow_node_review",
-             "v51_automation_account"]
+             "v51_automation_account",
+             "v52_issue_estimate"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -359,7 +446,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v48_workflow_node_approval",
              "v49_workflow_node_checkpoint",
              "v50_workflow_node_review",
-             "v51_automation_account"]
+             "v51_automation_account",
+             "v52_issue_estimate"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -993,6 +1081,9 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
         // EXP-897: the stack edge rides the issues shape.
         XCTAssertTrue(try columnNames(pool, "issues").contains("pr_base_branch"))
+        // EXP-630: story points ride the issues shape, the scale the teams one.
+        XCTAssertTrue(try columnNames(pool, "issues").contains("estimate"))
+        XCTAssertTrue(try columnNames(pool, "teams").contains("estimation_type"))
         XCTAssertTrue(try columnNames(pool, "issue_subscribers").contains("email"))
         // issues.source ('user'|'widget') + a nullable creator_id (a
         // widget-sourced issue has no human creator).

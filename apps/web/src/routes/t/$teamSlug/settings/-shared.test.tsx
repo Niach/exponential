@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import {
+  flattenSettingsNav,
   SETTINGS_NAV,
   type SettingsNavContext,
 } from "@/routes/t/$teamSlug/settings/-shared"
@@ -27,7 +28,7 @@ const permissionsFor = (role: `owner` | `member`): TeamPermissions => {
   }
 }
 
-const items = SETTINGS_NAV.flatMap((group) => group.items)
+const items = SETTINGS_NAV.flatMap((group) => flattenSettingsNav(group.items))
 const general = items.find((item) => item.label === `General`)!
 
 // Mirrors settings/index.tsx: bare /settings lands on the first visible item.
@@ -36,25 +37,60 @@ const firstVisible = (
   context: SettingsNavContext
 ) => items.find((item) => item.visible(permissions, context))
 
-// EXP-314: Statuses sits in the Team group right after Labels and, like
-// Labels, is visible to every member (the router gates writes).
-describe(`SETTINGS_NAV Statuses entry`, () => {
+// EXP-630: Issues sits in the Team group after Members with Labels and
+// Statuses (EXP-314) as its sub-pages; all three are visible to every member
+// (the routers gate writes).
+describe(`SETTINGS_NAV Issues entry`, () => {
   const team: SettingsNavContext = { isCloud: false }
+  const teamGroup = SETTINGS_NAV.find((group) => group.group === `Team`)!
+  const issues = teamGroup.items.find((item) => item.label === `Issues`)!
 
-  it(`follows Labels in the Team group`, () => {
-    const teamGroup = SETTINGS_NAV.find((group) => group.group === `Team`)!
-    const labels = teamGroup.items.findIndex((item) => item.label === `Labels`)
-    const statuses = teamGroup.items.findIndex(
-      (item) => item.label === `Statuses`
-    )
-    expect(statuses).toBe(labels + 1)
-    expect(teamGroup.items[statuses].to).toBe(`/t/$teamSlug/settings/statuses`)
+  it(`follows Members in the Team group and nests Labels then Statuses`, () => {
+    const members = teamGroup.items.findIndex((item) => item.label === `Members`)
+    expect(teamGroup.items.indexOf(issues)).toBe(members + 1)
+    expect(issues.to).toBe(`/t/$teamSlug/settings/issues`)
+    expect(issues.children?.map((item) => [item.label, item.to])).toEqual([
+      [`Labels`, `/t/$teamSlug/settings/labels`],
+      [`Statuses`, `/t/$teamSlug/settings/statuses`],
+    ])
+    // Neither is a top-level entry any more.
+    expect(teamGroup.items.some((item) => item.label === `Labels`)).toBe(false)
+    expect(teamGroup.items.some((item) => item.label === `Statuses`)).toBe(false)
   })
 
-  it(`is visible to owners and plain members alike`, () => {
-    const statuses = items.find((item) => item.label === `Statuses`)!
-    expect(statuses.visible(permissionsFor(`owner`), team)).toBe(true)
-    expect(statuses.visible(permissionsFor(`member`), team)).toBe(true)
+  it(`flattens with the sub-pages right after their parent`, () => {
+    const flat = flattenSettingsNav(teamGroup.items).map((item) => item.label)
+    expect(flat.slice(flat.indexOf(`Issues`), flat.indexOf(`Issues`) + 3)).toEqual([`Issues`, `Labels`, `Statuses`])
+  })
+
+  it(`is visible to owners and plain members alike, sub-pages included`, () => {
+    for (const item of [issues, ...(issues.children ?? [])]) {
+      expect(item.visible(permissionsFor(`owner`), team)).toBe(true)
+      expect(item.visible(permissionsFor(`member`), team)).toBe(true)
+    }
+  })
+})
+
+// EXP-630: Import (the tracker migration wizard) closes the Team group after
+// Storage and is owner-only — it creates boards, statuses and issues.
+describe(`SETTINGS_NAV Import entry (EXP-630)`, () => {
+  const team: SettingsNavContext = { isCloud: false }
+
+  it(`follows Storage at the end of the Team group`, () => {
+    const teamGroup = SETTINGS_NAV.find((group) => group.group === `Team`)!
+    const storage = teamGroup.items.findIndex((item) => item.label === `Storage`)
+    const importIndex = teamGroup.items.findIndex(
+      (item) => item.label === `Import`
+    )
+    expect(importIndex).toBe(storage + 1)
+    expect(importIndex).toBe(teamGroup.items.length - 1)
+    expect(teamGroup.items[importIndex].to).toBe(`/t/$teamSlug/settings/import`)
+  })
+
+  it(`is owner-only`, () => {
+    const entry = items.find((item) => item.label === `Import`)!
+    expect(entry.visible(permissionsFor(`owner`), team)).toBe(true)
+    expect(entry.visible(permissionsFor(`member`), team)).toBe(false)
   })
 })
 

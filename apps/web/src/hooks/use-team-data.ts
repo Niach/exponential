@@ -22,6 +22,18 @@ function isDefined<TValue>(value: TValue | undefined): value is TValue {
   return value !== undefined
 }
 
+/** EXP-630: one team row by id (the estimate scale, the merge toggle). */
+export function useTeamById(teamId: string | null | undefined) {
+  const { data } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query.from({ teams: teamCollection }).where(({ teams }) => eq(teams.id, teamId))
+        : undefined,
+    [teamId]
+  )
+  return (data?.[0] ?? null) as Team | null
+}
+
 export function useTeamBySlug(teamSlug: string) {
   const { data } = useLiveQuery(
     (query) =>

@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import { forwardRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Label as LabelRow, User } from "@/db/schema"
-import type { IssuePriority } from "@/lib/domain"
+import type { IssuePriority, IssueEstimation } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   creatableStatusOptions,
@@ -39,8 +39,14 @@ import {
   UserAvatar,
   BoardGlyph,
 } from "@exp/ui"
+import {
+  estimateLabel,
+  estimatePickerOptions,
+  parseEstimatePick,
+} from "@/lib/issue-estimate"
 
 const DueDateGlyph = conceptIcon(`ui-due-date`)
+const EstimateGlyph = conceptIcon(`ui-estimate`)
 const AddGlyph = conceptIcon(`ui-add`)
 const UnassignedGlyph = conceptIcon(`ui-unassigned`)
 
@@ -83,6 +89,11 @@ export interface IssueEditorMobilePropertiesProps {
   dueDate: string | null
   hideAssignee?: boolean
   hideDueDateChip?: boolean
+  /** EXP-630 (the issue detail's phone sheet only): an Estimate row after Due
+   * date. Absent on the create form. */
+  estimate?: number | null
+  estimation?: IssueEstimation
+  onEstimateChange?: (estimate: number | null) => void | Promise<void>
   /** EXP-698 r5 (the issue detail's phone sheet only): a Board row after Due
    * date, moving the issue through the same confirm dialog the desktop chip
    * uses. Absent on the create form — a new issue is already ON its board. */
@@ -119,6 +130,9 @@ export function IssueEditorMobileProperties({
   dueDate,
   hideAssignee,
   hideDueDateChip,
+  estimate,
+  estimation,
+  onEstimateChange,
   board,
   relations,
   disableStatus,
@@ -281,6 +295,29 @@ export function IssueEditorMobileProperties({
                   <>
                     <DueDateGlyph className="size-3.5" />
                     {label}
+                  </>
+                }
+              />
+            )}
+          />
+        )}
+
+        {onEstimateChange && estimation && estimation !== `none` && (
+          <Combobox
+            searchable={false}
+            value={estimate == null ? `` : String(estimate)}
+            disabled={disabled}
+            options={estimatePickerOptions(estimate ?? null, estimation)}
+            onChange={(next) => void onEstimateChange(parseEstimatePick(next))}
+            mobileTitle="Estimate"
+            renderTrigger={() => (
+              <PropertyRow
+                label="Estimate"
+                disabled={disabled}
+                value={
+                  <>
+                    <EstimateGlyph className="size-3.5" />
+                    {estimateLabel(estimate, estimation)}
                   </>
                 }
               />

@@ -1093,6 +1093,7 @@ describe(`exponential_teams_get`, () => {
     expect(Object.keys(projection).sort()).toEqual([
       `createdAt`,
       `endSessionsOnMerge`,
+      `estimationType`,
       `helpdeskEnabled`,
       `iconUrl`,
       `id`,

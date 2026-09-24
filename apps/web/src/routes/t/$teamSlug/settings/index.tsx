@@ -1,6 +1,7 @@
 import { useEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import {
+  flattenSettingsNav,
   SETTINGS_NAV,
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
@@ -23,7 +24,7 @@ function SettingsIndexRedirect() {
 
   useEffect(() => {
     if (!ready) return
-    const first = SETTINGS_NAV.flatMap((group) => group.items).find((item) =>
+    const first = SETTINGS_NAV.flatMap((group) => flattenSettingsNav(group.items)).find((item) =>
       item.visible(permissions, { isCloud })
     )
     // Members is never gated, so `first` always exists.

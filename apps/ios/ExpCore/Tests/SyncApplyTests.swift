@@ -67,6 +67,10 @@ final class SyncApplyTests: XCTestCase {
         try pool.read { try IssueEntity.fetchOne($0, key: id) }
     }
 
+    private func fetchTeam(_ id: String) throws -> TeamEntity? {
+        try pool.read { try TeamEntity.fetchOne($0, key: id) }
+    }
+
     private func seedSubscriber(id: String, unsubscribed: Bool) throws {
         try pool.write { db in
             try IssueSubscriberEntity(
@@ -420,6 +424,59 @@ final class SyncApplyTests: XCTestCase {
             """
         let bare = try JSONDecoder().decode(IssueEntity.self, from: Data(older.utf8))
         XCTAssertNil(bare.prBaseBranch)
+    }
+
+    // EXP-630: story points ride the issues shape — `estimate` arrives as
+    // Postgres text and must land in the v52 integer column; a snapshot that
+    // omits the key (a pre-EXP-630 server) decodes as nil, and an explicit
+    // wire null too.
+    func testIssueInsertPersistsEstimate() async throws {
+        let json = """
+            {"id":"i-est","board_id":"p1","number":"9","identifier":"EXP-9",
+             "title":"Sized","description":null,"status":"backlog","priority":"none",
+             "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
+             "sort_order":"1","completed_at":null,"duplicate_of_id":null,
+             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
+             "pr_base_branch":null,"pr_merged_at":null,"estimate":"5",
+             "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
+            """
+        let issue = try JSONDecoder().decode(IssueEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(issue.estimate, 5)
+        let message = ShapeMessage<IssueEntity>.insert(key: issueKey("i-est"), value: issue)
+        try await applyBatch(messages: [message], name: "issues", table: "issues", pool: pool)
+        XCTAssertEqual(try fetchIssue("i-est")?.estimate, 5)
+
+        // The partial-update path clears it back to NULL.
+        let cleared = ShapeMessage<IssueEntity>.partialUpdate(
+            key: issueKey("i-est"), columns: columns(["estimate": NSNull()])
+        )
+        try await applyBatch(messages: [cleared], name: "issues", table: "issues", pool: pool)
+        XCTAssertNil(try fetchIssue("i-est")?.estimate)
+
+        let older = """
+            {"id":"i-unsized","board_id":"p1","number":"10","identifier":"EXP-10",
+             "title":"Plain","description":null,"status":"backlog","priority":"none",
+             "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
+             "sort_order":"2","completed_at":null,"duplicate_of_id":null,
+             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
+             "pr_merged_at":null,
+             "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
+            """
+        XCTAssertNil(try JSONDecoder().decode(IssueEntity.self, from: Data(older.utf8)).estimate)
+    }
+
+    // EXP-630: the team's scale rides the teams shape into the v52 column.
+    func testTeamInsertPersistsEstimationType() async throws {
+        let json = """
+            {"id":"t-est","name":"Acme","slug":"acme","icon_url":null,
+             "helpdesk_enabled":"f","estimation_type":"tshirt",
+             "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
+            """
+        let team = try JSONDecoder().decode(TeamEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(team.estimationType, "tshirt")
+        let message = ShapeMessage<TeamEntity>.insert(key: #""public"."teams"/"t-est""#, value: team)
+        try await applyBatch(messages: [message], name: "teams", table: "teams", pool: pool)
+        XCTAssertEqual(try fetchTeam("t-est")?.estimationType, "tshirt")
     }
 
     // EXP-778: a pins row off the wire — `sort_order` arrives as Postgres

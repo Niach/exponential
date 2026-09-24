@@ -974,6 +974,27 @@
       "when": 1790045400322,
       "tag": "0138_automation_account",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1790177015060,
+      "tag": "0139_import_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1790185738111,
+      "tag": "0140_issue_estimate",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1790203074275,
+      "tag": "0141_team_estimation",
+      "breakpoints": true
     }
   ]
 }

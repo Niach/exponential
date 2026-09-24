@@ -3,10 +3,13 @@ import { displayUserName } from "@/lib/user-display"
 import { conceptIcon } from "@exp/ui"
 import { relationEventParts } from "@/lib/issue-relations"
 import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
+import { estimateEventPhrase } from "@/lib/issue-estimate"
+import type { IssueEstimation } from "@/lib/domain"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { useTeamById } from "@/hooks/use-team-data"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { relativeTime } from "./format"
 
@@ -19,6 +22,7 @@ const BoardMovedIcon = conceptIcon(`event-board-moved`)
 const PrOpenedIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PriorityChangedIcon = conceptIcon(`event-priority-changed`)
+const EstimateChangedIcon = conceptIcon(`event-estimate-changed`)
 const RelationAddedIcon = conceptIcon(`event-relation-added`)
 const RelationRemovedIcon = conceptIcon(`event-relation-removed`)
 
@@ -96,6 +100,7 @@ export function EventRow({
 }) {
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const issueRefs = useIssueRefs()
+  const team = useTeamById(event.teamId)
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
   const actorName = displayUserName(actor, event.actorUserId)
   const payload = (event.payload ?? {}) as Record<string, unknown>
@@ -210,6 +215,15 @@ export function EventRow({
             {priorityLabel(payload.to)}
           </span>
         </>
+      )
+      break
+    }
+    // EXP-630: story points; the natives read the same row through their
+    // generic "<type> changed" fallback until they grow a phrase of their own.
+    case `estimate_changed`: {
+      Icon = EstimateChangedIcon
+      text = (
+        <>{estimateEventPhrase(payload, (team?.estimationType as IssueEstimation | undefined) ?? `fibonacci`)}</>
       )
       break
     }

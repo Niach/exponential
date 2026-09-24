@@ -4,8 +4,9 @@ import SwiftUI
 
 /// The top property chip box (EXP-240) — one glass box of wrapping capsule
 /// chips replacing the old properties/times/labels sections: Status, Priority,
-/// Assignee (hidden on solo teams, EXP-50), Due date (only when set), one chip
-/// per assigned label, and a "+" chip. A chip opens its per-property sheet;
+/// Assignee (hidden on solo teams, EXP-50), Due date (only when set), Estimate
+/// (EXP-630: only while the team's scale is on), one chip per assigned label,
+/// and a "+" chip. A chip opens its per-property sheet;
 /// the box background (and "+") opens the combined Properties sheet.
 /// Non-moderators see it dimmed and inert, with the "+" chip hidden.
 struct IssuePropertyChipsBox: View {
@@ -16,6 +17,9 @@ struct IssuePropertyChipsBox: View {
     /// Assigned labels only, name-sorted by the caller.
     let assignedLabels: [LabelEntity]
     let singleMemberTeam: Bool
+    /// EXP-630: the team's estimate scale (contract `issueEstimation`). The
+    /// chip is HIDDEN while it is `none` — the web's `EstimateControl`.
+    let estimationType: String
     let isModerator: Bool
     /// A chip opens its per-property picker directly (EXP-687: the pickers
     /// are their own enum now — the combined sheet is not one of them).
@@ -52,6 +56,17 @@ struct IssuePropertyChipsBox: View {
                 chip(target: .dueDate, label: dueDateChipLabel(dueDate)) {
                     AppIcon(AppIcons.uiDueDate, size: GlassPillTokens.glyphSm)
                         .foregroundStyle(dueDateUrgencyColor(dueDate))
+                }
+            }
+            if IssueEstimate.isEnabled(estimationType) {
+                // Reads "Estimate" until set, then the short form ("L", "5 pt")
+                // — byte-identical to the web chip.
+                chip(
+                    target: .estimate,
+                    label: issue.estimate.map { estimateShortLabel($0, scale: estimationType) } ?? "Estimate"
+                ) {
+                    AppIcon(AppIcons.uiEstimate, size: GlassPillTokens.glyphSm)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
             }
             ForEach(assignedLabels, id: \.id) { label in

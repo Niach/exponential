@@ -33,6 +33,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueRelationType
 import com.exponential.app.domain.IssueStatusResolver
@@ -211,6 +212,12 @@ class IssueDetailViewModel @AssistedInject constructor(
     val soloMemberId: StateFlow<String?> = membersForTeam
         .map { members -> members.map { it.userId }.singleOrNull() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // EXP-630: the team's estimate scale (contract issueEstimation). `none`
+    // until the team row syncs — estimates read as OFF, never as a guess.
+    val estimationType: StateFlow<String> = teamForBoard
+        .map { team -> team?.estimationType ?: DomainContract.issueEstimationNone }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DomainContract.issueEstimationNone)
 
     val permissions: StateFlow<TeamPermissions> = combine(
         teamForBoard,
@@ -902,8 +909,20 @@ class IssueDetailViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, dueDate = date))
+                // Explicit null on clear (see IssuesApi.setDueDate).
+                issuesApi.setDueDate(accountId, issueId, date)
             }.onFailure { reportMutationFailure(it, "The due date could not be changed") }
+        }
+    }
+
+    // EXP-630: setEstimate, not update() — a null ("No estimate") has to reach
+    // the server as an explicit JSON null; the shared Json drops nulls.
+    fun updateEstimate(estimate: Int?) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching {
+                issuesApi.setEstimate(accountId, issueId, estimate)
+            }.onFailure { reportMutationFailure(it, "The estimate could not be changed") }
         }
     }
 

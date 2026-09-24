@@ -1,0 +1,1 @@
+ALTER TABLE "teams" ADD COLUMN "estimation_type" varchar(16) DEFAULT 'none' NOT NULL;

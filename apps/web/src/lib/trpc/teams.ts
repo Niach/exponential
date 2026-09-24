@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { issueEstimationSchema } from "@/lib/domain"
 import { TRPCError } from "@trpc/server"
 import {
   router,
@@ -161,6 +162,9 @@ export const teamsRouter = router({
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
         helpdeskEnabled: z.boolean().optional(),
+        // EXP-630: the estimate scale; `none` switches estimates off (values
+        // already set stay on the rows, hidden until a scale is picked again).
+        estimationType: issueEstimationSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

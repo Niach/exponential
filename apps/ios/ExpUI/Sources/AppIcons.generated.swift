@@ -227,6 +227,7 @@ public enum AppIcons {
         "folder-kanban",
         "folder-open",
         "gamepad-2",
+        "gauge",
         "gem",
         "gift",
         "git-branch",
@@ -465,6 +466,8 @@ public enum AppIcons {
     public static let eventAssigneeChanged: String = "user-plus"
     /// Concept `event-board-moved`.
     public static let eventBoardMoved: String = "move"
+    /// Concept `event-estimate-changed`.
+    public static let eventEstimateChanged: String = "gauge"
     /// Concept `event-label-added`.
     public static let eventLabelAdded: String = "tag"
     /// Concept `event-label-removed`.
@@ -613,6 +616,10 @@ public enum AppIcons {
     public static let settingsGeneral: String = "building-2"
     /// Concept `settings-helpdesk`.
     public static let settingsHelpdesk: String = "life-buoy"
+    /// Concept `settings-import`.
+    public static let settingsImport: String = "download"
+    /// Concept `settings-issues`.
+    public static let settingsIssues: String = "list-checks"
     /// Concept `settings-labels`.
     public static let settingsLabels: String = "tag"
     /// Concept `settings-licenses`.
@@ -723,6 +730,8 @@ public enum AppIcons {
     public static let uiEmptySearch: String = "search-x"
     /// Concept `ui-error`.
     public static let uiError: String = "circle-x"
+    /// Concept `ui-estimate`.
+    public static let uiEstimate: String = "gauge"
     /// Concept `ui-external-link`.
     public static let uiExternalLink: String = "external-link"
     /// Concept `ui-file`.

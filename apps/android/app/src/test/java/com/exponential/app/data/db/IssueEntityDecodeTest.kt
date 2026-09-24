@@ -65,4 +65,22 @@ class IssueEntityDecodeTest {
         )
         assertNull(entity.prBaseBranch)
     }
+
+    // EXP-630: `estimate` joined the issues shape allowlist — a point number
+    // on the wire lands, and a row without it (older server) or with an
+    // explicit null still decodes as "not estimated".
+
+    @Test
+    fun `a row carrying estimate lands the points`() {
+        val entity = json.decodeFromString(IssueEntity.serializer(), row(",\n  \"estimate\": 5"))
+        assertEquals(5, entity.estimate)
+    }
+
+    @Test
+    fun `a row without estimate decodes as not estimated`() {
+        assertNull(json.decodeFromString(IssueEntity.serializer(), row("")).estimate)
+        assertNull(
+            json.decodeFromString(IssueEntity.serializer(), row(",\n  \"estimate\": null")).estimate,
+        )
+    }
 }

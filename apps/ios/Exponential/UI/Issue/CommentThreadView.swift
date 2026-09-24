@@ -67,6 +67,9 @@ struct CommentThreadView: View {
     @State private var users: [String: UserEntity] = [:]
     @State private var labels: [String: LabelEntity] = [:]
     @State private var boards: [String: BoardEntity] = [:]
+    /// EXP-630: every synced team row — the `estimate_changed` rows render
+    /// their points on this issue's team scale.
+    @State private var teams: [String: TeamEntity] = [:]
     /// EXP-595: every synced team's `issue_statuses` rows — the status-change
     /// rows' glyphs resolve against this issue's team subset, so the timeline
     /// shows the same colored status icon the list and the picker do.
@@ -109,6 +112,17 @@ struct CommentThreadView: View {
         return IssueStatusResolver.teamStatuses(statusRows.filter { $0.teamId == teamId })
     }
 
+    /// EXP-630: this issue's team estimate scale, nil until the team row has
+    /// synced (the phrase then falls back to plain points).
+    private var estimationType: String? {
+        guard let teamId = boards[issue.boardId]?.teamId else { return nil }
+        return teams[teamId]?.estimationType
+    }
+
+    private func phrase(_ event: IssueEventEntity) -> String? {
+        eventPhrase(event, users: users, labels: labels, boards: boards, estimationType: estimationType)
+    }
+
     /// EXP-900: the events this timeline draws. The fold runs over the FULL
     /// list — suppressed `created` rows included, they belong to the run
     /// boundaries — with this issue's comments (replies too) as barriers, so a
@@ -131,7 +145,7 @@ struct CommentThreadView: View {
     // HERE too, so collapsed-run counts never include hidden rows. Applied
     // AFTER the fold (EXP-900): a hidden row still bounds a run.
     private func visibleEvents(_ rows: [IssueEventEntity]) -> [IssueEventEntity] {
-        rows.filter { eventPhrase($0, users: users, labels: labels, boards: boards) != nil }
+        rows.filter { phrase($0) != nil }
     }
 
     /// Whether folding actually removed rows the timeline would have drawn —
@@ -253,7 +267,7 @@ struct CommentThreadView: View {
         let who = memberDisplayName(event.actorUserId.flatMap { users[$0] }, id: event.actorUserId)
         // Nil phrase = a suppressed event type (the timeline filter already
         // drops them; this guard keeps a stray one from rendering munged).
-        if let phrase = eventPhrase(event, users: users, labels: labels, boards: boards) {
+        if let phrase = phrase(event) {
             // Append a relative timestamp (EXP-169) — only when it parses, so
             // an unparseable created_at never leaves a dangling " · ".
             let time = relativeDate(event.createdAt)
@@ -510,6 +524,18 @@ struct CommentThreadView: View {
             do {
                 for try await rows in boardObs.values(in: pool) {
                     self.boards = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            } catch {}
+        })
+
+        // EXP-630: team rows for the estimate scale.
+        let teamObs = ValueObservation.tracking { db in
+            try TeamEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in teamObs.values(in: pool) {
+                    self.teams = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
                 }
             } catch {}
         })

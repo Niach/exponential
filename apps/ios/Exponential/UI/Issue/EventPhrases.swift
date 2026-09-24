@@ -19,6 +19,7 @@ func eventVerb(_ type: String) -> String {
     case "board_moved": return "moved this to another board"
     case "relation_added": return "added a relation"
     case "relation_removed": return "removed a relation"
+    case "estimate_changed": return "changed the estimate"
     default: return type.replacingOccurrences(of: "_", with: " ")
     }
 }
@@ -57,6 +58,14 @@ func eventField(_ payload: String?, _ key: String) -> String? {
     return nil
 }
 
+/// The whole JSON object of an issue_event's payload (stored as stringified
+/// JSON) — for the helpers that read typed values themselves
+/// (`estimateEventPhrase`). Nil for a missing or malformed payload.
+func eventPayloadObject(_ payload: String?) -> [String: Any]? {
+    guard let payload, let data = payload.data(using: .utf8) else { return nil }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+}
+
 /// The leading glyph of one activity row (EXP-595 — web `EventRow` / desktop
 /// `EventGlyph` parity): every known event type leads with its shared-registry
 /// concept icon in the muted text color, and a status change leads with the
@@ -92,6 +101,7 @@ func eventGlyph(
     case "pr_opened": return .plain(AppIcons.prOpen)
     case "pr_merged": return .plain(AppIcons.prMerged)
     case "priority_changed": return .plain(AppIcons.eventPriorityChanged)
+    case "estimate_changed": return .plain(AppIcons.eventEstimateChanged)
     default: return nil
     }
 }
@@ -103,11 +113,16 @@ func eventGlyph(
 /// (EXP-530: server `created` events duplicate the locally synthesized
 /// "created the issue" row and must never render — not even as the munged
 /// verb fallback).
+///
+/// `estimationType` is the issue's team scale (EXP-630) — an `estimate_changed`
+/// row renders its point value on it, falling back to fibonacci (plain
+/// points) while the team row is unknown, exactly like the web row.
 func eventPhrase(
     _ event: IssueEventEntity,
     users: [String: UserEntity],
     labels: [String: LabelEntity]?,
-    boards: [String: BoardEntity]? = nil
+    boards: [String: BoardEntity]? = nil,
+    estimationType: String? = nil
 ) -> String? {
     switch event.type {
     case "created":
@@ -164,6 +179,13 @@ func eventPhrase(
         let fromIdentifier = eventField(event.payload, "fromIdentifier")
             .map { " (\($0))" } ?? ""
         return "moved this from \(fromName)\(fromIdentifier) to \(toName)"
+    case "estimate_changed":
+        // EXP-630 — byte-identical to the web row: "set the estimate to L" /
+        // "3 points", "removed the estimate"; the payload's `to` decides.
+        return estimateEventPhrase(
+            payload: eventPayloadObject(event.payload),
+            scale: estimationType ?? DomainContract.issueEstimationFibonacci
+        )
     case "relation_added", "relation_removed":
         // EXP-736 — byte-identical to `relationEventParts` on the web: the
         // payload's `direction` says which SIDE this issue is on, so each of

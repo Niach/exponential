@@ -61,6 +61,11 @@ pub struct Team {
     /// enabled, matching the server DEFAULT true.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub end_sessions_on_merge: Option<bool>,
+    /// EXP-630: the estimate scale (contract `issueEstimation`): `none` (or
+    /// a pre-column `None`) = estimates off; the others pick the ladder and
+    /// how a value reads (t-shirt = XS…XL over the fibonacci points).
+    #[serde(default)]
+    pub estimation_type: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -68,6 +73,15 @@ pub struct Team {
 }
 
 impl Team {
+    /// The estimate scale, `"none"` for pre-column rows and unknown values
+    /// (a newer server's scale reads as off rather than as a stray label).
+    pub fn estimation(&self) -> &str {
+        match self.estimation_type.as_deref() {
+            Some(value) if crate::contract::ISSUE_ESTIMATION_VALUES.contains(&value) => value,
+            _ => crate::contract::ISSUE_ESTIMATION_NONE,
+        }
+    }
+
     /// Optimistic local row built from a mutation's own response (EXP-470) —
     /// identity fields only; everything else stays `None` (degrading like a
     /// pre-column row) until the Electric echo overwrites it.
@@ -83,6 +97,7 @@ impl Team {
             pr_merged_status_id: None,
             pr_merged_automation: None,
             end_sessions_on_merge: None,
+            estimation_type: None,
             created_at: None,
             updated_at: None,
         }
@@ -216,6 +231,12 @@ pub struct Issue {
     /// existed; `heal_missing_columns` ALTERs it in and the refetch backfills.
     #[serde(default)]
     pub pr_base_branch: Option<String>,
+    /// EXP-630 `issues.estimate` — story points, always a point NUMBER;
+    /// the team's `estimation_type` decides how it reads
+    /// ([`crate::issue_estimate`]). `None` = unset (and on rows synced
+    /// before the column existed; `heal_missing_columns` ALTERs it in).
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub estimate: Option<i64>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1868,6 +1889,37 @@ mod tests {
         assert_eq!(issue.description, None);
     }
 
+    /// EXP-630: `estimate` arrives as a bare number from tRPC seeds and as
+    /// TEXT from Electric; a pre-column row simply has none.
+    #[test]
+    fn issue_estimate_hydrates_from_number_or_string_and_defaults_to_none() {
+        let base = json!({
+            "id": "i-1",
+            "board_id": "p-1",
+            "number": 1,
+            "identifier": "EXP-1",
+            "title": "Sized",
+            "status": "backlog"
+        });
+        let mut numeric = base.clone();
+        numeric["estimate"] = json!(5);
+        let issue: Issue = serde_json::from_value(numeric).expect("numeric estimate");
+        assert_eq!(issue.estimate, Some(5));
+
+        let mut text = base.clone();
+        text["estimate"] = json!("8");
+        let issue: Issue = serde_json::from_value(text).expect("text estimate");
+        assert_eq!(issue.estimate, Some(8));
+
+        let mut cleared = base.clone();
+        cleared["estimate"] = json!(null);
+        let issue: Issue = serde_json::from_value(cleared).expect("null estimate");
+        assert_eq!(issue.estimate, None);
+
+        let issue: Issue = serde_json::from_value(base).expect("pre-column row");
+        assert_eq!(issue.estimate, None);
+    }
+
     #[test]
     fn issue_with_unknown_enum_value_is_kept_not_dropped() {
         let issue: Issue = serde_json::from_value(json!({
@@ -1977,6 +2029,14 @@ mod tests {
         assert_eq!(team.pr_merged_automation, None);
         assert_eq!(team.end_sessions_on_merge, None);
         assert!(team.ends_sessions_on_merge());
+        // EXP-630: no column, an unknown scale and an explicit none all read
+        // as off; a known scale reads as itself.
+        assert_eq!(team.estimation(), "none");
+        let mut scaled = team.clone();
+        scaled.estimation_type = Some("tshirt".to_string());
+        assert_eq!(scaled.estimation(), "tshirt");
+        scaled.estimation_type = Some("hexagonal".to_string());
+        assert_eq!(scaled.estimation(), "none");
     }
 
     #[test]

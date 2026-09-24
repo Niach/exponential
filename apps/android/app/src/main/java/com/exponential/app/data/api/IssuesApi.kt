@@ -269,6 +269,44 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
         ).issue
 
     /**
+     * Set or CLEAR an issue's estimate (EXP-630). Like [setAssignee], not
+     * [update]: `issues.update` reads a missing `estimate` as "leave it
+     * alone" and the shared Json omits nulls, so clearing must reach the
+     * wire as an explicit JSON null.
+     */
+    /**
+     * EXP-630 (found while adding estimates): clearing the due date has to
+     * reach the server as an explicit JSON null too — `UpdateIssueInput`
+     * rides the shared Json with `explicitNulls=false`, so a null `dueDate`
+     * was dropped and the web's `issues.update` read it as "untouched".
+     */
+    suspend fun setDueDate(accountId: String, issueId: String, dueDate: String?): IssueEntity =
+        trpc.mutation(
+            accountId,
+            path = "issues.update",
+            input = buildJsonObject {
+                put("id", issueId)
+                if (dueDate != null) put("dueDate", dueDate)
+                else put("dueDate", JsonNull)
+            },
+            inputSerializer = JsonObject.serializer(),
+            outputSerializer = IssueResult.serializer(),
+        ).issue
+
+    suspend fun setEstimate(accountId: String, issueId: String, estimate: Int?): IssueEntity =
+        trpc.mutation(
+            accountId,
+            path = "issues.update",
+            input = buildJsonObject {
+                put("id", issueId)
+                if (estimate != null) put("estimate", estimate)
+                else put("estimate", JsonNull)
+            },
+            inputSerializer = JsonObject.serializer(),
+            outputSerializer = IssueResult.serializer(),
+        ).issue
+
+    /**
      * Bulk property write for the multi-select bar — the same
      * `issues.bulkUpdate` procedure web and desktop use. One server
      * transaction for the whole chunk, and (deliberately) NO per-issue

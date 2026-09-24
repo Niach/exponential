@@ -16,6 +16,7 @@ public enum DomainContract {
     public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
     public static let issueSourceValues: [String] = ["user", "widget", "agent"]
+    public static let issueEstimationValues: [String] = ["none", "exponential", "fibonacci", "linear", "tshirt"]
     public static let teamRoleValues: [String] = ["owner", "member"]
     public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car", "music", "camera", "video", "image", "headphones", "mic", "gift", "shopping-bag", "store", "truck", "map", "mountain", "tree-pine", "flame", "droplet", "moon", "anchor", "crown", "gem", "award", "dumbbell", "stethoscope", "microscope", "atom", "brain", "eye", "fingerprint", "hammer", "paintbrush", "calculator", "landmark", "wallet", "tag", "bookmark", "newspaper", "smartphone"]
     public static let deviceIconValues: [String] = ["monitor", "server", "laptop", "os-apple", "os-windows", "os-linux"]
@@ -37,7 +38,7 @@ public enum DomainContract {
     public static let toolKindEditValues: [String] = ["edit", "delete", "move"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let pinKindValues: [String] = ["issue", "session", "action"]
-    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed"]
+    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed", "estimate_changed"]
     public static let issueRelationTypeValues: [String] = ["blocks", "parent", "duplicate", "related"]
     public static let issueRelationTypeForwardLabels: [String] = ["blocks", "parent of", "duplicate of", "related to"]
     public static let issueRelationTypeInverseLabels: [String] = ["blocked by", "sub-issue of", "duplicated by", "related to"]
@@ -136,6 +137,11 @@ public enum DomainContract {
     public static let issueSourceUser: String = "user"
     public static let issueSourceWidget: String = "widget"
     public static let issueSourceAgent: String = "agent"
+    public static let issueEstimationNone: String = "none"
+    public static let issueEstimationExponential: String = "exponential"
+    public static let issueEstimationFibonacci: String = "fibonacci"
+    public static let issueEstimationLinear: String = "linear"
+    public static let issueEstimationTshirt: String = "tshirt"
     public static let teamRoleOwner: String = "owner"
     public static let teamRoleMember: String = "member"
     public static let commentKindRegular: String = "regular"
@@ -210,6 +216,7 @@ public enum DomainContract {
     public static let issueEventTypePriorityChanged: String = "priority_changed"
     public static let issueEventTypeRelationAdded: String = "relation_added"
     public static let issueEventTypeRelationRemoved: String = "relation_removed"
+    public static let issueEventTypeEstimateChanged: String = "estimate_changed"
     public static let issueRelationTypeBlocks: String = "blocks"
     public static let issueRelationTypeParent: String = "parent"
     public static let issueRelationTypeDuplicate: String = "duplicate"
