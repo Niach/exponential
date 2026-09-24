@@ -4,22 +4,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.NO_ESTIMATE
 import com.exponential.app.domain.estimateLabel
 import com.exponential.app.domain.estimatePickerValues
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
-import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * Estimate sheet (EXP-630, web `EstimateControl` parity): a pinned
@@ -42,17 +37,11 @@ fun EstimatePickerSheet(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
         ) {
+            // Plain text rows on every client (web `EstimateControl`, iOS
+            // `EstimateSheet`, desktop menu): the value IS the label.
             GlassSheetRow(
                 label = NO_ESTIMATE,
                 selected = current == null,
-                leading = {
-                    Icon(
-                        ExpIcons.uiEstimate,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = Color.White.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                },
                 onClick = {
                     onSelect(null)
                     onDismiss()

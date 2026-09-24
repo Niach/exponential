@@ -31,15 +31,9 @@ struct EstimateSheet: View {
             idFor: { $0.id },
             onSelect: { onSelect($0.value) }
         ) { option in
-            Label {
-                Text(estimateLabel(option.value, scale: estimationType))
-            } icon: {
-                AppIcon(
-                    option.value == nil ? AppIcons.uiClear : AppIcons.uiEstimate,
-                    size: AppIcon.Size.medium
-                )
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
+            // Plain text rows on every client (web `EstimateControl`, Android
+            // `EstimatePickerSheet`, desktop menu): the value IS the label.
+            Text(estimateLabel(option.value, scale: estimationType))
         }
     }
 }
