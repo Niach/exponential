@@ -1197,20 +1197,24 @@ export function DeviceSettingsDialog({
                                 </>
                               )}
                             </Button>
-                          ) : (
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              Update the app on this machine first
-                            </span>
-                          )}
+                          ) : null}
                         </div>
                         {sectionErrors[key] ? (
                           <p className="text-xs text-destructive">
                             {sectionErrors[key]}
                           </p>
+                        ) : sectionNotes[key] ? (
+                          <p className="text-xs text-muted-foreground">
+                            {sectionNotes[key]}
+                          </p>
                         ) : (
-                          sectionNotes[key] && (
+                          // No reported version = a daemon that cannot run
+                          // `agent_update` yet. The hint sits UNDER the label
+                          // (like a note) so the agent's name never truncates
+                          // beside a sentence-long trailing slot.
+                          !agentVersion && (
                             <p className="text-xs text-muted-foreground">
-                              {sectionNotes[key]}
+                              Update the app on this machine first
                             </p>
                           )
                         )}

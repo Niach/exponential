@@ -1926,7 +1926,7 @@ impl DeviceSettingsView {
                     div().w_full().min_w_0().truncate().text_sm().child(SharedString::from(
                         match version.as_deref() {
                             Some(version) => format!("{} v{version}", agent.label()),
-                            None => format!("{} (version unknown)", agent.label()),
+                            None => agent.label().to_string(),
                         },
                     )),
                 ),
@@ -1952,18 +1952,22 @@ impl DeviceSettingsView {
                             this.queue_agent_update(agent, cx);
                         })),
                 );
-            } else {
-                agent_row = agent_row.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("Update the app on this machine first"),
-                );
             }
+            // No reported version = a daemon that cannot run `agent_update`
+            // yet. The hint sits UNDER the label (like a note), never beside
+            // it: a sentence-long trailing slot truncated the agent's name on
+            // the web twin at its narrower column.
             let under = self
                 .error_line(&key, cx)
-                .or_else(|| self.note_line(&key, cx));
+                .or_else(|| self.note_line(&key, cx))
+                .or_else(|| {
+                    version.is_none().then(|| {
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("Update the app on this machine first")
+                    })
+                });
             match under {
                 Some(line) => agent_rows.push(
                     v_flex()
