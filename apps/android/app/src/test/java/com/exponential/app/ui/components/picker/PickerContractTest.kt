@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components.picker
 
+import com.exponential.app.domain.DomainContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Ignore
@@ -32,7 +33,7 @@ class PickerContractTest {
             listOf("Unassigned", "Ada"),
             assigneePickerItems(listOf(AssigneePickerMember("u", "Ada")), allowsNone = true).map { it.label },
         )
-        assertEquals(6, iconPickerItems(IconPickerSet.Device).size)
+        assertEquals(DomainContract.deviceIconValues.size, iconPickerItems(IconPickerSet.Device).size)
     }
 
     @Ignore("EXP-1029 contract: EXP-1021 moves the account and icon pickers onto Picker")

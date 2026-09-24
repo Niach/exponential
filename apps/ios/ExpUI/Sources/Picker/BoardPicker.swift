@@ -42,7 +42,7 @@ public struct BoardPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    public static func items(_ boards: [BoardPickerBoard]) -> [PickerItem<String>] {
+    nonisolated public static func items(_ boards: [BoardPickerBoard]) -> [PickerItem<String>] {
         boards.map { board in
             PickerItem(
                 value: board.id,

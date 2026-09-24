@@ -35,7 +35,11 @@ pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
 /// `fable-5` / `claude-fable-5`). Deliberately an alias, never a pinned
 /// `claude-fable-5-1`: pinning would go stale at the next release and churn
 /// the contract on four clients, while the alias tracks the CLI's own default.
-pub const DEFAULT_CLAUDE_MODEL: &str = "fable";
+pub const DEFAULT_CLAUDE_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_MODEL;
+/// EXP-1029: the fresh-install subagent model — contract
+/// `deviceAgentDefaults.subagentModel`, BLANK (= the CLI's own default).
+pub const DEFAULT_CLAUDE_SUBAGENT_MODEL: &str =
+    domain::contract::DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL;
 /// The `--model` aliases the CLI accepts (and the ui selects offer) —
 /// [`Settings::load`] normalizes anything else back to the default.
 pub const MODEL_ALIASES: [&str; 3] = ["fable", "opus", "sonnet"];
@@ -248,7 +252,7 @@ impl Default for Settings {
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
-            claude_subagent_model: String::new(),
+            claude_subagent_model: DEFAULT_CLAUDE_SUBAGENT_MODEL.to_string(),
             workflow_model: DEFAULT_WORKFLOW_MODEL.to_string(),
             workflow_strong_model: DEFAULT_WORKFLOW_STRONG_MODEL.to_string(),
             codex_model: String::new(),
@@ -298,8 +302,11 @@ impl Settings {
             normalize_choice(&settings.claude_model, &MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
         // EXP-981: blank is the VALID "let the CLI decide" value here.
-        settings.claude_subagent_model =
-            normalize_choice(&settings.claude_subagent_model, &MODEL_ALIASES, "");
+        settings.claude_subagent_model = normalize_choice(
+            &settings.claude_subagent_model,
+            &MODEL_ALIASES,
+            DEFAULT_CLAUDE_SUBAGENT_MODEL,
+        );
         // EXP-1029: the workflow pair always names a model (never blank).
         settings.workflow_model =
             normalize_choice(&settings.workflow_model, &MODEL_ALIASES, DEFAULT_WORKFLOW_MODEL);

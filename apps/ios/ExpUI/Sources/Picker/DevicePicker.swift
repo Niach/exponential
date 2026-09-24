@@ -41,7 +41,7 @@ public struct DevicePicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    public static func items(_ devices: [DevicePickerDevice]) -> [PickerItem<String>] {
+    nonisolated public static func items(_ devices: [DevicePickerDevice]) -> [PickerItem<String>] {
         devices.map { device in
             PickerItem(
                 value: device.id,

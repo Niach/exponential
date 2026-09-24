@@ -1167,11 +1167,16 @@ export interface DeviceAgentDefaults {
 }
 
 /** Contract `deviceAgentDefaults`, hand-mirrored (drift-tested): what a
- *  device that never set anything is read as. */
+ *  device that never set anything is read as — the desktop's own fresh-
+ *  install defaults (`coding::settings`, wired to the SAME contract
+ *  constants): `fable`, a BLANK subagent model (= the CLI's own default),
+ *  and the workflow pair. The issue proposed `opus` / `opus` for the first
+ *  two; that would change what every fresh device runs, so the contract
+ *  names reality and the human review may overrule it here. */
 export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
   account: null,
-  model: `opus`,
-  subagentModel: `opus`,
+  model: `fable`,
+  subagentModel: ``,
   workflow: { model: `opus`, strongModel: `fable` },
 }
 

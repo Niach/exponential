@@ -20,7 +20,7 @@ public struct AssigneePickerMember: Identifiable, Hashable {
 
 public struct AssigneePicker<Trigger: View>: View {
     /// The row that clears the pick.
-    public static var unassignedValue: String { "" }
+    nonisolated public static var unassignedValue: String { "" }
 
     public let members: [AssigneePickerMember]
     public let value: String?
@@ -43,7 +43,7 @@ public struct AssigneePicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    public static func items(_ members: [AssigneePickerMember], allowsNone: Bool) -> [PickerItem<String>] {
+    nonisolated public static func items(_ members: [AssigneePickerMember], allowsNone: Bool) -> [PickerItem<String>] {
         let rows = members.map { member in
             PickerItem(
                 value: member.id,
