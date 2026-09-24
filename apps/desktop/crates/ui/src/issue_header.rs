@@ -408,7 +408,12 @@ impl IssueHeader {
             crate::picker::assignee_picker::assignee_picker(
                 &users,
                 crate::picker::PickerMode::Single,
-                current_id.clone().into_iter().collect(),
+                // Unassigned is a real ROW with a real value, so an
+                // unassigned issue PICKS it — an empty set would leave the
+                // picker with nothing marked at all.
+                vec![current_id
+                    .clone()
+                    .unwrap_or_else(|| UNASSIGNED_VALUE.to_string())],
                 // `Unassigned` is a real ROW, never a hidden placeholder.
                 true,
                 trigger,

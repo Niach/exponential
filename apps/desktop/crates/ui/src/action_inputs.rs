@@ -8,6 +8,7 @@
 //! desktop has no inputs editor.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui::{
     div, AnyElement, App, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
@@ -315,61 +316,66 @@ impl ActionInputPicks {
                     })
                     .into_any_element()
             }
+            // EXP-1045: THE board picker — the board's own glyph in its own
+            // colour, searchable, like every other board pick (the sibling
+            // `icon` input already rode the shared one). A required input
+            // offers no clearing row.
             "board" => {
-                let pick_label: SharedString = match self.board.get(&input.key) {
+                let picked = self.board.get(&input.key).cloned();
+                let pick_label: SharedString = match &picked {
                     Some((_, name)) => name.clone().into(),
                     None => "Select board…".into(),
                 };
-                let boards: Vec<(String, String)> = Store::global(cx)
-                    .collections()
-                    .boards_in_team(team_id, cx)
-                    .into_iter()
-                    .map(|board| (board.id, board.name))
-                    .collect();
-                Button::new((prefix, ix))
+                let boards = Store::global(cx).collections().boards_in_team(team_id, cx);
+                let trigger = Button::new((prefix, ix))
                     .outline()
                     .cursor_pointer()
                     .web_input_sm()
                     .label(pick_label)
-                    .dropdown_menu(move |mut menu, _window, _cx| {
-                        if optional {
-                            let view = view.clone();
-                            let key = key.clone();
-                            menu = menu.item(PopupMenuItem::new("None").on_click(
-                                move |_, _, cx| {
-                                    if let Some(view) = view.upgrade() {
-                                        view.update(cx, |view, cx| {
-                                            access(view).board.remove(&key);
-                                            cx.notify();
-                                        });
+                    .into_any_element();
+                let picker_id = SharedString::from(format!("{prefix}-board-{ix}"));
+                crate::picker::deferred(move |window, cx| {
+                    use crate::picker::board_picker::NO_BOARD_VALUE;
+                    let names: std::collections::HashMap<String, String> = boards
+                        .iter()
+                        .map(|board| (board.id.clone(), board.name.clone()))
+                        .collect();
+                    let current = picked.map(|(board_id, _)| board_id);
+                    let on_change: crate::picker::OnPickerChange<String> =
+                        Rc::new(move |values: Vec<String>, _window, cx: &mut App| {
+                            let Some(board_id) = values.first().cloned() else {
+                                return;
+                            };
+                            let Some(view) = view.upgrade() else {
+                                return;
+                            };
+                            let name = names.get(&board_id).cloned();
+                            view.update(cx, |view, cx| {
+                                match name {
+                                    Some(name) if board_id != NO_BOARD_VALUE => {
+                                        access(view).board.insert(key.clone(), (board_id, name));
                                     }
-                                },
-                            ));
-                        }
-                        for (board_id, name) in &boards {
-                            let view = view.clone();
-                            let key = key.clone();
-                            let board_id = board_id.clone();
-                            let name = name.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(name.clone())).on_click(
-                                    move |_, _, cx| {
-                                        if let Some(view) = view.upgrade() {
-                                            view.update(cx, |view, cx| {
-                                                access(view).board.insert(
-                                                    key.clone(),
-                                                    (board_id.clone(), name.clone()),
-                                                );
-                                                cx.notify();
-                                            });
-                                        }
-                                    },
-                                ),
-                            );
-                        }
-                        menu
-                    })
-                    .into_any_element()
+                                    // The clearing row (optional inputs only).
+                                    _ => {
+                                        access(view).board.remove(&key);
+                                    }
+                                }
+                                cx.notify();
+                            });
+                        });
+                    if optional {
+                        crate::picker::board_picker::optional_board_picker(
+                            &boards, current, trigger, on_change,
+                        )
+                    } else {
+                        crate::picker::board_picker::board_picker(
+                            &boards, current, trigger, on_change,
+                        )
+                    }
+                    .id(picker_id)
+                    .render(window, cx)
+                })
+                .into_any_element()
             }
             "pr" => {
                 let pick_label: SharedString = match self.pr.get(&input.key) {
