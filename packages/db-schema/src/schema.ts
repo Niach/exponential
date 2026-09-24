@@ -217,8 +217,10 @@ export const teams = pgTable(`teams`, {
   // at contract `team.agentPromptMaxBytes`. SERVER-ONLY like `actions.body`:
   // behind the teams shape allowlist, read through `teams.getAgentPrompt`
   // (members) and written through `teams.update` (owners); the launcher
-  // fetches it at prepare time. `agent_prompt_updated_at` = the last
-  // non-empty-to-different write, for the editors' "edited …" caption.
+  // fetches it at prepare time. `agent_prompt_updated_at` = the last write
+  // whose normalized text DIFFERED from the stored one (`teams.update` reads
+  // the row and skips the stamp otherwise), for the editors' "edited …"
+  // caption.
   agentPrompt: text(`agent_prompt`).notNull().default(``),
   agentPromptUpdatedAt: timestamp(`agent_prompt_updated_at`, { withTimezone: true }),
   ...timestamps,

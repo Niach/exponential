@@ -104,7 +104,16 @@ async function dryRun(job: Awaited<ReturnType<typeof loadJobForOwner>>): Promise
     throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Save a mapping first` })
   }
   const source = getImportSource(job.source)
-  const bundle = source.toBundle(await loadPayload(job.id), plan.data)
+  const payload = await loadPayload(job.id)
+  if (payload === null) {
+    // The worker purges a finished job's snapshot after its retention
+    // window (worker.ts); a `failed` job past it can no longer resume.
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `This import's data has expired. Connect again to start over.`,
+    })
+  }
+  const bundle = source.toBundle(payload, plan.data)
   const boardIdsForNumbers = Object.values(plan.data.boards)
     .filter((entry) => entry.mode === `existing`)
     .map((entry) => (entry as { boardId: string }).boardId)
@@ -255,14 +264,17 @@ export const importsRouter = router({
     }),
 
   // Stops a live job at its next batch boundary (rows already written stay);
-  // wipes the credential right away.
+  // wipes the credential right away. Nulling the claim token is what makes
+  // the cancel stick: every worker write is fenced on `status IN
+  // (previewing, running) AND claim_token = <its token>`, so neither a
+  // finishing discovery nor a failure can write over `cancelled`.
   cancel: authedProcedure
     .input(z.object({ jobId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const job = await loadJobForOwner(ctx.session.user.id, input.jobId)
       const [row] = await ctx.db
         .update(importJobs)
-        .set({ status: `cancelled`, credential: null, finishedAt: new Date() })
+        .set({ status: `cancelled`, credential: null, claimToken: null, finishedAt: new Date() })
         .where(
           and(
             eq(importJobs.id, job.id),

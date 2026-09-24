@@ -420,6 +420,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // FEED-36: raised by the worker's `update_now` command once it ended
     // the live sessions; the loop arms the update off it.
     let update_now = Arc::new(AtomicBool::new(false));
+    // EXP-484: the command ids of the `agent_login` PTYs and `agent_update`
+    // downloads in flight on their own threads. Shared with the loop so a
+    // daemon self-update never re-execs while `claude update` is mid-download.
+    let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
     let device_worker = spawn_device_worker(
         Arc::clone(&ctx),
         Arc::clone(&sessions),
@@ -428,6 +432,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         Arc::clone(&mcp_readiness),
         Arc::clone(&doctor_soon),
         Arc::clone(&update_now),
+        Arc::clone(&logins_inflight),
     );
     let check_in = Arc::new(AtomicBool::new(false));
     // EXP-530: the automation host — this daemon's own Electric pipeline (a
@@ -525,6 +530,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let mut last_update_poll = Instant::now();
     // EXP-641: when the gated trigger was last armed (retry cadence).
     let mut last_gated_attempt: Option<Instant> = None;
+    // Logged once per hold: a pending update waiting on an in-flight
+    // `agent_login`/`agent_update` command, not on a session.
+    let mut update_held_by_claims = false;
     // EXP-414: an advertisement change observed by ONE probe, awaiting a
     // second agreeing probe before it tears the control channel down.
     let mut pending_advert: Option<coding::AgentAdvertisement> = None;
@@ -837,8 +845,25 @@ fn run_daemon(args: &[String]) -> CommandResult {
         if let Some(trigger) = pending_update {
             // FEED-36: no session, or only sessions idle past the grace —
             // the latter are ended (ended_by `client`; the reaper above
-            // drops them next tick, then this arm applies).
-            let gate = {
+            // drops them next tick, then this arm applies). An `agent_login`
+            // PTY or an `agent_update` download in flight holds the restart
+            // the same way a live session does: a re-exec mid-download would
+            // orphan the updater and never `completeCommand` its row. Re-checked
+            // on the next tick.
+            let updater_busy = logins_inflight
+                .lock()
+                .map(|claims| !claims.is_empty())
+                .unwrap_or(false);
+            let gate = if updater_busy {
+                if !update_held_by_claims {
+                    log::info!(
+                        "a {trigger:?} update is waiting for an agent sign-in/update command to finish"
+                    );
+                    update_held_by_claims = true;
+                }
+                UpdateGate::Wait
+            } else {
+                update_held_by_claims = false;
                 let now = Instant::now();
                 let guard = lock_sessions(&sessions);
                 update_gate(
@@ -1937,6 +1962,12 @@ fn spawn_device_worker(
     mcp_readiness: Arc<Mutex<Option<coding::mcp_servers::ReadinessSnapshot>>>,
     doctor_soon: Arc<AtomicBool>,
     update_now: Arc<AtomicBool>,
+    // EXP-484: `agent_login` runs on its own thread (a PTY that lives for
+    // minutes must not block this worker) — the set is what makes a
+    // REDELIVERED command id a no-op instead of a second sign-in. An
+    // `agent_update` (minutes of download) claims the same set, and the
+    // loop's self-update restart holds while it is non-empty.
+    logins_inflight: Arc<Mutex<HashSet<String>>>,
 ) -> flume::Sender<DeviceWork> {
     let (tx, rx) = flume::unbounded::<DeviceWork>();
     std::thread::spawn(move || {
@@ -1946,11 +1977,6 @@ fn spawn_device_worker(
         // thread, which invalidates it when a token lands.
         let mcp_state: Arc<Mutex<coding::McpReadinessState>> =
             Arc::new(Mutex::new(coding::McpReadinessState::new()));
-        // EXP-484: `agent_login` runs on its own thread (a PTY that lives
-        // for minutes must not block this worker) — the set is what makes a
-        // REDELIVERED command id a no-op instead of a second sign-in. An
-        // `agent_update` (minutes of download) claims the same set.
-        let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
         // EXP-765: where a live login's requester drops the authorization
         // code claude's browser page showed (one slot per agent).
         let login_codes: crate::agent_login_host::CodeInbox =

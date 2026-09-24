@@ -1,2 +1,3 @@
-- Automations sceglie un account, non solo un agente: prendi l'accesso sulla macchina collegata, con il suo marchio e la sua e-mail
-- Gli elenchi di issue annidati disegnano linee ad albero più strette, con una verticale ininterrotta dove si diramano le sotto-issue
+- Finestra di contesto: il foglio dei consumi mostra una barra a segmenti di ciò che riempie il contesto di un'esecuzione, con una legenda per ogni segmento
+- Stime: con una scala attiva nelle impostazioni del team, le issue ricevono una stima tra le loro proprietà, e l'attività mostra i cambi di stima
+- Membri: una persona invitata compare subito nel team con il suo nome, e le impostazioni «Members» mostrano chi non si è ancora unito

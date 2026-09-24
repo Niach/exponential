@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-24-release-train`,
+    date: `2026-09-24`,
+    title: `Release train 2026-09-24`,
+    summary: `The usage popover shows what fills a run's context, owners add a team prompt to every run, machines update their agent CLIs remotely, and fixes for invited members and the Linear import.`,
+    body: `- **Context window**: the usage popover shows a segmented bar of what fills a run's context, with a legend per segment (base, tools, playbook, team prompt, project instructions, task) on every client, and the account switch says why a switch is refused right where the control is.
+- **Team prompt**: owners write a prompt in Settings, General that every run on every member's machine carries in its system prompt, on the web and in the desktop app.
+- **Machines**: the machine settings update the Claude and Codex CLIs remotely and show each login's version, on the web and in the desktop app.
+- **Sidebar**: one look for the sidebar sections on the web and the desktop app, with the What's new card floating above the footer.
+- **Workflows**: the node strip reuses the work face toggle, and the MCP workflows update takes the runner machine so an agent can bind it.
+- **Invited members**: an invite can no longer seat another team's invited member or move their address, an existing member who opens a colleague's invite link is not merged into it, invited members count once against the seats, signing in with Google, Apple or an identity provider claims the invite, and the invite page welcomes the person instead of calling the link used.
+- **Linear import**: cancelling holds against a finishing discovery, attachments stream with a size cap and a timeout, bundle attachments are checked against private addresses, duplicates keep their target, and finished imports drop their snapshot after a week.`,
+  },
+  {
     id: `2026-09-23-linear-import`,
     date: `2026-09-23`,
     title: `Import from Linear`,

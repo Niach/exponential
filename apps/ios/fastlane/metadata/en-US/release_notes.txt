@@ -1,2 +1,3 @@
-- Automations pick an account, not just an agent: choose the login on the bound machine, shown with its brand mark and email
-- Nested issue lists draw tighter tree lines, with one unbroken vertical where sub-issues branch off
+- Context window: the usage sheet shows a segmented bar of what fills a run's context, with a legend per segment
+- Estimates: with a scale switched on in the team settings, issues take an estimate from their properties, and the activity shows estimate changes
+- Members: an invited person appears on the team at once with their name, and the Members settings show who has not joined yet

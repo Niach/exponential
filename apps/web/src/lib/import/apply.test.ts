@@ -188,6 +188,19 @@ describe(`applyBundle`, () => {
     expect(result.warnings.join(`\n`)).toMatch(/Estimates switched on for this team with the tshirt scale/)
   })
 
+  it(`closes a batch early once its downloaded assets pass the byte cap`, async () => {
+    const wide = new MemoryPorts()
+    await applyBundle(bundleFixture(), plan(), wide, { ...options, batchSize: 25 })
+    expect(wide.batches.map((batch) => batch.map((write) => write.issue.number))).toEqual([[5, 10, 11]])
+    // MAIN-10 carries the fixture's one asset (3 fetched bytes): with a
+    // 2-byte cap the batch flushes right after it, and MAIN-11 starts a new
+    // one — the same batch size would otherwise take all three.
+    const capped = new MemoryPorts()
+    await applyBundle(bundleFixture(), plan(), capped, { ...options, batchSize: 25, assetFlushBytes: 2 })
+    expect(capped.batches.map((batch) => batch.map((write) => write.issue.number))).toEqual([[5, 10], [11]])
+    expect(capped.progress.filter((p) => p.phase === `issues`).map((p) => p.done)).toEqual([0, 2, 3])
+  })
+
   it(`writes issues ascending by number in batches and links in a second pass`, async () => {
     const ports = new MemoryPorts()
     await applyBundle(bundleFixture(), plan(), ports, options)

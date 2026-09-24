@@ -1,2 +1,3 @@
-- Automations elige una cuenta, no solo un agente: escoge el inicio de sesión en la máquina vinculada, con su marca y su correo
-- Las listas de issues anidadas dibujan líneas de árbol más ajustadas, con una vertical continua allí donde se ramifican las subissues
+- Ventana de contexto: el panel de uso muestra una barra por segmentos de lo que llena el contexto de una ejecución, con una leyenda por segmento
+- Estimaciones: con una escala activada en los ajustes del equipo, las issues reciben una estimación entre sus propiedades, y la actividad muestra los cambios de estimación
+- Miembros: una persona invitada aparece en el equipo al instante con su nombre, y los ajustes de «Members» muestran quién no se ha unido todavía

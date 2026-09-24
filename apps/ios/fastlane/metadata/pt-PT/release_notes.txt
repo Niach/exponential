@@ -1,2 +1,3 @@
-- O Automations escolhe uma conta, não apenas um agente: seleciona o início de sessão na máquina associada, com a sua marca e o seu e-mail
-- As listas de issues aninhadas desenham linhas de árvore mais justas, com uma vertical ininterrupta onde as subissues se ramificam
+- Janela de contexto: o painel de uso mostra uma barra por segmentos do que enche o contexto de uma execução, com uma legenda em cada segmento
+- Estimativas: com uma escala ligada nas definições da equipa, os issues recebem uma estimativa nas suas propriedades, e a atividade mostra as mudanças de estimativa
+- Membros: uma pessoa convidada aparece na equipa de imediato com o seu nome, e as definições «Members» mostram quem ainda não entrou

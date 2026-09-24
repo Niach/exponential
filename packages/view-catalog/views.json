@@ -1950,6 +1950,53 @@
       }
     },
     {
+      "id": "settings-issues",
+      "group": "settings",
+      "title": "Settings · Issues",
+      "blurb": "The team's estimate scale and the pull request automation targets; Labels and Statuses are its sub-pages (EXP-630).",
+      "order": 21,
+      "web": {
+        "route": "/t/$teamSlug/settings/issues",
+        "anchor": {
+          "text": "Estimates",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "issues"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-import",
+      "group": "settings",
+      "title": "Settings · Import",
+      "blurb": "Owner-only wizard that brings a Linear workspace into the team: connect, preview, map, dry-run, import (EXP-630).",
+      "order": 22,
+      "web": {
+        "route": "/t/$teamSlug/settings/import",
+        "anchor": {
+          "text": "Import",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "Web-only: the desktop app has no Import section; the wizard runs in the browser.",
+        "ios": "Folded into the one native Team settings screen: see settings-team.",
+        "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
       "id": "files",
       "group": "ide",
       "title": "Files",

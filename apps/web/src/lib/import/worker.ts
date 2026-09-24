@@ -12,7 +12,15 @@
 // aborts instead of writing over the new owner. Resumption is the entity
 // map's job (apply.ts skips what is already mapped), so a reclaimed job never
 // duplicates rows. Credentials are wiped by the same UPDATE that reaches a
-// terminal state and, belt-and-braces, on any job older than 24 h.
+// terminal state and, belt-and-braces, on any job older than 24 h. The
+// stored snapshot (`payload`: the whole source incl. member emails) is
+// purged once a finished job ages out — 7 days for completed/cancelled, 30
+// for `failed` (resumable until then).
+//
+// The fence (`claimFence`) is `status IN (previewing, running) AND
+// claim_token = <mine>`: `cancel` writes `cancelled` + a NULL token, so a
+// worker that finishes discovery or fails AFTER a cancel matches zero rows
+// instead of writing `draft`/`failed` over it.
 import { randomUUID } from "crypto"
 import { and, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -34,6 +42,8 @@ import { loadImportTeamState } from "@/lib/import/team-state"
 
 export const IMPORT_CREDENTIAL_TTL_MS = 24 * 60 * 60 * 1000
 export const IMPORT_STALE_CLAIM_MS = 5 * 60 * 1000
+export const IMPORT_PAYLOAD_TTL_MS = 7 * 24 * 60 * 60 * 1000
+export const IMPORT_FAILED_PAYLOAD_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const HEARTBEAT_MS = 30 * 1000
 const INITIAL_DELAY_MS = 15 * 1000
 const SWEEP_INTERVAL_MS = 5 * 1000
@@ -55,6 +65,49 @@ async function wipeCredentials(now: Date): Promise<number> {
     )
     .returning({ id: importJobs.id })
   return rows.length
+}
+
+// Which finished jobs lose their snapshot on this pass: completed/cancelled
+// after IMPORT_PAYLOAD_TTL_MS, failed after IMPORT_FAILED_PAYLOAD_TTL_MS
+// (a resume needs the payload; past that the wizard says "expired"). Keyed
+// on `finished_at`, which every terminal write stamps (`updated_at` covers
+// a row that somehow lacks it). Idempotent: only rows still holding one.
+export function payloadPurgeCondition(now: Date) {
+  const settledAt = sql`coalesce(${importJobs.finishedAt}, ${importJobs.updatedAt})`
+  return and(
+    isNotNull(importJobs.payload),
+    or(
+      and(
+        inArray(importJobs.status, [`completed`, `cancelled`]),
+        sql`${settledAt} < ${new Date(now.getTime() - IMPORT_PAYLOAD_TTL_MS)}`
+      ),
+      and(
+        eq(importJobs.status, `failed`),
+        sql`${settledAt} < ${new Date(now.getTime() - IMPORT_FAILED_PAYLOAD_TTL_MS)}`
+      )
+    )
+  )
+}
+
+async function purgePayloads(now: Date): Promise<number> {
+  const rows = await db
+    .update(importJobs)
+    .set({ payload: null })
+    .where(payloadPurgeCondition(now))
+    .returning({ id: importJobs.id })
+  return rows.length
+}
+
+// Every worker write while it holds a job goes through this: the job must
+// still be LIVE (a cancel flips it to `cancelled` and nulls the token) and
+// the token must still be this worker's (a reclaim after a stale heartbeat
+// rotates it). Mirrors apply-db.ts fencedUpdate.
+export function claimFence(job: Pick<JobRow, `id` | `claimToken`>) {
+  return and(
+    eq(importJobs.id, job.id),
+    inArray(importJobs.status, [`previewing`, `running`]),
+    eq(importJobs.claimToken, job.claimToken!)
+  )
 }
 
 // The atomic claim. `ready` flips to `running`; `previewing` stays (it is the
@@ -112,7 +165,7 @@ async function fencedUpdate(
   const rows = await db
     .update(importJobs)
     .set(set)
-    .where(and(eq(importJobs.id, job.id), eq(importJobs.claimToken, job.claimToken!)))
+    .where(claimFence(job))
     .returning({ id: importJobs.id })
   return rows.length > 0
 }
@@ -134,8 +187,15 @@ function errorMessage(err: unknown): string {
 }
 
 // Discovery: credential → payload + preview + a default plan, then `draft`.
+// The heartbeat timer matters here as much as in runApply: `onProgress`
+// only fires per page, and the Linear client may sleep up to 15 min on a
+// rate-limit reset — longer than the 5 min stale window, after which another
+// replica would reclaim a job that is merely waiting.
 async function runDiscovery(job: JobRow): Promise<void> {
   const source = getImportSource(job.source)
+  const heartbeat = setInterval(() => {
+    void fencedUpdate(job, { claimedAt: new Date() })
+  }, HEARTBEAT_MS)
   try {
     const progress = async (done: number, total: number) => {
       const alive = await fencedUpdate(job, {
@@ -169,6 +229,8 @@ async function runDiscovery(job: JobRow): Promise<void> {
     if (err instanceof ImportAborted) return
     console.error(`[import-worker] discovery failed for ${job.id}:`, err)
     await failJob(job, errorMessage(err))
+  } finally {
+    clearInterval(heartbeat)
   }
 }
 
@@ -215,12 +277,10 @@ async function runApply(job: JobRow): Promise<void> {
       finishedAt: new Date(),
     })
   } catch (err) {
-    if (err instanceof ImportAborted) {
-      if (err.reason === `cancelled`) {
-        await fencedUpdate(job, { credential: null, claimToken: null, finishedAt: new Date() })
-      }
-      return
-    }
+    // A cancel already wrote `cancelled` + NULL credential/token + finishedAt
+    // in its own UPDATE, and a lost claim belongs to the new owner: nothing
+    // to write on either path.
+    if (err instanceof ImportAborted) return
     console.error(`[import-worker] job ${job.id} failed:`, err)
     await failJob(job, errorMessage(err))
   } finally {
@@ -228,12 +288,14 @@ async function runApply(job: JobRow): Promise<void> {
   }
 }
 
-// One sweep pass: wipe credentials, then run every claimable job in turn
-// (one at a time per process — imports are I/O-bound and few).
+// One sweep pass: wipe credentials and aged-out payloads, then run every
+// claimable job in turn (one at a time per process — imports are I/O-bound
+// and few).
 export async function runImportSweep(
   now: Date = new Date()
-): Promise<{ processed: number; credentialsWiped: number }> {
+): Promise<{ processed: number; credentialsWiped: number; payloadsPurged: number }> {
   const credentialsWiped = await wipeCredentials(now)
+  const payloadsPurged = await purgePayloads(now)
   let processed = 0
   while (true) {
     const job = await claimJob(new Date())
@@ -242,7 +304,7 @@ export async function runImportSweep(
     if (job.status === `previewing`) await runDiscovery(job)
     else await runApply(job)
   }
-  return { processed, credentialsWiped }
+  return { processed, credentialsWiped, payloadsPurged }
 }
 
 let started = false
@@ -257,7 +319,7 @@ async function sweep(): Promise<void> {
     reportSchedulerRun(`import-worker`, {
       ok: true,
       durationMs: performance.now() - startMs,
-      detail: `${result.processed} job(s), ${result.credentialsWiped} credential(s) wiped`,
+      detail: `${result.processed} job(s), ${result.credentialsWiped} credential(s) wiped, ${result.payloadsPurged} payload(s) purged`,
     })
   } catch (err) {
     reportSchedulerRun(`import-worker`, {

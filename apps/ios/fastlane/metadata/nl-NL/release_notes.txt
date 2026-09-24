@@ -1,2 +1,3 @@
-- Automations kiest een account, niet alleen een agent: neem de login op de gekoppelde machine, met zijn merkteken en e-mailadres
-- Geneste issuelijsten tekenen strakkere boomlijnen, met één ononderbroken verticaal waar subissues aftakken
+- Contextvenster: het verbruiksvenster toont een balk in segmenten van wat de context van een run vult, met een legenda per segment
+- Schattingen: staat er in de teaminstellingen een schaal aan, dan krijgen issues een schatting bij hun eigenschappen, en de activiteit toont wijzigingen in de schatting
+- Leden: een uitgenodigde persoon staat meteen met zijn naam in het team, en de "Members"-instellingen tonen wie zich nog niet heeft aangesloten

@@ -1,2 +1,3 @@
-- Az Automations fiókot választ, nem csak ügynököt: válaszd ki a bejelentkezést a társított gépen, a védjegyével és e-mail-címével együtt
-- A beágyazott issue-listák szorosabb faágvonalakat rajzolnak, elágazásnál egyetlen megszakítatlan függőlegessel
+- Kontextusablak: a használati panel szakaszokra osztott sávon mutatja, mi tölti ki egy futás kontextusát, minden szakaszhoz saját jelmagyarázattal
+- Becslések: ha a csapatbeállításokban be van kapcsolva egy skála, az issue-k a tulajdonságaik között kapnak becslést, a tevékenység pedig mutatja a becslés változásait
+- Tagok: a meghívott személy azonnal megjelenik a csapatban a nevével, a „Members” beállítások pedig mutatják, ki nem lépett még be

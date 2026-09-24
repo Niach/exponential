@@ -1,2 +1,3 @@
-- Automations wybierają konto, a nie tylko agenta: wskaż logowanie na powiązanej maszynie, pokazane ze znakiem marki i adresem e-mail
-- Zagnieżdżone listy issue rysują ciaśniejsze linie drzewa, z jedną nieprzerwaną pionową kreską tam, gdzie odgałęziają się podissue
+- Okno kontekstu: panel zużycia pokazuje podzielony pasek tego, co wypełnia kontekst przebiegu, z legendą przy każdej części
+- Szacunki: gdy w ustawieniach zespołu włączysz skalę, issues dostają szacunek wśród swoich właściwości, a aktywność pokazuje zmiany szacunku
+- Członkowie: zaproszona osoba pojawia się w zespole od razu, ze swoim imieniem, a ustawienia „Members” pokazują, kto jeszcze nie dołączył

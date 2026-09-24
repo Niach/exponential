@@ -554,6 +554,92 @@ async fn a_loaded_thread_resumes_and_its_next_turn_runs() {
     assert!(recorded.texts().iter().any(|text| text == "The tests pass."));
 }
 
+/// EXP-1051: a RESUMED thread's first `thread/tokenUsage/updated` carries the
+/// whole replayed transcript as `inputTokens` — no prefix to measure. The bar
+/// draws the base the predecessor recorded (`carried_base`, still `measured`:
+/// it was, one run earlier), never the transcript minus the estimates.
+#[tokio::test]
+async fn a_resumed_thread_carries_its_base_instead_of_measuring() {
+    let _session = one_session_at_a_time();
+    // The fixture's usage frame reports totals only; give it the input halves
+    // a real resume reports — the replayed conversation.
+    let turn: Vec<Value> = frames("turn.jsonl")
+        .into_iter()
+        .map(|mut frame| {
+            if frame["method"] == "thread/tokenUsage/updated" {
+                frame["params"]["tokenUsage"]["last"] =
+                    json!({ "inputTokens": 34_000, "cachedInputTokens": 30_000, "outputTokens": 90 });
+            }
+            frame
+        })
+        .collect();
+    let (fake, connection) = FakeServer::new(vec![turn], Vec::new(), Vec::new());
+    let mut spec = spec();
+    spec.context_layers = coding::ContextLayers {
+        playbook_bytes: 4_000,
+        carried_base: Some(coding::CarriedBase {
+            tokens: 21_000,
+            model: "gpt-5.4-codex".to_string(),
+        }),
+        ..Default::default()
+    };
+    let agent = CodexAgent::with_connection(spec, connection);
+    let metas: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let sink = Arc::clone(&metas);
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                if let Some(frame) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(engine::CONTEXT_LAYOUT_META_KEY))
+                {
+                    sink.lock().expect("metas").push(frame.clone());
+                }
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            cx.send_request(LoadSessionRequest::new(
+                SessionId::new("thread_1"),
+                PathBuf::from("/work/tree"),
+            ))
+            .block_task()
+            .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    SessionId::new("thread_1"),
+                    vec![text("run the tests")],
+                ))
+                .block_task()
+                .await?;
+            assert_eq!(response.stop_reason, StopReason::EndTurn);
+            Ok(())
+        })
+        .await
+        .expect("the resumed session runs");
+
+    assert!(fake.saw("thread/resume"));
+    let frames = metas.lock().expect("metas").clone();
+    assert_eq!(frames.len(), 1, "one context_layout frame per thread");
+    let base = &frames[0]["segments"][0];
+    assert_eq!(base["key"], "base");
+    assert_eq!(base["source"], "measured");
+    // The carried 21k, never 34k − 1k off the replayed transcript.
+    assert_eq!(base["tokens"], 21_000);
+    assert_eq!(frames[0]["segments"][1]["key"], "playbook");
+    assert_eq!(frames[0]["segments"][1]["tokens"], 1_000);
+}
+
 #[tokio::test]
 async fn an_approval_becomes_a_permission_request_and_its_answer_reaches_codex() {
     let _session = one_session_at_a_time();

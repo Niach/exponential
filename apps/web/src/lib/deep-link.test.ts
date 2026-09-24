@@ -76,6 +76,16 @@ describe(`oauthErrorMessage`, () => {
     expect(oauthErrorMessage(`please_restart_the_process`)).toBe(expired)
   })
 
+  it(`explains a refused account link (EXP-630 placeholder claim via OAuth)`, () => {
+    // Better Auth's link-account returns "account not linked"; the callback
+    // slugs it before it reaches ?error=.
+    const message = oauthErrorMessage(`account not linked`)
+    expect(oauthErrorMessage(`account_not_linked`)).toBe(message)
+    expect(message).toMatch(/already exists/i)
+    expect(message).toMatch(/sign-in code/i)
+    expect(message).not.toBe(oauthErrorMessage(OAUTH_ERROR_FALLBACK))
+  })
+
   it(`falls back for unknown and legacy reasons`, () => {
     const fallback = oauthErrorMessage(OAUTH_ERROR_FALLBACK)
     expect(oauthErrorMessage(`mobile_oauth_failed`)).toBe(fallback)

@@ -332,6 +332,7 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
 // any member through `getAgentPrompt` (it is not on the teams shape).
 describe(`teams.update / getAgentPrompt — the team prompt (EXP-1025)`, () => {
   it(`writes the prompt with its own timestamp, trailing whitespace dropped`, async () => {
+    selectQueue.push([{ agentPrompt: `` }])
     updateReturningQueue.push([{ id: WS, name: `Ship It` }])
     await caller().update({ teamId: WS, agentPrompt: `# Rules\n\nBe terse.\n\n` })
     expect(updates).toHaveLength(1)
@@ -348,11 +349,28 @@ describe(`teams.update / getAgentPrompt — the team prompt (EXP-1025)`, () => {
     expect(updates[0]!.values).not.toHaveProperty(`agentPromptUpdatedAt`)
   })
 
-  it(`accepts an empty string (no team prompt) and re-stamps the clock`, async () => {
+  it(`accepts an empty string (no team prompt) and re-stamps the clock when it clears one`, async () => {
+    selectQueue.push([{ agentPrompt: `Be terse.` }])
     updateReturningQueue.push([{ id: WS }])
     await caller().update({ teamId: WS, agentPrompt: `` })
     expect(updates[0]!.values.agentPrompt).toBe(``)
     expect(updates[0]!.values.agentPromptUpdatedAt).toBeInstanceOf(Date)
+  })
+
+  it(`leaves the stamp alone when the normalized prompt equals the stored one`, async () => {
+    // A blur that re-saves the same bytes (trailing whitespace aside) must
+    // not move the "edited …" caption — the column tracks CHANGES.
+    selectQueue.push([{ agentPrompt: `Be terse.` }])
+    updateReturningQueue.push([{ id: WS }])
+    await caller().update({ teamId: WS, agentPrompt: `Be terse.\n` })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).not.toHaveProperty(`agentPrompt`)
+    expect(updates[0]!.values).not.toHaveProperty(`agentPromptUpdatedAt`)
+    // Empty over empty is unchanged too.
+    selectQueue.push([{ agentPrompt: `` }])
+    updateReturningQueue.push([{ id: WS }])
+    await caller().update({ teamId: WS, agentPrompt: `` })
+    expect(updates[1]!.values).not.toHaveProperty(`agentPromptUpdatedAt`)
   })
 
   it(`refuses a prompt over the contract's byte cap (bytes, not chars)`, async () => {
@@ -364,6 +382,7 @@ describe(`teams.update / getAgentPrompt — the team prompt (EXP-1025)`, () => {
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
     expect(updates).toHaveLength(0)
     // Exactly at the cap passes.
+    selectQueue.push([{ agentPrompt: `` }])
     updateReturningQueue.push([{ id: WS }])
     await caller().update({ teamId: WS, agentPrompt: `€`.repeat(4096) })
     expect(updates).toHaveLength(1)

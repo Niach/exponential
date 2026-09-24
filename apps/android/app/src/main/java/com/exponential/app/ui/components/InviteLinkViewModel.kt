@@ -11,6 +11,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.WebLinks
+import com.exponential.app.domain.pendingInvites
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.FlowPreview
@@ -84,7 +85,7 @@ class InviteLinkViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 dbFlow.scopedQuery(0) { db -> db.teamMemberDao().observeByTeam(teamId).map { it.size } },
-                dbFlow.scopedQuery(0) { db -> db.teamInviteDao().observeByTeam(teamId).map { it.size } },
+                dbFlow.scopedQuery(0) { db -> db.teamInviteDao().observeByTeam(teamId).map { pendingInvites(it).size } },
             ) { members, invites -> members to invites }
                 .distinctUntilChanged()
                 // The initial emission is what the bind fetch above already

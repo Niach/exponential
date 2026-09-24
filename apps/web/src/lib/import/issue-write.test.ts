@@ -185,7 +185,7 @@ describe(`planIssueWrite`, () => {
     ])
   })
 
-  it(`lands a duplicate with no canonical on the cancelled builtin, and keeps duplicate when it has one`, () => {
+  it(`lands every duplicate on the cancelled builtin (the links pass flips it), warning only without a canonical`, () => {
     const dup = bundleFixture().issues[1]!
     const orphan = planIssueWrite(dup, context(), ids(`i-2`), {
       availableAssetKeys: new Set(),
@@ -198,7 +198,10 @@ describe(`planIssueWrite`, () => {
       availableAssetKeys: new Set(),
       canonicalAvailable: true,
     })
-    expect(linked.issue).toMatchObject({ status: `duplicate`, statusId: `s-duplicate` })
+    // REV2-27: never `status=duplicate` with a NULL duplicate_of_id, even
+    // transiently — the row waits on the cancelled builtin for the pair.
+    expect(linked.issue).toMatchObject({ status: `cancelled`, statusId: `s-cancelled` })
+    expect(linked.issue.completedAt?.toISOString()).toBe(`2025-01-06T00:00:00.000Z`)
     expect(linked.warnings).toEqual([])
   })
 

@@ -15,7 +15,7 @@ export const TEAM_PROMPT_MAX_BYTES = contract.team.agentPromptMaxBytes
  *  prompt never turns into a second CLAUDE.md. */
 export const TEAM_PROMPT_TITLE = `Team prompt`
 export const TEAM_PROMPT_PLACEHOLDER = `Rules every coding run of this team should follow, as markdown. Repo facts belong in CLAUDE.md; this is for team process, conventions and who to ask.`
-export const TEAM_PROMPT_HELP = `Appended to the agent's system prompt after the run playbook, on every start and resume. Applies to runs started or resumed from now on.`
+export const TEAM_PROMPT_HELP = `Appended to the agent's system prompt after the run playbook, on every start and resume. It reaches every run on every member's machine, with the agent's full permissions. Applies to runs started or resumed from now on.`
 
 /** `12.3k` / `840` — the counter's short form. */
 export function formatByteCount(bytes: number): string {

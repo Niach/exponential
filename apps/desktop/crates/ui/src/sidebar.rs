@@ -320,6 +320,7 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
     match spec {
         "general" => Some(S::General),
         "members" => Some(S::Members),
+        "issues" => Some(S::Issues),
         "labels" => Some(S::Labels),
         "statuses" => Some(S::Statuses),
         "storage" => Some(S::Storage),

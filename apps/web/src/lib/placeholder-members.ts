@@ -91,7 +91,13 @@ export async function createPlaceholderMember(
     id: userId,
     name: input.identity.name,
     email: input.identity.email,
-    emailVerified: false,
+    // Verified on purpose: Better Auth's implicit account linking
+    // (oauth2/link-account, `requireLocalEmailVerified` defaults to true)
+    // refuses to attach a Google/Apple/OIDC login to an UNVERIFIED local
+    // row — claim path (a) would always end in `account_not_linked`. The
+    // row has no credential, so the flag unlocks nothing by itself; the
+    // invite email already went to this address.
+    emailVerified: true,
     placeholderAt: now,
     createdAt: now,
     updatedAt: now,
@@ -108,7 +114,10 @@ export async function createPlaceholderMember(
  * Path (a): the placeholder row became a real account. Clears the flag and
  * marks every pending invite bound to it accepted, so member lists stop
  * badging the row even when the person never opened the invite page (they
- * signed in through the mailbox instead). Idempotent.
+ * signed in through the mailbox instead). The row already sits on a roster,
+ * so the claim is onboarding evidence too (lib/auth/onboarding.ts): stamp
+ * `onboardingCompletedAt` (where null) so the first-run create-or-join
+ * wizard never shows. Idempotent.
  */
 export async function claimPlaceholder(
   tx: DbOrTx,
@@ -117,7 +126,11 @@ export async function claimPlaceholder(
 ): Promise<void> {
   const claimed = await tx
     .update(users)
-    .set({ placeholderAt: null, updatedAt: now })
+    .set({
+      placeholderAt: null,
+      onboardingCompletedAt: sql`coalesce(${users.onboardingCompletedAt}, ${now})`,
+      updatedAt: now,
+    })
     .where(and(eq(users.id, userId), isNotNull(users.placeholderAt)))
     .returning({ id: users.id })
   if (claimed.length === 0) return
@@ -146,6 +159,11 @@ export async function claimPlaceholder(
  * Finally the placeholder row is dropped when nothing references it any more
  * (another team's attributions keep it alive — comments cascade with their
  * author, so a referenced row must stay).
+ *
+ * `merged: false` = the row is NOT (or no longer) an unclaimed placeholder —
+ * the flag is re-read inside the transaction, so a claim that raced this
+ * accept never gets a real account's attributions rewritten. The caller
+ * falls through to an ordinary join then.
  */
 export async function mergePlaceholderIntoUser(
   tx: DbOrTx,
@@ -158,19 +176,22 @@ export async function mergePlaceholderIntoUser(
     // gone (removed meanwhile) and the accepter has none yet.
     role: `owner` | `member`
   }
-): Promise<{ deletedPlaceholder: boolean }> {
+): Promise<{ merged: boolean; deletedPlaceholder: boolean }> {
   const { placeholderId, userId, teamId } = input
-  if (placeholderId === userId) return { deletedPlaceholder: false }
+  if (placeholderId === userId) return { merged: false, deletedPlaceholder: false }
+
+  const [placeholder] = await tx
+    .select({ email: users.email, placeholderAt: users.placeholderAt })
+    .from(users)
+    .where(eq(users.id, placeholderId))
+    .limit(1)
+  if (!placeholder?.placeholderAt) {
+    return { merged: false, deletedPlaceholder: false }
+  }
 
   await tx.execute(
     sql`SELECT set_config('exponential.preserve_timestamps', 'on', true)`
   )
-
-  const [placeholder] = await tx
-    .select({ email: users.email })
-    .from(users)
-    .where(eq(users.id, placeholderId))
-    .limit(1)
 
   await tx
     .update(issues)
@@ -271,7 +292,7 @@ export async function mergePlaceholderIntoUser(
     }
   }
 
-  if (placeholder && normalizeInviteEmail(placeholder.email) !== normalizeInviteEmail(input.userEmail)) {
+  if (normalizeInviteEmail(placeholder.email) !== normalizeInviteEmail(input.userEmail)) {
     await rewriteMentions(tx, {
       teamId,
       from: normalizeInviteEmail(placeholder.email),
@@ -280,7 +301,7 @@ export async function mergePlaceholderIntoUser(
   }
 
   const deletedPlaceholder = await deletePlaceholderIfOrphaned(tx, placeholderId)
-  return { deletedPlaceholder }
+  return { merged: true, deletedPlaceholder }
 }
 
 /**

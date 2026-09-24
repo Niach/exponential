@@ -1,2 +1,3 @@
-- Automations biraju račun, ne samo agenta: odaberi prijavu na povezanom računalu, prikazanu sa znakom marke i e-poštom
-- Ugniježđeni popisi issuea crtaju uže linije stabla, s jednom neprekinutom okomicom ondje gdje se granaju pod-issuei
+- Kontekstni prozor: prikaz potrošnje pokazuje traku podijeljenu na dijelove onoga što puni kontekst izvođenja, s legendom uz svaki dio
+- Procjene: kad je u postavkama tima uključena ljestvica, issuei dobivaju procjenu među svojim svojstvima, a aktivnost pokazuje promjene procjene
+- Članovi: pozvana osoba odmah stoji u timu sa svojim imenom, a postavke „Members“ pokazuju tko se još nije pridružio

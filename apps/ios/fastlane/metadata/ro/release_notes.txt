@@ -1,2 +1,3 @@
-- Automations aleg un cont, nu doar un agent: alege autentificarea de pe mașina asociată, afișată cu marca și adresa ei de e-mail
-- Listele de issue imbricate desenează linii de arbore mai strânse, cu o verticală neîntreruptă acolo unde se ramifică sub-issue-urile
+- Fereastra de context: panoul de consum arată o bară împărțită pe segmente cu ce umple contextul unei rulări, cu o legendă pentru fiecare segment
+- Estimări: cu o scală activată în setările echipei, issue-urile primesc o estimare între proprietățile lor, iar activitatea arată schimbările de estimare
+- Membri: o persoană invitată apare imediat în echipă cu numele ei, iar setările „Members” arată cine nu s-a alăturat încă

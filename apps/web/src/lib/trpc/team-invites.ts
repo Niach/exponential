@@ -7,12 +7,13 @@ import {
   teams,
   users,
 } from "@/db/schema"
-import { and, count, eq, gt, isNull, sql } from "drizzle-orm"
+import { and, count, eq, gt, isNull, ne, sql } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
 import { db } from "@/db/connection"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
+import { buildAuthConfig } from "@/lib/auth/config"
 import {
   claimPlaceholder,
   createPlaceholderMember,
@@ -76,24 +77,44 @@ export const inviteListSelection = {
   updatedAt: teamInvites.updatedAt,
 } as const
 
-// A re-invite supersedes the placeholder's earlier links: they stop working
-// now, the rows stay (an unaccepted row bound to a placeholder is what member
-// lists read "invited, not joined" from).
-async function expirePendingInvitesFor(
-  tx: Pick<typeof db, `update`>,
-  placeholderUserId: string,
-  now: Date
+// A re-invite supersedes the placeholder's earlier links in THIS team: the
+// unaccepted rows go (the fresh row inserted in the same transaction is the
+// one member lists read "invited, not joined" from), so exactly one live
+// invite row exists per placeholder. Expiring them instead left every
+// superseded link in older clients' pending lists (desktop ≤0.14.49 filters
+// on accepted_at only). Revoke keeps its expire-in-place semantics.
+async function deleteSupersededInvitesFor(
+  tx: Pick<typeof db, `delete`>,
+  teamId: string,
+  placeholderUserId: string
 ) {
   await tx
-    .update(teamInvites)
-    .set({ expiresAt: now })
+    .delete(teamInvites)
     .where(
       and(
+        eq(teamInvites.teamId, teamId),
         eq(teamInvites.placeholderUserId, placeholderUserId),
-        isNull(teamInvites.acceptedAt),
-        gt(teamInvites.expiresAt, now)
+        isNull(teamInvites.acceptedAt)
       )
     )
+}
+
+// Whether an invited person could ever sign in AS the placeholder row: a
+// mail transport (the sign-in code and the password reset land on the
+// mailbox) or a social/OIDC provider (the login links onto the row by
+// address). A password-only instance without mail has neither, so there an
+// email invite stays the plain token invite — the person creates a password
+// account and accepts the link. Passkeys need a session first, so they never
+// count. Exported for the tests.
+export function placeholderClaimable(): boolean {
+  const config = buildAuthConfig()
+  return (
+    config.passwordResetEnabled ||
+    config.emailOtpEnabled ||
+    config.googleLoginEnabled ||
+    config.appleLoginEnabled ||
+    config.oidcProviders.length > 0
+  )
 }
 
 export const teamInvitesRouter = router({
@@ -163,6 +184,27 @@ export const teamInvitesRouter = router({
               })
             }
             if (email !== normalizeInviteEmail(target.email)) {
+              // `users.email` is global, and the claim is by address: an
+              // owner may only re-address a placeholder that belongs to THIS
+              // team alone. One seated elsewhere too would otherwise be
+              // hijacked — rewrite its address, sign in there, become a
+              // member of the other team.
+              const [foreign] = await tx
+                .select({ id: teamMembers.id })
+                .from(teamMembers)
+                .where(
+                  and(
+                    eq(teamMembers.userId, target.id),
+                    ne(teamMembers.teamId, input.teamId)
+                  )
+                )
+                .limit(1)
+              if (foreign) {
+                throw new TRPCError({
+                  code: `FORBIDDEN`,
+                  message: `That member is also on another team's roster; their address can only be corrected by re-inviting the new one.`,
+                })
+              }
               const [taken] = await tx
                 .select({ id: users.id })
                 .from(users)
@@ -187,7 +229,7 @@ export const teamInvitesRouter = router({
                 updatedAt: now,
               })
               .where(eq(users.id, target.id))
-            await expirePendingInvitesFor(tx, target.id, now)
+            await deleteSupersededInvitesFor(tx, input.teamId, target.id)
             placeholderUserId = target.id
           } else if (email) {
             const [existing] = await tx
@@ -215,23 +257,15 @@ export const teamInvitesRouter = router({
                 })
               }
               // An unclaimed placeholder already on the roster: a fresh link.
-              await expirePendingInvitesFor(tx, existing.id, now)
+              await deleteSupersededInvitesFor(tx, input.teamId, existing.id)
               placeholderUserId = existing.id
-            } else if (existing?.placeholderAt) {
-              // Another team's unclaimed placeholder — the same person; seat
-              // them here as well.
-              await assertCanInviteMember(input.teamId)
-              await tx.insert(teamMembers).values({
-                teamId: input.teamId,
-                userId: existing.id,
-                role: input.role,
-              })
-              placeholderUserId = existing.id
-              memberAdded = true
             } else if (existing) {
-              // A real account joins by accepting, as before.
+              // A real account — or another team's unclaimed placeholder,
+              // which is treated exactly the same: a typed address proves
+              // nothing, so it is never seated here; the person joins by
+              // accepting, and the invite stays unbound (no placeholder id).
               await assertCanInviteMember(input.teamId)
-            } else {
+            } else if (placeholderClaimable()) {
               await assertCanInviteMember(input.teamId)
               const created = await createPlaceholderMember(tx, {
                 teamId: input.teamId,
@@ -244,6 +278,10 @@ export const teamInvitesRouter = router({
               })
               placeholderUserId = created.userId
               memberAdded = true
+            } else {
+              // No way to ever sign in as the placeholder on this instance
+              // (password-only, no mail): the plain token invite instead.
+              await assertCanInviteMember(input.teamId)
             }
           } else {
             await assertCanInviteMember(input.teamId)
@@ -366,20 +404,6 @@ export const teamInvitesRouter = router({
           })
         }
 
-        if (invite.acceptedAt) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `Invite has already been used`,
-          })
-        }
-
-        if (invite.expiresAt < new Date()) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `Invite has expired`,
-          })
-        }
-
         // Check if already a member
         const [existing] = await tx
           .select()
@@ -400,25 +424,69 @@ export const teamInvitesRouter = router({
 
         // Accepting an invite is onboarding evidence (EXP-188): stamp the
         // flag so an invite-link signup skips the first-run wizard — also on
-        // the alreadyMember path below. The IS NULL predicate keeps an
+        // the alreadyMember paths below. The IS NULL predicate keeps an
         // existing timestamp untouched.
         const now = new Date()
-        await tx
-          .update(users)
-          .set({ onboardingCompletedAt: now, updatedAt: now })
-          .where(
-            and(
-              eq(users.id, ctx.session.user.id),
-              isNull(users.onboardingCompletedAt)
+        const stampOnboarding = async () => {
+          await tx
+            .update(users)
+            .set({ onboardingCompletedAt: now, updatedAt: now })
+            .where(
+              and(
+                eq(users.id, ctx.session.user.id),
+                isNull(users.onboardingCompletedAt)
+              )
             )
-          )
+        }
+
+        // EXP-630 happy path: the invitee signed in THROUGH the placeholder's
+        // mailbox (sign-in code, OAuth link, password reset), so the session
+        // hook already claimed the row and stamped the invite accepted before
+        // this page was reached. They ARE the member the invite seated —
+        // used/expired do not apply; report the membership. claimPlaceholder
+        // stays idempotent for the race where the hook has not run yet.
+        if (
+          invite.placeholderUserId &&
+          invite.placeholderUserId === ctx.session.user.id &&
+          existing
+        ) {
+          await stampOnboarding()
+          const txId = await generateTxId(tx)
+          await claimPlaceholder(tx, ctx.session.user.id, now)
+          if (!invite.acceptedAt) {
+            captured.joined = { teamId: invite.teamId, inviteId: invite.id }
+          }
+          return { team, alreadyMember: true, txId }
+        }
+
+        if (invite.acceptedAt) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Invite has already been used`,
+          })
+        }
+
+        if (invite.expiresAt < now) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `Invite has expired`,
+          })
+        }
+
+        await stampOnboarding()
+
+        // An existing member must not burn the single-use invite — and never
+        // absorbs a placeholder bound to it (a colleague opening the link
+        // would otherwise take over the invitee's attributions and seat).
+        if (existing) {
+          return { team, alreadyMember: true }
+        }
 
         // EXP-630: an invite bound to a placeholder member is CLAIMED, not
-        // joined — the roster row exists already. Signed in through its
-        // email (OAuth link / sign-in code / password reset) the placeholder
-        // simply becomes this account; from any other account the
-        // placeholder's attributions and seat move here. Either way the
-        // single-use claim below still applies.
+        // joined — the roster row exists already. From another account the
+        // placeholder's attributions and seat move here; the placeholder
+        // itself only lands here when its seat was removed meanwhile (then
+        // it joins afresh). Either way the single-use claim still applies.
         if (invite.placeholderUserId) {
           const claimed = await tx
             .update(teamInvites)
@@ -437,39 +505,45 @@ export const teamInvitesRouter = router({
             })
           }
           const txId = await generateTxId(tx)
+          let joinedFresh = false
           if (invite.placeholderUserId === ctx.session.user.id) {
             await claimPlaceholder(tx, ctx.session.user.id, now)
+            joinedFresh = true
           } else {
             // The seat: the placeholder's, handed over. Only when it was
             // removed meanwhile does the accepter take a NEW one.
-            if (!existing) {
-              const [seated] = await tx
-                .select({ id: teamMembers.id })
-                .from(teamMembers)
-                .where(
-                  and(
-                    eq(teamMembers.teamId, invite.teamId),
-                    eq(teamMembers.userId, invite.placeholderUserId)
-                  )
+            const [seated] = await tx
+              .select({ id: teamMembers.id })
+              .from(teamMembers)
+              .where(
+                and(
+                  eq(teamMembers.teamId, invite.teamId),
+                  eq(teamMembers.userId, invite.placeholderUserId)
                 )
-                .limit(1)
-              if (!seated) await assertCanInviteMember(invite.teamId)
-            }
-            await mergePlaceholderIntoUser(tx, {
+              )
+              .limit(1)
+            if (!seated) await assertCanInviteMember(invite.teamId)
+            const { merged } = await mergePlaceholderIntoUser(tx, {
               placeholderId: invite.placeholderUserId,
               userId: ctx.session.user.id,
               teamId: invite.teamId,
               userEmail: ctx.session.user.email,
               role: invite.role,
             })
+            // The flag was NULL inside the tx (a claim raced this accept):
+            // nothing to merge — an ordinary join instead.
+            if (!merged) joinedFresh = true
+          }
+          if (joinedFresh) {
+            await assertCanInviteMember(invite.teamId)
+            await tx.insert(teamMembers).values({
+              teamId: invite.teamId,
+              userId: ctx.session.user.id,
+              role: invite.role,
+            })
           }
           captured.joined = { teamId: invite.teamId, inviteId: invite.id }
           return { team, alreadyMember: false, txId }
-        }
-
-        // An existing member must not burn the single-use invite.
-        if (existing) {
-          return { team, alreadyMember: true }
         }
 
         // Mark invite as accepted (the acceptedAt IS NULL predicate guards

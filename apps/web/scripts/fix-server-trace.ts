@@ -53,3 +53,38 @@ for (const file of FILES) {
   copied += 1
 }
 console.log(`[fix-server-trace] copied ${copied} react-dom bun entries`)
+
+// Second repair, release train 2026-09-24: rollup (via nitro) can emit an SSR
+// chunk whose merged namespace references `attachRouterServerSsrUtils` while
+// the chunk only side-effect-imports "@tanstack/router-core/ssr/server" (see
+// src/lib/storage/bun-s3-cleanup.ts for the trigger). Every request of the
+// built server then dies with a ReferenceError, while the build itself is
+// green. Bind the import in place and say so; refuse to finish if a chunk
+// references the symbol and no import line is there to bind it.
+import { readdirSync, readFileSync, writeFileSync } from "node:fs"
+
+const chunksDir = join(webRoot, `.output/server/chunks/_`)
+const SYMBOL = `attachRouterServerSsrUtils`
+const SIDE_EFFECT_IMPORT = `import "@tanstack/router-core/ssr/server";`
+let repaired = 0
+if (existsSync(chunksDir)) {
+  for (const name of readdirSync(chunksDir)) {
+    if (!name.endsWith(`.mjs`)) continue
+    const file = join(chunksDir, name)
+    const text = readFileSync(file, `utf8`)
+    if (!text.includes(SYMBOL)) continue
+    const bound =
+      new RegExp(`import \\{[^}]*\\b${SYMBOL}\\b[^}]*\\} from "@tanstack/router-core/ssr/server"`).test(text) ||
+      new RegExp(`(function|const|let|var)\\s+${SYMBOL}\\b`).test(text)
+    if (bound) continue
+    if (!text.includes(SIDE_EFFECT_IMPORT)) {
+      console.error(`[fix-server-trace] ${name} references ${SYMBOL} without binding it and has no import line to repair`)
+      process.exit(1)
+    }
+    writeFileSync(file, text.replace(SIDE_EFFECT_IMPORT, `import { ${SYMBOL} } from "@tanstack/router-core/ssr/server";`))
+    repaired += 1
+    console.warn(`[fix-server-trace] bound ${SYMBOL} in ${name} (rollup left it unbound; a static edge from the server entry into @/lib/storage is the usual cause)`)
+  }
+}
+console.log(`[fix-server-trace] ssr-util repair: ${repaired} chunk(s)`)
+

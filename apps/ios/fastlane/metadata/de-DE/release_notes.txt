@@ -1,2 +1,3 @@
-- Automations wählen ein Konto, nicht nur einen Agenten: nimm das Login auf der verbundenen Maschine, angezeigt mit Markenzeichen und E-Mail-Adresse
-- Verschachtelte Issue-Listen zeichnen engere Baumlinien, mit einer durchgehenden Senkrechten dort, wo Unter-Issues abzweigen
+- Kontextfenster: die Verbrauchsübersicht zeigt einen unterteilten Balken dessen, was den Kontext eines Laufs füllt, mit einer Legende je Abschnitt
+- Schätzungen: ist in den Team-Einstellungen eine Skala eingeschaltet, bekommen Issues eine Schätzung in ihren Eigenschaften, und die Aktivität zeigt Änderungen der Schätzung
+- Mitglieder: eine eingeladene Person steht sofort mit ihrem Namen im Team, und die Einstellungen unter „Members“ zeigen, wer noch nicht beigetreten ist

@@ -42,7 +42,7 @@ import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
 import { startDeviceCodeSweepScheduler } from "@/lib/device-code-sweep"
 import { startDeviceCommandSweepScheduler } from "@/lib/device-command-sweep"
-import { startImportWorkerScheduler } from "@/lib/import/worker"
+import { kickImportWorker } from "@/lib/import/kick"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
@@ -118,7 +118,14 @@ startDeviceCommandSweepScheduler()
 // jobs atomically (one UPDATE with a fresh claim token), runs them in-process
 // and wipes stored credentials on terminal states and after 24 h. Multi-
 // replica safe by construction: a replica that lost its claim aborts.
-startImportWorkerScheduler()
+// Started through the kick latch (a dynamic import of the worker). The
+// worker reaches @/lib/storage (aws-sdk); ANY edge from this entry graph into
+// that subgraph makes rollup emit the SSR chunk with
+// `attachRouterServerSsrUtils` unbound (see bun-s3-cleanup.ts) and every
+// request of the built server 500s. `scripts/fix-server-trace.ts` binds it
+// after the build and fails the build when it cannot (release train
+// 2026-09-24).
+kickImportWorker()
 
 // REV2-6 warn-only boot check — see the header comment. Bun read
 // BUN_CONFIG_MAX_HTTP_REQUESTS before this code ran, so a bad value can only

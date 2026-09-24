@@ -7,6 +7,9 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   // EXP-630: the address may belong to a placeholder member an invite created
   // — a sign-in code or Google/Apple lands on that account directly.
   USER_ALREADY_EXISTS: `An account with this email already exists. Sign in instead — a sign-in code or Google/Apple works without a password.`,
+  // Better Auth 1.6 throws THIS code from sign-up (sign-up.mjs); the plain
+  // key above stays for older clients/plugins that still raise it.
+  USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: `An account with this email already exists. Sign in instead — a sign-in code or Google/Apple works without a password.`,
   PASSWORD_TOO_SHORT: `Password is too short. Use at least 8 characters.`,
   PASSWORD_TOO_LONG: `Password is too long.`,
   INVALID_EMAIL: `Enter a valid email address.`,

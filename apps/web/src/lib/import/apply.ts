@@ -18,6 +18,7 @@ import {
   type ImportPlan,
   type ImportProgress,
 } from "@/lib/import/bundle"
+import { IMPORT_BATCH_ASSET_FLUSH_BYTES } from "@/lib/import/limits"
 import { referencedKeys } from "@/lib/import/plan"
 import {
   planIssueWrite,
@@ -107,6 +108,8 @@ export interface ApplyOptions {
   teamId: string
   importerId: string
   batchSize?: number
+  // Downloaded asset bytes that close a batch early (IMPORT_BATCH_ASSET_FLUSH_BYTES).
+  assetFlushBytes?: number
   // Warnings carried over from discovery so the final progress keeps them.
   initialWarnings?: string[]
   // Back-off between asset fetch attempts (tests pass zeros).
@@ -153,6 +156,7 @@ export async function applyBundle(
   options: ApplyOptions
 ): Promise<ApplyResult> {
   const batchSize = Math.max(1, options.batchSize ?? 25)
+  const assetFlushBytes = Math.max(1, options.assetFlushBytes ?? IMPORT_BATCH_ASSET_FLUSH_BYTES)
   const fetchDelays = options.fetchRetryDelaysMs ?? DEFAULT_FETCH_RETRY_DELAYS_MS
   const counts = emptyImportCounts()
   const warnings = [...(options.initialWarnings ?? [])]
@@ -412,41 +416,14 @@ export async function applyBundle(
     state = await ports.loadTeamState()
   }
   await report(`issues`, done, total)
-  for (let index = 0; index < pending.length; index += batchSize) {
-    const slice = pending.slice(index, index + batchSize)
-    const writes: PlannedIssueWrite[] = []
-    const assets = new Map<string, FetchedAsset>()
-    for (const issue of slice) {
-      const ids = {
-        issueId: ports.newId(),
-        commentIds: new Map(issue.comments.map((comment) => [comment.key, ports.newId()])),
-        attachmentIds: new Map(issue.assets.map((asset) => [asset.key, ports.newId()])),
-      }
-      const available = new Set<string>()
-      for (const asset of issue.assets) {
-        const { asset: fetched, error } = await fetchAssetResilient(ports, asset.ref, fetchDelays)
-        if (error) {
-          warn(`${issue.externalRef}: ${asset.filename ?? asset.ref} could not be downloaded (${error}); the original link is kept.`)
-        }
-        if (!fetched) continue
-        const attachmentId = ids.attachmentIds.get(asset.key)!
-        assets.set(attachmentId, {
-          ...fetched,
-          filename: fetched.filename ?? asset.filename ?? null,
-          contentType: asset.contentType ?? fetched.contentType,
-        })
-        available.add(asset.key)
-      }
-      const planned = planIssueWrite(issue, ctx, ids, {
-        availableAssetKeys: available,
-        canonicalAvailable:
-          issue.duplicateOfKey !== null &&
-          issue.duplicateOfKey !== undefined &&
-          candidateKeys.has(issue.duplicateOfKey),
-      })
-      for (const warning of planned.warnings) warn(warning)
-      writes.push(planned)
-    }
+  // A batch closes at `batchSize` issues OR once the downloaded assets it
+  // holds in memory pass `assetFlushBytes`, whichever comes first — a run of
+  // 50 MB screen recordings must not pin a whole batch's worth of them.
+  let writes: PlannedIssueWrite[] = []
+  let assets = new Map<string, FetchedAsset>()
+  let assetBytes = 0
+  const flush = async () => {
+    if (writes.length === 0) return
     await ports.writeBatch({ writes, assets })
     for (const planned of writes) {
       counts.issues += 1
@@ -454,9 +431,46 @@ export async function applyBundle(
       counts.attachments += planned.attachments.length
       counts.events += planned.events.length
     }
-    done += slice.length
+    done += writes.length
+    writes = []
+    assets = new Map()
+    assetBytes = 0
     await report(`issues`, done, total)
   }
+  for (const issue of pending) {
+    const ids = {
+      issueId: ports.newId(),
+      commentIds: new Map(issue.comments.map((comment) => [comment.key, ports.newId()])),
+      attachmentIds: new Map(issue.assets.map((asset) => [asset.key, ports.newId()])),
+    }
+    const available = new Set<string>()
+    for (const asset of issue.assets) {
+      const { asset: fetched, error } = await fetchAssetResilient(ports, asset.ref, fetchDelays)
+      if (error) {
+        warn(`${issue.externalRef}: ${asset.filename ?? asset.ref} could not be downloaded (${error}); the original link is kept.`)
+      }
+      if (!fetched) continue
+      const attachmentId = ids.attachmentIds.get(asset.key)!
+      assets.set(attachmentId, {
+        ...fetched,
+        filename: fetched.filename ?? asset.filename ?? null,
+        contentType: asset.contentType ?? fetched.contentType,
+      })
+      assetBytes += fetched.bytes.byteLength
+      available.add(asset.key)
+    }
+    const planned = planIssueWrite(issue, ctx, ids, {
+      availableAssetKeys: available,
+      canonicalAvailable:
+        issue.duplicateOfKey !== null &&
+        issue.duplicateOfKey !== undefined &&
+        candidateKeys.has(issue.duplicateOfKey),
+    })
+    for (const warning of planned.warnings) warn(warning)
+    writes.push(planned)
+    if (writes.length >= batchSize || assetBytes >= assetFlushBytes) await flush()
+  }
+  await flush()
 
   // --- links --------------------------------------------------------------
   const issueIds = await ports.loadMapped(`issue`)
