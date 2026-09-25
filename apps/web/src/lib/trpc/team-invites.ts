@@ -7,7 +7,7 @@ import {
   teams,
   users,
 } from "@/db/schema"
-import { and, count, eq, gt, isNull, ne, sql } from "drizzle-orm"
+import { and, count, eq, gt, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import { randomBytes } from "crypto"
 import { TRPCError } from "@trpc/server"
 import { db } from "@/db/connection"
@@ -97,6 +97,33 @@ async function deleteSupersededInvitesFor(
         isNull(teamInvites.acceptedAt)
       )
     )
+}
+
+// EXP-1076: does this placeholder already hold a link that WAS issued and is
+// still alive? A resend of a live link re-sends what the owner already paid a
+// seat for, so it is never seat-gated; a first send (the import's roster rows,
+// `sent_at` NULL) and a send after the link lapsed both are. Must run BEFORE
+// deleteSupersededInvitesFor — that drops the very rows this reads.
+async function hasLiveSentInvite(
+  tx: Pick<typeof db, `select`>,
+  teamId: string,
+  placeholderUserId: string,
+  now: Date
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: teamInvites.id })
+    .from(teamInvites)
+    .where(
+      and(
+        eq(teamInvites.teamId, teamId),
+        eq(teamInvites.placeholderUserId, placeholderUserId),
+        isNull(teamInvites.acceptedAt),
+        isNotNull(teamInvites.sentAt),
+        gt(teamInvites.expiresAt, now)
+      )
+    )
+    .limit(1)
+  return Boolean(row)
 }
 
 // Whether an invited person could ever sign in AS the placeholder row: a
@@ -217,6 +244,11 @@ export const teamInvitesRouter = router({
                 })
               }
             }
+            // Seat gate: skipped only while a live SENT link exists (a plain
+            // resend). Read before the supersede delete below erases it.
+            if (!(await hasLiveSentInvite(tx, input.teamId, target.id, now))) {
+              await assertCanInviteMember(input.teamId)
+            }
             const identity = resolvePlaceholderIdentity({
               email,
               name: input.name,
@@ -257,6 +289,13 @@ export const teamInvitesRouter = router({
                 })
               }
               // An unclaimed placeholder already on the roster: a fresh link.
+              // The first send for an imported (never-invited) row takes a
+              // seat; re-sending a live link does not. Read before the delete.
+              if (
+                !(await hasLiveSentInvite(tx, input.teamId, existing.id, now))
+              ) {
+                await assertCanInviteMember(input.teamId)
+              }
               await deleteSupersededInvitesFor(tx, input.teamId, existing.id)
               placeholderUserId = existing.id
             } else if (existing) {
@@ -296,6 +335,10 @@ export const teamInvitesRouter = router({
               token,
               email,
               placeholderUserId,
+              // EXP-1076: `create` IS the act of issuing the link (the mail
+              // attempt below is best-effort; the owner holds the token
+              // either way). Only the import's roster rows stay unsent.
+              sentAt: now,
               expiresAt,
             })
             .returning()
@@ -639,6 +682,9 @@ export const teamInvitesRouter = router({
       // EXP-630: a placeholder's invite row is what member lists read
       // "invited, not joined" from — revoking kills the LINK (expires now)
       // and keeps the row; the member stays until removed from the roster.
+      // EXP-1076: an unsent row (`sent_at` NULL, already lapsed) takes the
+      // same path — expiring a dead link is a harmless no-op, and the roster
+      // row must survive either way.
       if (invite.placeholderUserId && !invite.acceptedAt) {
         await ctx.db
           .update(teamInvites)

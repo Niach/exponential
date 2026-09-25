@@ -367,8 +367,9 @@ impl LabelsPane {
         let label_id = label.id.clone();
         let team_id = label.team_id.clone();
 
-        // EXP-698: the shared glass ROW CARD — the list around it is gapped,
-        // so each label is its own object.
+        // EXP-1076: a settings entity list is the hairline LADDER —
+        // `list_row` + `flat_row`, a hairline between rows and no box around
+        // them (the web `SETTINGS_LIST_CLASS` twin).
         let mut row = crate::surface::flat_row()
             .flex()
             .w_full()
@@ -572,8 +573,9 @@ impl Render for LabelsPane {
                 self.create_error.clone()
             };
             let entity = cx.entity();
-            // EXP-698: the inline create form is one more object in the gapped
-            // list, so it wears the glass row card.
+            // EXP-1076: the inline create form is one more rung of the
+            // hairline ladder (`list_row` + `flat_row`, the web
+            // `SETTINGS_LIST_CLASS` twin), not a card floating beside it.
             body = body.child(
                 crate::surface::flat_row()
                     .flex()

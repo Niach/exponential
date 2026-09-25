@@ -16,20 +16,16 @@ use gpui_component::select::Select;
 use gpui_component::{h_flex, text::TextViewStyle, v_flex, ActiveTheme as _};
 use theme::tokens as t;
 
-/// EXP-698 — the web `GlassSectionHeader` (`@exp/ui glass-rows.tsx`,
-/// EXP-616): a PLAIN-TEXT heading over a glass list — no band, no fill, no
-/// border — `px_1 pt_1 pb_2`, the label `text_sm` MEDIUM at 70% foreground,
-/// then a spacer and the optional trailing control. No count slot: EXP-698
-/// retired header counts on every client. Labels are SENTENCE CASE, never
-/// uppercase.
+/// The settings panes' spelling of [`glass_section_band`] — it IS the band
+/// (`glass_section_band(None, label, trailing, cx)`), not a header of its
+/// own: the plain-text heading this name used to draw was retired by
+/// EXP-818, when every list page moved to the filled group strip. Kept
+/// because the panes read better naming the thing "the section's header",
+/// and because a settings pane never carries a leading glyph on it.
 ///
-/// Lived in `actions_view` until EXP-698 moved it here beside the other
-/// glass recipes; every page section (Actions, Automations, Devices,
-/// Getting started, the support rail) carries this one header design.
-///
-/// The `pb_2` IS the gap to the list below it — a section wrapper that adds
-/// its own `gap_2` doubles it (EXP-697); keep the rows in a nested
-/// `v_flex().gap_2()` instead.
+/// Labels are SENTENCE CASE, never uppercase, and there is no count slot
+/// (EXP-698 retired header counts on every client). What sits under it is
+/// the hairline ladder, never a gapped stack of cards (EXP-1076).
 pub(crate) fn glass_section_header(
     label: impl Into<SharedString>,
     trailing: Option<AnyElement>,

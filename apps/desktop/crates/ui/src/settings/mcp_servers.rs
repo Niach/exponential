@@ -1118,7 +1118,7 @@ impl McpServersPane {
                 },
             ));
         }
-        for row in rows {
+        for (index, row) in rows.iter().enumerate() {
             let mut chips = h_flex().gap_1().items_center().flex_wrap();
             chips = chips.child(self.chip(
                 format!("device-mcp-transport-{}", row.id),
@@ -1168,7 +1168,10 @@ impl McpServersPane {
                     })),
                 );
             let endpoint = row.target();
-            group = group.child(
+            // EXP-1076: the machine's servers are an entity LIST — the
+            // hairline ladder (`list_row` + `flat_row`, the web
+            // `SETTINGS_LIST_CLASS` twin), a hairline between rows.
+            group = group.child(crate::surface::list_row(
                 crate::surface::flat_row()
                     .flex()
                     .flex_col()
@@ -1206,7 +1209,8 @@ impl McpServersPane {
                                 .child(SharedString::from(endpoint.clone())),
                         )
                     }),
-            );
+                index,
+            ));
         }
         group
     }
@@ -1619,15 +1623,21 @@ impl Render for McpServersPane {
                     .iter()
                     .map(|entry| loaded.local_for(&entry.config.id).cloned())
                     .collect();
-                let mut list = v_flex().gap_2();
-                for (entry, local) in servers.iter().zip(local.iter()) {
-                    list = list.child(self.render_row(
-                        entry,
-                        local.as_ref(),
-                        this_device_id.as_deref(),
-                        owner,
-                        now,
-                        cx,
+                // EXP-1076: the team registry is an entity LIST — a gapless
+                // hairline ladder (`list_row` + `flat_row`, the web
+                // `SETTINGS_LIST_CLASS` twin), not gapped cards.
+                let mut list = v_flex().w_full().min_w_0();
+                for (index, (entry, local)) in servers.iter().zip(local.iter()).enumerate() {
+                    list = list.child(crate::surface::list_row(
+                        self.render_row(
+                            entry,
+                            local.as_ref(),
+                            this_device_id.as_deref(),
+                            owner,
+                            now,
+                            cx,
+                        ),
+                        index,
                     ));
                 }
                 body = body.child(list);

@@ -235,23 +235,20 @@ export function buildDefaultPlan(
       : { mode: `create` }
   }
 
-  // Members by address; the rest are invited while seats last (people only —
-  // a source's bots and deactivated accounts are skipped), then skipped.
+  // Members by address; everyone else gets a PLACEHOLDER seat (EXP-1076) so
+  // their issues and comments carry their name from the first run — no mail,
+  // no seat, no plan limit, so nothing here is budgeted. Only people with an
+  // address get one (a source's bots and address-less accounts are attributed
+  // to the importer); `invite` is never a default, the wizard opts into it.
   const users: ImportPlan[`users`] = {}
-  let seatsPlanned = 0
   for (const user of preview.users) {
     const member = user.email
       ? state.members.find((row) => norm(row.email) === norm(user.email))
       : undefined
     if (member) {
       users[user.key] = { mode: `member`, userId: member.userId }
-    } else if (
-      user.email &&
-      user.active &&
-      (state.seatsLeft === null || seatsPlanned < state.seatsLeft)
-    ) {
-      seatsPlanned += 1
-      users[user.key] = { mode: `invite`, name: user.name, email: user.email }
+    } else if (user.email && user.active) {
+      users[user.key] = { mode: `placeholder`, name: user.name, email: user.email }
     } else {
       users[user.key] = { mode: `self` }
     }
@@ -291,14 +288,17 @@ function statusPlanCategory(
 }
 
 function userPlanTarget(plan: UserPlan | undefined): `member` | `importer` {
-  return plan?.mode === `member` || plan?.mode === `invite` ? `member` : `importer`
+  return plan?.mode === `member` || plan?.mode === `placeholder` || plan?.mode === `invite`
+    ? `member`
+    : `importer`
 }
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
- * Seats an import's invites need beyond the roster: unique addresses that
- * do not belong to a member already (those resolve to the member at apply).
+ * Seats an import's INVITES need beyond the roster: unique addresses that do
+ * not belong to a member already (those resolve to the member at apply).
+ * Placeholders (EXP-1076) are not here — they cost no seat.
  */
 export function plannedInviteEmails(
   plan: ImportPlan,
@@ -393,7 +393,11 @@ export function evaluatePlan(
 
   // Only what a non-skipped issue references gets resolved: the statuses
   // and labels of a skipped team must not be created for nothing.
-  const { statusKeys: usedStatusKeys, labelKeys: usedLabelKeys } = referencedKeys(
+  const {
+    statusKeys: usedStatusKeys,
+    labelKeys: usedLabelKeys,
+    userKeys: usedUserKeys,
+  } = referencedKeys(
     { ...bundle, issues: bundle.issues.filter((issue) => !state.importedIssueKeys.has(issue.key)) },
     skippedBoardKeys,
     plan.importHistory
@@ -503,12 +507,20 @@ export function evaluatePlan(
   }
 
   // --- users --------------------------------------------------------------
+  // Only people a still-to-import issue actually references are decided on: a
+  // skipped team's members are nobody's problem, and a re-run seats no one
+  // twice (EXP-1076).
   const fallbackUsers: string[] = []
+  const knownMemberEmails = new Set(state.members.map((row) => norm(row.email)))
+  const placeholderEmails = new Set<string>()
   for (const user of bundle.users) {
+    if (!usedUserKeys.has(user.key)) continue
     const entry = plan.users[user.key]
     const label = user.email ? `${user.name} (${user.email})` : user.name
     if (!entry) {
-      blockers.push(`No decision for user ${label}.`)
+      // An address-less source account (a bot, a deleted one) has nothing to
+      // decide: its content is attributed to the importer, silently.
+      if (user.email) blockers.push(`No decision for user ${label}.`)
       continue
     }
     if (entry.mode === `member`) {
@@ -517,14 +529,26 @@ export function evaluatePlan(
       }
       continue
     }
-    if (entry.mode === `invite`) {
-      if (!EMAIL_SHAPE.test(entry.email.trim())) {
-        blockers.push(`${user.name} needs a valid email address to be invited.`)
+    if (entry.mode === `placeholder` || entry.mode === `invite`) {
+      const email = entry.email.trim()
+      if (!EMAIL_SHAPE.test(email)) {
+        blockers.push(
+          entry.mode === `placeholder`
+            ? `${user.name} needs a valid email address to join the team as a placeholder.`
+            : `${user.name} needs a valid email address to be invited.`
+        )
+        continue
+      }
+      if (entry.mode === `placeholder` && !knownMemberEmails.has(norm(email))) {
+        placeholderEmails.add(norm(email))
       }
       continue
     }
-    fallbackUsers.push(label)
+    // `self`: attributed to the importer. An address-less account is no
+    // decision the operator made — leave it out of the warning.
+    if (user.email) fallbackUsers.push(label)
   }
+  const members = placeholderEmails.size
   const invites = plannedInviteEmails(plan, state.members).length
   if (state.seatsLeft !== null && invites > state.seatsLeft) {
     const missing = invites - state.seatsLeft
@@ -677,6 +701,7 @@ export function evaluatePlan(
       boardsToCreate,
       statusesToCreate,
       labelsToCreate,
+      members,
       invites,
       issues,
       alreadyImported,
@@ -698,21 +723,30 @@ export function plannedStatusCategory(
   return plan ? statusPlanCategory(plan, state) : null
 }
 
-// Status and label keys any non-skipped issue (or, with history on, any of
-// its events) references.
+// Status, label and user keys any non-skipped issue (or, with history on, any
+// of its events) references. The caller passes the issues still to import, so
+// a re-run neither creates statuses for nothing nor seats people again
+// (EXP-1076: the applier's user phase runs off `userKeys`).
 export function referencedKeys(
   bundle: ImportBundle,
   skippedBoardKeys: ReadonlySet<string>,
   importHistory: boolean
-): { statusKeys: Set<string>; labelKeys: Set<string> } {
+): { statusKeys: Set<string>; labelKeys: Set<string>; userKeys: Set<string> } {
   const statusKeys = new Set<string>()
   const labelKeys = new Set<string>()
+  const userKeys = new Set<string>()
   for (const issue of bundle.issues) {
     if (skippedBoardKeys.has(issue.boardKey)) continue
     statusKeys.add(issue.statusKey)
     for (const key of issue.labelKeys) labelKeys.add(key)
+    if (issue.assigneeKey) userKeys.add(issue.assigneeKey)
+    if (issue.creatorKey) userKeys.add(issue.creatorKey)
+    for (const comment of issue.comments) {
+      if (comment.authorKey) userKeys.add(comment.authorKey)
+    }
     if (!importHistory) continue
     for (const event of issue.events) {
+      if (event.actorKey) userKeys.add(event.actorKey)
       if (event.type === `status_changed`) {
         if (event.fromStatusKey) statusKeys.add(event.fromStatusKey)
         if (event.toStatusKey) statusKeys.add(event.toStatusKey)
@@ -721,5 +755,5 @@ export function referencedKeys(
       }
     }
   }
-  return { statusKeys, labelKeys }
+  return { statusKeys, labelKeys, userKeys }
 }

@@ -686,8 +686,9 @@ impl Render for RepositoriesPane {
                         ));
                     }
                     Ok(repos) if repos.is_empty() => {
-                        // EXP-698: the shared glass row card, not a bespoke
-                        // bordered-but-unfilled box.
+                        // EXP-1076: the empty line sits on the ladder's own
+                        // row rhythm (`flat_row`, the web
+                        // `SETTINGS_LIST_CLASS` twin), not in a bespoke box.
                         body = body.child(
                             crate::surface::flat_row()
                                 .px_3()
@@ -1270,8 +1271,9 @@ impl RepositoriesPane {
             );
         }
 
-        // EXP-698: the shared glass ROW CARD — the repo list around it is
-        // gapped, so each repo is its own object.
+        // EXP-1076: one rung of the hairline LADDER every settings entity
+        // list wears — `list_row` + `flat_row`, a hairline between rows and
+        // no box around them (the web `SETTINGS_LIST_CLASS` twin).
         crate::surface::flat_row()
             .flex()
             .flex_col()

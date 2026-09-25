@@ -629,9 +629,9 @@ impl StatusesPane {
         let tint = crate::icons::status_tint_color(&resolved.tint, cx);
         let glyph = crate::icons::glyph_icon(resolved.glyph).text_color(tint);
 
-        // EXP-698: the shared glass ROW CARD — the surrounding category column
-        // is a gapped list, so each status is its own object, not a fused
-        // group row.
+        // EXP-1076: one rung of the category's hairline LADDER — `list_row`
+        // + `flat_row`, a hairline between rows and no box around them (the
+        // web `SETTINGS_LIST_CLASS` twin).
         let mut line = crate::surface::flat_row()
             .flex()
             .w_full()
@@ -878,8 +878,9 @@ impl StatusesPane {
             self.create_error.clone()
         };
         let entity = cx.entity();
-        // EXP-698: the inline form is one more object in the category's gapped
-        // list, so it wears the glass row card.
+        // EXP-1076: the inline form closes the category's hairline ladder —
+        // the same `flat_row` rhythm as the rows above it (the web
+        // `SETTINGS_LIST_CLASS` twin), not a card floating beside them.
         crate::surface::flat_row()
             .flex()
             .flex_col()
@@ -954,13 +955,17 @@ impl Render for StatusesPane {
         let statuses = self.scoped_statuses(cx);
         let counts = self.issue_counts(cx);
 
-        // EXP-771: the web's title, which is just "Statuses" — the pane and
-        // the nav row it hangs off must read the same.
-        let mut body = section(cx)
-            .child(crate::surface::glass_section_header("Statuses", None, cx));
+        // EXP-1076: NO pane-level band. The web statuses page has none
+        // either (`components/team/statuses-section.tsx`): every CATEGORY
+        // carries its own band, and a second "Statuses" strip over them
+        // would only repeat the nav row that got you here. The categories
+        // stand the web's `space-y-6` apart.
+        let mut body = section(cx).gap_6();
 
         if statuses.is_empty() {
-            return v_flex().child(body.child(
+            // The loading/empty state has no category bands to name the
+            // pane, so it keeps the header — the web branch does the same.
+            return v_flex().child(body.child(crate::surface::glass_section_header("Statuses", None, cx)).child(
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
@@ -987,15 +992,57 @@ impl Render for StatusesPane {
                 .cloned()
                 .collect();
 
-            let mut group = v_flex().gap_2().child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(category.label()),
+            // The Duplicate category is fixed at exactly one status — no "+".
+            // The pie-clock fill tables are defined only up to
+            // ISSUE_STATUS_STARTED_MAX started statuses, so Started caps out.
+            let can_add = category != IssueStatusCategory::Duplicate;
+            let capped = category == IssueStatusCategory::Started
+                && rows.len() >= ISSUE_STATUS_STARTED_MAX;
+            // EXP-1076: the category's add control rides the BAND's trailing
+            // slot (web `GlassSectionHeader trailing`), not a row under the
+            // list, and it is the ICON-ONLY "+" the web draws there
+            // (`Button variant="glass" size="icon-sm"`) — a labelled pill in
+            // a band a category name already explains is the same word
+            // twice. The web's `aria-label` is this tooltip; when the
+            // category is capped it carries the REASON instead, the web's
+            // `IconTooltip` on its disabled button.
+            let add = (can_add && self.creating != Some(category)).then(|| {
+                crate::controls::glass_icon_button(
+                    category_id("status-new", category),
+                    Icon::new(registry::UI_ADD),
+                    cx,
+                )
+                .tooltip(if capped {
+                    SharedString::from(format!(
+                        "A team can have at most \
+                         {ISSUE_STATUS_STARTED_MAX} started statuses."
+                    ))
+                } else {
+                    SharedString::from(format!("Add {} status", category.label()))
+                })
+                .disabled(capped)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.creating = Some(category);
+                    this.create_error = None;
+                    this.new_name.update(cx, |state, cx| {
+                        state.set_value("", window, cx);
+                        // Web: the placeholder names the category being
+                        // added to.
+                        state.set_placeholder(create_placeholder(category), window, cx);
+                    });
+                    cx.notify();
+                }))
+                .into_any_element()
+            });
+            // EXP-1076: a BAND per category sitting directly over that
+            // category's gapless hairline ladder — the web statuses page
+            // draws the same pair.
+            let mut group = v_flex().w_full().min_w_0().gap_2().child(
+                crate::surface::glass_section_band(None, category.label(), add, cx),
             );
             // A category can be EMPTY — since EXP-685 retired the builtin
             // Todo, `unstarted` starts out with no rows at all. Say so
-            // instead of leaving the heading hanging over the "Add status".
+            // instead of leaving the band hanging over the "Add status".
             if rows.is_empty() {
                 group = group.child(
                     div()
@@ -1026,51 +1073,22 @@ impl Render for StatusesPane {
                 group = group.child(list);
             }
 
-            // The Duplicate category is fixed at exactly one status — no "+".
-            if category != IssueStatusCategory::Duplicate {
+            if can_add {
                 if self.creating == Some(category) {
                     group = group.child(self.render_create_form(category, window, cx));
-                } else {
-                    // The pie-clock fill tables are defined only up to
-                    // ISSUE_STATUS_STARTED_MAX started statuses.
-                    let capped = category == IssueStatusCategory::Started
-                        && rows.len() >= ISSUE_STATUS_STARTED_MAX;
+                } else if capped {
+                    // The band's disabled "+" carries the reason as its
+                    // tooltip (like the web's), but a cap you can only find
+                    // by hovering a dead control is a cap nobody finds — so
+                    // the sentence also stands under the list.
                     group = group.child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                crate::surface::glass_pill_button(category_id("status-new", category), crate::surface::PillSize::Sm, cx)
-                                    .icon(registry::UI_ADD)
-                                    .label("Add status")
-                                    .disabled(capped)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.creating = Some(category);
-                                        this.create_error = None;
-                                        this.new_name.update(cx, |state, cx| {
-                                            state.set_value("", window, cx);
-                                            // Web: the placeholder names the
-                                            // category being added to.
-                                            state.set_placeholder(
-                                                create_placeholder(category),
-                                                window,
-                                                cx,
-                                            );
-                                        });
-                                        cx.notify();
-                                    })),
-                            )
-                            .when(capped, |row| {
-                                row.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(SharedString::from(format!(
-                                            "A team can have at most \
-                                             {ISSUE_STATUS_STARTED_MAX} started statuses."
-                                        ))),
-                                )
-                            }),
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(format!(
+                                "A team can have at most \
+                                 {ISSUE_STATUS_STARTED_MAX} started statuses."
+                            ))),
                     );
                 }
             }

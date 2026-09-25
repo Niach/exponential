@@ -185,7 +185,7 @@ A **workflow** (contract `wf*`, NOT the feed's `workflowStatus`) = backlog issue
 
 ### Desktop IDE & mobile
 
-Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; Discard-and-reset; `trunk_sync` badge + banner). Mobile first-run wizard (`lib/auth/onboarding.ts`, server-gated): create-or-join team, then a board with optional repo + GitHub App. Lists ×4 = a filled group band over FLAT rows (EXP-818); cards only in settings sections.
+Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; Discard-and-reset; `trunk_sync` badge + banner). Mobile first-run wizard (`lib/auth/onboarding.ts`, server-gated): create-or-join team, then a board with optional repo + GitHub App. Lists ×4 = a filled group band over FLAT hairline-divided rows (EXP-818/1076, settings too); `GlassGroup` = form fields only.
 
 ## Billing (per-seat, Creem — cloud only)
 

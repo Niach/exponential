@@ -10,8 +10,9 @@ import {
   conceptIcon,
   Pill,
   Button,
-  GlassRow,
   GlassSectionHeader,
+  ListRow,
+  SETTINGS_LIST_CLASS,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -36,7 +37,11 @@ import { displayUserName } from "@/lib/user-display"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { InviteLinkRow, InviteMemberForm } from "./invite-member-form"
-import { PLACEHOLDER_LABELS, placeholderStatuses } from "@/lib/placeholder-status"
+import {
+  PLACEHOLDER_LABELS,
+  placeholderStatuses,
+  type PlaceholderStatus,
+} from "@/lib/placeholder-status"
 
 // EXP-687: leaving a team is a sign-out, removing someone is a user-minus —
 // both red, both the same concepts the natives draw.
@@ -75,11 +80,15 @@ export function TeamMembersSection({
   } | null>(null)
   const [removing, setRemoving] = useState(false)
   // "Resend invite" for a placeholder member: the shared invite form,
-  // prefilled and editable, bound to that member's row.
+  // prefilled and editable, bound to that member's row. EXP-1076: an
+  // `unsent` row (an import seat nobody ever asked to join) sends a FIRST
+  // invite, so the item, the title and the copy all branch on the status.
   const [resendTarget, setResendTarget] = useState<{
     userId: string
     name: string
     email: string
+    displayName: string
+    status: PlaceholderStatus
   } | null>(null)
   const invites = useTeamInvites(teamId)
   const placeholders = useMemo(() => placeholderStatuses(invites), [invites])
@@ -114,7 +123,7 @@ export function TeamMembersSection({
     <div>
       <GlassSectionHeader label="Members" />
       <div className="space-y-4">
-        <div className="space-y-2">
+        <div className={SETTINGS_LIST_CLASS}>
           {members.map((member) => {
             const isSelf = member.userId === currentUserId
             const user = userMap.get(member.userId)
@@ -128,7 +137,7 @@ export function TeamMembersSection({
               )
 
             return (
-              <GlassRow
+              <ListRow
                 key={member.id}
                 className="justify-between gap-3 px-3 py-2"
               >
@@ -190,11 +199,15 @@ export function TeamMembersSection({
                                     userId: member.userId,
                                     name: user?.name ?? ``,
                                     email: user?.email ?? ``,
+                                    displayName,
+                                    status: placeholder,
                                   })
                                 }
                               >
                                 <UiMailIcon className="mr-2 h-4 w-4" />
-                                Resend invite
+                                {placeholder === `unsent`
+                                  ? `Send invite`
+                                  : `Resend invite`}
                               </DropdownMenuItem>
                             )}
                             {member.role !== `owner` && (
@@ -253,7 +266,7 @@ export function TeamMembersSection({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
-              </GlassRow>
+              </ListRow>
             )
           })}
         </div>
@@ -274,10 +287,15 @@ export function TeamMembersSection({
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Resend invite</DialogTitle>
+            <DialogTitle>
+              {resendTarget?.status === `unsent`
+                ? `Send invite`
+                : `Resend invite`}
+            </DialogTitle>
             <DialogDescription>
-              {resendTarget?.name} is on the team but has not joined yet. Send
-              a fresh link — fix the address first if it was wrong.
+              {resendTarget?.status === `unsent`
+                ? `${resendTarget.displayName} is on the team but has never been invited. Send them a link.`
+                : `${resendTarget?.name} is on the team but has not joined yet. Send a fresh link — fix the address first if it was wrong.`}
             </DialogDescription>
           </DialogHeader>
           {resendTarget && teamId && (
@@ -343,7 +361,9 @@ function InviteControls({ teamId }: { teamId: string }) {
   }>({ team: null, teamYearly: null })
   const now = Date.now()
   // Pending = unaccepted AND unexpired (an expired placeholder invite is a
-  // marker on the member row above, not a pending link).
+  // marker on the member row above, not a pending link). EXP-1076: an
+  // `unsent` import seat is minted ALREADY expired, so this same test keeps
+  // rows nobody was ever sent out of the list.
   const invites = useTeamInvites(teamId).filter(
     (invite) => !invite.acceptedAt && new Date(invite.expiresAt).getTime() > now
   )
@@ -412,42 +432,44 @@ function InviteControls({ teamId }: { teamId: string }) {
       {invites.length > 0 && (
         <div className="pt-2">
           <GlassSectionHeader label="Pending invites" />
-          {invites.map((invite) => (
-            <GlassRow
-              key={invite.id}
-              className="mb-2 justify-between px-3 py-2 text-sm last:mb-0"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <Pill leading={<UiMailIcon className="size-3" />}>
-                  {invite.role}
-                </Pill>
-                {/* EXP-698: a link invite carries no address, and an empty
-                    slot collapsed the row so the chips of a mixed list never
-                    lined up. It says what it is instead. */}
-                {invite.email ? (
-                  <span className="min-w-0 truncate font-medium">
-                    {invite.email}
-                  </span>
-                ) : (
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    Link invite
-                  </span>
-                )}
-                <span className="shrink-0 text-muted-foreground">
-                  Expires{` `}
-                  {new Date(invite.expiresAt).toLocaleDateString()}
-                </span>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => handleRevoke(invite.id)}
-                aria-label={`Revoke invite ${invite.id}`}
+          <div className={SETTINGS_LIST_CLASS}>
+            {invites.map((invite) => (
+              <ListRow
+                key={invite.id}
+                className="justify-between px-3 py-2 text-sm"
               >
-                <Trash2 />
-              </Button>
-            </GlassRow>
-          ))}
+                <div className="flex min-w-0 items-center gap-3">
+                  <Pill leading={<UiMailIcon className="size-3" />}>
+                    {invite.role}
+                  </Pill>
+                  {/* EXP-698: a link invite carries no address, and an empty
+                      slot collapsed the row so the chips of a mixed list never
+                      lined up. It says what it is instead. */}
+                  {invite.email ? (
+                    <span className="min-w-0 truncate font-medium">
+                      {invite.email}
+                    </span>
+                  ) : (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      Link invite
+                    </span>
+                  )}
+                  <span className="shrink-0 text-muted-foreground">
+                    Expires{` `}
+                    {new Date(invite.expiresAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => handleRevoke(invite.id)}
+                  aria-label={`Revoke invite ${invite.id}`}
+                >
+                  <Trash2 />
+                </Button>
+              </ListRow>
+            ))}
+          </div>
         </div>
       )}
 

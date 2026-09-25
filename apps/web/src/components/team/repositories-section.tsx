@@ -63,7 +63,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  GlassRow,
+  ListRow,
+  SETTINGS_LIST_CLASS,
   GlassSectionHeader,
   Dialog,
   DialogContent,
@@ -352,16 +353,15 @@ export function TeamRepositoriesSection({
             </div>
           )}
 
-          {count === 0 ? (
-            <GlassRow className="px-3 py-2 text-sm text-muted-foreground">
-              {GH_NO_REPOSITORIES}
-            </GlassRow>
-          ) : (
-            // EXP-721: every team-settings entity list is one SELF-BORDERED
-            // glass row per entity (members, labels, boards, repositories),
-            // never a grouped card with hairlines.
-            <div className="space-y-2">
-              {repos!.map((repo) => (
+          {/* EXP-1076: the ONE settings ladder — the section band over
+              gapless flat rows with a hairline between each pair. */}
+          <div className={SETTINGS_LIST_CLASS}>
+            {count === 0 ? (
+              <ListRow className="px-3 py-2 text-sm text-muted-foreground">
+                {GH_NO_REPOSITORIES}
+              </ListRow>
+            ) : (
+              repos!.map((repo) => (
                 <RepoRow
                   key={repo.id}
                   repo={repo}
@@ -384,9 +384,9 @@ export function TeamRepositoriesSection({
                     )
                   }
                 />
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
       </div>
 
@@ -788,7 +788,7 @@ function RepoRow({
   return (
     // `gap-2` is the old `space-y-2` between the row's three stacked blocks;
     // `items-stretch` undoes the base row's centring so they fill the width.
-    <GlassRow className="flex-col items-stretch gap-2 px-3 py-2.5">
+    <ListRow className="flex-col items-stretch gap-2 px-3 py-2">
       <div className="flex items-center gap-2">
         <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -893,7 +893,7 @@ function RepoRow({
           </span>
         )}
       </div>
-    </GlassRow>
+    </ListRow>
   )
 }
 

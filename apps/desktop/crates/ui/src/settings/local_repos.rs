@@ -25,7 +25,7 @@
 //!   hatch.
 //! - **Worktrees** (EXP-369, regrouped in EXP-694): the scan carries each
 //!   clone's linked worktrees, and the pane renders ALL of them as ONE flat
-//!   inset-grouped list — no per-clone
+//!   hairline LADDER under the band (EXP-1076) — no per-clone
 //!   nesting and no expander (a clone with no worktrees simply contributes no
 //!   row; its maintenance row still appears in the "Local repositories" group
 //!   below). Per worktree: a confirmed force-remove and a terminal button
@@ -782,7 +782,17 @@ impl LocalReposPane {
             button
         };
 
-        let row = surface::glass_row_shell()
+        // EXP-1076: one rung of the hairline LADDER every settings entity
+        // list wears (`list_row` + `flat_row`, the web `SETTINGS_LIST_CLASS`
+        // twin) — a clone is an object, not a field of a form.
+        let row = surface::flat_row()
+            .flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2()
             .child(
                 Icon::new(registry::UI_FOLDER)
                     .small()
@@ -791,12 +801,12 @@ impl LocalReposPane {
             .child(name_col)
             .child(h_flex().gap_1().flex_shrink_0().child(prune).child(remove));
 
-        // A prune/remove report lands under its own row, inside the group.
+        // A prune/remove report lands under its own row, inside the ladder.
         match action.and_then(|a| a.message.clone()) {
             Some((is_error, text)) => v_flex().w_full().child(row).child(
                 div()
-                    .px_4()
-                    .pb_3()
+                    .px_3()
+                    .pb_2()
                     .text_xs()
                     .text_color(if is_error {
                         cx.theme().danger
@@ -905,7 +915,14 @@ impl LocalReposPane {
         };
 
         let muted = cx.theme().muted_foreground;
-        surface::glass_row_shell()
+        // EXP-1076: a worktree row on the ladder's rhythm (`list_row` +
+        // `flat_row`, the web `SETTINGS_LIST_CLASS` twin).
+        surface::flat_row()
+            .flex()
+            .w_full()
+            .items_center()
+            .px_3()
+            .py_2()
             .gap_2()
             .min_w_0()
             .child(
@@ -1036,12 +1053,12 @@ impl Render for LocalReposPane {
             }
             Scan::Ready(repos) if repos.is_empty() => {
                 body = body.child(
-                    surface::glass_group_rows(vec![surface::glass_row_shell().child(
+                    surface::flat_row().px_3().py_2().child(
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child("No repositories cloned locally yet."),
-                    )]),
+                    ),
                 );
             }
             Scan::Ready(repos) => {
@@ -1100,7 +1117,13 @@ impl Render for LocalReposPane {
                         .text_color(cx.theme().muted_foreground)
                         .child("No worktrees on this machine.")
                 } else {
-                    surface::glass_group_rows(worktree_rows)
+                    // EXP-1076: the gapless ladder under the band.
+                    v_flex().w_full().min_w_0().children(
+                        worktree_rows
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, row)| surface::list_row(row, index)),
+                    )
                 });
 
                 // The clones themselves — disk usage and the maintenance
@@ -1116,7 +1139,14 @@ impl Render for LocalReposPane {
                         None,
                         cx,
                     ))
-                    .child(surface::glass_group_rows(clone_rows));
+                    .child(
+                        v_flex().w_full().min_w_0().children(
+                            clone_rows
+                                .into_iter()
+                                .enumerate()
+                                .map(|(index, row)| surface::list_row(row, index)),
+                        ),
+                    );
             }
         }
 

@@ -294,10 +294,9 @@ impl MembersPane {
             );
         }
 
-        // EXP-721: a member is an OBJECT, not a field of a form — so every
-        // team-settings entity list wears the gapped `glass_row_card` ladder
-        // (the labels list's idiom, now the rule on all four clients) instead
-        // of fusing into one inset-grouped block.
+        // EXP-1076: a member is an OBJECT, not a field of a form — so this
+        // list is the hairline LADDER every settings entity list wears:
+        // `list_row` + `flat_row`, the web `SETTINGS_LIST_CLASS` twin.
         crate::surface::flat_row()
             .flex()
             .w_full()
@@ -676,9 +675,9 @@ impl Render for MembersPane {
                                 .text_color(cx.theme().muted_foreground)
                                 .child(expires),
                         );
-                    // EXP-721: a pending invite is an entity too — the same
-                    // gapped row card the member rows above it wear, instead
-                    // of the hand-rolled bordered box.
+                    // EXP-1076: a pending invite is an entity too — the same
+                    // hairline ladder rung (`list_row` + `flat_row`, the web
+                    // `SETTINGS_LIST_CLASS` twin) the member rows wear.
                     pending_rows = pending_rows.child(crate::surface::list_row(
                         crate::surface::flat_row()
                             .flex()

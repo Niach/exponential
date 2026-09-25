@@ -164,8 +164,9 @@ impl WidgetPane {
             );
         }
 
-        // EXP-721: a widget config is an OBJECT — the gapped row card every
-        // team-settings entity list wears.
+        // EXP-1076: a widget config is an OBJECT — one rung of the hairline
+        // ladder every settings entity list wears (`list_row` + `flat_row`,
+        // the web `SETTINGS_LIST_CLASS` twin).
         crate::surface::flat_row()
             .flex()
             .flex_col()

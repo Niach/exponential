@@ -338,6 +338,13 @@ export const teamInvites = pgTable(
       { onDelete: `cascade` }
     ),
     acceptedAt: timestamp(`accepted_at`, { withTimezone: true }),
+    // EXP-1076: when the invite LINK was issued (mail attempted, or the token
+    // handed to the owner). NULL = the roster row exists but nobody was ever
+    // invited — the import's placeholder members (Settings → Members shows
+    // "Not invited" with a "Send invite" action). Such rows are also stamped
+    // `expires_at = created_at`, so every expiry-based reader (accept, seat
+    // counts, pending lists) already treats them as dead.
+    sentAt: timestamp(`sent_at`, { withTimezone: true }),
     expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
     ...timestamps,
   },
@@ -2932,6 +2939,10 @@ export const importJobs = pgTable(
     claimedAt: timestamp(`claimed_at`, { withTimezone: true }),
     startedAt: timestamp(`started_at`, { withTimezone: true }),
     finishedAt: timestamp(`finished_at`, { withTimezone: true }),
+    // EXP-1076: the owner cleared the Recent imports list. Hides the row from
+    // `imports.list` WITHOUT touching `import_entity_map` — the re-import
+    // idempotency key must outlive the card.
+    dismissedAt: timestamp(`dismissed_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
