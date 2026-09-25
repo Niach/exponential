@@ -103,6 +103,28 @@ class PrGraphTest {
     }
 
     @Test
+    fun `names the representative issue and the count on the stacked chip`() {
+        val url = "https://github.com/acme/app/pull/9"
+        val lower = issue("lower", branch = "exp/LOWER")
+        val one = issue("one", branch = "exp/batch-abcd1234", base = "exp/LOWER", prUrl = url)
+        val two = issue("two", branch = "exp/batch-abcd1234", base = "exp/LOWER", prUrl = url)
+        // A batch inside a stack: the subject PR's representative, every other
+        // issue on the stack behind it.
+        val both = graph(two, listOf(lower, one, two))
+        assertEquals("one", PrGraph.badgeChip(both, WorkFaceKind.Issue)?.issue?.id)
+        assertEquals(2, PrGraph.badgeChip(both, WorkFaceKind.Issue)?.count)
+        // A plain batch: the others of the batch.
+        val batch = graph(one, listOf(one, two.copy(prBaseBranch = null)))
+        assertEquals(1, PrGraph.badgeChip(batch, WorkFaceKind.Changes)?.count)
+        // A run family with no issue: no front issue, the other runs behind.
+        val sessions = listOf(session("child", parent = "root"), session("root"))
+        val family = graph(null, emptyList(), session = sessions[0], sessions = sessions)
+        assertEquals(PrGraph.BadgeChip(null, 1), PrGraph.badgeChip(family, WorkFaceKind.Run))
+        // No badge = no chip.
+        assertNull(PrGraph.badgeChip(family, WorkFaceKind.Issue))
+    }
+
+    @Test
     fun reportsNothingForALonePr() {
         val lone = issue("a", branch = "exp/A", prUrl = "https://github.com/o/r/pull/3")
         val built = graph(lone, listOf(lone, issue("other", branch = "exp/O")))
