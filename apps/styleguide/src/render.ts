@@ -405,7 +405,9 @@ export function renderHtml(
   entries: readonly StyleguideEntry[] = ENTRIES
 ): string {
   // EXP-1019: FOUR sections, in the contract's order (`sections/sections.json`
-  // — the same index the IDE styleguide reads). Style is the values, General
+  // — the index the natives mirror, so their entry ids and owners cannot
+  // drift from THIS page: the styleguide is this app and only this app).
+  // Style is the values, General
   // the control set, Special the compositions built on top of it, Views the
   // photographed screens. Every existing spec lands in one of the first three
   // (`sectionOfSpec`) and every registered entry sits where the contract puts

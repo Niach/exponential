@@ -150,9 +150,12 @@ mod workflow_host;
 mod workflow_view;
 mod workflows_view;
 pub mod steer_wiring;
-// EXP-1029: sub-shell navigation for the settings shell (EXP-1020) and the
-// IDE styleguide's section skeleton (EXP-1019 structures it).
+// EXP-1029: sub-shell navigation for the settings shell (EXP-1020).
 mod sub_shell;
+// The shared styleguide's section index, mirrored here so the IDE's entry ids
+// and owners cannot drift from the page that draws them. The styleguide is
+// its OWN app (`apps/styleguide`, styleguide.exponential.at); this module
+// renders nothing and is reachable from no menu in the IDE.
 mod styleguide;
 mod support_thread;
 // EXP-837: the window-level disarm for a stuck text-selection drag.

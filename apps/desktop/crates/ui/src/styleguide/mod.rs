@@ -1,22 +1,24 @@
 //! EXP-1029 contract — the IDE styleguide's section skeleton.
 //!
-//! The IDE had no styleguide surface of its own: the web page
-//! (`apps/styleguide`) documents every platform's symbol per control. This
-//! module gives the IDE the SAME four ordered sections, read from the ONE
+//! The styleguide page (`apps/styleguide`) documents every platform's symbol
+//! per control. This module mirrors the SAME four ordered sections, read from
+//! the ONE
 //! index the web page reads (`apps/styleguide/src/sections/sections.json`,
 //! embedded at compile time), and one entry file per registered id
-//! (`entries/`), so a leaf fills its file on both platforms and never
-//! edits an index. EXP-1030 closed that sweep: every entry draws its demo
-//! now, and `toast` is the one placeholder left (EXP-1031 owns it).
-//! EXP-1039 gave it its screen ([`screen`], a debug-only
-//! `Screen::Styleguide` behind `EXP_DEV_STYLEGUIDE=1`) and the IDE's own
-//! starting set of live entries ([`native`], filed under the same four
-//! sections); the drift test below keeps the two indexes one.
+//! (`entries/`), so a leaf fills its file on both platforms and never edits
+//! an index. EXP-1030 closed that sweep: every entry draws its demo now, and
+//! `toast` is the one placeholder left (EXP-1031 owns it). The drift test
+//! below keeps the two indexes one.
+//!
+//! There is NO styleguide surface inside this app and there must not be one:
+//! the styleguide is its own deployed application (`apps/styleguide`,
+//! styleguide.exponential.at) and several AI actions point at it. This module
+//! is the section DATA that index defines, so the IDE's entry ids and owners
+//! cannot drift from the page that draws them — it renders nothing and is
+//! reachable from no menu.
 #![allow(dead_code)]
 
 pub(crate) mod entries;
-pub(crate) mod native;
-pub(crate) mod screen;
 
 use serde::Deserialize;
 

@@ -2175,19 +2175,6 @@ impl Render for RailView {
         let draft_count = active_team_id(&self.nav, cx)
             .map(|id| crate::drafts::drafts_in_team(&id, cx).len())
             .unwrap_or(0);
-        // EXP-1039: the DEBUG-only styleguide entry (`EXP_DEV_STYLEGUIDE=1`)
-        // — the four shared sections and the native controls under them.
-        // Invisible in a shipped build, like the debug board's tab.
-        let styleguide_entry = crate::styleguide::screen::styleguide_enabled().then(|| {
-            self.rail_screen_entry(
-                "rail-styleguide",
-                Icon::from(icons::registry::SETTINGS_TOOLS),
-                "Styleguide",
-                Screen::Styleguide,
-                None,
-                cx,
-            )
-        });
         let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
         let drafts_entry = (draft_count > 0 || on_drafts).then(|| {
             self.rail_screen_entry(
@@ -2366,7 +2353,6 @@ impl Render for RailView {
                         // EXP-878: Drafts sits directly under Inbox — the
                         // personal pile before the team surfaces.
                         .children(drafts_entry)
-                        .children(styleguide_entry)
                         .children(support_icon)
                         .child(self.rail_screen_entry(
                             "rail-devices",
@@ -2503,7 +2489,6 @@ impl Render for RailView {
                     // EXP-878: Drafts sits directly under Inbox — the
                     // personal pile before the team surfaces.
                     .children(drafts_entry)
-                    .children(styleguide_entry)
                     .children(support_icon)
                     // EXP-686: Devices · Actions · Automations, the three
                     // surfaces the old Agents entry bundled.
