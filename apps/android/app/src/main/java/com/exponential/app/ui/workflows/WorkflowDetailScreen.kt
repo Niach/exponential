@@ -388,9 +388,10 @@ fun WorkflowDetailScreen(
                         onSelect = { id -> selectNode(selection.click(id, order).single) },
                         onLongPress = { id -> sheetNodeId = id },
                     )
-                    // Stepping: one node selected, the chevrons walk the strip
-                    // in its own order; back past the first node is All.
-                    if (!selection.isAll && order.isNotEmpty()) {
+                    // Stepping: the chevrons walk All + the strip in its own
+                    // order; back past the first node is All, a step from All
+                    // lands on the first node. Shown whenever there are nodes.
+                    if (order.isNotEmpty()) {
                         val position = selection.position(order)
                         Row(
                             modifier = Modifier
@@ -402,6 +403,7 @@ fun WorkflowDetailScreen(
                             CircleIconButton(
                                 ExpIcons.uiChevronLeft,
                                 "Previous node",
+                                enabled = !selection.isAll,
                                 onClick = { selectNode(selection.step(-1, order).single) },
                                 borderless = true,
                                 modifier = Modifier.testTag("workflow-step-previous"),
@@ -777,15 +779,18 @@ private fun NodeSheet(
     onDismiss: () -> Unit,
 ) {
     val relations by viewModel.relations.collectAsStateWithLifecycle()
+    // Every synced issue, not just the workflow's: an outside blocker draws too.
+    val pool by viewModel.graphIssues.collectAsStateWithLifecycle()
     var confirmSkip by remember { mutableStateOf(false) }
     var confirmDismiss by remember { mutableStateOf(false) }
-    val blocks = remember(node, relations, graph.issuesById) {
-        IssueGraph.blockGraph(node.coveredIssueIds, relations, graph.issuesById.values.toList())
+    val blocks = remember(node, relations, pool) {
+        IssueGraph.blockGraph(node.coveredIssueIds, relations, pool)
     }
+    val poolById = remember(pool) { pool.associateBy { it.id } }
     GlassSheet(title = chip.title, onDismiss = onDismiss) {
         IssueGraphPopover(
             graph = blocks,
-            issuesById = graph.issuesById,
+            issuesById = poolById,
             onOpenIssue = onOpenIssue,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -893,10 +898,15 @@ private fun NodeFaces(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
 ) {
+    // The node's own view models live exactly as long as the node is picked:
+    // a step elsewhere clears them (their collectors, and no issue left marked
+    // read behind the page's back).
+    val nodeOwner = rememberScopedViewModelStoreOwner("node:$issueId")
     val issueVm = hiltViewModel<IssueDetailViewModel, IssueDetailViewModel.Factory>(
+        viewModelStoreOwner = nodeOwner,
         key = "issue:$issueId",
     ) { factory -> factory.create(issueId) }
-    val commentVm: CommentThreadViewModel = hiltViewModel(key = "comments:$issueId")
+    val commentVm: CommentThreadViewModel = hiltViewModel(viewModelStoreOwner = nodeOwner, key = "comments:$issueId")
     val controller = rememberIssueFaceController()
     val issueState by issueVm.state.collectAsStateWithLifecycle()
     val issue = issueState?.issue
@@ -920,8 +930,11 @@ private fun NodeFaces(
     // Any PR (open, merged, closed): its files load off `issues.prFiles`.
     val hasPr = issue != null && !issue.prUrl.isNullOrBlank()
     val hasChanges = parsedDiff != null || hasPr
-    val changesVm: ChangesViewModel? = if (hasChanges && parsedDiff == null) {
-        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:$issueId") { factory ->
+    val changesVm: ChangesViewModel? = if (hasPr && parsedDiff == null) {
+        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(
+            viewModelStoreOwner = nodeOwner,
+            key = "changes:$issueId",
+        ) { factory ->
             factory.create(issueId)
         }
     } else {
@@ -940,11 +953,13 @@ private fun NodeFaces(
     val diffStats = remember(files) { files.takeIf { it.isNotEmpty() }?.let { Diff.totals(it) } }
     val runResults = session?.results ?: sessionRow.firstOrNull { it.id == sessionId }?.results
     val results = remember(runResults) { groupSessionResults(parseSessionResults(runResults)) }
+    // Every face stays on the switcher (an empty one says so); only a
+    // teammate's run is theirs alone (EXP-312) and hides the Run face.
     val faces = availableFaces(
         hasIssue = true,
-        hasRun = sessionId != null && ownRun,
-        hasChanges = hasChanges,
-        hasResults = results.isNotEmpty(),
+        hasRun = sessionId == null || ownRun,
+        hasChanges = true,
+        hasResults = true,
     )
     val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
     val trailing = faceSwitcherSlot(faces, face, diffStats, onFace)
@@ -970,17 +985,27 @@ private fun NodeFaces(
                 onOpenIssue = onOpenIssue,
                 trailingBarSlot = trailing,
             )
+        } else if (sessionId == null) {
+            EmptyFace(WorkflowView.NO_RUNS_LABEL, padding, trailing, "workflow-node-runs-empty")
         }
         // A node's pull request lands through the workflow's engine, so its
         // Changes face shows the files and merges nothing.
-        WorkFaceKind.Changes -> ChangesFace(
-            padding = padding,
-            files = files,
-            prLoad = prLoad,
-            merge = null,
-            trailingBarSlot = trailing,
-        )
-        WorkFaceKind.Results -> ResultsFace(padding = padding, groups = results, trailingBarSlot = trailing)
+        WorkFaceKind.Changes -> if (hasChanges) {
+            ChangesFace(
+                padding = padding,
+                files = files,
+                prLoad = prLoad,
+                merge = null,
+                trailingBarSlot = trailing,
+            )
+        } else {
+            EmptyFace(WorkflowView.NO_CHANGES_LABEL, padding, trailing, "workflow-node-changes-empty")
+        }
+        WorkFaceKind.Results -> if (results.isNotEmpty()) {
+            ResultsFace(padding = padding, groups = results, trailingBarSlot = trailing)
+        } else {
+            EmptyFace(WorkflowView.NO_RESULTS_LABEL, padding, trailing, "workflow-node-results-empty")
+        }
     }
 }
 
@@ -1010,11 +1035,13 @@ private fun AllFaces(
     val hasFinalPr = !workflow?.finalPrUrl.isNullOrBlank()
 
     // Changes exists before the final PR: every node keeps its row there.
+    // An empty Runs / Results face says so ([WorkflowView.NO_RUNS_LABEL] /
+    // [WorkflowView.NO_RESULTS_LABEL]) rather than leaving the switcher.
     val faces = availableFaces(
         hasIssue = true,
-        hasRun = sessions.isNotEmpty(),
+        hasRun = true,
         hasChanges = hasFinalPr || graph.nodes.isNotEmpty(),
-        hasResults = results.isNotEmpty(),
+        hasResults = true,
     )
     val wanted = WorkFaceKind.entries.firstOrNull { it.name == faceName } ?: WorkFaceKind.Issue
     val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
@@ -1069,7 +1096,9 @@ private fun AllFaces(
                 )
             }
             val guides = remember(tree) { TreeGuides.compute(tree.map { it.depth }) }
-            FaceList(padding = padding, trailing = trailing, tag = "workflow-all-runs") {
+            if (tree.isEmpty()) {
+                EmptyFace(WorkflowView.NO_RUNS_LABEL, padding, trailing, "workflow-all-runs-empty")
+            } else FaceList(padding = padding, trailing = trailing, tag = "workflow-all-runs") {
                 itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->
                     val node = entry.node as? SessionTreeNode.Session ?: return@itemsIndexed
                     TreeGuidesRow(depth = entry.depth, guide = guides.getOrNull(index)) {
@@ -1100,7 +1129,26 @@ private fun AllFaces(
             padding = padding,
             trailing = trailing,
         )
-        WorkFaceKind.Results -> ResultsFace(padding = padding, groups = results, trailingBarSlot = trailing)
+        WorkFaceKind.Results -> if (results.isNotEmpty()) {
+            ResultsFace(padding = padding, groups = results, trailingBarSlot = trailing)
+        } else {
+            EmptyFace(WorkflowView.NO_RESULTS_LABEL, padding, trailing, "workflow-all-results-empty")
+        }
+    }
+}
+
+/** A face with nothing in scope: its one shared sentence, under the bar. */
+@Composable
+private fun EmptyFace(label: String, padding: PaddingValues, trailing: @Composable () -> Unit, tag: String) {
+    FaceList(padding = padding, trailing = trailing, tag = tag) {
+        item(key = "__empty__") {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+        }
     }
 }
 

@@ -302,13 +302,12 @@ object WorkflowView {
 
     /**
      * The strip IS the graph: waves left to right (only the waves that hold a
-     * node), lanes top to bottom within a wave, ties by id. The edges are the
-     * mini-graph popover's business; the strip only orders. A compound node is
+     * node), lanes top to bottom within a wave, ties by id. The strip takes
+     * nodes only: the edges are the mini-graph popover's business. A compound node is
      * `stacked`; the caption is the node's note while it has one, else its
      * display label.
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun nodeStrip(nodes: List<StripNodeInput>, edges: List<Pair<String, String>>): List<StripWave> =
+    fun nodeStrip(nodes: List<StripNodeInput>): List<StripWave> =
         nodes.groupBy { it.wave }
             .toSortedMap()
             .map { (wave, members) ->
@@ -425,6 +424,12 @@ object WorkflowView {
 
     /** A node row on All × Changes with nothing to open. */
     const val NO_CHANGES_LABEL = "No changes yet"
+
+    /** The Run(s) face when no run is in scope. */
+    const val NO_RUNS_LABEL = "No runs yet"
+
+    /** The Results face when no run published a screenshot. */
+    const val NO_RESULTS_LABEL = "No results yet"
 
     /** Dismiss's confirm on a `proposed` node. */
     const val DISMISS_NODE_CONFIRM = "The node is removed from the workflow."

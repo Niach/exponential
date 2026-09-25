@@ -139,6 +139,14 @@ class WorkflowDetailViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * The mini-graph's pool: every synced issue (the member teams'), so a
+     * blocker OUTSIDE the workflow still draws, like the issue list's graph.
+     * The walk only reaches issues related to the node, so nothing foreign
+     * leaks in.
+     */
+    val graphIssues: StateFlow<List<IssueEntity>> = allIssues
+
     val relations: StateFlow<List<IssueRelationEntity>> =
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -191,9 +199,7 @@ class WorkflowDetailViewModel @Inject constructor(
         val sessionsById = sessionRows.associateBy { it.id }
         val runs = HashMap<String, WorkflowNodeRun>()
         nodeRows.forEach { node ->
-            val session = node.sessionId?.takeIf { it.isNotBlank() }?.let { sessionsById[it] }
-                ?: sessionRows.lastOrNull { it.workflowNodeId == node.id }
-                ?: return@forEach
+            val session = workflowNodeSession(node, sessionsById, sessionRows) ?: return@forEach
             val live = session.status == DomainContract.codingSessionStatusRunning ||
                 session.status == DomainContract.codingSessionStatusInReview
             val state = codingSessionDisplayState(session, issuesById[node.issueId]?.prState)
@@ -360,6 +366,21 @@ class WorkflowDetailViewModel @Inject constructor(
 }
 
 /**
+ * A node's OWN run: its recorded `session_id`, else the newest AUTHOR run
+ * stamped with the node (a review run carries the node id too and must never
+ * stand in for it; newest by `created_at`, then `updated_at`, then id).
+ */
+internal fun workflowNodeSession(
+    node: WorkflowNodeEntity,
+    sessionsById: Map<String, CodingSessionEntity>,
+    sessionRows: List<CodingSessionEntity>,
+): CodingSessionEntity? =
+    node.sessionId?.takeIf { it.isNotBlank() }?.let { sessionsById[it] }
+        ?: sessionRows
+            .filter { it.workflowNodeId == node.id && it.workflowRole == DomainContract.wfSessionRoleAuthor }
+            .maxWithOrNull(compareBy<CodingSessionEntity>({ it.createdAt }, { it.updatedAt }, { it.id }))
+
+/**
  * The strip off the joined graph: each node's chip, captioned by its note
  * while it has one (a holding node says why), else its display state.
  */
@@ -379,7 +400,6 @@ internal fun workflowStrip(graph: WorkflowGraph, questions: List<WorkflowOpenQue
                 note = node.note,
             )
         },
-        edges = graph.edges.map { it.from to it.to },
     )
 }
 

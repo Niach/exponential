@@ -1,5 +1,6 @@
 package com.exponential.app.ui.workflows
 
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.domain.DomainContract
@@ -76,5 +77,33 @@ class WorkflowDetailRulesTest {
     fun `a started workflow shows no start notice`() {
         val running = draft().copy(status = DomainContract.wfStatusRunning)
         assertNull(workflowStartNotice(running, deviceLabel = "Mac"))
+    }
+
+    private fun run(id: String, role: String?, createdAt: String, nodeId: String = "a") = CodingSessionEntity(
+        id = id,
+        issueId = "issue-a",
+        teamId = "team-1",
+        userId = "me",
+        status = DomainContract.codingSessionStatusRunning,
+        startedAt = createdAt,
+        createdAt = createdAt,
+        updatedAt = createdAt,
+        workflowNodeId = nodeId,
+        workflowRole = role,
+    )
+
+    @Test
+    fun `a node's run is its recorded session, else its newest author run, never its reviewer`() {
+        val author1 = run("s1", DomainContract.wfSessionRoleAuthor, "2026-09-25T10:00:00Z")
+        val author2 = run("s2", DomainContract.wfSessionRoleAuthor, "2026-09-25T11:00:00Z")
+        val review = run("s3", "review", "2026-09-25T12:00:00Z")
+        val other = run("s4", DomainContract.wfSessionRoleAuthor, "2026-09-25T13:00:00Z", nodeId = "b")
+        // Unordered on purpose: the fallback may not lean on the query order.
+        val rows = listOf(review, author2, other, author1)
+        val byId = rows.associateBy { it.id }
+        val a = node("a", DomainContract.wfNodeStateRunning)
+        assertEquals("s2", workflowNodeSession(a, byId, rows)?.id)
+        assertEquals("s1", workflowNodeSession(a.copy(sessionId = "s1"), byId, rows)?.id)
+        assertNull(workflowNodeSession(a, byId, listOf(review)))
     }
 }

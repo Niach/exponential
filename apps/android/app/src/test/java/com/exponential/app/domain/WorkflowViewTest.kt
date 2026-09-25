@@ -499,10 +499,6 @@ class WorkflowViewTest {
                     note = n["note"]?.stringOrNull(),
                 )
             }
-            val edges = case.getValue("edges").jsonArray.map { edge ->
-                val pair = edge.jsonArray
-                pair[0].jsonPrimitive.content to pair[1].jsonPrimitive.content
-            }
             val expected = case.getValue("strip").jsonArray.map { raw ->
                 val w = raw.jsonObject
                 StripWave(
@@ -523,7 +519,7 @@ class WorkflowViewTest {
                     },
                 )
             }
-            assertEquals(case.getValue("name").jsonPrimitive.content, expected, WorkflowView.nodeStrip(nodes, edges))
+            assertEquals(case.getValue("name").jsonPrimitive.content, expected, WorkflowView.nodeStrip(nodes))
         }
     }
 
@@ -603,6 +599,8 @@ class WorkflowViewTest {
         assertEquals(label("runsOn"), WorkflowView.RUNS_ON_LABEL)
         assertEquals(label("reviewFinalPr"), WorkflowView.REVIEW_FINAL_PR_LABEL)
         assertEquals(label("noChanges"), WorkflowView.NO_CHANGES_LABEL)
+        assertEquals(label("noRuns"), WorkflowView.NO_RUNS_LABEL)
+        assertEquals(label("noResults"), WorkflowView.NO_RESULTS_LABEL)
         assertEquals(label("dismissNodeConfirm"), WorkflowView.DISMISS_NODE_CONFIRM)
     }
 
@@ -626,7 +624,6 @@ class WorkflowViewTest {
         assertEquals(fixture.getValue("proposedNodeNote").jsonPrimitive.content, WorkflowView.PROPOSED_NODE_NOTE)
         val strip = WorkflowView.nodeStrip(
             listOf(StripNodeInput("p", "EXP-9", "proposed", 0, 0, 0, live = false, needsYou = false)),
-            emptyList(),
         )
         assertEquals(WorkflowView.PROPOSED_NODE_NOTE, strip.single().nodes.single().caption)
     }
