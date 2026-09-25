@@ -1407,6 +1407,7 @@ export const codingSessionsRouter = router({
           pendingQuestion: codingSessions.pendingQuestion,
           workflowId: codingSessions.workflowId,
           workflowNodeId: codingSessions.workflowNodeId,
+          teamId: codingSessions.teamId,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, input.id))
@@ -1445,15 +1446,9 @@ export const codingSessionsRouter = router({
         )
         .returning({ id: codingSessions.id })
 
-      if (answered && updated.length > 0 && existing.workflowId) {
-        const { recordWorkflowEvent } = await import(`@/lib/workflows/record-event`)
-        await recordWorkflowEvent(ctx.db, {
-          workflowId: existing.workflowId,
-          nodeId: existing.workflowNodeId,
-          sessionId: input.id,
-          kind: `question_answered`,
-          message: `Answered: ${existing.pendingQuestion?.question?.slice(0, 200) ?? ``}`,
-        })
+      if (answered && updated.length > 0) {
+        const { recordQuestionAnswered } = await import(`@/lib/sessions/answer-pending-question`)
+        await recordQuestionAnswered(ctx.db, input.id, existing)
       }
 
       return { updated: updated.length > 0 }
@@ -1467,6 +1462,13 @@ export const codingSessionsRouter = router({
   // retries. Why a column and not `status`: every client's session list keys
   // its working spinner on this, because `running` says the run is LIVE, not
   // that the agent is thinking — an idle run between turns pulsed forever.
+  //
+  // EXP-1065: the turn's first edge is also how the server learns that a
+  // run's open question (`pending_question`, `exponential_sessions_ask_parent`)
+  // was ANSWERED — the person's answer travels composer → relay → device,
+  // never through here, and the device's own needs_input flag never flipped
+  // for a server-set question. So a `true` on a row with a question clears
+  // the question and the flag with it and logs `question_answered`.
   setAgentBusy: authedProcedure
     .input(z.object({ id: z.string().uuid(), agentBusy: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
@@ -1475,6 +1477,10 @@ export const codingSessionsRouter = router({
           userId: codingSessions.userId,
           hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
+          pendingQuestion: codingSessions.pendingQuestion,
+          workflowId: codingSessions.workflowId,
+          workflowNodeId: codingSessions.workflowNodeId,
+          teamId: codingSessions.teamId,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, input.id))
@@ -1491,9 +1497,13 @@ export const codingSessionsRouter = router({
         })
       }
 
+      const answered = input.agentBusy && existing.pendingQuestion != null
       const updated = await ctx.db
         .update(codingSessions)
-        .set({ agentBusy: input.agentBusy })
+        .set({
+          agentBusy: input.agentBusy,
+          ...(answered && { pendingQuestion: null, needsInput: false }),
+        })
         .where(
           and(
             eq(codingSessions.id, input.id),
@@ -1501,6 +1511,11 @@ export const codingSessionsRouter = router({
           )
         )
         .returning({ id: codingSessions.id })
+
+      if (answered && updated.length > 0) {
+        const { recordQuestionAnswered } = await import(`@/lib/sessions/answer-pending-question`)
+        await recordQuestionAnswered(ctx.db, input.id, existing)
+      }
 
       return { updated: updated.length > 0 }
     }),

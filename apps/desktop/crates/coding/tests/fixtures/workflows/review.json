@@ -990,7 +990,7 @@
     "expected": []
   },
   {
-    "name": "rule 7: the cap lands a live idle author that pushed",
+    "name": "rule 7: the cap holds a live idle author even after a push",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
@@ -1020,10 +1020,10 @@
       "findingsSent": { "a": 3 },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+    "expected": []
   },
   {
-    "name": "rule 7: the cap holds a live idle author that has not pushed",
+    "name": "rule 7: the cap holds a live idle author that has not pushed either",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",

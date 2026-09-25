@@ -13,7 +13,7 @@ import {
   workflowReviewOracleSchema,
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
-import { authedProcedure, generateTxId } from "@/lib/trpc"
+import { authedProcedure } from "@/lib/trpc"
 import { workflowNodes, workflows } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
 import {
@@ -28,37 +28,19 @@ import {
 
 export const workflowReviewProcedures = {
 
-  /** compat (EXP-1065): a person no longer gates any node — the agent
-   *  review clears it, or the review cap does. The procedure stays callable
-   *  only because clients built before this rule still show an Approve
-   *  button; the integration node deletes it. `approved: false` takes an
-   *  approval back while the node has not landed. */
+  /** EXP-1065: a person no longer gates any node — the agent review clears
+   *  it, or the review cap does. The procedure stays REGISTERED only because
+   *  clients built before this rule still show an Approve button (the
+   *  integration node deletes it with them); it refuses every call. */
   approveNode: authedProcedure
     .input(z.object({ nodeId: z.string().uuid(), approved: z.boolean().default(true) }))
     .mutation(async ({ ctx, input }) => {
       const node = await loadNode(input.nodeId)
       const workflow = await loadWorkflow(node.workflowId)
       await assertTeamMember(ctx.session.user.id, workflow.teamId)
-      if (node.state === `landed`) throw bad(`That node already landed`)
-      return ctx.db.transaction(async (tx) => {
-        const txId = await generateTxId(tx)
-        await tx
-          .update(workflowNodes)
-          .set({
-            approvedAt: input.approved ? new Date() : null,
-            // A person approves the pull request as it IS. The engine reads
-            // an approval as stale while the stored review names a head the
-            // PR has moved past (`approval_is_stale`), which after a
-            // request_changes round is always the case once the author
-            // pushed its fixes: the reviewer's head goes, the verdict and
-            // findings stay on record.
-            ...(input.approved && {
-              review: sql`CASE WHEN ${workflowNodes.review} IS NULL THEN NULL ELSE ${workflowNodes.review} - 'head' END`,
-            }),
-          })
-          .where(eq(workflowNodes.id, input.nodeId))
-        return { txId }
-      })
+      throw bad(
+        `Nobody approves a node by hand any more: the agent review clears it, or the review cap lands it with its findings carried to the final pull request`
+      )
     }),
 
 

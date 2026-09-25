@@ -1335,6 +1335,55 @@ describe(`codingSessions.setAgentBusy — turn state (EXP-848)`, () => {
     expect(updates[0]!.values).toEqual({ agentBusy: false })
   })
 
+  // EXP-1065: the person's answer reaches the device over the relay, never
+  // this server — the turn it starts is how the server learns the run's
+  // open question (`ask_parent`) was answered.
+  it(`a turn start answers the run's open question and logs it for its workflow`, async () => {
+    selectResults.push([
+      {
+        userId: `actor`,
+        status: `running`,
+        pendingQuestion: { question: `Proposal: keep the enum?`, askedAt: `2026-09-25T10:00:00Z` },
+        workflowId: `wf-1`,
+        workflowNodeId: `node-1`,
+        teamId: `team-1`,
+      },
+    ])
+
+    const result = await caller.setAgentBusy({ id: SESSION_ID, agentBusy: true })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates[0]!.values).toEqual({
+      agentBusy: true,
+      pendingQuestion: null,
+      needsInput: false,
+    })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: `wf-1`,
+      teamId: `team-1`,
+      nodeId: `node-1`,
+      sessionId: SESSION_ID,
+      kind: `question_answered`,
+      message: `Answered: Proposal: keep the enum?`,
+    })
+  })
+
+  it(`a turn end never touches the question, and a run without one writes only the flag`, async () => {
+    selectResults.push([
+      {
+        userId: `actor`,
+        status: `running`,
+        pendingQuestion: { question: `Still open?`, askedAt: `2026-09-25T10:00:00Z` },
+        workflowId: `wf-1`,
+        workflowNodeId: `node-1`,
+      },
+    ])
+    await caller.setAgentBusy({ id: SESSION_ID, agentBusy: false })
+    expect(updates[0]!.values).toEqual({ agentBusy: false })
+    expect(inserts).toHaveLength(0)
+  })
+
   it(`reports a swept row without writing`, async () => {
     selectResults.push([])
 

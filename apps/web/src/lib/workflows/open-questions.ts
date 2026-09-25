@@ -5,9 +5,11 @@
 //
 // The question lives in `coding_sessions.pending_question` (jsonb
 // `{ question, askedAt }`), written by `exponential_sessions_ask_parent({ to:
-// 'user' })` and cleared when the run's next turn starts (`setNeedsInput`
-// false) or the run ends. An open question never changes a node's state,
-// only the badge. A planner run's question (no node) is not listed here: it
+// 'user' })` and cleared by the answer (`lib/sessions/answer-pending-question.ts`:
+// the turn that consumes it, `setAgentBusy(true)`; a parent's
+// `exponential_sessions_message`; the device's own `setNeedsInput(false)`)
+// or the run's end. An open question never changes a node's state, only the
+// badge. A planner run's question (no node) is not listed here: it
 // reaches the person through the notification and the run's own composer.
 import type { CodingSession } from "@/db/schema"
 

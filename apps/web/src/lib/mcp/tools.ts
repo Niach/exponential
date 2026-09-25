@@ -3847,6 +3847,10 @@ export function registerExponentialTools(
             `Not delivered: the session's device is not connected to the relay. The run may still be starting or its device offline; retry, or fall back to exponential_sessions_get.`
           )
         }
+        // EXP-1065: a delivered message IS the answer to the run's open
+        // question (`ask_parent`): off the row, into the workflow's log.
+        const { answerPendingQuestion } = await import(`@/lib/sessions/answer-pending-question`)
+        await answerPendingQuestion(db, targetId)
         return ok({ ok: true, id: targetId, delivered: true })
       } catch (e) {
         return err(e)

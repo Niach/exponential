@@ -2022,10 +2022,11 @@ pub fn settle_review_runs(
 /// the agent review's (the only gate there is). EXP-1065: or once it is AT
 /// THE CAP — `WORKFLOW_MAX_REVIEW_ROUNDS` verdicts that still ask for
 /// changes (a failed oracle counts), the last round's findings delivered,
-/// and the author done with them: its run ended, or live, idle and pushed
-/// past the reviewed head. The findings are not lost: the server carries
-/// them into the workflow's decisions and the final pull request, the one
-/// place a person reviews. The server enforces both readings (`landNode`).
+/// and the author's run ENDED (a workflow author is unattended and ends
+/// itself; a live run, however idle, may not have read the findings yet).
+/// The findings are not lost: the server carries them into the workflow's
+/// decisions and the final pull request, the one place a person reviews.
+/// The server enforces both readings (`landNode`).
 fn is_cleared(snapshot: &Snapshot, node: &NodeFacts) -> bool {
     node.approved_at.is_some() || cleared_at_cap(snapshot, node)
 }
@@ -2043,20 +2044,11 @@ fn cleared_at_cap(snapshot: &Snapshot, node: &NodeFacts) -> bool {
     if !findings_delivered(snapshot, node, review.round) {
         return false;
     }
-    let session = node
+    !node
         .session_id
         .as_deref()
-        .and_then(|session_id| snapshot.sessions.get(session_id));
-    match session {
-        Some(session) if session.live => {
-            let pushed = match (snapshot.pr_head.get(&node.id), review.head.as_ref()) {
-                (Some(current), Some(reviewed)) => current != reviewed,
-                _ => false,
-            };
-            !session.agent_busy && pushed
-        }
-        _ => true,
-    }
+        .and_then(|session_id| snapshot.sessions.get(session_id))
+        .is_some_and(|session| session.live)
 }
 
 /// An agent approval is tied to the commit the reviewer

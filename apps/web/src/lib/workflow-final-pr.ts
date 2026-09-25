@@ -119,7 +119,13 @@ export function finalPrBody(args: {
   }
   const results = args.results ?? []
   if (results.length > 0) {
-    lines.push(``, `## Results`)
+    // Attachment reads need membership, so GitHub's image proxy would show
+    // every picture broken: plain links, opened as a signed-in member.
+    lines.push(
+      ``,
+      `## Results`,
+      `Screenshots the runs published (they open in Exponential for a signed-in member):`
+    )
     const topics = new Map<string, FinalPrResult[]>()
     for (const result of results) {
       const key = `${result.identifier ?? ``}\u0000${result.topic}`
@@ -130,7 +136,7 @@ export function finalPrBody(args: {
       lines.push(
         ``,
         `### ${first.identifier ? `${first.identifier} · ` : ``}${first.topic}`,
-        ...group.map((result) => `[![${result.label}](${result.url})](${result.url})`)
+        ...group.map((result) => `- [${result.label}](${result.url})`)
       )
     }
   }
@@ -139,7 +145,7 @@ export function finalPrBody(args: {
 
 /** The screenshots every run of the workflow published (`coding_sessions.
  *  results`, `exponential_sessions_results`), as the final PR shows them —
- *  one link per picture, the app serving the attachment to a member. */
+ *  one plain link per picture, the app serving the attachment to a member. */
 export async function loadWorkflowResults(
   db: Db,
   workflowId: string,

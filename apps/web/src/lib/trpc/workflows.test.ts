@@ -675,20 +675,16 @@ describe(`the engine's write path`, () => {
     expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
   })
 
-  it(`a person's approval drops the reviewer's head so the engine never reads it as stale`, async () => {
-    selectQueue.push([node({ approvedAt: null })], [workflow()], [{ since: new Date() }])
-    await caller.approveNode({ nodeId: NODE, approved: true } as never)
-    const write = written.find((w) => w.op === `update`)
-    expect(write?.values).toMatchObject({ approvedAt: expect.any(Date) })
-    expect(typeof (write?.values as { review: unknown }).review).toBe(`object`)
-    expect((write?.values as { review: unknown }).review).not.toBeNull()
-  })
-
-  it(`withdrawing an approval leaves the review alone`, async () => {
-    selectQueue.push([node()], [workflow()])
-    await caller.approveNode({ nodeId: NODE, approved: false } as never)
-    const write = written.find((w) => w.op === `update`)
-    expect(write?.values).toEqual({ approvedAt: null })
+  // EXP-1065: nobody approves a node by hand; the procedure only stays
+  // registered for clients that still show the button.
+  it(`refuses a person's approval and writes nothing`, async () => {
+    for (const approved of [true, false]) {
+      selectQueue.push([node({ approvedAt: null })], [workflow()])
+      const error = await rejection(caller.approveNode({ nodeId: NODE, approved } as never))
+      expect(error?.code).toBe(`BAD_REQUEST`)
+      expect(error?.message).toContain(`Nobody approves a node by hand`)
+    }
+    expect(written).toEqual([])
   })
 
   it(`holds an unapproved node at the gate, server-side`, async () => {
@@ -1619,6 +1615,7 @@ describe(`final PR (EXP-1082 §7)`, () => {
     expect(body).toContain(`## Unresolved review findings\n`)
     expect(body).toContain(`- [ ] #APP-6 (review round 3)\n  src/a.ts:4 off by one\n  Checks failed: bun test`)
     expect(body).toContain(`## Decisions\n2026-09-25: Unresolved review findings`)
-    expect(body).toContain(`## Results\n\n### APP-6 · login\n[![web](https://app.test/api/attachments/a1)](https://app.test/api/attachments/a1)`)
+    expect(body).toContain(`## Results\n`)
+    expect(body).toContain(`### APP-6 · login\n- [web](https://app.test/api/attachments/a1)`)
   })
 })
