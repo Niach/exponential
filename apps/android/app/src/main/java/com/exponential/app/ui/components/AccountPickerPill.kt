@@ -10,10 +10,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,6 +25,7 @@ import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AgentHealth
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentUsagePresentation
+import com.exponential.app.ui.components.picker.AccountPicker
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -53,9 +51,11 @@ private const val LIMIT_LABEL_FIVE_HOUR = "5h"
 private const val LIMIT_LABEL_WEEK = "week"
 
 /** The label column and the block's width in a menu row — a dropdown wraps its
- *  content, so the bars have to bring a width of their own. */
+ *  content, so the bars have to bring a width of their own. The block width is
+ *  shared with the picker sheet's login row (EXP-1021), where a full-width bar
+ *  would read as a progress meter rather than as a preview. */
 private val LimitLabelWidth: Dp = 30.dp
-private val LimitBarsWidth: Dp = 136.dp
+internal val AccountLimitBarsWidth: Dp = 136.dp
 
 /** One drawn bar: what it is called and how full it is (0-1). */
 internal data class AccountLimitBar(val label: String, val used: Double)
@@ -110,14 +110,23 @@ internal fun AccountLimitBars(
 }
 
 /**
- * The picker itself: the brand mark, the login's email, its health badge when
- * the credential is dead, and a chevron — a single login is a statement, not a
- * choice, so it renders as a plain capsule that opens nothing. [enabled] false
- * is the same statement for a LOCKED surface (a workflow past draft, whose
- * server refuses the write anyway): dimmed, chevron-less, still readable.
+ * The pill AND its dropdown: the brand mark, the login's email, its health
+ * badge when the credential is dead, and a chevron — a single login is a
+ * statement, not a choice, so it renders as a plain capsule that opens
+ * nothing. [enabled] false is the same statement for a LOCKED surface (a
+ * workflow past draft, whose server refuses the write anyway): dimmed,
+ * chevron-less, still readable.
  *
  * Renders NOTHING when [options] is empty: a machine with no login to pick has
  * no decision to offer, and the surface's own caption says what cannot start.
+ *
+ * EXP-1021 did NOT retire this: the shared `AccountPicker` sheet took the
+ * launch composer, and this dropdown SURVIVES on the three surfaces the sweep
+ * did not reach — `ui/agent/AgentOptionsRow` (EXP-1019 owns that file),
+ * `ui/workflows/WorkflowDetailScreen` and `ui/session/DeviceSettingsSheet`.
+ * Until those move, the app shows a login list two ways, and this file owes a
+ * deletion once they land. [AccountPill] is the part that outlives it — it is
+ * the picker's trigger.
  */
 @Composable
 internal fun AccountPickerPill(
@@ -129,119 +138,92 @@ internal fun AccountPickerPill(
     contentDescription: String = "Account",
 ) {
     val current = options.firstOrNull { it.key == selectedKey } ?: options.firstOrNull() ?: return
-    var open by remember { mutableStateOf(false) }
     val pickable = enabled && options.size > 1
-    val badge = AgentHealthRules.badgeLabel(current.health)
+    val byKey = remember(options) { options.associateBy { it.key } }
+    // EXP-1030: the pill is only the TRIGGER — the list it opens is the shared
+    // [AccountPicker] (a sheet of plain rows, the pick marked by the row's own
+    // highlight like every other pick on the phone), whose row keeps the brand
+    // mark, the badge and the EXP-992 limit preview.
     Box(modifier = modifier) {
-        GlassPill(
-            current.email,
-            onClick = if (pickable) ({ open = true }) else null,
-            enabled = enabled,
-            leading = {
-                Icon(
-                    agentIconPainter(current.agent),
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = agentIconTint(current.agent),
+        AccountPicker(
+            options = options.map { it.toPickerAccount() },
+            value = current.key,
+            onChange = { key -> byKey[key]?.let(onSelect) },
+            trigger = { open ->
+                AccountPill(
+                    option = current,
+                    onClick = if (pickable) open else null,
+                    enabled = enabled,
+                    contentDescription = contentDescription,
                 )
             },
-            trailing = if (badge != null || pickable) {
-                {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (badge != null) {
-                            Text(
-                                badge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                                    .copy(alpha = TextEmphasis.Tertiary),
-                                maxLines = 1,
-                            )
-                        }
-                        if (pickable) {
-                            Icon(
-                                ExpIcons.uiChevronDown,
-                                contentDescription = null,
-                                modifier = Modifier.size(10.dp),
-                                tint = MaterialTheme.colorScheme.onSurface
-                                    .copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        }
-                    }
-                }
-            } else {
-                null
-            },
-            contentDescription = contentDescription,
         )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            AccountMenuItems(
-                options = options,
-                selectedKey = current.key,
-                onSelect = {
-                    open = false
-                    onSelect(it)
-                },
-            )
-        }
     }
 }
 
 /**
- * The login rows of a menu a surface already owns: the brand mark, the email
- * (plus its health badge), the three limit bars under it, and a check on the
- * current pick.
+ * The picker's TRIGGER on its own: the brand mark, the login's email, its
+ * health badge when the credential is dead, and a chevron only when [onClick]
+ * opens something. EXP-1021 split it out of [AccountPickerPill] so a surface
+ * can keep this exact capsule while its options move into the shared
+ * `AccountPicker` sheet (the automation editor's pin).
  */
 @Composable
-internal fun AccountMenuItems(
-    options: List<AccountOption>,
-    selectedKey: String?,
-    onSelect: (AccountOption) -> Unit,
+internal fun AccountPill(
+    option: AccountOption,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String = "Account",
 ) {
-    options.forEach { option ->
-        val badge = AgentHealthRules.badgeLabel(option.health)
-        GlassMenuItem(
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(option.email, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (badge != null) {
-                            Text(
-                                badge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                                    .copy(alpha = TextEmphasis.Tertiary),
-                                maxLines = 1,
-                            )
-                        }
+    val badge = AgentHealthRules.badgeLabel(option.health)
+    val pickable = enabled && onClick != null
+    GlassPill(
+        option.email,
+        onClick = if (pickable) onClick else null,
+        enabled = enabled,
+        modifier = modifier,
+        leading = {
+            Icon(
+                agentIconPainter(option.agent),
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = agentIconTint(option.agent),
+            )
+        },
+        trailing = if (badge != null || pickable) {
+            {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (badge != null) {
+                        Text(
+                            badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                                .copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                        )
                     }
-                    option.limits?.let {
-                        AccountLimitBars(it, modifier = Modifier.width(LimitBarsWidth))
+                    if (pickable) {
+                        Icon(
+                            ExpIcons.uiChevronDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(10.dp),
+                            tint = MaterialTheme.colorScheme.onSurface
+                                .copy(alpha = TextEmphasis.Tertiary),
+                        )
                     }
                 }
-            },
-            leadingIcon = {
-                Icon(
-                    agentIconPainter(option.agent),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = agentIconTint(option.agent),
-                )
-            },
-            trailingIcon = if (option.key == selectedKey) {
-                { Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(16.dp)) }
-            } else {
-                null
-            },
-            onClick = { onSelect(option) },
-        )
-    }
+            }
+        } else {
+            null
+        },
+        contentDescription = contentDescription,
+    )
 }
+
 
 /**
  * EXP-872 (web `accountOptionsOf`): the machine's flattened logins, or — for a
@@ -261,6 +243,26 @@ internal fun accountOptionsFor(
         fallbackAgents,
         device.launchDefaults?.defaultAgent?.takeIf { it in fallbackAgents },
     )
+}
+
+/**
+ * EXP-1043: [accountOptionsFor] for the DEVICE SETTINGS sheet, where the
+ * default-account row is the machine's "which agent do runs start on"
+ * setting and must therefore always be changeable: every agent in [agents]
+ * that reports no login of its own still contributes its AMBIENT one, so a
+ * machine signed into claude alone can still be pointed at codex. The launch
+ * surfaces keep [accountOptionsFor]'s stricter list — there, an agent with no
+ * login on the machine is not something to start a run on.
+ */
+internal fun deviceAccountOptions(
+    device: SteerDevice?,
+    agents: List<String>,
+): List<AccountOption> {
+    val reported = accountOptionsFor(device, agents)
+    val missing = agents.filter { agent -> reported.none { it.agent == agent } }
+    if (missing.isEmpty()) return reported
+    return reported + ambientAccountOptions(missing, preferred = null)
+        .map { it.copy(isDeviceDefault = false) }
 }
 
 /**

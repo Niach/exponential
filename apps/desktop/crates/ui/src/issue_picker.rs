@@ -3,35 +3,32 @@
 //! Start coding, two or more = a batch. Ported out of the deleted
 //! start-coding dialog: the pool rules (EXP-119: `done`/`cancelled`/
 //! `duplicate`/PR-merged rows hidden, pre-seeded ids exempt and force-checked),
-//! the per-run cap and the row anatomy (EXP-768: selection glyph · priority ·
-//! identifier · status · title) are unchanged.
+//! the per-run cap and the row anatomy (EXP-768: priority · identifier ·
+//! status · title) are unchanged.
 //!
-//! EXP-892: searching runs through the ONE engine (`domain::issue_search`),
-//! and the popover carries the uniform list keyboard contract — the top row
-//! is selected while typing, ↑/↓ move the selection, hovering a row MOVES it
-//! (one highlight, never a second hover tint) and Enter TOGGLES the selected
-//! row with the popover staying open.
+//! EXP-892: searching runs through the ONE engine (`domain::issue_search`).
+//!
+//! EXP-1030: the POPOVER is gone from here — the `#` tool mounts
+//! [`crate::picker::Picker`] like every other IDE pick, which owns the
+//! surface, the filter field, the keyboard cursor and the selection mark
+//! (a multi row's own highlight, never a circle). What stays is the DATA
+//! half the primitive cannot know: the pool ([`snapshot_rows`]), the ranking
+//! ([`visible_rows`], handed over as the primitive's `rank`), its memo, the
+//! row anatomy ([`issue_row_body`], its `render_item`) and the overflow
+//! notes ([`list_note`], its `footer`).
 
 use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
-use gpui::{
-    div, px, AnyElement, App, ClickEvent, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, WeakEntity, Window,
-};
-use gpui_component::button::Button;
-use gpui_component::input::InputState;
-use gpui_component::popover::Popover;
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui::{div, px, AnyElement, App, IntoElement, ParentElement as _, SharedString, Styled as _};
+use gpui_component::{h_flex, ActiveTheme as _, Sizable as _};
 use sync::Store;
 
 use domain::options::get_issue_priority_config;
 use domain::{IssuePriority, IssueStatus};
 
-use crate::controls::{search_field, SearchFieldSize};
-use crate::icons::{option_icon, registry, resolved_status_icon};
+use crate::icons::{option_icon, resolved_status_icon};
 
 /// Hard cap per run: every checked issue adds a prompt section, and a batch
 /// beyond this size stops being one coherent session anyway.
@@ -284,314 +281,84 @@ fn engine_row(row: &IssueRow) -> domain::issue_search::SearchRow<'_> {
     }
 }
 
-/// The search row heading the picker (EXP-768): the row shell around ONE
-/// chrome-less [`search_field`] (EXP-963) — the glyph and the clear come from
-/// the shared field, never hand-drawn here, or the row would carry two search
-/// marks. The box tweaks stay: the SHELL owns the row's height (`py_3`), so
-/// the field must not add its own 36px rung on top of it.
-fn search_row(state: &Entity<InputState>, window: &Window, cx: &App) -> gpui::Div {
-    crate::surface::glass_row_shell().child(
-        div().flex_1().min_w_0().child(
-            search_field(state, SearchFieldSize::Md, window, cx)
-                .appearance(false)
-                .h_auto()
-                .px_0()
-                .py_0(),
-        ),
-    )
-}
-
-/// One muted, hairline-divided NOTE row (empty / no-match / overflow copy).
+/// One muted NOTE row under a picker's list — the overflow / no-match copy
+/// the rows themselves cannot say, handed to the primitive as its `footer`
+/// (EXP-1030). The compact picker rung, because it sits between
+/// `pickers::picker_row`s inside the picker surface.
 pub(crate) fn list_note(text: impl Into<SharedString>, cx: &App) -> gpui::Div {
-    crate::surface::glass_row_divider(
-        div()
-            .px_4()
-            .py_3()
-            .text_sm()
-            .text_color(cx.theme().foreground.opacity(0.7))
-            .child(text.into()),
-    )
+    div()
+        .w_full()
+        .px_2()
+        .py_1p5()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(text.into())
 }
 
-/// One checklist row (EXP-768, the mobile anatomy on every client):
-/// selection glyph · priority · identifier · status · title (+ state hint or
-/// `note`). The whole row toggles; hovering it MOVES the keyboard selection
-/// onto it (EXP-892 — one highlight, so what Enter would pick is always the
-/// row under the pointer).
-fn issue_row<V: IssuePickerHost>(
+/// The `#` picker's rows for the primitive: ONE item per pool row, in POOL
+/// order. [`visible_rows`] does the ranking (the primitive's `rank` hook), so
+/// the indices it hands back index straight into this list.
+///
+/// The label is only the SEARCH keyword set — what a row draws is
+/// [`issue_row_body`], which the composer hands over as `render_item`.
+pub(crate) fn picker_items(rows: &[IssueRow]) -> Vec<crate::picker::PickerItem<String>> {
+    rows.iter()
+        .map(|row| {
+            crate::picker::PickerItem::new(
+                row.issue_id.clone(),
+                format!("{} {}", row.identifier, row.title),
+            )
+            .keywords(vec![row.identifier.clone().into(), row.title.clone().into()])
+        })
+        .collect()
+}
+
+/// One checklist row's BODY (EXP-768, the mobile anatomy on every client):
+/// priority · identifier · status · title (+ state hint or `note`).
+///
+/// The selection mark is NOT here and never comes back: EXP-1021 made a multi
+/// row's own highlight its mark, and the row shell, the hover and the toggle
+/// all belong to [`crate::picker::Picker`].
+pub(crate) fn issue_row_body(
     row: &IssueRow,
-    is_checked: bool,
-    is_selected: bool,
-    position: usize,
     note: Option<SharedString>,
-    view: &WeakEntity<V>,
     cx: &App,
 ) -> AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
-    let toggle_id = row.issue_id.clone();
     let priority = get_issue_priority_config(row.priority);
-    let hover_view = view.clone();
-    let view = view.clone();
-    crate::surface::glass_row_divider(
-        h_flex()
-            .id(SharedString::from(format!("chat-issue-{}", row.issue_id)))
-            .w_full()
-            .items_center()
-            .gap_2p5()
-            .px_4()
-            .py_2()
-            .cursor_pointer()
-            // ONE highlight: the selected row. Hover moves the selection
-            // instead of painting a second tint.
-            .when(is_selected, |this| this.bg(theme.list_active))
-            .when(is_checked && !is_selected, |this| {
-                this.bg(theme.list_active.opacity(0.4))
-            })
-            .on_hover(move |hovered, _window, cx| {
-                if !*hovered {
-                    return;
-                }
-                if let Some(view) = hover_view.upgrade() {
-                    view.update(cx, |this, cx| {
-                        if this.picker_selected() != position {
-                            this.set_picker_selected(position);
-                            cx.notify();
-                        }
-                    });
-                }
-            })
-            // The popover's content closure runs on `&mut App`, so the row
-            // reaches the host view through its weak handle (the MCP
-            // picker's pattern).
-            .on_click(move |_: &ClickEvent, window, cx| {
-                if let Some(view) = view.upgrade() {
-                    let toggle_id = toggle_id.clone();
-                    view.update(cx, |this, cx| {
-                        this.set_picker_selected(position);
-                        this.toggle_picked_issue(toggle_id, !is_checked, window, cx);
-                    });
-                }
-            }),
-    )
-    .child(
-        Icon::new(if is_checked {
-            registry::UI_SELECTED
-        } else {
-            registry::UI_UNSELECTED
-        })
-        .small()
-        .text_color(if is_checked { theme.foreground } else { muted }),
-    )
-    .child(option_icon(priority, cx).xsmall())
-    .child(
-        div()
-            .flex_shrink_0()
-            .min_w(px(60.))
-            .text_xs()
-            .text_color(muted)
-            .font_family(theme::terminal::FONT_FAMILY)
-            .child(SharedString::from(row.identifier.clone())),
-    )
-    .child(resolved_status_icon(&row.resolved, cx).xsmall())
-    .child(
-        div()
-            .flex_1()
-            .min_w_0()
-            .text_sm()
-            .truncate()
-            .text_color(theme.foreground)
-            .child(SharedString::from(row.title.clone())),
-    )
-    .when_some(
-        note.or_else(|| row.state_hint.map(SharedString::from)),
-        |this, note| {
-            this.child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(note),
-            )
-        },
-    )
-    .into_any_element()
-}
-
-/// The host view behind the picker popover (EXP-892): it owns the checked
-/// set AND the keyboard selection, because the popover's content closure runs
-/// on a bare `&mut App` and can only reach state through the host's handle.
-pub(crate) trait IssuePickerHost: Render + Sized {
-    /// The selected POSITION in the currently visible list (not a row index).
-    fn picker_selected(&self) -> usize;
-    fn set_picker_selected(&mut self, position: usize);
-    /// The host's [`VisibleRowsMemo`] — interior-mutable, because the
-    /// content closure only ever READS the host while it paints.
-    fn picker_memo(&self) -> &std::cell::RefCell<VisibleRowsMemo>;
-    /// Check/uncheck one row; the popover stays open.
-    fn toggle_picked_issue(
-        &mut self,
-        issue_id: String,
-        on: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    );
-}
-
-/// The picker POPOVER hung off `trigger` (the composer's `#` tool): the
-/// search row, then the checklist — checked rows first, ranked matches
-/// capped. `notes` supplies a row's transient probe note (resolving /
-/// excluded). Keyboard (EXP-892): ↑/↓ move, Enter toggles, the top row starts
-/// selected.
-pub(crate) fn issue_picker_popover<V: IssuePickerHost>(
-    trigger: Button,
-    // EXP-868: shared, not copied — the composer renders on every window
-    // redraw, and a per-render copy of the whole pool was measurable.
-    rows: Rc<Vec<IssueRow>>,
-    checked: &HashSet<String>,
-    search: &Entity<InputState>,
-    notes: Vec<(String, SharedString)>,
-    // EXP-946: the side and the height cap [`popover_fit`] worked out from
-    // where the trigger actually painted.
-    fit: (gpui::Anchor, gpui::Pixels),
-    cx: &mut gpui::Context<V>,
-) -> Popover {
-    let (anchor, max_height) = fit;
-    let checked = checked.clone();
-    let search = search.clone();
-    let view = cx.entity().downgrade();
-    let search_for_open = search.clone();
-    let view_for_open = view.clone();
-    Popover::new("chat-issue-picker")
-        .p_1()
-        .anchor(anchor)
-        .trigger(trigger)
-        .on_open_change(move |open, window, cx| {
-            // Fresh search + selection per open, and the field takes focus so
-            // ↑/↓/Enter land on the list (the label picker's recipe).
-            search_for_open.update(cx, |input, cx| input.set_value("", window, cx));
-            if let Some(view) = view_for_open.upgrade() {
-                view.update(cx, |this, cx| {
-                    this.set_picker_selected(0);
-                    cx.notify();
-                });
-            }
-            if *open {
-                search_for_open.read(cx).focus_handle(cx).focus(window, cx);
-            }
-        })
-        .content(move |_, window, cx| {
-            let query = search.read(cx).value().to_string();
-            // Memoised on the host: the same pool, query and checked set
-            // never rank twice (release review R5).
-            let (visible, hidden, no_matches) = match view.upgrade() {
-                Some(host) => host.read(cx).picker_memo().borrow_mut().get(&rows, &checked, &query),
-                None => visible_rows(&rows, &checked, &query),
-            };
-            // The host's selection is clamped to what is on screen, so a
-            // narrowing query always leaves a real row selected.
-            let selected = view
-                .upgrade()
-                .map(|view| view.read(cx).picker_selected())
-                .unwrap_or(0)
-                .min(visible.len().saturating_sub(1));
-            let mut list = v_flex().w_full();
-            if rows.is_empty() {
-                list = list.child(list_note("No open issues in this team.", cx));
-            }
-            for (position, ix) in visible.iter().copied().enumerate() {
-                let row = &rows[ix];
-                let note = notes
-                    .iter()
-                    .find(|(id, _)| id == &row.issue_id)
-                    .map(|(_, note)| note.clone());
-                list = list.child(issue_row(
-                    row,
-                    checked.contains(&row.issue_id),
-                    position == selected,
-                    position,
-                    note,
-                    &view,
-                    cx,
-                ));
-            }
-            if no_matches {
-                list = list.child(list_note("No matches. Only open issues are shown.", cx));
-            }
-            if hidden > 0 {
-                list = list.child(list_note(
-                    format!("+{hidden} more. Refine your search."),
-                    cx,
-                ));
-            }
-            let count = visible.len();
-            let picked: Option<(String, bool)> = visible
-                .get(selected)
-                .map(|ix| (rows[*ix].issue_id.clone(), checked.contains(&rows[*ix].issue_id)));
-            v_flex()
-                .w(px(480.))
-                .max_w_full()
-                // EXP-946: the list SHRINKS with the room its side has, so the
-                // popover can never run off the window.
-                .max_h(max_height)
-                // ↑/↓/Enter arrive as the search field's own actions — a
-                // single-line input no-ops them, so the popover CAPTURES them
-                // for the list (the `MentionInput` pattern).
-                .capture_action(move_selection_listener::<V, gpui_component::input::MoveUp>(
-                    &view, -1, count,
-                ))
-                .capture_action(move_selection_listener::<V, gpui_component::input::MoveDown>(
-                    &view, 1, count,
-                ))
-                .capture_action({
-                    let view = view.clone();
-                    move |_: &gpui_component::input::Enter, window, cx: &mut App| {
-                        let Some((issue_id, was_checked)) = picked.clone() else {
-                            return;
-                        };
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| {
-                                this.toggle_picked_issue(issue_id, !was_checked, window, cx);
-                            });
-                        }
-                    }
-                })
-                .child(search_row(&search, window, cx))
-                .child(
-                    div()
-                        .id("chat-issue-picker-scroll")
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .child(list),
-                )
-        })
-}
-
-/// One ↑/↓ handler: move the host's selection by `delta`, clamped to the
-/// `count` rows on screen.
-fn move_selection_listener<V: IssuePickerHost, A: gpui::Action>(
-    view: &WeakEntity<V>,
-    delta: isize,
-    count: usize,
-) -> impl Fn(&A, &mut Window, &mut App) + 'static {
-    let view = view.clone();
-    move |_, _window, cx| {
-        if count == 0 {
-            return;
-        }
-        if let Some(view) = view.upgrade() {
-            view.update(cx, |this, cx| {
-                let next = this
-                    .picker_selected()
-                    .min(count - 1)
-                    .saturating_add_signed(delta)
-                    .min(count - 1);
-                this.set_picker_selected(next);
-                cx.notify();
-            });
-        }
-    }
+    h_flex()
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .gap_2p5()
+        .child(option_icon(priority, cx).xsmall())
+        .child(
+            div()
+                .flex_shrink_0()
+                .min_w(px(60.))
+                .text_xs()
+                .text_color(muted)
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(SharedString::from(row.identifier.clone())),
+        )
+        .child(resolved_status_icon(&row.resolved, cx).xsmall())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_sm()
+                .truncate()
+                .text_color(theme.foreground)
+                .child(SharedString::from(row.title.clone())),
+        )
+        .when_some(
+            note.or_else(|| row.state_hint.map(SharedString::from)),
+            |this, note| {
+                this.child(div().flex_shrink_0().text_xs().text_color(muted).child(note))
+            },
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]
@@ -729,6 +496,41 @@ mod tests {
         let (visible, _, no_matches) = visible_rows(&rows, &checked, "nothing here");
         assert_eq!(visible, vec![5]);
         assert!(no_matches);
+    }
+
+    /// EXP-1030: the primitive's rows are 1:1 with the POOL, in pool order —
+    /// that is what lets [`visible_rows`]' indices be handed straight to
+    /// `Picker::rank`. A row's label is only its search keyword set (the body
+    /// is [`issue_row_body`]), and both the identifier and the title match.
+    #[test]
+    fn the_picker_items_mirror_the_pool_one_for_one() {
+        let rows = vec![
+            row("a", "EXP-870", "Login flicker"),
+            row("b", "EXP-12", "Login timeout"),
+        ];
+        let items = picker_items(&rows);
+        assert_eq!(items.len(), rows.len());
+        let values: Vec<&str> = items.iter().map(|item| item.value.as_str()).collect();
+        assert_eq!(values, vec!["a", "b"], "pool order, so an index means the same row");
+        assert_eq!(items[0].label, SharedString::from("EXP-870 Login flicker"));
+        assert_eq!(
+            items[0].keywords,
+            vec![
+                SharedString::from("EXP-870"),
+                SharedString::from("Login flicker")
+            ]
+        );
+        // A row carries no glyph and no description of its own: the composer
+        // draws the whole body itself (`render_item`).
+        assert!(items[0].icon.is_none());
+        assert!(items[0].description.is_none());
+        assert!(!items[0].disabled);
+
+        // …and the ranking indexes straight into them.
+        let picked: HashSet<String> = HashSet::new();
+        let (visible, _, _) = visible_rows(&rows, &picked, "flicker");
+        assert_eq!(visible, vec![0]);
+        assert_eq!(items[visible[0]].value, "a");
     }
 
     /// EXP-892: the picker ranks through `domain::issue_search` — an exact

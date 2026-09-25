@@ -30,11 +30,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.renumberImageMarkers
@@ -53,9 +55,10 @@ import com.exponential.app.ui.theme.TextEmphasis
  * EXP-825: the ONE launcher's card — the same [GlassComposer] the steer and
  * comment composers wear. Slot order is leading · strip · field · tools:
  *
- * - leading: the subject chips (issue chips OR one action chip — the chip's
- *   ✕ removes it, the body is inert, EXP-827) and, under an action that
- *   declares inputs, its typed pick rows ([ActionInputFields]);
+ * - leading: under an action that declares inputs, its typed pick rows
+ *   ([ActionInputFields]). EXP-1038: the subject chips are NOT here any more
+ *   — they head the page beside the contract verb
+ *   ([AgentComposerHeadline], mounted by the page above this card);
  * - field: the draft with the `@` / `#` / `:` typeahead (the page mounts the
  *   candidate rows under the card and splices at this value's caret);
  * - strip: the pending images (the steer composer's tiles + `[Image #k]`
@@ -77,10 +80,9 @@ internal fun AgentComposer(
     onValueRewrite: (TextFieldValue) -> Unit,
     fieldModifier: Modifier,
     placeholder: String,
-    issueChips: List<IssueOption>,
-    onRemoveIssue: (String) -> Unit,
+    // The picked action, for its typed pick rows only — its CHIP lives in
+    // the page's headline (EXP-1038).
     actionChip: ActionDto?,
-    onClearAction: () -> Unit,
     inputValues: Map<String, String>,
     repos: List<TeamRepo>,
     boards: List<StartBoardOption>,
@@ -115,72 +117,25 @@ internal fun AgentComposer(
         }
         markedImages = pendingImages.size
     }
-    val hasSubject = issueChips.isNotEmpty() || actionChip != null
     val inputDefs = actionChip?.inputs.orEmpty()
     GlassComposer(
         modifier = modifier.testTag("agent-composer"),
-        leading = if (hasSubject) {
+        // EXP-1038: the subject chips are NOT in the card any more — they head
+        // the page beside the contract verb ([AgentComposerHeadline], mounted
+        // by the page above this card). What stays here are the picked
+        // action's typed pick rows, which belong with the field they are
+        // filled next to.
+        leading = if (inputDefs.isNotEmpty()) {
             {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(bottom = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    if (actionChip != null) {
-                        // The one action: its curated glyph · name · ✕. Only
-                        // the ✕ clears it (EXP-827, web and iOS agree); the
-                        // pill itself is readonly.
-                        GlassPill(
-                            actionChip.name,
-                            icon = actionGlyph(actionChip),
-                            trailing = {
-                                ChipClose(
-                                    contentDescription = "Remove ${actionChip.name}",
-                                    testTag = "agent-composer-chip-action-remove",
-                                    onClick = onClearAction,
-                                )
-                            },
-                            modifier = Modifier.testTag("agent-composer-chip-action"),
-                        )
-                    } else {
-                        // One checked issue, as the SHARED chip (EXP-885):
-                        // status glyph · mono identifier · title · ✕. It was a
-                        // capsule carrying the identifier alone, which read as
-                        // a control and named the issue worse than every other
-                        // badge in the app. Same split: the ✕ removes, the
-                        // body is inert.
-                        issueChips.forEach { option ->
-                            IssueChip(
-                                identifier = option.identifier,
-                                title = option.title,
-                                // The composer carries the ANCHOR off the wire,
-                                // not the team's status row, so the glyph comes
-                                // from the builtin defaults — exactly what the
-                                // capsule's `StatusIcon(fromWire(..))` drew.
-                                status = remember(option.status) {
-                                    IssueStatusResolver.resolve(null, option.status, emptyList())
-                                },
-                                onRemove = { onRemoveIssue(option.id) },
-                                removeContentDescription = "Remove ${option.identifier}",
-                                removeTestTag = "agent-composer-chip-issue-${option.identifier}-remove",
-                                modifier = Modifier.testTag("agent-composer-chip-issue-${option.identifier}"),
-                            )
-                        }
-                    }
-                }
-                if (actionChip != null && inputDefs.isNotEmpty()) {
-                    ActionInputFields(
-                        defs = inputDefs,
-                        values = inputValues,
-                        repos = repos,
-                        boards = boards,
-                        pullRequests = pullRequests,
-                        onValueChange = onInputChange,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                }
+                ActionInputFields(
+                    defs = inputDefs,
+                    values = inputValues,
+                    repos = repos,
+                    boards = boards,
+                    pullRequests = pullRequests,
+                    onValueChange = onInputChange,
+                )
+                Spacer(Modifier.height(4.dp))
             }
         } else {
             null
@@ -295,5 +250,95 @@ private fun ChipClose(
             modifier = Modifier.size(10.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
+    }
+}
+
+/**
+ * EXP-1038: the composer's HEADLINE — the run's subject as the page's main
+ * element rather than a chip buried in the card. The contract verb
+ * ([AgentComposerPrompt.headline], ×4: "Run" · "Implement") reads straight
+ * into the chips beside it: one action chip, or the checked issues. The PAGE
+ * emits this only with a subject: a chat's heading would repeat the field's
+ * own "Ask the agent…" placeholder, so there is no row at all (web
+ * `LaunchHeadline` returns null). The chips keep their remove affordances and their test tags
+ * (`agent-composer-chip-action`, `agent-composer-chip-issue-<IDENT>`), so a
+ * pick still proves itself where the screenshot suites look for it; only
+ * their place changed.
+ */
+@Composable
+internal fun AgentComposerHeadline(
+    headline: String,
+    issueChips: List<IssueOption>,
+    onRemoveIssue: (String) -> Unit,
+    actionChip: ActionDto?,
+    onClearAction: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 2.dp)
+            .testTag("agent-composer-headline"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            headline,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            modifier = Modifier.testTag("agent-composer-headline-verb"),
+        )
+        if (actionChip != null || issueChips.isNotEmpty()) {
+            // Several issue chips scroll sideways rather than wrapping — a
+            // batch must not push the field off the first screen. The verb
+            // keeps its width (`fill = false`), the chips take what is left.
+            Row(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (actionChip != null) {
+                    // The one action: its curated glyph · name · ✕. Only the ✕
+                    // clears it (EXP-827, web and iOS agree); the pill itself
+                    // is readonly.
+                    GlassPill(
+                        actionChip.name,
+                        icon = actionGlyph(actionChip),
+                        trailing = {
+                            ChipClose(
+                                contentDescription = "Remove ${actionChip.name}",
+                                testTag = "agent-composer-chip-action-remove",
+                                onClick = onClearAction,
+                            )
+                        },
+                        modifier = Modifier.testTag("agent-composer-chip-action"),
+                    )
+                } else {
+                    // One checked issue, as the SHARED chip (EXP-885): status
+                    // glyph · mono identifier · title · ✕. Same split: the ✕
+                    // removes, the body is inert.
+                    issueChips.forEach { option ->
+                        IssueChip(
+                            identifier = option.identifier,
+                            title = option.title,
+                            // The composer carries the ANCHOR off the wire, not
+                            // the team's status row, so the glyph comes from
+                            // the builtin defaults.
+                            status = remember(option.status) {
+                                IssueStatusResolver.resolve(null, option.status, emptyList())
+                            },
+                            onRemove = { onRemoveIssue(option.id) },
+                            removeContentDescription = "Remove ${option.identifier}",
+                            removeTestTag = "agent-composer-chip-issue-${option.identifier}-remove",
+                            modifier = Modifier.testTag("agent-composer-chip-issue-${option.identifier}"),
+                        )
+                    }
+                }
+            }
+        }
     }
 }

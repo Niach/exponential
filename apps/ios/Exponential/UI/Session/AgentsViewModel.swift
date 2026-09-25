@@ -47,6 +47,19 @@ final class AgentsViewModel {
 
     var rows: [Row] = []
 
+    /// EXP-996: what the sessions list needs BEYOND the rows to draw the
+    /// GROUPS — the active team's synced workflows (whose names the workflow
+    /// group rows wear), their nodes, and the stack edges
+    /// (`issues.pr_base_branch`) of the issues the listed rows name. Rebuilt in
+    /// the same pass as `rows`, so a group can never disagree with its runs.
+    ///
+    /// The stack edges come from the LISTED rows' own issues (web
+    /// `useSessionTreeContext`): a stack only becomes a group when two of its
+    /// runs are listed, so an unlisted lower member would change nothing but
+    /// the group's root — and a root nobody can see is worse than the lowest
+    /// one they can.
+    private(set) var sessionTreeContext = SessionTree.Context()
+
     /// EXP-746: the caller's most recent finished runs, newest first, capped
     /// at `PastRuns.cap`. Empty = the section is absent entirely.
     private(set) var pastRows: [PastRow] = []
@@ -84,7 +97,8 @@ final class AgentsViewModel {
     /// are still derived but nothing is ever queued from there.
     var devicesApi: DevicesApi?
     /// EXP-481: the synced worktree inventory (shape 18) — the composer's
-    /// resume probe and the device-settings worktree list.
+    /// resume probe. EXP-1042: nothing else reads it on a phone; the
+    /// device-settings list left for the IDE.
     var worktrees: [DeviceWorktreeEntity] = []
     /// EXP-694: the synced actions/automations, account-wide (a session names
     /// its own team). The session rows' trailing control resolves its glyph and
@@ -129,6 +143,9 @@ final class AgentsViewModel {
     // buttons.
     private var actionTask: Task<Void, Never>?
     private var automationTask: Task<Void, Never>?
+    // EXP-996: the workflow shapes behind the tree's group rows.
+    private var workflowTask: Task<Void, Never>?
+    private var workflowNodeTask: Task<Void, Never>?
     /// EXP-656: wakes when our own `devices` shape completes a poll — the
     /// missing foreground re-derivation hook. Presence is only as current as
     /// that cursor, so a machine's badge must repaint the moment it advances
@@ -159,6 +176,11 @@ final class AgentsViewModel {
     private var sessions: [CodingSessionEntity] = []
     private var endedSessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
+    // EXP-996: the two workflow shapes behind the tree's workflow GROUP rows —
+    // a run groups only under a workflow that is HERE, because this is where
+    // the group row's name comes from.
+    private var workflows: [WorkflowEntity] = []
+    private var workflowNodes: [WorkflowNodeEntity] = []
     // Observed so the composer's issue pool can resolve repo-backed boards
     // (EXP-156) and so the batch-PR resolution can scope issues to the
     // active team (EXP-535 — issues don't sync team_id).
@@ -284,6 +306,34 @@ final class AgentsViewModel {
             } catch {}
         }
 
+        // EXP-996: a run of a workflow node nests under ITS workflow, named by
+        // the `workflows` shape — so both shapes feed the same rebuild the
+        // sessions do. Fetched whole and scoped to the active team in
+        // `rebuild()` (the issues/boards pattern), which keeps a team switch a
+        // pure re-derivation instead of a re-armed observation.
+        let workflowObservation = ValueObservation.tracking { db in
+            try WorkflowEntity.fetchAll(db)
+        }
+        workflowTask = Task { [weak self] in
+            do {
+                for try await rows in workflowObservation.values(in: pool) {
+                    self?.workflows = rows
+                    self?.rebuild()
+                }
+            } catch {}
+        }
+        let workflowNodeObservation = ValueObservation.tracking { db in
+            try WorkflowNodeEntity.fetchAll(db)
+        }
+        workflowNodeTask = Task { [weak self] in
+            do {
+                for try await rows in workflowNodeObservation.values(in: pool) {
+                    self?.workflowNodes = rows
+                    self?.rebuild()
+                }
+            } catch {}
+        }
+
         let userObservation = ValueObservation.tracking { db in
             try UserEntity.fetchAll(db)
         }
@@ -390,6 +440,10 @@ final class AgentsViewModel {
         actionTask = nil
         automationTask?.cancel()
         automationTask = nil
+        workflowTask?.cancel()
+        workflowTask = nil
+        workflowNodeTask?.cancel()
+        workflowNodeTask = nil
         freshnessTask?.cancel()
         freshnessTask = nil
     }
@@ -733,7 +787,29 @@ final class AgentsViewModel {
                     )
                 )
             }
+        // EXP-996: the grouping context off the SAME pass — the rows and the
+        // groups they sit under are derived together or not at all.
+        sessionTreeContext = buildSessionTreeContext()
         // The Recent rows join the same issues and device rows this pass read.
         rebuildPast()
+    }
+
+    /// EXP-996: the tree's grouping context — the ACTIVE team's workflows and
+    /// nodes (no team, no groups), plus the stack edges of the issues the
+    /// listed rows name (an issue run's own, a batch run's covered set).
+    private func buildSessionTreeContext() -> SessionTree.Context {
+        guard let teamId = activeTeamId, !teamId.isEmpty else { return SessionTree.Context() }
+        var edges: [String: IssueEntity] = [:]
+        for row in rows {
+            if let issue = row.issue { edges[issue.id] = issue }
+            for issue in row.batchIssues { edges[issue.id] = issue }
+        }
+        return SessionTree.Context(
+            workflows: workflows.filter { $0.teamId == teamId },
+            workflowNodes: workflowNodes.filter { $0.teamId == teamId },
+            // Id-ordered: a duplicated branch is resolved first-writer-wins
+            // inside `PrStack`, and the store's dictionary order is no order.
+            issues: edges.values.sorted { $0.id < $1.id }
+        )
     }
 }

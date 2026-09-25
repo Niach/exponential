@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { Check, ChevronDown } from "lucide-react"
 import { boardCollection } from "@/lib/collections"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  Pill,
-  BoardGlyph,
-} from "@exp/ui"
+import { BoardPicker, conceptIcon, Pill, BoardGlyph } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { toIssueDescription, type IssuePriority } from "@/lib/domain"
 import { useTeamLabels } from "@/hooks/use-team-data"
@@ -46,6 +38,8 @@ import {
   type RailFile,
 } from "@/components/issue-editor/attachment-rail"
 import type { MarkdownEditorRef } from "@/components/issue-editor/markdown-editor"
+
+const ChevronGlyph = conceptIcon(`ui-chevron-down`)
 
 type CreateIssueSubmitPhase = `idle` | `creating`
 
@@ -552,10 +546,20 @@ export function CreateIssueDialog({
   const closeDisabled = submitPhase === `creating`
 
   const displayPrefix = selectedBoard?.prefix ?? boardPrefix
+  // EXP-1021: the board chip is the shared `BoardPicker` — the hand-rolled
+  // dropdown it replaced drew its own trailing `Check` and its own board row.
   const boardPicker =
     boards.length > 1 ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <BoardPicker
+        boards={boards}
+        value={selectedBoardId}
+        onChange={setPickedBoardId}
+        disabled={dialogDisabled}
+        mobileTitle="Board"
+        searchPlaceholder="Search boards…"
+        emptyText="No boards found."
+        width="sm"
+        trigger={
           <Pill
             mode="action"
             disabled={dialogDisabled}
@@ -567,24 +571,10 @@ export function CreateIssueDialog({
             }
           >
             {displayPrefix}
-            <ChevronDown className="size-3 text-muted-foreground" />
+            <ChevronGlyph className="size-3 text-muted-foreground" />
           </Pill>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56">
-          {boards.map((board) => (
-            <DropdownMenuItem
-              key={board.id}
-              onClick={() => setPickedBoardId(board.id)}
-            >
-              <BoardGlyph board={board} className="size-3.5" />
-              <span className="truncate">{board.name}</span>
-              {board.id === selectedBoardId && (
-                <Check className="ml-auto size-3.5 shrink-0" />
-              )}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        }
+      />
     ) : undefined
 
   return (

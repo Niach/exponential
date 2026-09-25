@@ -1015,29 +1015,77 @@ export const WORKFLOW_MAX_ISSUES = 50
 export const WORKFLOW_MAX_PARALLEL_CAP = 8
 export const WORKFLOW_DECISIONS_MAX = 65536
 
-/** `workflows.launch`: what every node's run starts with. Every field is
- *  optional; an absent one falls back to the runner device's defaults. */
+/** EXP-1029: the agents a workflow may run on (contract `workflowLaunch`). */
+export const workflowLaunchAgentValues = [`claude`, `codex`] as const
+export type WorkflowLaunchAgent = (typeof workflowLaunchAgentValues)[number]
+
+/**
+ * EXP-1029: THE workflow launch — what every node run and every agent review
+ * reads, once `normalizeWorkflowLaunch` (web `lib/workflow-launch.ts`,
+ * desktop `coding::workflows::launch`) has folded the stored jsonb into it.
+ *
+ * Two models, no more: `model` is the CHEAP one (leaf nodes, and the `Task`
+ * subagents inside every node run), `strongModel` the capable one (contract
+ * nodes, integration nodes, `risk: high` nodes and EVERY agent review). The
+ * gate choice is gone — the agent reviews every node and the one human
+ * review is the final PR — and `startOn` is fixed to `contract`. A new
+ * workflow takes both models from the creating device's agent defaults
+ * (`DeviceWorkflowDefaults`); the workflow screen shows no settings panel.
+ */
 export interface WorkflowLaunch {
+  agent: WorkflowLaunchAgent
+  /** An agent profile id on the runner device; absent = its active login. */
+  account?: string
+  model: string
+  strongModel: string
+}
+
+/** Contract `workflowLaunch` per-agent defaults, hand-mirrored (drift-tested):
+ *  what `normalizeWorkflowLaunch` fills in when the stored row names none. */
+export const WORKFLOW_LAUNCH_DEFAULTS: Record<
+  WorkflowLaunchAgent,
+  Pick<WorkflowLaunch, `model` | `strongModel`>
+> = {
+  claude: { model: `opus`, strongModel: `fable` },
+  codex: { model: `gpt-5.6-sol`, strongModel: `gpt-5.6-luna` },
+}
+
+/**
+ * `workflows.launch` AS STORED (jsonb, so no migration): every field is
+ * optional; an absent one falls back to the runner device's defaults.
+ *
+ * EXP-1029 adds `strongModel` and DEPRECATES the per-phase pins,
+ * `subagentModel`, `reviewModel`, `effort` and `maxParallel`: none of them is
+ * part of [`WorkflowLaunch`] any more. `normalizeWorkflowLaunch` folds a set
+ * `contractModel` / `integrationModel` / `riskModel` / `reviewModel` into
+ * `strongModel` and drops the rest. EXP-1032 removed them from every writer
+ * and every settings UI (`workflows.update` stores the normalized four keys
+ * and nothing else); older clients still SEND them, so the schema keeps
+ * accepting them.
+ */
+export interface WorkflowLaunchStored {
   agent?: string | null
-  /** The model every node's run spawns on, unless its PHASE overrides it. */
+  /** The cheap model (`WorkflowLaunch.model`). */
   model?: string | null
-  /** EXP-1002: the model `contract` nodes run on. Absent = `model`. */
+  /** EXP-1029: the strong model. Absent on rows written before it. */
+  strongModel?: string | null
+  /** @deprecated EXP-1029 — folds into `strongModel`; EXP-1014 removes it. */
   contractModel?: string | null
-  /** EXP-1002: the model `integration` nodes run on. Absent = `model`. */
+  /** @deprecated EXP-1029 — folds into `strongModel`; EXP-1014 removes it. */
   integrationModel?: string | null
-  /** EXP-1002: the model a `risk: high` node runs on, WHATEVER its kind —
-   *  the most specific pin there is, so it wins over the phase ones.
-   *  Absent = the node's phase model. */
+  /** @deprecated EXP-1029 — folds into `strongModel`; EXP-1014 removes it. */
   riskModel?: string | null
-  /** Claude only: the model its subagents run on. NOT the node runs' own. */
+  /** @deprecated EXP-1029 — subagents run on `model`; EXP-1014 removes it. */
   subagentModel?: string | null
+  /** @deprecated EXP-1029 — not part of `WorkflowLaunch`; EXP-1014 removes it. */
   effort?: string | null
   /** An agent profile id on the runner device. */
   account?: string | null
+  /** @deprecated EXP-1029 — not part of `WorkflowLaunch` (the engine caps at
+   *  contract `workflow.maxParallelDefault`); EXP-1014 removes it. */
   maxParallel?: number | null
-  /** EXP-984: the model agent reviews run on. Absent = the engine picks one;
-   *  a `risk: high` node is ALWAYS reviewed on a model other than its
-   *  author's. */
+  /** @deprecated EXP-1029 — every review runs on `strongModel`; EXP-1014
+   *  removes it. */
   reviewModel?: string | null
 }
 
@@ -1046,17 +1094,11 @@ export interface WorkflowLaunch {
  * every field a run reads, so a person opening the panel sees the launch
  * rather than five rows reading "Default".
  *
- * The same shape in both vocabularies: the LEAVES that implement (and, on
- * claude, the subagents they spawn) get the capable model, while the phases
- * that scaffold and merge get the cheap one. A `risk: high` node joins the
- * cheap side whatever phase it sits in — the hard ones are written cheaply
- * and then REVIEWED on the model the adversarial gate swaps to, rather than
- * written expensively once.
- *
- * Model names belong to ONE agent's closed set, so switching the agent row
- * re-seeds every pin from that agent's entry rather than blanking them.
+ * @deprecated EXP-1029 — a new workflow takes `model` / `strongModel` from the
+ * creating device's agent defaults (`DeviceWorkflowDefaults`); EXP-1014
+ * replaces this table with `WORKFLOW_LAUNCH_DEFAULTS`.
  */
-export const WORKFLOW_DEFAULT_LAUNCH_BY_AGENT: Record<string, WorkflowLaunch> = {
+export const WORKFLOW_DEFAULT_LAUNCH_BY_AGENT: Record<string, WorkflowLaunchStored> = {
   claude: {
     agent: `claude`,
     model: `opus`,
@@ -1076,14 +1118,19 @@ export const WORKFLOW_DEFAULT_LAUNCH_BY_AGENT: Record<string, WorkflowLaunch> = 
   },
 }
 
-/** The launch a new workflow is created with: the default agent's entry. */
-export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunch =
+/** The launch a new workflow is created with: the default agent's entry.
+ *  @deprecated EXP-1029 — see `WORKFLOW_DEFAULT_LAUNCH_BY_AGENT`. */
+export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunchStored =
   WORKFLOW_DEFAULT_LAUNCH_BY_AGENT.claude!
 
+/** The stored shape's wire schema (`workflows.update`). Keys stay `.strict()`
+ *  so a typo is refused; the deprecated keys stay accepted for old clients
+ *  (EXP-1032 normalizes them away before anything is stored). */
 export const workflowLaunchSchema = z
   .object({
     agent: z.string().max(16).nullish(),
     model: z.string().max(64).nullish(),
+    strongModel: z.string().max(64).nullish(),
     contractModel: z.string().max(64).nullish(),
     integrationModel: z.string().max(64).nullish(),
     riskModel: z.string().max(64).nullish(),
@@ -1094,6 +1141,44 @@ export const workflowLaunchSchema = z
     reviewModel: z.string().max(64).nullish(),
   })
   .strict()
+
+/** EXP-1029: a device's WORKFLOW model defaults — `launch_defaults.workflow`
+ *  on the synced devices row, `workflowModel` / `workflowStrongModel` in the
+ *  desktop's settings.json. What a new workflow's launch is seeded from
+ *  (EXP-1014 reads it at creation; EXP-1020 owns the "Workflow settings"
+ *  sub-shell that edits it). Model names belong to the default account's
+ *  agent vocabulary. */
+export interface DeviceWorkflowDefaults {
+  model: string
+  strongModel: string
+}
+
+/** EXP-1029: a device's agent defaults as ONE flattened view — the shape the
+ *  settings UI edits (EXP-1020) and the workflow creator reads (EXP-1014).
+ *  `account` is a profile id (null = the default agent's active login) and
+ *  IMPLIES the agent; `model` / `subagentModel` are that agent's launch
+ *  defaults; `workflow` seeds new workflows. Stored across
+ *  `DeviceLaunchDefaults.defaultAccount`, `.agents[agent]` and `.workflow`. */
+export interface DeviceAgentDefaults {
+  account: string | null
+  model: string
+  subagentModel: string
+  workflow: DeviceWorkflowDefaults
+}
+
+/** Contract `deviceAgentDefaults`, hand-mirrored (drift-tested): what a
+ *  device that never set anything is read as — the desktop's own fresh-
+ *  install defaults (`coding::settings`, wired to the SAME contract
+ *  constants): `fable`, a BLANK subagent model (= the CLI's own default),
+ *  and the workflow pair. The issue proposed `opus` / `opus` for the first
+ *  two; that would change what every fresh device runs, so the contract
+ *  names reality and the human review may overrule it here. */
+export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
+  account: null,
+  model: `fable`,
+  subagentModel: ``,
+  workflow: { model: `opus`, strongModel: `fable` },
+}
 
 /** `workflows.metrics`: the plan's shape (written by the server layout) plus,
  *  from the engine's phases on, the run's counters. */

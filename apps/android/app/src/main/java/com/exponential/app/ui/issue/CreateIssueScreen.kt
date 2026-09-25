@@ -61,9 +61,14 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.isInlineMedia
-import com.exponential.app.domain.issuePriorityOrder
-import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.picker.AssigneePicker
+import com.exponential.app.ui.components.picker.PriorityPicker
+import com.exponential.app.ui.components.picker.StatusPicker
+import com.exponential.app.ui.components.issuePriorityPickerOptions
+import com.exponential.app.ui.components.pickedPriority
+import com.exponential.app.ui.components.toPickerMember
+import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.LabelsPickerBlock
@@ -597,42 +602,38 @@ fun CreateIssueScreen(
     }
 
     if (statusMenuOpen && isModerator) {
-        IssuePickerSheet(
-            title = "Status",
-            // Duplicate = status interception (L27): a new issue can't be a
-            // duplicate (nothing to link yet), so it's not a create option.
-            items = teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
-            selected = status,
-            keyOf = { it.id },
-            labelOf = { it.name },
-            leadingContent = { StatusIcon(it, size = 18.dp) },
-            onSelect = { status = it },
-            onDismiss = { statusMenuOpen = false },
+        // Duplicate = status interception (L27): a new issue can't be a
+        // duplicate (nothing to link yet), so it's not a create option.
+        val creatable = teamStatuses.filter { it.category != IssueStatusCategory.Duplicate }
+        StatusPicker(
+            statuses = creatable.map { it.toPickerRow() },
+            value = setOfNotNull(status?.id),
+            onChange = { picked ->
+                status = picked.firstOrNull()?.let { id -> creatable.firstOrNull { it.id == id } } ?: status
+            },
+            open = true,
+            onOpenChange = { open -> if (!open) statusMenuOpen = false },
         )
     }
 
     if (priorityMenuOpen && isModerator) {
-        IssuePickerSheet(
-            title = "Priority",
-            items = issuePriorityOrder,
-            selected = priority,
-            labelOf = { it.label },
-            iconOf = { priorityIcon(it) },
-            onSelect = { priority = it },
-            onDismiss = { priorityMenuOpen = false },
+        PriorityPicker(
+            options = issuePriorityPickerOptions(),
+            value = setOf(priority.wire),
+            onChange = { picked -> pickedPriority(picked)?.let { priority = it } },
+            open = true,
+            onOpenChange = { open -> if (!open) priorityMenuOpen = false },
         )
     }
 
     if (assigneeMenuOpen && isModerator) {
-        val assigneeItems = listOf<com.exponential.app.data.db.UserEntity?>(null) + users
-        IssuePickerSheet(
-            title = "Assignee",
-            items = assigneeItems,
-            selected = assigneeItems.firstOrNull { it?.id == assigneeId },
-            keyOf = { it?.id ?: "__unassigned__" },
-            labelOf = { user -> user?.name ?: user?.email ?: "Unassigned" },
-            onSelect = { assigneeId = it?.id },
-            onDismiss = { assigneeMenuOpen = false },
+        AssigneePicker(
+            members = users.map { it.toPickerMember() },
+            value = setOfNotNull(assigneeId),
+            // An empty set IS unassigned (the contract's single-mode arm).
+            onChange = { picked -> assigneeId = picked.firstOrNull() },
+            open = true,
+            onOpenChange = { open -> if (!open) assigneeMenuOpen = false },
         )
     }
 

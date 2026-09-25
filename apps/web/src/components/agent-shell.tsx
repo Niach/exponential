@@ -1,8 +1,6 @@
-import { useMemo, useState } from "react"
-import { GlassSectionHeader, treeGuides } from "@exp/ui"
-import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
+import { GlassSectionHeader } from "@exp/ui"
 import { cn } from "@/lib/utils"
-import { RunningSessionRow } from "@/components/session-list-rows"
+import { SessionTree } from "@/components/session-tree"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
 import type { DetailOrigin } from "@/lib/detail-origin"
@@ -10,6 +8,9 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 // EXP-818: the caller's sessions list — Running, nested by
 // `parent_session_id` (the ×4 rule) with the EXP-965 connector.
+//
+// EXP-996: and the nesting is the whole `sessionTree` now — a workflow's runs
+// and a stack's sit under one group row each, resumes collapsed.
 //
 // EXP-923: RUNNING ONLY. The Recent band is gone from here: on md+ the whole
 // list left the Agent page for the sidebar (the Running section in the main
@@ -42,31 +43,7 @@ export function SessionsList({
 }) {
   const { running, isLoading } = useAgentsData(teamId, currentUserId)
   const openSession = useOpenSession()
-  const runningById = new Map(running.map((row) => [row.session.id, row]))
-  // EXP-849: a parent run's subtree folds away here too. Expanded by default,
-  // per parent, for as long as the list is mounted.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
-    () => new Set<string>()
-  )
-  const nested = useMemo(
-    () => nestSessions(running.map((row) => row.session)),
-    [running]
-  )
-  const tree = useMemo(
-    () => visibleTreeRows(nested, collapsed),
-    [nested, collapsed]
-  )
-  const guides = useMemo(
-    () => treeGuides(tree.map((entry) => entry.depth)),
-    [tree]
-  )
-  const toggle = (sessionId: string) =>
-    setCollapsed((current) => {
-      const next = new Set(current)
-      if (!next.delete(sessionId)) next.add(sessionId)
-      return next
-    })
-  if (!showWhenEmpty && tree.length === 0) return null
+  if (!showWhenEmpty && running.length === 0) return null
   return (
     <div
       className={cn(
@@ -79,29 +56,14 @@ export function SessionsList({
       <GlassSectionHeader label="Running" />
       {isLoading ? (
         <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
-      ) : tree.length === 0 ? (
-        <div className="px-3 py-2 text-xs text-muted-foreground">
-          No agents running right now.
-        </div>
       ) : (
-        <div className="flex flex-col">
-          {tree.map(({ session, depth, hasChildren }, index) => {
-            const row = runningById.get(session.id)!
-            return (
-              <RunningSessionRow
-                key={session.id}
-                row={row}
-                depth={depth}
-                guide={guides[index]}
-                active={session.id === activeSessionId}
-                expandable={hasChildren}
-                expanded={!collapsed.has(session.id)}
-                onToggle={() => toggle(session.id)}
-                onOpen={() => openSession(session, { origin })}
-              />
-            )
-          })}
-        </div>
+        <SessionTree
+          rows={running}
+          teamId={teamId}
+          activeSessionId={activeSessionId}
+          onOpen={(session) => openSession(session, { origin })}
+          emptyNote="No agents running right now."
+        />
       )}
     </div>
   )

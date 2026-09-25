@@ -6,6 +6,10 @@ import {
   IconPicker,
   Label,
   GlassGroup,
+  Picker,
+  PickerTrigger,
+  boardPickerItems,
+  type PickerItem,
   type PickerOption,
   BoardGlyph,
 } from "@exp/ui"
@@ -30,6 +34,10 @@ import type { ActionRepoOption } from "@/components/action-editor-dialog"
 // An empty string is no usable option identity; the unset optional repo
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
+// The same for an optional board input: the picker API has no `noneLabel`, so
+// the clearing row is an ordinary row with a sentinel value, mapped back to
+// `""` here.
+const NO_BOARD = `none`
 
 export function ActionInputFields({
   defs,
@@ -204,8 +212,16 @@ function PrInputField({
   )
 }
 
-// Board single-select over the synced boards (the shared `Combobox`), with a
-// full-width field trigger to match the surrounding form fields.
+// Board single-select over the synced boards, with a full-width field trigger
+// to match the surrounding form fields.
+//
+// EXP-1030: the rows are THE board picker's (`boardPickerItems`, EXP-1021) —
+// every board draws its icon in its colour, here and on the trigger. The
+// shell is the `Picker` primitive rather than the typed `BoardPicker`
+// component for one reason: an OPTIONAL board input has to be clearable, and
+// no typed picker forwards a `None` row (`Combobox`'s `noneLabel` has no
+// counterpart on the picker API). The extra row is the only difference — the
+// board rows themselves come from the shared builder.
 function BoardInputField({
   teamId,
   value,
@@ -232,38 +248,42 @@ function BoardInputField({
       ),
     [boardRows]
   )
-  const boardsById = useMemo(
-    () => new Map(boards.map((board) => [board.id, board])),
-    [boards]
+  const items = useMemo<PickerItem[]>(
+    () => [
+      ...(required ? [] : [{ value: NO_BOARD, label: `None` }]),
+      ...boardPickerItems(boards),
+    ],
+    [boards, required]
   )
-  const options = useMemo<PickerOption[]>(
-    () => boards.map((board) => ({ value: board.id, label: board.name })),
-    [boards]
-  )
+  const picked = boards.find((board) => board.id === value)
 
   return (
-    <Combobox
-      options={options}
-      value={value === `` ? null : value}
-      onChange={(boardId) => onChange(boardId ?? ``)}
-      noneLabel={required ? undefined : `None`}
-      triggerVariant="field"
-      triggerLabel="Select a board…"
+    <Picker
+      mode="single"
+      items={items}
+      // Unset reads as the `None` row while there is one — the same shape the
+      // repo input above uses.
+      value={value === `` ? (required ? null : NO_BOARD) : value}
+      onChange={(boardId) => onChange(boardId === NO_BOARD ? `` : boardId)}
+      search
       width="sm"
       mobileTitle="Select a board"
-      placeholder="Select a board..."
+      searchPlaceholder="Select a board..."
       emptyText="No boards found."
-      renderOption={(option) => {
-        const board = boardsById.get(option.value)
-        return (
-          <>
-            {board && <BoardGlyph board={board} className="size-3.5" />}
-            <span className="min-w-0 flex-1 truncate text-sm">
-              {option.label}
-            </span>
-          </>
-        )
-      }}
+      trigger={
+        <PickerTrigger
+          variant="field"
+          label="Select a board…"
+          value={
+            picked ? (
+              <span className="flex min-w-0 items-center gap-2">
+                <BoardGlyph board={picked} className="size-3.5 shrink-0" />
+                <span className="min-w-0 truncate">{picked.name}</span>
+              </span>
+            ) : undefined
+          }
+        />
+      }
     />
   )
 }

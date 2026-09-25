@@ -35,10 +35,21 @@ pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
 /// `fable-5` / `claude-fable-5`). Deliberately an alias, never a pinned
 /// `claude-fable-5-1`: pinning would go stale at the next release and churn
 /// the contract on four clients, while the alias tracks the CLI's own default.
-pub const DEFAULT_CLAUDE_MODEL: &str = "fable";
+pub const DEFAULT_CLAUDE_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_MODEL;
+/// EXP-1029: the fresh-install subagent model — contract
+/// `deviceAgentDefaults.subagentModel`, BLANK (= the CLI's own default).
+pub const DEFAULT_CLAUDE_SUBAGENT_MODEL: &str =
+    domain::contract::DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL;
 /// The `--model` aliases the CLI accepts (and the ui selects offer) —
 /// [`Settings::load`] normalizes anything else back to the default.
 pub const MODEL_ALIASES: [&str; 3] = ["fable", "opus", "sonnet"];
+/// EXP-1029: the workflow model defaults a fresh install seeds new workflows
+/// from — contract `deviceAgentDefaults.workflowModel` (the cheap model:
+/// leaves + subagents) and `.workflowStrongModel` (contract, integration and
+/// `risk: high` nodes, every agent review).
+pub const DEFAULT_WORKFLOW_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_WORKFLOW_MODEL;
+pub const DEFAULT_WORKFLOW_STRONG_MODEL: &str =
+    domain::contract::DEVICE_AGENT_DEFAULTS_WORKFLOW_STRONG_MODEL;
 /// The `--effort` levels the CLI accepts (blank = omit the flag) —
 /// [`Settings::load`] normalizes anything else back to blank.
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -144,6 +155,21 @@ pub struct Settings {
     /// what a fresh install has); `load` normalizes anything else to blank.
     /// Claude-only: codex has no subagent model to pin.
     pub claude_subagent_model: String,
+    /// EXP-1029: the WORKFLOW model defaults new workflows are seeded from
+    /// (`DeviceWorkflowDefaults` on the synced devices row, `launch_defaults
+    /// .workflow`): the cheap model for leaves + subagents. The pair belongs
+    /// to the DEFAULT AGENT's vocabulary ([`Self::default_agent`]): one of
+    /// [`MODEL_ALIASES`] for claude, one of [`CODEX_MODELS`] for codex;
+    /// `load` normalizes anything else to that agent's contract
+    /// `workflowLaunch` default ([`DEFAULT_WORKFLOW_MODEL`] on claude).
+    /// Edited in the "Workflow settings" sub-shell (EXP-1020); read at
+    /// workflow creation (EXP-1014).
+    pub workflow_model: String,
+    /// EXP-1029: the strong workflow model — contract, integration and
+    /// `risk: high` nodes, and every agent review. Same vocabulary rule as
+    /// [`Self::workflow_model`]; the claude fallback is
+    /// [`DEFAULT_WORKFLOW_STRONG_MODEL`].
+    pub workflow_strong_model: String,
     /// Codex model slug (`-m`); one of [`CODEX_MODELS`] or blank (= omit the
     /// flag — Codex's own default model applies).
     pub codex_model: String,
@@ -230,7 +256,9 @@ impl Default for Settings {
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
-            claude_subagent_model: String::new(),
+            claude_subagent_model: DEFAULT_CLAUDE_SUBAGENT_MODEL.to_string(),
+            workflow_model: DEFAULT_WORKFLOW_MODEL.to_string(),
+            workflow_strong_model: DEFAULT_WORKFLOW_STRONG_MODEL.to_string(),
             codex_model: String::new(),
             codex_effort: String::new(),
             claude_ultracode: false,
@@ -278,8 +306,35 @@ impl Settings {
             normalize_choice(&settings.claude_model, &MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
         // EXP-981: blank is the VALID "let the CLI decide" value here.
-        settings.claude_subagent_model =
-            normalize_choice(&settings.claude_subagent_model, &MODEL_ALIASES, "");
+        settings.claude_subagent_model = normalize_choice(
+            &settings.claude_subagent_model,
+            &MODEL_ALIASES,
+            DEFAULT_CLAUDE_SUBAGENT_MODEL,
+        );
+        // EXP-1029: the workflow pair always names a model (never blank), out
+        // of the DEFAULT AGENT's vocabulary — a codex-default machine keeps
+        // its codex names instead of having them rewritten to claude's.
+        let (workflow_models, workflow_defaults): (&[&str], (&str, &str)) =
+            match settings.default_agent {
+                CodingAgent::Claude => (
+                    &MODEL_ALIASES,
+                    (DEFAULT_WORKFLOW_MODEL, DEFAULT_WORKFLOW_STRONG_MODEL),
+                ),
+                CodingAgent::Codex => (
+                    &CODEX_MODELS,
+                    (
+                        domain::contract::WORKFLOW_LAUNCH_CODEX_MODEL,
+                        domain::contract::WORKFLOW_LAUNCH_CODEX_STRONG_MODEL,
+                    ),
+                ),
+            };
+        settings.workflow_model =
+            normalize_choice(&settings.workflow_model, workflow_models, workflow_defaults.0);
+        settings.workflow_strong_model = normalize_choice(
+            &settings.workflow_strong_model,
+            workflow_models,
+            workflow_defaults.1,
+        );
         // Codex allows BLANK ("CLI default") — unknown values degrade to it.
         settings.codex_model = normalize_choice(&settings.codex_model, &CODEX_MODELS, "");
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
@@ -742,6 +797,34 @@ mod tests {
         assert_eq!(settings.claude_effort, "", "unknown effort → omit");
     }
 
+    /// EXP-1029: the workflow pair clamps to the DEFAULT AGENT's vocabulary —
+    /// codex names survive on a codex-default machine and degrade to the
+    /// codex contract defaults, claude names on a claude one.
+    #[test]
+    fn the_workflow_pair_clamps_to_the_default_agents_vocabulary() {
+        let dir = TempDir::new("workflow-pair");
+        let path = dir.0.join("settings.json");
+        fs::write(
+            &path,
+            r#"{"defaultAgent":"codex","workflowModel":"gpt-5.6-sol","workflowStrongModel":"gpt-5.6-luna"}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.workflow_model, "gpt-5.6-sol");
+        assert_eq!(settings.workflow_strong_model, "gpt-5.6-luna");
+
+        fs::write(&path, r#"{"defaultAgent":"codex","workflowModel":"opus","workflowStrongModel":"fable"}"#)
+            .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.workflow_model, "gpt-5.6-sol", "claude name on codex → codex default");
+        assert_eq!(settings.workflow_strong_model, "gpt-5.6-luna");
+
+        fs::write(&path, r#"{"workflowModel":"gpt-5.6-sol","workflowStrongModel":"haiku"}"#).unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.workflow_model, "opus", "codex name on claude → claude default");
+        assert_eq!(settings.workflow_strong_model, "fable");
+    }
+
     /// Per-agent run fields (EXP-206): MISSING keys must fill from the
     /// manual `Default` impl (container-level `#[serde(default)]`) — Claude
     /// plan mode TRUE, everything else FALSE. Explicit bools round-trip; the
@@ -811,6 +894,9 @@ mod tests {
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
             claude_subagent_model: "sonnet".to_string(),
+            // A codex-default machine: the workflow pair in codex names.
+            workflow_model: "gpt-5.6-terra".to_string(),
+            workflow_strong_model: "gpt-5.6-luna".to_string(),
             codex_model: "gpt-5.6-terra".to_string(),
             codex_effort: "high".to_string(),
             claude_ultracode: true,

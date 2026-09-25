@@ -403,7 +403,14 @@ fn snapshot_for(
         let Some(integration_branch) = workflow.integration_branch.clone() else {
             continue; // no branch to land on: nothing to evaluate
         };
-        let launch = api::workflows::from_row(workflow).launch;
+        // EXP-1029: the stored launch of ANY vintage → the two models every
+        // run of this workflow reads. Effort is the device's own default.
+        // The normalizer reads the RAW jsonb, never a round trip through the
+        // wire struct: ONE ill-typed legacy key there (an old `maxParallel`
+        // stored as a string) would drop the WHOLE launch to the defaults.
+        let launch = workflows::launch::normalize_workflow_launch(
+            workflow.launch.as_ref().unwrap_or(&serde_json::Value::Null),
+        );
         let engine_state = workflows::read_states(&settings_path, &device_id)
             .get(&workflow.id)
             .cloned()
@@ -563,10 +570,12 @@ fn snapshot_for(
             board_id,
             options: workflows::launch_options(
                 &settings,
-                launch.agent.as_deref(),
-                launch.model.as_deref(),
-                launch.effort.as_deref(),
-                launch.subagent_model.as_deref(),
+                Some(launch.agent.as_str()),
+                // The per-node model rides on each decision; the subagents
+                // inside every run take the CHEAP one.
+                None,
+                None,
+                Some(launch.model.as_str()),
                 launch.account.as_deref(),
             ),
             decisions: workflow.decisions.clone().unwrap_or_default(),
@@ -577,22 +586,13 @@ fn snapshot_for(
                     status: status.to_string(),
                     integration_branch,
                     final_pr_url: workflow.final_pr_url.clone(),
-                    max_parallel: workflow.max_parallel(),
+                    // EXP-1029: not a launch field any more.
+                    max_parallel: domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT,
                     start_on: workflow
                         .start_on
                         .clone()
                         .unwrap_or_else(|| workflows::START_ON_LANDED.to_string()),
-                    // The agent names the family an adversarial review swaps in.
-                    agent: launch.agent.clone(),
-                    // EXP-984: what a review runs on, and what the AUTHORS
-                    // run on (a high-risk node is never reviewed by its own
-                    // model).
-                    review_model: launch.review_model.clone(),
-                    author_model: launch.model.clone(),
-                    // EXP-1002: the phases that opt out of that model.
-                    contract_model: launch.contract_model.clone(),
-                    integration_model: launch.integration_model.clone(),
-                    risk_model: launch.risk_model.clone(),
+                    launch: launch.clone(),
                 },
                 nodes,
                 edges,

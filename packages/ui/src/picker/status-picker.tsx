@@ -1,0 +1,75 @@
+import type { ReactNode } from "react"
+
+import {
+  Picker,
+  type PickerItem,
+  type PickerSurfaceProps,
+} from "./picker"
+
+// EXP-1029 contract — the status picker: the team's `issue_statuses` rows
+// (EXP-314) in `displayOrder`, each by its glyph in its colour (builtins by
+// token, customs by `colorHex`). The issue header chip, the create-issue
+// dialog, the bulk edit and the board filter pick one (the filter several).
+// Resolution of glyph + colour stays in the app's `lib/team-statuses.ts` /
+// `lib/status-icons.ts`; the picker takes the resolved row.
+
+export interface StatusPickerStatus {
+  id: string
+  name: string
+  /** Contract `issueStatusCategory`. */
+  category: string
+  /** The resolved row colour (custom rows' `colorHex`, builtins' token). */
+  colorHex?: string | null
+  /** The resolved glyph for the row (`lib/status-icons.ts`). */
+  icon?: PickerItem[`icon`]
+}
+
+interface StatusPickerBase extends PickerSurfaceProps {
+  statuses: readonly StatusPickerStatus[]
+  trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
+  search?: boolean
+  disabled?: boolean
+  emptyText?: string
+  className?: string
+}
+
+export type StatusPickerProps = StatusPickerBase &
+  (
+    | { mode?: `single`; value: string | null; onChange: (statusId: string) => void }
+    | {
+        mode: `multi`
+        value: readonly string[]
+        onChange: (statusIds: string[]) => void
+        /** At the cap the unpicked rows go disabled; picked ones still
+         *  toggle off (the automation trigger's ten-id filters). */
+        max?: number
+      }
+  )
+
+export function statusPickerItems(statuses: readonly StatusPickerStatus[]): PickerItem[] {
+  return statuses.map((status) => ({
+    value: status.id,
+    label: status.name,
+    icon: status.icon,
+    color: status.colorHex ?? undefined,
+    keywords: [status.name, status.category],
+  }))
+}
+
+export function StatusPicker({
+  statuses,
+  emptyText = `No statuses`,
+  mobileTitle = `Status`,
+  ...props
+}: StatusPickerProps) {
+  const items = statusPickerItems(statuses)
+  const shared = { items, emptyText, mobileTitle }
+  if (props.mode === `multi`) {
+    const { mode: _mode, ...rest } = props
+    return <Picker mode="multi" {...shared} {...rest} />
+  }
+  const { mode: _mode, ...rest } = props
+  return <Picker mode="single" {...shared} {...rest} />
+}

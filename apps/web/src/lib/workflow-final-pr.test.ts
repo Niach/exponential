@@ -305,4 +305,41 @@ describe(`applyWorkflowFinalPrState`, () => {
       expect.objectContaining({ issueId: `issue-a1`, event: `merged` })
     )
   })
+
+  // EXP-1032 — completion is what the merge of the final PR MEANS, and it
+  // must not depend on the webhook: the in-app merge and the poller both
+  // land here, so applying twice has to be a no-op.
+  it(`completes the workflow on merge: status done and endedAt stamped`, async () => {
+    selectQueue.push(
+      [{ id: WF, teamId: `team-1`, finalPrState: `open` }],
+      [{ issueId: `issue-a`, members: [] }],
+      [{ id: `issue-a`, status: `in_review` }]
+    )
+    await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/1`, `merged`)
+    expect(updates[0]).toMatchObject({ finalPrState: `merged`, status: `done` })
+    expect(updates[0]!.endedAt).toBeInstanceOf(Date)
+  })
+
+  it(`applies a merge exactly once: a row that already reads merged writes nothing`, async () => {
+    selectQueue.push([{ id: WF, teamId: `team-1`, finalPrState: `merged` }])
+    expect(await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/1`, `merged`)).toBe(true)
+    expect(updates).toEqual([])
+    expect(h.applyPrLifecycleStatusInTx).not.toHaveBeenCalled()
+  })
+
+  it(`records a close or a reopen without completing anything`, async () => {
+    for (const state of [`closed`, `open`] as const) {
+      updates.length = 0
+      selectQueue.push([{ id: WF, teamId: `team-1`, finalPrState: `open` }])
+      await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/1`, state)
+      expect(updates[0]).toEqual({ finalPrState: state })
+      expect(h.applyPrLifecycleStatusInTx).not.toHaveBeenCalled()
+    }
+  })
+
+  it(`is not a workflow's PR: says so and touches nothing`, async () => {
+    selectQueue.push([])
+    expect(await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/7`, `merged`)).toBe(false)
+    expect(updates).toEqual([])
+  })
 })

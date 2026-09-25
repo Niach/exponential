@@ -25,7 +25,8 @@ import {
   type ActionInputDef,
   actionInputsSchema,
   type AutomationTrigger,
-  type WorkflowLaunch,
+  type WorkflowLaunchStored,
+  type DeviceWorkflowDefaults,
   type WorkflowMetricsJson,
   type WorkflowNodeReview,
   type CodingSessionBlocked,
@@ -1181,6 +1182,10 @@ export interface DeviceLaunchDefaults {
    * agent's active login. */
   defaultAccount?: string
   agents?: Record<string, DeviceAgentLaunchDefaults>
+  /** EXP-1029: the workflow model defaults new workflows are seeded from
+   * (`DeviceWorkflowDefaults`). Absent on a device that predates them:
+   * readers fall back to contract `deviceAgentDefaults`. */
+  workflow?: DeviceWorkflowDefaults
 }
 // Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
 // (EXP-495) serialized capability-masked toggles as explicit `null` and a
@@ -1206,6 +1211,13 @@ export const deviceLaunchDefaultsSchema = z.object({
       })
     )
     .refine((agents) => Object.keys(agents).length <= 16)
+    .nullish(),
+  // EXP-1029: the workflow model defaults (`DeviceWorkflowDefaults`).
+  workflow: z
+    .object({
+      model: z.string().max(64).nullish(),
+      strongModel: z.string().max(64).nullish(),
+    })
     .nullish(),
 })
 
@@ -2376,7 +2388,7 @@ export const workflows = pgTable(
     // devices.device_id of the runner: the engine's SINGLE writer. NULL on a
     // draft nobody bound yet.
     deviceId: varchar(`device_id`, { length: 128 }),
-    launch: jsonb().$type<WorkflowLaunch>().notNull().default(sql`'{}'::jsonb`),
+    launch: jsonb().$type<WorkflowLaunchStored>().notNull().default(sql`'{}'::jsonb`),
     // EXP-1010: the review gate setting is GONE — every node gets an agent
     // review. The column stays pinned to `agent` (and synced) only because
     // engines older than that release still read it; drop it with them.

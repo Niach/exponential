@@ -11,7 +11,6 @@ import {
   workflowReviewOracleSchema,
   workflowTouchesSchema,
   type WfReviewVerdict,
-  type WfStartOn,
   CATEGORY_ANCHOR,
   customizableStatusCategoryValues,
   dateOnlySchema,
@@ -4711,7 +4710,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_create`,
     {
-      description: `Create a DRAFT workflow from backlog issues (UUIDs or identifiers) of ONE repository. Shape it with exponential_issue_relations_add (blocks = edge, parent = one batch node), then exponential_workflows_update.`,
+      description: `Create a DRAFT workflow from backlog issues (UUIDs or identifiers) of ONE repository. Shape it with exponential_issue_relations_add (blocks = edge, parent = one batch node), then exponential_workflows_update. Models come from the runner device, never from here.`,
       inputSchema: strictInput({
         teamId: uuidString,
         issueIds: z.array(z.string().min(1)).min(1).max(WORKFLOW_MAX_ISSUES),
@@ -4918,7 +4917,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_update`,
     {
-      description: `Update a workflow; pass only what changes. Draft only: deviceId (the runner machine, your own or a server shared with the team; required before workflows_start), addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}], startOn. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
+      description: `Update a workflow; pass only what changes. Draft only: deviceId (the runner machine, your own or a server shared with the team; required before workflows_start — it also seeds the models every run uses), addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}]. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -4926,6 +4925,8 @@ export function registerExponentialTools(
         // plans a workflow over MCP must be able to bind the runner, or the
         // draft can never start — `workflows.update` is the only writer.
         deviceId: z.string().min(1).max(128).optional(),
+        // EXP-1029: fixed to `contract`. Still accepted so an older caller is
+        // not refused; it changes nothing.
         startOn: z.enum(contract.wfStartOn.values as [string, ...string[]]).optional(),
         addIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
         removeIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
@@ -4941,13 +4942,12 @@ export function registerExponentialTools(
         const api = caller(user, request).workflows
         const resolve = (ids: string[] | undefined) =>
           Promise.all((ids ?? []).map((id) => resolveIssueId(id, user.id, access)))
-        if (input.name || input.deviceId || input.startOn || input.decision) {
+        if (input.name || input.deviceId || input.decision) {
           await api.update({
             id: input.id,
             name: input.name,
             deviceId: input.deviceId,
             decision: input.decision,
-            startOn: input.startOn as WfStartOn | undefined,
           })
         }
         const [addIssueIds, removeIssueIds] = await Promise.all([

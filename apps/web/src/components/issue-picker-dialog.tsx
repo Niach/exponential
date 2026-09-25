@@ -1,15 +1,7 @@
 import { useState } from "react"
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@exp/ui"
-import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { Dialog, DialogContent, DialogTitle, PickerList, issuePickerItems } from "@exp/ui"
+import { toStatusPickerStatus } from "@/components/issue-properties/status-dropdown"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   useIssueRefs,
   type ResolvedIssueRef,
@@ -34,6 +26,13 @@ const NO_ROWS: ResolvedIssueRef[] = []
 // contract: cmdk keeps the top row selected while typing, ↑/↓ step, Enter
 // picks, hovering moves the selection. Used by the mark-as-duplicate flow
 // and the relations card.
+//
+// EXP-1021: the rows ARE the issue picker's rows (`issuePickerItems` through
+// `PickerList` — the primitive's body without a surface): the status glyph in
+// its colour, then the one-line `IDENT Title` label that is the ×4 contract.
+// Only the SHELL stays a dialog rather than a popover, because both callers
+// open it from a MENU ITEM: there is no trigger for a popover to hang off,
+// and a phone gets the full sheet either way.
 export function IssuePickerDialog({
   open,
   onOpenChange,
@@ -43,6 +42,7 @@ export function IssuePickerDialog({
   placeholder = `Search issues…`,
 }: IssuePickerDialogProps) {
   const issueRefs = useIssueRefs()
+  const { resolve } = useTeamStatusesContext()
   const [query, setQuery] = useState(``)
 
   const { results } = useIssueSearchResults({
@@ -62,6 +62,8 @@ export function IssuePickerDialog({
     if (!next) setQuery(``)
   }
 
+  const resultsById = new Map(results.map((issue) => [issue.id, issue]))
+
   const handlePick = (issue: ResolvedIssueRef) => {
     handleOpenChange(false)
     onPick(issue)
@@ -75,42 +77,47 @@ export function IssuePickerDialog({
         className="flex flex-col gap-0 overflow-hidden p-0 sm:p-0 max-sm:px-0 sm:top-[15%] sm:max-h-[60vh] sm:max-w-lg sm:translate-y-0"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
-        <Command
+        <PickerList
+          mode="single"
+          search
+          searchPlaceholder={placeholder}
+          // The engine already ranked and capped the rows (EXP-892), so cmdk
+          // renders them verbatim.
+          query={query}
+          onQueryChange={setQuery}
           shouldFilter={false}
+          // Nothing is ever pre-picked here — the picker LINKS an issue, it
+          // does not edit a value — so `value` stays null and no row is marked.
+          value={null}
+          onChange={(issueId) => {
+            const issue = resultsById.get(issueId)
+            if (issue) handlePick(issue)
+          }}
+          items={issuePickerItems(
+            results.map((issue) => {
+              // The glyph is the issue's own status row, resolved against the
+              // team's synced statuses exactly as every list row resolves it.
+              const status = toStatusPickerStatus(resolve(issue))
+              return {
+                id: issue.id,
+                identifier: issue.identifier,
+                title: issue.title,
+                icon: status.icon,
+                color: status.colorHex ?? undefined,
+              }
+            })
+          )}
+          // EXP-962: the in-list empty line (the same one `ListEmpty` draws
+          // elsewhere) — no icon column, so one list's empty is not louder
+          // than every other list's.
+          emptyText={
+            query.trim()
+              ? `No issues match "${query}"`
+              : `No issues to pick from`
+          }
           className="min-h-0 bg-transparent **:data-[slot=command-input-wrapper]:border-border/50"
-        >
-          <CommandInput
-            value={query}
-            onValueChange={setQuery}
-            placeholder={placeholder}
-            autoFocus
-            className="text-base md:text-sm"
-          />
-          <CommandList className="max-h-none flex-1 overflow-y-auto">
-            {/* EXP-962: `CommandEmpty` IS the in-list empty line (the same one
-                `ListEmpty` draws elsewhere) — the icon column it used to wrap
-                made one list's empty louder than every other list's. */}
-            <CommandEmpty>
-              {query.trim()
-                ? `No issues match "${query}"`
-                : `No issues to pick from`}
-            </CommandEmpty>
-            {results.map((issue) => (
-              <CommandItem
-                key={issue.id}
-                value={issue.id}
-                onSelect={() => handlePick(issue)}
-                className="gap-3 rounded-none px-4 py-3 cursor-pointer border-b border-border/30"
-              >
-                <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {issue.identifier}
-                </span>
-                <span className="flex-1 truncate text-sm">{issue.title}</span>
-              </CommandItem>
-            ))}
-          </CommandList>
-        </Command>
+          listClassName="max-h-none flex-1 overflow-y-auto"
+        />
       </DialogContent>
     </Dialog>
   )

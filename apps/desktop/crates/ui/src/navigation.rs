@@ -96,8 +96,8 @@ pub enum Screen {
     /// row opens keeps it in the left column.
     Workflows,
     /// One workflow's detail (EXP-981): the server-laid-out graph of its
-    /// nodes, the picked node's side panel and the "How it runs"
-    /// configuration. A DETAIL like an issue — it gets a tab chip and sits
+    /// nodes as issue chips, the runner pick in the header and the picked
+    /// node's side panel (EXP-1014: nothing to configure). A DETAIL like an issue — it gets a tab chip and sits
     /// beside the Workflows list it was opened from.
     Workflow { workflow_id: String },
     /// The Chat page (EXP-772 — the web `t/$teamSlug/chat` page: one centred
@@ -544,6 +544,15 @@ impl ChatSeed {
             pr_issue_id: Some(pr_issue_id.into()),
             ..Default::default()
         }
+    }
+
+    /// EXP-1037 — the ONE rule that decides where this seed opens (×4): a
+    /// seed carrying a SUBJECT (issues or an action) opens the composer
+    /// PREFILLED in a dialog, so the thing you pressed ▶ on is visibly one
+    /// confirm away; a subject-less seed (the Chat button, the rail's Agent
+    /// entry) still opens the Agent SCREEN, where the composer is the page.
+    pub(crate) fn has_subject(&self) -> bool {
+        !self.issue_ids.is_empty() || self.action_id.is_some()
     }
 }
 
@@ -1028,6 +1037,26 @@ pub(crate) fn seed_window_scope(
     });
 }
 
+/// EXP-1037: copy a source window's TEAM/board scope onto this window's nav
+/// WITHOUT pinning a screen — a dialog window renders no screen, it only has
+/// to resolve the same team the button was pressed in (its own fresh nav
+/// would otherwise fall back to the last persisted team).
+pub(crate) fn seed_window_team(window: &Window, cx: &mut App, source: WindowId) {
+    let scope = nav_for_window_id(source, cx).map(|nav| {
+        let nav = nav.read(cx);
+        (nav.team_id.clone(), nav.last_board_id.clone())
+    });
+    let Some((team_id, last_board_id)) = scope else {
+        return;
+    };
+    let nav = nav_for_window(window, cx);
+    nav.update(cx, |nav, cx| {
+        nav.team_id = team_id;
+        nav.last_board_id = last_board_id;
+        cx.notify();
+    });
+}
+
 /// Drop a closed window's entry (called from the `Shell` release hook —
 /// entities die with the window; the registry must not leak handles).
 pub fn remove_window(window_id: WindowId, cx: &mut App) {
@@ -1115,12 +1144,42 @@ pub(crate) fn reveals_undocked_window(screen: &Screen) -> bool {
 /// `true` = handled, the caller must not touch this window's nav. A window
 /// that HAS a panel takes the normal path, so this costs one registry lookup
 /// per navigation in the common case.
+/// The window a screen-less window's navigation belongs to: an undocked
+/// screen's shell, or (EXP-1037) the window a DIALOG was opened from. Both
+/// are windows without a screens panel, and both must hand a navigation on
+/// rather than write it to a nav nothing renders.
+fn owner_window_for(window: &Window, cx: &App) -> Option<AnyWindowHandle> {
+    let window_id = window.window_handle().window_id();
+    crate::undock::owner_shell_for_window(window_id, cx)
+        .or_else(|| crate::native_dialog::opener_of_window(window_id, cx))
+}
+
+/// EXP-1037 — the window a DEFERRED open should land in: this one, unless it
+/// hosts no screens and may be gone by then (a composer dialog closes itself
+/// the moment the start is away), in which case the window that owns it.
+pub(crate) fn deferred_open_window(window: &Window, cx: &App) -> AnyWindowHandle {
+    owner_window_for(window, cx).unwrap_or_else(|| window.window_handle())
+}
+
+/// EXP-1037 — run `f` (a toast, a result) in [`deferred_open_window`], on the
+/// next tick. Always deferred: a cross-window `update` from inside a window's
+/// own update silently no-ops, and the caller is always inside one.
+pub(crate) fn defer_in_result_window(
+    window: &Window,
+    cx: &mut App,
+    f: impl FnOnce(&mut Window, &mut App) + 'static,
+) {
+    let target = deferred_open_window(window, cx);
+    cx.defer(move |cx| {
+        let _ = target.update(cx, |_, window, cx| f(window, cx));
+    });
+}
+
 fn forward_to_owner_shell(window: &Window, cx: &mut App, screen: &Screen) -> bool {
     if crate::screens::screens_for_window(window, cx).is_some() {
         return false;
     }
-    let window_id = window.window_handle().window_id();
-    let Some(owner) = crate::undock::owner_shell_for_window(window_id, cx) else {
+    let Some(owner) = owner_window_for(window, cx) else {
         return false;
     };
     let screen = screen.clone();
@@ -1205,6 +1264,16 @@ pub(crate) fn navigate_to_chat_from_rail(window: &mut Window, cx: &mut App, seed
 }
 
 fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed, from_rail: bool) {
+    // EXP-1037: a seed with a SUBJECT opens the composer prefilled in its own
+    // dialog window instead of navigating — the ONE branch for all ten play
+    // buttons ([`ChatSeed::has_subject`]). A dialog can open over any window,
+    // undocked screens included, so this runs before the shell forwarding
+    // below; the dialog's own navigations then hand back to whatever window
+    // opened it (`owner_window_for`).
+    if seed.has_subject() {
+        crate::composer_dialog::open(window, cx, seed);
+        return;
+    }
     if crate::screens::screens_for_window(window, cx).is_none() {
         let window_id = window.window_handle().window_id();
         if let Some(owner) = crate::undock::owner_shell_for_window(window_id, cx) {
@@ -1768,6 +1837,29 @@ pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1037: the ONE routing rule — a seed with a subject (issues or an
+    /// action) opens the composer DIALOG, a subject-less one still navigates
+    /// to the Agent screen. Every play button funnels through it.
+    #[test]
+    fn only_a_seed_with_a_subject_opens_the_dialog() {
+        assert!(!ChatSeed::default().has_subject());
+        // A chat seed may still carry text, a device and an icon.
+        let chat = ChatSeed {
+            text: Some("hi".into()),
+            device_id: Some("dev-1".into()),
+            icon: Some("rocket".into()),
+            ..Default::default()
+        };
+        assert!(!chat.has_subject());
+        assert!(ChatSeed::issues(vec!["issue-1".into()]).has_subject());
+        assert!(ChatSeed::issues(vec!["issue-1".into(), "issue-2".into()]).has_subject());
+        // An EMPTY issue list is no subject at all.
+        assert!(!ChatSeed::issues(Vec::new()).has_subject());
+        assert!(ChatSeed::action("act-1").has_subject());
+        assert!(ChatSeed::fix_conflicts("issue-1").has_subject());
+        assert!(ChatSeed::plan_workflow("wf-1").has_subject());
+    }
 
     /// EXP-686: the three full-page rail screens each have their own
     /// `EXP_DEV_SCREEN` value — a capture run reaches Devices and Automations

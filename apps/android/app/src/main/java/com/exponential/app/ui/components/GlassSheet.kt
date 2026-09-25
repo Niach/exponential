@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,10 +24,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,6 +40,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import kotlinx.coroutines.launch
 
 /** How tall a [GlassSheet] presents (EXP-687). */
 enum class SheetHeight {
@@ -92,10 +95,14 @@ object GlassSheetDefaults {
  * The ONE bottom-sheet shell (EXP-240, reshaped by EXP-687): an opaque zinc
  * surface (the alpha-fill glass idiom needs the gradient beneath — a floating
  * sheet has none), a drag handle on every sheet, an optional left-aligned title
- * with an optional [headerAction] beside it, and an optional [primaryAction]
- * pinned full-width to the bottom. There is deliberately no close button and no
- * Cancel pill anywhere: swiping down (or back) dismisses, on all three mobile
- * clients.
+ * and an optional [primaryAction] pinned full-width to the bottom. There is
+ * deliberately no close button and no Cancel pill anywhere: swiping down (or
+ * back) dismisses, on all three mobile clients.
+ *
+ * EXP-1021 retired the header ACTION slot: its one caller was the icon picker's
+ * "No icon" reset, and a reset now rides the picker's own footer row
+ * ([com.exponential.app.ui.components.picker.PickerActionRow]) so a sheet
+ * carries one row idiom rather than a second one bolted to its title.
  *
  * The [content] slot is bounded — [SheetHeight.Fitted] caps the whole column at
  * [GlassSheetDefaults.FittedMaxHeightFraction] of the screen — but never
@@ -112,27 +119,45 @@ fun GlassSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     height: SheetHeight = SheetHeight.Fitted,
-    headerAction: (@Composable () -> Unit)? = null,
     primaryAction: SheetPrimaryAction? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
     val full = height == SheetHeight.Full
     val maxFittedHeight = (LocalConfiguration.current.screenHeightDp * GlassSheetDefaults.FittedMaxHeightFraction).dp
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        // EXP-1043: back is OURS, not material3's. Its dismiss-on-back
+        // registers an `OnBackInvokedCallback` straight on the sheet's dialog
+        // WINDOW (API 33+), where it outranks every `BackHandler` inside the
+        // sheet — a nested surface could then never take back for itself (the
+        // sub-shell's open page returned to the card on the emulator only once
+        // this moved). Handled in the content instead, on the dialog's
+        // OnBackPressedDispatcher, where a nested handler wins the way it does
+        // on any other screen. The cost is the system's predictive-back shrink
+        // on the sheet itself; the dismissal is the same animation as before.
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false),
         modifier = if (full) Modifier.statusBarsPadding() else Modifier,
         shape = RoundedCornerShape(topStart = GlassSheetDefaults.CornerRadius, topEnd = GlassSheetDefaults.CornerRadius),
         containerColor = GlassSheetDefaults.ContainerColor,
         dragHandle = { BottomSheetDefaults.DragHandle(color = GlassSheetDefaults.DragHandleColor) },
     ) {
+        // The sheet's own back, the same hide-then-dismiss the swipe takes.
+        // Declared BEFORE the content so a handler the caller nests inside it
+        // (the sub-shell's open page) is the more recent one and goes first.
+        BackHandler {
+            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                if (!sheetState.isVisible) onDismiss()
+            }
+        }
         Column(
             modifier = modifier
                 .fillMaxWidth()
                 .then(if (full) Modifier.fillMaxHeight() else Modifier.heightIn(max = maxFittedHeight)),
         ) {
-            if (title != null || headerAction != null) {
+            if (title != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -144,12 +169,11 @@ fun GlassSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        title.orEmpty(),
+                        title,
                         style = MaterialTheme.typography.titleMedium,
                         color = GlassSheetDefaults.TitleColor,
                         modifier = Modifier.weight(1f),
                     )
-                    if (headerAction != null) headerAction()
                 }
             }
             // fill = false on a fitted sheet: the slot takes what the content
@@ -193,21 +217,6 @@ fun GlassSheet(
                 Spacer(Modifier.height(12.dp))
             }
         }
-    }
-}
-
-/**
- * The secondary text action a sheet header may carry beside its title — "Clear
- * all", "No icon". Not a dismiss: those are the drag handle's job.
- */
-@Composable
-fun GlassSheetHeaderAction(label: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = Color.White.copy(alpha = TextEmphasis.Secondary),
-        )
     }
 }
 

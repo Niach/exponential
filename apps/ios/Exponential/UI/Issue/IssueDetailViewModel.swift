@@ -557,7 +557,9 @@ final class IssueDetailViewModel {
     var teamUsers: [UserEntity] {
         guard let teamId = board?.teamId else { return [] }
         let memberIds = Set(teamMembers.filter { $0.teamId == teamId }.map(\.userId))
-        return users.filter { memberIds.contains($0.id) }
+        // Display-name order, at the source: `users` is a `fetchAll`, and the
+        // assignee picker renders what it is handed (EXP-1021 review r2).
+        return membersByDisplayName(users.filter { memberIds.contains($0.id) })
     }
 
     func assignee() -> UserEntity? {

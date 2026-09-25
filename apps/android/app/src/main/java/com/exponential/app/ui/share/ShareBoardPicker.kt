@@ -9,19 +9,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.BoardIcon
-import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerMode
+import com.exponential.app.ui.components.picker.boardPickerItems
+import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassGroup
@@ -127,10 +128,19 @@ fun ShareBoardSelector(
 }
 
 /**
- * Team-grouped board picker sheet for the share composer — the shared
- * [GlassSheet] chooser ([com.exponential.app.ui.issue.IssuePickerSheet]'s
- * pattern: title + [GlassSheetRow]s + trailing check), with a secondary team
- * header above each group's boards.
+ * The share composer's board picker, opened by [ShareBoardSelector].
+ *
+ * EXP-1021 swept it onto the shared [Picker]: it used to draw `GlassSheetRow`s
+ * with a trailing check, so the share flow said "this is picked" one way here
+ * and another way in every picker it opens next.
+ *
+ * It rides the PRIMITIVE with [boardPickerItems]' rows rather than
+ * [com.exponential.app.ui.components.picker.BoardPicker], because the share
+ * target is the one board list that spans TEAMS and the shared
+ * `BoardPickerBoard` contract (web `board-picker.tsx`, iOS, desktop) carries no
+ * team. A picker row is FLAT — the contract has no section header — so the team
+ * rides where a picker row says that kind of thing: the muted second line, and
+ * a search keyword. `PickerContractTest` records that exception.
  */
 @Composable
 fun ShareBoardPickerSheet(
@@ -139,31 +149,26 @@ fun ShareBoardPickerSheet(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    GlassSheet(title = "Share to", onDismiss = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            groups.forEach { group ->
-                Text(
-                    group.team.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 2.dp),
+    val rows = remember(groups) {
+        groups.flatMap { group ->
+            boardPickerItems(group.boards.map { it.toPickerBoard() }).map { row ->
+                row.copy(
+                    description = group.team.name,
+                    keywords = listOf(row.label, group.team.name),
                 )
-                group.boards.forEach { board ->
-                    GlassSheetRow(
-                        label = board.name,
-                        onClick = {
-                            onSelect(board.id)
-                            onDismiss()
-                        },
-                        selected = board.id == selectedBoardId,
-                        leading = { BoardIcon(board) },
-                    )
-                }
             }
         }
     }
+    Picker(
+        items = rows,
+        mode = PickerMode.Single,
+        value = setOfNotNull(selectedBoardId),
+        onChange = { picked -> picked.firstOrNull()?.let(onSelect) },
+        search = true,
+        emptyText = "No boards",
+        title = "Share to",
+        searchPlaceholder = "Search boards",
+        open = true,
+        onOpenChange = { next -> if (!next) onDismiss() },
+    )
 }

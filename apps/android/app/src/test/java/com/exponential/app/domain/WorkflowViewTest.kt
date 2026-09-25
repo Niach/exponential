@@ -184,6 +184,7 @@ class WorkflowViewTest {
     @Test
     fun `the contract line is the shared sentence`() {
         assertEquals("Contract published", WorkflowView.CONTRACT_PUBLISHED_LABEL)
+        assertEquals("Merges in first", WorkflowView.MERGES_IN_FIRST_LABEL)
     }
 
     @Test
@@ -339,6 +340,13 @@ class WorkflowViewTest {
         assertEquals("Merge train", WorkflowView.MERGE_TRAIN_TITLE)
         assertEquals("Nothing is waiting to land.", WorkflowView.MERGE_TRAIN_EMPTY)
         assertEquals("Final pull request", WorkflowView.FINAL_PR_TITLE)
+        // EXP-1033: merging that pull request is the run's ONE human review.
+        assertEquals("Merge", WorkflowView.MERGE_FINAL_PR_LABEL)
+        assertEquals(
+            "The workflow's branch is squash-merged into the default branch and " +
+                "the run is done.",
+            WorkflowView.MERGE_FINAL_PR_CONFIRM,
+        )
         assertEquals("Running now", WorkflowView.RUNNING_NOW_LABEL)
         assertEquals("Retry", WorkflowView.RETRY_NODE_LABEL)
         assertEquals("Skip", WorkflowView.SKIP_NODE_LABEL)
@@ -406,12 +414,15 @@ class WorkflowViewTest {
             WorkflowView.PROPOSED_NODE_NOTE,
         )
         assertEquals("Agent review", WorkflowView.AGENT_REVIEW_TITLE)
-        assertEquals("Review model", WorkflowView.REVIEW_MODEL_LABEL)
         assertEquals("Metrics", WorkflowView.METRICS_TITLE)
-        assertEquals("Contract model", WorkflowView.CONTRACT_MODEL_LABEL)
-        assertEquals("Integration model", WorkflowView.INTEGRATION_MODEL_LABEL)
-        assertEquals("High-risk model", WorkflowView.RISK_MODEL_LABEL)
-        assertEquals("Same as Model", WorkflowView.SAME_AS_MODEL_LABEL)
+        // EXP-1014: the per-phase model pickers are gone; the node sheet only
+        // NAMES the model its run spawns on.
+        assertEquals("Model", WorkflowView.NODE_MODEL_LABEL)
+        // The chip of a node whose issue row has not synced: the first 8
+        // characters of the issue id stand in for the identifier, this is the
+        // title. A compound one still reads `abcd1234 +2`.
+        assertEquals("Not synced yet", WorkflowView.NODE_UNSYNCED_TITLE)
+        assertEquals("abcd1234 +2", WorkflowView.nodeTitle("abcd1234", 2))
     }
 
     @Test
@@ -434,8 +445,149 @@ class WorkflowViewTest {
         assertNull(workflowNodeReview(null))
     }
 
+    // ── The launch (EXP-1029) ──────────────────────────────────────────────
+    // The same acceptance table web's `workflow-launch.test.ts` carries, case
+    // for case: ONE rule picks a workflow run's models on every client.
+
+    private val claude = NormalizedWorkflowLaunch(
+        agent = "claude",
+        model = "opus",
+        strongModel = "fable",
+    )
+
     @Test
-    fun `the how-it-runs pickers name every contract value`() {
+    fun `reads the new shape verbatim`() {
+        assertEquals(
+            NormalizedWorkflowLaunch(
+                agent = "claude",
+                model = "sonnet",
+                strongModel = "opus",
+                account = "p-1",
+            ),
+            normalizedLaunch(
+                workflowLaunch(
+                    """{"agent":"claude","account":"p-1","model":"sonnet","strongModel":"opus"}""",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `fills an empty row from the claude defaults`() {
+        assertEquals(claude, normalizedLaunch(workflowLaunch("{}")))
+        assertEquals(claude, normalizedLaunch(workflowLaunch(null)))
+        assertEquals(claude, normalizedLaunch(workflowLaunch("garbage")))
+    }
+
+    @Test
+    fun `fills a codex row from the codex defaults`() {
+        assertEquals(
+            NormalizedWorkflowLaunch(
+                agent = "codex",
+                model = "gpt-5.6-sol",
+                strongModel = "gpt-5.6-luna",
+            ),
+            normalizedLaunch(workflowLaunch("""{"agent":"codex"}""")),
+        )
+    }
+
+    @Test
+    fun `degrades an unknown agent to claude`() {
+        assertEquals("claude", normalizedLaunch(workflowLaunch("""{"agent":"pi"}""")).agent)
+    }
+
+    @Test
+    fun `folds an old row's pins into strongModel, reviewModel first`() {
+        assertEquals(
+            "sonnet",
+            normalizedLaunch(
+                workflowLaunch("""{"agent":"claude","model":"opus","contractModel":"sonnet"}"""),
+            ).strongModel,
+        )
+        assertEquals(
+            "opus",
+            normalizedLaunch(
+                workflowLaunch("""{"agent":"claude","riskModel":"sonnet","reviewModel":"opus"}"""),
+            ).strongModel,
+        )
+        assertEquals(
+            "sonnet",
+            normalizedLaunch(
+                workflowLaunch("""{"agent":"claude","integrationModel":"sonnet"}"""),
+            ).strongModel,
+        )
+    }
+
+    @Test
+    fun `lets a stored strongModel win over every legacy pin`() {
+        assertEquals(
+            "opus",
+            normalizedLaunch(
+                workflowLaunch("""{"strongModel":"opus","contractModel":"sonnet"}"""),
+            ).strongModel,
+        )
+    }
+
+    @Test
+    fun `drops subagentModel, effort and maxParallel`() {
+        assertEquals(
+            claude,
+            normalizedLaunch(
+                workflowLaunch(
+                    """{"agent":"claude","subagentModel":"sonnet","effort":"high","maxParallel":5}""",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `keeps model as model, even beside old pins`() {
+        assertEquals(
+            NormalizedWorkflowLaunch(agent = "claude", model = "sonnet", strongModel = "fable"),
+            normalizedLaunch(workflowLaunch("""{"model":"sonnet","contractModel":"fable"}""")),
+        )
+    }
+
+    @Test
+    fun `drops a blank account`() {
+        assertEquals(claude, normalizedLaunch(workflowLaunch("""{"account":""}""")))
+        assertEquals(claude, normalizedLaunch(workflowLaunch("""{"account":"   "}""")))
+    }
+
+    @Test
+    fun `runs a leaf on the cheap model`() {
+        assertEquals("opus", modelForNode(claude, "leaf", "low"))
+        assertEquals("opus", modelForNode(claude, "leaf", "medium"))
+    }
+
+    @Test
+    fun `runs contract and integration nodes on the strong model`() {
+        assertEquals("fable", modelForNode(claude, "contract", "low"))
+        assertEquals("fable", modelForNode(claude, "integration", "low"))
+    }
+
+    @Test
+    fun `runs a high-risk node on the strong model, whatever its kind`() {
+        assertEquals("fable", modelForNode(claude, "leaf", "high"))
+    }
+
+    @Test
+    fun `reviews every node on the strong model`() {
+        assertEquals("fable", reviewModelFor(claude))
+        assertEquals(
+            "gpt-5.6-luna",
+            reviewModelFor(
+                NormalizedWorkflowLaunch(
+                    agent = "codex",
+                    model = "gpt-5.6-sol",
+                    strongModel = "gpt-5.6-luna",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `the plan labels name every contract value`() {
         assertEquals(
             listOf("On contract", "On PR open", "When landed"),
             DomainContract.wfStartOnValues.map(WorkflowView::startOnLabel),

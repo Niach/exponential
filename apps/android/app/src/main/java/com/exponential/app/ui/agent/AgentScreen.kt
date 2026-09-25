@@ -123,6 +123,10 @@ fun AgentScreen(
     // page's top bar beside its history button (web/desktop put them in the
     // sidebar after Automations).
     onOpenWorkflows: () -> Unit = {},
+    // EXP-1050: a WORKFLOW group row in the sessions list leads to its
+    // workflow. The default is the list, for a preview or a test that names no
+    // route — a group row that leads nowhere is worse than one a tap away.
+    onOpenWorkflow: (workflowId: String) -> Unit = { onOpenWorkflows() },
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // The sessions under the composer: the Devices tab's own model, reused
@@ -256,13 +260,15 @@ fun AgentScreen(
     val busy = sending || runState is ActionRunState.Sending
     val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
         AgentComposerPrompt.withinLimit(draft, images.size)
-    val submitLabel = AgentComposerPrompt.submitTitle(
-        when {
-            actionSubject != null -> AgentComposerPrompt.Subject.Action
-            checkedCount > 0 -> AgentComposerPrompt.Subject.Issues(checkedCount)
-            else -> AgentComposerPrompt.Subject.None
-        },
-    )
+    // The ONE pure place the subject turns into copy: the submit's contract
+    // label and (EXP-1038) the headline verb above the field.
+    val promptSubject = when {
+        actionSubject != null -> AgentComposerPrompt.Subject.Action
+        checkedCount > 0 -> AgentComposerPrompt.Subject.Issues(checkedCount)
+        else -> AgentComposerPrompt.Subject.None
+    }
+    val submitLabel = AgentComposerPrompt.submitTitle(promptSubject)
+    val headline = AgentComposerPrompt.headline(promptSubject)
     // The reason the composer cannot start right now (iOS `blocker` parity);
     // null when it can, or when the only thing missing is the message itself.
     val signedOut = DomainContract.codingAgentValues.filter { agent ->
@@ -400,6 +406,8 @@ fun AgentScreen(
     var recentOpen by remember { mutableStateOf(false) }
     // EXP-897: which parents have their CHILD runs folded away — hoisted
     // because the list is a LazyListScope extension, not a composable.
+    // EXP-1050: keyed by the TREE node key, so a group folds the same way
+    // (`workflow:<id>` / `stack:<issueId>`, never a session id).
     var collapsedRunning by remember { mutableStateOf(emptySet<String>()) }
     // …and with nothing running, the composer column sits in the MIDDLE of the
     // page instead of hugging the top bar (web `justify-center`, desktop
@@ -481,6 +489,25 @@ fun AgentScreen(
                     }
                 }
                 true -> {
+                    // EXP-1038: the run's SUBJECT heads the page — the
+                    // contract verb ("Run" · "Implement") with the action or
+                    // issue chips beside it, above everything the composer
+                    // offers, so a prefilled start reads as a thing about to
+                    // be sent, not as a chip. A CHAT emits no item at all
+                    // (web `LaunchHeadline` returns null, ×4): the field's
+                    // placeholder already says "Ask the agent…", and the same
+                    // sentence twice is not a heading.
+                    if (promptSubject != AgentComposerPrompt.Subject.None) {
+                        item(key = "__composer_headline__") {
+                            AgentComposerHeadline(
+                                headline = headline,
+                                issueChips = checkedOptions,
+                                onRemoveIssue = viewModel::toggleIssue,
+                                actionChip = selectedAction,
+                                onClearAction = viewModel::clearAction,
+                            )
+                        }
+                    }
                     // EXP-820: a few suggestion chips over an EMPTY new chat —
                     // drawn once per mount from the pool shared ×4, and gone the
                     // moment there is a subject or a word typed, where they
@@ -556,10 +583,9 @@ fun AgentScreen(
                             // composer hint (EXP-825), anything else what is
                             // optional next to it.
                             placeholder = composerPlaceholder(subject, selectedAction),
-                            issueChips = checkedOptions,
-                            onRemoveIssue = viewModel::toggleIssue,
+                            // EXP-1038: the CHIP is in the headline above; the
+                            // card takes the action only for its pick rows.
                             actionChip = selectedAction,
-                            onClearAction = viewModel::clearAction,
                             inputValues = actionSubject?.inputs.orEmpty(),
                             repos = teamRepos,
                             boards = boardOptions,
@@ -661,6 +687,7 @@ fun AgentScreen(
             agentSessionsList(
                 rows = sessionsState.rows,
                 collapsedRunning = collapsedRunning,
+                treeContext = sessionsState.treeContext,
                 onToggleRunning = { id ->
                     collapsedRunning =
                         if (id in collapsedRunning) collapsedRunning - id else collapsedRunning + id
@@ -668,6 +695,7 @@ fun AgentScreen(
                 steerEnabled = steerEnabled == true,
                 onOpenSteer = onOpenSteer,
                 onOpenIssue = onOpenIssue,
+                onOpenWorkflow = onOpenWorkflow,
             )
         }
     }

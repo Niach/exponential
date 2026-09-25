@@ -64,6 +64,21 @@ export interface DomainContract {
     maxIssues: number
     maxReviewRounds: number
   }
+  /** EXP-1029: the two-model workflow launch per agent (cheap `model`,
+   *  capable `strongModel`) and a device's agent defaults. */
+  workflowLaunch: {
+    agents: readonly string[]
+    claudeModel: string
+    claudeStrongModel: string
+    codexModel: string
+    codexStrongModel: string
+  }
+  deviceAgentDefaults: {
+    model: string
+    subagentModel: string
+    workflowModel: string
+    workflowStrongModel: string
+  }
   codingSessionStatus: { values: readonly string[] }
   /**
    * EXP-637: how a run finished in the agent's own words
@@ -168,6 +183,23 @@ export interface DomainContract {
     collapseThresholdLines: number
     lineChunk: number
     inlineDiffMaxHeight: number
+  }
+  /**
+   * EXP-1019: the launcher's shared copy — the ONE wording every composer
+   * uses ×4 (web dialog + agent page, the IDE's start-coding dialog, the two
+   * native composers). `runHeadline`/`implementHeadline` are the VERB in
+   * front of the subject chips ("Run <action>", "Implement <issues>"); the
+   * chips themselves are each client's own. `chatHeadline` is the subjectless
+   * case, and the two placeholders are what the text field asks for once the
+   * subject — not the prompt — is the main thing.
+   */
+  composerUi: {
+    runHeadline: string
+    implementHeadline: string
+    chatHeadline: string
+    chatPlaceholder: string
+    instructionsPlaceholder: string
+    dialogTitle: string
   }
   /**
    * EXP-785: ACP's tool-call kinds, carried on the `tool` steer event so

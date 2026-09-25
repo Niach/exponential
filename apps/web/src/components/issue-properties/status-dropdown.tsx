@@ -1,5 +1,11 @@
 import type { CSSProperties } from "react"
-import { Button, Combobox, ICON_COMPONENTS, StatusGlyph } from "@exp/ui"
+import {
+  Button,
+  ICON_COMPONENTS,
+  StatusGlyph,
+  StatusPicker,
+  type StatusPickerStatus,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -107,6 +113,30 @@ export function toStatusMenuOptions(
   return options.map(toStatusMenuOption)
 }
 
+/**
+ * The same row as the shared `StatusPicker` speaks it (EXP-1021). Its
+ * `colorHex` slot carries the RESOLVED colour either way — a builtin's
+ * Tailwind token class or a custom row's hex — which is what the picker's
+ * item body already distinguishes, so neither side needs a second table.
+ */
+export function toStatusPickerStatus(
+  option: StatusRowOption
+): StatusPickerStatus {
+  return {
+    id: option.id,
+    name: option.name,
+    category: option.category,
+    icon: ICON_COMPONENTS[option.icon],
+    colorHex: option.builtinKey ? statusColorClass(option) : option.colorHex,
+  }
+}
+
+export function toStatusPickerStatuses(
+  options: readonly StatusRowOption[]
+): StatusPickerStatus[] {
+  return options.map(toStatusPickerStatus)
+}
+
 export function StatusDropdown({
   issueId,
   status,
@@ -131,7 +161,7 @@ export function StatusDropdown({
     },
   })
 
-  const menuOptions = toStatusMenuOptions(options)
+  const statuses = toStatusPickerStatuses(options)
   // EXP-958: the trigger draws the issue's RESOLVED row, never the picker's
   // matched option — the resolver already falls back for an unknown value
   // (REV2-85), and some menus leave the current row out entirely (a duplicate
@@ -141,19 +171,17 @@ export function StatusDropdown({
 
   return (
     <>
-      <Combobox
-        searchable={false}
+      <StatusPicker
+        statuses={statuses}
         value={current.id}
         disabled={disabled}
-        options={menuOptions}
         mobileTitle="Status"
         width="sm"
         onChange={(id) => {
-          if (!id) return
           const picked = byId.get(id)
           if (picked) handleStatusChange(picked)
         }}
-        renderTrigger={() => (
+        trigger={
           <Button
             variant="ghost"
             className="h-8 w-8 md:h-5 md:w-5 p-0"
@@ -165,7 +193,7 @@ export function StatusDropdown({
               style={trigger.colorHex ? { color: trigger.colorHex } : undefined}
             />
           </Button>
-        )}
+        }
       />
       {duplicatePicker}
     </>

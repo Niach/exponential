@@ -29,6 +29,44 @@ enum IssuePropertyChild: String, Identifiable {
     case addRelation
 
     var id: String { rawValue }
+
+    /// EXP-1021: the properties that are now a TYPED PICKER over the shared
+    /// sheet primitive. Those are driven by `open` on a picker that lives in
+    /// the host's tree, not presented as a view — so they must be kept out of
+    /// the `.sheet(item:)` path, which would otherwise present an empty sheet
+    /// for a case it no longer builds.
+    var isPicker: Bool {
+        switch self {
+        case .status, .priority, .assignee, .labels, .moveBoard, .duplicateOf: true
+        case .dueDate, .estimate, .addRelation: false
+        }
+    }
+}
+
+/// The `.sheet(item:)` half of the child plumbing: the properties that still
+/// present a VIEW of their own (a date wheel, an estimate scale, the two-stage
+/// relation flow). The picker children are filtered out — they are driven by
+/// `open` instead, and an unhandled case here would present an empty sheet.
+/// Free functions because BOTH hosts need them: the face and the Properties
+/// sheet it stacks the same children over.
+func issueViewChild(_ child: Binding<IssuePropertyChild?>) -> Binding<IssuePropertyChild?> {
+    Binding(
+        get: { child.wrappedValue.flatMap { $0.isPicker ? nil : $0 } },
+        set: { child.wrappedValue = $0 }
+    )
+}
+
+/// One picker child's open state, so a host that knows WHICH child is open can
+/// drive a typed picker that owns its own sheet (EXP-1021).
+func issuePickerOpen(
+    _ child: Binding<IssuePropertyChild?>, _ target: IssuePropertyChild
+) -> Binding<Bool> {
+    Binding(
+        get: { child.wrappedValue == target },
+        set: { isOpen in
+            if !isOpen, child.wrappedValue == target { child.wrappedValue = nil }
+        }
+    )
 }
 
 /// EXP-893: the Work screen's ISSUE face — today's issue body (big title,
@@ -323,12 +361,21 @@ struct IssueFaceView<Switcher: View>: View {
         // in the same chain silently loses to the first.
         .background {
             Color.clear
-                .sheet(item: $directChild, onDismiss: {
+                .sheet(item: issueViewChild($directChild), onDismiss: {
                     promoteChild(to: .screen)
                     promoteMoveTarget(to: .screen)
                 }) { child in
                     childSheet(child)
                 }
+        }
+        // EXP-1021: the typed pickers are their OWN presentations, one node
+        // each, so they hang off a second background rather than the
+        // `.sheet(item:)` above.
+        .background {
+            propertyPickers(child: $directChild) {
+                promoteChild(to: .screen)
+                promoteMoveTarget(to: .screen)
+            }
         }
         .onDisappear {
             // Belt-and-braces with EditorTextView.willMove(toWindow:) — no
@@ -409,6 +456,12 @@ struct IssueFaceView<Switcher: View>: View {
                 },
                 child: { child in
                     childSheet(child)
+                },
+                pickers: {
+                    propertyPickers(child: $propertyChild) {
+                        promoteChild(to: .properties)
+                        promoteMoveTarget(to: .properties)
+                    }
                 }
             )
             // The confirm hangs off the Properties ROOT — a different node
@@ -421,20 +474,26 @@ struct IssueFaceView<Switcher: View>: View {
         }
     }
 
-    /// The per-property pickers. The SAME builder feeds the chip box's direct
-    /// sheet and the ones Properties stacks over itself.
+    // MARK: - Property pickers (EXP-1021)
+
+    /// The per-property TYPED pickers (EXP-1021) — one shared sheet, plain
+    /// rows, highlight selection. The SAME builder feeds the chip box's direct
+    /// path and the ones Properties stacks over itself; only the binding
+    /// differs, which is why it takes one.
     @ViewBuilder
-    private func childSheet(_ child: IssuePropertyChild) -> some View {
-        switch child {
-        case .status:
-            GlassPickerSheet(
-                title: "Status",
+    private func propertyPickers(
+        child: Binding<IssuePropertyChild?>,
+        onDismiss: @escaping () -> Void
+    ) -> some View {
+        ZStack {
+            StatusPicker(
                 // The team's own statuses in render order — the ONE picker
                 // vocabulary (REV2-85, EXP-314).
-                items: vm.teamStatuses,
-                selectedID: vm.resolvedStatus.id,
-                idFor: { $0.id },
-                onSelect: { selected in
+                statuses: vm.teamStatuses.map(StatusPickerStatus.init),
+                value: [vm.resolvedStatus.id],
+                onChange: { picked in
+                    guard let selected = vm.teamStatuses.first(where: { picked.contains($0.id) })
+                    else { return }
                     // Duplicate CATEGORY = status interception (L27): picking
                     // it opens the canonical-issue picker instead of writing
                     // the status directly; markDuplicate sets duplicateOfId +
@@ -446,51 +505,77 @@ struct IssueFaceView<Switcher: View>: View {
                     } else {
                         Task { await vm.setStatus(selected) }
                     }
-                }
-            ) { status in
-                Label {
-                    Text(status.name)
-                } icon: {
-                    AppIcon(status.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(status.color)
-                }
-            }
-        case .priority:
-            GlassPickerSheet(
-                title: "Priority",
-                items: IssuePriority.displayOrder,
-                selectedID: IssuePriority.from(issue.priority).id,
-                idFor: { $0.id },
-                onSelect: { selected in
-                    Task { await vm.setPriority(selected) }
-                }
-            ) { priority in
-                Label {
-                    Text(priority.label)
-                } icon: {
-                    AppIcon(priority.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(priority.color)
-                }
-            }
-        case .assignee:
-            AssigneeSheet(
-                users: vm.teamUsers,
-                selectedId: issue.assigneeId,
-                onSelect: { userId in
-                    Task { await vm.setAssignee(userId) }
-                }
+                },
+                open: issuePickerOpen(child, .status),
+                hideTrigger: true,
+                onDismiss: onDismiss,
+                trigger: { EmptyView() }
             )
-        case .labels:
-            LabelsSheet(
+
+            PriorityPicker(
+                options: IssuePriority.displayOrder.map(PriorityPickerOption.init),
+                value: [IssuePriority.from(issue.priority).id],
+                onChange: { picked in
+                    guard let selected = IssuePriority.displayOrder
+                        .first(where: { picked.contains($0.id) }) else { return }
+                    Task { await vm.setPriority(selected) }
+                },
+                open: issuePickerOpen(child, .priority),
+                hideTrigger: true,
+                onDismiss: onDismiss,
+                trigger: { EmptyView() }
+            )
+
+            AssigneePicker(
+                members: vm.teamUsers.map(AssigneePickerMember.init),
+                // An EMPTY set is unassigned; the picker offers the row that
+                // clears the pick and reports it back as nothing.
+                value: issue.assigneeId.map { [$0] } ?? [],
+                onChange: { picked in Task { await vm.setAssignee(picked.first) } },
+                open: issuePickerOpen(child, .assignee),
+                hideTrigger: true,
+                onDismiss: onDismiss,
+                trigger: { EmptyView() }
+            )
+
+            IssueLabelsPicker(
                 labels: vm.teamLabels,
                 assignedIds: vm.assignedLabelIds,
-                onToggle: { labelId in
-                    Task { await vm.toggleLabel(labelId) }
-                },
+                open: issuePickerOpen(child, .labels),
+                onDismiss: onDismiss,
+                onToggle: { labelId in Task { await vm.toggleLabel(labelId) } },
                 onCreate: { name in
-                    Task { await vm.createAndAssignLabel(name: name, color: autoLabelColor(for: name)) }
+                    Task {
+                        await vm.createAndAssignLabel(name: name, color: autoLabelColor(for: name))
+                    }
                 }
             )
+
+            MoveBoardPicker(
+                boards: vm.moveTargetBoards,
+                selectedId: issue.boardId,
+                open: issuePickerOpen(child, .moveBoard),
+                onDismiss: onDismiss,
+                onSelect: { target in pendingMoveTarget = target }
+            )
+
+            // The status picker's duplicate HAND-OFF lands here (L27).
+            DuplicateIssuePicker(
+                loadCandidates: { await vm.duplicateCandidates() },
+                open: issuePickerOpen(child, .duplicateOf),
+                onDismiss: onDismiss,
+                serverSearch: { await vm.searchIssueHits($0) },
+                onSelect: { canonical in
+                    Task { await vm.markDuplicate(of: canonical) }
+                }
+            )
+        }
+    }
+
+    /// The property children that still present a view of their own.
+    @ViewBuilder
+    private func childSheet(_ child: IssuePropertyChild) -> some View {
+        switch child {
         case .dueDate:
             DueDateSheet(
                 date: parseDate(issue.dueDate),
@@ -502,20 +587,6 @@ struct IssueFaceView<Switcher: View>: View {
                 estimationType: vm.estimationType,
                 onSelect: { value in Task { await vm.setEstimate(value) } }
             )
-        case .moveBoard:
-            MoveBoardPickerSheet(
-                boards: vm.moveTargetBoards,
-                selectedId: issue.boardId,
-                onSelect: { target in pendingMoveTarget = target }
-            )
-        case .duplicateOf:
-            DuplicatePickerSheet(
-                loadCandidates: { await vm.duplicateCandidates() },
-                serverSearch: { await vm.searchIssueHits($0) },
-                onSelect: { canonical in
-                    Task { await vm.markDuplicate(of: canonical) }
-                }
-            )
         case .addRelation:
             RelationPickerSheet(
                 loadCandidates: { await vm.relationCandidates() },
@@ -524,6 +595,9 @@ struct IssueFaceView<Switcher: View>: View {
                     Task { await vm.addRelation(pick, other: other) }
                 }
             )
+        // The typed pickers (EXP-1021) never come through here.
+        case .status, .priority, .assignee, .labels, .moveBoard, .duplicateOf:
+            EmptyView()
         }
     }
 

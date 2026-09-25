@@ -9,9 +9,14 @@ import {
   workflowCollection,
 } from "@/lib/collections"
 import {
+  assigneePickerItems,
   conceptIcon,
   Button,
   ComboboxMenuItems,
+  labelPickerItems,
+  pickerMenuRows,
+  priorityPickerItems,
+  statusPickerItems,
   Pill,
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +24,6 @@ import {
   DropdownMenuTrigger,
   Separator,
   UserAvatar,
-  type PickerOption,
 } from "@exp/ui"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
@@ -45,7 +49,7 @@ import {
   statusUpdatePayload,
   type StatusRowOption,
 } from "@/lib/team-statuses"
-import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
+import { toStatusPickerStatuses } from "@/components/issue-properties/status-dropdown"
 import { displayUserName } from "@/lib/user-display"
 
 // Bulk action bar: rendered by the board / My Issues views as an in-flow row
@@ -65,6 +69,12 @@ interface BulkActionBarProps {
   // spans boards, so the selection alone cannot name the team.
   teamId: string
   onClear: () => void
+  // EXP-1048: the sidebar's 17rem list column — glyphs without their words,
+  // and the capsule may fold onto a second line. The IDE's narrow
+  // presentation (`render_bulk_bar(…, labels: false, wrap: true)`). Unset =
+  // today's bar, unchanged (board page, My Issues).
+  iconOnly?: boolean
+  wrap?: boolean
 }
 
 const BULK_CHUNK_SIZE = 200
@@ -98,8 +108,15 @@ export function BulkActionBar({
   users,
   teamId,
   onClear,
+  iconOnly = false,
+  wrap = false,
 }: BulkActionBarProps) {
   const [busy, setBusy] = useState(false)
+  // The phone already runs every action as a bare 32px glyph cell; icon-only
+  // is that same cell at every width.
+  const actionButtonClass = `shrink-0 text-muted-foreground ${
+    iconOnly ? `w-8 px-0!` : `max-md:w-8 max-md:px-0!`
+  }`
   const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
   const {
     options: teamStatusOptions,
@@ -122,16 +139,22 @@ export function BulkActionBar({
     [users]
   )
 
-  // EXP-957 — the menu rows and the value they mark. `statusRows` stays around
-  // beside its menu options because a pick reports an id and `applyStatus`
+  // EXP-957/EXP-1021 — the menu rows and the value they mark. The rows are
+  // the TYPED pickers' rows bridged into the menu arm (`pickerMenuRows`), so
+  // a status row here is the same row the status picker draws. `statusRows`
+  // stays around beside them because a pick reports an id and `applyStatus`
   // needs the ROW (the fallback set's synthetic ids are not in `statusById`).
   const statusRows = useMemo(
     () => creatableStatusOptions(teamStatusOptions),
     [teamStatusOptions]
   )
-  const statusMenuOptions = useMemo(
-    () => toStatusMenuOptions(statusRows),
+  const statusMenuRows = useMemo(
+    () => pickerMenuRows(statusPickerItems(toStatusPickerStatuses(statusRows))),
     [statusRows]
+  )
+  const priorityMenuRows = useMemo(
+    () => pickerMenuRows(priorityPickerItems(issuePriorityOptions)),
+    []
   )
   const sharedStatus = useMemo(
     () => sharedValue(issues, (issue) => resolveStatus(issue).id),
@@ -146,21 +169,25 @@ export function BulkActionBar({
     [issues]
   )
 
-  const usersById = useMemo(
-    () => new Map(orderedUsers.map((user) => [user.id, user])),
+  const members = useMemo(
+    () =>
+      orderedUsers.map((user) => ({
+        id: user.id,
+        name: displayUserName(user, user.id),
+        email: user.email,
+        image: user.image,
+      })),
     [orderedUsers]
   )
-  const assigneeOptions = useMemo<PickerOption[]>(
-    () =>
-      orderedUsers.map((user) => {
-        const name = displayUserName(user, user.id)
-        return {
-          value: user.id,
-          label: name,
-          keywords: [name, user.email ?? ``],
-        }
-      }),
-    [orderedUsers]
+  const membersById = useMemo(
+    () => new Map(members.map((member) => [member.id, member])),
+    [members]
+  )
+  // `Unassigned` is the menu arm's own `noneLabel` row here (it reports
+  // `null`), so the picker's `allowsNone` row is left off.
+  const assigneeMenuRows = useMemo(
+    () => pickerMenuRows(assigneePickerItems(members)),
+    [members]
   )
 
   // Sequential chunk loop; awaiting only the LAST txId is enough — Electric
@@ -243,31 +270,33 @@ export function BulkActionBar({
   // selection is `"indeterminate"`); `value` stays the honest membership array
   // the toggle arithmetic runs on, so `onChange` reports exactly one changed
   // id — the row that was picked.
-  const labelOptions = useMemo<PickerOption[]>(
+  const labelMenuRows = useMemo(
     () =>
-      labels.map((label) => {
-        const state = labelState(label)
-        return {
-          value: label.id,
-          label: label.name,
-          dot: label.color,
-          checked:
-            state === `all`
-              ? true
-              : state === `some`
-                ? (`indeterminate` as const)
-                : false,
-        }
-      }),
+      pickerMenuRows(
+        labelPickerItems(labels).map((item) => {
+          const state = labelState(
+            labels.find((label) => label.id === item.value)!
+          )
+          return {
+            ...item,
+            checked:
+              state === `all`
+                ? true
+                : state === `some`
+                  ? (`indeterminate` as const)
+                  : false,
+          }
+        })
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- labelState reads exactly these.
     [labels, issues, issueLabelMap]
   )
   const selectedLabelIds = useMemo(
     () =>
-      labelOptions
+      labelMenuRows.options
         .filter((option) => option.checked === true)
         .map((option) => option.value),
-    [labelOptions]
+    [labelMenuRows]
   )
 
   const toggleLabelId = (next: string[]) => {
@@ -323,7 +352,11 @@ export function BulkActionBar({
         // 360dp bar. `overflow-x-auto` is the safety net, not the plan: a
         // longer count or a translated label scrolls instead of pushing the
         // destructive button off the screen edge (EXP-698 r5 shot review).
-        className="flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto max-md:shadow-lg max-md:shadow-black/40"
+        className={`flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto max-md:shadow-lg max-md:shadow-black/40${
+          // EXP-1048: a column too narrow for one line folds instead of
+          // clipping — the IDE's `wrap` arm.
+          wrap ? ` max-w-full flex-wrap justify-center max-md:h-auto` : ``
+        }`}
         data-testid="bulk-action-bar"
       >
         <Button
@@ -339,22 +372,21 @@ export function BulkActionBar({
           {issues.length}
         </span>
 
-        <Separator
-          orientation="vertical"
-          className="mx-1 h-4! max-md:hidden"
-        />
+        {!iconOnly && (
+          <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
+              className={actionButtonClass}
               disabled={busy}
               aria-label="Set status"
             >
               <StatusIcon className="size-4" />
-              <span className="hidden md:inline">Status</span>
+              {!iconOnly && <span className="hidden md:inline">Status</span>}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -373,7 +405,7 @@ export function BulkActionBar({
               intercept via the picker). */}
             <ComboboxMenuItems
               menu="dropdown"
-              options={statusMenuOptions}
+              {...statusMenuRows}
               value={sharedStatus.value}
               indeterminate={sharedStatus.mixed}
               onChange={(statusId) => {
@@ -392,12 +424,12 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
+              className={actionButtonClass}
               disabled={busy}
               aria-label="Set priority"
             >
               <Flag className="size-4" />
-              <span className="hidden md:inline">Priority</span>
+              {!iconOnly && <span className="hidden md:inline">Priority</span>}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -408,12 +440,12 @@ export function BulkActionBar({
           >
             <ComboboxMenuItems
               menu="dropdown"
-              options={issuePriorityOptions}
+              {...priorityMenuRows}
               value={sharedPriority.value}
               indeterminate={sharedPriority.mixed}
               onChange={(priority) => {
                 if (priority === null) return
-                void applyPriority(priority)
+                void applyPriority(priority as IssuePriority)
               }}
             />
           </DropdownMenuContent>
@@ -427,12 +459,12 @@ export function BulkActionBar({
               <Button
                 variant="ghost"
                 size="sm"
-                className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
+                className={actionButtonClass}
                 disabled={busy}
                 aria-label="Set assignee"
               >
                 <AssigneeIcon className="size-4" />
-                <span className="hidden md:inline">Assignee</span>
+                {!iconOnly && <span className="hidden md:inline">Assignee</span>}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -445,24 +477,15 @@ export function BulkActionBar({
                 marked only when EVERY selected issue is unassigned. */}
               <ComboboxMenuItems
                 menu="dropdown"
-                options={assigneeOptions}
+                {...assigneeMenuRows}
                 value={sharedAssignee.value}
                 indeterminate={sharedAssignee.mixed}
                 noneLabel="Unassigned"
                 onChange={(assigneeId) => void applyAssignee(assigneeId)}
                 renderOption={(option) => (
                   <>
-                    <UserAvatar
-                      size={20}
-                      user={{
-                        id: option.value,
-                        name: String(option.label),
-                        image: usersById.get(option.value)?.image ?? null,
-                      }}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      {option.label}
-                    </span>
+                    <UserAvatar size={20} user={membersById.get(option.value)} />
+                    {assigneeMenuRows.renderOption(option)}
                   </>
                 )}
               />
@@ -475,12 +498,12 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
+              className={actionButtonClass}
               disabled={busy}
               aria-label="Set labels"
             >
               <LabelsIcon className="size-4" />
-              <span className="hidden md:inline">Labels</span>
+              {!iconOnly && <span className="hidden md:inline">Labels</span>}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -496,7 +519,7 @@ export function BulkActionBar({
             <ComboboxMenuItems
               menu="dropdown"
               multiple
-              options={labelOptions}
+              {...labelMenuRows}
               value={selectedLabelIds}
               onChange={toggleLabelId}
               emptyText="No labels yet"
@@ -508,24 +531,26 @@ export function BulkActionBar({
           teamId={teamId}
           issues={issues}
           onClear={onClear}
+          iconOnly={iconOnly}
         />
 
-        <Separator
-          orientation="vertical"
-          className="mx-1 h-4! max-md:hidden"
-        />
+        {!iconOnly && (
+          <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 text-destructive hover:text-destructive max-md:w-8 max-md:px-0!"
+              className={`shrink-0 text-destructive hover:text-destructive ${
+                iconOnly ? `w-8 px-0!` : `max-md:w-8 max-md:px-0!`
+              }`}
               disabled={busy}
               aria-label="Delete selected"
             >
               <Trash2 className="size-4" />
-              <span className="hidden md:inline">Delete</span>
+              {!iconOnly && <span className="hidden md:inline">Delete</span>}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -566,10 +591,12 @@ function BulkStartCodingButton({
   teamId,
   issues,
   onClear,
+  iconOnly = false,
 }: {
   teamId: string
   issues: Issue[]
   onClear: () => void
+  iconOnly?: boolean
 }) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id
@@ -600,6 +627,7 @@ function BulkStartCodingButton({
       currentUserId={currentUserId}
       issueIds={startableIds}
       onClear={onClear}
+      iconOnly={iconOnly}
     />
   )
 }
@@ -617,11 +645,15 @@ export function BulkStartCodingControl({
   currentUserId,
   issueIds,
   onClear,
+  iconOnly = false,
 }: {
   teamId: string
   currentUserId: string
   issueIds: string[]
   onClear: () => void
+  /** EXP-1048: the narrow sidebar bar keeps the accent pill, drops its word
+   *  (the `aria-label` carries the name). */
+  iconOnly?: boolean
 }) {
   const remote = useRemoteStart({ currentUserId, teamId })
   const openComposer = useOpenComposer()
@@ -683,12 +715,14 @@ export function BulkStartCodingControl({
           size="md"
           mode="action"
           primary
-          className="mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs"
+          className={`mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs${
+            iconOnly ? ` px-2!` : ``
+          }`}
           aria-label="Start coding"
           data-testid="bulk-start-coding"
         >
           <StartCodingIcon className="size-4" />
-          Start coding
+          {!iconOnly && `Start coding`}
         </Pill>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" collisionPadding={12} className="w-[14rem]">

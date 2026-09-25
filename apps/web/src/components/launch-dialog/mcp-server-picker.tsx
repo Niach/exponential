@@ -1,10 +1,21 @@
-// EXP-792: the "MCP servers" multiselect every launch surface shares — the
-// shared `Combobox` (EXP-941) over the team's server list. A row the chosen
-// device is NOT ready for (no OAuth sign-in or typed secret on that machine,
-// per the readiness matrix) is greyed with the reason as a tooltip; picking it
-// anyway is allowed — it is never `disabled` — the desktop launcher then names
-// the blocker. Hidden by the caller when the team has no servers at all.
-import { Combobox, Pill, conceptIcon, type PickerOption } from "@exp/ui"
+// EXP-792: the "MCP servers" multiselect every launch surface shares. A row
+// the chosen device is NOT ready for (no OAuth sign-in or typed secret on that
+// machine, per the readiness matrix) is greyed with the reason UNDER its name;
+// picking it anyway is allowed — it is never `disabled` — the desktop launcher
+// then names the blocker. Hidden by the caller when the team has no servers.
+//
+// EXP-1030: the rows are the shared `Picker` primitive's (EXP-1021) in
+// `mode="multi"` — the pick reads as the row's own highlight, like every
+// other multi picker — and the reason rides the primitive's muted second line
+// (`description`), which is exactly how the desktop's own MCP rows draw it
+// (`launch_options.rs`: greyed, reason under the name, never unpickable).
+import {
+  Picker,
+  PickerItemBody,
+  Pill,
+  conceptIcon,
+  type PickerItem,
+} from "@exp/ui"
 import { serverBlockReason, type McpServerRow } from "@/lib/mcp-servers"
 import type { SteerDevice } from "@/lib/steer-devices"
 import { cn } from "@/lib/utils"
@@ -55,15 +66,16 @@ export function McpServerPicker({
       ),
     ])
   )
-  const options: PickerOption[] = servers.map((server) => ({
+  const items: PickerItem[] = servers.map((server) => ({
     value: server.id,
     label: server.name,
+    description: reasons.get(server.id) ?? undefined,
   }))
 
   return (
-    <Combobox
-      multiple
-      options={options}
+    <Picker
+      mode="multi"
+      items={items}
       value={selectedIds}
       // The primitive hands back the whole next selection; this picker's hosts
       // own one id at a time, so the change is reported as the toggled row.
@@ -74,33 +86,29 @@ export function McpServerPicker({
         if (changed) onToggle(changed)
       }}
       disabled={disabled}
-      searchable={servers.length > 6}
-      placeholder="Filter servers…"
+      search={servers.length > 6}
+      searchPlaceholder="Filter servers…"
       emptyText="No servers found."
       width="md"
       mobileTitle="MCP servers"
-      renderOption={(option) => {
-        const reason = reasons.get(option.value) ?? null
+      // The row BODY is the primitive's; only the GREYING is this picker's —
+      // a blocked row still toggles, it just reads as the one that will need
+      // a fix on the machine first.
+      renderItem={(item) => {
+        const reason = reasons.get(item.value) ?? null
         return (
           <span
             title={reason ?? undefined}
             className={cn(
-              `flex min-w-0 flex-1 items-center gap-2`,
+              `flex min-w-0 flex-1 items-center gap-2.5`,
               reason && `opacity-50`
             )}
           >
-            <span className="min-w-0 flex-1 truncate text-sm">
-              {option.label}
-            </span>
-            {reason && (
-              <span className="shrink-0 text-[10px] text-muted-foreground">
-                Not ready
-              </span>
-            )}
+            <PickerItemBody item={item} />
           </span>
         )
       }}
-      renderTrigger={() =>
+      trigger={
         renderTrigger ? (
           renderTrigger(summary)
         ) : (

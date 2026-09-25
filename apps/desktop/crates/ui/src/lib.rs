@@ -49,6 +49,7 @@ mod coding_selects;
 mod comment_attachments;
 mod comments;
 mod composer;
+mod composer_dialog;
 mod composer_images;
 mod commit_graph;
 mod context_layout;
@@ -110,6 +111,8 @@ mod oauth;
 mod onboarding;
 pub mod os_notifications;
 mod pickers;
+// EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
+mod picker;
 mod pins;
 mod pr_diff;
 mod pr_graph;
@@ -147,6 +150,13 @@ mod workflow_host;
 mod workflow_view;
 mod workflows_view;
 pub mod steer_wiring;
+// EXP-1029: sub-shell navigation for the settings shell (EXP-1020).
+mod sub_shell;
+// The shared styleguide's section index, mirrored here so the IDE's entry ids
+// and owners cannot drift from the page that draws them. The styleguide is
+// its OWN app (`apps/styleguide`, styleguide.exponential.at); this module
+// renders nothing and is reachable from no menu in the IDE.
+mod styleguide;
 mod support_thread;
 // EXP-837: the window-level disarm for a stuck text-selection drag.
 mod text_selection_guard;

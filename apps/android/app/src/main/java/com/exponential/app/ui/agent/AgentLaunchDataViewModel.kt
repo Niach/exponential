@@ -23,6 +23,7 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
+import com.exponential.app.ui.components.toPickerBoard
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -54,10 +55,22 @@ data class SheetActionsState(
     val error: String? = null,
 )
 
-/** One pickable board for a `board`-typed action input. */
+/**
+ * One pickable board for a `board`-typed action input. EXP-1030: it carries
+ * the board's GLYPH and COLOUR too — a board is its icon+colour pair wherever
+ * it is picked (EXP-449), and the shared `BoardPicker` draws that pair.
+ */
 data class StartBoardOption(
     val id: String,
     val name: String,
+    /**
+     * EXP-1021: the board's resolved glyph NAME and colour, so every surface
+     * that lists these can draw the BOARD row the rest of the app draws
+     * (`boardPickerItems`) instead of a bare label. Resolved by
+     * [toPickerBoard], never guessed from a null here.
+     */
+    val icon: String? = null,
+    val colorHex: String? = null,
 )
 
 /** One pickable label/status/priority for the EXP-530 automation filter pickers. */
@@ -204,7 +217,15 @@ class AgentLaunchDataViewModel @Inject constructor(
             boards
                 .filter { it.teamId == teamId && it.deletedAt == null }
                 .sortedBy { it.name.lowercase() }
-                .map { StartBoardOption(id = it.id, name = it.name) }
+                .map { board ->
+                    val row = board.toPickerBoard()
+                    StartBoardOption(
+                        id = row.id,
+                        name = row.name,
+                        icon = row.icon,
+                        colorHex = row.colorHex,
+                    )
+                }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

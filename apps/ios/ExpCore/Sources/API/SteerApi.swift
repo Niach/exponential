@@ -102,6 +102,21 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
 /// EXP-773 dropped `startInTerminal`: the PTY coding path is gone. Decoding
 /// ignores unknown keys, so a row an older server still stamps it onto keeps
 /// parsing.
+/// EXP-1029: a device's WORKFLOW model defaults (`launch_defaults.workflow`)
+/// — the cheap `model` (leaves + subagents) and the `strongModel` (contract,
+/// integration and `risk: high` nodes, every agent review) new workflows are
+/// seeded from. Absent on a machine that predates them: readers fall back to
+/// `DomainContract.deviceAgentDefaultsWorkflowModel` / `…StrongModel`.
+public struct DeviceWorkflowDefaults: Decodable, Equatable, Sendable {
+    public let model: String?
+    public let strongModel: String?
+
+    public init(model: String? = nil, strongModel: String? = nil) {
+        self.model = model
+        self.strongModel = strongModel
+    }
+}
+
 public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// The machine's configured default agent. Clamped to what it actually
     /// runs by the reader — a signed-out default must not preselect.
@@ -113,19 +128,23 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// desktop, which is exactly the fallback ladder flatten already walks.
     public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaults]?
+    /// EXP-1029: the workflow model defaults; nil on an older machine.
+    public let workflow: DeviceWorkflowDefaults?
 
     public init(
         defaultAgent: String? = nil,
         defaultAccount: String? = nil,
-        agents: [String: AgentLaunchDefaults]? = nil
+        agents: [String: AgentLaunchDefaults]? = nil,
+        workflow: DeviceWorkflowDefaults? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.defaultAccount = defaultAccount
         self.agents = agents
+        self.workflow = workflow
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, defaultAccount, agents
+        case defaultAgent, defaultAccount, agents, workflow
     }
 
     /// Lenient like the rest of the device payload: a field of a shape this
@@ -136,6 +155,7 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
         defaultAgent = try? c.decodeIfPresent(String.self, forKey: .defaultAgent)
         defaultAccount = try? c.decodeIfPresent(String.self, forKey: .defaultAccount)
         agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
+        workflow = try? c.decodeIfPresent(DeviceWorkflowDefaults.self, forKey: .workflow)
     }
 }
 
@@ -547,6 +567,25 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// EXP-409: agents installed on the machine but signed out.
     public var unauthedAgentIds: [String] {
         (unauthedAgents ?? []).filter { DomainContract.codingAgentValues.contains($0) }
+    }
+
+    /// Every agent whose DEFAULTS are editable for this machine: runnable ∪
+    /// signed-out installs ∪ the agents the stored defaults, the reported
+    /// ACCOUNTS or the reported USAGE already name — an offline machine's
+    /// defaults stay editable even though nothing is advertised as runnable
+    /// right now, and an agent known only from a login still gets a tab.
+    /// A machine that names NOTHING offers every contract agent.
+    ///
+    /// The twin of web's `editorAgents` (device-settings dialog); contract
+    /// order, so the tabs never shuffle with the report order.
+    public var editableAgentIds: [String] {
+        var set = Set(agentIds)
+        set.formUnion(unauthedAgentIds)
+        if let stored = launchDefaults?.agents?.keys { set.formUnion(stored) }
+        if let accounts = agentAccounts?.keys { set.formUnion(accounts) }
+        if let usage = agentUsage?.keys { set.formUnion(usage) }
+        let known = DomainContract.codingAgentValues.filter { set.contains($0) }
+        return known.isEmpty ? DomainContract.codingAgentValues : known
     }
 
     /// EXP-749: the ACP-drivable agents as contract ids. Empty means nothing

@@ -15,15 +15,18 @@ use crate::error::ApiError;
 use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 
-/// `workflows.launch` — what every node's run starts with. Every field is
-/// optional; an absent one falls back to the runner device's own defaults.
+/// `workflows.launch` AS STORED — the jsonb of any vintage. The wire struct
+/// only, kept tolerant: nothing here decides anything.
 ///
-/// It serializes ONLY as `workflows.update`'s `launch`, and there the three
-/// EXP-1002 phase pins are a TRI-STATE server-side: key absent = keep the
-/// stored pin (a client that predates the keys must not wipe them), `null` =
-/// clear, a string = set. This client knows them, so it ALWAYS writes all
-/// three, `null` when unset — omitting one would make a cleared pin stick.
-/// Decoding stays tolerant (`default`).
+/// EXP-1029: what a run actually READS is
+/// [`coding::workflows::launch::WorkflowLaunch`], which
+/// `normalize_workflow_launch` makes of this — an agent, an optional account
+/// and TWO models (`model` cheap, `strong_model` capable). Everything below
+/// `strong_model` is DEPRECATED: the per-phase pins and `review_model` fold
+/// into `strong_model`, `subagent_model`, `effort` and `max_parallel` are
+/// dropped. Nothing writes them any more (the server stores the normalized
+/// four keys); they stay declared so an older row still decodes and so a
+/// carried launch round-trips unharmed.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowLaunch {
@@ -32,6 +35,10 @@ pub struct WorkflowLaunch {
     /// The model every node's run spawns on, unless its PHASE overrides it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// EXP-1029: the STRONG model — contract, integration and `risk: high`
+    /// nodes, and EVERY agent review (`coding::workflows::launch`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strong_model: Option<String>,
     /// EXP-1002: the model `contract` nodes run on. Absent = `model`.
     #[serde(default)]
     pub contract_model: Option<String>,
@@ -96,11 +103,21 @@ struct WorkflowResponse {
 /// `workflows.create` — mutation, member-gated. `issue_ids` ride in DISPLAY
 /// order; the server names the workflow after the first identifier when
 /// `name` is omitted.
+///
+/// EXP-1032: `device_id` binds the runner MACHINE at creation, and the
+/// server seeds the workflow's `launch` (its two models, its account) from
+/// THAT machine's `launch_defaults.workflow` — so a workflow created on this
+/// IDE opens on the models this install already picked, not on the contract
+/// fallbacks. Omitted, the server seeds from the contract defaults and leaves
+/// the runner unbound. The server also re-checks the machine
+/// (`assertDeviceUsable`), so only ever name one that advertises the
+/// `workflows` capability.
 pub fn create(
     trpc: &TrpcClient,
     team_id: &str,
     issue_ids: &[String],
     name: Option<&str>,
+    device_id: Option<&str>,
 ) -> Result<Workflow, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -109,6 +126,8 @@ pub fn create(
         issue_ids: &'a [String],
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        device_id: Option<&'a str>,
     }
     let response: WorkflowResponse = trpc.mutation(
         "workflows.create",
@@ -116,6 +135,7 @@ pub fn create(
             team_id,
             issue_ids,
             name,
+            device_id,
         },
     )?;
     Ok(response.workflow)
@@ -463,6 +483,25 @@ pub fn land_node(trpc: &TrpcClient, node_id: &str) -> Result<LandOutcome, ApiErr
     trpc.mutation("workflows.landNode", &Input { node_id })
 }
 
+/// MEMBER: `workflows.mergeFinalPr` — squash-merge the workflow's ONE final
+/// pull request, the one human review of the whole run; GitHub's acceptance
+/// completes the workflow in the same call (EXP-1032). Idempotent for an
+/// already merged PR; a refusal (no final PR yet, GitHub said no) is the
+/// server's sentence.
+pub fn merge_final_pr(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Response {
+        #[allow(dead_code)]
+        merged: bool,
+    }
+    let _: Response = trpc.mutation("workflows.mergeFinalPr", &Input { id })?;
+    Ok(())
+}
+
 /// ENGINE: `workflows.openFinalPr` — the ONE final pull request, integration
 /// branch → the repository's default branch. Idempotent; returns its url.
 pub fn open_final_pr(trpc: &TrpcClient, id: &str) -> Result<String, ApiError> {
@@ -526,7 +565,7 @@ mod tests {
                 "txId":"1"}}}"#,
         );
         let issues = vec!["i-1".to_string(), "i-2".to_string(), "i-3".to_string()];
-        let workflow = create(&client(&base), "team-1", &issues, None).unwrap();
+        let workflow = create(&client(&base), "team-1", &issues, None, None).unwrap();
         assert_eq!(workflow.id, "wf-1");
         assert_eq!(workflow.status, "draft");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -534,6 +573,32 @@ mod tests {
         assert!(request.contains(r#""issueIds":["i-1","i-2","i-3"]"#));
         // An omitted name lets the server derive one (zod .optional()).
         assert!(!request.contains(r#""name""#));
+        // …and an omitted machine leaves the runner unbound, so the server
+        // seeds the launch from the contract defaults.
+        assert!(!request.contains(r#""deviceId""#));
+    }
+
+    /// EXP-1032: a create that NAMES the machine rides its `deviceId`, which
+    /// is what makes the server seed the workflow's two models from that
+    /// machine's `launch_defaults.workflow`.
+    #[test]
+    fn create_names_the_runner_machine_when_it_has_one() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"workflow":{"id":"wf-1","teamId":"team-1",
+                "repositoryId":"repo-1","name":"EXP-1","status":"draft",
+                "deviceId":"dev-1","launch":{"agent":"claude","model":"sonnet",
+                "strongModel":"opus"},"startOn":"contract",
+                "integrationBranch":"exp/wf-abcdef12",
+                "metrics":{"nodes":1,"edges":0,"depth":1,"width":1,"cycles":[]}},
+                "txId":"1"}}}"#,
+        );
+        let issues = vec!["i-1".to_string()];
+        let workflow =
+            create(&client(&base), "team-1", &issues, None, Some("dev-1")).unwrap();
+        assert_eq!(workflow.device_id.as_deref(), Some("dev-1"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""deviceId":"dev-1""#));
     }
 
     #[test]
@@ -690,7 +755,6 @@ mod tests {
         assert_eq!(workflow.launch.agent.as_deref(), Some("claude"));
         assert_eq!(workflow.launch.subagent_model.as_deref(), Some("sonnet"));
         assert_eq!(workflow.launch.max_parallel, Some(5));
-        assert_eq!(row.max_parallel(), 5);
         assert_eq!(row.shape().nodes, 3);
         assert_eq!(row.shape().depth, 2);
 
@@ -701,10 +765,6 @@ mod tests {
         assert_eq!(bare.status_wire(), "draft");
         assert_eq!(bare.shape(), domain::workflow_view::WorkflowShape::default());
         assert!(bare.cycle_edges().is_empty());
-        assert_eq!(
-            bare.max_parallel(),
-            domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT
-        );
     }
 
     /// The nodes carry the SERVER's layout; an unknown/absent column degrades

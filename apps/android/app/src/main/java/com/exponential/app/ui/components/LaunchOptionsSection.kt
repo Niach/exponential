@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The ONE device/agent/model/effort block every launch surface renders
@@ -122,6 +123,14 @@ internal fun LaunchOptionsSection(
      * elsewhere).
      */
     accountRow: (@Composable () -> Unit)? = null,
+    /**
+     * EXP-1020: the card's LAST row(s), after the toggles — the device sheet's
+     * "Workflow settings" sub-shell row. Like [resumeSlot] it is a ROW of the
+     * one group (rendered after its own [GroupDivider]), never a card of its
+     * own, so the agent defaults stay ONE card on all four clients (desktop
+     * `LaunchOptions::trailing`).
+     */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val automation = variant == LaunchOptionsVariant.Automation
     val deviceVariant = variant == LaunchOptionsVariant.Device
@@ -145,19 +154,25 @@ internal fun LaunchOptionsSection(
             }
         } else if (automation || devices.size > 1) {
             // A single launch candidate needs no picker; a binding always names
-            // the machine it will fire on.
+            // the machine it will fire on, and says where it FIRES rather than
+            // what it picks — same wording as web/iOS/desktop on both.
+            val deviceLabel = if (automation) "Runs on" else "Device"
             OptionGroup {
-                PickerRow(
-                    // A binding row says where it fires; a launch picks the
-                    // device — same wording as web/iOS/desktop on both.
-                    label = if (automation) "Runs on" else "Device",
-                    value = device?.let(::deviceOptionLabel) ?: "Select",
-                    options = devices.map { it.deviceId },
-                    selected = device?.deviceId,
-                    optionLabel = { id ->
-                        devices.firstOrNull { it.deviceId == id }?.let(::deviceOptionLabel) ?: id
+                // EXP-1021: the shared DevicePicker owns the sheet (each
+                // machine by its own glyph, one selection language); this
+                // surface keeps the form row as its trigger.
+                DevicePicker(
+                    devices = devices.map { it.toPickerDevice() },
+                    value = device?.deviceId,
+                    onChange = onDeviceChange,
+                    title = deviceLabel,
+                    trigger = { open ->
+                        PickerValueRow(
+                            label = deviceLabel,
+                            value = device?.let(::deviceOptionLabel) ?: "Select",
+                            onClick = open,
+                        )
                     },
-                    onSelect = onDeviceChange,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -257,6 +272,13 @@ internal fun LaunchOptionsSection(
                     onCheckedChange = onPlanModeChange,
                 )
             }
+        }
+
+        // The caller's own last row, whatever the variant (the toggles above
+        // are Launch-only).
+        if (trailing != null) {
+            GroupDivider()
+            trailing()
         }
     }
 

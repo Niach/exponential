@@ -3,7 +3,7 @@ import ExpCore
 import SwiftUI
 
 // The device settings sheet (EXP-481) — the settings gear on a device row
-// opens it, the iOS twin of the web/IDE device-settings dialog. Seven sections,
+// opens it, the iOS twin of the web/IDE device-settings dialog. Six sections,
 // no Save buttons above the last two (EXP-490):
 //   Name     — devices.rename (registry-authoritative, works offline),
 //              debounced while typing and flushed on blur/submit/close.
@@ -26,17 +26,21 @@ import SwiftUI
 //              is a flow, not a setting: signing in lives on the account chips
 //              (`AgentLoginSheet`) and the numbers live on ONE surface, Devices
 //              → Accounts.
-//   Worktrees — the synced inventory (shape 18) with per-row Remove and a
-//              Prune button, queued as devices.createCommand rows the device
-//              runs on its next heartbeat (immediately when online). Progress
-//              polls devices.getCommand ~2s; the material outcome (a row
-//              disappearing) arrives via sync when the device re-reports.
+//              EXP-1042: and its last row is the "Workflow settings" SUB-SHELL
+//              (`SubShell`, ×4) — the machine's workflow model pair, which
+//              belongs to the DEFAULT agent rather than to the agent tab, so
+//              it sits outside the tabs and slides its own page in.
 //   Update   — EXP-909, SERVER devices only (a desktop app updates itself):
 //              the version, an amber "Update available" caption, and the
 //              Update / Queued / Updating… control the device ROW used to
 //              carry. The row now carries the gear alone ×4.
 //   Remove   — EXP-909: devices.remove behind the confirm the row's menu used
 //              to raise. The sheet closes itself when the row goes away.
+//              EXP-1042 took its header away: it is one plain destructive row
+//              in the same shell, not a section of its own.
+// EXP-1042 also retired the WORKTREES section: the inventory (shape 18) and
+// its Remove/Prune commands are an IDE surface now, and a phone had no use
+// for a list of branches it cannot open.
 // EXP-490: the sheet renders the LIVE devices-shape row (looked up by id
 // through the view model) rather than a value latched at open, so a rename or
 // a defaults edit made on another client lands here while it is open. Every
@@ -86,6 +90,9 @@ struct DeviceSettingsSheet: View {
     @State private var defaultAgent = "claude"
     /// EXP-872: the machine's default ACCOUNT — a login profile id of
     /// `defaultAgent` (`""` = none stored, which reads as its active login).
+    /// EXP-1042: a pick may also park the picker's ambient sentinel
+    /// (`system`) here, so the row reads as selected; it never reaches the
+    /// server — `DeviceLaunchDefaultsInput` folds it into the clear.
     @State private var defaultAccount = ""
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
@@ -93,15 +100,12 @@ struct DeviceSettingsSheet: View {
     @State private var defaultsSaveTask: Task<Void, Never>?
     @State private var defaultsPending = false
     @State private var errorMessage: String?
-    /// In-flight command per target key (a worktree row id, or "prune") — the
-    /// poll loop clears it on a terminal status.
-    @State private var pendingCommands: [String: String] = [:]
-    /// Device-reported failure message per target key (EXP-323: inline, next
-    /// to the triggering control).
-    @State private var commandErrors: [String: String] = [:]
-    @State private var removeTarget: DeviceWorktreeEntity?
-    /// The device-reported prune summary ("Pruned 2 worktrees"), shown once.
-    @State private var commandSummary: String?
+    /// EXP-1029: the machine's stored WORKFLOW pair, held raw (`""` = nothing
+    /// stored). What the page renders and what a save sends is the RESOLVED
+    /// pair — `DeviceWorkflowSettings` clamps it to the default agent's
+    /// vocabulary, so switching the default account re-seeds it for free.
+    @State private var workflowModel = ""
+    @State private var workflowStrongModel = ""
     /// EXP-420/EXP-909: the instance's advertised latest versions — the Update
     /// section offers its button only when a newer CLI build really exists.
     /// Instance config, not machine state: one tRPC read when the sheet opens
@@ -135,31 +139,35 @@ struct DeviceSettingsSheet: View {
             title: "Device settings",
             height: .full,
             content: {
-                Form {
-                    nameSection(device)
-                    defaultDeviceSection(device)
-                    if device.isServer {
-                        sharingSection(device)
-                    }
-                    defaultsSection(device)
-                    worktreesSection(device)
-                    if device.isServer {
-                        updateSection(device)
-                    }
-                    removeSection(device)
-                    if let errorMessage {
-                        Section {
-                            Text(errorMessage)
-                                .font(.caption)
-                                .foregroundStyle(DesignTokens.Semantic.red)
+                // EXP-1042: the sheet IS the card a sub-shell page replaces —
+                // "Workflow settings" slides in over the whole form, with a
+                // back button on top, rather than pushing a screen.
+                SubShellHost {
+                    Form {
+                        nameSection(device)
+                        defaultDeviceSection(device)
+                        if device.isServer {
+                            sharingSection(device)
                         }
-                        .listRowBackground(glassFormRowFill)
+                        defaultsSection(device)
+                        if device.isServer {
+                            updateSection(device)
+                        }
+                        removeSection(device)
+                        if let errorMessage {
+                            Section {
+                                Text(errorMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(DesignTokens.Semantic.red)
+                            }
+                            .listRowBackground(glassFormRowFill)
+                        }
                     }
+                    // EXP-603: the sheet's own background shows through the
+                    // grouped list; rows carry the glass fill.
+                    .scrollContentBackground(.hidden)
+                    .listSectionSpacing(8)
                 }
-                // EXP-603: the sheet's own background shows through the
-                // grouped list; rows carry the glass fill.
-                .scrollContentBackground(.hidden)
-                .listSectionSpacing(8)
             }
         )
         // EXP-694: no Done button — every field autosaves, so the only exits
@@ -193,19 +201,6 @@ struct DeviceSettingsSheet: View {
         // EXP-594: white control tint — system blue is retired (toggles,
         // menu pickers).
         .tint(DesignTokens.Palette.primary)
-        .alert(
-            "Remove worktree?",
-            isPresented: Binding(
-                get: { removeTarget != nil },
-                set: { if !$0 { removeTarget = nil } }
-            ),
-            presenting: removeTarget
-        ) { worktree in
-            Button("Cancel", role: .cancel) { removeTarget = nil }
-            Button("Remove", role: .destructive) { removeWorktree(worktree) }
-        } message: { worktree in
-            Text("Remove \(worktree.branch) on \(device.deviceLabel)? Uncommitted tracked changes make the device refuse.")
-        }
         // One presentation per node is the rule (SwiftUI drops the second),
         // so the device removal confirms off a zero-size node of its own.
         .background(
@@ -243,7 +238,7 @@ struct DeviceSettingsSheet: View {
     /// `keepTab` holds the agent tab the user is looking at (a re-seed must not
     /// yank it), as long as the row still offers that agent.
     private func applyDefaults(_ device: SteerDevice, keepTab: Bool) {
-        let agents = editableAgents(device)
+        let agents = device.editableAgentIds
         let advertisedDefault = device.launchDefaults?.defaultAgent
         defaultAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
         // EXP-872: the stored account belongs to the stored agent — it only
@@ -251,6 +246,11 @@ struct DeviceSettingsSheet: View {
         defaultAccount = defaultAgent == advertisedDefault
             ? (device.launchDefaults?.defaultAccount ?? "")
             : ""
+        // EXP-1029: the workflow pair belongs to the MACHINE, not to an
+        // agent's block — it rides verbatim and the resolver clamps it to the
+        // default agent's vocabulary wherever it is read.
+        workflowModel = device.launchDefaults?.workflow?.model ?? ""
+        workflowStrongModel = device.launchDefaults?.workflow?.strongModel ?? ""
         // A re-seed must not yank the tab the reader is looking at.
         selectedAgent = keepTab && agents.contains(selectedAgent) ? selectedAgent : defaultAgent
         var next: [String: AgentDraft] = [:]
@@ -502,38 +502,36 @@ struct DeviceSettingsSheet: View {
 
     // MARK: - Agent defaults
 
-    /// Every agent worth a tab: runnable ∪ signed-out installs ∪ agents the
-    /// stored defaults already carry — an OFFLINE machine's defaults stay
-    /// editable even though nothing is advertised as runnable right now.
-    private func editableAgents(_ device: SteerDevice) -> [String] {
-        var set = Set(device.agentIds)
-        set.formUnion(device.unauthedAgentIds)
-        if let stored = device.launchDefaults?.agents?.keys {
-            set.formUnion(stored)
-        }
-        if set.isEmpty { set.insert("claude") }
-        return DomainContract.codingAgentValues.filter { set.contains($0) }
-    }
-
     /// EXP-872: every login this machine reports, as the ONE list the default
-    /// is picked from. A machine that reports none still offers a row per
-    /// editable agent, named by the agent — an offline box's default stays
-    /// editable even though it is advertising nothing right now.
+    /// is picked from. An editable agent that reports no login still gets a
+    /// row, named by the agent and standing for its AMBIENT login — an
+    /// offline box's default stays editable even though it is advertising
+    /// nothing right now.
+    ///
+    /// EXP-1042: per MISSING agent, not all-or-nothing. A machine that
+    /// reports one claude login used to offer that single row, which the
+    /// picker renders as a plain label (one option is not a choice) — so the
+    /// default could not be moved to codex at all.
     private func accountOptions(_ device: SteerDevice) -> [AccountOption] {
-        let options = AccountOptions.flatten(
+        let reported = AccountOptions.flatten(
             accounts: device.agentAccounts,
             usage: device.agentUsage,
             launchDefaults: device.launchDefaults
         )
-        if !options.isEmpty { return options }
-        return editableAgents(device).map { agent in
-            AccountOption(
-                id: AgentAccountsRows.systemProfileId,
-                agent: agent,
-                email: LaunchVocabulary.agentLabel(agent),
-                isDeviceDefault: agent == defaultAgent
-            )
-        }
+        let covered = Set(reported.map(\.agent))
+        let ambient = device.editableAgentIds
+            .filter { !covered.contains($0) }
+            .map { agent in
+                AccountOption(
+                    id: AgentAccountsRows.systemProfileId,
+                    agent: agent,
+                    email: LaunchVocabulary.agentLabel(agent),
+                    // The reported logins carry the device default among
+                    // them; an agent that reports nothing never is one.
+                    isDeviceDefault: reported.isEmpty && agent == defaultAgent
+                )
+            }
+        return reported + ambient
     }
 
     /// EXP-694: the agent block is the SHARED `LaunchOptionsSection` — the
@@ -548,13 +546,16 @@ struct DeviceSettingsSheet: View {
     /// machine's default, and the row is where a person reads which one it is).
     @ViewBuilder
     private func defaultsSection(_ device: SteerDevice) -> some View {
-        let agents = editableAgents(device)
+        let agents = device.editableAgentIds
         let options = accountOptions(device)
         if !options.isEmpty {
             Section {
-                // EXP-872: the SHARED account picker (brand mark + email over
-                // marked menu rows) — the same control the composer's options
-                // row and the IDE's settings wear.
+                // EXP-872: the SHARED account picker (brand mark + email per
+                // row, the EXP-992 limit bars under each) — the same control
+                // the composer's options row and the IDE's settings wear.
+                // EXP-1030: `AccountPickerMenu` is the trigger + the
+                // lone-login rule over `ExpUI.AccountPicker`, so this row
+                // opens the ONE picker sheet rather than a menu of its own.
                 HStack(spacing: 8) {
                     Text("Default account")
                         .foregroundStyle(.white.opacity(TextOpacity.primary))
@@ -584,7 +585,94 @@ struct DeviceSettingsSheet: View {
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
             planMode: draftBinding(\.planMode),
-            footerNote: device.isOnline ? nil : "Applies when the device comes online."
+            footerNote: device.isOnline ? nil : "Applies when the device comes online.",
+            // EXP-1020: the LAST row of that same card, not a card of its own.
+            trailing: AnyView(workflowRow())
+        )
+    }
+
+    // MARK: - Workflow settings (EXP-1029)
+
+    /// The machine's workflow model pair, one SUB-SHELL row — the last entry
+    /// of the agent-defaults card (EXP-1020): tapping it slides its page in
+    /// over the sheet. Shown for both agents — a workflow runs on the
+    /// machine's DEFAULT account, so the pair follows the default agent
+    /// rather than the tab that happens to be open.
+    private func workflowRow() -> some View {
+        SubShell(label: "Workflow settings", value: workflowSummary) {
+            workflowPage()
+        }
+    }
+
+    /// The stored pair, clamped to the default agent's vocabulary — what the
+    /// row summarises, what the page renders, and what a save sends.
+    private var workflowResolved: (model: String, strongModel: String) {
+        DeviceWorkflowSettings.resolve(
+            agent: defaultAgent,
+            stored: DeviceWorkflowDefaults(
+                model: workflowModel, strongModel: workflowStrongModel
+            )
+        )
+    }
+
+    /// The trailing summary, `Opus · Fable`.
+    private var workflowSummary: String {
+        let pair = workflowResolved
+        return "\(LaunchVocabulary.modelLabel(pair.model)) · \(LaunchVocabulary.modelLabel(pair.strongModel))"
+    }
+
+    /// The page: one card, the two rungs a workflow launches on. Each pick
+    /// writes through the same debounce the rest of the defaults use.
+    private func workflowPage() -> some View {
+        let options = DeviceWorkflowSettings.modelValues(for: defaultAgent)
+        return Form {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    GlassPickerRow(
+                        "Model",
+                        selection: workflowBinding(strong: false),
+                        options: options,
+                        label: LaunchVocabulary.modelLabel
+                    )
+                    Text("Leaf nodes and the subagents inside them.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    GlassPickerRow(
+                        "Strong model",
+                        selection: workflowBinding(strong: true),
+                        options: options,
+                        label: LaunchVocabulary.modelLabel
+                    )
+                    Text("Contract, integration and risky nodes, and every review.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .listRowBackground(glassFormRowFill)
+        }
+        .scrollContentBackground(.hidden)
+        .listSectionSpacing(8)
+    }
+
+    /// Like `draftBinding`: only a USER pick writes, so a re-seed can never
+    /// start a save loop. The stored half is written RAW — the resolver is
+    /// what renders it back, clamped.
+    private func workflowBinding(strong: Bool) -> Binding<String> {
+        Binding(
+            get: { strong ? workflowResolved.strongModel : workflowResolved.model },
+            set: { newValue in
+                let current = strong ? workflowResolved.strongModel : workflowResolved.model
+                guard newValue != current else { return }
+                if strong {
+                    workflowStrongModel = newValue
+                } else {
+                    workflowModel = newValue
+                }
+                defaultsPending = true
+                scheduleDefaultsAutosave()
+            }
         )
     }
 
@@ -664,9 +752,20 @@ struct DeviceSettingsSheet: View {
             defaultAgent: defaultAgent,
             // EXP-872: nil while nothing is picked; the input encodes it as
             // an explicit null (the clear), and the machine then falls back
-            // to its active login, exactly as flatten does.
-            defaultAccount: defaultAccount.isEmpty ? nil : defaultAccount,
-            agents: agents
+            // to its active login, exactly as flatten does. EXP-1042: the
+            // draft is handed over RAW — the input folds both the blank and
+            // the ambient `system` sentinel into that nil itself, so no
+            // writer here can leak the sentinel to the server.
+            defaultAccount: defaultAccount,
+            agents: agents,
+            // EXP-1029: a whole-object save REPLACES the stored defaults, so
+            // the workflow pair rides every write — leaving it out would
+            // clobber it with nothing. The RESOLVED pair goes, which is also
+            // how a default-agent switch persists the clamp.
+            workflow: DeviceWorkflowDefaultsInput(
+                model: workflowResolved.model,
+                strongModel: workflowResolved.strongModel
+            )
         )
         defaultsPending = false
         savingDefaults = true
@@ -702,188 +801,6 @@ struct DeviceSettingsSheet: View {
         }
         if namePending, !savingName { saveNameNow() }
         if defaultsPending, !savingDefaults { saveDefaultsNow() }
-    }
-
-    // MARK: - Worktrees
-
-    private func deviceWorktrees(_ device: SteerDevice) -> [DeviceWorktreeEntity] {
-        guard let rowId = device.rowId else { return [] }
-        return viewModel.worktrees
-            .filter { $0.deviceRowId == rowId }
-            .sorted { ($0.repoFullName, $0.branch) < ($1.repoFullName, $1.branch) }
-    }
-
-    private func worktreesSection(_ device: SteerDevice) -> some View {
-        let worktrees = deviceWorktrees(device)
-        return Section {
-            if worktrees.isEmpty {
-                Text("No worktrees reported.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(worktrees) { worktree in
-                    worktreeRow(worktree)
-                }
-                if pendingCommands["prune"] != nil {
-                    Text(device.isOnline ? "Pruning…" : "Prune queued")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let message = commandErrors["prune"] {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                }
-                if let commandSummary {
-                    Text(commandSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        } header: {
-            // EXP-688: Prune is an icon at the trailing edge of the header —
-            // it was a full-width labelled row among the worktrees it acts on.
-            GlassSectionHeader("Worktrees") {
-                if !worktrees.isEmpty {
-                    if pendingCommands["prune"] != nil {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        GhostIconButton(
-                            AppIcons.uiClean,
-                            accessibilityLabel: "Prune merged worktrees"
-                        ) {
-                            prune()
-                        }
-                    }
-                }
-            }
-        } footer: {
-            if !device.isOnline, !worktrees.isEmpty {
-                Text("Runs when the device comes online.")
-            }
-        }
-        .listRowBackground(glassFormRowFill)
-    }
-
-    @ViewBuilder
-    private func worktreeRow(_ worktree: DeviceWorktreeEntity) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.uiBranch, size: AppIcon.Size.small)
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(worktree.branch)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    HStack(spacing: 6) {
-                        Text(worktree.repoFullName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        if let identifier = worktree.issueIdentifier {
-                            Text(identifier)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                        }
-                        if worktree.dirty == "tracked" || worktree.dirty == "untracked" {
-                            Text(worktree.dirty == "tracked" ? "uncommitted changes" : "untracked files")
-                                .font(.caption2)
-                                .foregroundStyle(DesignTokens.Semantic.yellow)
-                        }
-                        if worktree.busy {
-                            Text("session live")
-                                .font(.caption2)
-                                .foregroundStyle(DesignTokens.Semantic.green)
-                        }
-                    }
-                }
-                Spacer(minLength: 0)
-                if pendingCommands[worktree.id] != nil {
-                    ProgressView().controlSize(.small)
-                } else {
-                    // EXP-862: the ghost glyph every secondary row action
-                    // wears now, the same one the header's Prune is. A live
-                    // session holds the branch: the machine would refuse
-                    // anyway, so the button goes dim instead.
-                    GhostIconButton(
-                        AppIcons.uiDelete,
-                        accessibilityLabel: "Remove worktree",
-                        enabled: !worktree.busy
-                    ) {
-                        removeTarget = worktree
-                    }
-                }
-            }
-            if let message = commandErrors[worktree.id] {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private func removeWorktree(_ worktree: DeviceWorktreeEntity) {
-        removeTarget = nil
-        runCommand(
-            targetKey: worktree.id,
-            kind: "worktree_remove",
-            repoFullName: worktree.repoFullName,
-            branch: worktree.branch
-        )
-    }
-
-    private func prune() {
-        runCommand(targetKey: "prune", kind: "worktree_prune")
-    }
-
-    /// Queue the command, then poll its row ~2s until terminal (bounded — an
-    /// offline machine keeps the command queued server-side, so the poll
-    /// gives up quietly and the outcome lands via sync whenever it runs).
-    private func runCommand(
-        targetKey: String,
-        kind: String,
-        repoFullName: String? = nil,
-        branch: String? = nil
-    ) {
-        commandErrors[targetKey] = nil
-        pendingCommands[targetKey] = ""
-        Task {
-            do {
-                let created = try await deps.devicesApi.createCommand(
-                    accountId: accountId,
-                    deviceId: deviceId,
-                    kind: kind,
-                    repoFullName: repoFullName,
-                    branch: branch
-                )
-                pendingCommands[targetKey] = created.id
-                // ~2 minutes of 2s polls; a queued-behind-offline command
-                // just stops being watched (sync still delivers the result).
-                for _ in 0..<60 {
-                    try? await Task.sleep(for: .seconds(2))
-                    guard pendingCommands[targetKey] == created.id else { return }
-                    guard let command = try? await deps.devicesApi.getCommand(
-                        accountId: accountId, commandId: created.id
-                    ) else { continue }
-                    if !command.isPending {
-                        pendingCommands[targetKey] = nil
-                        if command.isFailed {
-                            commandErrors[targetKey] = command.result ?? "The device refused the command."
-                        } else if targetKey == "prune" {
-                            // The prune summary is worth showing on success
-                            // ("Pruned 2 worktrees").
-                            commandSummary = command.result
-                        }
-                        return
-                    }
-                }
-                pendingCommands[targetKey] = nil
-            } catch {
-                pendingCommands[targetKey] = nil
-                commandErrors[targetKey] = error.localizedDescription
-            }
-        }
     }
 
     // MARK: - Update (server devices only)
@@ -991,8 +908,6 @@ struct DeviceSettingsSheet: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("device-remove")
-        } header: {
-            GlassSectionHeader("Remove")
         }
         .listRowBackground(glassFormRowFill)
     }

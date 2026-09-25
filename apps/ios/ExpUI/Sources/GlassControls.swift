@@ -552,7 +552,7 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
 
 /// Inline search field for the searchable sheets — deliberately NOT system
 /// `.searchable` (iOS 26 renders that as a bottom-edge glass bar; see
-/// DuplicatePickerSheet, whose styling this extracts). Layout margins are the
+/// DuplicateIssuePicker, whose styling this extracts). Layout margins are the
 /// caller's. `bordered: false` for bare Form rows (the Agent page composer's
 /// pickers).
 public struct GlassSheetSearchField: View {

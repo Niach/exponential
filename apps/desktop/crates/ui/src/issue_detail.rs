@@ -2719,8 +2719,21 @@ impl Render for IssuePicker {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let issues = self.matches(cx);
 
+        // EXP-1021: the relations linker's rows ARE the shared picker's —
+        // the issue's coloured status glyph, then `IDENT Title` on one line.
+        // The dialog keeps its own shell (a native window has no trigger to
+        // hang a popover off), but never its own row.
+        let rows: Vec<crate::picker::issue_picker::IssuePickerIssue> = issues
+            .iter()
+            .map(|issue| {
+                let status = crate::queries::resolve_issue_status(cx, issue);
+                crate::picker::issue_picker::IssuePickerIssue::with_status(issue, &status)
+            })
+            .collect();
+        let items = crate::picker::issue_picker::issue_rows(&rows);
+
         let mut list = v_flex().w_full().max_h(px(320.)).gap_0p5();
-        if issues.is_empty() {
+        if items.is_empty() {
             list = list.child(
                 div()
                     .px_2()
@@ -2731,50 +2744,35 @@ impl Render for IssuePicker {
             );
         }
         // EXP-892: ONE highlight — the selected row; hovering moves it there.
-        let selected = self.selected.min(issues.len().saturating_sub(1));
-        for (position, issue) in issues.into_iter().enumerate() {
-            let issue_id = issue.id.clone();
+        let selected = self.selected.min(items.len().saturating_sub(1));
+        let list_active = cx.theme().colors.list_active;
+        for (position, item) in items.iter().enumerate() {
+            let issue_id = item.value.clone();
+            let body = crate::picker::picker_item_body(item, cx);
+            // EXP-1045 review round 3: the fills are the PRIMITIVE's, the
+            // HOVERED one included — `pickers::picker_row` hard-codes the
+            // plain row fill on hover, and hovering moves the selection HERE,
+            // so the selected row is always the row under the pointer and
+            // would shed its highlight the moment it was reached.
+            let (at_rest, under_pointer) =
+                crate::picker::single_row_fills(position == selected, list_active);
             list = list.child(
-                h_flex()
-                    .id(SharedString::from(format!("issue-pick-{}", issue.id)))
-                    .w_full()
-                    .px_2()
-                    .py_1p5()
-                    .gap_2()
-                    .items_center()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(position == selected, |style| {
-                        style.bg(cx.theme().colors.list_active)
-                    })
-                    .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
-                        if *hovered && this.selected != position {
-                            this.selected = position;
-                            cx.notify();
-                        }
-                    }))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.pick(issue_id.clone(), window, cx);
-                    }))
-                    .child(
-                        div()
-                            .w(px(72.))
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(issue.identifier.clone())),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(SharedString::from(issue.title.clone())),
-                    ),
+                crate::pickers::picker_row_filled(
+                    SharedString::from(format!("issue-pick-{issue_id}")),
+                    at_rest,
+                    under_pointer,
+                    cx,
+                )
+                .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
+                    if *hovered && this.selected != position {
+                        this.selected = position;
+                        cx.notify();
+                    }
+                }))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.pick(issue_id.clone(), window, cx);
+                }))
+                .child(body),
             );
         }
 

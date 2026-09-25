@@ -53,10 +53,9 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::input::{InputEvent, InputState, TextareaState};
+use gpui_component::input::{InputEvent, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
-use gpui_component::popover::Popover;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Selectable as _,
@@ -187,17 +186,12 @@ fn device_agent_status(
 /// everything else a desktop). An unsynced row reads as a plain desktop, which
 /// is what this IDE is.
 fn device_kind_icon(device_id: &str, cx: &App) -> crate::icons::ExpIcon {
-    let row = Store::try_global(cx).and_then(|store| {
-        store
-            .collections()
-            .devices
-            .read(cx)
-            .iter()
-            .find(|row| row.device_id.as_deref() == Some(device_id))
-            .map(|row| (row.icon.clone(), row.is_server()))
-    });
-    let (icon, server) = row.unwrap_or((None, false));
-    crate::icons::device_icon(icon.as_deref(), server)
+    // EXP-1030: through the ONE resolver the device picker's rows go through,
+    // so the pin's glyph and its menu's glyphs cannot come apart.
+    crate::icons::device_icon(
+        Some(crate::launch_options::device_glyph_name(device_id, cx)),
+        false,
+    )
 }
 
 /// The checked issues and everything their launch needs.
@@ -266,8 +260,9 @@ struct DevicePick {
 /// picked subject takes optional extra instructions, and a picked action
 /// with a non-blank `prompt_placeholder` (the synced column; the
 /// Create-action builtin carries its own) says what to type instead.
-const CHAT_PLACEHOLDER: &str = "Ask the agent…";
-const SUBJECT_PLACEHOLDER: &str = "Additional instructions (optional)…";
+/// EXP-1019: both hints are the shared contract's, never local literals.
+const CHAT_PLACEHOLDER: &str = domain::contract::COMPOSER_UI_CHAT_PLACEHOLDER;
+const SUBJECT_PLACEHOLDER: &str = domain::contract::COMPOSER_UI_INSTRUCTIONS_PLACEHOLDER;
 
 /// The hint for `subject`, given the picked action's row (if the list holds
 /// it). The web `composerPlaceholder` rule, one for one.
@@ -290,8 +285,30 @@ fn placeholder_for_subject(
     SUBJECT_PLACEHOLDER.into()
 }
 
+/// EXP-1037 — WHERE this composer is drawn. One view, one set of state, one
+/// `send`/`start`; only the chrome around the launcher differs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Presentation {
+    /// The Agent screen (`Screen::Chat`): the centred column, the suggestion
+    /// band over an empty subject-less draft, and the "Recent runs" button.
+    Page,
+    /// A dialog window opened by a play button ([`crate::composer_dialog`]):
+    /// the launcher alone — headline, card, options, notes — and nothing of
+    /// the page's chrome. It always has a subject, so it never shows
+    /// suggestions.
+    Dialog,
+}
+
 pub(crate) struct ChatScreenView {
     nav: Entity<Navigation>,
+    presentation: Presentation,
+    /// EXP-1037: the dialog's seed, applied on the first render that has a
+    /// team AND synced shapes (the page takes the same seed off the nav).
+    dialog_seed: Option<ChatSeed>,
+    /// EXP-1037/EXP-897: the blocked-start question while the composer is in
+    /// a DIALOG — asked inside the dialog instead of as a nested alert (see
+    /// [`Self::prompt_blocked_start`]).
+    blocked: Option<PendingBlocked>,
     /// The team the page is scoped to; a switch resets every pick.
     team_id: Option<String>,
     input: Entity<TextareaState>,
@@ -323,13 +340,10 @@ pub(crate) struct ChatScreenView {
     /// placeholder, the start). Only the planner ever lands here; the
     /// pickable builtins ride [`Self::actions`] like the rows.
     hidden_action: Option<api::actions::Action>,
-    issue_search: Entity<InputState>,
-    /// EXP-892: the `#` picker's keyboard selection — a POSITION in the rows
-    /// the popover currently lists (↑/↓ move it, hover moves it, Enter
-    /// toggles that row).
-    issue_pick_selected: usize,
     /// Release review R5: the `#` picker's ranked list, memoised so a busy
-    /// run's 60 fps repaint never re-ranks the pool.
+    /// run's 60 fps repaint never re-ranks the pool. EXP-1030: the picker's
+    /// QUERY and its keyboard cursor are the primitive's now — this memo is
+    /// all the host still holds.
     issue_pick_memo: RefCell<issue_picker::VisibleRowsMemo>,
     /// EXP-868: the `#` tool's pool while nothing is picked, keyed by the
     /// team and the revisions of every collection it reads. The composer
@@ -400,7 +414,6 @@ impl ChatScreenView {
             mention.set_appearance(false);
             mention
         });
-        let issue_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search issues…"));
         let mut subscriptions = vec![
             cx.subscribe_in(
                 &input,
@@ -414,13 +427,6 @@ impl ChatScreenView {
                 },
             ),
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            cx.subscribe(&issue_search, |this: &mut Self, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    // EXP-892: a new query re-selects the top row.
-                    this.issue_pick_selected = 0;
-                    cx.notify();
-                }
-            }),
         ];
         let collections = Store::global(cx).collections();
         let synced_devices = collections.devices.clone();
@@ -461,6 +467,9 @@ impl ChatScreenView {
         }
         let mut this = Self {
             nav,
+            presentation: Presentation::Page,
+            dialog_seed: None,
+            blocked: None,
             team_id: None,
             input,
             placeholder: CHAT_PLACEHOLDER.into(),
@@ -475,8 +484,6 @@ impl ChatScreenView {
             pending_icon: None,
             workflow_id: None,
             hidden_action: None,
-            issue_search,
-            issue_pick_selected: 0,
             issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
             team_pool: RefCell::new(None),
             issue_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
@@ -502,6 +509,34 @@ impl ChatScreenView {
         };
         this.ensure_launch(window, cx);
         this
+    }
+
+    /// EXP-1037 — the SAME composer, built for a dialog window and prefilled
+    /// with `seed`. The seed is applied on the first render that has both a
+    /// team and synced shapes, exactly like the page's pending seed.
+    pub(crate) fn dialog(
+        seed: ChatSeed,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
+        let mut this = Self::new(window, cx);
+        this.presentation = Presentation::Dialog;
+        this.dialog_seed = Some(seed);
+        // The dialog is opened to be typed into (or sent straight away): the
+        // field takes focus the moment the window is up.
+        let field = this.input.read(cx).focus_handle(cx);
+        window.focus(&field, cx);
+        this
+    }
+
+    /// Whether a start is in flight — the dialog's close gate (the view owns
+    /// the launch the prepare reports back to).
+    pub(crate) fn starting(&self) -> bool {
+        self.launching || self.sending
+    }
+
+    fn in_dialog(&self) -> bool {
+        matches!(self.presentation, Presentation::Dialog)
     }
 
     // ── team scope ────────────────────────────────────────────────────────
@@ -641,6 +676,16 @@ impl ChatScreenView {
         }
         for issue_id in checked {
             self.ensure_probe(issue_id, cx);
+        }
+    }
+
+    /// The issues the `#` picker currently has checked — the primitive's
+    /// `value`, and what a reported SET is diffed against to name the one row
+    /// that moved.
+    fn checked_issue_ids(&self) -> HashSet<String> {
+        match &self.subject {
+            Subject::Issues(issues) => issues.checked.clone(),
+            _ => HashSet::new(),
         }
     }
 
@@ -1493,17 +1538,28 @@ impl ChatScreenView {
         }
         match &self.subject {
             Subject::None => {
-                let Some(host) = crate::session_bar::host_for_window(window, cx) else {
+                // EXP-1037: a chat run's rails hang off the WINDOW — the
+                // session-bar host that owns the launch and the tab the run
+                // lands in. A dialog composer has neither, so the launch
+                // runs in the window that opened it (for the page, that IS
+                // this window, one tick later).
+                let target = navigation::deferred_open_window(window, cx);
+                if crate::session_bar::host_for_window_id(target.window_id(), cx).is_none() {
                     self.error = Some("Open a team window to start a chat.".into());
                     cx.notify();
                     return;
-                };
+                }
                 let repo = self
                     .chat_repo
                     .as_ref()
                     .map(|repo| (repo.id.clone(), repo.full_name.clone()));
-                host.update(cx, |host, cx| {
-                    host.launch_chat_run(options, repo, prompt, window, cx);
+                navigation::defer_in_result_window(window, cx, move |window, cx| {
+                    let Some(host) = crate::session_bar::host_for_window(window, cx) else {
+                        return;
+                    };
+                    host.update(cx, |host, cx| {
+                        host.launch_chat_run(options, repo, prompt, window, cx);
+                    });
                 });
                 self.after_started(window, cx);
             }
@@ -1520,7 +1576,9 @@ impl ChatScreenView {
                         options,
                         origin: LaunchOrigin::Local,
                         inputs,
-                        target: Some(window.window_handle()),
+                        // EXP-1037: the run's tab lands in the window the ▶
+                        // was pressed in — a dialog composer closes itself.
+                        target: Some(navigation::deferred_open_window(window, cx)),
                         activate_app: false,
                         reservation: None,
                         // A person pressed Run — never an automation firing.
@@ -1687,6 +1745,21 @@ impl ChatScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // EXP-1037: in a dialog window there is no alert to open —
+        // `open_dialog_window` never nests (`dialog_open_here`), and closing
+        // this window to ask in the opener would drop the view holding the
+        // draft. The question takes over the dialog's body instead
+        // ([`Self::render_blocked_panel`]), answered by the same
+        // `stack_choice` + `start` pair.
+        if self.in_dialog() {
+            self.blocked = Some(PendingBlocked {
+                message,
+                blocked,
+                can_stack,
+            });
+            cx.notify();
+            return;
+        }
         let refs: Vec<&str> = blocked.picked.iter().map(String::as_str).collect();
         let graph = crate::issue_graph::graph_for(&refs, cx);
         let batch = blocked.picked.len() > 1;
@@ -1853,12 +1926,15 @@ impl ChatScreenView {
                 this.launching = false;
                 match result {
                     Ok(()) => {
-                        window.push_notification(
-                            Notification::success(SharedString::from(format!(
-                                "Start sent to {device_label}."
-                            ))),
-                            cx,
-                        );
+                        // EXP-1037: a dialog composer is closing itself, so
+                        // the toast belongs to the window the ▶ was pressed
+                        // in (on the page that IS this window).
+                        let notice = SharedString::from(format!(
+                            "Start sent to {device_label}."
+                        ));
+                        navigation::defer_in_result_window(window, cx, move |window, cx| {
+                            window.push_notification(Notification::success(notice), cx);
+                        });
                         coding_flow::follow_remote_start(device_id, subject, window, cx);
                         this.after_started(window, cx);
                     }
@@ -1921,7 +1997,14 @@ impl ChatScreenView {
         self.notice = None;
         self.error = None;
         self.stack_choice = None;
+        self.blocked = None;
         self.clear_subject(cx);
+        // EXP-1037: a dialog composer has done its one job — the run opens in
+        // the window the play button was pressed in (the navigation hands
+        // back through `navigation::owner_window_for`).
+        if self.in_dialog() {
+            crate::native_dialog::close_dialog_window(window, cx);
+        }
     }
 
     // ── images ────────────────────────────────────────────────────────────
@@ -1957,7 +2040,43 @@ impl ChatScreenView {
 
     // ── render pieces ─────────────────────────────────────────────────────
 
-    /// The subject chips: one per checked issue, or the action's one.
+    /// EXP-1019/EXP-1037 — the composer's HEADLINE: the launcher's main
+    /// element, with the text field below it reading as the secondary one.
+    /// `Run` beside the action chip, `Implement` beside the issue chips
+    /// ([`chat_launch::headline`], the shared contract's words).
+    ///
+    /// With NO subject there is no headline at all: the contract's "Ask the
+    /// agent" is already the field's own placeholder right underneath, and
+    /// the subject-less page is deliberately quiet.
+    fn render_headline(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let kind = self.subject_kind();
+        if matches!(kind, SubjectKind::Chat) {
+            return None;
+        }
+        let chips = self.render_chips(cx)?;
+        Some(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .flex_wrap()
+                .items_center()
+                .gap_2()
+                .px_1()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_lg()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(cx.theme().foreground)
+                        .child(chat_launch::headline(&kind)),
+                )
+                .child(chips)
+                .into_any_element(),
+        )
+    }
+
+    /// The subject chips: one per checked issue, or the action's one. They
+    /// sit in the HEADLINE (EXP-1019), not in the card's leading slot.
     fn render_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let muted = cx.theme().muted_foreground;
         let mut chips: Vec<AnyElement> = Vec::new();
@@ -2024,11 +2143,10 @@ impl ChatScreenView {
         }
         Some(
             h_flex()
-                .w_full()
                 .min_w_0()
                 .flex_wrap()
+                .items_center()
                 .gap_1()
-                .px_1()
                 .children(chips)
                 .into_any_element(),
         )
@@ -2079,7 +2197,12 @@ impl ChatScreenView {
         rows
     }
 
-    /// The `#` tool: the issue picker popover.
+    /// The `#` tool: the issue picker, mounted on THE picker primitive
+    /// (EXP-1030). Everything the primitive cannot know rides in as hooks —
+    /// the ranking (`domain::issue_search` through
+    /// [`issue_picker::visible_rows`], memoised here), the row anatomy and
+    /// the overflow notes — and everything else (the surface, the filter
+    /// field, ↑/↓/Enter, the multi-select highlight) is its own.
     fn issue_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let (rows, checked, notes): (Rc<Vec<IssueRow>>, HashSet<String>, Vec<(String, SharedString)>) =
             match &self.subject {
@@ -2125,44 +2248,142 @@ impl ChatScreenView {
                     slot.set(bounds);
                     cx.notify(view_id);
                 }
-            });
+            })
+            .into_any_element();
         // EXP-946: from where the tool actually is, not from a guess.
         let fit = issue_picker::popover_fit(
             self.issue_tool_bounds.get(),
             window.viewport_size(),
             issue_picker::POPOVER_WANTED_HEIGHT,
         );
-        issue_picker::issue_picker_popover(
-            trigger,
-            rows,
-            &checked,
-            &self.issue_search,
-            notes,
-            fit,
-            cx,
-        )
+        let items = issue_picker::picker_items(&rows);
+        let picked: Vec<String> = rows
+            .iter()
+            .filter(|row| checked.contains(&row.issue_id))
+            .map(|row| row.issue_id.clone())
+            .collect();
+        let view = cx.entity().downgrade();
+        // Where a row's body reads its data from: the pool by id, and the
+        // transient probe note ("no repository linked") beside it.
+        let bodies: Rc<HashMap<String, usize>> = Rc::new(
+            rows.iter()
+                .enumerate()
+                .map(|(ix, row)| (row.issue_id.clone(), ix))
+                .collect(),
+        );
+        let notes: Rc<HashMap<String, SharedString>> = Rc::new(notes.into_iter().collect());
+        // ONE ranking per frame, memoised on this view: `rank` and `footer`
+        // both read it, and the composer repaints at 60 fps while a run is
+        // busy (release review R5).
+        let ranked = {
+            let rows = rows.clone();
+            let checked = checked.clone();
+            let view = view.clone();
+            move |query: &str, cx: &mut App| -> (Vec<usize>, usize, bool) {
+                match view.upgrade() {
+                    Some(host) => host
+                        .read(cx)
+                        .issue_pick_memo
+                        .borrow_mut()
+                        .get(&rows, &checked, query),
+                    None => issue_picker::visible_rows(&rows, &checked, query),
+                }
+            }
+        };
+        let rank_of = ranked.clone();
+        let footer_of = ranked;
+        let empty_pool = rows.is_empty();
+        let body_rows = rows.clone();
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::Picker::multi(
+                items,
+                picked,
+                trigger,
+                Rc::new(move |values: Vec<String>, window: &mut Window, cx: &mut App| {
+                    // The primitive reports the WHOLE new set; the composer
+                    // stores one toggle at a time, so the one row that moved
+                    // is the difference.
+                    let Some(view) = view.upgrade() else {
+                        return;
+                    };
+                    let before = view.read(cx).checked_issue_ids();
+                    let after: HashSet<String> = values.into_iter().collect();
+                    let added = after.difference(&before).next().cloned();
+                    let removed = before.difference(&after).next().cloned();
+                    let Some((issue_id, on)) = added
+                        .map(|id| (id, true))
+                        .or_else(|| removed.map(|id| (id, false)))
+                    else {
+                        return;
+                    };
+                    view.update(cx, |this, cx| this.toggle_issue(issue_id, on, window, cx));
+                }),
+            )
+            .search(true)
+            .id("chat-issue-picker")
+            .width(px(480.))
+            .fit(fit)
+            .empty_text("No open issues in this team.")
+            // EXP-892: the ONE engine ranks, checked rows pinned first.
+            .rank(move |_items, query, cx| rank_of(query, cx).0)
+            .render_item(move |item, cx| {
+                let Some(row) = bodies
+                    .get(&item.value)
+                    .and_then(|ix| body_rows.get(*ix))
+                else {
+                    return gpui::Empty.into_any_element();
+                };
+                issue_picker::issue_row_body(row, notes.get(&row.issue_id).cloned(), cx)
+            })
+            .footer(move |query, cx| {
+                let (_, hidden, no_matches) = footer_of(query, cx);
+                let mut notes: Vec<SharedString> = Vec::new();
+                if empty_pool {
+                    notes.push("No open issues in this team.".into());
+                }
+                if no_matches {
+                    notes.push("No matches. Only open issues are shown.".into());
+                }
+                if hidden > 0 {
+                    notes.push(format!("+{hidden} more. Refine your search.").into());
+                }
+                if notes.is_empty() {
+                    return None;
+                }
+                Some(
+                    v_flex()
+                        .w_full()
+                        .children(
+                            notes
+                                .into_iter()
+                                .map(|note| issue_picker::list_note(note, cx)),
+                        )
+                        .into_any_element(),
+                )
+            })
+            .render(window, cx)
+        })
         .into_any_element()
     }
 
-    /// The ▶ tool: the actions popover (builtins pinned first, Create
-    /// action included; Chat is never listed).
+    /// The ▶ tool: the actions picker (builtins pinned first, Create action
+    /// included; Chat is never listed) — THE action picker (EXP-1030), whose
+    /// rows are the curated icon, the name and the muted description.
     fn action_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let actions: Vec<(String, String, Option<String>, Option<String>)> = self
+        let actions: Vec<crate::picker::action_picker::ActionPickerAction> = self
             .actions
             .iter()
             .filter(|action| action.id != api::actions::BUILTIN_CHAT_ID)
-            .map(|action| {
-                (
-                    action.id.clone(),
-                    action.name.clone(),
-                    action.icon.clone(),
-                    action
-                        .description
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|text| !text.is_empty())
-                        .map(str::to_string),
-                )
+            .map(|action| crate::picker::action_picker::ActionPickerAction {
+                id: action.id.clone(),
+                name: action.name.clone(),
+                icon: action.icon.clone(),
+                description: action
+                    .description
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string),
             })
             .collect();
         let ready = self.actions_ready;
@@ -2181,65 +2402,41 @@ impl ChatScreenView {
                     slot.set(bounds);
                     cx.notify(view_id);
                 }
-            });
+            })
+            .into_any_element();
         // EXP-946: flips and caps like the issue picker beside it.
-        let (anchor, max_height) = issue_picker::popover_fit(
+        let fit = issue_picker::popover_fit(
             self.action_tool_bounds.get(),
             window.viewport_size(),
             issue_picker::POPOVER_WANTED_HEIGHT,
         );
-        Popover::new("chat-action-picker")
-            .p_1()
-            .anchor(anchor)
-            .trigger(trigger)
-            .content(move |_, _window, cx| {
-                let muted = cx.theme().muted_foreground;
-                let mut rows = v_flex()
-                    .id("chat-action-picker-rows")
-                    .w(px(360.))
-                    .max_h(max_height)
-                    .overflow_y_scroll();
-                if !ready {
-                    rows = rows.child(issue_picker::list_note("Loading actions…", cx));
-                } else if actions.is_empty() {
-                    rows = rows.child(issue_picker::list_note("No actions yet.", cx));
-                }
-                for (id, name, icon, description) in &actions {
-                    let is_picked = picked.as_deref() == Some(id.as_str());
-                    let view = view.clone();
-                    let id = id.clone();
-                    rows = rows.child(
-                        crate::pickers::picker_row(SharedString::from(format!("chat-action-{id}")), cx)
-                            .child(
-                                Icon::new(if is_picked {
-                                    registry::UI_SELECTED
-                                } else {
-                                    registry::UI_UNSELECTED
-                                })
-                                .small()
-                                .text_color(muted),
-                            )
-                            .child(crate::icons::action_icon(icon.as_deref()).xsmall().text_color(muted))
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(div().text_sm().truncate().child(SharedString::from(name.clone())))
-                                    .children(description.clone().map(|text| {
-                                        div().text_xs().truncate().text_color(muted).child(SharedString::from(text))
-                                    })),
-                            )
-                            .on_click(move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let id = id.clone();
-                                    view.update(cx, |this, cx| this.select_action(id, cx));
-                                }
-                            }),
-                    );
-                }
-                rows
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::action_picker::action_picker(
+                &actions,
+                picked,
+                trigger,
+                Rc::new(move |values: Vec<String>, _window: &mut Window, cx: &mut App| {
+                    let Some(id) = values.into_iter().next() else {
+                        return;
+                    };
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |this, cx| this.select_action(id, cx));
+                    }
+                }),
+            )
+            .id("chat-action-picker")
+            .width(px(360.))
+            .fit(fit)
+            // A list that has not arrived says so; an arrived empty one says
+            // there is nothing to run.
+            .empty_text(if ready {
+                "No actions yet."
+            } else {
+                "Loading actions…"
             })
-            .into_any_element()
+            .render(window, cx)
+        })
+        .into_any_element()
     }
 
     /// The Device pin: this machine first, then the online remote ones. A
@@ -2277,47 +2474,43 @@ impl ChatScreenView {
         let bound = self.device.device_id.clone();
         // EXP-862: the machine's KIND leads the trigger AND every row — a
         // picker whose value wears an icon offers that icon on its items.
-        let kinds: HashMap<String, crate::icons::ExpIcon> = candidates
-            .iter()
-            .map(|device| (device.device_id.clone(), device_kind_icon(&device.device_id, cx)))
-            .collect();
+        // EXP-1030: the rows and their glyphs are THE device picker's now
+        // ([`crate::picker::device_picker`]); only the inline pin trigger is
+        // the composer's own.
         let selected_kind = self
             .device
             .device_id
             .as_deref()
-            .and_then(|id| kinds.get(id).cloned())
+            .map(|id| device_kind_icon(id, cx))
             .unwrap_or(registry::UI_DEVICE);
+        let rows = crate::launch_options::launch_device_rows(&candidates, cx);
         let view = cx.entity().downgrade();
-        crate::launch_options::inline_pin_trigger_with(
+        let trigger = crate::launch_options::inline_pin_trigger_with(
             "chat-pin-device".into(),
             Some(selected_kind),
             label,
             cx,
         )
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            for device in &candidates {
-                let view = view.clone();
-                let device_id = device.device_id.clone();
-                let kind = kinds
-                    .get(&device_id)
-                    .cloned()
-                    .unwrap_or(registry::UI_DEVICE);
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(device.label.clone()))
-                        .icon(Icon::new(kind))
-                        .checked(bound.as_deref() == Some(device_id.as_str()))
-                        .on_click(move |_, window, cx| {
-                            if let Some(view) = view.upgrade() {
-                                let device_id = device_id.clone();
-                                view.update(cx, |this, cx| {
-                                    this.set_device(device_id, window, cx);
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                );
-            }
-            menu
+        .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::device_picker::device_picker(
+                &rows,
+                bound.clone(),
+                trigger,
+                Rc::new(move |values: Vec<String>, window: &mut Window, cx: &mut App| {
+                    let Some(device_id) = values.into_iter().next() else {
+                        return;
+                    };
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |this, cx| {
+                            this.set_device(device_id, window, cx);
+                            cx.notify();
+                        });
+                    }
+                }),
+            )
+            .id("chat-pin-device-picker")
+            .render(window, cx)
         })
         .into_any_element()
     }
@@ -2496,32 +2689,6 @@ impl Focusable for ChatScreenView {
     }
 }
 
-/// EXP-892: the `#` picker's host — the checked set lives in the subject, the
-/// keyboard selection in [`ChatScreenView::issue_pick_selected`].
-impl issue_picker::IssuePickerHost for ChatScreenView {
-    fn picker_selected(&self) -> usize {
-        self.issue_pick_selected
-    }
-
-    fn set_picker_selected(&mut self, position: usize) {
-        self.issue_pick_selected = position;
-    }
-
-    fn picker_memo(&self) -> &RefCell<issue_picker::VisibleRowsMemo> {
-        &self.issue_pick_memo
-    }
-
-    fn toggle_picked_issue(
-        &mut self,
-        issue_id: String,
-        on: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.toggle_issue(issue_id, on, window, cx);
-    }
-}
-
 impl Render for ChatScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.sync_team(window, cx);
@@ -2532,10 +2699,32 @@ impl Render for ChatScreenView {
         // shapes have synced — a seed taken on the first paint of a cold
         // start would resolve no issue rows and be lost.
         if self.team_id.is_some() && navigation::shapes_ready(cx) {
-            if let Some(seed) = navigation::take_pending_chat_seed(&self.nav, cx) {
+            // EXP-1037: a DIALOG composer carries its own seed (its window
+            // has no pending-seed nav of its own); the page takes the nav's.
+            let seed = self
+                .dialog_seed
+                .take()
+                .or_else(|| navigation::take_pending_chat_seed(&self.nav, cx));
+            if let Some(seed) = seed {
                 self.apply_seed(seed, window, cx);
             }
         }
+        match self.presentation {
+            Presentation::Page => self.render_page(window, cx),
+            Presentation::Dialog => self.render_dialog(window, cx),
+        }
+    }
+}
+
+impl ChatScreenView {
+    /// EXP-1019/EXP-1037 — THE launcher: the headline, the composer card, the
+    /// options row and the notes under it. Byte-identical in both
+    /// presentations; only the chrome around it differs.
+    fn render_launcher(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         let mcp = self.mcp_options();
         if let Some(launch) = self.launch.as_mut() {
             launch.set_mcp_servers(mcp);
@@ -2559,20 +2748,10 @@ impl Render for ChatScreenView {
         .tooltip(SharedString::from(label))
         .loading(self.launching || self.sending)
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)));
-        let chips = self.render_chips(cx);
-        let fields = self.render_action_fields(cx);
-        let leading = match (chips, fields) {
-            (None, None) => None,
-            (chips, fields) => Some(
-                v_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1()
-                    .children(chips)
-                    .children(fields)
-                    .into_any_element(),
-            ),
-        };
+        // EXP-1019: the subject CHIPS moved out of the card into the
+        // headline; the picked action's typed inputs stay in it (they are
+        // fields of the form, not the subject).
+        let leading = self.render_action_fields(cx);
         let strip = (!self.images.is_empty()).then(|| {
             self.images
                 .render_strip("chat-pending-remove", self.sending, Self::remove_image, cx)
@@ -2603,7 +2782,12 @@ impl Render for ChatScreenView {
         if let Some(leading) = leading {
             composer = composer.leading(leading);
         }
-        let suggestions = self.render_suggestions(cx);
+        // EXP-1037: the suggestion band is a subject-less-CHAT affordance —
+        // the dialog always has a subject, so it never shows one.
+        let suggestions = (!self.in_dialog())
+            .then(|| self.render_suggestions(cx))
+            .flatten();
+        let headline = self.render_headline(cx);
         let options = self.render_options_row(cx);
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
@@ -2634,15 +2818,38 @@ impl Render for ChatScreenView {
         if let Some(error) = &self.error {
             notes = notes.child(div().text_color(danger).child(error.clone()));
         }
-        // EXP-923: the composer IS the page, so it sits in the middle of it
-        // (web `justify-center`) rather than pinned under the top edge — the
-        // two session bands that used to follow it are the rail's Running
-        // section and the history button's panel now.
-        //
-        // That button is the page's one piece of chrome: a ghost history
-        // glyph in the content area's top-left corner, over the composer
-        // column rather than in it (the column is centred; the button is
-        // not). It toggles `LeftOccupant::RecentRuns` in the left column.
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .children(suggestions)
+            // EXP-1019: the headline is the launcher's MAIN element — the
+            // verb plus the subject's chips, with the card (and its muted
+            // placeholder) reading as the secondary one under it.
+            .children(headline)
+            .child(
+                crate::composer::glass_composer(composer)
+                    .capture_action(cx.listener(Self::on_paste)),
+            )
+            .child(options)
+            .child(notes)
+            .into_any_element()
+    }
+
+    /// EXP-923 — the Agent SCREEN: the launcher centred in the page's one
+    /// scroll, with the "Recent runs" ghost button in the corner.
+    ///
+    /// The composer IS the page, so it sits in the middle of it (web
+    /// `justify-center`) rather than pinned under the top edge — the two
+    /// session bands that used to follow it are the rail's Running section
+    /// and the history button's panel now.
+    ///
+    /// That button is the page's one piece of chrome: a ghost history glyph
+    /// in the content area's top-left corner, over the composer column
+    /// rather than in it (the column is centred; the button is not). It
+    /// toggles `LeftOccupant::RecentRuns` in the left column.
+    fn render_page(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let launcher = self.render_launcher(window, cx);
         let history_open = crate::navigation::recent_runs_open(window, cx);
         let history = Button::new("chat-recent-runs")
             .ghost()
@@ -2674,23 +2881,186 @@ impl Render for ChatScreenView {
                     // flex-shrinkable child gets squeezed to the viewport and
                     // its trailing rows (options, the blocker note) clipped.
                     .child(
-                        v_flex()
+                        div()
                             .w_full()
                             .max_w(px(PROMPT_MAX_W))
                             .min_w_0()
                             .flex_shrink_0()
-                            .gap_2()
-                            .children(suggestions)
-                            .child(
-                                crate::composer::glass_composer(composer)
-                                    .capture_action(cx.listener(Self::on_paste)),
-                            )
-                            .child(options)
-                            .child(notes),
+                            .child(launcher),
                     ),
             ))
             .child(div().absolute().top_2().left_2().child(history))
+            .into_any_element()
     }
+
+    /// EXP-1037 — the composer in its DIALOG window: the launcher alone, in
+    /// the window's own scroll. No page scroll chrome, no "Recent runs"
+    /// button, no suggestion band — a dialog always has a subject, and the
+    /// one thing left to decide is whether to send it.
+    ///
+    /// EXP-897: the blocked-start question is asked HERE rather than as a
+    /// nested alert. `native_dialog::open_dialog_window` refuses to open from
+    /// a dialog window at all (`dialog_open_here`), and closing this window
+    /// first would drop the view that owns the draft, the picks and the
+    /// in-flight start — so the same title, body, graph and three answers
+    /// take over the dialog's body instead.
+    fn render_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let body = match self.blocked.take() {
+            Some(blocked) => {
+                let panel = self.render_blocked_panel(&blocked, cx);
+                self.blocked = Some(blocked);
+                panel
+            }
+            None => self.render_launcher(window, cx),
+        };
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .track_focus(&self.focus_handle)
+            .child(crate::scroll_pane::v_scroll_pane(
+                "chat-dialog-scroll",
+                &self.page_scroll,
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .flex_shrink_0()
+                    .child(body),
+            ))
+            .into_any_element()
+    }
+
+    /// EXP-1037/EXP-897 — the blocked-start question drawn INSIDE the
+    /// composer dialog: the alert's own title, body, transitive blocks graph
+    /// and disabled-reason caption, with Cancel · Start anyway · Stacked PR.
+    /// Both answers run [`Self::answer_blocked`], so the two start paths stay
+    /// the ONE code path the alert's answers take on the page.
+    fn render_blocked_panel(
+        &self,
+        pending: &PendingBlocked,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let refs: Vec<&str> = pending.blocked.picked.iter().map(String::as_str).collect();
+        let graph = crate::issue_graph::graph_for(&refs, cx);
+        let batch = pending.blocked.picked.len() > 1;
+        let title = if batch {
+            chat_launch::blocked_batch_title()
+        } else {
+            chat_launch::blocked_start_title()
+        };
+        let description = if batch {
+            chat_launch::blocked_batch_body().to_string()
+        } else {
+            chat_launch::blocked_start_body(&pending.blocked.blockers)
+        };
+        let reason = chat_launch::stack_disabled_reason(
+            pending.blocked.picked.len(),
+            pending.can_stack,
+            graph.has_cycle,
+        );
+        let muted = cx.theme().muted_foreground;
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_3()
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(cx.theme().foreground)
+                    .child(SharedString::from(title)),
+            )
+            .child(div().text_sm().text_color(muted).child(SharedString::from(description)))
+            .child(crate::issue_graph::graph_in_dialog(
+                &graph,
+                BLOCKED_PANEL_GRAPH_W,
+                cx,
+            ))
+            .children(reason.map(|reason| {
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(chat_launch::stack_disabled_note(reason)))
+            }))
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        Button::new("chat-blocked-cancel")
+                            .outline()
+                            .cursor_pointer()
+                            .small()
+                            .label("Cancel")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.blocked = None;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("chat-blocked-anyway")
+                            .outline()
+                            .cursor_pointer()
+                            .small()
+                            .label(chat_launch::start_anyway_label())
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.answer_blocked(StackChoice::Plain, window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("chat-blocked-stacked")
+                            .primary()
+                            .cursor_pointer()
+                            .small()
+                            .label(chat_launch::stack_label())
+                            .disabled(reason.is_some())
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.answer_blocked(StackChoice::Stacked, window, cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// Record the blocked-start answer and re-enter [`Self::start`] with the
+    /// SAME composed message — the alert's resume closure, in-window.
+    fn answer_blocked(
+        &mut self,
+        choice: StackChoice,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(pending) = self.blocked.take() else {
+            return;
+        };
+        self.stack_choice = Some(choice);
+        self.start(pending.message, window, cx);
+    }
+}
+
+/// EXP-1037 — the composer that is currently open in a dialog window. WEAK:
+/// the dialog window owns the view, and a closed dialog must not keep it
+/// alive; a stale handle simply stops answering.
+struct OpenComposerDialog(gpui::WeakEntity<ChatScreenView>);
+
+impl gpui::Global for OpenComposerDialog {}
+
+/// Register the composer a freshly opened dialog window hosts (called by
+/// [`crate::composer_dialog::open`]) so the rail's pinned action row keeps
+/// lighting up while its run is composed.
+pub(crate) fn register_open_dialog(view: &Entity<ChatScreenView>, cx: &mut App) {
+    cx.set_global(OpenComposerDialog(view.downgrade()));
+}
+
+/// EXP-862/EXP-1037 — the action the OPEN composer dialog is seeded with.
+/// `None` when no dialog is up. [`crate::screens::chat_action_id`] consults
+/// this before the window's own Agent screen: since EXP-1037 a pinned
+/// action's ▶ opens the dialog instead of navigating, and the row must still
+/// read as active while it is up.
+pub(crate) fn dialog_action_id(cx: &App) -> Option<String> {
+    let view = cx.try_global::<OpenComposerDialog>()?.0.upgrade()?;
+    let id = view.read(cx).active_action_id()?.to_string();
+    Some(id)
 }
 
 /// EXP-897 — the blocked-issue dialog's answer. `None` on the view means the
@@ -2711,11 +3081,23 @@ struct BlockedStart {
     blockers: Vec<String>,
 }
 
+/// EXP-1037 — the blocked-start question while the composer lives in a
+/// dialog window: the composed message it was asked for, what it is about,
+/// and whether a stacked start is possible at all.
+struct PendingBlocked {
+    message: String,
+    blocked: BlockedStart,
+    can_stack: bool,
+}
+
 /// The blocked-start dialog is taller than a plain alert — it hosts the
 /// graph.
 const BLOCKED_DIALOG_HEIGHT: f32 = 460.;
 /// The graph's viewport inside it (the 416px alert minus its padding).
 const BLOCKED_DIALOG_GRAPH_W: f32 = 380.;
+/// EXP-1037: the same graph inside the composer DIALOG, which is the wider
+/// launcher window (640px content) rather than a 416px alert.
+const BLOCKED_PANEL_GRAPH_W: f32 = 560.;
 
 /// [`RemoteSubject`] borrows the ids it names; the issue arms need an owned
 /// carrier so the checked list can be built inside `start` and borrowed

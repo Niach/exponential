@@ -32,7 +32,18 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.triggerEventLabel
 import com.exponential.app.domain.triggerWeekdayName
-import com.exponential.app.ui.components.AccountPickerPill
+import com.exponential.app.ui.components.AccountPill
+import com.exponential.app.ui.components.PickerValueRow
+import com.exponential.app.ui.components.picker.AccountPicker
+import com.exponential.app.ui.components.picker.BoardPickerBoard
+import com.exponential.app.ui.components.picker.LabelPickerLabel
+import com.exponential.app.ui.components.picker.StatusPickerStatus
+import com.exponential.app.ui.components.picker.boardPickerItems
+import com.exponential.app.ui.components.picker.labelPickerItems
+import com.exponential.app.ui.components.picker.statusPickerItems
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.GlassSegmentedControl
@@ -44,10 +55,10 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.ambientAccountOptions
 import com.exponential.app.ui.components.availableAgentsFor
+import com.exponential.app.ui.components.toPickerAccount
 import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.agent.StartBoardOption
-import com.exponential.app.ui.agent.StartFilterOption
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The shared automation editor (EXP-583). TWO hosts render these fields: the
@@ -189,8 +200,8 @@ private fun intervalLabel(interval: String): String = when (interval) {
 internal fun AutomationTriggerFields(
     draft: AutomationDraft,
     boards: List<StartBoardOption>,
-    labels: List<StartFilterOption>,
-    statuses: List<StartFilterOption>,
+    labels: List<LabelPickerLabel>,
+    statuses: List<StatusPickerStatus>,
     onChange: (AutomationDraft) -> Unit,
     allowNone: Boolean = false,
 ) {
@@ -272,7 +283,10 @@ internal fun AutomationTriggerFields(
             AutomationFilterPicker(
                 label = "Board",
                 anyLabel = "Any board",
-                options = boards.map { StartFilterOption(it.id, it.name) },
+                // The board rows the rest of the app draws: glyph + colour.
+                options = boardPickerItems(
+                    boards.map { BoardPickerBoard(it.id, it.name, it.icon, it.colorHex) },
+                ),
                 selected = draft.boardId,
                 onSelect = { onChange(draft.copy(boardId = it)) },
             )
@@ -281,7 +295,8 @@ internal fun AutomationTriggerFields(
                 AutomationFilterPicker(
                     label = "Label",
                     anyLabel = "Any label",
-                    options = labels,
+                    // A label is a coloured DOT wherever it is listed.
+                    options = labelPickerItems(labels),
                     selected = draft.labelId,
                     onSelect = { onChange(draft.copy(labelId = it)) },
                 )
@@ -292,7 +307,7 @@ internal fun AutomationTriggerFields(
                     label = "Priority",
                     anyLabel = "Any priority",
                     options = DomainContract.issuePriorityValues.map {
-                        StartFilterOption(it, IssuePriority.fromWire(it).label)
+                        PickerItem(value = it, label = IssuePriority.fromWire(it).label)
                     },
                     selected = draft.priority,
                     onSelect = { onChange(draft.copy(priority = it)) },
@@ -303,7 +318,8 @@ internal fun AutomationTriggerFields(
                 AutomationFilterPicker(
                     label = "To status",
                     anyLabel = "Any status",
-                    options = statuses,
+                    // A status is its glyph in its tone, resolved (EXP-314).
+                    options = statusPickerItems(statuses),
                     selected = draft.toStatusId,
                     onSelect = { onChange(draft.copy(toStatusId = it)) },
                 )
@@ -355,7 +371,7 @@ internal fun seedAutomationPin(
  * The binding half: which machine runs the automation, and the account pin
  * with its model/effort. EXP-615 retired the "Device default" agent option;
  * EXP-995 retired the agent strip itself — the card's first row is THE
- * account picker ([AccountPickerPill], brand mark + email over the bound
+ * account picker ([AccountPicker], brand mark + email over the bound
  * machine's logins, its default first) and a pick names the agent too. The
  * pin seeds to the bound machine's DEFAULT ACCOUNT (the composer's seed) and
  * the row saves that concrete agent + profile. Model/Effort speak the launch
@@ -431,25 +447,45 @@ internal fun AutomationBindingFields(
                         ),
                     )
                     Spacer(Modifier.weight(1f))
-                    AccountPickerPill(
-                        options = accountOptions,
-                        selectedKey = "${draft.agent}:${draft.account.ifEmpty { SYSTEM_PROFILE_ID }}",
-                        onSelect = { option ->
-                            // Only an AGENT change invalidates the vocabularies
-                            // below; another login of the same agent keeps
-                            // model and effort exactly as picked. "" is the
-                            // machine's ambient login, never an id on the wire.
-                            val agentChanged = option.agent != draft.agent
-                            onChange(
-                                draft.copy(
-                                    agent = option.agent,
-                                    account = option.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
-                                    model = if (agentChanged) CLI_DEFAULT_MODEL else draft.model,
-                                    effort = if (agentChanged) CLI_DEFAULT_EFFORT else draft.effort,
-                                ),
+                    // The pin's own key, falling back to the first login the
+                    // way the pill always did — a draft can name an account
+                    // this machine no longer reports.
+                    val selectedKey = "${draft.agent}:${draft.account.ifEmpty { SYSTEM_PROFILE_ID }}"
+                    val current = accountOptions.firstOrNull { it.key == selectedKey }
+                        ?: accountOptions.first()
+                    // EXP-1021: the same capsule over the SHARED account sheet
+                    // — the login rows, their EXP-992 limit bars and the
+                    // highlight are the picker's now, not a menu of this
+                    // surface's own. A lone login is a statement, not a choice,
+                    // so it opens nothing.
+                    AccountPicker(
+                        options = accountOptions.map { it.toPickerAccount() },
+                        value = current.key,
+                        onChange = { key ->
+                            accountOptions.firstOrNull { it.key == key }?.let { option ->
+                                // Only an AGENT change invalidates the
+                                // vocabularies below; another login of the same
+                                // agent keeps model and effort exactly as
+                                // picked. "" is the machine's ambient login,
+                                // never an id on the wire.
+                                val agentChanged = option.agent != draft.agent
+                                onChange(
+                                    draft.copy(
+                                        agent = option.agent,
+                                        account = option.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
+                                        model = if (agentChanged) CLI_DEFAULT_MODEL else draft.model,
+                                        effort = if (agentChanged) CLI_DEFAULT_EFFORT else draft.effort,
+                                    ),
+                                )
+                            }
+                        },
+                        trigger = { open ->
+                            AccountPill(
+                                option = current,
+                                onClick = if (accountOptions.size > 1) open else null,
+                                modifier = Modifier.testTag("automation-account-pill"),
                             )
                         },
-                        modifier = Modifier.testTag("automation-account-pill"),
                     )
                 }
             }
@@ -528,22 +564,35 @@ private fun AutomationTimeRow(time: String, onChange: (String) -> Unit) {
 
 // One "Any"-defaulted single-select filter row: the empty value is the
 // no-filter state and stays re-pickable as the first option.
+//
+// [options] arrive as picker ROWS rather than bare names, so every filter
+// hands over the rows its subject already has — a board's glyph in its colour,
+// a label's dot, a status's resolved glyph. A filter sheet is no place to
+// start drawing any of them as a bare label (EXP-1021).
 @Composable
 private fun AutomationFilterPicker(
     label: String,
     anyLabel: String,
-    options: List<StartFilterOption>,
+    options: List<PickerItem<String>>,
     selected: String,
     onSelect: (String) -> Unit,
 ) {
-    PickerRow(
-        label = label,
-        value = options.firstOrNull { it.id == selected }?.name ?: anyLabel,
-        options = listOf("") + options.map { it.id },
-        selected = selected,
-        optionLabel = { id ->
-            if (id.isEmpty()) anyLabel else options.firstOrNull { it.id == id }?.name ?: id
+    // EXP-1021: one sheet language for every filter — the shared [Picker],
+    // with the "Any X" reset as its first ROW (a filter's cleared state is a
+    // choice, not a missing one).
+    val rows = listOf(PickerItem(value = "", label = anyLabel)) + options
+    Picker(
+        items = rows,
+        mode = PickerMode.Single,
+        value = setOf(selected),
+        onChange = { picked -> picked.firstOrNull()?.let(onSelect) },
+        title = label,
+        trigger = { open ->
+            PickerValueRow(
+                label = label,
+                value = options.firstOrNull { it.value == selected }?.label ?: anyLabel,
+                onClick = open,
+            )
         },
-        onSelect = onSelect,
     )
 }

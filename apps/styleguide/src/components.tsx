@@ -1,8 +1,13 @@
 /**
- * The Components group (EXP-698) — the canonical glass control set: the REAL
- * `@exp/ui` component wherever one owns the form (an ISLAND, EXP-887), and
- * HTML/CSS driven by `@exp/design-tokens` for the compositions that have no
- * single owner.
+ * The canonical glass control set (EXP-698) — the REAL `@exp/ui` component
+ * wherever one owns the form (an ISLAND, EXP-887), and HTML/CSS driven by
+ * `@exp/design-tokens` for the compositions that have no single owner.
+ *
+ * EXP-1019 split these entries across the page's four SECTIONS: a spec's
+ * `kind` is now only the nav BAND inside one, and `sections/page.ts` derives
+ * the section (a Style kind → Style, an id in `SPECIAL_ENTRY_IDS` → a
+ * composition, else a general control) and splices in the registered entries
+ * of `entries/index.ts`.
  *
  * Screens are screenshots because a screen is a composition nobody can
  * reproduce from a spec. A CONTROL is the opposite: it is a handful of numbers,
@@ -204,11 +209,12 @@ export interface ComponentStatus {
 }
 
 /**
- * EXP-941: the page has THREE modes, and `kind` is the sub-group INSIDE one.
- * Views are the photographed catalog; Components are the controls; Style is
- * the values every control is built from. A spec carries no mode field —
- * `modeOf` derives it from the kind, so a mis-sorted entry is impossible
- * rather than merely gated.
+ * `kind` is the nav BAND a spec draws in, not where it lives: EXP-1019 turned
+ * the page's three modes into the four sections of `sections/sections.json`,
+ * and a spec's section is DERIVED from its id and its kind
+ * (`sections/page.ts` `sectionOfSpec`) so a mis-sorted entry stays impossible
+ * rather than merely gated. `BAND_ORDER` there is what orders these inside a
+ * section.
  */
 export type ComponentKind =
   | `Inputs & pickers`
@@ -222,36 +228,7 @@ export type ComponentKind =
   | `Motion`
   | `Icons`
 
-export type Mode = `views` | `components` | `style`
-
-export interface ModeInfo {
-  id: Mode
-  label: string
-  blurb: string
-}
-
-export const MODES: Record<Mode, ModeInfo> = {
-  views: {
-    id: `views`,
-    label: `Views`,
-    blurb: `Every screen in the catalog, photographed on all five platforms.`,
-  },
-  components: {
-    id: `components`,
-    label: `Components`,
-    blurb: `The glass control set, rendered live from @exp/ui and the design tokens — not photographed.`,
-  },
-  style: {
-    id: `style`,
-    label: `Style`,
-    blurb: `The values the controls are made of: colour, shape, type, motion and the icon registry.`,
-  },
-}
-
-/** Kept as the name the renderer and the tests already use for the mode. */
-export const COMPONENTS_GROUP = MODES.components
-
-/** The kinds that live under Style; every other kind is a Component. */
+/** The kinds that live under Style; every other kind is a component band. */
 export const STYLE_KINDS: readonly ComponentKind[] = [
   `Colour`,
   `Shape & size`,
@@ -259,16 +236,6 @@ export const STYLE_KINDS: readonly ComponentKind[] = [
   `Motion`,
   `Icons`,
 ]
-
-/** Nav order within a mode. The union of both lists IS `ComponentKind`. */
-export const KIND_ORDER: Record<Exclude<Mode, `views`>, readonly ComponentKind[]> = {
-  components: [`Inputs & pickers`, `Buttons & chips`, `Lists & rows`, `Surfaces`, `Feedback`],
-  style: STYLE_KINDS,
-}
-
-export function modeOf(spec: { kind: ComponentKind }): Exclude<Mode, `views`> {
-  return STYLE_KINDS.includes(spec.kind) ? `style` : `components`
-}
 
 interface ComponentSpecBase {
   id: string
@@ -3185,7 +3152,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `combobox`,
     title: `Combobox`,
     kind: `Inputs & pickers`,
-    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. EXP-958 folded the last two closed single-selects onto it — the status and priority menu, whose desktop arm marked no row at all, and the settings picker row, which was a Select on desktop and a hand-rolled sheet on the phone — as searchable={false} pickers with two more triggers: row (the glass form ladder's picker row, label leading, value trailing) and inline (one word of the muted sentence under the composer, which collapses to plain text with a single option). The demo shows the four triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all.`,
+    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. EXP-958 folded the last two closed single-selects onto it — the status and priority menu, whose desktop arm marked no row at all, and the settings picker row, which was a Select on desktop and a hand-rolled sheet on the phone — as searchable={false} pickers with two more triggers: row (the glass form ladder's picker row, label leading, value trailing) and inline (one word of the muted sentence under the composer, which collapses to plain text with a single option). The demo shows the four triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all. EXP-1021 added selectionStyle: the circle pair above is the glyph arm, still what every Combobox call site draws, while the Picker primitive built on these surfaces passes highlight and marks a multi pick by the row's own wash. The four triggers moved to picker/picker-trigger.tsx so both arms draw ONE set.`,
     status: {
       web: ok(
         `Combobox / ComboboxList / ComboboxMenuItems`,
@@ -3193,19 +3160,19 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `PickerOption is the row shape; ComboboxList the body without the popover; ComboboxMenuItems the rows inside a Radix menu`
       ),
       desktop: ok(
-        `pickers::searchable_picker`,
-        `apps/desktop/crates/ui/src/pickers.rs`,
-        `EXP-963: PickerOption + PickerSelection Single/Multi; the label and board popovers wrap it`
+        `picker::Picker`,
+        `apps/desktop/crates/ui/src/picker/mod.rs`,
+        `EXP-1021 retired searchable_picker; the primitive owns its query + cursor, so a host holds no picker entities`
       ),
       ios: leftover(
         `GlassPickerSheet`,
         `apps/ios/ExpUI/Sources/GlassSheet.swift`,
-        `a sheet per subject over GlassSheetRow; the selection glyphs agree, the generic picker does not exist`
+        `EXP-1021 built the generic picker (GlassPicker, its own entry); this keeps the picks outside the ten typed subjects`
       ),
       android: leftover(
         `GlassSheetRow`,
         `${ANDROID_COMPONENTS}/GlassSheet.kt`,
-        `only the ROW is shared — every picker sheet re-assembles sheet + search field + rows by hand`
+        `EXP-1021 built the generic picker (Picker, its own entry); this row is what the sheets outside the ten assemble`
       ),
     },
     island: () => (

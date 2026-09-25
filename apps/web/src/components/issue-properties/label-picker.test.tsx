@@ -1,7 +1,7 @@
-// EXP-941: the label picker is the shared `Combobox` with two slots — the
-// "Create label" row is its `footer` and the create form its `panel`, which
-// REPLACES the search field and the list. All the create state stayed here,
-// so this pins the two edges the swap could have dropped.
+// EXP-941/EXP-1021: the label picker is the shared `LabelPicker` with two
+// slots — the "Create label" row is its `footer` and the create form its
+// `panel`, which REPLACES the search field and the list. All the create state
+// stayed here, so this pins the two edges the swap could have dropped.
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Label } from "@/db/schema"
@@ -51,10 +51,10 @@ describe(`LabelPicker`, () => {
   it(`toggles ONE label per pick and stays open`, () => {
     open([`label-1`])
     expect(rows()).toHaveLength(2)
-    // Multi select = the natives' leading circle pair, never a checkbox.
-    expect(
-      document.querySelectorAll(`[data-selected-glyph="selected"]`)
-    ).toHaveLength(1)
+    // EXP-1021: a multi pick reads as the ROW's own highlight — no leading
+    // circle pair, no checkbox, nothing in the gutter.
+    expect(document.querySelectorAll(`[data-picked="true"]`)).toHaveLength(1)
+    expect(document.querySelectorAll(`[data-selected-glyph]`)).toHaveLength(0)
 
     fireEvent.click(rows()[1]!)
     expect(onToggle).toHaveBeenCalledWith(`label-2`)

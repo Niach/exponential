@@ -400,6 +400,60 @@ export const componentStyles = `
 }
 .cmp-app-shell > .header .title { font-size: 13px; font-weight: 500; }
 
+/* ----------------------------------------------------------- session tree */
+/* EXP-996: the sessions list as a TREE — a group row over the runs of one
+   workflow or one PR stack, children indented under their parent. The row
+   rhythm is the app's compact list row (32px, 14px of indent per level, the
+   x4 TREE_INDENT), so the specimen and the product read alike. */
+.cmp-session-tree { display: flex; flex-direction: column; width: 420px; max-width: 100%; }
+.cmp-session-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--r-md);
+  font-size: 13px;
+}
+/* One nesting level: the row's own 8px plus TREE_INDENT. */
+.cmp-session-tree-row[data-depth="1"] { padding-left: 22px; }
+/* A group is structure, not work: it wears the row fill, never a state dot. */
+.cmp-session-tree-group { background: var(--row); }
+.cmp-session-tree-icon { display: flex; flex: none; color: var(--muted-fg); }
+.cmp-session-tree-icon .glyph { width: 14px; height: 14px; }
+.cmp-session-tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+/* Only a WORKFLOW group's name leads anywhere; a stack has no page. */
+.cmp-session-tree-link { text-decoration: underline; text-underline-offset: 2px; }
+.cmp-session-tree-count {
+  flex: none;
+  margin-left: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted-fg);
+}
+.cmp-session-tree-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted-fg);
+}
+.cmp-session-tree-dot[data-live] { background: var(--ok); }
+.cmp-session-tree-id {
+  flex: none;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted-fg);
+}
+.cmp-session-tree-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ------------------------------------------------------------ session bar */
 /* The bottom strip of coding tabs (EXP-769): rich tabs, then the Chat and add
    tools right after the last one. Since EXP-771 it hangs BELOW the card on the
@@ -764,6 +818,40 @@ export const componentStyles = `
 .cmp-dialog .footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .cmp-dialog .footer .cmp-pill.borderless { background: transparent; border-color: transparent; }
 .cmp-dialog .footer .cmp-pill.borderless:hover { background: var(--active); }
+
+/* ------------------------------------------------------------ the launcher */
+/* EXP-1019 — the start-coding dialog. The frame is the "dialog" control and
+   the card is "composer"; what is SPECIAL here is the order, which is the
+   whole design: the SUBJECT leads as a headline (the contract's verb, then
+   the subject chips), and the field under it has dropped to the secondary
+   half — "Additional instructions (optional)…" — because the thing that will
+   run is already picked. The tool row and the round submit ride the card, the
+   muted options line hangs under it. Drawn by hand: no one component owns
+   this arrangement, and the two it is made of are documented on their own. */
+.cmp-launch { display: grid; gap: 8px; }
+.cmp-launch .caption { padding: 0 4px; font-size: 12px; color: var(--fg-50); }
+.cmp-launch .header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 4px; }
+.cmp-launch .title { font-size: 18px; line-height: 22px; font-weight: 600; }
+.cmp-launch .card {
+  border-radius: var(--r-xl);
+  border: 1px solid var(--stroke);
+  background: var(--card);
+}
+.cmp-launch .field { padding: 12px 12px 4px; font-size: 14px; line-height: 20px; color: var(--fg-50); }
+.cmp-launch .tool-row { display: flex; align-items: center; gap: 2px; padding: 4px 8px 8px; }
+/* The ONE circle on the card is the send, and it takes the accent glyph. */
+.cmp-launch .tool-row .cmp-icon-button { margin-left: auto; color: var(--primary); }
+.cmp-launch .footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--muted-fg);
+}
+.cmp-launch .footer .value { color: var(--fg-85); }
+.cmp-launch .footer .cmp-switch { flex: none; }
 
 /* ------------------------------------------------------------------ type */
 /* The type scale as SPECIMENS, set in the page's own font: Inter is not loaded

@@ -15,9 +15,9 @@ import SwiftUI
 // included: a sleeping box still owns the binding and fires the missed
 // schedule when it comes back), and there are no toggles (an automated run
 // takes the machine's own). EXP-995: its first row is THE account picker
-// (`AccountPickerMenu`, brand mark + email over the bound machine's logins,
-// the agent riding the pick) where the launch variant draws the agent
-// capsule — the caller hands it `accountOptions`. Model/Effort speak the
+// (EXP-1021's shared `AccountPicker`: brand mark + email + limit bars over the
+// bound machine's logins, the agent riding the pick) where the launch variant
+// draws the agent capsule — the caller hands it `accountOptions`. Model/Effort speak the
 // launch "CLI default" sentinel on both — blank is what stores NULL on the
 // row and lets the machine decide.
 //
@@ -28,7 +28,8 @@ import SwiftUI
 //
 // EXP-694 (S3/S4): everything below the device picker is ONE grouped card —
 // the agent strip is its first row (embedded, no capsule of its own), then
-// Model + Effort, then the toggles the caller bound.
+// Model + Effort, then the toggles the caller bound, and last whatever the
+// caller hangs on `trailing` (EXP-1020).
 struct LaunchOptionsSection: View {
     enum Variant {
         case launch
@@ -75,6 +76,14 @@ struct LaunchOptionsSection: View {
     /// A sentence under the card (the device variant's offline notice). The
     /// resume note, when there is one, sits above it.
     var footerNote: String? = nil
+    /// EXP-1020: extra row(s) the caller hangs on the END of the card, after
+    /// the toggles — the device sheet's "Workflow settings" sub-shell row, so
+    /// it reads as the last entry of the agent-defaults card rather than a
+    /// second card below it. Mirrors the IDE's `AgentDefaultsGroup::trailing`.
+    /// Erased instead of a `Trailing: View` generic on purpose: Swift has no
+    /// default generic argument, so a generic would force every other call
+    /// site to spell the empty case.
+    var trailing: AnyView? = nil
 
     var body: some View {
         Group {
@@ -111,13 +120,24 @@ struct LaunchOptionsSection: View {
             .listRowBackground(glassFormRowFill)
         } else if showsDevicePicker {
             Section {
-                GlassPickerRow(
-                    deviceTitle,
-                    selection: $deviceId,
-                    options: devices.map(\.deviceId),
-                    label: { id in
-                        devices.first { $0.deviceId == id }
-                            .map(LaunchVocabulary.deviceCaption) ?? id
+                // EXP-1021: the shared `DevicePicker`; the row is its trigger.
+                DevicePicker(
+                    devices: devices.map {
+                        DevicePickerDevice(
+                            id: $0.deviceId, name: LaunchVocabulary.deviceCaption($0)
+                        )
+                    },
+                    value: deviceId,
+                    onChange: { deviceId = $0 },
+                    // The sheet says what the ROW says — an automation's
+                    // "Runs on" must not open a sheet headed "Device".
+                    title: deviceTitle,
+                    trigger: {
+                        GlassPickerRowLabel(
+                            deviceTitle,
+                            value: devices.first { $0.deviceId == deviceId }
+                                .map(LaunchVocabulary.deviceCaption) ?? deviceId
+                        )
                     }
                 )
             }
@@ -126,6 +146,12 @@ struct LaunchOptionsSection: View {
     }
 
     // MARK: - Agent / model / effort
+
+    /// What the account row NAMES: the caller's pick, else the first option
+    /// (the machine's default) — the row always says something.
+    private var currentAccount: AccountOption? {
+        selectedAccount ?? accountOptions?.first
+    }
 
     /// A binding offers "CLI default" for EVERY agent — a blank pin stores
     /// NULL on the row — where a run only offers it where the CLI has one
@@ -166,19 +192,34 @@ struct LaunchOptionsSection: View {
     private var optionsSection: some View {
         Section {
             if let accountOptions, let onAccountSelect, !accountOptions.isEmpty {
-                // EXP-995: the SHARED account picker leads the card — the
-                // same row the device sheet's "Default account" wears.
-                HStack(spacing: 8) {
-                    Text("Account")
-                        .foregroundStyle(.white.opacity(TextOpacity.primary))
-                    Spacer(minLength: 8)
-                    AccountPickerMenu(
-                        options: accountOptions,
-                        selection: selectedAccount,
-                        mark: { AgentBrandMark.image($0) },
-                        onSelect: onAccountSelect
-                    )
-                }
+                // EXP-995/EXP-1021: the SHARED, TYPED account picker leads the
+                // card — the one sheet of plain rows, each the brand mark +
+                // the login's email over its EXP-992 bars. The whole row is
+                // its trigger, like every other picker row here; a lone login
+                // draws the chevron-less label and never opens (the picker
+                // disables itself).
+                AccountPicker(
+                    options: accountOptions,
+                    value: currentAccount?.key,
+                    onChange: { key in
+                        guard let picked = accountOptions.first(where: { $0.key == key })
+                        else { return }
+                        onAccountSelect(picked)
+                    },
+                    mark: { AgentBrandMark.image($0) },
+                    trigger: {
+                        HStack(spacing: 8) {
+                            Text("Account")
+                                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                            Spacer(minLength: 8)
+                            AccountPickerTriggerLabel(
+                                option: currentAccount,
+                                mark: currentAccount.flatMap { AgentBrandMark.image($0.agent) },
+                                chevron: accountOptions.count > 1
+                            )
+                        }
+                    }
+                )
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("automation-account-row")
             } else if availableAgents.count > 1 {
@@ -239,6 +280,10 @@ struct LaunchOptionsSection: View {
             if let planMode, LaunchVocabulary.supportsPlanMode(agent),
                resumeRow?.active != true {
                 Toggle("Plan mode", isOn: planMode)
+            }
+            // The caller's own last row(s), inside this card's divider run.
+            if let trailing {
+                trailing
             }
         } footer: {
             optionsFooter

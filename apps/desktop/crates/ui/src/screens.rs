@@ -94,6 +94,11 @@ pub(crate) fn screens_for_window_id(
 /// active (web does the same off `?action=`). `None` in a window with no
 /// screens panel, and on every other screen.
 pub(crate) fn chat_action_id(window: &Window, cx: &App) -> Option<String> {
+    // EXP-1037: an action's ▶ opens the composer in a DIALOG now — while one
+    // is up it owns the answer, whichever window it was opened from.
+    if let Some(id) = crate::chat_screen::dialog_action_id(cx) {
+        return Some(id);
+    }
     let panel = screens_for_window(window, cx)?;
     let chat = panel.read(cx).chat.clone();
     let id = chat.read(cx).active_action_id()?;

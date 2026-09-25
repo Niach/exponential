@@ -67,6 +67,14 @@ interface Contract {
     toolOutputMaxBytes: number
     liveToolOutputTailLines: number
   }
+  composerUi: {
+    runHeadline: string
+    implementHeadline: string
+    chatHeadline: string
+    chatPlaceholder: string
+    instructionsPlaceholder: string
+    dialogTitle: string
+  }
   diffUi: {
     filterPlaceholder: string
     changedFilesTitle: string
@@ -106,6 +114,21 @@ interface Contract {
     reviewNodeId: string
   }
   workflow: { maxParallelDefault: number; maxIssues: number; maxReviewRounds: number }
+  // EXP-1029: the two-model workflow launch (cheap `model`, capable
+  // `strongModel`) per agent, and a device's agent defaults.
+  workflowLaunch: {
+    agents: string[]
+    claudeModel: string
+    claudeStrongModel: string
+    codexModel: string
+    codexStrongModel: string
+  }
+  deviceAgentDefaults: {
+    model: string
+    subagentModel: string
+    workflowModel: string
+    workflowStrongModel: string
+  }
   actionInputs: { max: number; maxTextLength: number }
   startPrompt: { maxLength: number; maxImages: number }
   actionTrigger: {
@@ -230,6 +253,27 @@ const rustDiffUi = [
   ...diffUiStrings.map(([k, v]) => `pub const DIFF_UI_${screaming(k)}: &str = "${v}";`),
   ...diffUiInts.map(([k, v]) => `pub const DIFF_UI_${screaming(k)}: usize = ${v};`),
 ].join("\n")
+
+// EXP-1019: the launcher's copy — the verb in front of the subject chips and
+// what the field asks for once the subject leads. One wording ×4.
+const composerUi = contract.composerUi
+const composerUiStrings: [string, string][] = [
+  ["runHeadline", composerUi.runHeadline],
+  ["implementHeadline", composerUi.implementHeadline],
+  ["chatHeadline", composerUi.chatHeadline],
+  ["chatPlaceholder", composerUi.chatPlaceholder],
+  ["instructionsPlaceholder", composerUi.instructionsPlaceholder],
+  ["dialogTitle", composerUi.dialogTitle],
+]
+const swiftComposerUi = composerUiStrings
+  .map(([k, v]) => `    public static let composerUi${capFirst(k)}: String = "${v}"`)
+  .join("\n")
+const kotlinComposerUi = composerUiStrings
+  .map(([k, v]) => `    const val composerUi${capFirst(k)}: String = "${v}"`)
+  .join("\n")
+const rustComposerUi = composerUiStrings
+  .map(([k, v]) => `pub const COMPOSER_UI_${screaming(k)}: &str = "${v}";`)
+  .join("\n")
 
 // The 7 locked builtin issue statuses (EXP-314) — emitted as parallel arrays
 // (keys/categories/names/colors/sortOrders) so every client can construct its
@@ -487,6 +531,15 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
     public static let workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
     public static let workflowMaxIssues: Int = ${contract.workflow.maxIssues}
+${swiftStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
+    public static let workflowLaunchClaudeModel: String = "${contract.workflowLaunch.claudeModel}"
+    public static let workflowLaunchClaudeStrongModel: String = "${contract.workflowLaunch.claudeStrongModel}"
+    public static let workflowLaunchCodexModel: String = "${contract.workflowLaunch.codexModel}"
+    public static let workflowLaunchCodexStrongModel: String = "${contract.workflowLaunch.codexStrongModel}"
+    public static let deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
+    public static let deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
+    public static let deviceAgentDefaultsWorkflowModel: String = "${contract.deviceAgentDefaults.workflowModel}"
+    public static let deviceAgentDefaultsWorkflowStrongModel: String = "${contract.deviceAgentDefaults.workflowStrongModel}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
@@ -507,6 +560,7 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
     public static let steerFeedLiveToolOutputTailLines: Int = ${steerFeed.liveToolOutputTailLines}
 ${swiftDiffUi}
+${swiftComposerUi}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
@@ -635,6 +689,15 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
     const val workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
     const val workflowMaxIssues: Int = ${contract.workflow.maxIssues}
+${kotlinStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
+    const val workflowLaunchClaudeModel: String = "${contract.workflowLaunch.claudeModel}"
+    const val workflowLaunchClaudeStrongModel: String = "${contract.workflowLaunch.claudeStrongModel}"
+    const val workflowLaunchCodexModel: String = "${contract.workflowLaunch.codexModel}"
+    const val workflowLaunchCodexStrongModel: String = "${contract.workflowLaunch.codexStrongModel}"
+    const val deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
+    const val deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
+    const val deviceAgentDefaultsWorkflowModel: String = "${contract.deviceAgentDefaults.workflowModel}"
+    const val deviceAgentDefaultsWorkflowStrongModel: String = "${contract.deviceAgentDefaults.workflowStrongModel}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
@@ -655,6 +718,7 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
     const val steerFeedLiveToolOutputTailLines: Int = ${steerFeed.liveToolOutputTailLines}
 ${kotlinDiffUi}
+${kotlinComposerUi}
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
@@ -788,6 +852,15 @@ pub const BUILTIN_REVIEW_NODE_ID: &str = "${contract.builtinAction.reviewNodeId}
 pub const WORKFLOW_MAX_REVIEW_ROUNDS: usize = ${contract.workflow.maxReviewRounds};
 pub const WORKFLOW_MAX_PARALLEL_DEFAULT: usize = ${contract.workflow.maxParallelDefault};
 pub const WORKFLOW_MAX_ISSUES: usize = ${contract.workflow.maxIssues};
+${rustStrSlice("workflowLaunchAgents", contract.workflowLaunch.agents)}
+pub const WORKFLOW_LAUNCH_CLAUDE_MODEL: &str = "${contract.workflowLaunch.claudeModel}";
+pub const WORKFLOW_LAUNCH_CLAUDE_STRONG_MODEL: &str = "${contract.workflowLaunch.claudeStrongModel}";
+pub const WORKFLOW_LAUNCH_CODEX_MODEL: &str = "${contract.workflowLaunch.codexModel}";
+pub const WORKFLOW_LAUNCH_CODEX_STRONG_MODEL: &str = "${contract.workflowLaunch.codexStrongModel}";
+pub const DEVICE_AGENT_DEFAULTS_MODEL: &str = "${contract.deviceAgentDefaults.model}";
+pub const DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL: &str = "${contract.deviceAgentDefaults.subagentModel}";
+pub const DEVICE_AGENT_DEFAULTS_WORKFLOW_MODEL: &str = "${contract.deviceAgentDefaults.workflowModel}";
+pub const DEVICE_AGENT_DEFAULTS_WORKFLOW_STRONG_MODEL: &str = "${contract.deviceAgentDefaults.workflowStrongModel}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
@@ -808,6 +881,7 @@ pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = ${steerFeed.toolOutputMaxLin
 pub const STEER_FEED_TOOL_OUTPUT_MAX_BYTES: usize = ${steerFeed.toolOutputMaxBytes};
 pub const STEER_FEED_LIVE_TOOL_OUTPUT_TAIL_LINES: usize = ${steerFeed.liveToolOutputTailLines};
 ${rustDiffUi}
+${rustComposerUi}
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}

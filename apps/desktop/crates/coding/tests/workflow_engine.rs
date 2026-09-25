@@ -26,7 +26,9 @@ const FIXTURES: [(&str, &str); 4] = [
         include_str!("fixtures/workflows/speculative.json"),
     ),
     // EXP-984 — proposed nodes (absent from the run), the agent review gate
-    // with its adversarial model swap and its findings, and the budgets.
+    // with its findings and budgets, and (EXP-1029) the launch table: every
+    // review on the STRONG model, an absent or partial launch filled from the
+    // agent's contract defaults and the legacy pins folded in.
     ("review.json", include_str!("fixtures/workflows/review.json")),
 ];
 

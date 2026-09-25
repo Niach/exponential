@@ -24,7 +24,6 @@ public struct IconPicker: View {
     let allowsNone: Bool
     /// Tints the picked glyph (the board color) for a live preview.
     let tint: Color?
-    @State private var isPresented = false
 
     public init(
         selection: Binding<String>,
@@ -38,48 +37,72 @@ public struct IconPicker: View {
         self.tint = tint
     }
 
+    // EXP-1021 re-homed this onto `GlassPicker`: the trigger and the grid are
+    // unchanged, but the SHEET is now the shared primitive's, so the icon
+    // picker cannot drift from the other nine. A 96-glyph grid is not a row
+    // list, so it rides as the primitive's `panel` — the one caller that has
+    // one.
     public var body: some View {
-        Button {
-            isPresented = true
-        } label: {
-            Group {
-                if selection.isEmpty {
-                    AppIcon(AppIcons.uiIconPlaceholder, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                } else {
-                    AppIcon(selection, size: AppIcon.Size.medium)
-                        .foregroundStyle(tint ?? .white)
-                }
-            }
-            .frame(width: 36, height: 36)
-            .background(GlassTokens.fillCard)
-            .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-                    .strokeBorder(
-                        GlassTokens.strokeStrong,
-                        style: StrokeStyle(lineWidth: 1, dash: selection.isEmpty ? [3, 3] : [])
+        GlassPicker(
+            items: [PickerItem<String>](),
+            mode: .single,
+            value: [selection],
+            onChange: { _ in },
+            title: "Icon",
+            panel: {
+                AnyView(
+                    IconPickerPanel(
+                        selection: $selection, icons: icons, allowsNone: allowsNone
                     )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(selection.isEmpty ? "Pick an icon" : "Icon: \(selection)")
-        .sheet(isPresented: $isPresented) {
-            GlassSheetChrome(title: "Icon") {
-                IconSwatchGrid(
-                    selection: Binding(
-                        get: { selection },
-                        set: { next in
-                            selection = next
-                            isPresented = false
-                        }
-                    ),
-                    icons: icons,
-                    allowsNone: allowsNone
                 )
-                .padding(16)
+            },
+            trigger: {
+                Group {
+                    if selection.isEmpty {
+                        AppIcon(AppIcons.uiIconPlaceholder, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    } else {
+                        AppIcon(selection, size: AppIcon.Size.medium)
+                            .foregroundStyle(tint ?? .white)
+                    }
+                }
+                .frame(width: 36, height: 36)
+                .background(GlassTokens.fillCard)
+                .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
+                .overlay(
+                    RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                        .strokeBorder(
+                            GlassTokens.strokeStrong,
+                            style: StrokeStyle(lineWidth: 1, dash: selection.isEmpty ? [3, 3] : [])
+                        )
+                )
+                .accessibilityLabel(selection.isEmpty ? "Pick an icon" : "Icon: \(selection)")
             }
-            .preferredColorScheme(.dark)
-        }
+        )
+    }
+}
+
+/// The grid inside the picker's sheet. Its own view so it can read the sheet's
+/// `dismiss` — a pick closes, exactly like a row pick in `.single` mode does.
+private struct IconPickerPanel: View {
+    @Binding var selection: String
+    let icons: [String]
+    let allowsNone: Bool
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        IconSwatchGrid(
+            selection: Binding(
+                get: { selection },
+                set: { next in
+                    selection = next
+                    dismiss()
+                }
+            ),
+            icons: icons,
+            allowsNone: allowsNone
+        )
+        .padding(16)
     }
 }

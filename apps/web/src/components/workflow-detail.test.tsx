@@ -10,18 +10,17 @@ import {
   CONTRACT_PUBLISHED_LABEL,
   DELETE_WORKFLOW_LABEL,
   DISMISS_NODE_LABEL,
+  MERGE_FINAL_PR_CONFIRM,
+  MERGE_FINAL_PR_LABEL,
   MERGE_TRAIN_EMPTY,
   METRICS_TITLE,
+  NODE_MODEL_LABEL,
+  NODE_UNSYNCED_TITLE,
   PAUSE_WORKFLOW_LABEL,
   PLAN_WORKFLOW_LABEL,
   PROPOSED_NODE_NOTE,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
-  CONTRACT_MODEL_LABEL,
-  INTEGRATION_MODEL_LABEL,
-  REVIEW_MODEL_LABEL,
-  RISK_MODEL_LABEL,
-  SAME_AS_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
   RUNNING_NOW_LABEL,
@@ -51,6 +50,16 @@ import {
 // decided on rather than run, and the workflow
 // carries its counters.
 
+// Radix positions its popovers with ResizeObserver and cmdk scrolls the active
+// row into view; jsdom has neither.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= ResizeObserverStub as never
+Element.prototype.scrollIntoView ??= function scrollIntoView() {}
+
 const nodeRows = vi.hoisted(() => ({ rows: [] as unknown[] }))
 const nodeRuns = vi.hoisted(() => ({ byNodeId: new Map<string, unknown>() }))
 const graphState = vi.hoisted(() => ({
@@ -72,6 +81,7 @@ const runMutates = vi.hoisted(() => ({
   resolveNode: vi.fn().mockResolvedValue({ txId: 1 }),
   admitNode: vi.fn().mockResolvedValue({ txId: 1 }),
   updateNode: vi.fn().mockResolvedValue({ txId: 1 }),
+  mergeFinalPr: vi.fn().mockResolvedValue({ merged: true }),
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
@@ -135,11 +145,12 @@ vi.mock(`@/lib/trpc-client`, () => ({
       cancel: { mutate: runMutates.cancel },
       approveNode: { mutate: runMutates.approveNode },
       resolveNode: { mutate: runMutates.resolveNode },
+      mergeFinalPr: { mutate: runMutates.mergeFinalPr },
     },
   },
 }))
 
-import { WorkflowDetail, explicitPhasePins } from "@/components/workflow-detail"
+import { WorkflowDetail } from "@/components/workflow-detail"
 
 const issue = (
   id: string,
@@ -216,6 +227,25 @@ function mount(over: Partial<SyncedWorkflow> = {}) {
   return render(<WorkflowDetail workflow={workflow(over)} teamSlug="acme" />)
 }
 
+/** EXP-1014: the chip's ONE glyph slot — always drawn, empty when nothing
+ *  resolves into it (an unsynced issue). */
+function glyphSlot(id: string): HTMLElement | null {
+  return screen.queryByTestId(`workflow-node-${id}-glyph`)
+}
+
+/** The glass picker row a `Combobox triggerVariant="row"` draws, by its
+ *  leading label. */
+function pickerRow(label: string): HTMLElement {
+  const row = Array.from(
+    document.querySelectorAll(`[data-slot=glass-picker-row]`)
+  ).find((element) => element.textContent?.startsWith(label))
+  if (!row) throw new Error(`no picker row for ${label}`)
+  return row as HTMLElement
+}
+
+const commandRows = () =>
+  Array.from(document.querySelectorAll(`[data-slot=command-item]`))
+
 describe(`WorkflowDetail graph`, () => {
   it(`positions nodes from the synced wave and lane`, () => {
     nodeRows.rows = [
@@ -242,16 +272,33 @@ describe(`WorkflowDetail graph`, () => {
     expect(at(`n3`)).toEqual([`1`, `1`])
     // One edge per node pair, from the team's synced `blocks` rows.
     expect(screen.getAllByTestId(`workflow-graph-edge`)).toHaveLength(2)
-    // A draft's caption names the PLAN, not a state.
-    expect(
-      screen.getByTestId(`workflow-node-n1-caption`).textContent
-    ).toBe(`Contract`)
-    expect(
-      screen.getByTestId(`workflow-node-n3-caption`).textContent
-    ).toBe(`Leaf · high risk`)
+    // EXP-1033: a node is the app's ISSUE CHIP — mono identifier, the issue's
+    // title beside it — and a DRAFT says nothing else: no "Contract", no
+    // "Leaf · high risk" sub-subtitle under the box.
+    expect(screen.getByTestId(`workflow-node-n1-title`).textContent).toBe(`APP-1`)
+    expect(screen.getByTestId(`workflow-node-n1-name`).textContent).toBe(
+      `Issue APP-1`
+    )
+    expect(screen.getByTestId(`workflow-node-n1-caption`).textContent).toBe(``)
+    expect(screen.getByTestId(`workflow-node-n3-caption`).textContent).toBe(``)
+    expect(screen.getByTestId(`workflow-detail`).textContent).not.toContain(
+      `high risk`
+    )
   })
 
-  it(`draws a compound node as a stacked circle titled with its members`, () => {
+  // EXP-1033: the graph FILLS its column — it is scaled down to fit and never
+  // hides half of itself behind an inner scrollbar.
+  it(`scrolls nowhere: the graph has no inner scroller`, () => {
+    nodeRows.rows = [node(`n1`), node(`n2`, { wave: 1 })]
+    graphState.issues = [issue(`i-n1`, `APP-1`), issue(`i-n2`, `APP-2`)]
+    graphState.relations = []
+    mount()
+    const graph = screen.getByTestId(`workflow-graph`)
+    expect(graph.className).not.toContain(`overflow-auto`)
+    expect(graph.className).not.toContain(`overflow-x`)
+  })
+
+  it(`draws a compound node as a stacked chip titled with its members`, () => {
     nodeRows.rows = [node(`n1`, { memberIssueIds: [`i-a`, `i-b`, `i-c`] })]
     graphState.issues = [issue(`i-n1`, `APP-14`)]
     graphState.relations = []
@@ -262,8 +309,13 @@ describe(`WorkflowDetail graph`, () => {
     )
   })
 
+  // EXP-1014: an unsynced node reads the same ×4 — the first 8 characters of
+  // the issue id in the mono slot (`+n` for a compound one), the ONE line that
+  // says why there is no title, and an EMPTY glyph slot.
   it(`keeps a node whose issue has not synced, caption and all`, () => {
-    nodeRows.rows = [node(`n1`, { state: `ready` })]
+    nodeRows.rows = [
+      node(`n1`, { state: `ready`, issueId: `abcd1234-5e6f-4a7b-8c9d-0e1f2a3b4c5d` }),
+    ]
     graphState.issues = []
     graphState.relations = []
     mount({ status: `running` })
@@ -271,6 +323,66 @@ describe(`WorkflowDetail graph`, () => {
     expect(screen.getByTestId(`workflow-node-n1-caption`).textContent).toBe(
       `Ready`
     )
+    expect(screen.getByTestId(`workflow-node-n1-title`).textContent).toBe(
+      `abcd1234`
+    )
+    expect(screen.getByTestId(`workflow-node-n1-name`).textContent).toBe(
+      NODE_UNSYNCED_TITLE
+    )
+    // The slot is still drawn, and it is EMPTY: nothing resolves a status for
+    // an issue that has not arrived.
+    expect(glyphSlot(`n1`)!.childElementCount).toBe(0)
+  })
+
+  it(`titles an unsynced COMPOUND node with its member count`, () => {
+    nodeRows.rows = [
+      node(`n1`, {
+        issueId: `abcd1234-5e6f-4a7b-8c9d-0e1f2a3b4c5d`,
+        memberIssueIds: [`i-a`, `i-b`],
+      }),
+    ]
+    graphState.issues = []
+    graphState.relations = []
+    mount()
+    expect(screen.getByTestId(`workflow-node-n1-title`).textContent).toBe(
+      `abcd1234 +2`
+    )
+  })
+
+  // EXP-1014, the ONE glyph rule ×4: a live run shows the live dot, a started
+  // workflow's state shows its own glyph WHEN it has one, and everything else
+  // — a draft, or blocked / ready / proposed / skipped — shows the ISSUE's own
+  // status glyph, so an unstarted node reads like the same issue anywhere else.
+  it(`falls back to the issue's status glyph wherever the state has none`, () => {
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, state: `ready` }),
+      node(`n2`, { wave: 1, state: `landed` }),
+    ]
+    graphState.issues = [
+      issue(`i-n1`, `APP-1`, { status: `in_progress` }),
+      issue(`i-n2`, `APP-2`, { status: `in_progress` }),
+    ]
+    graphState.relations = []
+
+    // A draft has no states at all: both chips read as their issue.
+    const draft = mount()
+    for (const id of [`n1`, `n2`]) {
+      expect(glyphSlot(id)!.querySelector(`svg`)!.getAttribute(`class`)).toContain(
+        `text-yellow-500`
+      )
+    }
+    draft.unmount()
+
+    // Started: `landed` has a glyph of its own — painted in the node's tone —
+    // while `ready` still has none and stays the issue's status.
+    mount({ status: `running` })
+    expect(glyphSlot(`n1`)!.querySelector(`svg`)!.getAttribute(`class`)).toContain(
+      `text-yellow-500`
+    )
+    expect(
+      glyphSlot(`n2`)!.querySelector(`svg`)!.getAttribute(`class`)
+    ).not.toContain(`text-yellow-500`)
+    expect(glyphSlot(`n2`)!.className).toContain(`text-emerald-500`)
   })
 
   it(`spells out a blocking cycle and paints its edges red`, () => {
@@ -464,32 +576,71 @@ describe(`WorkflowDetail run actions`, () => {
     expect(screen.getByTestId(`workflow-delete`)).toBeTruthy()
   })
 
-  it(`freezes the configuration once the workflow left draft`, () => {
+  // EXP-1033: the settings panel is GONE. The screen configures nothing —
+  // every model is derived, the gate and the start rule are fixed — so the
+  // only pick left is the runner device, up in the header row and frozen the
+  // moment the workflow leaves draft.
+  it(`has no settings block at all, and freezes the runner device after draft`, () => {
     reset()
-    const rows = (): HTMLButtonElement[] => [
-      ...screen
-        .getByTestId(`workflow-how-it-runs`)
-        .querySelectorAll<HTMLButtonElement>(`[data-slot="glass-picker-row"]`),
-    ]
     const draft = mount(startable())
-    expect(rows().length).toBeGreaterThan(0)
-    expect(rows().every((row) => row.disabled)).toBe(false)
+    expect(screen.queryByTestId(`workflow-how-it-runs`)).toBeNull()
+    for (const gone of [
+      `Contract model`,
+      `Integration model`,
+      `High-risk model`,
+      `Review model`,
+      `Subagent model`,
+      `Max parallel`,
+      `Same as Model`,
+    ]) {
+      expect(screen.getByTestId(`workflow-detail`).textContent).not.toContain(gone)
+    }
+    const device = () =>
+      screen.getByTestId(`workflow-device`).querySelector<HTMLButtonElement>(
+        `button`
+      )
+    expect(device()?.disabled).toBe(false)
     draft.unmount()
+
     mount({ ...startable(), status: `running` })
-    expect(rows().every((row) => row.disabled)).toBe(true)
+    expect(device()?.disabled).toBe(true)
   })
 
-  // EXP-981 leftover: with no model picked the row used to render EMPTY for an
-  // agent that cannot launch blank.
-  it(`reads "Default" on the Model row when no model is picked`, () => {
+  // EXP-1021: the runner pick is the SHARED `DevicePicker` behind a
+  // `PickerTrigger`, not this screen's own combobox — the same primitive the
+  // composer and the automation editor open.
+  it(`draws the runner pick through the shared picker`, () => {
     reset()
-    mount()
-    const model = [
-      ...screen
-        .getByTestId(`workflow-how-it-runs`)
-        .querySelectorAll(`[data-slot="glass-picker-row"]`),
-    ].find((row) => row.textContent?.startsWith(`Model`))
-    expect(model?.textContent).toBe(`ModelDefault`)
+    mount(startable())
+    const host = screen.getByTestId(`workflow-device`)
+    expect(host.querySelector(`[data-slot="picker"]`)).toBeTruthy()
+    // The trigger is a `PickerTrigger` pill, so it is one button carrying the
+    // placeholder — no device is bound in this fixture.
+    const trigger = host.querySelector<HTMLButtonElement>(`button`)
+    expect(trigger?.className).toContain(`rounded-full`)
+    expect(trigger?.textContent).toContain(`Select a device`)
+  })
+
+  // `workflows.update` may still be called from here with a name and a device
+  // — never with a launch or a start rule.
+  it(`writes nothing but the name and the runner device`, async () => {
+    reset()
+    updateMutate.mockClear()
+    mount(startable())
+    const name = screen.getByTestId(`workflow-name`) as HTMLInputElement
+    fireEvent.focus(name)
+    fireEvent.change(name, { target: { value: `Renamed` } })
+    fireEvent.blur(name)
+    await vi.waitFor(() =>
+      expect(updateMutate).toHaveBeenCalledWith(
+        { id: `wf`, name: `Renamed` },
+        expect.anything()
+      )
+    )
+    for (const [input] of updateMutate.mock.calls) {
+      expect(Object.keys(input as object).sort()).not.toContain(`launch`)
+      expect(Object.keys(input as object).sort()).not.toContain(`startOn`)
+    }
   })
 })
 
@@ -651,10 +802,13 @@ describe(`WorkflowDetail running graph`, () => {
       finalPrUrl: `https://github.com/acme/app/pull/42`,
     })
     const card = screen.getByTestId(`workflow-final-pr`)
-    expect(card.textContent).toBe(`Final pull request#42 · Open`)
-    expect(card.getAttribute(`href`)).toBe(
-      `https://github.com/acme/app/pull/42`
+    // EXP-1033: the same chip as every node, plus the run's ONE human review.
+    expect(card.textContent).toBe(
+      `Final pull request#42 · Open${MERGE_FINAL_PR_LABEL}`
     )
+    expect(
+      screen.getByTestId(`workflow-final-pr-link`).getAttribute(`href`)
+    ).toBe(`https://github.com/acme/app/pull/42`)
     // It sits one wave past the last node, in lane 0.
     const box = screen.getByTestId(`workflow-node-final-pr`)
     expect([box.getAttribute(`data-wave`), box.getAttribute(`data-lane`)]).toEqual(
@@ -957,8 +1111,8 @@ describe(`WorkflowDetail node panel actions`, () => {
     })
     // Dashed while it is only a proposal.
     expect(
-      screen.getByTestId(`workflow-node-n1-circle`).className
-    ).toContain(`border-dashed`)
+      screen.getByTestId(`workflow-node-n1-card`).getAttribute(`data-proposed`)
+    ).toBe(`true`)
     expect(
       screen.getByTestId(`workflow-node-proposed-note`).textContent
     ).toBe(PROPOSED_NODE_NOTE)
@@ -1024,71 +1178,103 @@ describe(`WorkflowDetail node panel actions`, () => {
 
 })
 
-// EXP-984: what the workflow itself gained — the model reviews run on, and the
+// EXP-1033: the node panel's ONE model line, the final PR's merge, and the
 // counters the run accumulated.
-describe(`WorkflowDetail review model and metrics`, () => {
-  const rowLabelled = (label: string) =>
-    [
-      ...screen
-        .getByTestId(`workflow-how-it-runs`)
-        .querySelectorAll(`[data-slot="glass-picker-row"]`),
-    ].find((row) => row.textContent?.startsWith(label))
-
-  // EXP-1002: the phase rows read "Same as Model" while they are blank —
-  // an unpinned phase takes the workflow's Model, never the CLI default.
-  it(`pins a model per phase, blank = the workflow's own`, () => {
-    nodeRows.rows = []
-    graphState.issues = []
+describe(`WorkflowDetail node model, final merge and metrics`, () => {
+  // EXP-1033: nobody pins a model on this screen any more. The panel READS
+  // which of the launch's two models this node's run spawns on
+  // (`modelForNode`): the cheap one for a leaf, the strong one for a contract,
+  // an integration or any high-risk node.
+  it(`reads the node's model off the launch, and pins nothing`, () => {
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
     graphState.relations = []
-    const blank = mount(startable({ launch: { model: `opus` } }))
-    expect(rowLabelled(CONTRACT_MODEL_LABEL)?.textContent).toBe(
-      `${CONTRACT_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
-    )
-    expect(rowLabelled(INTEGRATION_MODEL_LABEL)?.textContent).toBe(
-      `${INTEGRATION_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
-    )
-    expect(rowLabelled(RISK_MODEL_LABEL)?.textContent).toBe(
-      `${RISK_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
-    )
-    blank.unmount()
+    const launch = { agent: `claude`, model: `sonnet`, strongModel: `opus` }
 
-    mount(
-      startable({
-        launch: {
-          model: `opus`,
-          contractModel: `fable`,
-          integrationModel: `sonnet`,
-          riskModel: `fable`,
-        },
-      })
+    nodeRows.rows = [node(`n1`, { kind: `leaf`, risk: `low` })]
+    const leaf = mount({ ...startable(), status: `running`, launch })
+    fireEvent.click(screen.getByTestId(`workflow-node-n1-card`))
+    expect(
+      screen.getByTestId(`workflow-node-row-${NODE_MODEL_LABEL}`).textContent
+    ).toBe(`${NODE_MODEL_LABEL}Sonnet`)
+    // Kind is a plain reading once the run owns the plan; RISK stays a PICK —
+    // the server takes it at any status and it is the one lever onto the
+    // strong model (EXP-1029).
+    expect(screen.getByTestId(`workflow-node-row-Kind`).textContent).toBe(
+      `KindLeaf`
     )
-    expect(rowLabelled(CONTRACT_MODEL_LABEL)?.textContent).toBe(
-      `${CONTRACT_MODEL_LABEL}Fable`
-    )
-    expect(rowLabelled(INTEGRATION_MODEL_LABEL)?.textContent).toBe(
-      `${INTEGRATION_MODEL_LABEL}Sonnet`
-    )
-    expect(rowLabelled(RISK_MODEL_LABEL)?.textContent).toBe(
-      `${RISK_MODEL_LABEL}Fable`
-    )
-    // The Model row above them is untouched by any of the pins.
-    expect(rowLabelled(`Model`)?.textContent).toBe(`ModelOpus`)
+    expect(screen.queryByTestId(`workflow-node-row-Risk`)).toBeNull()
+    expect(pickerRow(`Risk`).textContent).toContain(`Low`)
+    leaf.unmount()
+
+    nodeRows.rows = [node(`n1`, { kind: `leaf`, risk: `high` })]
+    mount({ ...startable(), status: `running`, launch })
+    fireEvent.click(screen.getByTestId(`workflow-node-n1-card`))
+    expect(
+      screen.getByTestId(`workflow-node-row-${NODE_MODEL_LABEL}`).textContent
+    ).toBe(`${NODE_MODEL_LABEL}Opus`)
   })
 
-  it(`always offers the review model: every workflow reviews`, () => {
-    nodeRows.rows = []
-    graphState.issues = []
+  // EXP-1029: risk is the ONE lever that moves a node onto the strong model,
+  // and `updateNode` asserts a draft for `kind`/`touches` ONLY — so the Risk
+  // pick stays live for the whole run, not just while the plan is a draft.
+  it(`re-picks a node's risk on a RUNNING workflow`, async () => {
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+    nodeRows.rows = [node(`n1`, { kind: `leaf`, risk: `low` })]
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
     graphState.relations = []
-    const blank = mount(startable())
-    expect(rowLabelled(REVIEW_MODEL_LABEL)?.textContent).toBe(
-      `${REVIEW_MODEL_LABEL}Default`
-    )
-    blank.unmount()
+    mount({ ...startable(), status: `running` })
+    fireEvent.click(screen.getByTestId(`workflow-node-n1-card`))
 
-    mount(startable({ launch: { reviewModel: `opus` } }))
-    expect(rowLabelled(REVIEW_MODEL_LABEL)?.textContent).toBe(
-      `${REVIEW_MODEL_LABEL}Opus`
+    fireEvent.click(pickerRow(`Risk`))
+    const high = commandRows().find((row) => row.textContent?.includes(`High`))
+    fireEvent.click(high!)
+    await vi.waitFor(() =>
+      expect(runMutates.updateNode).toHaveBeenCalledWith(
+        { workflowId: `wf`, issueId: `i-n1`, risk: `high` },
+        expect.anything()
+      )
     )
+  })
+
+  // EXP-1033: the one human review of the whole run, from the chip that IS
+  // the pull request — and only after the confirm.
+  it(`merges the final pull request after the confirm`, async () => {
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+    nodeRows.rows = [node(`n1`, { state: `landed` })]
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    graphState.relations = []
+    const open = mount({
+      ...startable(),
+      status: `running`,
+      finalPrNumber: 42,
+      finalPrState: `open`,
+      finalPrUrl: `https://github.com/acme/app/pull/42`,
+    })
+    fireEvent.click(screen.getByTestId(`workflow-final-pr-merge`))
+    expect(screen.getByText(MERGE_FINAL_PR_CONFIRM)).toBeTruthy()
+    expect(runMutates.mergeFinalPr).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId(`workflow-final-pr-merge-confirm`))
+    await vi.waitFor(() =>
+      expect(runMutates.mergeFinalPr).toHaveBeenCalledWith(
+        { id: `wf` },
+        expect.anything()
+      )
+    )
+    open.unmount()
+
+    // A merged (or not yet opened) pull request offers no button at all.
+    mount({
+      ...startable(),
+      status: `running`,
+      finalPrNumber: 42,
+      finalPrState: `merged`,
+      finalPrUrl: `https://github.com/acme/app/pull/42`,
+    })
+    expect(screen.getByTestId(`workflow-final-pr`).textContent).toBe(
+      `Final pull request#42 · Merged`
+    )
+    expect(screen.queryByTestId(`workflow-final-pr-merge`)).toBeNull()
   })
 
   it(`counts the run's metrics, and none of them on a draft`, () => {
@@ -1124,19 +1310,5 @@ describe(`WorkflowDetail review model and metrics`, () => {
     )
     // A counter with nothing to say draws no row.
     expect(screen.queryByTestId(`workflow-metric-Escalations`)).toBeNull()
-  })
-})
-
-// `workflows.update` KEEPS a phase pin whose key is absent (older clients
-// never send them), so the web names all three on every launch write.
-describe(`explicitPhasePins`, () => {
-  it(`sends every phase pin, null when unset, so clearing still clears`, () => {
-    expect(explicitPhasePins({ agent: `claude`, model: `opus`, riskModel: `fable` })).toEqual({
-      agent: `claude`,
-      model: `opus`,
-      contractModel: null,
-      integrationModel: null,
-      riskModel: `fable`,
-    })
   })
 })
