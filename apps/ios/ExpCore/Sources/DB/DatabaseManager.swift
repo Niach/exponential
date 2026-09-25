@@ -475,9 +475,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
-            // EXP-1082: a workflow's event log (the 25th shape,
-            // `workflow-events`) — also created by v55 for existing stores.
-            try Self.createWorkflowEventsTable(db)
+            // EXP-1082: `workflow_events` (the 25th shape) is created by v55,
+            // which OWNS the table like v47 owns `workflows` — a fresh store
+            // gets it there too.
         }
 
         // v2 (EXP-180 helpdesk follow-up): `notifications.team_id` rides along

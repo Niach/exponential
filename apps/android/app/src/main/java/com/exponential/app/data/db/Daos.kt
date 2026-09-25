@@ -400,7 +400,7 @@ interface WorkflowNodeDao {
 // EXP-1082: a workflow's event log, newest first.
 @Dao
 interface WorkflowEventDao {
-    @Query("SELECT * FROM workflow_events WHERE workflow_id = :workflowId ORDER BY at DESC")
+    @Query("SELECT * FROM workflow_events WHERE workflow_id = :workflowId ORDER BY at DESC, id DESC")
     fun observeByWorkflow(workflowId: String): Flow<List<WorkflowEventEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

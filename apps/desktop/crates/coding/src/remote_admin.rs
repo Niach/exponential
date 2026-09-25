@@ -50,7 +50,8 @@ pub struct AgentDefaultsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ultracode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan_mode: Option<bool>,    /// EXP-1082: `Settings.auto_rotate_accounts` — claude-only, so it is
+    pub plan_mode: Option<bool>,
+    /// EXP-1082: `Settings.auto_rotate_accounts` — claude-only, so it is
     /// OMITTED for every other agent and applied only from claude's entry.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_rotate_accounts: Option<bool>,
