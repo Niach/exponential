@@ -262,6 +262,13 @@
     "maxIssues": 50,
     "maxReviewRounds": 3
   },
+  "workflowLaunch": {
+    "agents": ["claude", "codex"],
+    "claudeModel": "opus",
+    "claudeStrongModel": "fable",
+    "codexModel": "gpt-5.6-sol",
+    "codexStrongModel": "gpt-5.6-luna"
+  },
   "codingSessionStatus": {
     "values": ["running", "in_review", "ended"]
   },
@@ -277,6 +284,12 @@
   },
   "device": {
     "onlineWindowSeconds": 90
+  },
+  "deviceAgentDefaults": {
+    "model": "fable",
+    "subagentModel": "",
+    "workflowModel": "opus",
+    "workflowStrongModel": "fable"
   },
   "team": {
     "agentPromptMaxBytes": 12288

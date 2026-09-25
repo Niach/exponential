@@ -32,6 +32,12 @@ pub struct WorkflowLaunch {
     /// The model every node's run spawns on, unless its PHASE overrides it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// EXP-1029: the STRONG model — contract, integration and `risk: high`
+    /// nodes, and every agent review (`coding::workflows::launch`). The
+    /// per-phase pins and `review_model` below are deprecated: they fold
+    /// into this one and EXP-1014 removes them. Carried, never edited here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strong_model: Option<String>,
     /// EXP-1002: the model `contract` nodes run on. Absent = `model`.
     #[serde(default)]
     pub contract_model: Option<String>,

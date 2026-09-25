@@ -71,6 +71,9 @@ export * from "./meter"
 export * from "./mobile-popover"
 export * from "./mobile-work-bar"
 export * from "./password-input"
+// EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021) —
+// the WHOLE directory, so a leaf never edits this file.
+export * from "./picker"
 export * from "./picker-option"
 export * from "./pill"
 export * from "./popover"
@@ -91,6 +94,8 @@ export * from "./sidebar"
 export * from "./skeleton"
 export * from "./status-glyph"
 export * from "./status-icons"
+// EXP-1029: sub-shell navigation for the settings shell (EXP-1020).
+export * from "./sub-shell"
 export * from "./switch"
 export * from "./tabs"
 export * from "./team-avatar"

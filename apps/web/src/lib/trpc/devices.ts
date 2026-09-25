@@ -180,6 +180,25 @@ function clampLaunchDefaults(
     }
     if (Object.keys(agents).length > 0) out.agents = agents
   }
+  // EXP-1029: the workflow model defaults (`DeviceWorkflowDefaults`). Both
+  // names come out of the closed model vocabularies (the default account's
+  // agent decides which; the clamp accepts either); an incomplete or unknown
+  // pair is dropped whole — a workflow is never seeded from half a pair.
+  if (input.workflow) {
+    const models: readonly string[] = [
+      ...contract.codingModel.values,
+      ...contract.codexModel.values,
+    ]
+    const { model, strongModel } = input.workflow
+    if (
+      typeof model === `string` &&
+      typeof strongModel === `string` &&
+      models.includes(model) &&
+      models.includes(strongModel)
+    ) {
+      out.workflow = { model, strongModel }
+    }
+  }
   return out
 }
 

@@ -102,6 +102,21 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
 /// EXP-773 dropped `startInTerminal`: the PTY coding path is gone. Decoding
 /// ignores unknown keys, so a row an older server still stamps it onto keeps
 /// parsing.
+/// EXP-1029: a device's WORKFLOW model defaults (`launch_defaults.workflow`)
+/// — the cheap `model` (leaves + subagents) and the `strongModel` (contract,
+/// integration and `risk: high` nodes, every agent review) new workflows are
+/// seeded from. Absent on a machine that predates them: readers fall back to
+/// `DomainContract.deviceAgentDefaultsWorkflowModel` / `…StrongModel`.
+public struct DeviceWorkflowDefaults: Decodable, Equatable, Sendable {
+    public let model: String?
+    public let strongModel: String?
+
+    public init(model: String? = nil, strongModel: String? = nil) {
+        self.model = model
+        self.strongModel = strongModel
+    }
+}
+
 public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// The machine's configured default agent. Clamped to what it actually
     /// runs by the reader — a signed-out default must not preselect.
@@ -113,19 +128,23 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// desktop, which is exactly the fallback ladder flatten already walks.
     public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaults]?
+    /// EXP-1029: the workflow model defaults; nil on an older machine.
+    public let workflow: DeviceWorkflowDefaults?
 
     public init(
         defaultAgent: String? = nil,
         defaultAccount: String? = nil,
-        agents: [String: AgentLaunchDefaults]? = nil
+        agents: [String: AgentLaunchDefaults]? = nil,
+        workflow: DeviceWorkflowDefaults? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.defaultAccount = defaultAccount
         self.agents = agents
+        self.workflow = workflow
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, defaultAccount, agents
+        case defaultAgent, defaultAccount, agents, workflow
     }
 
     /// Lenient like the rest of the device payload: a field of a shape this
@@ -136,6 +155,7 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
         defaultAgent = try? c.decodeIfPresent(String.self, forKey: .defaultAgent)
         defaultAccount = try? c.decodeIfPresent(String.self, forKey: .defaultAccount)
         agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
+        workflow = try? c.decodeIfPresent(DeviceWorkflowDefaults.self, forKey: .workflow)
     }
 }
 

@@ -106,6 +106,21 @@ interface Contract {
     reviewNodeId: string
   }
   workflow: { maxParallelDefault: number; maxIssues: number; maxReviewRounds: number }
+  // EXP-1029: the two-model workflow launch (cheap `model`, capable
+  // `strongModel`) per agent, and a device's agent defaults.
+  workflowLaunch: {
+    agents: string[]
+    claudeModel: string
+    claudeStrongModel: string
+    codexModel: string
+    codexStrongModel: string
+  }
+  deviceAgentDefaults: {
+    model: string
+    subagentModel: string
+    workflowModel: string
+    workflowStrongModel: string
+  }
   actionInputs: { max: number; maxTextLength: number }
   startPrompt: { maxLength: number; maxImages: number }
   actionTrigger: {
@@ -487,6 +502,15 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
     public static let workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
     public static let workflowMaxIssues: Int = ${contract.workflow.maxIssues}
+${swiftStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
+    public static let workflowLaunchClaudeModel: String = "${contract.workflowLaunch.claudeModel}"
+    public static let workflowLaunchClaudeStrongModel: String = "${contract.workflowLaunch.claudeStrongModel}"
+    public static let workflowLaunchCodexModel: String = "${contract.workflowLaunch.codexModel}"
+    public static let workflowLaunchCodexStrongModel: String = "${contract.workflowLaunch.codexStrongModel}"
+    public static let deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
+    public static let deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
+    public static let deviceAgentDefaultsWorkflowModel: String = "${contract.deviceAgentDefaults.workflowModel}"
+    public static let deviceAgentDefaultsWorkflowStrongModel: String = "${contract.deviceAgentDefaults.workflowStrongModel}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
@@ -635,6 +659,15 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
     const val workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
     const val workflowMaxIssues: Int = ${contract.workflow.maxIssues}
+${kotlinStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
+    const val workflowLaunchClaudeModel: String = "${contract.workflowLaunch.claudeModel}"
+    const val workflowLaunchClaudeStrongModel: String = "${contract.workflowLaunch.claudeStrongModel}"
+    const val workflowLaunchCodexModel: String = "${contract.workflowLaunch.codexModel}"
+    const val workflowLaunchCodexStrongModel: String = "${contract.workflowLaunch.codexStrongModel}"
+    const val deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
+    const val deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
+    const val deviceAgentDefaultsWorkflowModel: String = "${contract.deviceAgentDefaults.workflowModel}"
+    const val deviceAgentDefaultsWorkflowStrongModel: String = "${contract.deviceAgentDefaults.workflowStrongModel}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
@@ -788,6 +821,15 @@ pub const BUILTIN_REVIEW_NODE_ID: &str = "${contract.builtinAction.reviewNodeId}
 pub const WORKFLOW_MAX_REVIEW_ROUNDS: usize = ${contract.workflow.maxReviewRounds};
 pub const WORKFLOW_MAX_PARALLEL_DEFAULT: usize = ${contract.workflow.maxParallelDefault};
 pub const WORKFLOW_MAX_ISSUES: usize = ${contract.workflow.maxIssues};
+${rustStrSlice("workflowLaunchAgents", contract.workflowLaunch.agents)}
+pub const WORKFLOW_LAUNCH_CLAUDE_MODEL: &str = "${contract.workflowLaunch.claudeModel}";
+pub const WORKFLOW_LAUNCH_CLAUDE_STRONG_MODEL: &str = "${contract.workflowLaunch.claudeStrongModel}";
+pub const WORKFLOW_LAUNCH_CODEX_MODEL: &str = "${contract.workflowLaunch.codexModel}";
+pub const WORKFLOW_LAUNCH_CODEX_STRONG_MODEL: &str = "${contract.workflowLaunch.codexStrongModel}";
+pub const DEVICE_AGENT_DEFAULTS_MODEL: &str = "${contract.deviceAgentDefaults.model}";
+pub const DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL: &str = "${contract.deviceAgentDefaults.subagentModel}";
+pub const DEVICE_AGENT_DEFAULTS_WORKFLOW_MODEL: &str = "${contract.deviceAgentDefaults.workflowModel}";
+pub const DEVICE_AGENT_DEFAULTS_WORKFLOW_STRONG_MODEL: &str = "${contract.deviceAgentDefaults.workflowStrongModel}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};

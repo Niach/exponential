@@ -103,6 +103,15 @@ object DomainContract {
     const val workflowMaxReviewRounds: Int = 3
     const val workflowMaxParallelDefault: Int = 3
     const val workflowMaxIssues: Int = 50
+    val workflowLaunchAgents: List<String> = listOf("claude", "codex")
+    const val workflowLaunchClaudeModel: String = "opus"
+    const val workflowLaunchClaudeStrongModel: String = "fable"
+    const val workflowLaunchCodexModel: String = "gpt-5.6-sol"
+    const val workflowLaunchCodexStrongModel: String = "gpt-5.6-luna"
+    const val deviceAgentDefaultsModel: String = "fable"
+    const val deviceAgentDefaultsSubagentModel: String = ""
+    const val deviceAgentDefaultsWorkflowModel: String = "opus"
+    const val deviceAgentDefaultsWorkflowStrongModel: String = "fable"
     const val actionInputsMax: Int = 10
     const val actionInputTextMax: Int = 4096
     const val startPromptMaxLength: Int = 16384

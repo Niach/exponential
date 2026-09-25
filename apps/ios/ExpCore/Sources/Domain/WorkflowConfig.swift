@@ -14,6 +14,11 @@ import Foundation
 public struct WorkflowLaunch: Sendable, Equatable {
     public var agent: String?
     public var model: String?
+    /// EXP-1029: the STRONG model — contract, integration and `risk: high`
+    /// nodes, and every agent review. The phase pins and `reviewModel` below
+    /// are deprecated (they fold into this one; EXP-1014 removes them). The
+    /// phone CARRIES it, never edits it.
+    public var strongModel: String?
     /// EXP-1002: the per-PHASE pins — the model `contract` nodes, `integration`
     /// nodes and `risk: high` nodes (whatever their kind) run on. Absent =
     /// `model`. The phone has no picker for them; it CARRIES them, so an edit
@@ -37,6 +42,7 @@ public struct WorkflowLaunch: Sendable, Equatable {
     public init(
         agent: String? = nil,
         model: String? = nil,
+        strongModel: String? = nil,
         contractModel: String? = nil,
         integrationModel: String? = nil,
         riskModel: String? = nil,
@@ -48,6 +54,7 @@ public struct WorkflowLaunch: Sendable, Equatable {
     ) {
         self.agent = agent
         self.model = model
+        self.strongModel = strongModel
         self.contractModel = contractModel
         self.integrationModel = integrationModel
         self.riskModel = riskModel
@@ -61,7 +68,7 @@ public struct WorkflowLaunch: Sendable, Equatable {
 
 extension WorkflowLaunch: Codable {
     enum CodingKeys: String, CodingKey {
-        case agent, model, contractModel, integrationModel, riskModel
+        case agent, model, strongModel, contractModel, integrationModel, riskModel
         case subagentModel, effort, account, maxParallel, reviewModel
     }
 
@@ -69,6 +76,7 @@ extension WorkflowLaunch: Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         agent = try c.decodeIfPresent(String.self, forKey: .agent)
         model = try c.decodeIfPresent(String.self, forKey: .model)
+        strongModel = try c.decodeIfPresent(String.self, forKey: .strongModel)
         contractModel = try c.decodeIfPresent(String.self, forKey: .contractModel)
         integrationModel = try c.decodeIfPresent(String.self, forKey: .integrationModel)
         riskModel = try c.decodeIfPresent(String.self, forKey: .riskModel)
@@ -88,6 +96,8 @@ extension WorkflowLaunch: Codable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(agent, forKey: .agent)
         try c.encodeIfPresent(model, forKey: .model)
+        // EXP-1029: carried, so an absent key keeps the stored value.
+        try c.encodeIfPresent(strongModel, forKey: .strongModel)
         try c.encode(contractModel, forKey: .contractModel)
         try c.encode(integrationModel, forKey: .integrationModel)
         try c.encode(riskModel, forKey: .riskModel)
