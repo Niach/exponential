@@ -481,6 +481,22 @@ describe(`the engine's write path`, () => {
     expect((written[0]!.values as { attempt?: unknown }).attempt).toBeDefined()
   })
 
+  it(`a person's approval drops the reviewer's head so the engine never reads it as stale`, async () => {
+    selectQueue.push([node({ approvedAt: null })], [workflow()], [{ since: new Date() }])
+    await caller.approveNode({ nodeId: NODE, approved: true } as never)
+    const write = written.find((w) => w.op === `update`)
+    expect(write?.values).toMatchObject({ approvedAt: expect.any(Date) })
+    expect(typeof (write?.values as { review: unknown }).review).toBe(`object`)
+    expect((write?.values as { review: unknown }).review).not.toBeNull()
+  })
+
+  it(`withdrawing an approval leaves the review alone`, async () => {
+    selectQueue.push([node()], [workflow()])
+    await caller.approveNode({ nodeId: NODE, approved: false } as never)
+    const write = written.find((w) => w.op === `update`)
+    expect(write?.values).toEqual({ approvedAt: null })
+  })
+
   it(`holds an unapproved node at the gate, server-side`, async () => {
     selectQueue.push(
       [node()],

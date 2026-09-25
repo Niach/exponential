@@ -983,7 +983,18 @@ export const workflowsRouter = router({
         const txId = await generateTxId(tx)
         await tx
           .update(workflowNodes)
-          .set({ approvedAt: input.approved ? new Date() : null })
+          .set({
+            approvedAt: input.approved ? new Date() : null,
+            // A person approves the pull request as it IS. The engine reads
+            // an approval as stale while the stored review names a head the
+            // PR has moved past (`approval_is_stale`), which after a
+            // request_changes round is always the case once the author
+            // pushed its fixes: the reviewer's head goes, the verdict and
+            // findings stay on record.
+            ...(input.approved && {
+              review: sql`CASE WHEN ${workflowNodes.review} IS NULL THEN NULL ELSE ${workflowNodes.review} - 'head' END`,
+            }),
+          })
           .where(eq(workflowNodes.id, input.nodeId))
         if (input.approved) {
           // EXP-984 metric: how long the node sat waiting for a person. The
