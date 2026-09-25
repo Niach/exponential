@@ -22,12 +22,13 @@ export interface WorkflowEventInput {
   message: string
 }
 
-/** EXP-1064: ONE writer for the log — the engine's `appendEvent` below and
- *  every SERVER-side decision that deserves a line (`review_verdict` on
- *  `submitReview`, `skipped` on `skipNode`, `question_asked` on
- *  `ask_parent`, `completed` on the final merge, …): insert, then trim the
- *  workflow to its newest WORKFLOW_EVENTS_MAX rows inside the caller's
- *  transaction. The message is cut at the column's cap, never refused. */
+/** EXP-1064: the engine's `appendEvent` procedure's writer — insert, then
+ *  trim the workflow to its newest WORKFLOW_EVENTS_MAX rows inside the
+ *  caller's transaction; the message is cut at the column's cap, never
+ *  refused. The SERVER-side decisions that deserve a line (`review_verdict`
+ *  on `submitReview`, `skipped`, `question_asked`, `completed` on the final
+ *  merge, …) go through `lib/workflows/record-event.ts` `recordWorkflowEvent`
+ *  (EXP-1065), the same trim; the integration node folds the two into one. */
 export async function appendWorkflowEvent(tx: Tx, input: WorkflowEventInput): Promise<void> {
   await tx.insert(workflowEvents).values({
     workflowId: input.workflowId,
