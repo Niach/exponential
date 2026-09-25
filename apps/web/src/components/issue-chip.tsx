@@ -1,6 +1,7 @@
 import type { ReactElement } from "react"
 import { IssueChip as IssueChipView, type IssueChipLinkProps } from "@exp/ui"
 import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
+import { issueMenuProps } from "@/components/issue-context-menu/attr"
 import {
   statusColorClass,
 } from "@/components/issue-properties/status-dropdown"
@@ -63,6 +64,7 @@ export function IssueChip({
 
   const chip = (
     <IssueChipView
+      {...issueMenuProps(issue.id)}
       identifier={issue.identifier}
       title={issue.title}
       status={{

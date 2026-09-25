@@ -863,3 +863,10 @@
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* EXP-1074: an element that opens the issue context menu on a long-press —
+   what Radix's ContextMenuTrigger set inline, now that the gesture is a
+   document listener (`components/issue-context-menu/gestures.ts`). */
+[data-issue-menu] {
+  -webkit-touch-callout: none;
+}

@@ -11,10 +11,10 @@ import {
   boardPickerItems,
   ComboboxMenuItems,
   conceptIcon,
-  ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   labelPickerItems,
   pickerMenuRows,
   priorityPickerItems,
@@ -22,6 +22,14 @@ import {
   UserAvatar,
 } from "@exp/ui"
 import { displayUserName } from "@/lib/user-display"
+import type { IssueEstimation } from "@/lib/domain"
+import {
+  NO_ESTIMATE,
+  estimateLabel,
+  estimatePickerValues,
+  estimateShortLabel,
+  parseEstimatePick,
+} from "@/lib/issue-estimate"
 
 // EXP-957 — every submenu BODY here is the Combobox's menu arm: the rows are
 // `ComboboxMenuItems`, so the selection glyph is the primitive's (a trailing
@@ -38,6 +46,7 @@ import { displayUserName } from "@/lib/user-display"
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const UnassignedIcon = conceptIcon(`ui-unassigned`)
 const LabelsIcon = conceptIcon(`settings-labels`)
+const EstimateIcon = conceptIcon(`ui-estimate`)
 
 interface StatusSubmenuProps {
   // The RESOLVED team status row of this issue (EXP-314).
@@ -56,17 +65,17 @@ export function StatusSubmenu({
   const { options } = useTeamStatusesContext()
 
   return (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
         <StatusIcon option={status} />
         Status
-        <ContextMenuShortcut className={topLevelValueClass}>
+        <DropdownMenuShortcut className={topLevelValueClass}>
           {status.name}
-        </ContextMenuShortcut>
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent className="w-[14rem]">
+        </DropdownMenuShortcut>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-[14rem]">
         <ComboboxMenuItems
-          menu="context"
+          menu="dropdown"
           {...pickerMenuRows(statusPickerItems(toStatusPickerStatuses(options)))}
           value={status.id}
           onChange={(id) => {
@@ -76,8 +85,8 @@ export function StatusSubmenu({
             }
           }}
         />
-      </ContextMenuSubContent>
-    </ContextMenuSub>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 
@@ -109,8 +118,8 @@ export function AssigneeSubmenu({
   const rows = pickerMenuRows(assigneePickerItems(members))
 
   return (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
         {/* Current assignee's avatar; person placeholder when unassigned (EXP-59). */}
         {selectedAssignee ? (
           <UserAvatar
@@ -125,15 +134,15 @@ export function AssigneeSubmenu({
           <UnassignedIcon className="size-4" />
         )}
         Assignee
-        <ContextMenuShortcut className={topLevelValueClass}>
+        <DropdownMenuShortcut className={topLevelValueClass}>
           {selectedAssignee
             ? displayUserName(selectedAssignee, selectedAssignee.id)
             : `Unassigned`}
-        </ContextMenuShortcut>
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent className="w-[15rem]">
+        </DropdownMenuShortcut>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-[15rem]">
         <ComboboxMenuItems
-          menu="context"
+          menu="dropdown"
           {...rows}
           value={assigneeId}
           onChange={onSelect}
@@ -146,8 +155,8 @@ export function AssigneeSubmenu({
             </>
           )}
         />
-      </ContextMenuSubContent>
-    </ContextMenuSub>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 
@@ -168,17 +177,17 @@ export function PrioritySubmenu({
   const PriorityIcon = priorityConfig.icon
 
   return (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
         <PriorityIcon className={`size-4 ${priorityConfig.color}`} />
         Priority
-        <ContextMenuShortcut className={topLevelValueClass}>
+        <DropdownMenuShortcut className={topLevelValueClass}>
           {priorityConfig.label}
-        </ContextMenuShortcut>
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent className="w-[14rem]">
+        </DropdownMenuShortcut>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-[14rem]">
         <ComboboxMenuItems
-          menu="context"
+          menu="dropdown"
           {...pickerMenuRows(priorityPickerItems(issuePriorityOptions))}
           value={priority}
           onChange={(next) => {
@@ -188,8 +197,8 @@ export function PrioritySubmenu({
             }
           }}
         />
-      </ContextMenuSubContent>
-    </ContextMenuSub>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 
@@ -222,17 +231,17 @@ export function BoardSubmenu({
   )
 
   return (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
         <NavBoardsIcon className="size-4" />
         Move to board
-        <ContextMenuShortcut className={topLevelValueClass}>
+        <DropdownMenuShortcut className={topLevelValueClass}>
           {currentName ?? `Board`}
-        </ContextMenuShortcut>
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent className="w-[15rem]">
+        </DropdownMenuShortcut>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-[15rem]">
         <ComboboxMenuItems
-          menu="context"
+          menu="dropdown"
           {...rows}
           value={boardId}
           onChange={(next) => {
@@ -242,8 +251,8 @@ export function BoardSubmenu({
           }}
           emptyText="No boards yet"
         />
-      </ContextMenuSubContent>
-    </ContextMenuSub>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 
@@ -265,17 +274,17 @@ export function LabelsSubmenu({
   const rows = pickerMenuRows(labelPickerItems(labels))
 
   return (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
         <LabelsIcon className="size-4" />
         Labels
-        <ContextMenuShortcut className={topLevelValueClass}>
+        <DropdownMenuShortcut className={topLevelValueClass}>
           {labelsLabel}
-        </ContextMenuShortcut>
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent className="w-[15rem]">
+        </DropdownMenuShortcut>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-[15rem]">
         <ComboboxMenuItems
-          menu="context"
+          menu="dropdown"
           multiple
           {...rows}
           value={[...selectedLabelIds]}
@@ -298,7 +307,52 @@ export function LabelsSubmenu({
           }}
           emptyText="No labels yet"
         />
-      </ContextMenuSubContent>
-    </ContextMenuSub>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  )
+}
+
+interface EstimateSubmenuProps {
+  estimate: Issue[`estimate`]
+  /** The team's scale (`teams.estimation_type`); `none` renders nothing. */
+  estimation: IssueEstimation
+  topLevelValueClass: string
+  onSelect: (estimate: number | null) => void
+}
+
+// EXP-1074: story points on the team's scale (EXP-630) — the detail panel's
+// `EstimateControl` options as menu rows; "No estimate" is the arm's own
+// none row, so a clear reports `null` like the assignee's does.
+export function EstimateSubmenu({
+  estimate,
+  estimation,
+  topLevelValueClass,
+  onSelect,
+}: EstimateSubmenuProps) {
+  if (estimation === `none`) return null
+  const options = estimatePickerValues(estimate, estimation).map((value) => ({
+    value: String(value),
+    label: estimateLabel(value, estimation),
+  }))
+
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <EstimateIcon className="size-4" />
+        Estimate
+        <DropdownMenuShortcut className={topLevelValueClass}>
+          {estimate === null ? `None` : estimateShortLabel(estimate, estimation)}
+        </DropdownMenuShortcut>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-[14rem]">
+        <ComboboxMenuItems
+          menu="dropdown"
+          options={options}
+          value={estimate === null ? null : String(estimate)}
+          onChange={(next) => onSelect(parseEstimatePick(next))}
+          noneLabel={NO_ESTIMATE}
+        />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }

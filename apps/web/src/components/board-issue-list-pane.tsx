@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import type { IssueGroup } from "@/lib/board-view"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { IssueGroupHeader } from "@/components/issue-group-header"
+import { issueMenuProps } from "@/components/issue-context-menu/attr"
 import {
   Checkbox,
   ListRow,
@@ -183,7 +184,7 @@ export function BoardIssueListPane({
     if (!bulkEnabled) return
     const overlayOpen = () =>
       document.querySelector(
-        `[data-state="open"][role="menu"], [data-state="open"][role="listbox"], [data-state="open"][role="dialog"]`
+        `[data-state="open"][role="menu"], [data-state="open"][role="listbox"], [data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"]`
       ) !== null
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
@@ -256,7 +257,11 @@ export function BoardIssueListPane({
                     // The select cell is the row's own left padding, so it
                     // sits ABOVE the link instead of inside it (an anchor
                     // holds no button) — the row keeps its whole width.
-                    <div key={issue.id} className="group/row relative">
+                    <div
+                      key={issue.id}
+                      className="group/row relative"
+                      {...issueMenuProps(issue.id, from)}
+                    >
                       <ListRow
                         asChild
                         interactive

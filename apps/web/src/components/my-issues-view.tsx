@@ -98,9 +98,9 @@ export function MyIssuesView({
             issueGraph={issueGraph}
             graphTeamId={team?.id}
             issueLabelMap={issueLabelMap}
-            labels={labelList}
             users={users}
             userMap={userMap}
+            menuFrom="inbox:my-issues"
             onNewIssue={() => {}}
             onIssueClick={(issue) => {
               const board = boardMap.get(issue.boardId)

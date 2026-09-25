@@ -7,12 +7,12 @@ import {
 } from "@/lib/issue-due-date"
 import { formatDate } from "@/lib/utils"
 import {
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@exp/ui"
 
 interface DueDateSubmenuProps {
@@ -30,17 +30,17 @@ export function DueDateSubmenu({
   const dueDateLabel = dueDate ? formatDate(dueDate) : `None`
 
   return (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
         <CalendarDays className="size-4" />
         Set due date
-        <ContextMenuShortcut className={`${topLevelValueClass} tabular-nums`}>
+        <DropdownMenuShortcut className={`${topLevelValueClass} tabular-nums`}>
           {dueDateLabel}
-        </ContextMenuShortcut>
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent className="w-[15.5rem] p-1">
+        </DropdownMenuShortcut>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-[15.5rem] p-1">
         {dueDatePresets.map((preset) => (
-          <ContextMenuItem
+          <DropdownMenuItem
             className="gap-3"
             key={preset.id}
             onSelect={() => {
@@ -51,16 +51,16 @@ export function DueDateSubmenu({
               active={matchesDueDateValue(preset.date, dueDate)}
             />
             <span>{preset.label}</span>
-            <ContextMenuShortcut className="min-w-[5.125rem] text-right normal-case tracking-normal tabular-nums">
+            <DropdownMenuShortcut className="min-w-[5.125rem] text-right normal-case tracking-normal tabular-nums">
               {formatDueDateMenuMeta(preset.date)}
-            </ContextMenuShortcut>
-          </ContextMenuItem>
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
         ))}
 
         {dueDate && (
           <>
-            <ContextMenuSeparator />
-            <ContextMenuItem
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
               className="gap-3"
               onSelect={() => {
                 onApplyDueDate(null)
@@ -68,14 +68,14 @@ export function DueDateSubmenu({
             >
               <DueDatePresetIndicator active={false} muted />
               Clear due date
-              <ContextMenuShortcut className="min-w-[5.125rem] text-right normal-case tracking-normal">
+              <DropdownMenuShortcut className="min-w-[5.125rem] text-right normal-case tracking-normal">
                 Remove
-              </ContextMenuShortcut>
-            </ContextMenuItem>
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
           </>
         )}
-      </ContextMenuSubContent>
-    </ContextMenuSub>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 

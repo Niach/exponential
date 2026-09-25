@@ -454,7 +454,7 @@ describe(`icon call sites`, () => {
     // the natives). The concept is the fix; a raw lucide import is the
     // regression, so gate the import as well as the call.
     for (const file of [
-      `apps/web/src/components/issue-row-menu/submenus.tsx`,
+      `apps/web/src/components/issue-context-menu/submenus.tsx`,
       `apps/web/src/components/issue-detail-mobile-menu.tsx`,
       `apps/web/src/components/team/board-switcher-sheet.tsx`,
     ]) {

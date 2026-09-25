@@ -38,6 +38,7 @@ import {
   useGettingStartedProgress,
 } from "@/hooks/use-getting-started-progress"
 import { MentionProvider } from "@/components/mention-provider"
+import { IssueContextMenuProvider } from "@/components/issue-context-menu/provider"
 import { GettingStartedSheetProvider } from "@/components/getting-started/getting-started-sheet"
 import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
@@ -167,6 +168,9 @@ function TeamLayout() {
         teamSlug={teamSlug}
       >
         <MentionProvider teamId={team?.id}>
+        {/* EXP-1074: THE issue context menu — one host above every list, row
+            and chip that opts in with `issueMenuProps`. */}
+        <IssueContextMenuProvider team={team}>
           {/* EXP-686: the board header's Search button (mobile) and the
               Actions/Automations lightbulb reach the layout's sheets through
               context instead of a prop drilled through every list. The
@@ -253,6 +257,7 @@ function TeamLayout() {
           </GettingStartedSheetProvider>
           </MobileChromeProvider>
           </IssueSearchProvider>
+        </IssueContextMenuProvider>
         </MentionProvider>
       </IssueRefProvider>
       </GettingStartedProgressProvider>
