@@ -24,6 +24,12 @@ pub enum Outcome {
     Skipped,
     /// Tried and failed; the sentence the host logged.
     Failed(String),
+    /// Handed to a LAUNCH SITE that records the real outcome later (the
+    /// desktop host queues `StartNode` / `StartReview` orders for its
+    /// foreground). The pass never hands this to the sink — one decision,
+    /// ONE audit line, on both hosts — and [`event_for`] answers `None` to
+    /// it whatever EXP-1064 maps.
+    Queued,
 }
 
 /// Where a host records its audit lines.
@@ -34,7 +40,10 @@ pub trait WorkflowEventSink {
 /// The audit line one executed decision produces, if any. EXP-1064 fills the
 /// mapping (node_started, review_started, landed, failed, …); `None` until
 /// then.
-pub fn event_for(_decision: &Decision, _outcome: &Outcome) -> Option<WorkflowEvent> {
+pub fn event_for(_decision: &Decision, outcome: &Outcome) -> Option<WorkflowEvent> {
+    if matches!(outcome, Outcome::Queued) {
+        return None;
+    }
     None
 }
 
@@ -70,5 +79,21 @@ mod tests {
     #[test]
     fn event_for_is_silent_until_exp_1064() {
         assert_eq!(event_for(&Decision::OpenFinalPr, &Outcome::Done), None);
+    }
+
+    /// The invariant EXP-1064 relies on: a queued order is recorded ONCE, at
+    /// its launch site, never again by the pass that queued it.
+    #[test]
+    fn a_queued_outcome_is_never_an_event() {
+        let start = Decision::StartNode {
+            node_id: "n".to_string(),
+            attempt: 1,
+            base_branch: "exp/wf-abcdef12".to_string(),
+            model: None,
+            workflow_id: "wf".to_string(),
+            role: super::super::WfSessionRole::Author,
+            account: None,
+        };
+        assert_eq!(event_for(&start, &Outcome::Queued), None);
     }
 }
