@@ -23,9 +23,12 @@ type ApiKeyRow = Awaited<
 >[`keys`][number]
 
 // Desktop/CLI sign-ins auto-mint their hidden key under this name prefix
-// (crates/api device_key_name). EXP-1054: those rows are LOGIN SESSIONS — a
-// signed-in device, never shown by its token — and "revoking" one logs that
-// device out. Everything else is an API key for scripts and MCP clients.
+// (crates/api device_key_name). EXP-1054: those rows are the keys a signed-in
+// device minted for its coding runs' MCP wiring (crates/api token_store),
+// never shown by their token. Revoking one DISCONNECTS those runs; the device
+// itself stays signed in (its login is a separate session token) and mints a
+// fresh key on its next sign-in or regenerate. Everything else is an API key
+// for scripts and MCP clients.
 const DEVICE_KEY_PREFIX = `Device: `
 
 function isDeviceKey(row: ApiKeyRow): boolean {
@@ -167,7 +170,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                   className="shrink-0"
                   onClick={() => setRevokeTarget(row)}
                 >
-                  Log out
+                  Disconnect
                 </Button>
               </ListRow>
             ))}
@@ -300,11 +303,11 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
         <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>
-              {revokeIsSession ? `Log out device` : `Revoke API key`}
+              {revokeIsSession ? `Disconnect device` : `Revoke API key`}
             </DialogTitle>
             <DialogDescription>
               {revokeIsSession
-                ? `The desktop app or CLI on this device signs out. Its coding sessions and MCP wiring stop until it signs in again.`
+                ? `Disconnects this device's coding runs and their MCP wiring. The device stays signed in and mints a new key the next time it signs in or regenerates.`
                 : `Anything still using this key stops working immediately. This cannot be undone.`}
             </DialogDescription>
           </DialogHeader>
@@ -339,10 +342,10 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
             >
               {revoking
                 ? revokeIsSession
-                  ? `Logging out…`
+                  ? `Disconnecting…`
                   : `Revoking…`
                 : revokeIsSession
-                  ? `Log out`
+                  ? `Disconnect`
                   : `Revoke key`}
             </Button>
           </DialogFooter>

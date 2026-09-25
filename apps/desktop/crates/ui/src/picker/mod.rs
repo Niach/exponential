@@ -174,7 +174,9 @@ pub(crate) type OnPickerChange<T> = Rc<dyn Fn(Vec<T>, &mut Window, &mut App)>;
 pub(crate) type PickerRenderItem<T> = Rc<dyn Fn(&PickerItem<T>, &mut App) -> AnyElement>;
 
 /// Close the surface from inside a [`PickerPanel`] — a grid picks without
-/// a row, so it needs the dismiss the rows get for free.
+/// a row, so it needs the dismiss the rows get for free. Call it from a
+/// listener only; invoking it during the panel's own render leases
+/// `PopoverState` twice.
 pub(crate) type PickerDismiss = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// REPLACES the filter field and the rows with an inline body (the icon
@@ -234,6 +236,10 @@ pub(crate) struct Picker<T: Clone> {
     pub rank: Option<PickerRank<T>>,
     /// Note rows under the list ([`PickerFooter`]).
     pub footer: Option<PickerFooter>,
+    /// MULTI only: the most rows a set may hold (the web primitive's `max`).
+    /// At the cap every UNPICKED row goes disabled; a picked one still
+    /// toggles off.
+    pub max: Option<usize>,
 }
 
 /// Which surface a picker mounts — the IDE's answer to the web primitive's
@@ -271,6 +277,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             fit: None,
             rank: None,
             footer: None,
+            max: None,
         }
     }
 
@@ -285,7 +292,10 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             mode: PickerMode::Multi,
             value,
             on_change,
-            search: false,
+            // A MULTI surface always carries the filter field: its ↑/↓/Enter
+            // handlers ride the field's own actions (`Input`'s key context),
+            // so without it Enter is dead and the cursor cannot move.
+            search: true,
             trigger,
             empty_text: None,
             disabled: false,
@@ -296,11 +306,21 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             fit: None,
             rank: None,
             footer: None,
+            max: None,
         }
     }
 
+    /// Ask for the filter field. A MULTI picker keeps it whatever is asked:
+    /// the field is what its keyboard model is bound to.
     pub(crate) fn search(mut self, search: bool) -> Self {
-        self.search = search;
+        self.search = search || self.mode == PickerMode::Multi;
+        self
+    }
+
+    /// MULTI only: cap the set at `max` rows. At the cap the unpicked rows
+    /// go disabled and the picked ones still toggle off.
+    pub(crate) fn max(mut self, max: usize) -> Self {
+        self.max = Some(max);
         self
     }
 
@@ -400,8 +420,14 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     pub(crate) fn render(self, window: &mut Window, cx: &mut App) -> AnyElement {
         // A disabled picker is its trigger, inert: no surface is mounted at
         // all, so no stray popover can outlive the reason it was disabled.
+        // Dimmed and under a plain cursor, so the trigger's own pointer
+        // cursor and hover fill do not promise a surface that never opens.
         if self.disabled {
-            return self.trigger;
+            return div()
+                .opacity(0.5)
+                .cursor_default()
+                .child(self.trigger)
+                .into_any_element();
         }
         let id = self
             .id
@@ -419,6 +445,13 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     /// both surfaces (glyph/dot, label, muted description), and a plain
     /// menu item can only carry a glyph and a string.
     fn render_menu(self, id: ElementId) -> AnyElement {
+        // The menu has no room for the search surface's extras: a caller
+        // that set one of these wanted `search(true)`.
+        debug_assert!(self.width.is_none(), "picker: `width` is a search-surface option");
+        debug_assert!(self.fit.is_none(), "picker: `fit` is a search-surface option");
+        debug_assert!(self.rank.is_none(), "picker: `rank` is a search-surface option");
+        debug_assert!(self.footer.is_none(), "picker: `footer` is a search-surface option");
+        debug_assert!(self.max.is_none(), "picker: `max` is a multi option");
         let Picker {
             items,
             value,
@@ -485,6 +518,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             fit,
             rank,
             footer,
+            max,
             ..
         } = self;
         let multi = mode == PickerMode::Multi;
@@ -568,10 +602,14 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                         );
                 }
 
-                let visible = match &rank {
+                let mut visible = match &rank {
                     Some(rank) => rank(&items, &filter, cx),
                     None => filter_items(&items, &filter),
                 };
+                // A caller's ranking indexes ITS view of the rows; a stale
+                // answer (a memo keyed on a pool that has since been
+                // rebuilt) must never reach `items[ix]`.
+                visible.retain(|ix| *ix < items.len());
                 if visible.is_empty() {
                     // ONE copy for "nothing here" and "nothing matched" —
                     // the web primitive's `emptyText` is the same string on
@@ -588,7 +626,17 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 // The keyboard model: which rows can be picked, where the
                 // cursor sits (clamped to what is on screen), what Enter
                 // picks.
-                let enabled: Vec<bool> = visible.iter().map(|ix| !items[*ix].disabled).collect();
+                let picked_count = value.len();
+                let row_enabled = |item: &PickerItem<T>| {
+                    !row_disabled(
+                        item.disabled,
+                        multi,
+                        max,
+                        picked_count,
+                        item.state(&value) != PickerChecked::None,
+                    )
+                };
+                let enabled: Vec<bool> = visible.iter().map(|ix| row_enabled(&items[*ix])).collect();
                 let cursor_at = clamp_picker_selection(state.read(cx).cursor(), &enabled);
                 let target = cursor_at.map(|position| items[visible[position]].value.clone());
                 // The cursor is the ENTER TARGET always; whether it PAINTS
@@ -623,7 +671,12 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                         let on_change = on_change.clone();
                         let popover_state = popover_state.clone();
                         let value = value.clone();
-                        move |_: &gpui_component::input::Enter, window, cx: &mut App| {
+                        move |action: &gpui_component::input::Enter, window, cx: &mut App| {
+                            // Plain Enter picks; shift/cmd+Enter belong to
+                            // whoever is underneath (a composer's send).
+                            if action.shift || action.secondary {
+                                return;
+                            }
                             let Some(target) = target.clone() else {
                                 return;
                             };
@@ -632,6 +685,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                                 popover_state.update(cx, |state, cx| state.dismiss(window, cx));
                             }
                             cx.notify(parent_view_id);
+                            cx.stop_propagation();
                         }
                     })
                     .capture_action({
@@ -655,7 +709,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     let item = &items[ix];
                     let mark = item.state(&value);
                     let selected = mark != PickerChecked::None;
-                    let disabled = item.disabled;
+                    let disabled = !row_enabled(item);
                     let item_value = item.value.clone();
                     let on_change = on_change.clone();
                     let popover_state = popover_state.clone();
@@ -866,6 +920,20 @@ fn pick<T: Clone + PartialEq + 'static>(
 
 /// The whole new set a multi toggle reports — the web primitive's `onChange`
 /// gets the set, never the delta, so every consumer writes the same way.
+/// Whether a search-surface row takes no pick: its own `disabled`, or a
+/// MULTI set at its `max` (contract ×4, the web primitive's `max`): there
+/// every UNPICKED row goes disabled while a picked one still toggles off.
+pub(crate) fn row_disabled(
+    item_disabled: bool,
+    multi: bool,
+    max: Option<usize>,
+    picked_count: usize,
+    picked: bool,
+) -> bool {
+    let at_cap = multi && max.is_some_and(|max| picked_count >= max);
+    item_disabled || (at_cap && !picked)
+}
+
 pub(crate) fn toggled_selection<T: Clone + PartialEq>(current: &[T], value: &T) -> Vec<T> {
     if current.iter().any(|picked| picked == value) {
         current.iter().filter(|picked| *picked != value).cloned().collect()
@@ -1031,6 +1099,9 @@ fn cursor_move_listener<A: gpui::Action>(
                 cx.notify(parent_view_id);
             }
         }
+        // The cursor is the picker's while it is open: the field underneath
+        // has no caret line to move.
+        cx.stop_propagation();
     }
 }
 
@@ -1388,6 +1459,45 @@ mod tests {
 
     /// Presentation belongs to the primitive: a caller asks for `search`,
     /// for `multi` or for a `panel` — never for a popover.
+    /// Contract ×4 (web `picker.tsx` `max`): at the cap the unpicked rows go
+    /// disabled, the picked ones still toggle off; below it, and on a
+    /// single pick, only a row's own `disabled` counts.
+    #[test]
+    fn a_multi_set_at_its_max_disables_only_the_unpicked_rows() {
+        // Two picked of a cap of two: unpicked off, picked still live.
+        assert!(row_disabled(false, true, Some(2), 2, false));
+        assert!(!row_disabled(false, true, Some(2), 2, true));
+        // Below the cap nothing changes.
+        assert!(!row_disabled(false, true, Some(2), 1, false));
+        // No cap: never.
+        assert!(!row_disabled(false, true, None, 99, false));
+        // A single pick ignores the cap outright.
+        assert!(!row_disabled(false, false, Some(1), 1, false));
+        // A row's own flag always wins.
+        assert!(row_disabled(true, true, Some(2), 0, true));
+
+        let items = vec![PickerItem::new("a".to_string(), "Alpha")];
+        let noop: OnPickerChange<String> = Rc::new(|_, _, _| {});
+        let picker = Picker::multi(items, vec![], gpui::Empty.into_any_element(), noop).max(3);
+        assert_eq!(picker.max, Some(3));
+    }
+
+    /// A MULTI picker's ↑/↓/Enter ride the filter field's actions, so the
+    /// field cannot be opted out of: `search(false)` is a no-op there and
+    /// the surface stays the searchable one.
+    #[test]
+    fn a_multi_picker_keeps_its_filter_field() {
+        let items = vec![PickerItem::new("a".to_string(), "Alpha")];
+        let noop: OnPickerChange<String> = Rc::new(|_, _, _| {});
+        let multi = Picker::multi(items.clone(), vec![], gpui::Empty.into_any_element(), noop.clone());
+        assert!(multi.search, "multi carries the field by default");
+        let multi = multi.search(false);
+        assert!(multi.search, "and cannot drop it");
+        assert_eq!(multi.surface(), PickerSurface::Search);
+        let single = Picker::single(items, None, gpui::Empty.into_any_element(), noop);
+        assert!(!single.search, "a single pick still chooses");
+    }
+
     #[test]
     fn the_surface_follows_the_search_flag_the_mode_and_the_panel() {
         let items = vec![PickerItem::new("a".to_string(), "Alpha")];

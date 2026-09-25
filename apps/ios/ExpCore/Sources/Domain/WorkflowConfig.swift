@@ -66,6 +66,11 @@ public struct WorkflowLaunch: Sendable, Equatable {
     }
 }
 
+/// Decoding is TOLERANT by hand (a missing or malformed key falls back to nil
+/// rather than dropping the row). Encoding is the synthesized one — set keys
+/// only, `encodeIfPresent` per field: the phone never writes a launch back
+/// (EXP-1033: `WorkflowPatch` carries no `launch`, `create` never did), so the
+/// encoder exists for the Codable round trip alone and needs no wire rules.
 extension WorkflowLaunch: Codable {
     enum CodingKeys: String, CodingKey {
         case agent, model, strongModel, contractModel, integrationModel, riskModel
@@ -85,27 +90,6 @@ extension WorkflowLaunch: Codable {
         account = try c.decodeIfPresent(String.self, forKey: .account)
         maxParallel = try? c.decodeWireInt(forKey: .maxParallel)
         reviewModel = try c.decodeIfPresent(String.self, forKey: .reviewModel)
-    }
-
-    /// Only the set fields ride the wire — the server replaces the whole
-    /// `launch` object, so an omitted key IS "unset". The three EXP-1002 phase
-    /// pins are the exception: for THEM an absent key means "keep the stored
-    /// value" (the server's carry-forward for clients that predate them), so
-    /// they always ride EXPLICITLY — `null` clears, a string sets.
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(agent, forKey: .agent)
-        try c.encodeIfPresent(model, forKey: .model)
-        // EXP-1029: carried, so an absent key keeps the stored value.
-        try c.encodeIfPresent(strongModel, forKey: .strongModel)
-        try c.encode(contractModel, forKey: .contractModel)
-        try c.encode(integrationModel, forKey: .integrationModel)
-        try c.encode(riskModel, forKey: .riskModel)
-        try c.encodeIfPresent(subagentModel, forKey: .subagentModel)
-        try c.encodeIfPresent(effort, forKey: .effort)
-        try c.encodeIfPresent(account, forKey: .account)
-        try c.encodeIfPresent(maxParallel, forKey: .maxParallel)
-        try c.encodeIfPresent(reviewModel, forKey: .reviewModel)
     }
 }
 

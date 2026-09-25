@@ -2,6 +2,7 @@ package com.exponential.app.ui.components.picker
 
 import androidx.compose.ui.graphics.Color
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.ui.components.boardIconName
 import com.exponential.app.ui.components.toPickerDevice
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
@@ -435,6 +436,15 @@ class PickerContractTest {
             listOf(BoardPickerBoard(id = "b", name = "Mobile", icon = "rocket", colorHex = "#3B82F6")),
         ).single()
         assertTrue("a board row carries its glyph", board.icon != null)
+        // The glyph rule is decided ONCE, in `BoardIconUi`, before the row is
+        // built: a known name stays, an unknown or missing one falls back by
+        // the board's shape (repo-backed → code, else the kanban board). The
+        // picker itself adds no fallback, so a non-board "None" row has none.
+        assertEquals("rocket", boardIconName("rocket", "repo"))
+        assertEquals("code", boardIconName(null, "repo"))
+        assertEquals("square-kanban", boardIconName(null, null))
+        assertEquals("square-kanban", boardIconName("not-a-glyph", null))
+        assertNull(boardPickerItems(listOf(BoardPickerBoard(id = "", name = "None"))).single().icon)
         val label = labelPickerItems(listOf(LabelPickerLabel(id = "l", name = "bug", colorHex = "#EF4444")))
             .single()
         assertNull("an ordinary label row derives its state from the set", label.checked)
@@ -479,6 +489,33 @@ class PickerContractTest {
         assertNull(ready.description)
         // And the primitive already refuses to pick one.
         assertNull(PickerRules.select(PickerMode.Single, emptySet(), devicePickerItems(listOf(offline)).single()))
+    }
+
+    /**
+     * EXP-615 (web `AutomationDevicePicker`): a binding is not a launch. An
+     * automation's "Runs on" row takes an offline or signed-out machine as
+     * readily as a ready one, and says nothing about its live state, because
+     * a schedule catches up when the machine comes back.
+     */
+    @Test
+    fun anAutomationBindsAnyCapableMachineOfflineOrSignedOut() {
+        val offline = SteerDevice(deviceId = "d", deviceLabel = "buildbox", online = false)
+            .toPickerDevice(startGate = false)
+        assertFalse(offline.disabled)
+        assertNull(offline.description)
+        val signedOut = SteerDevice(
+            deviceId = "e",
+            deviceLabel = "mbp",
+            agents = emptyList(),
+            unauthedAgents = listOf("claude"),
+        ).toPickerDevice(startGate = false)
+        assertFalse(signedOut.disabled)
+        assertNull(signedOut.description)
+        // The primitive picks it like any other row.
+        assertEquals(
+            setOf("d"),
+            PickerRules.select(PickerMode.Single, emptySet(), devicePickerItems(listOf(offline)).single()),
+        )
     }
 
     private fun items(): List<PickerItem<String>> = listOf(

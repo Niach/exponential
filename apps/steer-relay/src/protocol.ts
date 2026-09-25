@@ -189,35 +189,13 @@ export const ENTITY_REF_KINDS = contract.entityRefKind.values as [
  *  string length); publishers clamp to it. */
 export const TOOL_PREVIEW_TEXT_MAX = contract.expToolPreview.textMax
 
-/** What the relay still ACCEPTS before it rejects the frame. */
-export const TOOL_PREVIEW_TEXT_HARD_MAX = TOOL_PREVIEW_TEXT_MAX * 4
-
-/** Cut to `max` UTF-16 code units without splitting a surrogate pair. */
-export function truncateUtf16(text: string, max: number): string {
-  if (text.length <= max) return text
-  const last = text.charCodeAt(max - 1)
-  const splitsPair = last >= 0xd800 && last <= 0xdbff
-  return text.slice(0, splitsPair ? max - 1 : max)
-}
-
-// compat: desktop/CLI <= 0.14.47 clamp preview strings by code POINTS, so a
-// 200-char title holding one astral emoji arrives as 201 units. Rejecting it
-// dropped the WHOLE settle frame (remote tool rows never settled), so an
-// over-long string DEGRADES: accepted up to the hard cap, cut to the display
-// cap. Every other rule (kinds, empty ids, maxRefs, counts) still rejects.
-const previewText = () =>
-  z
-    .string()
-    .max(TOOL_PREVIEW_TEXT_HARD_MAX)
-    .transform((text) => truncateUtf16(text, TOOL_PREVIEW_TEXT_MAX))
+/** A preview / ref string past the cap rejects the WHOLE frame: the
+ *  publisher clamps first (UTF-16 units, never split surrogate pairs). */
+const previewText = () => z.string().max(TOOL_PREVIEW_TEXT_MAX)
 
 export const entityRefSchema = z.object({
   kind: z.enum(ENTITY_REF_KINDS),
-  id: z
-    .string()
-    .min(1)
-    .max(TOOL_PREVIEW_TEXT_HARD_MAX)
-    .transform((text) => truncateUtf16(text, TOOL_PREVIEW_TEXT_MAX)),
+  id: z.string().min(1).max(TOOL_PREVIEW_TEXT_MAX),
   identifier: previewText().optional(),
   title: previewText().optional(),
   count: z.number().int().nonnegative().max(4294967295).optional(),

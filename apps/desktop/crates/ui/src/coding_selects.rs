@@ -95,6 +95,21 @@ pub fn model_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str,
     }
 }
 
+/// The WORKFLOW pair's choice list for `agent`: [`model_choices_for`] minus
+/// the blank "CLI default" row. The pair always names a model
+/// (`coding::settings::normalize_workflow_pair`), and the server drops the pair WHOLE
+/// when one half is invalid, so a blank pick from the plain codex list wiped
+/// the machine's stored pair.
+pub fn workflow_model_choices_for(
+    agent: coding::CodingAgent,
+) -> Vec<(&'static str, &'static str)> {
+    model_choices_for(agent)
+        .iter()
+        .copied()
+        .filter(|(_, value)| !value.is_empty())
+        .collect()
+}
+
 /// The effort/reasoning/thinking choice list for `agent`.
 pub fn effort_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str, &'static str)] {
     match agent {
@@ -451,6 +466,33 @@ mod tests {
             crate::launch_options::CLI_DEFAULT_LABEL
         );
         assert_eq!(&SUBAGENT_MODEL_CHOICES[1..], &MODEL_CHOICES[..]);
+    }
+
+    /// The workflow pair never holds a blank: its selects drop the
+    /// "CLI default" row and keep every real model, in the model list's
+    /// own order, so a workflow pick can never wipe the stored pair.
+    #[test]
+    fn workflow_model_choices_carry_no_blank_row() {
+        use super::{model_choices_for, workflow_model_choices_for};
+        for agent in coding::CodingAgent::ALL {
+            let choices = workflow_model_choices_for(agent);
+            assert!(!choices.is_empty(), "{agent:?} offers at least one model");
+            assert!(
+                choices.iter().all(|(_, value)| !value.is_empty()),
+                "{agent:?} has no blank row"
+            );
+            let named: Vec<_> = model_choices_for(agent)
+                .iter()
+                .copied()
+                .filter(|(_, value)| !value.is_empty())
+                .collect();
+            assert_eq!(choices, named, "{agent:?} keeps every real model in order");
+            assert_eq!(
+                choices.iter().map(|(_, v)| *v).collect::<Vec<_>>(),
+                agent.model_values(),
+                "{agent:?} mirrors the agent's closed model set"
+            );
+        }
     }
 
     use super::*;

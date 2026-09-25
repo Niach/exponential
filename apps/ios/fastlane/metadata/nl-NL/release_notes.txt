@@ -1,3 +1,6 @@
-- Contextvenster: het verbruiksvenster toont een balk in segmenten van wat de context van een run vult, met een legenda per segment
-- Schattingen: staat er in de teaminstellingen een schaal aan, dan krijgen issues een schatting bij hun eigenschappen, en de activiteit toont wijzigingen in de schatting
-- Leden: een uitgenodigde persoon staat meteen met zijn naam in het team, en de "Members"-instellingen tonen wie zich nog niet heeft aangesloten
+- Kiezers: status, toegewezene, labels, board en de rest openen hetzelfde doorzoekbare venster met gewone rijen, en meerdere kiezen zie je aan de markering in plaats van aan een rondje
+- Agentruns: de lijst met lopende runs nestelt, de runs van een workflow onder één rij die de workflow opent en die van een stack onder een andere, de pijl klapt beide dicht
+- Workflows: het scherm verliest zijn instellingenblok, een node noemt zijn eigen toestand en opent in Issue, Run en Changes, en de laatste pull request wordt daar gemerged
+- Machine-instellingen: het venster is opnieuw geordend, en een nieuwe pagina "Workflow settings" bewaart de modellen waarmee een nieuwe workflow start
+- Teamwisselaar: een stip op de pijl wanneer een ander team een van je lopende runs heeft, amberkleurig wanneer die invoer nodig heeft
+- Leden: een lid in de lijst dat nog niemand heeft uitgenodigd, leest "Not invited" in plaats van "Invite expired"

@@ -1,3 +1,6 @@
-- Kontextové okno: přehled spotřeby ukazuje segmentovaný pruh toho, co plní kontext běhu, s legendou ke každému segmentu
-- Odhady: když v nastavení týmu zapnete škálu, issues dostanou odhad mezi svými vlastnostmi a aktivita ukazuje změny odhadu
-- Členové: pozvaný člověk se objeví v týmu hned i se svým jménem a nastavení „Members“ ukáže, kdo se ještě nepřipojil
+- Výběry: stav, řešitel, štítky, board i zbytek otevírají tentýž prohledávatelný list prostých řádků a vícenásobný výběr se pozná podle zvýraznění, ne podle kolečka
+- Běhy agentů: seznam běžících běhů se vnořuje, běhy workflow stojí pod jedním řádkem, který workflow otevře, běhy stacku pod dalším, a šipka oba sbalí
+- Workflows: obrazovka ztrácí blok nastavení, uzel říká svůj vlastní stav a otevírá se do Issue, Run a Changes a finální pull request se mergne odtud
+- Nastavení stroje: list je přeuspořádaný a nová stránka „Workflow settings“ drží modely, se kterými nový workflow startuje
+- Přepínač teamů: na šipce se objeví tečka, když jiný team drží některý z vašich živých běhů, a je jantarová, když běh čeká na vstup
+- Členové: člen v seznamu, kterého zatím nikdo nepozval, hlásí „Not invited“ místo „Invite expired“

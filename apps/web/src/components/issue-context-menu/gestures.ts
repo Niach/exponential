@@ -29,6 +29,9 @@ export interface IssueMenuTarget {
 /** Radix's `ContextMenuTrigger` long-press. */
 const LONG_PRESS_MS = 700
 const LONG_PRESS_SLOP_PX = 10
+/** How long after a `contextmenu` a `click` on the same element is the
+ *  gesture's tail rather than a new click. */
+const CONTEXT_CLICK_TAIL_MS = 100
 
 function isEditable(target: EventTarget | null): boolean {
   return (
@@ -86,6 +89,42 @@ export function useIssueMenuGestures(
       press = null
     }
 
+    // A macOS ctrl+click is a right-click, and Firefox follows the
+    // `contextmenu` with a `click` on the same element — which would open the
+    // row under the menu that just appeared. The tail is swallowed HERE, at
+    // the document in the capture phase, for one click within the tail
+    // window; a row-side `ctrlKey` check would make ctrl+click a dead click
+    // on Windows and Linux, where it is an ordinary modifier.
+    let tail: { element: HTMLElement; onClick: (event: MouseEvent) => void; timer: number } | null = null
+    const clearTail = () => {
+      if (!tail) return
+      document.removeEventListener(`click`, tail.onClick, { capture: true })
+      window.clearTimeout(tail.timer)
+      tail = null
+    }
+    const swallowClickTail = (element: HTMLElement) => {
+      clearTail()
+      const onClick = (click: MouseEvent) => {
+        if (!(click.target instanceof Node) || !element.contains(click.target)) {
+          return
+        }
+        click.stopPropagation()
+        click.preventDefault()
+        clearTail()
+      }
+      tail = {
+        element,
+        onClick,
+        timer: window.setTimeout(clearTail, CONTEXT_CLICK_TAIL_MS),
+      }
+      document.addEventListener(`click`, onClick, { capture: true })
+    }
+
+    const openFromContextMenu = (hit: IssueMenuHit, point: { x: number; y: number }) => {
+      onOpenRef.current(targetOf(hit, point))
+      swallowClickTail(hit.element)
+    }
+
     const onContextMenu = (event: MouseEvent) => {
       clearPress()
       if (event.defaultPrevented) return
@@ -102,14 +141,14 @@ export function useIssueMenuGestures(
         }
         const hit =
           findIssueMenuElement(event.target) ?? issueMenuElementAt(point.x, point.y)
-        if (hit) onOpenRef.current(targetOf(hit, point))
+        if (hit) openFromContextMenu(hit, point)
         return
       }
       if (isEditable(event.target)) return
       const hit = findIssueMenuElement(event.target)
       if (!hit) return
       event.preventDefault()
-      onOpenRef.current(targetOf(hit, point))
+      openFromContextMenu(hit, point)
     }
 
     const onPointerDown = (event: PointerEvent) => {
@@ -148,6 +187,7 @@ export function useIssueMenuGestures(
     document.addEventListener(`pointercancel`, onPointerEnd, { passive: true })
     return () => {
       clearPress()
+      clearTail()
       document.removeEventListener(`contextmenu`, onContextMenu)
       document.removeEventListener(`pointerdown`, onPointerDown)
       document.removeEventListener(`pointermove`, onPointerMove)

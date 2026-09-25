@@ -1,3 +1,6 @@
-- Kontextové okno: prehľad spotreby ukazuje pruh rozdelený na časti podľa toho, čo plní kontext behu, s legendou ku každej časti
-- Odhady: keď v nastaveniach tímu zapnete škálu, issues dostanú odhad medzi svojimi vlastnosťami a aktivita ukazuje zmeny odhadu
-- Členovia: pozvaný človek sa objaví v tíme hneď aj so svojím menom a nastavenia „Members“ ukážu, kto sa ešte nepripojil
+- Výbery: stav, riešiteľ, štítky, board aj zvyšok otvárajú ten istý prehľadávateľný panel s jednoduchými riadkami a viacnásobný výber vidno podľa zvýraznenia, nie podľa krúžku
+- Behy agenta: zoznam bežiacich behov sa vnára, behy workflowu stoja pod jedným riadkom, ktorý workflow otvorí, behy stacku pod ďalším, a šípka oba zbalí
+- Workflowy: obrazovka stráca blok nastavení, uzol povie svoj vlastný stav a otvorí sa do Issue, Run a Changes, a finálny pull request sa mergne odtiaľ
+- Nastavenia stroja: panel je preusporiadaný a nová stránka „Workflow settings“ drží modely, s ktorými nový workflow štartuje
+- Prepínač teamov: na šípke sa objaví bodka, keď iný team drží niektorý z vašich živých behov, a je jantárová, keď beh čaká na vstup
+- Členovia: člen v zozname, ktorého zatiaľ nikto nepozval, hlási „Not invited“ namiesto „Invite expired“

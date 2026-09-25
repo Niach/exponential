@@ -835,7 +835,6 @@ impl AutomationEditorState {
             count => format!("{count} selected").into(),
         };
         let picked = selected.to_vec();
-        let at_cap = selected.len() >= filter_cap();
         let view = cx.entity().downgrade();
         let trigger =
             picker_trigger(format!("{prefix}-filter-{key}").into(), button_label, cx)
@@ -843,16 +842,8 @@ impl AutomationEditorState {
         // EXP-1021: a filter is a MULTI pick, so it rides the shared picker —
         // its rows carry the subject's own glyph and a picked one reads as
         // the row's highlight, the same language every other multi picker
-        // speaks.
-        let items: Vec<crate::picker::PickerItem<String>> = items
-            .into_iter()
-            .map(|item| {
-                // At the cap only DEselection stays live — the server rejects
-                // a longer list.
-                let on = picked.iter().any(|entry| entry == &item.value);
-                item.disabled(at_cap && !on)
-            })
-            .collect();
+        // speaks. At the cap only DEselection stays live (the primitive's
+        // `max`): the server rejects a longer list.
         let control = crate::picker::deferred(move |window, cx| {
             crate::picker::Picker::multi(
                 items,
@@ -870,6 +861,7 @@ impl AutomationEditorState {
                 }),
             )
             .search(true)
+            .max(filter_cap())
             .empty_text("Nothing to filter on")
             .id(SharedString::from(format!("{prefix}-filter-{key}-picker")))
             .render(window, cx)

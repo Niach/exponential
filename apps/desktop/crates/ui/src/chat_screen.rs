@@ -2003,6 +2003,7 @@ impl ChatScreenView {
         // the window the play button was pressed in (the navigation hands
         // back through `navigation::owner_window_for`).
         if self.in_dialog() {
+            clear_open_dialog(cx.entity().entity_id(), cx);
             crate::native_dialog::close_dialog_window(window, cx);
         }
     }
@@ -2321,6 +2322,9 @@ impl ChatScreenView {
             )
             .search(true)
             .id("chat-issue-picker")
+            // The run cap (contract ×4): at it the unpicked rows go
+            // disabled, a checked one still toggles off.
+            .max(issue_picker::MAX_ISSUES_PER_RUN)
             .width(px(480.))
             .fit(fit)
             .empty_text("No open issues in this team.")
@@ -2905,13 +2909,10 @@ impl ChatScreenView {
     /// in-flight start — so the same title, body, graph and three answers
     /// take over the dialog's body instead.
     fn render_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let body = match self.blocked.take() {
-            Some(blocked) => {
-                let panel = self.render_blocked_panel(&blocked, cx);
-                self.blocked = Some(blocked);
-                panel
-            }
-            None => self.render_launcher(window, cx),
+        let body = if let Some(blocked) = self.blocked.as_ref() {
+            self.render_blocked_panel(blocked, cx)
+        } else {
+            self.render_launcher(window, cx)
         };
         v_flex()
             .size_full()
@@ -3050,6 +3051,23 @@ impl gpui::Global for OpenComposerDialog {}
 /// lighting up while its run is composed.
 pub(crate) fn register_open_dialog(view: &Entity<ChatScreenView>, cx: &mut App) {
     cx.set_global(OpenComposerDialog(view.downgrade()));
+    // Escape and the titlebar close drop the window, and the view with it:
+    // the global must not keep naming a composer that is gone.
+    let view_id = view.entity_id();
+    cx.observe_release(view, move |_, cx| clear_open_dialog(view_id, cx))
+        .detach();
+}
+
+/// Forget the open dialog once `view_id`'s composer is done (its run
+/// started, or its window closed). A global naming ANOTHER, newer dialog
+/// is left alone.
+fn clear_open_dialog(view_id: gpui::EntityId, cx: &mut App) {
+    let names_this = cx
+        .try_global::<OpenComposerDialog>()
+        .is_some_and(|open| open.0.entity_id() == view_id);
+    if names_this {
+        cx.remove_global::<OpenComposerDialog>();
+    }
 }
 
 /// EXP-862/EXP-1037 — the action the OPEN composer dialog is seeded with.

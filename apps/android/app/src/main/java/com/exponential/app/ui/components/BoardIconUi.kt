@@ -13,20 +13,30 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 
 /**
- * Resolve a board's display glyph: the stored `icon` when it's a known name in
- * the shared Lucide registry (EXP-273 — the same art web/iOS/desktop render),
- * else a fallback derived from the board's shape (pre-collapse rows have
- * icon = NULL). Mirrors web `getBoardIcon` now that `type` is gone: repo-backed
- * → code, else the plain kanban board.
+ * The board glyph rule at the NAME level: the stored `icon` when it's a known
+ * name in the shared Lucide registry (EXP-273 — the same art web/iOS/desktop
+ * render), else a fallback derived from the board's shape (pre-collapse rows
+ * have icon = NULL). Mirrors web `getBoardIcon` now that `type` is gone:
+ * repo-backed → `code`, else the plain kanban board. The ONE place the
+ * fallback is decided — [boardIcon] and the picker adapter (`toPickerBoard`)
+ * both resolve through it, so a board row never re-derives its glyph.
  */
+fun boardIconName(icon: String?, repositoryId: String?): String = when {
+    icon != null && ExpIcons.byName(icon) != null -> icon
+    // The two fallbacks name their glyphs DIRECTLY rather than borrowing a
+    // concept that happens to share the art today — web, iOS and desktop
+    // all hard-code `code`/`square-kanban` here, and re-pointing an
+    // unrelated concept must not silently change what a board draws.
+    repositoryId != null -> "code"
+    else -> "square-kanban"
+}
+
+/** Resolve a board's display glyph ([boardIconName], as the registry's art). */
 fun boardIcon(board: BoardEntity): ImageVector =
-    board.icon?.let { ExpIcons.byName(it) } ?: when {
-        // The two fallbacks name their glyphs DIRECTLY rather than borrowing a
-        // concept that happens to share the art today — web, iOS and desktop
-        // all hard-code `code`/`square-kanban` here, and re-pointing an
-        // unrelated concept must not silently change what a board draws.
-        board.repositoryId != null -> ExpIcons.`code`
-        else -> ExpIcons.`square-kanban`
+    // Both fallback names are registry members (contract `boardIcon`), so the
+    // resolved name always draws.
+    checkNotNull(ExpIcons.byName(boardIconName(board.icon, board.repositoryId))) {
+        "board glyph missing from the icon registry"
     }
 
 /**

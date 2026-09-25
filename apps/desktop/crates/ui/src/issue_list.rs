@@ -42,7 +42,6 @@ use sync::Store;
 use theme::tokens as t;
 
 use domain::board::format_short_date;
-use domain::issue_estimate::{estimate_label, estimate_picker_values, NO_ESTIMATE};
 use domain::issue_rail::{issue_rail, BlockEdge, RailEntry, RailRow};
 use domain::options::{get_issue_priority_config, ColorToken, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::{Issue, Label, Board, User};
@@ -53,7 +52,7 @@ use domain::IssueStatus;
 use crate::controls::WebControl as _;
 use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_detail::{apply_status_selection, set_duplicate_of};
-use crate::pickers::{option_item, status_menu, StatusMenuScope, StatusPick};
+use crate::pickers::{estimate_menu, option_item, status_menu, StatusMenuScope, StatusPick};
 use crate::navigation::{nav_for_window, navigate, resolved_screen, Navigation, Screen};
 use crate::issue_header::toggle_label;
 use crate::queries::{self, BoardData};
@@ -2219,7 +2218,7 @@ fn assignable_users(board_id: &str, current: Option<&str>, cx: &App) -> Vec<User
 }
 
 // ---------------------------------------------------------------------------
-// Row context menu (web `issue-row-menu/context-menu.tsx`)
+// Row context menu (web `issue-context-menu/session.tsx`)
 // ---------------------------------------------------------------------------
 
 /// Mirror of the web issue context menu — ONE layout, `@exp/ui`
@@ -2441,40 +2440,15 @@ pub(crate) fn build_row_context_menu(
         });
     }
 
-    // Estimate submenu (EXP-1077, web `EstimateSubmenu`): "No estimate", then
-    // the team scale's ladder (plus an off-ladder current value) — the
-    // header's `estimate_control` rows. Absent while the team's scale is
-    // `none`: estimates are OFF, not merely empty.
+    // Estimate submenu (EXP-1077, web `EstimateSubmenu`): the header's
+    // `estimate_control` rows, ONE body in `pickers::estimate_menu`. Absent
+    // while the team's scale is `none`: estimates are OFF, not merely empty.
     if let Some(scale) = estimate_scale_of(&issue.board_id, cx) {
         let issue_id = issue.id.clone();
         let current = issue.estimate;
         let icon = Icon::new(registry::UI_ESTIMATE);
         menu = menu.submenu_with_icon(Some(icon), "Estimate", window, cx, move |menu, _, _| {
-            let mut menu = menu.check_side(Side::Right);
-            let clear_id = issue_id.clone();
-            menu = menu.item(
-                PopupMenuItem::new(SharedString::from(NO_ESTIMATE))
-                    .checked(current.is_none())
-                    .on_click(move |_, _, cx| {
-                        let mut input = api::issues::IssuesUpdateInput::new(clear_id.clone());
-                        input.estimate = api::Patch::Null;
-                        spawn_issue_update(cx, input);
-                    }),
-            );
-            for value in estimate_picker_values(current, &scale) {
-                let issue_id = issue_id.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(estimate_label(Some(value), &scale)))
-                        .checked(current == Some(value))
-                        .on_click(move |_, _, cx| {
-                            let mut input =
-                                api::issues::IssuesUpdateInput::new(issue_id.clone());
-                            input.estimate = api::Patch::Set(value);
-                            spawn_issue_update(cx, input);
-                        }),
-                );
-            }
-            menu
+            estimate_menu(menu, issue_id.clone(), current, &scale)
         });
     }
 
@@ -2750,10 +2724,6 @@ pub(crate) fn spawn_issue_delete(cx: &mut App, issue_id: String) {
         .detach();
 }
 
-/// §4.1 un-gated inline mutation: fire `issues.update` on a background
-/// thread; the UI reflects the change when the Electric echo lands (observe →
-/// re-render). Errors are logged — the row simply stays put (the echo never
-/// arrives), matching the web's silent-toastless inline behavior.
 /// The team's estimate scale behind a board (`teams.estimation_type`), or
 /// `None` while the team does not estimate (EXP-630 `none`).
 fn estimate_scale_of(board_id: &str, cx: &App) -> Option<String> {
@@ -2763,6 +2733,10 @@ fn estimate_scale_of(board_id: &str, cx: &App) -> Option<String> {
     (scale != domain::contract::ISSUE_ESTIMATION_NONE).then_some(scale)
 }
 
+/// §4.1 un-gated inline mutation: fire `issues.update` on a background
+/// thread; the UI reflects the change when the Electric echo lands (observe →
+/// re-render). Errors are logged — the row simply stays put (the echo never
+/// arrives), matching the web's silent-toastless inline behavior.
 fn spawn_issue_update(cx: &mut App, input: api::issues::IssuesUpdateInput) {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] issues.update skipped: no signed-in account");

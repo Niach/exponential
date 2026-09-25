@@ -1,3 +1,6 @@
-- Finestra di contesto: il foglio dei consumi mostra una barra a segmenti di ciò che riempie il contesto di un'esecuzione, con una legenda per ogni segmento
-- Stime: con una scala attiva nelle impostazioni del team, le issue ricevono una stima tra le loro proprietà, e l'attività mostra i cambi di stima
-- Membri: una persona invitata compare subito nel team con il suo nome, e le impostazioni «Members» mostrano chi non si è ancora unito
+- Selettori: stato, assegnatario, label, board e il resto aprono lo stesso foglio con ricerca e righe semplici, e scegliere più voci si vede dall'evidenziazione invece che da un cerchio
+- Esecuzioni dell'agente: l'elenco delle esecuzioni in corso si annida, quelle di un workflow sotto una riga che apre il workflow e quelle di uno stack sotto un'altra, la freccia chiude entrambe
+- Workflow: la schermata perde il blocco delle impostazioni, un nodo dice il proprio stato e si apre su Issue, Run e Changes, e la pull request finale si unisce da lì
+- Impostazioni della macchina: il foglio è riordinato, e una nuova pagina «Workflow settings» tiene i modelli con cui parte un nuovo workflow
+- Cambio team: un punto sulla freccia quando un altro team ha una tua esecuzione in corso, ambra quando attende un input
+- Membri: un membro dell'elenco che nessuno ha ancora invitato riporta «Not invited» invece di «Invite expired»

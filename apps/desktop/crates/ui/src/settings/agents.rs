@@ -56,7 +56,7 @@ use coding::{CodingAgent, Settings};
 use crate::coding_flow::CodingHub;
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected,
-    ChoiceSelect,
+    workflow_model_choices_for, ChoiceSelect,
 };
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::surface;
@@ -103,6 +103,9 @@ pub struct AgentsPane {
     codex_workflow_strong_model_select: ChoiceSelect,
     /// EXP-1020: which sub-shell page is open, if any.
     nav: crate::sub_shell::SubShellNav,
+    /// The sub-shell page's back control: focused as the page opens, so
+    /// Escape pops the page rather than reaching whatever hosts the pane.
+    sub_shell_back_focus: gpui::FocusHandle,
     /// Which agent tab of the Agents card is showing — pure UI state, not
     /// persisted (EXP-206).
     agent_tab: CodingAgent,
@@ -163,25 +166,25 @@ impl AgentsPane {
         let (codex_workflow, codex_workflow_strong) =
             crate::device_settings::workflow_pair_for(&defaults, CodingAgent::Codex);
         let workflow_model_select = choice_select(
-            model_choices_for(CodingAgent::Claude),
+            &workflow_model_choices_for(CodingAgent::Claude),
             &claude_workflow,
             window,
             cx,
         );
         let workflow_strong_model_select = choice_select(
-            model_choices_for(CodingAgent::Claude),
+            &workflow_model_choices_for(CodingAgent::Claude),
             &claude_workflow_strong,
             window,
             cx,
         );
         let codex_workflow_model_select = choice_select(
-            model_choices_for(CodingAgent::Codex),
+            &workflow_model_choices_for(CodingAgent::Codex),
             &codex_workflow,
             window,
             cx,
         );
         let codex_workflow_strong_model_select = choice_select(
-            model_choices_for(CodingAgent::Codex),
+            &workflow_model_choices_for(CodingAgent::Codex),
             &codex_workflow_strong,
             window,
             cx,
@@ -247,6 +250,7 @@ impl AgentsPane {
             codex_workflow_model_select,
             codex_workflow_strong_model_select,
             nav: crate::sub_shell::SubShellNav::new(),
+            sub_shell_back_focus: cx.focus_handle(),
             agent_tab: defaults.default_agent,
             claude_ultracode: defaults.claude_ultracode,
             claude_plan_mode: defaults.claude_plan_mode,
@@ -518,8 +522,9 @@ impl AgentsPane {
                     crate::icons::registry::NAV_WORKFLOWS,
                 ))
                 .value(workflow_summary),
-            cx.listener(|this: &mut Self, _, _window, cx| {
+            cx.listener(|this: &mut Self, _, window, cx| {
                 this.nav.open("Workflow settings");
+                crate::sub_shell::focus_back_on_open(&this.sub_shell_back_focus, window, cx);
                 cx.notify();
             }),
             cx,
@@ -650,6 +655,7 @@ impl Render for AgentsPane {
             let page = crate::device_settings::render_workflow_page(&model, &strong_model, cx);
             host = host.open(
                 crate::sub_shell::SubShellPage::new("Workflow settings", page),
+                &self.sub_shell_back_focus,
                 cx.listener(|this: &mut Self, _, _window, cx| {
                     this.nav.back();
                     cx.notify();

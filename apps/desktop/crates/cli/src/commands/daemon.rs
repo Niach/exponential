@@ -4095,7 +4095,7 @@ struct WorkflowPlan {
     review_session_live: HashMap<String, bool>,
     /// `node id → the LIVE run on its review branch`, whatever id was
     /// recorded: a resumed reviewer is followed, a stray one adopted, and
-    /// neither is doubled ([`coding::workflows::live_reviews_on_branches`]).
+    /// neither is doubled ([`coding::workflows::live_pending_reviews_on_branches`]).
     review_live_on_branch: HashMap<String, String>,
     name: String,
     team_id: String,
@@ -4250,10 +4250,16 @@ fn workflow_plan(
     );
     // A reviewer that was resumed runs on the SAME review branch under a
     // new session id: the branch, not the recorded id, says which nodes are
-    // being reviewed right now.
-    let review_live_on_branch = coding::workflows::live_reviews_on_branches(
+    // being reviewed right now. Only the PENDING round's reviewer counts: an
+    // older round's lingering run is not one.
+    let review_round_of: HashMap<String, i64> = nodes
+        .iter()
+        .map(|node| (node.id.clone(), node.review_round))
+        .collect();
+    let review_live_on_branch = coding::workflows::live_pending_reviews_on_branches(
         &workflow.id,
         &identifier,
+        &review_round_of,
         live_session_branches(session_rows),
     );
     Some(WorkflowPlan {

@@ -1,3 +1,6 @@
-- Fereastra de context: panoul de consum arată o bară împărțită pe segmente cu ce umple contextul unei rulări, cu o legendă pentru fiecare segment
-- Estimări: cu o scală activată în setările echipei, issue-urile primesc o estimare între proprietățile lor, iar activitatea arată schimbările de estimare
-- Membri: o persoană invitată apare imediat în echipă cu numele ei, iar setările „Members” arată cine nu s-a alăturat încă
+- Selectoare: starea, responsabilul, etichetele, board-ul și restul deschid același panou cu căutare și rânduri simple, iar alegerea mai multor elemente se vede prin evidențiere, nu printr-un cerc
+- Rulări ale agentului: lista rulărilor în curs se imbrică, rulările unui workflow stau sub un rând care deschide workflow-ul, cele ale unui stack sub altul, iar săgeata le pliază pe amândouă
+- Workflow-uri: ecranul pierde blocul de setări, un nod își spune propria stare și se deschide în Issue, Run și Changes, iar pull request-ul final se îmbină de acolo
+- Setările mașinii: panoul este rearanjat, iar o pagină nouă „Workflow settings” ține modelele cu care pornește un workflow nou
+- Comutatorul de team: un punct pe săgeată când alt team are una dintre rulările tale în curs, chihlimbariu când rularea așteaptă o intrare
+- Membri: un membru din listă pe care nu l-a invitat încă nimeni apare „Not invited” în loc de „Invite expired”

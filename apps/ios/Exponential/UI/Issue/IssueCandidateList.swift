@@ -66,10 +66,13 @@ struct IssueCandidatePicker: View {
         let rows = ranked
         IssuePicker(
             issues: rows.map(IssuePickerIssue.init),
-            // EXP-892: while a query is being typed the best match — the top
-            // row — reads as selected, the same contract the `#` menu keeps.
-            // The picker's own highlight is what draws it (EXP-1021).
-            value: trimmedQuery.isEmpty ? [] : Set(rows.prefix(1).map(\.id)),
+            // Nothing is picked while the linker is open: a single pick reads
+            // as a trailing CHECK (`GlassPickerTokens.selectionStyle(.single)`),
+            // so preselecting the best match would paint the top row as
+            // already linked while the query is still being typed. The
+            // desktop's Enter-picks-the-top-row contract has no phone
+            // counterpart — a tap IS the pick, and it closes the sheet.
+            value: [],
             onChange: { picked in
                 guard let issue = rows.first(where: { picked.contains($0.id) }) else { return }
                 onSelect(issue)

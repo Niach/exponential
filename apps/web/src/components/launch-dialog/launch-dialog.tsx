@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { contract } from "@exp/domain-contract"
 import {
   Dialog,
@@ -17,7 +17,11 @@ import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { closeLaunchDialog, useLaunchDialogSeed } from "@/lib/launch-dialog-store"
+import {
+  closeLaunchDialog,
+  useLaunchDialogSeed,
+  type LaunchDialogRequest,
+} from "@/lib/launch-dialog-store"
 import type { LaunchSeed } from "@/lib/launch-seed"
 
 // EXP-1019: the START-CODING DIALOG — the ONE launcher, opened over wherever
@@ -36,7 +40,10 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // so the pickers, the options line, the blocked-start gate, the image
 // plumbing and the per-subject submit label cannot drift between the two
 // surfaces. What the dialog adds is a shell: a title, a scroll body and the
-// rule that a started run shuts it.
+// rule that a started run shuts it — and, until then, that nothing ELSE
+// shuts it: the body owns the `useRemoteStart` whose run watch and deadline
+// toast would die with it, so a dismissal while a start is pending is
+// refused rather than dropping "Waiting for buildbox…" on the floor.
 
 /**
  * Mounted ONCE in the team layout. Renders nothing until something asks for
@@ -49,11 +56,17 @@ export function LaunchDialogHost({ team }: { team: Team | null | undefined }) {
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   const open = seed !== null && Boolean(team)
+  // Reported up by the body: a start was sent and its run has not landed yet.
+  // Every dismissal path Radix owns (✕, the overlay, the sheet drag's hidden
+  // Close) funnels through `onOpenChange(false)`, so the guard sits here; the
+  // body vetoes Escape and outside-pointer at the layer as well, so the
+  // gesture does not even flicker the overlay.
+  const [pendingStart, setPendingStart] = useState(false)
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) closeLaunchDialog()
+        if (!next && !pendingStart) closeLaunchDialog()
       }}
     >
       {/* Keyed by seed identity: a second play button while the dialog is up
@@ -64,7 +77,12 @@ export function LaunchDialogHost({ team }: { team: Team | null | undefined }) {
           opens and says so, rather than the button doing nothing at all. */}
       {open && team ? (
         steerEnabled ? (
-          <LaunchDialogBody key={seedKey(seed)} team={team} seed={seed} />
+          <LaunchDialogBody
+            key={seedKey(seed)}
+            team={team}
+            request={seed}
+            onPendingStartChange={setPendingStart}
+          />
         ) : (
           <DialogContent mobile="alert" data-testid="launch-dialog">
             <DialogHeader>
@@ -94,18 +112,27 @@ function seedKey(seed: LaunchSeed): string {
 
 function LaunchDialogBody({
   team,
-  seed,
+  request,
+  onPendingStartChange,
 }: {
   team: Team
-  seed: LaunchSeed
+  request: LaunchDialogRequest
+  /** `true` from send until the run's row lands or the deadline passes. */
+  onPendingStartChange: (pending: boolean) => void
 }) {
   const { data: authSession } = useSession()
   const currentUserId = authSession?.user?.id
   const { users } = useTeamUsers(team.id)
+  // EXP-870: the ORIGIN the play button named rides the request (a pinned
+  // row's `null` = context-free); the watch that opens the run hands it on.
+  // The key absent = the hook derives it from the URL, so it is only spread
+  // in when the caller answered.
+  const { origin, ...seed } = request
   const remote = useRemoteStart({
     enabled: true,
     currentUserId,
     teamId: team.id,
+    ...(`origin` in request ? { origin } : {}),
   })
   // The seed is one-shot here as well: the hook reports back once it has
   // applied it, and re-handing it would re-check issues the person just
@@ -132,18 +159,28 @@ function LaunchDialogBody({
   const sent = remote.sentTo !== null
   const wasSentRef = useRef(false)
   useEffect(() => {
+    onPendingStartChange(sent)
     if (sent) {
       wasSentRef.current = true
       return
     }
     if (wasSentRef.current) closeLaunchDialog()
-  }, [sent])
+  }, [sent, onPendingStartChange])
+  // A remount on a new seed must not leave the host thinking a start is
+  // still pending.
+  useEffect(() => () => onPendingStartChange(false), [onPendingStartChange])
 
   return (
     <DialogContent
       mobile="sheet-full"
       className="flex max-h-[85vh] flex-col gap-0 sm:max-w-2xl"
       data-testid="launch-dialog"
+      onEscapeKeyDown={(event) => {
+        if (sent) event.preventDefault()
+      }}
+      onInteractOutside={(event) => {
+        if (sent) event.preventDefault()
+      }}
     >
       <DialogHeader>
         {/* The VISIBLE headline is the composer's own (chips and all); the

@@ -17,7 +17,7 @@ import { useSession } from "@/hooks/use-session"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { codingSessionCollection } from "@/lib/collections"
 import { useSessionListRows } from "@/hooks/use-agents-data"
-import { SessionTreeList } from "@/components/session-tree-list"
+import { SessionTree } from "@/components/session-tree"
 import {
   conceptIcon,
   GlassSectionHeader,
@@ -401,7 +401,7 @@ function AutomationsListNav({ team }: { team: Team }) {
   return (
     <div className="flex-1 overflow-y-auto p-2">
       {/* EXP-897: nested, like every other session list. */}
-      <SessionTreeList
+      <SessionTree
         rows={rows}
         activeSessionId={sessionId}
         onOpen={(session) =>

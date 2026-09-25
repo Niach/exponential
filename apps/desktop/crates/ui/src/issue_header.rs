@@ -35,14 +35,12 @@ use gpui_component::{
     calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Icon, Sizable as _, Side,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
 use domain::board::format_short_date;
-use domain::issue_estimate::{
-    estimate_label, estimate_picker_values, estimate_short_label, NO_ESTIMATE,
-};
+use domain::issue_estimate::estimate_short_label;
 use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
@@ -575,31 +573,12 @@ impl IssueHeader {
             )
             .child(crate::pickers::chip_label(label, current.is_none(), cx));
         Some(trigger.dropdown_menu(move |menu, _window, _cx| {
-            let mut menu = menu.min_w(px(PICKER_MENU_MIN_WIDTH)).check_side(Side::Right);
-            let clear_id = issue_id.clone();
-            menu = menu.item(
-                PopupMenuItem::new(SharedString::from(NO_ESTIMATE))
-                    .checked(current.is_none())
-                    .on_click(move |_, _window, cx| {
-                        let mut input = api::issues::IssuesUpdateInput::new(clear_id.clone());
-                        input.estimate = api::Patch::Null;
-                        spawn_issue_update(cx, input);
-                    }),
-            );
-            for value in estimate_picker_values(current, &scale) {
-                let issue_id = issue_id.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(estimate_label(Some(value), &scale)))
-                        .checked(current == Some(value))
-                        .on_click(move |_, _window, cx| {
-                            let mut input =
-                                api::issues::IssuesUpdateInput::new(issue_id.clone());
-                            input.estimate = api::Patch::Set(value);
-                            spawn_issue_update(cx, input);
-                        }),
-                );
-            }
-            menu
+            crate::pickers::estimate_menu(
+                menu.min_w(px(PICKER_MENU_MIN_WIDTH)),
+                issue_id.clone(),
+                current,
+                &scale,
+            )
         }))
     }
 

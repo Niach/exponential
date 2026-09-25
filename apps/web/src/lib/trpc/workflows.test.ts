@@ -33,7 +33,12 @@ const h = vi.hoisted(() => ({
   // EXP-1032 — the completion path.
   openWorkflowFinalPr: vi.fn(async (..._args: unknown[]) => ({ url: `https://gh/pr/9` })),
   applyWorkflowFinalPrState: vi.fn(async (..._args: unknown[]) => true),
-  loadRepository: vi.fn(async (..._args: unknown[]) => ({ id: `repo-1`, fullName: `o/r` })),
+  loadRepository: vi.fn(async (..._args: unknown[]) => ({
+    id: `repo-1`,
+    // = TEAM below: `mergeFinalPr` refuses another team's repository.
+    teamId: `11111111-1111-4111-8111-111111111111`,
+    fullName: `o/r`,
+  })),
   mergeRepositoryPull: vi.fn(async (..._args: unknown[]) => ({ merged: true as const })),
 }))
 
@@ -148,6 +153,20 @@ const workflow = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 const rejection = async (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e as TRPCError)
+// compat: what a launch is STORED as — the normalized keys plus the legacy
+// per-phase pins a desktop/CLI 0.14.49/0.14.50 engine still reads (each
+// `strongModel`, `subagentModel` = `model`). Collapses back to `launch`
+// once CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.51.
+const stored = (launch: { model: string; strongModel: string } & Record<string, unknown>) => ({
+  ...launch,
+  contractModel: launch.strongModel,
+  integrationModel: launch.strongModel,
+  riskModel: launch.strongModel,
+  reviewModel: launch.strongModel,
+  subagentModel: launch.model,
+})
+const claudeDefaults = { agent: `claude`, model: `opus`, strongModel: `fable` }
+const codexDefaults = { agent: `codex`, model: `gpt-5.6-sol`, strongModel: `gpt-5.6-luna` }
 
 beforeEach(() => {
   selectQueue.length = 0
@@ -169,18 +188,85 @@ describe(`workflows.create`, () => {
     const result = await caller.create({ teamId: TEAM, issueIds: [B, A] })
     expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
     expect(written[0]!.values).toMatchObject({ name: `APP-6 +1`, repositoryId: `repo-1` })
-    // EXP-1029: two models and nothing else, and `startOn` is no longer a
-    // choice. A workflow is BORN with no runner, so the contract defaults
-    // stand — binding a device (`update`) is what re-seeds them.
+    // EXP-1029: two models, and `startOn` is no longer a choice. A workflow
+    // is BORN with no runner, so the contract defaults stand — binding a
+    // device is what re-seeds them. compat: the legacy pins ride beside the
+    // two models for the 0.14.49/0.14.50 engines (`stored`).
     expect(written[0]!.values).toMatchObject({
-      launch: { agent: `claude`, model: `opus`, strongModel: `fable` },
+      launch: stored(claudeDefaults),
       startOn: `contract`,
     })
     expect(
       Object.keys((written[0]!.values as { launch: object }).launch).sort()
-    ).toEqual([`agent`, `model`, `strongModel`])
+    ).toEqual([
+      `agent`,
+      `contractModel`,
+      `integrationModel`,
+      `model`,
+      `reviewModel`,
+      `riskModel`,
+      `strongModel`,
+      `subagentModel`,
+    ])
+    expect((written[0]!.values as { deviceId?: unknown }).deviceId).toBeUndefined()
     expect(h.replanWorkflow).toHaveBeenCalledTimes(1)
     expect(result.workflow.metrics).toMatchObject({ nodes: 2 })
+  })
+
+  // EXP-1032: the IDE binds its own machine at creation (`deviceId`); the
+  // launch is seeded from it exactly as `update({deviceId})` seeds it.
+  it(`binds the runner sent with the draft and seeds the launch from that machine`, async () => {
+    // The picked issues, then `launchForDevice`'s read of the devices row.
+    selectQueue.push(
+      [issue(A)],
+      [
+        {
+          launchDefaults: {
+            defaultAgent: `codex`,
+            defaultAccount: `p-7`,
+            workflow: { model: `gpt-5.6-luna`, strongModel: `gpt-5.6-luna` },
+          },
+        },
+      ]
+    )
+    await caller.create({ teamId: TEAM, issueIds: [A], deviceId: `dev-codex` })
+    expect(written[0]!.values).toMatchObject({
+      deviceId: `dev-codex`,
+      launch: stored({
+        agent: `codex`,
+        account: `p-7`,
+        model: `gpt-5.6-luna`,
+        strongModel: `gpt-5.6-luna`,
+      }),
+    })
+    // Ownership + cap, the seeded agent, then the final check on the agent
+    // the workflow will run on.
+    expect(h.assertDeviceUsable).toHaveBeenCalledWith(
+      `dev-codex`,
+      TEAM,
+      `user-1`,
+      null,
+      expect.objectContaining({ cap: `workflows` })
+    )
+    expect(h.assertDeviceUsable).toHaveBeenLastCalledWith(
+      `dev-codex`,
+      TEAM,
+      `user-1`,
+      `codex`,
+      expect.objectContaining({ cap: `workflows` })
+    )
+  })
+
+  it(`refuses a runner the caller cannot use, before anything is written`, async () => {
+    h.assertDeviceUsable.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Not your device` })
+    )
+    selectQueue.push([issue(A)])
+    const error = await rejection(
+      caller.create({ teamId: TEAM, issueIds: [A], deviceId: `dev-stranger` })
+    )
+    expect(error?.message).toBe(`Not your device`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -237,10 +323,40 @@ describe(`workflows.update`, () => {
     )
     expect(strong?.message).toBe(`Unknown codex model`)
 
-    // A deprecated pin is refused through the `strongModel` it folds into.
+  })
+
+  // compat: iOS 0.14.42, Android 0.14.43 and desktop 0.14.50 offer the CLAUDE
+  // list for the review model whatever the agent and re-send the whole launch
+  // on every save; the base server never validated `reviewModel`. A folded
+  // pin outside the agent's vocabulary heals to the agent's default strong
+  // model; an explicit `strongModel` is still held to the vocabulary.
+  it(`heals a deprecated pin outside the vocabulary instead of refusing the save`, async () => {
     selectQueue.push([workflow()])
-    const pin = await rejection(caller.update({ id: WF, launch: { riskModel: `nope` } }))
-    expect(pin?.message).toBe(`Unknown claude model`)
+    await caller.update({ id: WF, launch: { riskModel: `nope` } })
+    expect(written[0]!.values).toEqual({ launch: stored(claudeDefaults) })
+
+    written.length = 0
+    selectQueue.push([workflow()])
+    await caller.update({
+      id: WF,
+      launch: { agent: `codex`, model: `gpt-5.6-sol`, reviewModel: `opus` },
+    })
+    expect(written[0]!.values).toEqual({ launch: stored(codexDefaults) })
+
+    // A pin INSIDE the vocabulary still folds in as before.
+    written.length = 0
+    selectQueue.push([workflow()])
+    await caller.update({ id: WF, launch: { agent: `codex`, reviewModel: `gpt-5.6-terra` } })
+    expect(written[0]!.values).toEqual({
+      launch: stored({ ...codexDefaults, strongModel: `gpt-5.6-terra` }),
+    })
+
+    // The heal never covers an explicit strongModel.
+    selectQueue.push([workflow()])
+    const explicit = await rejection(
+      caller.update({ id: WF, launch: { agent: `codex`, strongModel: `opus`, reviewModel: `opus` } })
+    )
+    expect(explicit?.message).toBe(`Unknown codex model`)
   })
 
   it(`checks a runner against the workflows capability`, async () => {
@@ -270,26 +386,29 @@ describe(`workflows.update`, () => {
     expect(written).toEqual([])
   })
 
-  // EXP-1029: a launch is stored as the four new keys, whatever vintage the
-  // client that sent it is. The deprecated pins fold into `strongModel`.
+  // EXP-1029: a launch is stored as the NORMALIZED one, whatever vintage the
+  // client that sent it is: the deprecated pins fold into `strongModel`, and
+  // (compat) are written back OUT of it for the 0.14.49/0.14.50 engines, so a
+  // pin never survives on its own.
   describe(`the stored launch is the NORMALIZED one`, () => {
-    it(`folds an old client's phase pins into strongModel and drops the rest`, async () => {
+    it(`folds an old client's phase pins into strongModel and re-derives the rest from it`, async () => {
       selectQueue.push([workflow()])
       await caller.update({
         id: WF,
         launch: {
           agent: `claude`,
           model: `sonnet`,
-          contractModel: `fable`,
-          integrationModel: `fable`,
+          // `riskModel` outranks the phase pins in the fold.
           riskModel: `fable`,
-          subagentModel: `opus`,
+          contractModel: `opus`,
+          integrationModel: `opus`,
+          subagentModel: `fable`,
           effort: `high`,
           maxParallel: 5,
         },
       })
       expect(written[0]!.values).toEqual({
-        launch: { agent: `claude`, model: `sonnet`, strongModel: `fable` },
+        launch: stored({ agent: `claude`, model: `sonnet`, strongModel: `fable` }),
       })
     })
 
@@ -299,7 +418,7 @@ describe(`workflows.update`, () => {
       ])
       await caller.update({ id: WF, launch: { agent: `claude`, model: `sonnet` } })
       expect(written[0]!.values).toEqual({
-        launch: { agent: `claude`, model: `sonnet`, strongModel: `fable` },
+        launch: stored({ agent: `claude`, model: `sonnet`, strongModel: `fable` }),
       })
     })
   })
@@ -327,12 +446,12 @@ describe(`workflows.update`, () => {
       await caller.update({ id: WF, deviceId: `dev-codex` })
       expect(written[0]!.values).toEqual({
         deviceId: `dev-codex`,
-        launch: {
+        launch: stored({
           agent: `codex`,
           account: `p-7`,
           model: `gpt-5.6-luna`,
           strongModel: `gpt-5.6-luna`,
-        },
+        }),
       })
     })
 
@@ -341,7 +460,7 @@ describe(`workflows.update`, () => {
       await caller.update({ id: WF, deviceId: `dev-1` })
       expect(written[0]!.values).toEqual({
         deviceId: `dev-1`,
-        launch: { agent: `claude`, model: `opus`, strongModel: `fable` },
+        launch: stored(claudeDefaults),
       })
     })
 
@@ -352,7 +471,7 @@ describe(`workflows.update`, () => {
       expect(written[0]!.values).toEqual({
         deviceId: `dev-codex`,
         // The account belonged to claude, so it goes with it.
-        launch: { agent: `codex`, model: `gpt-5.6-sol`, strongModel: `gpt-5.6-luna` },
+        launch: stored(codexDefaults),
       })
       h.assertDeviceUsable.mockReset()
     })
@@ -485,6 +604,29 @@ describe(`workflows.start`, () => {
       expect.objectContaining({ state: `blocked`, attempt: 0, sessionId: null }),
       expect.objectContaining({ status: `running` }),
     ])
+    // A launch that reads fine is left alone.
+    expect((written[1]!.values as { launch?: unknown }).launch).toBeUndefined()
+  })
+
+  // compat: a row an old client saved with a claude review pin on a codex
+  // workflow (see `workflows.update`) folds to a strongModel codex cannot
+  // start on; starting heals it to codex's default and writes that back.
+  it(`heals a stored launch whose folded strongModel is outside the agent's vocabulary`, async () => {
+    selectQueue.push([
+      workflow({ ...ready, launch: { agent: `codex`, model: `gpt-5.6-sol`, reviewModel: `opus` } }),
+    ])
+    await caller.start({ id: WF })
+    expect(h.assertDeviceUsable).toHaveBeenCalledWith(
+      `dev-1`,
+      TEAM,
+      `user-1`,
+      `codex`,
+      expect.objectContaining({ cap: `workflows` })
+    )
+    expect(written[1]!.values).toMatchObject({
+      status: `running`,
+      launch: stored(codexDefaults),
+    })
   })
 })
 
@@ -531,19 +673,6 @@ describe(`the engine's write path`, () => {
     selectQueue.push(...live)
     updateQueue.push([])
     expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
-  })
-
-  // compat: desktop/CLI ≤0.14.46 engines.
-  it(`writes a legacy \`paused\` report as a held \`failed\``, async () => {
-    selectQueue.push(
-      [node({ state: `running` })],
-      [workflow({ status: `running`, deviceId: `dev-1` })],
-      [{ id: `device-row` }]
-    )
-    await caller.reportNode({ nodeId: NODE, state: `paused` as never, note: `Budget` })
-    expect(written[0]!.values).toMatchObject({ state: `failed`, note: `Budget` })
-    // Past the engine's one free restart.
-    expect((written[0]!.values as { attempt?: unknown }).attempt).toBeDefined()
   })
 
   it(`a person's approval drops the reviewer's head so the engine never reads it as stale`, async () => {
@@ -845,7 +974,69 @@ describe(`workflows.submitReview`, () => {
     const error = await rejection(submit(AUTHOR_RUN))
     expect(error?.code).toBe(`FORBIDDEN`)
     expect(error?.message).toContain(`cannot review itself`)
+    // The refusal tells the agent what to do next.
+    expect(error?.message).toContain(`Check nodeId against the node named in your prompt`)
+    expect(error?.message).toContain(`exponential_report_bug`)
     expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  // Every engine-started reviewer carries its review branch, so the branch
+  // decides: `started_reason = workflow` on ANOTHER node's branch is another
+  // node's reviewer, never a pass for this one.
+  it(`refuses the workflow-started reviewer of node A submitting for node B`, async () => {
+    selectQueue.push(
+      [node({ issueId: B })],
+      [running()],
+      [{ id: `device-row` }],
+      // The reviewer of APP-6 (node A), the engine's own start.
+      [reviewer()],
+      [{ identifier: `APP-10` }]
+    )
+    const error = await rejection(submit(REVIEW_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  // compat: a desktop/CLI 0.14.49/0.14.50 host spawns a second reviewer after
+  // an account switch; both pass the gate and both submit for the same head.
+  it(`answers a second verdict for the reviewed head with the stored outcome, claiming no round`, async () => {
+    const review = {
+      verdict: `approve`,
+      findings: ``,
+      oracle: { command: `bun test`, passed: true },
+      model: null,
+      round: 1,
+      at: `2026-09-25T10:00:00.000Z`,
+      head: `abc1234def`,
+    }
+    selectQueue.push(
+      [node({ review, reviewRound: 1 })],
+      [running()],
+      [{ id: `device-row` }],
+      [reviewer()],
+      [{ identifier: `APP-6` }]
+    )
+    expect(await submit(REVIEW_RUN, { head: `abc1234def`, verdict: `request_changes` })).toEqual({
+      round: 1,
+      approve: true,
+      state: `in_review`,
+      note: `Agent review passed, backed by its checks`,
+    })
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+    expect(written).toEqual([])
+
+    // A NEW head is a fresh review, and so is the same head once a round was
+    // claimed since (the author pushed and the engine re-reviewed).
+    for (const over of [
+      { review, reviewRound: 1, head: `ffff1234ab` },
+      { review, reviewRound: 2, head: `abc1234def` },
+    ]) {
+      const { head, ...row } = over
+      selectQueue.push([node(row)], [running()], [{ id: `device-row` }], [reviewer()], [{ identifier: `APP-6` }])
+      updateQueue.push([{ round: row.reviewRound + 1 }])
+      expect((await submit(REVIEW_RUN, { head })).round).toBe(row.reviewRound + 1)
+    }
+    expect(fakeDb.transaction).toHaveBeenCalledTimes(2)
   })
 
   it.each([
@@ -864,7 +1055,14 @@ describe(`workflows.submitReview`, () => {
   // successor is still the workflow's reviewer: its branch says so, and
   // failing that the guard walks `resumed_from_id` back.
   it(`accepts a reviewer resumed after an account switch through its succession`, async () => {
-    selectQueue.push([node()], [running()], [{ id: `device-row` }], [resumed({ branch: null })], [reviewer()])
+    selectQueue.push(
+      [node()],
+      [running()],
+      [{ id: `device-row` }],
+      [resumed({ branch: null })],
+      [reviewer()],
+      [{ identifier: `APP-6` }]
+    )
     updateQueue.push([{ round: 2 }])
     const result = await submit(RESUMED_RUN, { head: `e39378c61d3` })
     expect(result).toMatchObject({ round: 2, approve: true, state: `in_review` })
@@ -882,7 +1080,8 @@ describe(`workflows.submitReview`, () => {
       [{ id: `device-row` }],
       [resumed({ branch: null, resumedFromId: MIDDLE })],
       [resumed({ id: MIDDLE, branch: null })],
-      [reviewer()]
+      [reviewer()],
+      [{ identifier: `APP-6` }]
     )
     updateQueue.push([{ round: 1 }])
     await expect(submit(RESUMED_RUN)).resolves.toMatchObject({ round: 1 })
@@ -982,7 +1181,7 @@ describe(`workflows.submitReview`, () => {
   })
 
   it(`takes an oracle command longer than the old 500-character cap`, async () => {
-    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()])
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()], [{ identifier: `APP-6` }])
     updateQueue.push([{ round: 1 }])
     const command = Array.from({ length: 20 }, (_, i) => `bun run test -- suite-${i}.test.ts`).join(` && `)
     expect(command.length).toBeGreaterThan(500)
@@ -993,7 +1192,7 @@ describe(`workflows.submitReview`, () => {
   })
 
   it(`claims the round in SQL, stores the reviewed head and approves on evidence`, async () => {
-    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()])
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()], [{ identifier: `APP-6` }])
     updateQueue.push([{ round: 1 }])
     const result = await submit(REVIEW_RUN, { head: `abc1234def` })
     expect(result).toMatchObject({ round: 1, approve: true, state: `in_review` })
@@ -1021,7 +1220,7 @@ describe(`workflows.submitReview`, () => {
   })
 
   it(`leaves a paused or waiting node alone`, async () => {
-    selectQueue.push([node({ state: `paused` })], [running()], [{ id: `device-row` }], [reviewer()])
+    selectQueue.push([node({ state: `paused` })], [running()], [{ id: `device-row` }], [reviewer()], [{ identifier: `APP-6` }])
     updateQueue.push([])
     const error = await rejection(submit(REVIEW_RUN))
     expect(error?.message).toContain(`not under review`)
@@ -1029,7 +1228,7 @@ describe(`workflows.submitReview`, () => {
   })
 
   it(`refuses an approval past the round cap`, async () => {
-    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()])
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()], [{ identifier: `APP-6` }])
     updateQueue.push([{ round: 4 }])
     const error = await rejection(submit(REVIEW_RUN))
     expect(error?.message).toContain(`used up`)
@@ -1163,6 +1362,32 @@ describe(`workflow completion (EXP-1032)`, () => {
     selectQueue.push([running({ finalPrUrl: null })])
     const error = await rejection(caller.mergeFinalPr({ id: WF }))
     expect(error?.code).toBe(`PRECONDITION_FAILED`)
+  })
+
+  it(`refuses to merge a cancelled workflow's final PR`, async () => {
+    selectQueue.push([
+      running({
+        status: `cancelled`,
+        finalPrUrl: `https://gh/pr/9`,
+        finalPrNumber: 9,
+        finalPrState: `open`,
+      }),
+    ])
+    const error = await rejection(caller.mergeFinalPr({ id: WF }))
+    expect(error?.code).toBe(`PRECONDITION_FAILED`)
+    expect(error?.message).toContain(`cancelled`)
+    expect(h.mergeRepositoryPull).not.toHaveBeenCalled()
+  })
+
+  it(`never merges into a repository of another team`, async () => {
+    h.loadRepository.mockResolvedValueOnce({ id: `repo-1`, teamId: `other-team`, fullName: `o/r` })
+    selectQueue.push([
+      running({ finalPrUrl: `https://gh/pr/9`, finalPrNumber: 9, finalPrState: `open` }),
+    ])
+    const error = await rejection(caller.mergeFinalPr({ id: WF }))
+    expect(error?.code).toBe(`NOT_FOUND`)
+    expect(h.mergeRepositoryPull).not.toHaveBeenCalled()
+    expect(h.applyWorkflowFinalPrState).not.toHaveBeenCalled()
   })
 
   it(`a node merged outside the train still lets the workflow complete`, async () => {

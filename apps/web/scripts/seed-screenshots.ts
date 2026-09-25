@@ -367,6 +367,7 @@ async function main() {
     role: `member`,
     token: DEMO_INVITE_TOKEN,
     email: NEWCOMER_EMAIL,
+    sentAt: new Date(),
     expiresAt: DEMO_PENDING_INVITE_EXPIRY.demo,
   })
 
@@ -384,6 +385,7 @@ async function main() {
       token: `screenshots-demo-invite-priya`,
       email: `priya@northwind.dev`,
       createdAt: daysAgo(2),
+      sentAt: daysAgo(2),
       expiresAt: DEMO_PENDING_INVITE_EXPIRY.mailed,
     },
     {
@@ -392,6 +394,7 @@ async function main() {
       role: `member`,
       token: `screenshots-demo-invite-link`,
       createdAt: hoursAgo(20),
+      sentAt: hoursAgo(20),
       expiresAt: DEMO_PENDING_INVITE_EXPIRY.link,
     },
   ])

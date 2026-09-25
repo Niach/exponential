@@ -31,10 +31,12 @@ use gpui_component::{
 };
 use theme::tokens as t;
 
+use domain::issue_estimate::{estimate_label, estimate_picker_values, NO_ESTIMATE};
 use domain::statuses::{IssueStatusCategory, ResolvedStatus};
 use domain::IssueStatus;
 
 use crate::icons::{registry, resolved_status_icon};
+use crate::issue_header::spawn_issue_update;
 
 /// A pick callback (the host owns the mutation — tRPC write vs local draft).
 pub(crate) type OnPick<V> = Rc<dyn Fn(V, &mut Window, &mut App)>;
@@ -266,6 +268,44 @@ pub(crate) fn status_menu(
             status.group_key == current_key,
             move |window, cx| on_pick(pick.clone(), window, cx),
         ));
+    }
+    menu
+}
+
+/// The estimate rows (EXP-630/EXP-1077, web `EstimateSubmenu`): "No
+/// estimate" first, then the team scale's ladder (plus an off-ladder current
+/// value) labelled in full, each a §4.1 un-gated `issues.update`. Shared by
+/// the detail header's chip menu and the issue list's row context menu; the
+/// caller decides the scale is not `none` (estimates OFF = no menu at all)
+/// and pre-sizes the menu.
+pub(crate) fn estimate_menu(
+    menu: PopupMenu,
+    issue_id: String,
+    current: Option<i64>,
+    scale: &str,
+) -> PopupMenu {
+    let mut menu = menu.check_side(Side::Right);
+    let clear_id = issue_id.clone();
+    menu = menu.item(
+        PopupMenuItem::new(SharedString::from(NO_ESTIMATE))
+            .checked(current.is_none())
+            .on_click(move |_, _window, cx| {
+                let mut input = api::issues::IssuesUpdateInput::new(clear_id.clone());
+                input.estimate = api::Patch::Null;
+                spawn_issue_update(cx, input);
+            }),
+    );
+    for value in estimate_picker_values(current, scale) {
+        let issue_id = issue_id.clone();
+        menu = menu.item(
+            PopupMenuItem::new(SharedString::from(estimate_label(Some(value), scale)))
+                .checked(current == Some(value))
+                .on_click(move |_, _window, cx| {
+                    let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                    input.estimate = api::Patch::Set(value);
+                    spawn_issue_update(cx, input);
+                }),
+        );
     }
     menu
 }

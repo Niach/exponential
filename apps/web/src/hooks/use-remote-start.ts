@@ -20,6 +20,7 @@ import {
 } from "@/lib/steer-devices"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { useOpenSession } from "@/hooks/use-open-session"
+import type { DetailOrigin } from "@/lib/detail-origin"
 import {
   findStartedRun,
   startedRunKeyForIssues,
@@ -137,19 +138,28 @@ export interface RemoteStart {
   latestVersions: { desktop: string | null; cli: string | null } | null
 }
 
-export function useRemoteStart({
-  enabled = true,
-  currentUserId,
-  teamId,
-}: {
-  /** Member + relay configured — gates the device list + version fetch. */
-  enabled?: boolean
-  /** Keys the post-send session watch to the caller's own runs — and,
-   * EXP-481, splits own vs shared rows off the synced devices shape. */
-  currentUserId?: string
-  /** EXP-432: also list teammates' server devices shared with this team. */
-  teamId?: string
-} = {}): RemoteStart {
+export function useRemoteStart(
+  options: {
+    /** Member + relay configured — gates the device list + version fetch. */
+    enabled?: boolean
+    /** Keys the post-send session watch to the caller's own runs — and,
+     * EXP-481, splits own vs shared rows off the synced devices shape. */
+    currentUserId?: string
+    /** EXP-432: also list teammates' server devices shared with this team. */
+    teamId?: string
+    /** EXP-870: where the started run OPENS. The key PRESENT (even as `null`
+     * = context-free, a pinned row's start) is the caller's answer, handed to
+     * `useOpenSession` verbatim; absent = derive it from the URL. */
+    origin?: DetailOrigin | null
+  } = {}
+): RemoteStart {
+  const { enabled = true, currentUserId, teamId } = options
+  const hasOrigin = `origin` in options
+  const origin = options.origin ?? null
+  const openOptions = useMemo(
+    () => (hasOrigin ? { origin } : undefined),
+    [hasOrigin, origin]
+  )
   const [latestVersions, setLatestVersions] = useState<{
     desktop: string | null
     cli: string | null
@@ -234,10 +244,10 @@ export function useRemoteStart({
     if (!match) return
     // EXP-740: navigate to the run exactly once — clearing `pending` stops
     // this effect from ever matching again for this send.
-    openSession(match)
+    openSession(match, openOptions)
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
     setPending(null)
-  }, [sessionRows, pending, currentUserId, openSession])
+  }, [sessionRows, pending, currentUserId, openSession, openOptions])
 
   // The desktop inserts the coding_sessions row when the launcher spins up.
   // The deadline is not a silent re-enable: a run the desktop REFUSED — a

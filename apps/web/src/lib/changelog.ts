@@ -25,6 +25,22 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-25-release-train`,
+    date: `2026-09-25`,
+    title: `Release train 2026-09-25`,
+    summary: `One picker for every property on every client, the composer opens as a dialog, agent runs group by workflow and stack, workflow screens take their models from the machine, and issue lists select in bulk.`,
+    body: `- **Pickers**: status, assignee, labels, priority, board, issue, action, machine, account and icon all open the same picker on every client: a popover at the control on the web and the desktop app, a searchable sheet of plain rows on phones, with several picks shown as a highlight instead of a circle. Keyboard navigation of the assignee picker works from the first row, and Unassigned is searchable.
+- **Start a run**: on the web and the desktop app the composer opens as a dialog from an issue, a play button or an action, and stays open while a start is pending on the machine; a subjectless chat still opens the Agent page.
+- **Agent runs**: the running list nests a workflow's runs under one row that opens the workflow and a stack's runs under one row, each folded away by its chevron.
+- **Workflows**: the workflow screen drops its settings block; a new workflow takes its model pair from the runner machine's Workflow settings (a model for leaves and subagents, a strong model for the contract, the integration, high-risk nodes and every review), a node reads its own state, and the final pull request merges from the screen. A resumed reviewer stays the node's reviewer, is never spawned twice, and a refused verdict says what to do next.
+- **Issue lists**: rows select in bulk with a floating action bar on the board and beside an issue, and the due-date column collapses when no issue in the list has a due date. Ctrl-click opens the issue on Windows and Linux again.
+- **Machine settings**: the sheet is organised into pages, with a new Workflow settings page, and the API key section says what revoking a device's key does: it disconnects the device's coding runs, the device stays signed in.
+- **Work header**: the stack, batch and runs badge stands as tall as the controls beside it, the runs badge wears the workflow glyph, and the web shows it too.
+- **Teams**: the running list follows the active team, and the team switcher wears a dot when another team has one of your live runs (amber when it needs input).
+- **Settings lists and members**: every settings list on the web and in the desktop app follows one rule, the Linear import wizard is shorter and groups statuses across teams, and a roster member nobody has invited yet reads "Not invited" with a first Send invite, on every client.
+- **Settings**: shorter section copy on the web and in the desktop app.`,
+  },
+  {
     id: `2026-09-25-work-header-badge`,
     date: `2026-09-25`,
     title: `The work header badge`,

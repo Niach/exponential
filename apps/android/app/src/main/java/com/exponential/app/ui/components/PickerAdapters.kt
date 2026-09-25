@@ -62,9 +62,9 @@ fun UserEntity.toPickerMember(): AssigneePickerMember = AssigneePickerMember(
 fun BoardEntity.toPickerBoard(): BoardPickerBoard = BoardPickerBoard(
     id = id,
     name = name,
-    // `boardIcon`'s repo fallback is the board's own, so resolve the NAME here
-    // rather than letting the picker guess from a null.
-    icon = icon ?: if (repositoryId != null) "code" else null,
+    // The board glyph rule lives in `BoardIconUi` ([boardIconName]); the
+    // picker draws the resolved NAME and never guesses from a null.
+    icon = boardIconName(icon, repositoryId),
     colorHex = color,
 )
 
@@ -93,19 +93,28 @@ fun IssueEntity.toPickerIssue(disabled: Boolean = false): IssuePickerIssue {
  * A machine as a device row (EXP-432: a teammate's shared server carries its
  * owner, so [deviceOptionLabel] is what a machine READS as everywhere).
  *
- * A machine that cannot take a start renders DISABLED with the reason as its
- * description — the device picker's contract rule, and unreachable until the
- * adapter fills those two in. [LaunchDeviceRules] owns both the verdict and
- * the sentence (web parity), so a sheet row can never invent a third wording
- * for "offline" or "nothing signed in".
+ * With [startGate] on (a launch), a machine that cannot take a start renders
+ * DISABLED with the reason as its description — the device picker's contract
+ * rule, and unreachable until the adapter fills those two in.
+ * [LaunchDeviceRules] owns both the verdict and the sentence (web parity), so
+ * a sheet row can never invent a third wording for "offline" or "nothing
+ * signed in". An automation's "Runs on" picker passes `startGate = false`:
+ * every automation-capable machine is equally bindable, offline or signed out,
+ * because a schedule catches up when the machine comes back (EXP-615, the web
+ * `AutomationDevicePicker` rule) — its live state belongs on the Automations
+ * tab's rows, not in the picker.
  */
-fun SteerDevice.toPickerDevice(): DevicePickerDevice = DevicePickerDevice(
+fun SteerDevice.toPickerDevice(startGate: Boolean = true): DevicePickerDevice = DevicePickerDevice(
     id = deviceId,
     name = deviceOptionLabel(this),
     icon = icon,
     isServer = isServer,
-    description = if (!online) "Offline" else LaunchDeviceRules.blockedCaption(this),
-    disabled = !LaunchDeviceRules.startable(this),
+    description = when {
+        !startGate -> null
+        !online -> "Offline"
+        else -> LaunchDeviceRules.blockedCaption(this)
+    },
+    disabled = startGate && !LaunchDeviceRules.startable(this),
 )
 
 /**

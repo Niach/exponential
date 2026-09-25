@@ -142,6 +142,25 @@ describe(`SessionTree (EXP-996)`, () => {
     expect(screen.getByLabelText(`Expand these runs`)).toBeTruthy()
   })
 
+  it(`folds from the keyboard: the toggle is tabbable and Enter or Space flips it`, () => {
+    draw([
+      row(`n1`, { issueId: `i1` }, { issue: issue(`i1`) }),
+      row(`n2`, { issueId: `i2` }, { issue: issue(`i2`) }),
+    ])
+    const toggle = screen.getByLabelText(`Collapse these runs`)
+    expect(toggle.getAttribute(`tabindex`)).toBe(`0`)
+    expect(toggle.getAttribute(`aria-expanded`)).toBe(`true`)
+    fireEvent.keyDown(toggle, { key: `Enter` })
+    expect(screen.queryByTestId(`session-row-I1`)).toBeNull()
+    const reopen = screen.getByLabelText(`Expand these runs`)
+    expect(reopen.getAttribute(`aria-expanded`)).toBe(`false`)
+    fireEvent.keyDown(reopen, { key: ` ` })
+    expect(screen.getByTestId(`session-row-I1`)).toBeTruthy()
+    // Any other key is the row's, not the toggle's.
+    fireEvent.keyDown(screen.getByLabelText(`Collapse these runs`), { key: `a` })
+    expect(screen.getByTestId(`session-row-I1`)).toBeTruthy()
+  })
+
   it(`leaves an ungrouped run at top level, with no group row`, () => {
     draw([row(`lone`)])
     expect(screen.queryByTestId(/^session-group-/)).toBeNull()

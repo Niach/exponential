@@ -12,9 +12,7 @@ import {
   CLOSE_SLOW_CONSUMER,
   TOOL_DIFF_MAX_WIRE_BYTES,
   TOOL_OUTPUT_MAX_WIRE_BYTES,
-  TOOL_PREVIEW_TEXT_HARD_MAX,
   TOOL_PREVIEW_TEXT_MAX,
-  truncateUtf16,
 } from "./protocol"
 
 class FakeSocket implements RelaySocket {
@@ -2239,18 +2237,18 @@ describe(`activity event kinds`, () => {
     })
     expect(room(hub).activityLog.length).toBe(1)
 
-    // A string past the HARD cap or a negative count drops the WHOLE frame;
-    // the producer clamps first.
+    // A string past the cap or a negative count drops the WHOLE frame; the
+    // producer clamps first.
     activity(hub, pub, {
       kind: `tool_update`,
       id: `tc-1`,
-      preview: { title: `x`.repeat(TOOL_PREVIEW_TEXT_HARD_MAX + 1) },
+      preview: { title: `x`.repeat(TOOL_PREVIEW_TEXT_MAX + 1) },
     })
     activity(hub, pub, {
       kind: `tool_update`,
       id: `tc-1`,
       preview: {
-        refs: [{ kind: `issue`, id: `x`.repeat(TOOL_PREVIEW_TEXT_HARD_MAX + 1) }],
+        refs: [{ kind: `issue`, id: `x`.repeat(TOOL_PREVIEW_TEXT_MAX + 1) }],
       },
     })
     activity(hub, pub, { kind: `tool_update`, id: `tc-1`, preview: { count: -1 } })
@@ -2274,53 +2272,6 @@ describe(`activity event kinds`, () => {
       id: `tc-1`,
       preview: {},
     } as never)
-  })
-
-  // A desktop/CLI <= 0.14.48 publisher clamps preview strings by code POINTS:
-  // a 200-char title with one astral emoji is 201 UTF-16 units. The relay
-  // degrades it (cut to the display cap, no split surrogate pair) and still
-  // forwards the settle, where it used to drop the whole frame.
-  test(`an over-long preview string is cut, never the frame dropped`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const member = connectMember(hub)
-    const emoji = `\u{1F600}`
-    // 199 ASCII + one emoji = 200 code points, 201 units: the emoji straddles.
-    const straddling = `x`.repeat(TOOL_PREVIEW_TEXT_MAX - 1) + emoji
-    expect(Array.from(straddling).length).toBe(TOOL_PREVIEW_TEXT_MAX)
-    expect(straddling.length).toBe(TOOL_PREVIEW_TEXT_MAX + 1)
-    // Emoji first: 200 code points, the cut lands on plain ASCII.
-    const leading = emoji + `y`.repeat(TOOL_PREVIEW_TEXT_MAX - 1)
-    activity(hub, pub, {
-      kind: `tool_update`,
-      id: `tc-1`,
-      status: `completed`,
-      preview: {
-        title: straddling,
-        refs: [
-          { kind: `comment`, id: `c-1`, title: straddling },
-          { kind: `comment`, id: `c-2`, title: leading },
-        ],
-      },
-    })
-    expect(room(hub).activityLog.length).toBe(1)
-    const cut = `x`.repeat(TOOL_PREVIEW_TEXT_MAX - 1)
-    expect(member.events().at(-1)).toEqual({
-      kind: `tool_update`,
-      id: `tc-1`,
-      status: `completed`,
-      preview: {
-        title: cut,
-        refs: [
-          { kind: `comment`, id: `c-1`, title: cut },
-          { kind: `comment`, id: `c-2`, title: leading.slice(0, TOOL_PREVIEW_TEXT_MAX) },
-        ],
-      },
-    } as never)
-    // A string AT the cap, ending in a whole emoji, rides through untouched.
-    const fitting = `x`.repeat(TOOL_PREVIEW_TEXT_MAX - 2) + emoji
-    expect(truncateUtf16(fitting, TOOL_PREVIEW_TEXT_MAX)).toBe(fitting)
-    expect(truncateUtf16(`a${emoji}`, 2)).toBe(`a`)
   })
 
   test(`the latest config_state and usage are exempt from the log budget`, () => {

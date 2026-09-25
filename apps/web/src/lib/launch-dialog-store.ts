@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react"
 
+import type { DetailOrigin } from "@/lib/detail-origin"
 import type { LaunchSeed } from "@/lib/launch-seed"
 
 // EXP-1019: the start-coding DIALOG's open state, and nothing else.
@@ -19,7 +20,16 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // three-line external store the agent-login dialog and the Recent panel
 // already use, with ONE `LaunchDialogHost` mounted in the team route.
 
-let pending: LaunchSeed | null = null
+/** What a play button hands the launcher: the seed, plus (EXP-870) the
+ *  ORIGIN the click came from when the caller knows better than the URL —
+ *  `null` from a pinned row means context-free, so the run it starts opens
+ *  full-width with no list nav. The KEY absent = derive it from the URL,
+ *  the same present-or-absent rule `useOpenSession` reads. */
+export interface LaunchDialogRequest extends LaunchSeed {
+  origin?: DetailOrigin | null
+}
+
+let pending: LaunchDialogRequest | null = null
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -27,7 +37,7 @@ function emit(): void {
 }
 
 /** Open the launcher on `seed`. A second call re-seeds the open dialog. */
-export function requestLaunchDialog(seed: LaunchSeed): void {
+export function requestLaunchDialog(seed: LaunchDialogRequest): void {
   pending = seed
   emit()
 }
@@ -47,7 +57,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 /** The seed the dialog is open on, or `null` while it is shut. */
-export function useLaunchDialogSeed(): LaunchSeed | null {
+export function useLaunchDialogSeed(): LaunchDialogRequest | null {
   // Server render: the launcher is always shut.
   return useSyncExternalStore(
     subscribe,

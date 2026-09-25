@@ -4925,9 +4925,6 @@ export function registerExponentialTools(
         // plans a workflow over MCP must be able to bind the runner, or the
         // draft can never start — `workflows.update` is the only writer.
         deviceId: z.string().min(1).max(128).optional(),
-        // EXP-1029: fixed to `contract`. Still accepted so an older caller is
-        // not refused; it changes nothing.
-        startOn: z.enum(contract.wfStartOn.values as [string, ...string[]]).optional(),
         addIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
         removeIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
         nodes: z.array(z.record(z.string(), z.unknown())).max(WORKFLOW_MAX_ISSUES).optional(),

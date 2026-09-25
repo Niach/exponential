@@ -391,7 +391,6 @@ function ReviewsPage() {
                         }}
                         onClick={() => openReview(issue.identifier)}
                         data-testid={`review-row-${issue.identifier}`}
-                      
                         {...issueMenuProps(issue.id)}
                       >
                         <TreeGuides guide={guides[rowIndex]} />

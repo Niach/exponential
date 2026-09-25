@@ -64,8 +64,8 @@ use coding::CodingAgent;
 use crate::coding_flow::CodingHub;
 use crate::controls::{glass_input, WebControl as _};
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
-    AGENT_CHOICES,
+    agent_icon, choice_select, effort_choices_for, model_choices_for, selected,
+    workflow_model_choices_for, ChoiceSelect, AGENT_CHOICES,
 };
 use crate::icons::registry;
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
@@ -435,6 +435,9 @@ pub struct DeviceSettingsView {
     codex_workflow_strong_model_select: ChoiceSelect,
     /// EXP-1020: which sub-shell page is open, if any.
     nav: crate::sub_shell::SubShellNav,
+    /// The sub-shell page's back control: focused as the page opens, so
+    /// Escape pops the page rather than closing the dialog.
+    sub_shell_back_focus: gpui::FocusHandle,
     claude_ultracode: bool,
     claude_plan_mode: bool,
     /// EXP-872: the machine's DEFAULT ACCOUNT — the profile id of
@@ -583,25 +586,25 @@ impl DeviceSettingsView {
         let (codex_workflow, codex_workflow_strong) =
             workflow_pair_for(&seeded, CodingAgent::Codex);
         let workflow_model_select = choice_select(
-            model_choices_for(CodingAgent::Claude),
+            &workflow_model_choices_for(CodingAgent::Claude),
             &claude_workflow,
             window,
             cx,
         );
         let workflow_strong_model_select = choice_select(
-            model_choices_for(CodingAgent::Claude),
+            &workflow_model_choices_for(CodingAgent::Claude),
             &claude_workflow_strong,
             window,
             cx,
         );
         let codex_workflow_model_select = choice_select(
-            model_choices_for(CodingAgent::Codex),
+            &workflow_model_choices_for(CodingAgent::Codex),
             &codex_workflow,
             window,
             cx,
         );
         let codex_workflow_strong_model_select = choice_select(
-            model_choices_for(CodingAgent::Codex),
+            &workflow_model_choices_for(CodingAgent::Codex),
             &codex_workflow_strong,
             window,
             cx,
@@ -684,6 +687,7 @@ impl DeviceSettingsView {
             codex_workflow_model_select,
             codex_workflow_strong_model_select,
             nav: crate::sub_shell::SubShellNav::new(),
+            sub_shell_back_focus: cx.focus_handle(),
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
             default_account: seeded.default_account.clone(),
@@ -753,6 +757,12 @@ impl DeviceSettingsView {
                     coding::apply_defaults_patch(&mut seeded, &patch);
                 }
             }
+            // A patch never RESETS what it did not validly set, so a row
+            // without a `workflow` key beside a codex default agent kept
+            // `Settings::default()`'s claude pair: the codex selects missed
+            // it, fell back to their first row and the dialog was born
+            // dirty. The same clamp `Settings::load` runs.
+            coding::settings::normalize_workflow_pair(&mut seeded);
             seeded
         };
         let configured: Vec<String> = row
@@ -765,7 +775,7 @@ impl DeviceSettingsView {
         let editor_agents =
             editor_agents(&row.agent_ids(), &row.unauthed_agent_ids(), &configured);
         if !editor_agents.contains(&seeded.default_agent) {
-            seeded.default_agent = editor_agents[0];
+            seeded.default_agent = editor_agents.first().copied().unwrap_or_default();
         }
         (seeded, editor_agents)
     }
@@ -1738,8 +1748,9 @@ impl DeviceSettingsView {
             crate::sub_shell::SubShellProps::new("device-workflow-settings", "Workflow settings")
                 .icon(Icon::new(registry::NAV_WORKFLOWS))
                 .value(workflow_summary),
-            cx.listener(|this: &mut Self, _, _window, cx| {
+            cx.listener(|this: &mut Self, _, window, cx| {
                 this.nav.open("Workflow settings");
+                crate::sub_shell::focus_back_on_open(&this.sub_shell_back_focus, window, cx);
                 cx.notify();
             }),
             cx,
@@ -2227,6 +2238,7 @@ impl Render for DeviceSettingsView {
             let page = render_workflow_page(&model, &strong_model, cx);
             host = host.open(
                 crate::sub_shell::SubShellPage::new("Workflow settings", page),
+                &self.sub_shell_back_focus,
                 cx.listener(|this: &mut Self, _, _window, cx| {
                     this.nav.back();
                     cx.notify();

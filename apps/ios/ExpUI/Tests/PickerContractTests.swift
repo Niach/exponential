@@ -392,4 +392,70 @@ final class PickerContractTests: XCTestCase {
             .plain
         )
     }
+
+    /// The ONE bridge from a machine to its picker row: the glyph resolved by
+    /// `DeviceIconDisplay`, the plain name, the owner of a shared server as
+    /// the muted line under it. Three sheets built these rows by hand and one
+    /// of them drew no glyph and folded the owner into the name.
+    func testADeviceRowIsBridgedOnceWithItsGlyphAndOwner() {
+        let shared = DevicePickerDevice(
+            SteerDevice(
+                deviceId: "dev-1", deviceLabel: "buildbox", kind: "server", icon: "os-apple",
+                owner: DeviceOwner(id: "u2", name: "Ada")
+            )
+        )
+        XCTAssertEqual(shared.id, "dev-1")
+        XCTAssertEqual(shared.name, "buildbox")
+        XCTAssertEqual(shared.icon, "os-apple")
+        XCTAssertEqual(shared.description, "Ada")
+        XCTAssertFalse(shared.disabled)
+
+        // An unpicked glyph falls back to the kind; the caller's own machine
+        // carries no owner line; a label-less row reads as its id.
+        let own = DevicePickerDevice(SteerDevice(deviceId: "dev-2", deviceLabel: "", kind: "server"))
+        XCTAssertEqual(own.name, "dev-2")
+        XCTAssertEqual(own.icon, AppIcons.uiServer)
+        XCTAssertNil(own.description)
+    }
+
+    /// The same for an action: the curated glyph through `ActionIconDisplay`
+    /// (unset = the generic action mark, never a hole), the description under
+    /// the name — so the automation editor and the composer draw one row.
+    func testAnActionRowIsBridgedOnceWithItsGlyph() {
+        func dto(icon: String?) -> ActionDto {
+            ActionDto(
+                id: "a", teamId: "t", repositoryId: nil, name: "Release",
+                description: "Ship it", icon: icon, body: "", sortOrder: 1,
+                createdAt: "", updatedAt: ""
+            )
+        }
+        let unset = ActionPickerAction(dto(icon: nil))
+        XCTAssertEqual(unset.id, "a")
+        XCTAssertEqual(unset.name, "Release")
+        XCTAssertEqual(unset.icon, AppIcons.actionDefault)
+        XCTAssertEqual(unset.description, "Ship it")
+        XCTAssertEqual(ActionPickerAction(dto(icon: "rocket")).icon, "rocket")
+        // A name this build has no asset for falls back like an unset one.
+        XCTAssertEqual(
+            ActionPickerAction(dto(icon: "glyph-from-a-newer-registry")).icon,
+            AppIcons.actionDefault
+        )
+    }
+
+    /// The empty line yields ONLY to a footer that is itself the answer to
+    /// the miss (the labels create row, the default). A footer that captions
+    /// the list (the composer's batch guards) leaves "No matching issues" in
+    /// place — the issue picker pins that at its own call.
+    func testTheEmptyLineYieldsOnlyToAnActionableFooter() {
+        XCTAssertTrue(PickerEmptyLine.shows(hasFooter: false, footerReplacesEmpty: true))
+        XCTAssertTrue(PickerEmptyLine.shows(hasFooter: false, footerReplacesEmpty: false))
+        XCTAssertFalse(PickerEmptyLine.shows(hasFooter: true, footerReplacesEmpty: true))
+        XCTAssertTrue(PickerEmptyLine.shows(hasFooter: true, footerReplacesEmpty: false))
+        // The primitive's default is the labels sheet's case.
+        XCTAssertTrue(
+            GlassPicker<String, EmptyView>(
+                items: [], mode: .single, value: [], onChange: { _ in }, trigger: { EmptyView() }
+            ).footerReplacesEmpty
+        )
+    }
 }

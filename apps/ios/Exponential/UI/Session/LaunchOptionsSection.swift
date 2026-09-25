@@ -121,12 +121,12 @@ struct LaunchOptionsSection: View {
         } else if showsDevicePicker {
             Section {
                 // EXP-1021: the shared `DevicePicker`; the row is its trigger.
+                // The rows come off the ONE bridge (`DevicePickerDevice(
+                // SteerDevice)`): the machine's glyph, its owner under the
+                // name — the same row the composer and the workflow runner
+                // draw. The trigger keeps the one-line caption.
                 DevicePicker(
-                    devices: devices.map {
-                        DevicePickerDevice(
-                            id: $0.deviceId, name: LaunchVocabulary.deviceCaption($0)
-                        )
-                    },
+                    devices: devices.map(DevicePickerDevice.init),
                     value: deviceId,
                     onChange: { deviceId = $0 },
                     // The sheet says what the ROW says — an automation's

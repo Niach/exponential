@@ -39,10 +39,13 @@ describe(`composerSearch`, () => {
 // EXP-1019: a start that knows its subject opens the LAUNCHER over the
 // current surface; only a plain chat still travels to the Agent page.
 describe(`useOpenComposer`, () => {
-  const openLauncher = (seed: Parameters<ReturnType<typeof useOpenComposer>>[0]) => {
+  const openLauncher = (
+    seed: Parameters<ReturnType<typeof useOpenComposer>>[0],
+    options?: Parameters<ReturnType<typeof useOpenComposer>>[1]
+  ) => {
     navigate.mockClear()
     const { result } = renderHook(() => useOpenComposer())
-    result.current(seed)
+    result.current(seed, options)
   }
 
   it(`opens the dialog on the action, without navigating`, () => {
@@ -62,6 +65,22 @@ describe(`useOpenComposer`, () => {
     expect(navigate).not.toHaveBeenCalled()
     const { result } = renderHook(() => useLaunchDialogSeed())
     expect(result.current).toEqual({ issueIds: [`i1`, `i2`] })
+    closeLaunchDialog()
+  })
+
+  // EXP-870: a pinned action is context-free. The dialog's run watch reads the
+  // origin off the request, so `origin: null` has to survive the hand-off (the
+  // KEY, not just a null: absent means "derive it from the URL").
+  it(`carries a named origin into the dialog request`, () => {
+    openLauncher({ actionId: `a1` }, { origin: null })
+    expect(navigate).not.toHaveBeenCalled()
+    const { result } = renderHook(() => useLaunchDialogSeed())
+    expect(result.current).toEqual({ actionId: `a1`, issueIds: [], origin: null })
+    expect(result.current !== null && `origin` in result.current).toBe(true)
+    closeLaunchDialog()
+    openLauncher({ actionId: `a1` }, { origin: { kind: `reviews` } })
+    const named = renderHook(() => useLaunchDialogSeed())
+    expect(named.result.current?.origin).toEqual({ kind: `reviews` })
     closeLaunchDialog()
   })
 

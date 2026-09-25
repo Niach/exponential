@@ -49,16 +49,11 @@ struct AgentOptionsRow: View {
                 // trigger. EXP-862 stands — a machine is recognised by its own
                 // glyph (EXP-924: its owner's pick, else the kind default), and
                 // the picker leads every row with it, exactly as the trigger
-                // draws it. A shared machine names its owner under it.
+                // draws it. A shared machine names its owner under it. The
+                // ONE row bridge (`DevicePickerDevice(SteerDevice)`) decides
+                // all of that.
                 DevicePicker(
-                    devices: model.candidateDevices.map { candidate in
-                        DevicePickerDevice(
-                            id: candidate.deviceId,
-                            name: LaunchVocabulary.deviceName(candidate),
-                            icon: DeviceIconDisplay.iconName(for: candidate),
-                            description: candidate.owner?.name
-                        )
-                    },
+                    devices: model.candidateDevices.map(DevicePickerDevice.init),
                     value: device.deviceId,
                     onChange: { model.selectDevice($0) },
                     trigger: {

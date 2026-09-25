@@ -286,10 +286,10 @@ const IssueRow = memo(function IssueRow({
         // order: `bg-glass-active` and `bg-glass-row` are both `bg-*`
         // utilities, so which one won would come down to stylesheet order.
         className={`relative max-md:flex max-md:items-center max-md:gap-2.5 max-md:rounded-md max-md:border max-md:border-glass-stroke md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 md:hover:bg-glass-row md:border-b md:border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active max-md:border-glass-stroke-active` : `max-md:bg-glass-row`}`}
-        onClick={(event) => {
-          // A ctrl-click is a right-click on macOS, and Firefox fires the
-          // click too — the menu opened, the row must not navigate under it.
-          if (event.ctrlKey) return
+        onClick={() => {
+          // A macOS ctrl-click (a right-click that Firefox follows with a
+          // click) is swallowed by the menu host itself (gestures.ts), so a
+          // plain ctrl+click stays a click on Windows and Linux.
           if (mobileSelectionActive) {
             onToggleSelect(issue.id, false)
             return

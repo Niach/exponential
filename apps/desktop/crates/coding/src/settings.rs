@@ -311,30 +311,7 @@ impl Settings {
             &MODEL_ALIASES,
             DEFAULT_CLAUDE_SUBAGENT_MODEL,
         );
-        // EXP-1029: the workflow pair always names a model (never blank), out
-        // of the DEFAULT AGENT's vocabulary — a codex-default machine keeps
-        // its codex names instead of having them rewritten to claude's.
-        let (workflow_models, workflow_defaults): (&[&str], (&str, &str)) =
-            match settings.default_agent {
-                CodingAgent::Claude => (
-                    &MODEL_ALIASES,
-                    (DEFAULT_WORKFLOW_MODEL, DEFAULT_WORKFLOW_STRONG_MODEL),
-                ),
-                CodingAgent::Codex => (
-                    &CODEX_MODELS,
-                    (
-                        domain::contract::WORKFLOW_LAUNCH_CODEX_MODEL,
-                        domain::contract::WORKFLOW_LAUNCH_CODEX_STRONG_MODEL,
-                    ),
-                ),
-            };
-        settings.workflow_model =
-            normalize_choice(&settings.workflow_model, workflow_models, workflow_defaults.0);
-        settings.workflow_strong_model = normalize_choice(
-            &settings.workflow_strong_model,
-            workflow_models,
-            workflow_defaults.1,
-        );
+        normalize_workflow_pair(&mut settings);
         // Codex allows BLANK ("CLI default") — unknown values degrade to it.
         settings.codex_model = normalize_choice(&settings.codex_model, &CODEX_MODELS, "");
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
@@ -454,6 +431,36 @@ impl Settings {
             dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")),
         )
     }
+}
+
+/// EXP-1029: clamp the workflow pair so it always names a model (never
+/// blank), out of the DEFAULT AGENT's vocabulary: a codex-default machine
+/// keeps its codex names instead of having them rewritten to claude's; a
+/// foreign or blank half degrades to that agent's contract default. The one
+/// clamp [`Settings::load`] runs and a remote row's baseline re-runs after
+/// `apply_defaults_patch` (which never resets what a patch did not set).
+pub fn normalize_workflow_pair(settings: &mut Settings) {
+    let (workflow_models, workflow_defaults): (&[&str], (&str, &str)) =
+        match settings.default_agent {
+            CodingAgent::Claude => (
+                &MODEL_ALIASES,
+                (DEFAULT_WORKFLOW_MODEL, DEFAULT_WORKFLOW_STRONG_MODEL),
+            ),
+            CodingAgent::Codex => (
+                &CODEX_MODELS,
+                (
+                    domain::contract::WORKFLOW_LAUNCH_CODEX_MODEL,
+                    domain::contract::WORKFLOW_LAUNCH_CODEX_STRONG_MODEL,
+                ),
+            ),
+        };
+    settings.workflow_model =
+        normalize_choice(&settings.workflow_model, workflow_models, workflow_defaults.0);
+    settings.workflow_strong_model = normalize_choice(
+        &settings.workflow_strong_model,
+        workflow_models,
+        workflow_defaults.1,
+    );
 }
 
 /// Lowercase-trim `raw`; anything outside `allowed` (except blank, which
@@ -823,6 +830,40 @@ mod tests {
         let settings = Settings::load(&path);
         assert_eq!(settings.workflow_model, "opus", "codex name on claude → claude default");
         assert_eq!(settings.workflow_strong_model, "fable");
+    }
+
+    /// A remote row without a `workflow` key beside a codex default agent:
+    /// `apply_defaults_patch` leaves `Settings::default()`'s claude pair in
+    /// place (a patch never resets what it did not set), so the baseline
+    /// re-runs the load-time clamp and lands on codex's contract defaults.
+    #[test]
+    fn a_codex_default_row_without_a_workflow_key_normalizes_to_codex_defaults() {
+        let mut settings = Settings::default();
+        let patch = crate::remote_admin::DefaultsPatch {
+            default_agent: Some("codex".into()),
+            ..crate::remote_admin::DefaultsPatch::default()
+        };
+        crate::remote_admin::apply_defaults_patch(&mut settings, &patch);
+        assert_eq!(settings.default_agent, CodingAgent::Codex);
+        assert_eq!(settings.workflow_model, DEFAULT_WORKFLOW_MODEL, "the patch left claude's pair");
+        normalize_workflow_pair(&mut settings);
+        assert_eq!(
+            settings.workflow_model,
+            domain::contract::WORKFLOW_LAUNCH_CODEX_MODEL
+        );
+        assert_eq!(
+            settings.workflow_strong_model,
+            domain::contract::WORKFLOW_LAUNCH_CODEX_STRONG_MODEL
+        );
+
+        // A valid codex pair on the row survives the clamp untouched.
+        let mut settings = Settings::default();
+        settings.default_agent = CodingAgent::Codex;
+        settings.workflow_model = "gpt-5.6-sol".into();
+        settings.workflow_strong_model = "gpt-5.6-luna".into();
+        normalize_workflow_pair(&mut settings);
+        assert_eq!(settings.workflow_model, "gpt-5.6-sol");
+        assert_eq!(settings.workflow_strong_model, "gpt-5.6-luna");
     }
 
     /// Per-agent run fields (EXP-206): MISSING keys must fill from the

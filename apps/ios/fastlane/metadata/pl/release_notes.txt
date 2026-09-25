@@ -1,3 +1,6 @@
-- Okno kontekstu: panel zużycia pokazuje podzielony pasek tego, co wypełnia kontekst przebiegu, z legendą przy każdej części
-- Szacunki: gdy w ustawieniach zespołu włączysz skalę, issues dostają szacunek wśród swoich właściwości, a aktywność pokazuje zmiany szacunku
-- Członkowie: zaproszona osoba pojawia się w zespole od razu, ze swoim imieniem, a ustawienia „Members” pokazują, kto jeszcze nie dołączył
+- Wybory: status, osoba odpowiedzialna, etykiety, board i reszta otwierają ten sam panel z wyszukiwaniem i zwykłymi wierszami, a wybór kilku pozycji widać po podświetleniu, nie po kółku
+- Przebiegi agenta: lista trwających przebiegów jest zagnieżdżona, przebiegi workflow stoją pod jednym wierszem, który otwiera workflow, a przebiegi stosu pod kolejnym, i strzałka zwija oba
+- Workflows: ekran traci blok ustawień, węzeł podaje własny stan i otwiera się w Issue, Run i Changes, a końcowy pull request scala się stamtąd
+- Ustawienia maszyny: panel jest uporządkowany na nowo, a nowa strona „Workflow settings” trzyma modele, na których startuje nowy workflow
+- Przełącznik teamów: kropka na strzałce, gdy inny team ma jeden z twoich trwających przebiegów, bursztynowa, gdy przebieg czeka na dane
+- Członkowie: osoba z listy, której nikt jeszcze nie zaprosił, pokazuje „Not invited” zamiast „Invite expired”

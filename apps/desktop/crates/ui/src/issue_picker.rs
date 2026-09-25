@@ -228,11 +228,14 @@ pub(crate) fn visible_rows(
 /// content runs on every render of a composer that repaints at 60 fps while
 /// a hosted run is busy (the live dot), and ranking the whole open-issue
 /// pool each frame was measurable. Keyed on the pool's identity (the `Rc`
-/// pointer — a rebuilt pool is a new key), the query and the checked set;
-/// nothing else feeds the ranking.
+/// ITSELF, compared by `Rc::ptr_eq`; a rebuilt pool is a new key), the
+/// query and the checked set; nothing else feeds the ranking. Holding the
+/// `Rc` rather than its address is what makes the key sound: the value is a
+/// list of indices INTO that pool, and a dropped pool's address can be
+/// handed to a fresh, differently sized one.
 #[derive(Default)]
 pub(crate) struct VisibleRowsMemo {
-    key: Option<(usize, String, HashSet<String>)>,
+    key: Option<(Rc<Vec<IssueRow>>, String, HashSet<String>)>,
     value: (Vec<usize>, usize, bool),
     /// How many times the ranking actually ran (the tests read it).
     computed: usize,
@@ -245,16 +248,15 @@ impl VisibleRowsMemo {
         checked: &HashSet<String>,
         query: &str,
     ) -> (Vec<usize>, usize, bool) {
-        let pool = Rc::as_ptr(rows) as usize;
         let hit = self
             .key
             .as_ref()
             .is_some_and(|(seen_pool, seen_query, seen_checked)| {
-                *seen_pool == pool && seen_query == query && seen_checked == checked
+                Rc::ptr_eq(seen_pool, rows) && seen_query == query && seen_checked == checked
             });
         if !hit {
             self.value = visible_rows(rows, checked, query);
-            self.key = Some((pool, query.to_string(), checked.clone()));
+            self.key = Some((rows.clone(), query.to_string(), checked.clone()));
             self.computed += 1;
         }
         self.value.clone()
@@ -468,6 +470,29 @@ mod tests {
         assert_eq!(memo.computed(), 4, "a rebuilt pool is a new key");
         memo.get(&rebuilt, &checked, "Title 3");
         assert_eq!(memo.computed(), 4);
+    }
+
+    /// The memo's key is the pool `Rc` itself, not its address: while the
+    /// memo remembers a pool that pool stays alive, so no fresh pool can be
+    /// allocated at the same address and read the stale indices as its own
+    /// (an ABA key). A pool the memo has moved on from is released.
+    #[test]
+    fn the_visible_rows_memo_holds_the_pool_it_is_keyed_on() {
+        let rows: Rc<Vec<IssueRow>> =
+            Rc::new((0..3).map(|n| row(&format!("i{n}"), &format!("EXP-{n}"), "T")).collect());
+        let checked: HashSet<String> = HashSet::new();
+        let mut memo = VisibleRowsMemo::default();
+        memo.get(&rows, &checked, "");
+        assert_eq!(Rc::strong_count(&rows), 2, "the memo holds the pool it ranked");
+
+        // A shorter pool built after the first one: a new key, ranked fresh,
+        // and the old pool is let go.
+        let shorter: Rc<Vec<IssueRow>> = Rc::new(vec![row("j0", "EXP-9", "T")]);
+        let (visible, _, _) = memo.get(&shorter, &checked, "");
+        assert_eq!(memo.computed(), 2);
+        assert!(visible.iter().all(|ix| *ix < shorter.len()));
+        assert_eq!(Rc::strong_count(&rows), 1, "the previous pool is released");
+        assert_eq!(Rc::strong_count(&shorter), 2);
     }
 
     /// Checked rows pin first whatever the query; the rest is the shared

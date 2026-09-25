@@ -28,11 +28,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 /**
  * EXP-1029 contract, EXP-1021 implementation — the account picker: every
  * signed-in login the bound machine reports, across agents, so picking one
- * IMPLIES its agent (EXP-872). It carries the EXP-991 menu's options AND its
- * preview onto [Picker]. The menu itself (`AccountPickerPill` +
- * `AccountMenuItems` in `ui/components`) is NOT gone yet: three surfaces the
- * EXP-1021 sweep did not reach still draw it (see that file), and they owe
- * this picker a move.
+ * IMPLIES its agent (EXP-872). It carries what the EXP-991 account menu
+ * carried, its options AND its preview, onto [Picker]; that menu is gone, and
+ * every surface that picks a login (the composer, the automation editor, the
+ * device settings) goes through this one sheet.
  *
  * A row says exactly what the menu row said: the agent's brand mark, the
  * login's EMAIL, its health badge beside it when the credential is dead, and

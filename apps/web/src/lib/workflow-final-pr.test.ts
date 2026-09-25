@@ -43,6 +43,8 @@ import {
 // argument is recorded (the latter rendered to SQL to prove the predicate).
 const selectQueue: unknown[][] = []
 const updates: Array<Record<string, unknown>> = []
+// What the next UPDATE ... RETURNING resolves with (FIFO; default = one row).
+const updateQueue: unknown[][] = []
 const wheres: string[] = []
 const dialect = new PgDialect()
 type Chain = Promise<unknown[]> & Record<string, (arg?: unknown) => unknown>
@@ -61,7 +63,7 @@ function chain(result: unknown[]): Chain {
 const fakeDb = {
   select: () => chain(selectQueue.shift() ?? []),
   update: () => {
-    const p = chain([])
+    const p = chain(updateQueue.shift() ?? [{ id: `wf-1` }])
     p.set = (values: unknown) => {
       updates.push(values as Record<string, unknown>)
       return p
@@ -74,6 +76,7 @@ const fakeDb = {
 beforeEach(() => {
   selectQueue.length = 0
   updates.length = 0
+  updateQueue.length = 0
   wheres.length = 0
   vi.clearAllMocks()
   h.resolveRepoToken.mockResolvedValue(`tok`)
@@ -325,6 +328,25 @@ describe(`applyWorkflowFinalPrState`, () => {
     expect(await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/1`, `merged`)).toBe(true)
     expect(updates).toEqual([])
     expect(h.applyPrLifecycleStatusInTx).not.toHaveBeenCalled()
+  })
+
+  // `mergeFinalPr` and the webhook both read `open`, then race to write: the
+  // UPDATE is the claim, and only the caller whose UPDATE took the row runs
+  // the covered-issue fan-out.
+  it(`claims the merge atomically: the caller whose UPDATE matched no row fans out nothing`, async () => {
+    selectQueue.push(
+      [{ id: WF, teamId: `team-1`, finalPrState: `open` }],
+      [{ issueId: `issue-a`, members: [] }],
+      [{ id: `issue-a`, status: `in_review` }]
+    )
+    // The other caller claimed it between this read and this write.
+    updateQueue.push([])
+    expect(await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/1`, `merged`)).toBe(true)
+    expect(updates).toHaveLength(1)
+    expect(h.applyPrLifecycleStatusInTx).not.toHaveBeenCalled()
+    // The predicate itself: id AND not yet merged.
+    const claim = wheres.find((w) => w.includes(`"workflows"."id" = $`))
+    expect(claim).toMatch(/"final_pr_state" is distinct from 'merged'/i)
   })
 
   it(`records a close or a reopen without completing anything`, async () => {

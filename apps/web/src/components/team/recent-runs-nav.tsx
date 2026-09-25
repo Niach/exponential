@@ -1,5 +1,5 @@
 import { GlassSectionHeader } from "@exp/ui"
-import { SessionTreeList } from "@/components/session-tree-list"
+import { SessionTree } from "@/components/session-tree"
 import { usePastRuns } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
 
@@ -26,7 +26,7 @@ export function RecentRunsSidebar({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
       <GlassSectionHeader label="Recent" />
-      <SessionTreeList
+      <SessionTree
         rows={past}
         onOpen={(session) => openSession(session, { origin: { kind: `agent` } })}
         emptyNote="Nothing has finished yet."
@@ -48,7 +48,7 @@ export function RecentRunsList({
   const { past } = usePastRuns(teamId, currentUserId)
   const openSession = useOpenSession()
   return (
-    <SessionTreeList
+    <SessionTree
       rows={past}
       onOpen={(session) => {
         onOpened()

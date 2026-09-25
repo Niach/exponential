@@ -1,3 +1,6 @@
-- Ventana de contexto: el panel de uso muestra una barra por segmentos de lo que llena el contexto de una ejecución, con una leyenda por segmento
-- Estimaciones: con una escala activada en los ajustes del equipo, las issues reciben una estimación entre sus propiedades, y la actividad muestra los cambios de estimación
-- Miembros: una persona invitada aparece en el equipo al instante con su nombre, y los ajustes de «Members» muestran quién no se ha unido todavía
+- Selectores: estado, responsable, etiquetas, board y el resto abren el mismo panel con búsqueda y filas simples, y elegir varios se ve como un resaltado en lugar de un círculo
+- Ejecuciones del agente: la lista de ejecuciones en curso se anida, las de un workflow bajo una fila que abre el workflow y las de un stack bajo otra, y la flecha pliega ambas
+- Workflows: la pantalla pierde su bloque de ajustes, un nodo dice su propio estado y se abre en Issue, Run y Changes, y el pull request final se fusiona desde ahí
+- Ajustes de la máquina: el panel está reordenado, y una nueva página «Workflow settings» guarda los modelos con los que arranca un workflow nuevo
+- Cambio de team: un punto en la flecha cuando otro team tiene una de tus ejecuciones en vivo, ámbar cuando espera una entrada
+- Miembros: un miembro de la lista al que nadie ha invitado todavía aparece como «Not invited» en lugar de «Invite expired»
