@@ -179,15 +179,7 @@ impl IssuesPane {
                     .child(
                         v_flex()
                             .min_w_0()
-                            .child(div().text_sm().child("Estimate scale"))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(
-                                        "Off by default. Pick a scale to size issues from their properties row; a scale change keeps the values already set.",
-                                    ),
-                            ),
+                            .child(div().text_sm().child("Estimate scale")),
                     )
                     .child(control),
             );

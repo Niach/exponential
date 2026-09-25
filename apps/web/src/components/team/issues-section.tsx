@@ -53,10 +53,6 @@ function EstimatesCard({ team, canEdit }: { team: Team; canEdit: boolean }) {
         <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm">Estimate scale</p>
-            <p className="text-xs text-muted-foreground">
-              Off by default. Pick a scale to size issues from their properties
-              row; a scale change keeps the values already set.
-            </p>
           </div>
           {canEdit ? (
             <Select

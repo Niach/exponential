@@ -5,7 +5,7 @@
 //! EXP-801 "messages from teammates' agents" block, the delivery cadence
 //! select and (EXP-369) the daily send-time hour.
 //! **Desktop-only, no web counterpart:** the "Desktop notifications" row
-//! above the email group (EXP-638) — the per-MACHINE switch for real OS
+//! at the top of the list (EXP-638) — the per-MACHINE switch for real OS
 //! notifications, persisted in the local settings.json
 //! (`Settings::os_notifications`), never synced; the web card
 //! (`components/account/email-notifications-card.tsx`) has nothing to
@@ -295,48 +295,42 @@ impl Render for NotificationsPrefsPane {
             _ => (false, false, false),
         };
 
-        // EXP-638: the per-machine OS-notification switch — its own group
-        // above the email one (desktop-only; see the module doc).
-        // EXP-698: every pref is a row of an inset-grouped stack now — the
-        // old flat `pref_row` hairline ladder is gone.
+        // EXP-1054: ONE list — the per-machine OS switch (EXP-638,
+        // desktop-only; see the module doc), the master email switch, the
+        // per-type switches and the agents block are rows of the SAME
+        // `glass_group_rows` stack; only the digest pickers keep a group of
+        // their own. The web card fuses the same way.
         let os_notifications = CodingHub::global(cx).read(cx).settings.os_notifications;
-        let desktop = glass_group_rows(vec![glass_toggle_row(
-            "Desktop notifications",
-            Some(
-                "Show a system notification on this computer when something new lands in \
-                 your inbox. This machine only; the per-type switches below apply to it too."
-                    .into(),
+        let mut rows = vec![
+            glass_toggle_row(
+                "Desktop notifications",
+                Some("This computer only.".into()),
+                crate::controls::web_switch("os-notifications")
+                    .checked(os_notifications)
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.set_os_notifications(*checked, cx);
+                    }))
+                    .into_any_element(),
+                cx,
             ),
-            crate::controls::web_switch("os-notifications")
-                .checked(os_notifications)
-                .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                    this.set_os_notifications(*checked, cx);
-                }))
-                .into_any_element(),
-            cx,
-        )]);
-
-        // The master email switch — its own group, the way the web card's
-        // header switch reads.
-        let mut email_rows = vec![glass_toggle_row(
-            "Email notifications",
-            Some("Notifications still unread are bundled into one digest email.".into()),
-            crate::controls::web_switch("email-enabled")
-                .checked(email_enabled)
-                .disabled(!transport || !have_prefs)
-                .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                    this.set_email_enabled(*checked, cx);
-                }))
-                .into_any_element(),
-            cx,
-        )];
-        // EXP-698: the "no mail transport" caption is a ROW OF THE EMAIL
-        // GROUP, hairline-divided under the switch it explains — it used to
-        // float between two groups as its own bordered box, which read as a
-        // third, unrelated card. Only once the prefs are loaded: `transport`
-        // is false while they are still in flight.
+            glass_toggle_row(
+                "Email notifications",
+                Some("Notifications still unread are bundled into one digest email.".into()),
+                crate::controls::web_switch("email-enabled")
+                    .checked(email_enabled)
+                    .disabled(!transport || !have_prefs)
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.set_email_enabled(*checked, cx);
+                    }))
+                    .into_any_element(),
+                cx,
+            ),
+        ];
+        // EXP-698: the "no mail transport" caption is a ROW of the list,
+        // hairline-divided under the switch it explains. Only once the prefs
+        // are loaded: `transport` is false while they are still in flight.
         if have_prefs && !transport {
-            email_rows.push(
+            rows.push(
                 glass_row_shell().child(
                     div()
                         .flex_1()
@@ -353,11 +347,11 @@ impl Render for NotificationsPrefsPane {
                 ),
             );
         }
-        let mut body = section(cx).child(glass_group_rows(email_rows));
+        let mut body = section(cx);
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
+                body = body.child(glass_group_rows(rows)).child(
                     v_flex()
                         .gap_2()
                         .child(crate::controls::skeleton().h_4().w_full())
@@ -367,6 +361,7 @@ impl Render for NotificationsPrefsPane {
             }
             Load::Error(message) => {
                 body = body
+                    .child(glass_group_rows(rows))
                     .child(error_notice(
                         SharedString::from(format!(
                             "Couldn't load notification preferences: {message}"
@@ -391,9 +386,8 @@ impl Render for NotificationsPrefsPane {
                 let types_disabled = !transport;
                 let digest_disabled = !transport || !prefs.email_enabled;
 
-                // The eight per-type switches fuse into ONE grouped stack;
-                // the hairlines between them come from `glass_group_rows`.
-                let mut rows = Vec::with_capacity(TYPE_ROWS.len());
+                // The per-type switches join the same stack; the hairlines
+                // between them come from `glass_group_rows`.
                 for (kind, label, hint) in TYPE_ROWS {
                     // Web: `typePrefs[type] !== false` — missing means ON.
                     let checked = prefs.type_prefs.get(kind).copied() != Some(false);
@@ -410,15 +404,14 @@ impl Render for NotificationsPrefsPane {
                         cx,
                     ));
                 }
-                body = body.child(glass_group_rows(rows));
 
-                // EXP-801: web's "Messages from teammates' agents" group —
+                // EXP-801: web's "Messages from teammates' agents" row —
                 // off means another member's agent cannot message this
                 // account over MCP at all (no inbox row, no push); the
                 // account's own agents always get through. Absent on an
                 // older server reads as allowed (the server default).
                 let allow_agent_messages = prefs.allow_agent_messages.unwrap_or(true);
-                body = body.child(glass_group_rows(vec![glass_toggle_row(
+                rows.push(glass_toggle_row(
                     "Messages from teammates' agents",
                     Some(
                         "Let other members' agents send you a notification over MCP. \
@@ -432,7 +425,8 @@ impl Render for NotificationsPrefsPane {
                         }))
                         .into_any_element(),
                     cx,
-                )]));
+                ));
+                body = body.child(glass_group_rows(rows));
 
                 let digest = prefs.digest.clone().unwrap_or_else(|| DIGEST_OFF.to_string());
                 let digest_label: SharedString = if digest == DIGEST_DAILY {
@@ -527,6 +521,6 @@ impl Render for NotificationsPrefsPane {
             }
         }
 
-        v_flex().gap_6().child(desktop).child(body)
+        v_flex().child(body)
     }
 }

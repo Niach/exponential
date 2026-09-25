@@ -180,10 +180,6 @@ export function TeamStorageSection({
             </Pill>
           }
         />
-        <p className="px-1 pb-2 text-xs text-foreground/50">
-          Files and images attached to this team&apos;s issues. Deleting an
-          attachment is permanent.
-        </p>
         <div className="space-y-3">
           {billingPlan && billingPlan.plan !== `unlimited` && (
             <UsageBar

@@ -215,19 +215,11 @@ impl Render for ArchivedBoardsPane {
             .loading(matches!(self.load, Load::Loading))
             .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)))
             .into_any_element();
-        let mut body = section(cx).child(
-            v_flex()
-                .child(crate::surface::glass_section_header(
-                    "Archived boards",
-                    Some(refresh),
-                    cx,
-                ))
-                .child(super::section_description(
-                    "Archived boards and their issues are hidden from everyone in the team. \
-                     Nothing is deleted \u{2014} unarchive to bring a board back exactly as it was.",
-                    cx,
-                )),
-        );
+        let mut body = section(cx).child(crate::surface::glass_section_header(
+            "Archived boards",
+            Some(refresh),
+            cx,
+        ));
 
         match &self.load {
             Load::Idle | Load::Loading => {
