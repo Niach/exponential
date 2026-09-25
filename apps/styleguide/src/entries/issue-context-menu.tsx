@@ -19,10 +19,10 @@ export const entry: StyleguideEntry = {
       note: `drawn live by apps/web/src/components/issue-context-menu (its test locks the order to this layout)`,
     },
     desktop: {
-      state: `leftover`,
+      state: `ok`,
       symbol: `build_row_context_menu`,
       file: `apps/desktop/crates/ui/src/issue_list.rs`,
-      note: `same order, no Estimate submenu yet`,
+      note: `the same rows in the same order, Estimate included (EXP-1077); Delete confirms in a dialog`,
     },
     ios: {
       state: `n/a`,
