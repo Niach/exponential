@@ -4879,7 +4879,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_review_submit`,
     {
-      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the author gets it verbatim); oracle = {command, passed} for the checks you actually RAN; head = the PR head commit sha you reviewed (a later push needs a new review). An approval clears the node for the merge train unless your own oracle failed; then a person decides.`,
+      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the author gets it verbatim); oracle = {command, passed} for the checks you actually RAN (the exact commands, up to 2000 chars); head = the PR head commit sha you reviewed (a later push needs a new review). An approval clears the node for the merge train unless your own oracle failed; then a person decides.`,
       inputSchema: strictInput({
         nodeId: uuidString,
         verdict: z.enum(contract.wfReviewVerdict.values as [string, ...string[]]),

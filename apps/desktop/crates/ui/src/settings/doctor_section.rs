@@ -333,14 +333,8 @@ impl Render for DoctorPanel {
             (hub.doctor.report.clone(), hub.doctor.running)
         };
 
-        let mut body = section(cx).child(
-            v_flex()
-                .child(crate::surface::glass_section_header("Tooling doctor", None, cx))
-                .child(super::section_description(
-                    "git is required. You cannot start coding without an agent CLI.",
-                    cx,
-                )),
-        );
+        let mut body =
+            section(cx).child(crate::surface::glass_section_header("Tooling doctor", None, cx));
         match &report {
             None => {
                 body = body.child(

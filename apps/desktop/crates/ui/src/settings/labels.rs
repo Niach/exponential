@@ -32,7 +32,7 @@ use domain::rows::Label;
 use crate::controls::{glass_input, WebControl as _};
 use crate::navigation::{active_team_id, Navigation};
 
-use super::{section, section_description, parse_hex_color, spawn_trpc};
+use super::{section, parse_hex_color, spawn_trpc};
 use crate::icons::registry;
 
 /// Web `LABEL_COLORS` (packages/ui/src/label-colors.ts) — verbatim.
@@ -538,14 +538,8 @@ impl Render for LabelsPane {
                 }))
                 .into_any_element()
         });
-        let mut body = section(cx).child(
-            v_flex()
-                .child(crate::surface::glass_section_header("Labels", new_label, cx))
-                .child(section_description(
-                    "Deleting a label removes it from all issues.",
-                    cx,
-                )),
-        );
+        let mut body =
+            section(cx).child(crate::surface::glass_section_header("Labels", new_label, cx));
 
         // EXP-994: ONE table, not a stack of floating cards — every row but
         // the first draws the ladder's hairline, and nothing boxes them in.

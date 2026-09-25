@@ -51,13 +51,10 @@ struct Snapshot {
 }
 
 // EXP-1025: the team prompt editor's copy — byte-identical to the web
-// (`components/team/general-section.tsx`).
+// (`components/team/general-section.tsx`). EXP-1054: one short placeholder,
+// no helper paragraph under the field — the counter is the footer.
 const TEAM_PROMPT_TITLE: &str = "Team prompt";
-const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding run of this team should follow, as \
-markdown. Repo facts belong in CLAUDE.md; this is for team process, conventions and who to ask.";
-const TEAM_PROMPT_HELP: &str = "Appended to the agent's system prompt after the run playbook, on \
-every start and resume. It reaches every run on every member's machine, with the agent's full \
-permissions. Applies to runs started or resumed from now on.";
+const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding run of this team follows, as markdown.";
 
 /// `12.3k` / `840` — the counter's short form (web `formatByteCount`).
 fn format_byte_count(bytes: usize) -> String {
@@ -415,7 +412,7 @@ impl GeneralPane {
         let footer = h_flex()
             .w_full()
             .items_start()
-            .justify_between()
+            .justify_end()
             .gap_4()
             .px_4()
             .py_2()
@@ -423,7 +420,6 @@ impl GeneralPane {
             .border_color(super::row_stroke(cx))
             .text_xs()
             .text_color(cx.theme().muted_foreground)
-            .child(div().min_w_0().flex_1().child(TEAM_PROMPT_HELP))
             .child(
                 div()
                     .flex_shrink_0()

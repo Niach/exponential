@@ -23,9 +23,20 @@ type ApiKeyRow = Awaited<
 >[`keys`][number]
 
 // Desktop/CLI sign-ins auto-mint their hidden key under this name prefix
-// (crates/api device_key_name) — revoking one of those signs that device's
-// agent/MCP wiring out until it re-mints on the next session.
+// (crates/api device_key_name). EXP-1054: those rows are LOGIN SESSIONS — a
+// signed-in device, never shown by its token — and "revoking" one logs that
+// device out. Everything else is an API key for scripts and MCP clients.
 const DEVICE_KEY_PREFIX = `Device: `
+
+function isDeviceKey(row: ApiKeyRow): boolean {
+  return Boolean(row.name?.startsWith(DEVICE_KEY_PREFIX))
+}
+
+/** The device's own name — the `Device: ` mint prefix stripped. */
+function deviceName(row: ApiKeyRow): string {
+  const name = row.name?.slice(DEVICE_KEY_PREFIX.length).trim()
+  return name || `Device`
+}
 
 function formatDate(value: Date | string | null): string {
   if (!value) return `–`
@@ -54,6 +65,9 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
   const [copied, setCopied] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRow | null>(null)
   const [revoking, setRevoking] = useState(false)
+
+  const sessions = keys.filter(isDeviceKey)
+  const apiKeys = keys.filter((row) => !isDeviceKey(row))
 
   const closeCreate = () => {
     setCreateOpen(false)
@@ -107,6 +121,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
     }
   }
 
+  // One mutation for both lists: a device's login session IS its hidden key.
   const handleRevoke = async () => {
     if (!revokeTarget || revoking) return
     setRevoking(true)
@@ -121,12 +136,45 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
     }
   }
 
-  const revokeIsDeviceKey = Boolean(
-    revokeTarget?.name?.startsWith(DEVICE_KEY_PREFIX)
-  )
+  const revokeIsSession = revokeTarget !== null && isDeviceKey(revokeTarget)
 
   return (
     <div className="space-y-6">
+      <div>
+        <GlassSectionHeader label="Login sessions" />
+        {sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No signed-in devices.
+          </p>
+        ) : (
+          // EXP-862: flat rows under the band, never one card per row.
+          <div className="flex flex-col">
+            {sessions.map((row) => (
+              <ListRow key={row.id}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {deviceName(row)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {`Signed in ${formatDate(row.createdAt)} · last active ${
+                      row.lastRequest ? formatDate(row.lastRequest) : `never`
+                    }`}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => setRevokeTarget(row)}
+                >
+                  Log out
+                </Button>
+              </ListRow>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div>
         <GlassSectionHeader
           label="API keys"
@@ -136,67 +184,35 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
             </Pill>
           }
         />
-        <p className="px-1 pb-2 text-xs text-foreground/50">
-          Personal keys authenticate MCP clients, scripts, and the CLI as you.
-          Send one as{` `}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            Authorization: Bearer expu_…
-          </code>
-          {` `}
-          or pass it to{` `}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            exponential login
-          </code>
-          {` `}
-          via <code className="rounded bg-muted px-1 py-0.5 text-xs">EXP_TOKEN</code>
-          .
-        </p>
-        <div>
-          {keys.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No API keys yet. Keys minted by the desktop app or CLI show up
-              here too.
-            </p>
-          ) : (
-            // EXP-862: flat rows under the band, never one card per key.
-            <div className="flex flex-col">
-              {keys.map((row) => {
-                const isDeviceKey = Boolean(
-                  row.name?.startsWith(DEVICE_KEY_PREFIX)
-                )
-                return (
-                  <ListRow key={row.id}>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">
-                        {row.name || `Personal key`}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <code>{keyPreview(row)}</code>
-                        {` · created ${formatDate(row.createdAt)} · last used ${
-                          row.lastRequest ? formatDate(row.lastRequest) : `never`
-                        }`}
-                      </div>
-                      {isDeviceKey && (
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          Minted automatically by a signed-in device for its
-                          coding sessions.
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0 text-destructive hover:text-destructive"
-                      onClick={() => setRevokeTarget(row)}
-                    >
-                      Revoke
-                    </Button>
-                  </ListRow>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        {apiKeys.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No API keys.</p>
+        ) : (
+          <div className="flex flex-col">
+            {apiKeys.map((row) => (
+              <ListRow key={row.id}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {row.name || `Personal key`}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    <code>{keyPreview(row)}</code>
+                    {` · created ${formatDate(row.createdAt)} · last used ${
+                      row.lastRequest ? formatDate(row.lastRequest) : `never`
+                    }`}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 text-destructive hover:text-destructive"
+                  onClick={() => setRevokeTarget(row)}
+                >
+                  Revoke
+                </Button>
+              </ListRow>
+            ))}
+          </div>
+        )}
       </div>
 
       <Dialog
@@ -211,8 +227,8 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
               <DialogHeader>
                 <DialogTitle>Create API key</DialogTitle>
                 <DialogDescription>
-                  The key acts as you with your full team membership. You can
-                  revoke it here at any time.
+                  For scripts and MCP clients. The key acts as you with your
+                  full team membership; revoke it here at any time.
                 </DialogDescription>
               </DialogHeader>
               <DialogBody className="space-y-2">
@@ -283,22 +299,32 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
       >
         <DialogContent mobile="alert">
           <DialogHeader>
-            <DialogTitle>Revoke API key</DialogTitle>
+            <DialogTitle>
+              {revokeIsSession ? `Log out device` : `Revoke API key`}
+            </DialogTitle>
             <DialogDescription>
-              {revokeIsDeviceKey
-                ? `This key was minted by a signed-in device. Revoking it disconnects that device's coding-agent and MCP wiring until it signs in again.`
+              {revokeIsSession
+                ? `The desktop app or CLI on this device signs out. Its coding sessions and MCP wiring stop until it signs in again.`
                 : `Anything still using this key stops working immediately. This cannot be undone.`}
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
             <p className="text-sm">
               <span className="font-medium">
-                {revokeTarget?.name || `Personal key`}
+                {revokeTarget
+                  ? revokeIsSession
+                    ? deviceName(revokeTarget)
+                    : revokeTarget.name || `Personal key`
+                  : ``}
               </span>
-              {` `}
-              <code className="text-xs text-muted-foreground">
-                {revokeTarget ? keyPreview(revokeTarget) : ``}
-              </code>
+              {!revokeIsSession && revokeTarget && (
+                <>
+                  {` `}
+                  <code className="text-xs text-muted-foreground">
+                    {keyPreview(revokeTarget)}
+                  </code>
+                </>
+              )}
             </p>
           </DialogBody>
           <DialogFooter>
@@ -311,7 +337,13 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
               onClick={() => void handleRevoke()}
               disabled={revoking}
             >
-              {revoking ? `Revoking…` : `Revoke key`}
+              {revoking
+                ? revokeIsSession
+                  ? `Logging out…`
+                  : `Revoking…`
+                : revokeIsSession
+                  ? `Log out`
+                  : `Revoke key`}
             </Button>
           </DialogFooter>
         </DialogContent>

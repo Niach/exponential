@@ -35,12 +35,13 @@ import {
   type DeviceLaunchDefaults,
 } from "@/db/schema"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
-import { oneLine } from "@/lib/steer-child-messages"
+import { MAX_SESSION_CHAIN_DEPTH, oneLine } from "@/lib/steer-child-messages"
 import { assertTeamMember } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
 import { BUILTIN_REVIEW_NODE_NAME } from "@/lib/builtin-actions"
 import { assertDeviceUsable } from "@/lib/trpc/automations"
 import {
+  isWorkflowReviewBranch,
   loadWorkflowEdges,
   nodeEdges,
   replanWorkflow,
@@ -430,6 +431,71 @@ export function reviewOutcome(args: {
     }
   }
   return { approve: false, state: `updating`, note: `Changes requested by the agent review` }
+}
+
+type Db = typeof import("@/db/connection").db
+
+/**
+ * FEED-51: is `sessionId` the review run the workflow started for the node,
+ * or a RESUME of it? A resume (a person's account switch, the Resume button)
+ * ends the recorded run and starts another under a new id; one performed
+ * from a chat run re-stamps `started_reason=agent` with the chat as its
+ * parent (EXP-906: the frame's own reason wins), so the calling row alone
+ * does not decide (workflow 3b828f50, EXP-1030 r3). Every row on the chain
+ * must be the review builtin and none may be the node's own run. A row is
+ * the engine's reviewer when the workflow started it (`started_reason =
+ * workflow`) or when it runs on the node's review branch
+ * `exp/wf-<id8>-review-<IDENT>-r<n>` (the same evidence the engine's
+ * `live_reviews_on_branches` uses); failing both, the walk follows
+ * `resumed_from_id` back, bounded and loop-safe (a swept predecessor breaks
+ * the chain, the branch does not depend on it).
+ */
+async function isReviewRunOfNode(
+  db: Db,
+  sessionId: string,
+  node: { sessionId: string | null; issueId: string },
+  workflowId: string
+): Promise<boolean> {
+  let cursor: string | null = sessionId
+  const seen = new Set<string>()
+  let identifier: string | null | undefined
+  while (cursor && !seen.has(cursor) && seen.size < MAX_SESSION_CHAIN_DEPTH) {
+    seen.add(cursor)
+    const [row] = await db
+      .select({
+        id: codingSessions.id,
+        actionName: codingSessions.actionName,
+        startedReason: codingSessions.startedReason,
+        branch: codingSessions.branch,
+        resumedFromId: codingSessions.resumedFromId,
+      })
+      .from(codingSessions)
+      .where(eq(codingSessions.id, cursor))
+      .limit(1)
+    if (
+      !row ||
+      row.actionName !== BUILTIN_REVIEW_NODE_NAME ||
+      row.id === node.sessionId
+    ) {
+      return false
+    }
+    if (row.startedReason === `workflow`) return true
+    if (row.branch) {
+      if (identifier === undefined) {
+        const [issue] = await db
+          .select({ identifier: issues.identifier })
+          .from(issues)
+          .where(eq(issues.id, node.issueId))
+          .limit(1)
+        identifier = issue?.identifier ?? null
+      }
+      if (identifier && isWorkflowReviewBranch(workflowId, identifier, row.branch)) {
+        return true
+      }
+    }
+    cursor = row.resumedFromId ?? null
+  }
+  return false
 }
 
 export const workflowsRouter = router({
@@ -936,7 +1002,18 @@ export const workflowsRouter = router({
         const txId = await generateTxId(tx)
         await tx
           .update(workflowNodes)
-          .set({ approvedAt: input.approved ? new Date() : null })
+          .set({
+            approvedAt: input.approved ? new Date() : null,
+            // A person approves the pull request as it IS. The engine reads
+            // an approval as stale while the stored review names a head the
+            // PR has moved past (`approval_is_stale`), which after a
+            // request_changes round is always the case once the author
+            // pushed its fixes: the reviewer's head goes, the verdict and
+            // findings stay on record.
+            ...(input.approved && {
+              review: sql`CASE WHEN ${workflowNodes.review} IS NULL THEN NULL ELSE ${workflowNodes.review} - 'head' END`,
+            }),
+          })
           .where(eq(workflowNodes.id, input.nodeId))
         if (input.approved) {
           // EXP-984 metric: how long the node sat waiting for a person. The
@@ -1010,7 +1087,11 @@ export const workflowsRouter = router({
    *  `exponential_workflows_review_submit`). Only the runner's owner may
    *  submit, and only FROM the reviewer run the engine started for the node
    *  (`sessionId` = the calling run): the author's own run, or any other,
-   *  cannot approve the node. */
+   *  cannot approve the node. A reviewer RESUMED by a person (an account
+   *  switch, a Resume) is still that reviewer: the calling row may be a
+   *  successor re-branded `agent` by the MCP resume path, so the check takes
+   *  the node's review branch as evidence and otherwise walks
+   *  `resumed_from_id` back to the run the workflow started (FEED-51). */
   submitReview: authedProcedure
     .input(
       z.object({
@@ -1032,21 +1113,7 @@ export const workflowsRouter = router({
       if (node.state === `landed` || node.state === `skipped`) {
         throw bad(`That node is already settled`)
       }
-      const [reviewer] = await ctx.db
-        .select({
-          id: codingSessions.id,
-          actionName: codingSessions.actionName,
-          startedReason: codingSessions.startedReason,
-        })
-        .from(codingSessions)
-        .where(eq(codingSessions.id, input.sessionId))
-        .limit(1)
-      if (
-        !reviewer ||
-        reviewer.actionName !== BUILTIN_REVIEW_NODE_NAME ||
-        reviewer.startedReason !== `workflow` ||
-        reviewer.id === node.sessionId
-      ) {
+      if (!(await isReviewRunOfNode(ctx.db, input.sessionId, node, workflow.id))) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the review run the workflow started for this node may submit its verdict; the node's own run cannot review itself`,

@@ -26,6 +26,31 @@ export function workflowIntegrationBranch(workflowId: string): string {
   return `exp/wf-${workflowId.replace(/-/g, ``).slice(0, 8)}`
 }
 
+/** `exp/wf-<id8>-review-<IDENT>-r<round>`: the branch ONE agent review of a
+ *  node runs on (EXP-984; mirror of `crates/coding` `review_branch`). The
+ *  round follows the identifier, so `EXP-10`'s branches never match
+ *  `EXP-103`'s. */
+export function workflowReviewBranch(
+  workflowId: string,
+  identifier: string,
+  round: number
+): string {
+  return `${workflowIntegrationBranch(workflowId)}-review-${identifier}-r${round}`
+}
+
+/** FEED-51: is `branch` one of this node's review branches, any round? The
+ *  engine follows a reviewer by its branch rather than the session id it
+ *  recorded (a resume mints a new id on the SAME branch), and the review
+ *  gate accepts the same evidence. */
+export function isWorkflowReviewBranch(
+  workflowId: string,
+  identifier: string,
+  branch: string
+): boolean {
+  const prefix = workflowReviewBranch(workflowId, identifier, 0).slice(0, -1)
+  return branch.startsWith(prefix) && /^[0-9]+$/.test(branch.slice(prefix.length))
+}
+
 const CLOSED_ANCHORS = new Set<string>([`done`, `cancelled`, `duplicate`])
 
 /** The statuses a workflow still re-shapes itself in. A running workflow's

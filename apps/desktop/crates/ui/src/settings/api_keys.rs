@@ -1,4 +1,4 @@
-//! Settings → API keys (EXP-238): the account's personal `expu_` keys.
+//! Settings → Security (EXP-238): the account's personal `expu_` keys.
 //!
 //! Web parity: the settings `api-keys` section. List/mint/revoke ride the
 //! same tRPC surface (`users.listPersonalApiKeys` / `mintPersonalApiKey` /
@@ -7,12 +7,13 @@
 //! user leaves the pane — a re-entry never shows it again ([`Self::mark_stale`]
 //! clears it).
 //!
-//! Two kinds of rows share the list: keys the user minted here (or in the
-//! web pane), and the hidden per-device keys the launcher/CLI mint as
-//! `Device: <hostname>` (§7.2). THIS device's own row gets a badge; revoking
-//! it also deletes the local token-store copy, otherwise
-//! `ensure_personal_key` would keep handing the dead key to coding sessions
-//! until a confusing 401.
+//! EXP-1054: TWO lists. The hidden per-device keys the launcher/CLI mint as
+//! `Device: <hostname>` (§7.2) are **Login sessions** — a signed-in device,
+//! named by its hostname, never by its token, whose action is **Log out**.
+//! Everything else is an **API key** for scripts and MCP clients. THIS
+//! device's own session row gets a badge; logging it out also deletes the
+//! local token-store copy, otherwise `ensure_personal_key` would keep
+//! handing the dead key to coding sessions until a confusing 401.
 
 use gpui::{
     div, prelude::FluentBuilder as _, App, AppContext as _, ClipboardItem, Entity, FontWeight,
@@ -36,11 +37,29 @@ use crate::queries;
 use crate::session::AuthContext;
 
 use super::storage::format_created_date;
-use super::{error_notice, section, section_description};
+use super::{error_notice, section};
 
 /// The `Device: ` name prefix `api::users::device_key_name` mints with —
 /// rows carrying it belong to a signed-in desktop/CLI, not a script.
 const DEVICE_KEY_PREFIX: &str = "Device: ";
+
+/// A login-session row (a signed-in device) vs an API key.
+fn is_device_row(row: &PersonalKeyMeta) -> bool {
+    row.name
+        .as_deref()
+        .is_some_and(|name| name.starts_with(DEVICE_KEY_PREFIX))
+}
+
+/// A login session's display name — the hostname, the mint prefix stripped.
+fn device_name(row: &PersonalKeyMeta) -> String {
+    row.name
+        .as_deref()
+        .and_then(|name| name.strip_prefix(DEVICE_KEY_PREFIX))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Device")
+        .to_string()
+}
 
 struct Loaded {
     list: Result<Vec<PersonalKeyMeta>, String>,
@@ -161,8 +180,8 @@ impl ApiKeysPane {
         let ok_input = self.name_input.clone();
         let spec = AlertSpec::new(
             "Create API key",
-            "The key acts as you with your full team membership. You can \
-             revoke it here at any time.",
+            "For scripts and MCP clients. The key acts as you with your full \
+             team membership; revoke it here at any time.",
             "Create key",
         )
         .height(gpui::px(300.))
@@ -227,9 +246,11 @@ impl ApiKeysPane {
         open_alert(window, cx, spec);
     }
 
-    /// Per-row revoke confirm + `users.revokePersonalApiKey` → refetch. When
-    /// the revoked row is THIS device's own key, the local token-store copy
-    /// goes with it so the launcher re-mints instead of 401ing.
+    /// Per-row revoke confirm + `users.revokePersonalApiKey` → refetch. A
+    /// login-session row reads as "Log out device" (the same mutation: the
+    /// device's session IS its hidden key). When the row is THIS device's
+    /// own, the local token-store copy goes with it so the launcher re-mints
+    /// instead of 401ing.
     fn confirm_revoke(
         &mut self,
         row: &PersonalKeyMeta,
@@ -240,28 +261,38 @@ impl ApiKeysPane {
         let pane = cx.entity().downgrade();
         let handle = window.window_handle();
         let key_id = row.id.clone();
-        let label = display_name(row);
-        let device_row = row
-            .name
-            .as_deref()
-            .is_some_and(|name| name.starts_with(DEVICE_KEY_PREFIX));
-        let description = if device_row {
-            "This key was minted by a signed-in device. Revoking it \
-             disconnects that device's coding-agent and MCP wiring until it \
-             signs in again."
+        let device_row = is_device_row(row);
+        let label = if device_row {
+            device_name(row)
         } else {
-            "Anything still using this key stops working immediately. This \
-             cannot be undone."
+            display_name(row)
         };
-        // EXP-771: the title names the ACTION (web parity), so the key it hits
-        // rides the body — its name and the visible prefix, like the web's.
+        let (title, description, ok_label) = if device_row {
+            (
+                "Log out device",
+                "The desktop app or CLI on this device signs out. Its coding \
+                 sessions and MCP wiring stop until it signs in again.",
+                "Log out",
+            )
+        } else {
+            (
+                "Revoke API key",
+                "Anything still using this key stops working immediately. This \
+                 cannot be undone.",
+                "Revoke key",
+            )
+        };
+        // EXP-771: the title names the ACTION (web parity), so the row it hits
+        // rides the body — its name and, for a key, the visible prefix. A
+        // login session is never named by its token.
         let identity_name: SharedString = label.clone().into();
-        let identity_preview: SharedString = row
-            .start
-            .clone()
-            .map(|start| format!("{start}\u{2026}").into())
-            .unwrap_or_else(|| "expu_\u{2026}".into());
-        let spec = AlertSpec::new("Revoke API key", description, "Revoke key")
+        let identity_preview: Option<SharedString> = (!device_row).then(|| {
+            row.start
+                .clone()
+                .map(|start| format!("{start}\u{2026}").into())
+                .unwrap_or_else(|| "expu_\u{2026}".into())
+        });
+        let spec = AlertSpec::new(title, description, ok_label)
             .height(gpui::px(260.))
             .content(move |_, cx| {
                 h_flex()
@@ -273,13 +304,13 @@ impl ApiKeysPane {
                             .font_weight(FontWeight::MEDIUM)
                             .child(identity_name.clone()),
                     )
-                    .child(
+                    .children(identity_preview.clone().map(|preview| {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .font_family(theme::terminal::FONT_FAMILY)
-                            .child(identity_preview.clone()),
-                    )
+                            .child(preview)
+                    }))
                     .into_any_element()
             })
             .ok_variant(ButtonVariant::Danger)
@@ -406,8 +437,9 @@ impl ApiKeysPane {
             )
     }
 
-    /// One key row: name (+ "This device" badge), key prefix, created,
-    /// last used, revoke.
+    /// One row. An API key: name, key prefix, created, last used, Revoke. A
+    /// login session (EXP-1054): hostname (+ "This device" badge), signed
+    /// in, last active, Log out — never its token.
     fn render_row(
         &self,
         row: &PersonalKeyMeta,
@@ -416,11 +448,18 @@ impl ApiKeysPane {
     ) -> gpui::Div {
         let muted = cx.theme().muted_foreground;
         let row_for_revoke = row.clone();
-        let start: SharedString = row
-            .start
-            .clone()
-            .map(|start| format!("{start}…").into())
-            .unwrap_or_else(|| "expu_…".into());
+        let device_row = is_device_row(row);
+        let name = if device_row {
+            device_name(row)
+        } else {
+            display_name(row)
+        };
+        let start: Option<SharedString> = (!device_row).then(|| {
+            row.start
+                .clone()
+                .map(|start| format!("{start}…").into())
+                .unwrap_or_else(|| "expu_…".into())
+        });
         let created = row
             .created_at
             .as_deref()
@@ -455,7 +494,7 @@ impl ApiKeysPane {
                             .whitespace_nowrap()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .child(SharedString::from(display_name(row))),
+                            .child(SharedString::from(name)),
                     )
                     .when(this_device, |this| {
                         this.child(
@@ -472,15 +511,15 @@ impl ApiKeysPane {
                         )
                     }),
             )
-            .child(
+            .children(start.map(|start| {
                 div()
                     .w_24()
                     .flex_shrink_0()
                     .font_family(theme::terminal::FONT_FAMILY)
                     .text_xs()
                     .text_color(muted)
-                    .child(start),
-            )
+                    .child(start)
+            }))
             .child(
                 div()
                     .w_24()
@@ -503,12 +542,29 @@ impl ApiKeysPane {
                     PillSize::Sm,
                     cx,
                 )
-                    .label("Revoke")
+                    .label(if device_row { "Log out" } else { "Revoke" })
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_revoke(&row_for_revoke, this_device, window, cx);
                     })),
             )
+    }
+}
+
+impl ApiKeysPane {
+    /// EXP-994: one hairline-divided ladder — a hairline between rows,
+    /// nothing around them. `device_key_id` marks THIS device's own row.
+    fn render_ladder(
+        &self,
+        rows: Vec<&PersonalKeyMeta>,
+        device_key_id: Option<&str>,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Div {
+        let list = rows.into_iter().enumerate().map(|(index, row)| {
+            let this_device = device_key_id == Some(row.id.as_str());
+            crate::surface::list_row(self.render_row(row, this_device, cx), index)
+        });
+        v_flex().w_full().min_w_0().children(list)
     }
 }
 
@@ -536,69 +592,69 @@ impl Render for ApiKeysPane {
             .child(new_key)
             .into_any_element();
 
-        let mut body = section(cx).child(
-            v_flex()
-                .child(crate::surface::glass_section_header(
-                    "API keys",
-                    Some(header_actions),
-                    cx,
-                ))
-                // Web copy verbatim. The web sets `Authorization: Bearer
-                // expu_…`, `exponential login` and `EXP_TOKEN` in `<code>`;
-                // one gpui div is one text style, so they read plain here.
-                .child(section_description(
-                    "Personal keys authenticate MCP clients, scripts, and the CLI as \
-                     you. Send one as Authorization: Bearer expu_… or pass it to \
-                     exponential login via EXP_TOKEN.",
-                    cx,
-                )),
-        );
+        // EXP-1054: two lists on one page — Login sessions (the signed-in
+        // devices) over API keys (for scripts and MCP clients). No caption
+        // under either band.
+        let mut sessions = section(cx).child(crate::surface::glass_section_header(
+            "Login sessions",
+            None,
+            cx,
+        ));
+        let mut keys = section(cx).child(crate::surface::glass_section_header(
+            "API keys",
+            Some(header_actions),
+            cx,
+        ));
 
         if let Some(minted) = self.minted.clone() {
-            body = body.child(self.render_minted(&minted, cx));
+            keys = keys.child(self.render_minted(&minted, cx));
         }
+
+        let skeleton = || {
+            v_flex()
+                .gap_2()
+                .child(crate::controls::skeleton().h_4().w_full())
+                .child(crate::controls::skeleton().h_4().w_64())
+        };
+        let empty = |text: &'static str, cx: &App| {
+            div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(text)
+        };
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_64()),
-                );
+                sessions = sessions.child(skeleton());
+                keys = keys.child(skeleton());
             }
             Load::Ready(Loaded {
                 list: Err(message), ..
             }) => {
-                body = body.child(error_notice(SharedString::from(message.clone()), cx));
+                sessions = sessions.child(error_notice(SharedString::from(message.clone()), cx));
             }
             Load::Ready(Loaded {
                 list: Ok(rows),
                 device_key_id,
             }) => {
-                if rows.is_empty() {
-                    body = body.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                "No API keys yet. Keys minted by the desktop app or CLI \
-                                 show up here too.",
-                            ),
-                    );
-                } else {
-                    // EXP-994: a hairline between rows, nothing around them.
-                    let list = rows.iter().enumerate().map(|(index, row)| {
-                        let this_device = device_key_id.as_deref() == Some(row.id.as_str());
-                        crate::surface::list_row(self.render_row(row, this_device, cx), index)
-                    });
-                    body = body.child(v_flex().w_full().min_w_0().children(list));
-                }
+                let (device_rows, key_rows): (Vec<_>, Vec<_>) =
+                    rows.iter().partition(|row| is_device_row(row));
+                let sessions_list = (!device_rows.is_empty())
+                    .then(|| self.render_ladder(device_rows, device_key_id.as_deref(), cx));
+                let keys_list = (!key_rows.is_empty())
+                    .then(|| self.render_ladder(key_rows, device_key_id.as_deref(), cx));
+                sessions = match sessions_list {
+                    Some(list) => sessions.child(list),
+                    None => sessions.child(empty("No signed-in devices.", cx)),
+                };
+                keys = match keys_list {
+                    Some(list) => keys.child(list),
+                    None => keys.child(empty("No API keys.", cx)),
+                };
             }
         }
 
-        v_flex().child(body)
+        v_flex().gap_6().child(sessions).child(keys)
     }
 }
 
@@ -644,7 +700,16 @@ mod tests {
     #[test]
     fn device_prefix_matches_the_miner_name_shape() {
         // `api::users::device_key_name` mints `Device: <hostname>` — the
-        // revoke copy keys off this exact prefix.
+        // Login sessions split keys off this exact prefix.
         assert!("Device: build-box".starts_with(DEVICE_KEY_PREFIX));
+        assert!(is_device_row(&meta(Some("Device: build-box"))));
+        assert!(!is_device_row(&meta(Some("CI deploys"))));
+        assert!(!is_device_row(&meta(None)));
+    }
+
+    #[test]
+    fn a_login_session_is_named_by_its_host_never_its_token() {
+        assert_eq!(device_name(&meta(Some("Device: build-box"))), "build-box");
+        assert_eq!(device_name(&meta(Some("Device:   "))), "Device");
     }
 }
