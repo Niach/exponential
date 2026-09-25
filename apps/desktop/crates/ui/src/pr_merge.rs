@@ -15,7 +15,9 @@
 //! Keys share one namespace: an issue UUID for `issues.mergePr`,
 //! [`close_pr_key`] (`close:<uuid>`) for `issues.closePr`,
 //! [`session_merge_key`] (`session:<uuid>`) for a RUN's own chore PR
-//! (`codingSessions.mergePr`, EXP-734), and [`pull_merge_key`]
+//! (`codingSessions.mergePr`, EXP-734), [`workflow_merge_key`]
+//! (`workflow:<uuid>`) for a workflow's final PR (`workflows.mergeFinalPr`,
+//! EXP-1072), and [`pull_merge_key`]
 //! (`<repo-uuid>#<number>`) for unlinked pulls — the prefixes/`#` can never
 //! collide. Error captions always key on the ROW
 //! (the issue id / pull key), so a failed close renders under the same row
@@ -55,6 +57,13 @@ pub fn close_pr_key(issue_id: &str) -> String {
 /// a `close:` key or a pull key.
 pub fn session_merge_key(session_id: &str) -> String {
     format!("session:{session_id}")
+}
+
+/// EXP-1072: arm/in-flight key for a WORKFLOW's one final PR
+/// (`workflows.mergeFinalPr`). The `workflow:` prefix can never collide with
+/// an issue UUID, a `close:`/`session:` key or a pull key.
+pub fn workflow_merge_key(workflow_id: &str) -> String {
+    domain::workflow_final_pr::review_key(workflow_id)
 }
 
 /// The server's user-facing failure message when there is one; everything
@@ -97,6 +106,11 @@ pub enum MergeOp {
     /// it). Echo-settled on the SESSION row: the spinner holds until the
     /// synced `pr_state` leaves `open`.
     MergeSessionPr { session_id: String },
+    /// EXP-1072: `workflows.mergeFinalPr` — a workflow's ONE final pull
+    /// request (integration branch → default branch); GitHub's acceptance
+    /// completes the workflow. Echo-settled on the WORKFLOW row: the spinner
+    /// holds until the synced `final_pr_state` leaves `open`.
+    MergeWorkflowFinalPr { workflow_id: String },
     /// `repositories.mergePull` — an issue-unlinked PR. No Electric echo:
     /// completion clears in-flight immediately and the caller's `on_success`
     /// drops the row from its local state.
@@ -113,6 +127,7 @@ impl MergeOp {
             MergeOp::MergeIssuePr { issue_id, .. } => issue_id.clone(),
             MergeOp::CloseIssuePr { issue_id } => close_pr_key(issue_id),
             MergeOp::MergeSessionPr { session_id } => session_merge_key(session_id),
+            MergeOp::MergeWorkflowFinalPr { workflow_id } => workflow_merge_key(workflow_id),
             MergeOp::MergePull {
                 repository_id,
                 number,
@@ -127,7 +142,9 @@ impl MergeOp {
             MergeOp::MergeIssuePr { issue_id, .. } | MergeOp::CloseIssuePr { issue_id } => {
                 issue_id.clone()
             }
-            MergeOp::MergeSessionPr { .. } | MergeOp::MergePull { .. } => self.key(),
+            MergeOp::MergeSessionPr { .. }
+            | MergeOp::MergeWorkflowFinalPr { .. }
+            | MergeOp::MergePull { .. } => self.key(),
         }
     }
 
@@ -138,6 +155,7 @@ impl MergeOp {
             MergeOp::CloseIssuePr { .. } => FailedOp::Close,
             MergeOp::MergeIssuePr { .. }
             | MergeOp::MergeSessionPr { .. }
+            | MergeOp::MergeWorkflowFinalPr { .. }
             | MergeOp::MergePull { .. } => FailedOp::Merge,
         }
     }
@@ -149,7 +167,9 @@ impl MergeOp {
             MergeOp::MergeIssuePr { issue_id, .. } | MergeOp::CloseIssuePr { issue_id } => {
                 vec![issue_id.clone(), close_pr_key(issue_id)]
             }
-            MergeOp::MergeSessionPr { .. } | MergeOp::MergePull { .. } => vec![self.key()],
+            MergeOp::MergeSessionPr { .. }
+            | MergeOp::MergeWorkflowFinalPr { .. }
+            | MergeOp::MergePull { .. } => vec![self.key()],
         }
     }
 
@@ -175,6 +195,9 @@ impl MergeOp {
             MergeOp::MergeSessionPr { session_id } => {
                 format!("codingSessions.mergePr({session_id})")
             }
+            MergeOp::MergeWorkflowFinalPr { workflow_id } => {
+                format!("workflows.mergeFinalPr({workflow_id})")
+            }
             MergeOp::MergePull {
                 repository_id,
                 number,
@@ -193,6 +216,9 @@ impl MergeOp {
             }
             MergeOp::MergeSessionPr { session_id } => {
                 api::coding_sessions::merge_pr(trpc, session_id).map(|_| ())
+            }
+            MergeOp::MergeWorkflowFinalPr { workflow_id } => {
+                api::workflows::merge_final_pr(trpc, workflow_id)
             }
             MergeOp::MergePull {
                 repository_id,
@@ -286,6 +312,14 @@ impl MergeState {
                 // observer an action/chat merge would spin forever.
                 subscriptions.push(cx.observe(
                     &collections.coding_sessions,
+                    |this: &mut MergeState, _, cx| {
+                        this.prune_settled(cx);
+                    },
+                ));
+                // EXP-1072: a workflow's final PR settles on the WORKFLOW
+                // row's `final_pr_state`.
+                subscriptions.push(cx.observe(
+                    &collections.workflows,
                     |this: &mut MergeState, _, cx| {
                         this.prune_settled(cx);
                     },
@@ -412,7 +446,15 @@ impl MergeState {
             };
             let issues = store.collections().issues.read(cx);
             let sessions = store.collections().coding_sessions.read(cx);
+            let workflows = store.collections().workflows.read(cx);
             let settled = |key: &str| -> bool {
+                // EXP-1072: a workflow's final PR lives on the WORKFLOW row.
+                if let Some(workflow_id) = key.strip_prefix("workflow:") {
+                    return match workflows.get(workflow_id) {
+                        Some(workflow) => workflow.final_pr_state.as_deref() != Some("open"),
+                        None => false,
+                    };
+                }
                 // EXP-734: a run's OWN chore PR lives on the SESSION row —
                 // no issue carries it, so it settles on that row's `pr_state`.
                 if let Some(session_id) = key.strip_prefix("session:") {
@@ -446,15 +488,21 @@ impl MergeState {
             // and the PR is mergeable again. (A refused merge writes nothing
             // server-side, so this can never race the failure just stored.)
             let superseded = |failure: &MergeFailure| -> bool {
-                let current = match failure.row_key.strip_prefix("session:") {
+                let current = if let Some(session_id) = failure.row_key.strip_prefix("session:") {
                     // EXP-734: a session-keyed refusal is stamped with the
                     // SESSION row's `updated_at`.
-                    Some(session_id) => sessions
+                    sessions
                         .get(session_id)
-                        .and_then(|session| session.updated_at.as_deref()),
-                    None => issues
+                        .and_then(|session| session.updated_at.as_deref())
+                } else if let Some(workflow_id) = failure.row_key.strip_prefix("workflow:") {
+                    // EXP-1072: a workflow-keyed refusal, the WORKFLOW row's.
+                    workflows
+                        .get(workflow_id)
+                        .and_then(|workflow| workflow.updated_at.as_deref())
+                } else {
+                    issues
                         .get(&failure.row_key)
-                        .and_then(|issue| issue.updated_at.as_deref()),
+                        .and_then(|issue| issue.updated_at.as_deref())
                 };
                 superseded_by(failure, current)
             };
@@ -563,23 +611,36 @@ pub fn two_click(
                         // Stamp the row this refusal describes, so a later
                         // re-sync of it retires the caption (and the swap).
                         let row_stamp = match Store::try_global(cx) {
-                            Some(store) => match row_key.strip_prefix("session:") {
-                                // EXP-734: session-keyed rows stamp off the
-                                // `coding_sessions` row, the only place the
-                                // run's own PR lives.
-                                Some(session_id) => store
-                                    .collections()
-                                    .coding_sessions
-                                    .read(cx)
-                                    .get(session_id)
-                                    .and_then(|session| session.updated_at.clone()),
-                                None => store
-                                    .collections()
-                                    .issues
-                                    .read(cx)
-                                    .get(&row_key)
-                                    .and_then(|issue| issue.updated_at.clone()),
-                            },
+                            Some(store) => {
+                                if let Some(session_id) = row_key.strip_prefix("session:") {
+                                    // EXP-734: session-keyed rows stamp off the
+                                    // `coding_sessions` row, the only place the
+                                    // run's own PR lives.
+                                    store
+                                        .collections()
+                                        .coding_sessions
+                                        .read(cx)
+                                        .get(session_id)
+                                        .and_then(|session| session.updated_at.clone())
+                                } else if let Some(workflow_id) =
+                                    row_key.strip_prefix("workflow:")
+                                {
+                                    // EXP-1072: the workflow row's stamp.
+                                    store
+                                        .collections()
+                                        .workflows
+                                        .read(cx)
+                                        .get(workflow_id)
+                                        .and_then(|workflow| workflow.updated_at.clone())
+                                } else {
+                                    store
+                                        .collections()
+                                        .issues
+                                        .read(cx)
+                                        .get(&row_key)
+                                        .and_then(|issue| issue.updated_at.clone())
+                                }
+                            }
                             None => None,
                         };
                         this.error = Some(MergeFailure {
@@ -642,7 +703,24 @@ mod tests {
         assert_eq!(session.guard_keys(), vec!["session:s1".to_string()]);
         // Every key shape stays distinct: none is a prefix-free collision of
         // another, and a bare uuid is never confused for a prefixed one.
-        let keys = [merge.key(), close.key(), pull.key(), session.key()];
+        // EXP-1072: a workflow's final PR, keyed by WORKFLOW id.
+        let workflow = MergeOp::MergeWorkflowFinalPr {
+            workflow_id: "w1".to_string(),
+        };
+        assert_eq!(workflow.key(), "workflow:w1");
+        assert_eq!(workflow.row_key(), "workflow:w1");
+        assert_eq!(workflow.guard_keys(), vec!["workflow:w1".to_string()]);
+        assert!(workflow.echo_settled());
+        assert_eq!(workflow.failed_op(), FailedOp::Merge);
+        assert_eq!(workflow.describe(), "workflows.mergeFinalPr(w1)");
+        assert_eq!(workflow_merge_key("w1"), "workflow:w1");
+        let keys = [
+            merge.key(),
+            close.key(),
+            pull.key(),
+            session.key(),
+            workflow.key(),
+        ];
         assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
         assert_eq!(session_merge_key("s1"), "session:s1");
         // Issue and session ops settle on the Electric echo; pulls settle

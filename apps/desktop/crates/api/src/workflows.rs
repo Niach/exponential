@@ -87,6 +87,15 @@ pub struct Workflow {
     pub start_on: Option<String>,
     #[serde(default)]
     pub integration_branch: Option<String>,
+    /// EXP-1072: the ONE final PR (integration branch → default branch) —
+    /// the workflow's own linked PR. `None` until the engine opens it.
+    #[serde(default)]
+    pub final_pr_url: Option<String>,
+    #[serde(default)]
+    pub final_pr_number: Option<i64>,
+    /// `open` / `merged` / `closed` — a raw wire word.
+    #[serde(default)]
+    pub final_pr_state: Option<String>,
     #[serde(default)]
     pub metrics: Option<serde_json::Value>,
     #[serde(default)]
@@ -98,6 +107,20 @@ pub struct Workflow {
 #[derive(Deserialize)]
 struct WorkflowResponse {
     workflow: Workflow,
+}
+
+/// `workflows.get` — query, member-read. Only the workflow row is read here
+/// (the response's `nodes`/`edges` are ignored). EXP-1072: the CLI's
+/// fix-conflicts resolver falls back to it when the `pr` input names a
+/// workflow (its final PR) rather than an issue. A missing workflow is the
+/// server's `NOT_FOUND` (HTTP 404).
+pub fn get(trpc: &TrpcClient, id: &str) -> Result<Workflow, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    let response: WorkflowResponse = trpc.query_with_input("workflows.get", &Input { id })?;
+    Ok(response.workflow)
 }
 
 /// `workflows.create` — mutation, member-gated. `issue_ids` ride in DISPLAY
@@ -594,6 +617,9 @@ pub fn from_row(row: &domain::rows::WorkflowRow) -> Workflow {
         launch,
         start_on: row.start_on.clone(),
         integration_branch: row.integration_branch.clone(),
+        final_pr_url: row.final_pr_url.clone(),
+        final_pr_number: row.final_pr_number,
+        final_pr_state: row.final_pr_state.clone(),
         metrics: row.metrics.clone(),
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),
@@ -655,6 +681,33 @@ mod tests {
         // …and an omitted machine leaves the runner unbound, so the server
         // seeds the launch from the contract defaults.
         assert!(!request.contains(r#""deviceId""#));
+    }
+
+    /// EXP-1072: `workflows.get` reads the workflow row (nodes/edges are
+    /// ignored), final PR included — the CLI's fix-conflicts fallback.
+    #[test]
+    fn get_reads_the_workflow_and_its_final_pr() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"workflow":{"id":"wf-1","teamId":"team-1",
+                "repositoryId":"repo-1","name":"EXP-996 +5","status":"running",
+                "deviceId":"dev-1","launch":{},"startOn":"contract",
+                "integrationBranch":"exp/wf-abcdef12",
+                "finalPrUrl":"https://github.com/acme/web/pull/829",
+                "finalPrNumber":829,"finalPrState":"open","metrics":null},
+                "nodes":[],"edges":[]}}}"#,
+        );
+        let workflow = get(&client(&base), "wf-1").unwrap();
+        assert_eq!(workflow.id, "wf-1");
+        assert_eq!(workflow.integration_branch.as_deref(), Some("exp/wf-abcdef12"));
+        assert_eq!(workflow.final_pr_number, Some(829));
+        assert_eq!(workflow.final_pr_state.as_deref(), Some("open"));
+        assert_eq!(
+            workflow.final_pr_url.as_deref(),
+            Some("https://github.com/acme/web/pull/829")
+        );
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/workflows.get?input="));
     }
 
     /// EXP-1032: a create that NAMES the machine rides its `deviceId`, which

@@ -44,15 +44,21 @@ struct FixConflictsTarget {
     /// starts (remote frames carry the server-resolved group).
     repository_id: Option<String>,
     /// The PR issue's board (EXP-712) — names the board on the token mint so
-    /// the run resolves the SAME base branch the PR targets.
-    board_id: String,
+    /// the run resolves the SAME base branch the PR targets. `None` for a
+    /// workflow's final PR (EXP-1072): a workflow spans boards and its PR
+    /// targets the repository's default branch.
+    board_id: Option<String>,
     /// The board's own branch pin (EXP-712), when it has one. Wins over the
     /// repo-level default as the rebase-target fallback.
     board_branch: Option<String>,
+    /// EXP-1072: the `pr` input named a WORKFLOW — its ONE final PR (the
+    /// integration branch), merged as a chore PR by the run.
+    workflow_final_pr: bool,
 }
 
-/// Resolve the fix-conflicts `pr` input (a representative issue id) against
-/// the synced issues/boards. Errors are user-facing.
+/// Resolve the fix-conflicts `pr` input (a representative issue id, or —
+/// EXP-1072 — a workflow id naming its final PR) against the synced
+/// issues/boards/workflows. Errors are user-facing.
 fn resolve_fix_conflicts_target(
     inputs: &[ActionInputValue],
     cx: &App,
@@ -65,9 +71,13 @@ fn resolve_fix_conflicts_target(
         .ok_or_else(|| "Pick a pull request to fix.".to_string())?;
     let collections = Store::global(cx).collections().clone();
     let issues = collections.issues.read(cx);
-    let issue = issues
-        .get(&issue_id)
-        .ok_or_else(|| "That pull request's issue is not synced on this device.".to_string())?;
+    let Some(issue) = issues.get(&issue_id) else {
+        // EXP-1072: a workflow's ONE final PR is picked by the WORKFLOW id.
+        if let Some(workflow) = collections.workflows.read(cx).get(&issue_id) {
+            return workflow_fix_conflicts_target(workflow);
+        }
+        return Err("That pull request's issue is not synced on this device.".to_string());
+    };
     if issue.pr_state.as_deref() != Some(domain::contract::PR_STATE_OPEN) {
         return Err("That pull request is no longer open.".to_string());
     }
@@ -89,8 +99,37 @@ fn resolve_fix_conflicts_target(
         branch,
         issue_id,
         repository_id,
-        board_id,
+        board_id: Some(board_id),
         board_branch,
+        workflow_final_pr: false,
+    })
+}
+
+/// EXP-1072: the fix-conflicts target of a WORKFLOW's final PR — the
+/// integration branch, the workflow's own repository, no board (a workflow
+/// spans boards; its PR targets the repository's default branch). The id
+/// rides as `issue_id`: `issues.prepareConflictFix` accepts a workflow id.
+fn workflow_fix_conflicts_target(
+    workflow: &domain::rows::WorkflowRow,
+) -> Result<FixConflictsTarget, String> {
+    if workflow.final_pr_state.as_deref() != Some(domain::contract::PR_STATE_OPEN) {
+        return Err("That pull request is no longer open.".to_string());
+    }
+    let branch = workflow
+        .integration_branch
+        .clone()
+        .filter(|branch| !branch.is_empty())
+        .ok_or_else(|| "That pull request has no recorded branch.".to_string())?;
+    Ok(FixConflictsTarget {
+        identifier: domain::workflow_final_pr::identifier(
+            workflow.name.as_deref().unwrap_or_default(),
+        ),
+        branch,
+        issue_id: workflow.id.clone(),
+        repository_id: workflow.repository_id.clone(),
+        board_id: None,
+        board_branch: None,
+        workflow_final_pr: true,
     })
 }
 
@@ -244,6 +283,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
             fix.issue_id.clone(),
             fix.board_id.clone(),
             fix.board_branch.clone(),
+            fix.workflow_final_pr,
         )
     });
     // EXP-615: the chat run's `repo` input, snapshotted for the background
@@ -342,10 +382,18 @@ Update Exponential on this machine."
                                     .as_ref()
                                     .and_then(|fix| fix.repository_id.clone())
                                 else {
-                                    return Err(
+                                    // EXP-1072: a workflow's final PR names
+                                    // the workflow's repository, an issue's
+                                    // its board's.
+                                    let message = if fix_target
+                                        .as_ref()
+                                        .is_some_and(|fix| fix.workflow_final_pr)
+                                    {
+                                        "That workflow has no linked repository."
+                                    } else {
                                         "That pull request's board has no linked repository."
-                                            .to_string(),
-                                    );
+                                    };
+                                    return Err(message.to_string());
                                 };
                                 let rows = fetch_repositories(&trpc, &action.team_id).map_err(
                                     |err| format!("Could not resolve the repository: {err}"),
@@ -420,7 +468,7 @@ Update Exponential on this machine."
 
             let fix_branch = fix_kind.as_ref().map(|(branch, ..)| branch.clone());
             let kind = match fix_kind {
-                Some((branch, identifier, issue_id, board_id, board_branch)) => {
+                Some((branch, identifier, issue_id, board_id, board_branch, workflow_final_pr)) => {
                     // EXP-712: the BOARD's branch is the base its PRs target —
                     // the repo default is only the fallback for an unpinned
                     // board (and this whole value is itself only the fallback
@@ -449,13 +497,12 @@ team settings → Repositories.";
                     ActionRunKind::FixConflicts {
                         branch,
                         default_branch,
-                        board_id: Some(board_id),
+                        board_id,
                         identifier,
                         issue_id,
-                        // EXP-1072: the resolver above reads the synced
-                        // ISSUE; a workflow's final PR resolves through the
-                        // workflows collection (same lane, next commit).
-                        workflow_final_pr: false,
+                        // EXP-1072: the resolver above fell back to the
+                        // workflows collection — a workflow's final PR.
+                        workflow_final_pr,
                     }
                 }
                 // EXP-615: the builtin kinds are id-dispatched — chat, the
