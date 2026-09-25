@@ -155,7 +155,7 @@ describe(`workflow page view model (EXP-1082, declared)`, () => {
 
   it.skip(`offers retry and skip on a failed chip only`, () => {
     for (const c of fixture.chipMenus) {
-      expect(nodeChipMenu({ state: c.state })).toEqual(c.menu)
+      expect(nodeChipMenu(c.state)).toEqual(c.menu)
     }
   })
 })

@@ -3918,11 +3918,39 @@ export function registerExponentialTools(
           assertBoardGranted(access, lowerCtx.boardId, lowerCtx.teamId)
           stackOn = { issueId: lowerId }
         }
-        const { stackOnIssueId: _stackOnIssueId, workflowRole, ...startInput } = input
+        // EXP-1082 §1: only the workflow HOST names a membership — the
+        // calling run must itself belong to that workflow. Anyone else's
+        // keys are dropped silently (ignored, never refused).
+        const {
+          stackOnIssueId: _stackOnIssueId,
+          workflowRole,
+          workflowId,
+          workflowNodeId,
+          ...startInput
+        } = input
+        let membership: {
+          workflowId?: string
+          workflowNodeId?: string
+          workflowRole?: WfSessionRole
+        } = {}
+        if (workflowId && sessionId) {
+          const [me] = await db
+            .select({ workflowId: codingSessions.workflowId })
+            .from(codingSessions)
+            .where(eq(codingSessions.id, sessionId))
+            .limit(1)
+          if (me?.workflowId === workflowId) {
+            membership = {
+              workflowId,
+              ...(workflowNodeId ? { workflowNodeId } : {}),
+              // The router validates the contract role (a plain string here).
+              ...(workflowRole ? { workflowRole: workflowRole as WfSessionRole } : {}),
+            }
+          }
+        }
         await caller(user, request).steer.startSession({
           ...startInput,
-          // The router validates the contract role (a plain string here).
-          ...(workflowRole ? { workflowRole: workflowRole as WfSessionRole } : {}),
+          ...membership,
           issueId,
           issueIds,
           ...(stackOn ? { stackOn } : {}),
