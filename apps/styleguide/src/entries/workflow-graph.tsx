@@ -125,7 +125,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `WorkflowGraphView`,
       file: `packages/ui/src/workflow-graph.tsx`,
-      note: `Bound by apps/web/src/components/workflow-graph.tsx.`,
+      note: `EXP-1069: the web page mounts the node strip in components/workflow-detail.tsx instead.`,
     },
     desktop: {
       state: `ok`,
