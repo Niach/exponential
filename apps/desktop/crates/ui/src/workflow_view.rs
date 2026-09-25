@@ -53,7 +53,7 @@ use domain::workflow_view::{
     WorkflowPrimaryAction, CANCEL_WORKFLOW_CONFIRM, DELETE_WORKFLOW_LABEL, FINAL_PR_TITLE,
     MERGE_FINAL_PR_CONFIRM, MERGE_FINAL_PR_LABEL, NEEDS_YOU_LABEL, NODE_UNSYNCED_TITLE,
     PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, RESUME_WORKFLOW_LABEL, SKIP_NODE_CONFIRM,
-    SKIP_NODE_LABEL, START_WORKFLOW_LABEL, DISMISS_NODE_LABEL, ALL_NODES_LABEL, DECISIONS_LABEL, PICK_DEVICE_LABEL,
+    SKIP_NODE_LABEL, START_WORKFLOW_LABEL, DISMISS_NODE_CONFIRM, DISMISS_NODE_LABEL, NO_CHANGES_LABEL, ALL_NODES_LABEL, DECISIONS_LABEL, PICK_DEVICE_LABEL,
     REVIEW_FINAL_PR_LABEL, RUNS_ON_LABEL, STOP_WORKFLOW_LABEL, workflow_overflow_menu,
     WorkflowOverflowItem,
 };
@@ -72,10 +72,6 @@ const STRIP_TITLE_W: f32 = 140.;
 const EVENTS_TITLE: &str = "Activity";
 /// The banner's one button: the run's own composer answers it.
 const ANSWER_LABEL: &str = "Answer";
-/// A node on the Changes face whose issue has no pull request yet.
-const NO_CHANGES_LABEL: &str = "No changes yet";
-/// The Dismiss confirm on a `proposed` node (the Skip confirm's shape).
-const DISMISS_NODE_CONFIRM: &str = "The node is removed from the workflow.";
 
 // ---------------------------------------------------------------------------
 // Selection — pure, so the picker's rules are unit tests

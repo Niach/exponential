@@ -653,6 +653,10 @@ pub const PICK_DEVICE_LABEL: &str = "Pick device";
 /// A draft's overflow entry that re-picks the runner.
 pub const RUNS_ON_LABEL: &str = "Runs on";
 pub const REVIEW_FINAL_PR_LABEL: &str = "Review final PR";
+/// A node on the Changes face whose issue has no pull request yet.
+pub const NO_CHANGES_LABEL: &str = "No changes yet";
+/// The Dismiss confirm on a `proposed` node (the Skip confirm's shape).
+pub const DISMISS_NODE_CONFIRM: &str = "The node is removed from the workflow.";
 
 /// One entry of the header's overflow menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1275,6 +1279,8 @@ mod display_tests {
         pick_device: String,
         runs_on: String,
         review_final_pr: String,
+        no_changes: String,
+        dismiss_node_confirm: String,
     }
 
     #[derive(Deserialize)]
@@ -1575,5 +1581,7 @@ mod display_tests {
         assert_eq!(PICK_DEVICE_LABEL, labels.pick_device);
         assert_eq!(RUNS_ON_LABEL, labels.runs_on);
         assert_eq!(REVIEW_FINAL_PR_LABEL, labels.review_final_pr);
+        assert_eq!(NO_CHANGES_LABEL, labels.no_changes);
+        assert_eq!(DISMISS_NODE_CONFIRM, labels.dismiss_node_confirm);
     }
 }
