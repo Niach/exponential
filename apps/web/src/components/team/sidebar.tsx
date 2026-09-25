@@ -232,7 +232,9 @@ export function TeamSidebar({
                     <span className="text-sm font-semibold truncate">
                       {team?.name ?? teamSlug}
                     </span>
-                    <span className="relative ml-auto flex shrink-0 items-center">
+                    {/* `overflow-visible!`: the menu button truncates its LAST
+                        span, which would clip the corner dot. */}
+                    <span className="relative ml-auto flex shrink-0 items-center overflow-visible!">
                       <NavTeamSwitcherIcon className="h-4 w-4" />
                       <TeamLiveDot
                         live={otherLive.any ? otherLive : undefined}

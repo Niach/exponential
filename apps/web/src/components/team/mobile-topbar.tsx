@@ -141,7 +141,7 @@ export function TeamMobileTopbar({
               placement="corner"
               className="ring-background"
               title="Runs in other teams"
-              data-testid="team-switcher-live-dot"
+              data-testid="mobile-team-switcher-live-dot"
             />
           </span>
         </button>
