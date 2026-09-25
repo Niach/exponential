@@ -4,10 +4,53 @@ import {
   WORKFLOW_EVENTS_MAX,
   WORKFLOW_EVENT_MESSAGE_MAX,
   wfEventKindValues,
+  type WfEventKind,
 } from "@exp/db-schema/domain"
 import { authedProcedure, generateTxId } from "@/lib/trpc"
+import type { db as database } from "@/db/connection"
 import { workflowEvents } from "@/db/schema"
 import { assertEngine, loadWorkflow } from "./shared"
+
+type Tx = Parameters<Parameters<typeof database.transaction>[0]>[0]
+
+export interface WorkflowEventInput {
+  workflowId: string
+  teamId: string
+  nodeId?: string | null
+  sessionId?: string | null
+  kind: WfEventKind
+  message: string
+}
+
+/** EXP-1064: ONE writer for the log — the engine's `appendEvent` below and
+ *  every SERVER-side decision that deserves a line (`review_verdict` on
+ *  `submitReview`, `skipped` on `skipNode`, `question_asked` on
+ *  `ask_parent`, `completed` on the final merge, …): insert, then trim the
+ *  workflow to its newest WORKFLOW_EVENTS_MAX rows inside the caller's
+ *  transaction. The message is cut at the column's cap, never refused. */
+export async function appendWorkflowEvent(tx: Tx, input: WorkflowEventInput): Promise<void> {
+  await tx.insert(workflowEvents).values({
+    workflowId: input.workflowId,
+    teamId: input.teamId,
+    nodeId: input.nodeId ?? null,
+    sessionId: input.sessionId ?? null,
+    kind: input.kind,
+    message: input.message.slice(0, WORKFLOW_EVENT_MESSAGE_MAX),
+  })
+  await tx
+    .delete(workflowEvents)
+    .where(
+      and(
+        eq(workflowEvents.workflowId, input.workflowId),
+        sql`${workflowEvents.id} NOT IN (
+          SELECT ${workflowEvents.id} FROM ${workflowEvents}
+          WHERE ${workflowEvents.workflowId} = ${input.workflowId}
+          ORDER BY ${workflowEvents.at} DESC, ${workflowEvents.id} DESC
+          LIMIT ${WORKFLOW_EVENTS_MAX}
+        )`
+      )
+    )
+}
 
 // EXP-1082 §3: the engine's event log — one short line per decision outcome
 // (`wfEventKind`), synced through the `workflow-events` shape and rendered by
@@ -32,27 +75,7 @@ export const workflowEventProcedures = {
       await assertEngine(workflow, ctx.session.user.id)
       return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx.insert(workflowEvents).values({
-          workflowId: input.workflowId,
-          teamId: workflow.teamId,
-          nodeId: input.nodeId ?? null,
-          sessionId: input.sessionId ?? null,
-          kind: input.kind,
-          message: input.message,
-        })
-        await tx
-          .delete(workflowEvents)
-          .where(
-            and(
-              eq(workflowEvents.workflowId, input.workflowId),
-              sql`${workflowEvents.id} NOT IN (
-                SELECT ${workflowEvents.id} FROM ${workflowEvents}
-                WHERE ${workflowEvents.workflowId} = ${input.workflowId}
-                ORDER BY ${workflowEvents.at} DESC, ${workflowEvents.id} DESC
-                LIMIT ${WORKFLOW_EVENTS_MAX}
-              )`
-            )
-          )
+        await appendWorkflowEvent(tx, { ...input, teamId: workflow.teamId })
         return { txId }
       })
     }),

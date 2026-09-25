@@ -21,13 +21,15 @@ function row(depth: number, body: string, group = false): string {
   return `<div class="${cls}" data-depth="${depth}">${body}</div>`
 }
 
-/** A group row: the fold chevron, the group's icon, its name, its count. */
+/** A group row: the fold chevron, the group's icon, (a workflow's status
+ *  dot,) its name, and its trailing cell — a workflow's `3 running · 5 of 8
+ *  done` caption (EXP-1068), a stack's count. */
 function group(
   depth: number,
   icon: string,
   name: string,
-  count: number,
-  { open = true, link = false }: { open?: boolean; link?: boolean } = {}
+  trailing: number | string,
+  { open = true, link = false, live = false }: { open?: boolean; link?: boolean; live?: boolean } = {}
 ): string {
   const label = link
     ? `<span class="cmp-session-tree-link">${escapeHtml(name)}</span>`
@@ -37,21 +39,29 @@ function group(
     [
       `<span class="cmp-session-tree-icon">${open ? svgChevronDown : svgChevronRight}</span>`,
       `<span class="cmp-session-tree-icon">${icon}</span>`,
+      link ? `<span class="cmp-session-tree-dot"${live ? ` data-live` : ``}></span>` : ``,
       `<span class="cmp-session-tree-name">${label}</span>`,
-      `<span class="cmp-session-tree-count">${count}</span>`,
+      `<span class="cmp-session-tree-count">${escapeHtml(String(trailing))}</span>`,
     ].join(``),
     true
   )
 }
 
-/** A run row: its state dot, the identifier, the title. */
-function run(depth: number, identifier: string, title: string, live = true): string {
+/** A run row: its state dot, the identifier, the title. EXP-1068: a review
+ *  under its node has no identifier, and a doubled node wears the warning. */
+function run(
+  depth: number,
+  identifier: string | null,
+  title: string,
+  { live = true, warning = false }: { live?: boolean; warning?: boolean } = {}
+): string {
   return row(
     depth,
     [
       `<span class="cmp-session-tree-dot"${live ? ` data-live` : ``}></span>`,
-      `<span class="cmp-session-tree-id">${escapeHtml(identifier)}</span>`,
+      identifier ? `<span class="cmp-session-tree-id">${escapeHtml(identifier)}</span>` : ``,
       `<span class="cmp-session-tree-title">${escapeHtml(title)}</span>`,
+      warning ? `<span class="cmp-session-tree-count" title="Two live runs on this node">⚠</span>` : ``,
     ].join(``)
   )
 }
@@ -59,9 +69,9 @@ function run(depth: number, identifier: string, title: string, live = true): str
 export const entry: StyleguideEntry = {
   id: `session-tree`,
   section: `special`,
-  owner: `EXP-996`,
+  owner: `EXP-1068`,
   title: `Session tree`,
-  blurb: `Runs nested under their parent, workflow and stack groups, resumes collapsed. ONE selector over the synced coding_sessions rows (\`sessionTree\`) that every sessions list draws: a resume succession is ONE row keyed by its newest, a \`sessions_start\` child nests under its parent's succession, a workflow's node runs sit under one group row whose name LINKS to the workflow, and a stack sits under its own group row in linear order, lowest first. Stacks and workflows are not unified — the icon is the whole difference: nav-workflows for the graph, pr-stack for the chain. Groups and top-level rows sort by last activity, newest first; children keep creation order; a group is its children, so folding one takes them with it and a childless group never draws. A group row is not a run: no state dot, no device, no kill.`,
+  blurb: `Runs nested under their parent, workflow and stack groups, resumes collapsed. ONE selector over the synced coding_sessions rows (\`sessionTree\`) that every sessions list draws: a resume succession is ONE row keyed by its newest, a \`sessions_start\` child nests under its parent's succession, and a stack sits under its own group row in linear order, lowest first. EXP-1068: a workflow's runs group by the row's server-stamped \`workflow_id\` (no heuristics), under a group row that wears the workflow's NAME, its status dot and \`3 running · 5 of 8 done\`; inside it one row per node's author run, the node's review runs nested under it as \`Review r2 · approved\`, base merges and plan runs as plain children; a node with two live runs wears the warning glyph, an open question the red dot. Stacks and workflows are not unified — the icon is the whole difference: nav-workflows for the graph, pr-stack for the chain. Groups and top-level rows sort by last activity, newest first; children keep creation order; a group is its children, so folding one takes them with it and a childless group never draws.`,
   status: {
     web: {
       state: `ok`,
@@ -91,11 +101,13 @@ export const entry: StyleguideEntry = {
   render: () =>
     [
       `<div class="cmp-session-tree">`,
-      // A workflow: its name is the only thing that links onward.
-      group(0, svgWorkflow, `EXP-996 +5`, 3, { link: true }),
+      // A workflow: its name is the only thing that links onward; the
+      // trailing cell says how it stands. A review nests under its node.
+      group(0, svgWorkflow, `EXP-996 +5`, `3 running · 1 of 3 done`, { link: true, live: true }),
       run(1, `EXP-1048`, `Session tree (web)`),
-      run(1, `EXP-1049`, `Session tree (IDE)`),
-      run(1, `EXP-1050`, `Session tree (iOS + Android)`, false),
+      run(2, null, `Review r2 · changes requested`),
+      run(1, `EXP-1049`, `Session tree (IDE)`, { warning: true }),
+      run(1, `EXP-1050`, `Session tree (iOS + Android)`, { live: false }),
       // A stack is a linear group: lowest first, and nowhere to go.
       group(0, svgLayers, `Stacked pull requests`, 2),
       run(1, `APP-41`, `Extract the merge queue`),
@@ -104,7 +116,7 @@ export const entry: StyleguideEntry = {
       run(0, `APP-88`, `Plan the release train`),
       run(1, `APP-89`, `Bump the iOS build number`),
       // Folded: the group stays, its runs are gone.
-      group(0, svgWorkflow, `REV2-12 +2`, 3, { open: false, link: true }),
+      group(0, svgWorkflow, `REV2-12 +2`, `3 of 3 done`, { open: false, link: true }),
       `</div>`,
     ].join(``),
 }
