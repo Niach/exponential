@@ -1319,14 +1319,17 @@ fn walled_run(
     worktree: &Path,
     agent: coding::CodingAgent,
     blocked: &steer::SessionBlocked,
-    account: Option<&str>,
+    record: Option<&coding::run_registry::RunRecord>,
     idle: bool,
 ) -> Option<coding::account_rotation::WalledRun> {
     (blocked.kind == "rate_limit").then(|| coding::account_rotation::WalledRun {
         session_id: session_id.to_string(),
         chain_key: worktree.to_string_lossy().into_owned(),
         agent,
-        account: coding::profile_id(account),
+        account: coding::profile_id(record.and_then(|record| record.account()).as_deref()),
+        model: record
+            .map(|record| record.model.trim().to_string())
+            .filter(|model| !model.is_empty()),
         window: blocked.window.clone(),
         resets_at_ms: blocked
             .resets_at
@@ -1435,17 +1438,19 @@ impl RotationHost {
                 .collect();
             (live_chains, candidates)
         };
+        let now_ms = chrono::Utc::now().timestamp_millis();
         let inflight: HashSet<String> = lock_or_recover(&self.inflight).clone();
         let mut keep = live_chains;
         keep.extend(inflight.iter().cloned());
-        lock_or_recover(&self.tracker).retain_chains(&keep);
+        // Grace-based: a chain between an ended row and its resumed
+        // successor keeps its cooldown and cap (see `CHAIN_GRACE_MS`).
+        lock_or_recover(&self.tracker).retain_chains(&keep, now_ms);
 
         let walled: Vec<_> = candidates
             .into_iter()
             .filter_map(|(session_id, worktree, agent, blocked, idle)| {
-                let account = coding::run_registry::get(&self.ctx.data_dir, &session_id)
-                    .and_then(|record| record.account());
-                walled_run(&session_id, &worktree, agent, &blocked, account.as_deref(), idle)
+                let record = coding::run_registry::get(&self.ctx.data_dir, &session_id);
+                walled_run(&session_id, &worktree, agent, &blocked, record.as_ref(), idle)
             })
             .collect();
         self.holds
@@ -1455,7 +1460,6 @@ impl RotationHost {
         }
         // Re-read at beat time: the toggle moves at runtime (remote_admin).
         let settings = coding::Settings::load(&coding::Settings::default_path(&self.ctx.data_dir));
-        let now_ms = chrono::Utc::now().timestamp_millis();
         for run in walled {
             if inflight.contains(&run.chain_key) {
                 continue;
@@ -2187,7 +2191,10 @@ fn spawn_prepared(
         ctx,
         runtime,
         personal_key,
+        rotation_host: true,
     };
+    // EXP-1005: the start pick, in the workflow's trail.
+    note_account_pick(ctx, &prepared);
     // EXP-530: an action run's own id — the automation host defers while it
     // is live.
     let action_id = prepared.action_id.clone();
@@ -4000,21 +4007,7 @@ impl AutomationHost {
         }
         // EXP-1082: the row names its workflow, node and role; EXP-1005's
         // rotation may pick the account.
-        // EXP-1005: the pick reads the usage CACHE (no probe on the
-        // workflow pass); a move off the launch account is recorded as an
-        // `account_picked` event.
-        let profiles =
-            coding::agent_usage::profile_usage_snapshot(options.agent, &self.ctx.data_dir);
-        if let Some(pick) = coding::workflows::apply_engine_start(
-            &mut options,
-            membership,
-            account,
-            &profiles,
-            settings.auto_rotate_accounts,
-            plan.snapshot.now_ms,
-        ) {
-            self.note_account_pick(plan, node_id, pick);
-        }
+        coding::workflows::apply_engine_start(&mut options, membership, account);
         match self.prepare_workflow_node(plan, node, run, options, branch) {
             Ok(Some(session_id)) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "running");
@@ -4230,21 +4223,7 @@ impl AutomationHost {
             options.model = model;
         }
         // EXP-1082: the reviewer's row names its workflow node.
-        // EXP-1005: the pick reads the usage CACHE (no probe on the
-        // workflow pass); a move off the launch account is recorded as an
-        // `account_picked` event.
-        let profiles =
-            coding::agent_usage::profile_usage_snapshot(options.agent, &self.ctx.data_dir);
-        if let Some(pick) = coding::workflows::apply_engine_start(
-            &mut options,
-            membership,
-            account,
-            &profiles,
-            settings.auto_rotate_accounts,
-            plan.snapshot.now_ms,
-        ) {
-            self.note_account_pick(plan, node_id, pick);
-        }
+        coding::workflows::apply_engine_start(&mut options, membership, account);
         let request = PrepareRequest::Action(coding::ActionLaunchRequest {
             action_id: api::actions::BUILTIN_REVIEW_NODE_ID.to_string(),
             run_id: coding::new_run_id(),
@@ -4841,30 +4820,21 @@ again."
     )
 }
 
-impl AutomationHost {
-    /// EXP-1005 — an engine start moved off its launch account: say so in
-    /// the workflow's event trail (`account_picked`), beside the log line.
-    fn note_account_pick(
-        &self,
-        plan: &WorkflowPlan,
-        node_id: &str,
-        pick: coding::account_rotation::StartPick,
-    ) {
-        log::info!(
-            "workflow {} node {node_id}: {} ({} -> {})",
-            plan.snapshot.workflow.id,
-            pick.message,
-            pick.from,
-            pick.to
-        );
-        TrpcEventSink::new(Arc::clone(&self.ctx.trpc)).record(api::workflows::WorkflowEvent {
-            workflow_id: plan.snapshot.workflow.id.clone(),
-            node_id: Some(node_id.to_string()),
-            session_id: None,
-            kind: "account_picked".to_string(),
-            message: pick.message,
-        });
-    }
+/// EXP-1005 — `coding::prepare` moved an engine start off its launch
+/// account (`PreparedLaunch::account_pick`): say so in the workflow's event
+/// trail (`account_picked`), beside the launcher's own log line. Every
+/// launch passes through here, so nothing outside a workflow records.
+fn note_account_pick(ctx: &Ctx, prepared: &coding::PreparedLaunch) {
+    let (Some(membership), Some(pick)) = (&prepared.workflow, &prepared.account_pick) else {
+        return;
+    };
+    TrpcEventSink::new(Arc::clone(&ctx.trpc)).record(api::workflows::WorkflowEvent {
+        workflow_id: membership.workflow_id.clone(),
+        node_id: membership.node_id.clone(),
+        session_id: Some(prepared.session_id.clone()),
+        kind: "account_picked".to_string(),
+        message: pick.message.clone(),
+    });
 }
 
 /// One line, bounded by the `note` column's 500 chars.

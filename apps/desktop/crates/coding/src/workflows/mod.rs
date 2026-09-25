@@ -451,12 +451,11 @@ impl WorkflowMembership {
 
 /// EXP-1082 — the ONE glue both hosts (`ui::workflow_host`, the CLI daemon)
 /// run before an ENGINE start (a node's author run, a review): stamp the
-/// decision's membership onto the launch, then pick its account — the
-/// decision's own, else EXP-1005's [`crate::account_rotation::start_pick`]
-/// over `profiles` (the usage-cache snapshot; the launch's own account
-/// stands on a tie, `auto_rotate` = `Settings.auto_rotate_accounts`), else
-/// the workflow's launch account as before. `Some` = the launch MOVED off
-/// its account; the host says so (`account_picked`).
+/// decision's membership onto the launch and the decision's own account,
+/// when it names one. The account PICK itself happens exactly once, inside
+/// `coding::prepare` (EXP-1005: every launch on the device, engine starts
+/// included, off the usage cache); `PreparedLaunch::account_pick` hands the
+/// hosts what moved, and they say so (`account_picked`).
 ///
 /// Starts only: a RESUME (merge-upstream, findings, a refused land, a
 /// conflict relaunch) keeps its RECORDED account (EXP-906) and never comes
@@ -466,24 +465,11 @@ pub fn apply_engine_start(
     options: &mut crate::LaunchOptions,
     membership: WorkflowMembership,
     decision_account: Option<String>,
-    profiles: &[crate::account_rotation::ProfileUsage],
-    auto_rotate: bool,
-    now_ms: i64,
-) -> Option<crate::account_rotation::StartPick> {
+) {
     options.workflow = Some(membership);
     if let Some(account) = decision_account {
         options.account = Some(account);
-        return None;
     }
-    let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
-    crate::account_rotation::apply_start_pick(
-        &mut options.account,
-        profiles,
-        auto_rotate,
-        options.agent,
-        model,
-        now_ms,
-    )
 }
 
 /// What one pass asks the host to do. Every side effect lives in the host.

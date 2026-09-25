@@ -997,6 +997,8 @@ pub(crate) struct SessionCtx {
     /// login affordance to suppress, so nothing reads it yet.
     #[allow(dead_code)]
     pub(crate) foreign_host: bool,
+    /// EXP-1005: see `EngineStart::rotation_host`.
+    pub(crate) rotation_host: bool,
     pub(crate) publish: bool,
     pub(crate) local_sink: Option<LocalSink>,
     pub(crate) turn_signal: Arc<steer::TurnSignal>,

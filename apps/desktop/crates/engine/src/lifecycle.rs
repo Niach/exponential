@@ -581,19 +581,23 @@ fn spawn_tickers(
                 let trpc = Arc::clone(&ctx.trpc);
                 let session_id = ctx.session_id.clone();
                 let agent = ctx.agent;
+                let rotation_host = ctx.rotation_host;
                 let settings_path = coding::Settings::default_path(&ctx.data_dir);
                 Some(Arc::new(move |wall: Option<&steer::SessionBlocked>| {
-                    // EXP-1005: `handled` = this device will rotate the run
-                    // to another account, or wait the reset out itself, so
-                    // the server sends the owner NO rate-limit notification.
-                    // Read at the wall edge (rare) so a toggle flipped
-                    // mid-run counts; codex never rotates and is never
-                    // "handled" — its owner hears about it, throttled.
+                    // EXP-1005: `handled` = this HOST runs a rotation beat
+                    // (desktop, daemon — never a foreground CLI run) and
+                    // will rotate the run to another account, or wait the
+                    // reset out itself, so the server sends the owner NO
+                    // rate-limit notification. The setting is read at the
+                    // wall edge (rare) so a toggle flipped mid-run counts;
+                    // codex never rotates and is never "handled" — its
+                    // owner hears about it, throttled.
                     let handled = wall.map(|_| {
-                        coding::account_rotation::wall_handled_here(
-                            agent,
-                            &coding::Settings::load(&settings_path),
-                        )
+                        rotation_host
+                            && coding::account_rotation::wall_handled_here(
+                                agent,
+                                &coding::Settings::load(&settings_path),
+                            )
                     });
                     api::coding_sessions::set_blocked(
                         &trpc,

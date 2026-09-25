@@ -173,6 +173,13 @@ pub const ROTATION_WINDOW_MS: i64 = 5 * 60 * 60 * 1000;
 /// reset comes first.
 pub const NO_TARGET_RETRY_MS: i64 = 15 * 60 * 1000;
 
+/// How long a chain's state outlives its last LIVE sighting. A switch ends
+/// the old row and registers the resumed one only after `coding::prepare`
+/// (a git fetch, a token mint: seconds), so a beat landing in that gap sees
+/// no session on the worktree — dropping the state there would void the
+/// cooldown and the cap on every desktop switch.
+pub const CHAIN_GRACE_MS: i64 = 10 * 60 * 1000;
+
 /// Whether `windows` on `agent` leave the pick to the picker at all: only
 /// claude rotates (codex keeps one login per session — interface E).
 pub fn rotates(agent: CodingAgent) -> bool {
@@ -212,8 +219,12 @@ pub fn pick_start_account(
         .map(|profile| profile.profile_id.clone())
 }
 
-/// The profile a run that hit `window_hit` on `current` should move to:
-/// never one that hit the SAME window inside its own reset, never while
+/// The profile a run of `agent` (on `model`) that hit `window_hit` on
+/// `current` should move to: never one that hit the SAME window inside its
+/// own reset, never one spent on ANY window the run would draw on (a
+/// candidate open on the 5h window but at 100 % weekly walls the moment the
+/// transcript is replayed into it, and the next probe would hop straight
+/// back — the ping-pong the cooldown alone cannot stop), never while
 /// `guard.cooldown_until` is in the future or `rotations_this_wall >= cap`.
 /// `None` = wait for the reset.
 ///
@@ -223,8 +234,10 @@ pub fn pick_start_account(
 /// overall headroom breaking ties.
 pub fn pick_rotation_target(
     current: &str,
+    agent: CodingAgent,
     profiles: &[ProfileUsage],
     window_hit: &str,
+    model: Option<&str>,
     guard: &RotationGuard,
     now_ms: i64,
 ) -> Option<String> {
@@ -234,17 +247,13 @@ pub fn pick_rotation_target(
     if guard.rotations_this_wall >= guard.cap {
         return None;
     }
-    let agent = profiles
-        .iter()
-        .find(|profile| profile.profile_id == current)
-        .map(|profile| profile.agent)
-        .unwrap_or(CodingAgent::Claude);
     if !rotates(agent) {
         return None;
     }
     profiles
         .iter()
         .filter(|profile| profile.profile_id != current && profile.eligible(agent))
+        .filter(|profile| !profile.spent_for(model, now_ms))
         .filter(|profile| {
             !profile
                 .windows
@@ -257,7 +266,7 @@ pub fn pick_rotation_target(
                 .by_key(window_hit, now_ms)
                 .map(|window| window.effective_percent(now_ms))
                 .unwrap_or(0);
-            (hit, profile.headroom_key(None, now_ms))
+            (hit, profile.headroom_key(model, now_ms))
         })
         .map(|profile| profile.profile_id.clone())
 }
@@ -274,8 +283,17 @@ pub struct StartPick {
     /// The profile it runs on instead.
     pub to: String,
     pub to_label: String,
-    /// One sentence: which account, why.
+    /// One sentence: which account, why (the log line and the
+    /// `account_picked` event).
     pub message: String,
+}
+
+impl StartPick {
+    /// The line the RUN carries (prefixed to its seed prompt, so the hop is
+    /// visible in the transcript and the agent knows nothing else changed).
+    pub fn run_note(&self) -> String {
+        format!("Note: Exponential moved this run to another account before it started — {}.", self.message)
+    }
 }
 
 /// The pick for a launch on `agent`/`model` whose options name `account`
@@ -399,6 +417,8 @@ pub struct WalledRun {
     pub agent: CodingAgent,
     /// The profile the run is ON (`system` for the ambient login).
     pub account: String,
+    /// The model the run spends (the run registry's), for the model window.
+    pub model: Option<String>,
     /// `blocked.window` — `session` | `weekly` | `model`.
     pub window: String,
     /// `blocked.resetsAt`, unix ms, when the agent named one.
@@ -460,6 +480,8 @@ struct ChainState {
     /// The wall a `no_target` verdict was given for, so a NEW wall (another
     /// window, another account) probes at once.
     no_target_wall: Option<(String, String)>,
+    /// Unix ms of the last beat that saw a live run on this chain.
+    last_live_ms: i64,
 }
 
 /// The per-host memory the beat needs: one entry per run chain. In-process
@@ -535,12 +557,21 @@ impl RotationTracker {
     pub fn decide(&mut self, run: &WalledRun, profiles: &[ProfileUsage], now_ms: i64) -> Decision {
         let guard = self.guard(&run.chain_key, now_ms);
         let state = self.chains.entry(run.chain_key.clone()).or_default();
+        state.last_live_ms = now_ms;
         let from_label = profiles
             .iter()
             .find(|profile| profile.profile_id == run.account)
             .map(|profile| profile.label.clone())
             .unwrap_or_else(|| run.account.clone());
-        match pick_rotation_target(&run.account, profiles, &run.window, &guard, now_ms) {
+        match pick_rotation_target(
+            &run.account,
+            run.agent,
+            profiles,
+            &run.window,
+            run.model.as_deref(),
+            &guard,
+            now_ms,
+        ) {
             Some(target) => {
                 let target_label = profiles
                     .iter()
@@ -584,9 +615,17 @@ impl RotationTracker {
         self.chains.remove(chain_key);
     }
 
-    /// Chains no live run belongs to any more.
-    pub fn retain_chains(&mut self, live: &[String]) {
-        self.chains.retain(|key, _| live.iter().any(|k| k == key));
+    /// Note which chains have a LIVE run this beat, and forget the ones no
+    /// run has been seen on for [`CHAIN_GRACE_MS`] — never the ones merely
+    /// between an ended row and its resumed successor.
+    pub fn retain_chains(&mut self, live: &[String], now_ms: i64) {
+        for key in live {
+            if let Some(state) = self.chains.get_mut(key) {
+                state.last_live_ms = now_ms;
+            }
+        }
+        self.chains
+            .retain(|_, state| now_ms - state.last_live_ms <= CHAIN_GRACE_MS);
     }
 }
 
@@ -657,6 +696,7 @@ mod tests {
             chain_key: "/tmp/wt".to_string(),
             agent: CodingAgent::Claude,
             account: account.to_string(),
+            model: None,
             window: window.to_string(),
             resets_at_ms: Some(NOW + 3_600_000),
             idle,
@@ -722,7 +762,15 @@ mod tests {
         let mut other = codex.clone();
         other.profile_id = "b".to_string();
         assert_eq!(
-            pick_rotation_target("a", &[codex, other], "session", &RotationGuard { cap: 3, ..Default::default() }, NOW),
+            pick_rotation_target(
+                "a",
+                CodingAgent::Codex,
+                &[codex, other],
+                "session",
+                None,
+                &RotationGuard { cap: 3, ..Default::default() },
+                NOW
+            ),
             None
         );
     }
@@ -739,28 +787,28 @@ mod tests {
             rotations_this_wall: 0,
             cap: 3,
         };
+        let pick = |current: &str, profiles: &[ProfileUsage], window: &str, guard: &RotationGuard| {
+            pick_rotation_target(current, CodingAgent::Claude, profiles, window, None, guard, NOW)
+        };
         // Into the one profile that did NOT hit the session window.
+        assert_eq!(pick("a", &profiles, "session", &open).as_deref(), Some("c"));
+        // A candidate spent on ANOTHER window is no target either: the
+        // replay would wall it at once and the next probe would hop back.
         assert_eq!(
-            pick_rotation_target("a", &profiles, "session", &open, NOW).as_deref(),
-            Some("c")
+            pick("a", &[profile("a", 100, 10), profile("b", 10, 100)], "session", &open),
+            None
         );
         // Cooling down, or at the cap: stay.
         let cooling = RotationGuard {
             cooldown_until: Some(NOW + 1),
             ..open.clone()
         };
-        assert_eq!(
-            pick_rotation_target("a", &profiles, "session", &cooling, NOW),
-            None
-        );
+        assert_eq!(pick("a", &profiles, "session", &cooling), None);
         let capped = RotationGuard {
             rotations_this_wall: 3,
             ..open
         };
-        assert_eq!(
-            pick_rotation_target("a", &profiles, "session", &capped, NOW),
-            None
-        );
+        assert_eq!(pick("a", &profiles, "session", &capped), None);
     }
 
     #[test]
@@ -769,18 +817,30 @@ mod tests {
         // c's weekly headroom wins.
         let profiles = vec![profile("a", 10, 100), profile("b", 5, 60), profile("c", 40, 10)];
         let open = RotationGuard { cap: 3, ..Default::default() };
-        assert_eq!(
-            pick_rotation_target("a", &profiles, "weekly", &open, NOW).as_deref(),
-            Some("c")
-        );
+        let pick = |current: &str, profiles: &[ProfileUsage], window: &str, model: Option<&str>| {
+            pick_rotation_target(current, CodingAgent::Claude, profiles, window, model, &open, NOW)
+        };
+        assert_eq!(pick("a", &profiles, "weekly", None).as_deref(), Some("c"));
         // A `model` wall: the candidate's WORST model window must be open.
         let mut d = profile("d", 0, 0);
         d.windows.model.insert("fable".into(), Window { percent: 100, resets_at: Some(NOW + 1) });
         let mut e = profile("e", 50, 50);
         e.windows.model.insert("fable".into(), Window { percent: 20, resets_at: Some(NOW + 1) });
         assert_eq!(
-            pick_rotation_target("a", &[profile("a", 0, 0), d, e], "model", &open, NOW).as_deref(),
+            pick("a", &[profile("a", 0, 0), d.clone(), e.clone()], "model", None).as_deref(),
             Some("e")
+        );
+        // The run's OWN model window counts on a session wall too: a fable
+        // run skips a candidate whose fable window is spent.
+        let mut f = profile("f", 30, 30);
+        f.windows.model.insert("fable".into(), Window { percent: 100, resets_at: Some(NOW + 1) });
+        assert_eq!(
+            pick("a", &[profile("a", 100, 0), f.clone(), e.clone()], "session", Some("fable")).as_deref(),
+            Some("e")
+        );
+        assert_eq!(
+            pick("a", &[profile("a", 100, 0), f], "session", Some("opus")).as_deref(),
+            Some("f")
         );
     }
 
@@ -796,6 +856,7 @@ mod tests {
         let pick = start_pick(&walled, true, CodingAgent::Claude, None, None, NOW).unwrap();
         assert_eq!(pick.from, "system");
         assert_eq!(pick.to, "b");
+        assert!(pick.run_note().starts_with("Note: Exponential moved this run to another account before it started — Starting on b@example.com"), "{}", pick.run_note());
         assert!(pick.message.starts_with("Starting on b@example.com — system@example.com hit its 5h limit"), "{}", pick.message);
         // Less headroom, not walled: move too (Danny: most headroom, always).
         let less = vec![profile("system", 60, 10), profile("b", 20, 10)];
@@ -829,6 +890,18 @@ mod tests {
         };
         assert_eq!(target, "b");
         assert!(prompt.starts_with("Exponential moved this run from a@example.com to b@example.com: the 5h window hit its limit"), "{prompt}");
+        // The chain keeps its state while its run is momentarily absent (the
+        // switch ended the row, the resume has not registered yet) — only a
+        // chain unseen past the grace is forgotten.
+        tracker.retain_chains(&[], NOW + 1);
+        assert!(matches!(
+            tracker.step(&run, true, NOW + 2),
+            Step::Hold(Hold::CoolingDown { .. })
+        ), "a beat with no live run on the chain keeps the cooldown");
+        tracker.retain_chains(&[run.chain_key.clone()], NOW + 3);
+        let mut lost = tracker.clone();
+        lost.retain_chains(&[], NOW + 3 + CHAIN_GRACE_MS + 1);
+        assert_eq!(lost.step(&run, true, NOW + 4 + CHAIN_GRACE_MS), Step::Probe);
         // The chain cools down, then counts toward the cap.
         assert!(matches!(
             tracker.step(&run, true, NOW + 1),

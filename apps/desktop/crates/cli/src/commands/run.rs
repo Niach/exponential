@@ -94,6 +94,7 @@ pub fn run(args: &[String]) -> CommandResult {
         ctx: &ctx,
         runtime: runtime.as_ref(),
         personal_key,
+        rotation_host: false,
     };
     let session = Arc::new(session_host::launch(&env, prepared, None)?);
     // EXP-758 (EXP-478): no session list here either: the run IS this

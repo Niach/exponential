@@ -65,14 +65,17 @@ fn walled_run(
     worktree: &std::path::Path,
     agent: coding::CodingAgent,
     blocked: &steer::SessionBlocked,
-    account: Option<&str>,
+    record: Option<&coding::run_registry::RunRecord>,
     idle: bool,
 ) -> Option<WalledRun> {
     (blocked.kind == steer::activity::BLOCKED_KIND_RATE_LIMIT).then(|| WalledRun {
         session_id: session_id.to_string(),
         chain_key: worktree.to_string_lossy().into_owned(),
         agent,
-        account: coding::profile_id(account),
+        account: coding::profile_id(record.and_then(|record| record.account()).as_deref()),
+        model: record
+            .map(|record| record.model.trim().to_string())
+            .filter(|model| !model.is_empty()),
         window: blocked.window.clone(),
         resets_at_ms: blocked
             .resets_at
@@ -133,14 +136,13 @@ fn beat(state: &Arc<RotationState>, cx: &mut App) {
             let Some(blocked) = engine.blocked() else {
                 continue;
             };
-            let account = coding::run_registry::get(&data_dir, &session_id)
-                .and_then(|record| record.account());
+            let record = coding::run_registry::get(&data_dir, &session_id);
             if let Some(run) = walled_run(
                 &session_id,
                 &session.worktree,
                 session.agent,
                 &blocked,
-                account.as_deref(),
+                record.as_ref(),
                 engine.turn_signal().is_idle(),
             ) {
                 walled.push(run);
@@ -148,10 +150,13 @@ fn beat(state: &Arc<RotationState>, cx: &mut App) {
         }
         (chains, walled)
     };
+    let now_ms = chrono::Utc::now().timestamp_millis();
     let inflight: HashSet<String> = lock(&state.inflight).clone();
     let mut keep = live_chains;
     keep.extend(inflight.iter().cloned());
-    lock(&state.tracker).retain_chains(&keep);
+    // Grace-based: a chain between an ended row and its resumed successor
+    // keeps its cooldown and cap (see `CHAIN_GRACE_MS`).
+    lock(&state.tracker).retain_chains(&keep, now_ms);
     {
         let walled: HashSet<String> = candidates.iter().map(|run| run.session_id.clone()).collect();
         lock(&state.holds).retain(|session_id, _| walled.contains(session_id));
@@ -164,7 +169,6 @@ fn beat(state: &Arc<RotationState>, cx: &mut App) {
         let hub = hub.read(cx);
         (hub.settings.clone(), hub.doctor.report.clone())
     };
-    let now_ms = chrono::Utc::now().timestamp_millis();
     for run in candidates {
         if inflight.contains(&run.chain_key) {
             continue;
@@ -317,6 +321,7 @@ mod tests {
             true,
         )
         .expect("a rate-limit wall");
+        assert_eq!(run.model, None);
         assert_eq!(run.chain_key, "/tmp/wt");
         assert_eq!(run.account, coding::SYSTEM_PROFILE);
         assert_eq!(run.window, "weekly");
@@ -330,7 +335,7 @@ mod tests {
             std::path::Path::new("/tmp/wt"),
             coding::CodingAgent::Claude,
             &other,
-            Some("work"),
+            None,
             true
         )
         .is_none());

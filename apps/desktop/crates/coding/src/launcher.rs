@@ -192,7 +192,7 @@ fn apply_start_pick(
     )
 }
 
-fn note_start_pick(pick: Option<crate::account_rotation::StartPick>) {
+fn note_start_pick(pick: Option<&crate::account_rotation::StartPick>) {
     if let Some(pick) = pick {
         log::info!(
             "coding: account rotation at start — {} ({} → {})",
@@ -200,6 +200,16 @@ fn note_start_pick(pick: Option<crate::account_rotation::StartPick>) {
             pick.from,
             pick.to
         );
+    }
+}
+
+/// EXP-1005 — the pick's line, prefixed to the run's seed prompt: the hop
+/// is visible in the transcript, and the agent reads that nothing about the
+/// task changed.
+fn with_start_note(prompt: String, pick: Option<&crate::account_rotation::StartPick>) -> String {
+    match pick {
+        Some(pick) => format!("{}\n\n{prompt}", pick.run_note()),
+        None => prompt,
     }
 }
 
@@ -1088,6 +1098,15 @@ pub struct PreparedLaunch {
     /// (trunk-clone and scratch-dir action runs — the prune skips the clone
     /// root itself).
     pub launch_hold: Option<crate::launch_gate::LaunchHold>,
+    /// EXP-1005: the start-time account pick that moved this launch off the
+    /// account its options named (`None` = it runs on that account). The
+    /// hosts say so in a workflow's event trail; the seed prompt already
+    /// carries the note.
+    pub account_pick: Option<crate::account_rotation::StartPick>,
+    /// EXP-1082: the workflow membership the launch was stamped with, for
+    /// the host's audit lines. `None` for every run outside a workflow (a
+    /// resume inherits its membership server-side).
+    pub workflow: Option<crate::workflows::WorkflowMembership>,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -1543,7 +1562,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // profile of its agent with the MOST headroom, read off the usage cache
     // (`Settings.auto_rotate_accounts`, default on, turns it off; codex
     // never moves). The launch's own account stands on a tie.
-    note_start_pick(apply_start_pick(&mut options, deps));
+    let account_pick = apply_start_pick(&mut options, deps);
+    note_start_pick(account_pick.as_ref());
     let options = &options;
     let agent = options.agent;
     // EXP-909: the LOGIN this run spends, in the vocabulary the server column
@@ -1798,6 +1818,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // LAST, after the requester's own additions — an engine start carries
     // none of those, and the node must read its workflow's rules last.
     let rendered = crate::prompt::append_workflow_section(rendered, workflow_args.as_ref());
+    // EXP-1005: the account hop, said in the run.
+    let rendered = with_start_note(rendered, account_pick.as_ref());
 
     // Step 6 — the session row, BEFORE spawn (the id keys everything).
     // EXP-825: the composer text's image embeds name pre-session uploads;
@@ -2163,6 +2185,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
+        account_pick: account_pick.clone(),
+        workflow: options.workflow.clone(),
         issue_identifier,
         worktree,
         clone,
@@ -2242,7 +2266,8 @@ fn prepare_action(
     // run (the server validates remote starts identically).
     let mut options = req.options.clone();
     // EXP-1005: the same start-time account pick an issue launch takes.
-    note_start_pick(apply_start_pick(&mut options, deps));
+    let account_pick = apply_start_pick(&mut options, deps);
+    note_start_pick(account_pick.as_ref());
     let agent = options.agent;
     // EXP-909: the LOGIN this run spends — hoisted once so the row, the
     // heartbeat and the account env can never name different accounts.
@@ -2676,6 +2701,9 @@ fn prepare_action(
             req.prompt.as_deref(),
         )),
     };
+    // EXP-1005: the account hop, said in the run (a promptless chat stays
+    // promptless — the hop is still on its row and in the log).
+    let rendered = rendered.map(|body| with_start_note(body, account_pick.as_ref()));
     // EXP-825: pre-session image uploads named by the composer text's
     // embeds, bound to the row below.
     let attachment_ids = prompt_attachment_ids(req.prompt.as_deref());
@@ -2898,6 +2926,8 @@ fn prepare_action(
     );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
+        account_pick: account_pick.clone(),
+        workflow: options.workflow.clone(),
         issue_identifier: req.action_name.clone(),
         worktree: cwd.clone(),
         clone: trunk_clone.unwrap_or(cwd),
@@ -3731,6 +3761,8 @@ fn prepare_resume_run(
     );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
+        account_pick: None,
+        workflow: options.workflow.clone(),
         issue_identifier,
         worktree: cwd.clone(),
         clone: record.clone.clone().unwrap_or(cwd),

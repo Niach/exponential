@@ -243,10 +243,6 @@ fn watch_flag<T: 'static>(
 struct Pass {
     trpc: Arc<api::TrpcClient>,
     settings_path: PathBuf,
-    /// EXP-1005: where the usage cache lives — the start pick reads it.
-    data_dir: PathBuf,
-    /// EXP-1005: `Settings.auto_rotate_accounts` at snapshot time.
-    auto_rotate_accounts: bool,
     repos_root: PathBuf,
     device_id: String,
     /// The workflow's repository and the board its token mint resolves the
@@ -600,8 +596,6 @@ fn snapshot_for(
         passes.push(Pass {
             trpc: Arc::clone(&trpc),
             settings_path: settings_path.clone(),
-            data_dir: data_dir.clone(),
-            auto_rotate_accounts: settings.auto_rotate_accounts,
             repos_root: repos_root.clone(),
             device_id: device_id.clone(),
             repository_id: workflow.repository_id.clone(),
@@ -969,27 +963,15 @@ fn run_pass(
                     }
                     // EXP-1082: the row names its workflow, node and role;
                     // EXP-1005's rotation may pick the account.
-                    // EXP-1005: the pick reads the usage CACHE (no probe on
-                    // the background pass); a move off the launch account is
-                    // an `account_picked` event.
-                    let profiles = coding::agent_usage::profile_usage_snapshot(
-                        options.agent,
-                        &pass.data_dir,
-                    );
-                    if let Some(pick) = workflows::apply_engine_start(
+                    workflows::apply_engine_start(
                         &mut options,
                         workflows::WorkflowMembership {
-                            workflow_id: member_workflow_id.clone(),
+                            workflow_id: member_workflow_id,
                             node_id: Some(node_id.clone()),
                             role,
                         },
                         account,
-                        &profiles,
-                        pass.auto_rotate_accounts,
-                        snapshot.now_ms,
-                    ) {
-                        note_account_pick(&pass.trpc, &member_workflow_id, &node_id, pick);
-                    }
+                    );
                     // EXP-1082: `Done` here = the order was QUEUED. The launch
                     // itself runs on the foreground, and `launch_node` records
                     // its own outcome (Done on a launch, Failed on a failed
@@ -1335,21 +1317,15 @@ fn review_order(
         options.model = model;
     }
     // EXP-1082: the reviewer's row names its workflow node.
-    let profiles = coding::agent_usage::profile_usage_snapshot(options.agent, &pass.data_dir);
-    if let Some(pick) = workflows::apply_engine_start(
+    workflows::apply_engine_start(
         &mut options,
         workflows::WorkflowMembership {
-            workflow_id: member_workflow_id.clone(),
+            workflow_id: member_workflow_id,
             node_id: Some(node_id.to_string()),
             role,
         },
         account,
-        &profiles,
-        pass.auto_rotate_accounts,
-        snapshot.now_ms,
-    ) {
-        note_account_pick(&pass.trpc, &member_workflow_id, node_id, pick);
-    }
+    );
     Some(ReviewOrder {
         workflow_id: snapshot.workflow.id.clone(),
         node_id: node_id.to_string(),
@@ -1372,8 +1348,9 @@ fn review_order(
     })
 }
 
-/// EXP-1005 — an engine start moved off its launch account: say so in the
-/// workflow's event trail (`account_picked`), beside the log line.
+/// EXP-1005 — `coding::prepare` moved an engine start off its launch
+/// account (`PreparedLaunch::account_pick`): say so in the workflow's event
+/// trail (`account_picked`), beside the launcher's own log line.
 fn note_account_pick(
     trpc: &Arc<api::TrpcClient>,
     workflow_id: &str,
@@ -1878,6 +1855,9 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
+                if let Some(pick) = ready.account_pick.clone() {
+                    note_account_pick(&trpc, &workflow_id, &node_id, pick);
+                }
                 let subject = match subject {
                     SessionSubject::Issue(id) => SessionSubject::Issue(id),
                     other => other,
@@ -2022,6 +2002,11 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
         let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
+                if let Some(pick) = ready.account_pick.clone() {
+                    if let Some(trpc) = crate::queries::trpc_client(cx) {
+                        note_account_pick(&Arc::new(trpc), &workflow_id, &node_id, pick);
+                    }
+                }
                 let subject = SessionSubject::Action(session_id.clone());
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
