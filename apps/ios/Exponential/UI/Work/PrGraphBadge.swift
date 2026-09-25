@@ -7,66 +7,76 @@ import SwiftUI
 /// other work, and the ONE overlay behind it, ×4 (web `pr-graph-badge.tsx`,
 /// desktop `pr_graph.rs`, Android `PrGraphBadge.kt`).
 ///
-/// The badge is a small pill in the Work header: the stack glyph, the batch
-/// glyph, or both, plus `2 of 3` when there is a stack. A tap opens the
+/// EXP-1058: the badge is the STACKED issue chip (`IssueChipStack`) in the
+/// Work header — the subject PR's representative issue in front with `+N`
+/// for every other issue of its stack or batch (`PrGraph.badgeChip`), or, for
+/// a run family with no issue, the run itself behind the session-tree glyph.
+/// The front chip is inert: the whole stack is ONE tap target that opens the
 /// overlay, whose SECTIONS follow the face underneath — the same rows and the
 /// same copy on every face, so it reads as one thing:
 ///
 /// - Issue face → EXP-980: the blocks MINI-GRAPH (the transitive chain, waves
 ///   and all — it replaced the flat "Blocked by" chips) + "In batch with"
-/// - Run face → EXP-930: a BATCH run's covered "Issues" first (the pill says
-///   `3 issues`, so the first thing behind it is those three), then the
+/// - Run face → EXP-930: a BATCH run's covered "Issues" first, then the
 ///   session tree (nested, live dots, tap opens the run)
 /// - Changes face → the PR stack bottom-up (identifiers, PR state, a batch's
 ///   issues folded underneath, "Merge stack" on the bottom entry)
 struct PrGraphBadge: View {
-    let kind: PrGraph.BadgeKind
-    /// `2 of 3` — absent when there is no stack.
-    let positionLabel: String?
+    let chip: PrGraph.BadgeChip
+    /// What the no-issue front chip names: the run's own identity.
+    let runName: String?
+    let accessibilityName: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                ForEach(Self.glyphs(kind), id: \.self) { glyph in
-                    AppIcon(glyph, size: 11)
-                }
-                if let positionLabel {
-                    Text(positionLabel)
-                        .font(.caption2.weight(.medium))
-                        .lineLimit(1)
-                }
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule().fill(DesignTokens.Glass.backgroundTop.opacity(0.9))
-            )
-            .overlay(
-                Capsule().stroke(.white.opacity(0.12), lineWidth: 1)
-            )
-            .contentShape(Capsule())
+            IssueChipStack(depth: min(chip.count, 2)) { front }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Self.accessibilityLabel(kind))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityName)
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("pr-graph-badge")
     }
 
-    /// Never a raw lucide name: the two CONCEPTS, in stack-then-batch order.
-    static func glyphs(_ kind: PrGraph.BadgeKind) -> [String] {
-        switch kind {
-        case .stack: [AppIcons.prStack]
-        case .batch: [AppIcons.prBatch]
-        case .stackAndBatch: [AppIcons.prStack, AppIcons.prBatch]
+    /// `+3` — who rides behind the front chip; empty when nobody does.
+    private var countSuffix: String? {
+        chip.count > 0 ? "+\(chip.count)" : nil
+    }
+
+    @ViewBuilder
+    private var front: some View {
+        if let issue = chip.issue {
+            IssueChip(
+                identifier: [issue.identifier, countSuffix].compactMap { $0 }
+                    .joined(separator: " "),
+                title: issue.title,
+                status: IssueStatus.from(issue.status)
+            )
+            .frame(maxWidth: Self.maxWidth)
+        } else {
+            IssueChip(
+                identifier: countSuffix,
+                title: runName ?? accessibilityName,
+                iconName: AppIcons.sessionTree,
+                statusColor: .white.opacity(TextOpacity.secondary)
+            )
+            .frame(maxWidth: Self.maxWidth)
         }
     }
 
-    static func accessibilityLabel(_ kind: PrGraph.BadgeKind) -> String {
+    /// The header shares its row with the title; the chip truncates its own
+    /// title before it crowds it.
+    static let maxWidth: CGFloat = 180
+
+    /// The badge's spoken name, by what it stands for.
+    static func accessibilityName(_ kind: PrGraph.BadgeKind?) -> String {
         switch kind {
-        case .stack: "Stacked pull request"
+        case .stack: "Pull request stack"
         case .batch: "Batch pull request"
-        case .stackAndBatch: "Batch pull request inside a stack"
+        case .stackAndBatch: "Stack and batch"
+        case nil: "Related runs"
         }
     }
 }

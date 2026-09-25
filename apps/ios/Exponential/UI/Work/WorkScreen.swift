@@ -341,11 +341,20 @@ struct WorkScreen: View {
         return pool
     }
 
-    /// The header badge, when there IS a stack or a batch to name.
+    /// EXP-1058: the header's stacked issue chip, when there IS a stack, a
+    /// batch, or (Run face) a run tree to name.
     @ViewBuilder
     private var prGraphBadge: some View {
-        if let graph = prGraph, let kind = PrGraph.badgeKind(graph) {
-            PrGraphBadge(kind: kind, positionLabel: graph.positionLabel) {
+        if let graph = prGraph, let chip = PrGraph.badgeChip(graph, face: face) {
+            PrGraphBadge(
+                chip: chip,
+                runName: chip.issue == nil
+                    ? shownSession.map {
+                        sessionRowTitle(issue: nil, session: $0, batchIssues: graphIssuePool)
+                    }
+                    : nil,
+                accessibilityName: PrGraphBadge.accessibilityName(PrGraph.badgeKind(graph))
+            ) {
                 prGraphOpen = true
             }
         }
