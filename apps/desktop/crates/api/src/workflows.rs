@@ -15,15 +15,18 @@ use crate::error::ApiError;
 use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 
-/// `workflows.launch` — what every node's run starts with. Every field is
-/// optional; an absent one falls back to the runner device's own defaults.
+/// `workflows.launch` AS STORED — the jsonb of any vintage. The wire struct
+/// only, kept tolerant: nothing here decides anything.
 ///
-/// It serializes ONLY as `workflows.update`'s `launch`, and there the three
-/// EXP-1002 phase pins are a TRI-STATE server-side: key absent = keep the
-/// stored pin (a client that predates the keys must not wipe them), `null` =
-/// clear, a string = set. This client knows them, so it ALWAYS writes all
-/// three, `null` when unset — omitting one would make a cleared pin stick.
-/// Decoding stays tolerant (`default`).
+/// EXP-1029: what a run actually READS is
+/// [`coding::workflows::launch::WorkflowLaunch`], which
+/// `normalize_workflow_launch` makes of this — an agent, an optional account
+/// and TWO models (`model` cheap, `strong_model` capable). Everything below
+/// `strong_model` is DEPRECATED: the per-phase pins and `review_model` fold
+/// into `strong_model`, `subagent_model`, `effort` and `max_parallel` are
+/// dropped. Nothing writes them any more (the server stores the normalized
+/// four keys); they stay declared so an older row still decodes and so a
+/// carried launch round-trips unharmed.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowLaunch {
@@ -33,9 +36,7 @@ pub struct WorkflowLaunch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// EXP-1029: the STRONG model — contract, integration and `risk: high`
-    /// nodes, and every agent review (`coding::workflows::launch`). The
-    /// per-phase pins and `review_model` below are deprecated: they fold
-    /// into this one and EXP-1014 removes them. Carried, never edited here.
+    /// nodes, and EVERY agent review (`coding::workflows::launch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strong_model: Option<String>,
     /// EXP-1002: the model `contract` nodes run on. Absent = `model`.
@@ -469,6 +470,25 @@ pub fn land_node(trpc: &TrpcClient, node_id: &str) -> Result<LandOutcome, ApiErr
     trpc.mutation("workflows.landNode", &Input { node_id })
 }
 
+/// MEMBER: `workflows.mergeFinalPr` — squash-merge the workflow's ONE final
+/// pull request, the one human review of the whole run; GitHub's acceptance
+/// completes the workflow in the same call (EXP-1032). Idempotent for an
+/// already merged PR; a refusal (no final PR yet, GitHub said no) is the
+/// server's sentence.
+pub fn merge_final_pr(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Response {
+        #[allow(dead_code)]
+        merged: bool,
+    }
+    let _: Response = trpc.mutation("workflows.mergeFinalPr", &Input { id })?;
+    Ok(())
+}
+
 /// ENGINE: `workflows.openFinalPr` — the ONE final pull request, integration
 /// branch → the repository's default branch. Idempotent; returns its url.
 pub fn open_final_pr(trpc: &TrpcClient, id: &str) -> Result<String, ApiError> {
@@ -696,7 +716,6 @@ mod tests {
         assert_eq!(workflow.launch.agent.as_deref(), Some("claude"));
         assert_eq!(workflow.launch.subagent_model.as_deref(), Some("sonnet"));
         assert_eq!(workflow.launch.max_parallel, Some(5));
-        assert_eq!(row.max_parallel(), 5);
         assert_eq!(row.shape().nodes, 3);
         assert_eq!(row.shape().depth, 2);
 
@@ -707,10 +726,6 @@ mod tests {
         assert_eq!(bare.status_wire(), "draft");
         assert_eq!(bare.shape(), domain::workflow_view::WorkflowShape::default());
         assert!(bare.cycle_edges().is_empty());
-        assert_eq!(
-            bare.max_parallel(),
-            domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT
-        );
     }
 
     /// The nodes carry the SERVER's layout; an unknown/absent column degrades

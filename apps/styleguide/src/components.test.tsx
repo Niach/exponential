@@ -25,6 +25,7 @@
  * slow part (~1s) and every island assertion shares it.
  */
 import { describe, expect, test } from "bun:test"
+import type { ReactElement } from "react"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
@@ -49,6 +50,7 @@ import {
 } from "./components.tsx"
 import type { ComponentSpec } from "./components.tsx"
 import { ENTRIES } from "./entries/index.ts"
+import type { StyleguideEntry } from "./entries/types.ts"
 import { escapeHtml } from "./html.ts"
 import { SECTIONS, SECTION_ENTRY_IDS } from "./sections/index.ts"
 import {
@@ -83,13 +85,15 @@ const HTML_DEMOS = COMPONENTS.filter((spec) => !isIsland(spec))
 const ENTRY_DEMOS = ENTRIES.filter(
   (entry) => entry.placeholder !== true && entry.render !== undefined
 )
-/** The registered entries that draw a REAL `@exp/ui` island (EXP-1021's
- *  pickers, EXP-1020's sub-shell and device settings). The page renders these
- *  beside `COMPONENTS`, so every page-wide island count is the SUM — counting
- *  only `COMPONENTS` was right exactly while `entries/` was still a list of
- *  placeholders nobody had spliced in. */
-const ENTRY_ISLANDS = ENTRIES.filter((entry) => entry.island !== undefined)
-const PAGE_ISLAND_COUNT = ISLANDS.length + ENTRY_ISLANDS.length
+/** The FILLED registered entries that are islands (EXP-1014's workflow graph,
+ *  EXP-1020's device settings + sub-shell): the page carries one shadow root
+ *  for each of them beside the component islands. */
+const isEntryIsland = (
+  entry: StyleguideEntry
+): entry is StyleguideEntry & { island: () => ReactElement } =>
+  entry.placeholder !== true && entry.island !== undefined
+const ENTRY_ISLANDS = ENTRIES.filter(isEntryIsland)
+const PAGE_ISLANDS = ISLANDS.length + ENTRY_ISLANDS.length
 
 /**
  * The words the summary line uses for the four sections — spelled out here
@@ -284,15 +288,15 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`the page carries one shadow root per island, the CSS once, the script once`, () => {
-    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(PAGE_ISLAND_COUNT)
-    expect(occurrences(html, `<div data-ui-island>`)).toBe(PAGE_ISLAND_COUNT)
+    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(PAGE_ISLANDS)
+    expect(occurrences(html, `<div data-ui-island>`)).toBe(PAGE_ISLANDS)
     expect(occurrences(html, `<template id="ui-css">`)).toBe(1)
     expect(occurrences(html, ISLAND_CLIENT_SCRIPT)).toBe(1)
     // Both are gated on the stylesheet: no CSS, no islands worth adopting.
     const bare = renderHtml(EMPTY, COMPONENTS)
     expect(bare).not.toContain(`<template id="ui-css">`)
     expect(bare).not.toContain(ISLAND_CLIENT_SCRIPT)
-    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(PAGE_ISLAND_COUNT)
+    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(PAGE_ISLANDS)
   })
 
   test(`every island sits in the same .cmp-demo canvas the HTML demos use`, () => {

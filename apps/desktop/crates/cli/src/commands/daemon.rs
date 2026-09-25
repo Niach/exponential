@@ -3613,15 +3613,15 @@ impl AutomationHost {
             start_on: plan.snapshot.workflow.start_on.clone(),
             blockers: workflow_blocker_identifiers(&plan.snapshot, node_id),
         };
-        // EXP-1002: the node's PHASE picks the model; everything else
-        // (agent, effort, account, subagent model) is the workflow's own
-        // launch configuration — the review's rule.
+        // EXP-1029: the node's kind and risk pick the model (the decision
+        // carries it); the subagents inside the run take the CHEAP one, and
+        // the effort is the device's own default.
         let mut options = coding::workflows::launch_options(
             settings,
-            plan.launch.agent.as_deref(),
-            plan.launch.model.as_deref(),
-            plan.launch.effort.as_deref(),
-            plan.launch.subagent_model.as_deref(),
+            Some(plan.launch.agent.as_str()),
+            None,
+            None,
+            Some(plan.launch.model.as_str()),
             plan.launch.account.as_deref(),
         );
         if let Some(model) = model {
@@ -3822,14 +3822,14 @@ impl AutomationHost {
         let round = node.review_round + 1;
         let mut options = coding::workflows::launch_options(
             settings,
-            plan.launch.agent.as_deref(),
-            plan.launch.model.as_deref(),
-            plan.launch.effort.as_deref(),
-            plan.launch.subagent_model.as_deref(),
+            Some(plan.launch.agent.as_str()),
+            None,
+            None,
+            Some(plan.launch.model.as_str()),
             plan.launch.account.as_deref(),
         );
-        // The reviewer's model is the engine's pick; everything else is the
-        // workflow's own launch configuration.
+        // EXP-1029: the reviewer runs on the launch's STRONG model (the
+        // engine's pick); everything else is the workflow's own launch.
         if let Some(model) = model {
             options.model = model;
         }
@@ -4084,7 +4084,9 @@ struct WorkflowPlan {
     /// The board the token mint resolves the default branch through (the
     /// first node's issue's board).
     board_id: Option<String>,
-    launch: api::workflows::WorkflowLaunch,
+    /// EXP-1029: the NORMALIZED launch — the agent, the account and the two
+    /// models every node run and every review of this workflow reads.
+    launch: coding::workflows::launch::WorkflowLaunch,
 }
 
 /// Assemble [`WorkflowPlan`] for one synced workflow, or `None` when it has
@@ -4218,7 +4220,14 @@ fn workflow_plan(
         .iter()
         .filter_map(|node| Some((node.id.clone(), node.branch.clone()?)))
         .collect();
-    let launch = api::workflows::from_row(workflow).launch;
+    // EXP-1029: the stored launch of ANY vintage → the two models every run
+    // of this workflow reads. Effort is the device's own default. The
+    // normalizer reads the RAW jsonb, never a round trip through the wire
+    // struct: ONE ill-typed legacy key there (an old `maxParallel` stored as
+    // a string) would drop the WHOLE launch to the defaults.
+    let launch = coding::workflows::launch::normalize_workflow_launch(
+        workflow.launch.as_ref().unwrap_or(&serde_json::Value::Null),
+    );
     Some(WorkflowPlan {
         snapshot: coding::workflows::Snapshot {
             workflow: coding::workflows::WorkflowFacts {
@@ -4226,21 +4235,13 @@ fn workflow_plan(
                 status: workflow.status_wire().to_string(),
                 integration_branch,
                 final_pr_url: workflow.final_pr_url.clone(),
-                max_parallel: workflow.max_parallel(),
+                // EXP-1029: not a launch field any more.
+                max_parallel: domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT,
                 start_on: workflow
                     .start_on
                     .clone()
                     .unwrap_or_else(|| coding::workflows::START_ON_LANDED.to_string()),
-                // The agent names the family an adversarial review swaps in.
-                agent: launch.agent.clone(),
-                // EXP-984: what a review runs on, and what the AUTHORS run
-                // on (a high-risk node is never reviewed by its own model).
-                review_model: launch.review_model.clone(),
-                author_model: launch.model.clone(),
-                // EXP-1002: the phases that opt out of that model.
-                contract_model: launch.contract_model.clone(),
-                integration_model: launch.integration_model.clone(),
-                risk_model: launch.risk_model.clone(),
+                launch: launch.clone(),
             },
             nodes,
             edges,

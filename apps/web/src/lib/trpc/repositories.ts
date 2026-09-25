@@ -361,7 +361,7 @@ export async function resolveBoardRepository(boardId: string) {
   }
 }
 
-async function loadRepository(repositoryId: string) {
+export async function loadRepository(repositoryId: string) {
   const { db } = await import(`@/db/connection`)
   const [repo] = await db
     .select({
@@ -573,11 +573,20 @@ export async function mergeRepositoryPull(opts: {
   // Lazy like `loadRepository`'s db import: pr-sync opens the db connection
   // at module scope, which the router tests never want.
   const { applySessionPrState } = await import(`@/lib/integrations/pr-sync`)
+  const prUrl = opts.prUrl ?? `https://github.com/${repo.fullName}/pull/${prNumber}`
   await applySessionPrState({
-    prUrl: opts.prUrl ?? `https://github.com/${repo.fullName}/pull/${prNumber}`,
+    prUrl,
     state: `merged`,
     endSessions: opts.endSessions,
   })
+  // EXP-1032: an IN-APP merge of a workflow's ONE final pull request completes
+  // the workflow right here, so completion never waits on an inbound webhook
+  // (a self-hosted instance behind NAT has none). A no-op for every other PR,
+  // and idempotent: the webhook's later echo and `workflows.mergeFinalPr` both
+  // return early on a row that already reads merged.
+  const { applyWorkflowFinalPrState } = await import(`@/lib/workflow-final-pr`)
+  const { db } = await import(`@/db/connection`)
+  await applyWorkflowFinalPrState(db, prUrl, `merged`)
   openPullsCache.delete(repo.teamId)
   return { merged: true }
 }

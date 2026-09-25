@@ -113,19 +113,27 @@ public enum WorkflowView {
         }
     }
 
-    /// The ONE caption under a node. A draft has no states worth reading yet,
-    /// so it names the plan (`Contract`, `Leaf · high risk`); a started
-    /// workflow names the state, prefixed by the kind only for the two special
-    /// nodes (`Contract · Running`, `In review`).
+    /// The ONE caption beside a node — the bare STATE, nothing else (EXP-1014).
+    /// A draft has no state worth reading, so it says nothing at all: what the
+    /// plan declares (kind, risk) belongs to the node's own panel, never to a
+    /// sub-subtitle under every row.
     public static func nodeCaption(_ node: CaptionNode, workflowStatus: String) -> String {
-        if workflowStatus == DomainContract.wfStatusDraft {
-            let kind = nodeKindLabel(node.kind)
-            return node.risk == DomainContract.wfRiskHigh ? "\(kind) · high risk" : kind
-        }
-        let state = nodeStateLabel(node.state)
-        return node.kind == DomainContract.wfNodeKindLeaf
-            ? state
-            : "\(nodeKindLabel(node.kind)) · \(state)"
+        if workflowStatus == DomainContract.wfStatusDraft { return "" }
+        return nodeStateLabel(node.state)
+    }
+
+    /// EXP-1029 — the model ONE node's run spawns on: the workflow's STRONG
+    /// model for a `contract` or `integration` node and for any `risk: high`
+    /// node, else its cheap one. Mirrors web `modelForNode`
+    /// (`lib/workflow-launch.ts`) and Rust `coding::workflows::launch`.
+    public static func modelForNode(
+        _ launch: WorkflowLaunch, kind: String, risk: String
+    ) -> String {
+        let strict = launch.normalized
+        let strong = kind == DomainContract.wfNodeKindContract
+            || kind == DomainContract.wfNodeKindIntegration
+            || risk == DomainContract.wfRiskHigh
+        return strong ? strict.strongModel : strict.model
     }
 
     /// `EXP-14 +3` for a compound node (a parent run as one batch with its
@@ -268,6 +276,11 @@ public enum WorkflowView {
     public static let mergeTrainTitle = "Merge train"
     public static let mergeTrainEmpty = "Nothing is waiting to land."
     public static let finalPrTitle = "Final pull request"
+    /// EXP-1033: the ONE human review of the whole run — squash-merging the
+    /// workflow's final pull request from the workflow screen.
+    public static let mergeFinalPrLabel = "Merge"
+    public static let mergeFinalPrConfirm =
+        "The workflow's branch is squash-merged into the default branch and the run is done."
     /// The strip over the graph that lists the runs that are up, one tap away.
     public static let runningNowLabel = "Running now"
 
@@ -487,17 +500,14 @@ public enum WorkflowView {
     public static let proposedNodeNote =
         "Filed during the run. Admit it into the workflow or dismiss it."
     public static let agentReviewTitle = "Agent review"
-    public static let reviewModelLabel = "Review model"
+    /// The node panel's read-only line: what THIS node's run spawns on
+    /// (`modelForNode`).
+    public static let nodeModelLabel = "Model"
+    /// EXP-1014: the chip of a node whose issue row has not synced yet — the
+    /// identifier slot shows the first 8 characters of the issue id, the title
+    /// this line. Byte-identical ×4.
+    public static let nodeUnsyncedTitle = "Not synced yet"
     public static let metricsTitle = "Metrics"
-
-    // MARK: - Per-phase models (EXP-1002)
-
-    /// The launch rows pinning what a `contract` / `integration` node runs
-    /// on, and their blank pick: the workflow's own Model, not the CLI's.
-    public static let contractModelLabel = "Contract model"
-    public static let integrationModelLabel = "Integration model"
-    public static let riskModelLabel = "High-risk model"
-    public static let sameAsModelLabel = "Same as Model"
 
     /// The node panel's one line about the latest agent review:
     /// `Approved · round 1 · checks passed`, `Approved · round 1`,

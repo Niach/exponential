@@ -11,8 +11,8 @@
 //
 // Mirrored in Rust as `coding::workflows::launch` (the same three functions,
 // same test names), so the desktop engine and the CLI daemon pick models from
-// ONE rule. EXP-1014 owns the implementations and the wiring on both hosts;
-// the contract tests below are the acceptance table it un-skips.
+// ONE rule. `workflow-launch.test.ts` is the acceptance table both sides
+// answer to.
 import {
   WORKFLOW_LAUNCH_DEFAULTS,
   workflowLaunchAgentValues,
@@ -38,8 +38,6 @@ export const STRONG_MODEL_LEGACY_KEYS = [
   `integrationModel`,
 ] as const satisfies readonly (keyof WorkflowLaunchStored)[]
 
-const TODO = `EXP-1014 implements lib/workflow-launch.ts`
-
 /**
  * The stored `workflows.launch` (any vintage, or garbage) → the strict
  * launch every run reads.
@@ -55,8 +53,28 @@ const TODO = `EXP-1014 implements lib/workflow-launch.ts`
  * - `subagentModel`, `effort`, `maxParallel` are dropped.
  */
 export function normalizeWorkflowLaunch(raw: unknown): WorkflowLaunch {
-  void raw
-  throw new Error(TODO)
+  const stored: WorkflowLaunchStored =
+    raw && typeof raw === `object` && !Array.isArray(raw) ? (raw as WorkflowLaunchStored) : {}
+  const agent = workflowLaunchAgentValues.find((value) => value === stored.agent) ?? `claude`
+  const defaults = WORKFLOW_LAUNCH_DEFAULTS[agent]
+  const launch: WorkflowLaunch = {
+    agent,
+    model: text(stored.model) ?? defaults.model,
+    strongModel:
+      text(stored.strongModel) ??
+      STRONG_MODEL_LEGACY_KEYS.map((key) => text(stored[key])).find(Boolean) ??
+      defaults.strongModel,
+  }
+  const account = text(stored.account)
+  if (account) launch.account = account
+  return launch
+}
+
+/** A stored string field that carries a value: non-blank, else undefined. */
+function text(value: unknown): string | undefined {
+  if (typeof value !== `string`) return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
 }
 
 /**
@@ -69,14 +87,11 @@ export function modelForNode(
   kind: WfNodeKind,
   risk: WfRisk
 ): string {
-  void launch
-  void kind
-  void risk
-  throw new Error(TODO)
+  const strong = kind === `contract` || kind === `integration` || risk === `high`
+  return strong ? launch.strongModel : launch.model
 }
 
 /** The model EVERY agent review runs on: `strongModel`, whatever the node. */
 export function reviewModelFor(launch: WorkflowLaunch): string {
-  void launch
-  throw new Error(TODO)
+  return launch.strongModel
 }

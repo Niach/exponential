@@ -5,6 +5,12 @@
 // `domain::workflow_view`) and locked by the contract fixture
 // `domain-contract/fixtures/workflow-view.json`. All strings byte-identical.
 
+// EXP-1033: the only import this domain file has, and a TYPE — the edge style
+// union belongs to the drawing half (`@exp/ui` `wave-graph.tsx`, one stroke
+// per value) and is re-exported below so callers keep reading it beside
+// `workflowEdgeStyle`, the function that decides it.
+import type { WorkflowEdgeStyle } from "@exp/ui"
+
 export type WorkflowBand = `running` | `draft` | `done`
 
 /** The list's three bands, in order. Flat rows under each, no row buttons. */
@@ -100,18 +106,15 @@ export interface CaptionNode {
 }
 
 /**
- * The ONE caption under a node. A draft has no states worth reading yet, so
- * it names the plan (`Contract`, `Leaf · high risk`); a started workflow names
- * the state, prefixed by the kind only for the two special nodes
- * (`Contract · Running`, `In review`).
+ * The ONE caption under a node: the bare STATE label once the workflow has
+ * started (`Running`, `In review`, `Landed`), nothing at all in a draft. The
+ * kind and the risk are the node panel's (EXP-1014: no `Leaf`, no
+ * `Contract · high risk` under the chips — the chip names the issue, the
+ * caption says only what is happening to it).
  */
 export function workflowNodeCaption(node: CaptionNode, workflowStatus: string): string {
-  if (workflowStatus === `draft`) {
-    const kind = workflowNodeKindLabel(node.kind)
-    return node.risk === `high` ? `${kind} · high risk` : kind
-  }
-  const state = workflowNodeStateLabel(node.state)
-  return node.kind === `leaf` ? state : `${workflowNodeKindLabel(node.kind)} · ${state}`
+  if (workflowStatus === `draft`) return ``
+  return workflowNodeStateLabel(node.state)
 }
 
 /** `EXP-14 +3` for a compound node (a parent run as one batch with its
@@ -201,6 +204,10 @@ export const WITHDRAW_APPROVAL_LABEL = `Withdraw approval`
 export const MERGE_TRAIN_TITLE = `Merge train`
 export const MERGE_TRAIN_EMPTY = `Nothing is waiting to land.`
 export const FINAL_PR_TITLE = `Final pull request`
+/** EXP-1033: the ONE human review of the whole run — squash-merging the
+ *  workflow's final pull request from the workflow screen. */
+export const MERGE_FINAL_PR_LABEL = `Merge`
+export const MERGE_FINAL_PR_CONFIRM = `The workflow's branch is squash-merged into the default branch and the run is done.`
 /** The strip over the graph that lists the runs that are up, one tap away. */
 export const RUNNING_NOW_LABEL = `Running now`
 
@@ -314,8 +321,7 @@ export function workflowRowSubtitle(status: string, metrics: WorkflowShape): str
 
 // ── Speculative starts (EXP-983) ────────────────────────────────────────────
 
-/** How an edge is drawn. Grey solid is the default; the others say something. */
-export type WorkflowEdgeStyle = `plain` | `cycle` | `stale` | `landed` | `speculative`
+export type { WorkflowEdgeStyle }
 
 const STARTED_STATES = new Set([`running`, `waiting`, `in_review`, `updating`])
 
@@ -353,18 +359,19 @@ export const ADMIT_NODE_LABEL = `Admit`
 export const DISMISS_NODE_LABEL = `Dismiss`
 export const PROPOSED_NODE_NOTE = `Filed during the run. Admit it into the workflow or dismiss it.`
 export const AGENT_REVIEW_TITLE = `Agent review`
-export const REVIEW_MODEL_LABEL = `Review model`
 
-// ── Per-phase models (EXP-1002) ────────────────────────────────────────────
+// EXP-1033: the workflow screen configures NOTHING any more — the per-phase
+// model pins of EXP-1002, the review model and the gate are gone with the
+// settings block (`workflow-launch.ts` derives every model from the two the
+// launch carries), so their labels went with them.
 
-/** The settings row pinning what a `contract` node runs on. */
-export const CONTRACT_MODEL_LABEL = `Contract model`
-/** The settings row pinning what an `integration` node runs on. */
-export const INTEGRATION_MODEL_LABEL = `Integration model`
-/** The settings row pinning what a `risk: high` node runs on, any kind. */
-export const RISK_MODEL_LABEL = `High-risk model`
-/** Both phase rows' blank pick: the workflow's own Model, not the CLI's. */
-export const SAME_AS_MODEL_LABEL = `Same as Model`
+/** The node panel's read-only line: what THIS node's run spawns on
+ *  (`modelForNode`). */
+export const NODE_MODEL_LABEL = `Model`
+/** EXP-1014: the chip of a node whose issue row has not synced yet — the
+ *  identifier slot shows the first 8 characters of the issue id, the title
+ *  this line. Byte-identical ×4. */
+export const NODE_UNSYNCED_TITLE = `Not synced yet`
 export const METRICS_TITLE = `Metrics`
 
 export interface ReviewLine {
