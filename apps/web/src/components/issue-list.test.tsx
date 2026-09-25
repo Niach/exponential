@@ -61,7 +61,7 @@ function renderList(groups: IssueGroup[]) {
       onIssueClick={() => {}}
     />
   )
-  return container.querySelector(`[data-issue-rail-root]`) as HTMLElement
+  return container.querySelector(`[data-testid="issue-list"]`) as HTMLElement
 }
 
 describe(`IssueList due-date column`, () => {

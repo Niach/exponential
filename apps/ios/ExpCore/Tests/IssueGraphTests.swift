@@ -159,6 +159,177 @@ final class IssueGraphTests: XCTestCase {
     }
 }
 
+// EXP-1057: THE mini-graph geometry, locked ×4 (web `issue-graph.test.ts`,
+// desktop `domain::issue_graph::geometry`, Android `IssueGraphGeometryTest`)
+// against `issue-graph-geometry.json` — one test per named fixture case.
+final class IssueGraphGeometryTests: XCTestCase {
+    private typealias G = IssueGraph.Geometry
+
+    private struct Fixture: Decodable {
+        let constants: [String: Double]
+        let sizes: [SizeCase]
+        let origins: [OriginCase]
+        let edges: [EdgeCase]
+    }
+
+    private struct SizeCase: Decodable {
+        let name: String
+        let waves: Int
+        let lanes: Int
+        let width: Double
+        let height: Double
+        let viewWidth: Double
+        let viewHeight: Double
+    }
+
+    private struct OriginCase: Decodable {
+        let wave: Int
+        let lane: Int
+        let x: Double
+        let y: Double
+    }
+
+    private struct Cell: Decodable {
+        let wave: Int
+        let lane: Int
+    }
+
+    private struct Point: Decodable {
+        let x: Double
+        let y: Double
+
+        var point: IssueGraph.Geometry.Point { .init(x: x, y: y) }
+    }
+
+    private struct EdgeCase: Decodable {
+        let name: String
+        let from: Cell
+        let to: Cell
+        let start: Point
+        let control1: Point
+        let control2: Point
+        let end: Point
+    }
+
+    private func fixture() throws -> Fixture {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent(
+                "packages/domain-contract/fixtures/issue-graph-geometry.json"
+            )
+        return try JSONDecoder().decode(Fixture.self, from: try Data(contentsOf: url))
+    }
+
+    func testConstants() throws {
+        let constants = try fixture().constants
+        let mirrored: [String: Double] = [
+            "nodeWidth": G.nodeWidth,
+            "nodeHeight": G.nodeHeight,
+            "waveGap": G.waveGap,
+            "laneGap": G.laneGap,
+            "inset": G.inset,
+            "maxViewWidth": G.maxViewWidth,
+            "maxViewHeight": G.maxViewHeight,
+            "edgeStroke": G.edgeStroke,
+            "ringWidth": G.ringWidth,
+            "nodeRadius": G.nodeRadius,
+            "railGutter": G.railGutter,
+            "railNodeWidth": G.railNodeWidth,
+            "railDot": G.railDot,
+            "railDotRing": G.railDotRing,
+        ]
+        XCTAssertEqual(mirrored, constants)
+    }
+
+    private func assertSize(_ name: String) throws {
+        let fixture = try fixture()
+        let testCase = try XCTUnwrap(fixture.sizes.first { $0.name == name }, name)
+        XCTAssertEqual(
+            G.size(waves: testCase.waves, lanes: testCase.lanes),
+            G.Size(
+                width: testCase.width,
+                height: testCase.height,
+                viewWidth: testCase.viewWidth,
+                viewHeight: testCase.viewHeight
+            ),
+            name
+        )
+    }
+
+    func testNoNodeDrawsNothing() throws { try assertSize("no node draws nothing") }
+    func testOneNode() throws { try assertSize("one node") }
+    func testTwoWavesFit() throws { try assertSize("two waves fit") }
+    func testThreeWavesScrollSideways() throws { try assertSize("three waves scroll sideways") }
+    func testTenLanesScrollDown() throws { try assertSize("ten lanes scroll down") }
+
+    func testOrigins() throws {
+        let origins = try fixture().origins
+        XCTAssertFalse(origins.isEmpty)
+        for origin in origins {
+            XCTAssertEqual(
+                G.origin(wave: origin.wave, lane: origin.lane),
+                G.Point(x: origin.x, y: origin.y),
+                "wave \(origin.wave) lane \(origin.lane)"
+            )
+        }
+    }
+
+    private func assertEdge(_ name: String) throws {
+        let fixture = try fixture()
+        let testCase = try XCTUnwrap(fixture.edges.first { $0.name == name }, name)
+        XCTAssertEqual(
+            G.edge(
+                from: (testCase.from.wave, testCase.from.lane),
+                to: (testCase.to.wave, testCase.to.lane)
+            ),
+            G.EdgeCurve(
+                start: testCase.start.point,
+                control1: testCase.control1.point,
+                control2: testCase.control2.point,
+                end: testCase.end.point
+            ),
+            name
+        )
+    }
+
+    func testAForwardEdgeBendsOnTheGapsMiddle() throws {
+        try assertEdge("a forward edge bends on the gap's middle")
+    }
+
+    func testASkippingEdgeStaysLevel() throws {
+        try assertEdge("a skipping edge stays level")
+    }
+
+    func testABackwardCycleEdgeBowsByHalfItsRun() throws {
+        try assertEdge("a backward cycle edge bows by half its run")
+    }
+
+    /// Every named case above exists in the fixture, and nothing new slipped in
+    /// untested.
+    func testEveryFixtureCaseIsCovered() throws {
+        let fixture = try fixture()
+        XCTAssertEqual(
+            fixture.sizes.map(\.name),
+            [
+                "no node draws nothing", "one node", "two waves fit",
+                "three waves scroll sideways", "ten lanes scroll down",
+            ]
+        )
+        XCTAssertEqual(
+            fixture.edges.map(\.name),
+            [
+                "a forward edge bends on the gap's middle",
+                "a skipping edge stays level",
+                "a backward cycle edge bows by half its run",
+            ]
+        )
+    }
+}
+
 // MARK: - Row builders
 
 private func makeIssue(id: String, identifier: String, status: String) -> IssueEntity {

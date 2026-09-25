@@ -129,6 +129,8 @@ fn graph_geometry(scale: f32, waves: usize, lanes: usize) -> GridGeometry {
         // Chip to chip: out of the right middle, into the left middle.
         edge_out: (node_w, NODE_H / 2.),
         edge_in: (0., NODE_H / 2.),
+        inset: 0.,
+        stroke: 1.,
     }
 }
 
