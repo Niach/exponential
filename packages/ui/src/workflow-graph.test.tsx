@@ -9,6 +9,50 @@ import type { WaveGraphEdge } from "./wave-graph"
 // mono identifier, truncated title, the ONE caption trailing INSIDE it — laid
 // out on the wave grid, and the whole picture FILLS its column instead of
 // hiding behind an inner scrollbar.
+//
+// EXP-1014: the glyph SLOT has one rule — the caller's `glyph` (a live dot, a
+// workflow state) if there is one, else the ISSUE's own resolved status, else
+// nothing at all. And the fill rule is measured here rather than assumed:
+// jsdom reports `clientWidth` 0 on everything, so the width the scale is
+// computed from is stubbed for the test that is about it.
+
+/** The grid's metrics, mirrored from the module: one node is 200×28, waves are
+ *  48 apart, and the picture keeps 8px of air on every side. */
+const NODE_W = 200
+const WAVE_GAP = 48
+const PAD = 8
+
+/** Pin `clientWidth` for the duration of one render — the ONLY input the fill
+ *  rule has, and 0 in jsdom (which silently pins `scale` to 1). */
+function withContainerWidth<T>(width: number, run: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    `clientWidth`
+  )
+  Object.defineProperty(HTMLElement.prototype, `clientWidth`, {
+    configurable: true,
+    get: () => width,
+  })
+  try {
+    return run()
+  } finally {
+    if (original) {
+      Object.defineProperty(HTMLElement.prototype, `clientWidth`, original)
+    } else {
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+        .clientWidth
+    }
+  }
+}
+
+/** The chip's glyph slot — always drawn, empty when nothing resolves into
+ *  it (an unsynced issue). */
+const glyphSlot = (id: string) =>
+  screen.queryByTestId(`workflow-node-${id}-glyph`)
+
+/** The scaled picture's own box, inside the measured container. */
+const picture = () =>
+  screen.getByTestId(`workflow-graph`).firstElementChild as HTMLElement
 
 const node = (over: Partial<WorkflowGraphNode> = {}): WorkflowGraphNode => ({
   id: `n1`,
@@ -81,6 +125,69 @@ describe(`WorkflowGraphView`, () => {
     expect(graph.className).not.toContain(`overflow`)
     // The container takes the picture's own height; nothing is clipped.
     expect(graph.style.height).not.toBe(``)
+  })
+
+  // The FILL rule, measured: two waves are 200 + 48 + 200 = 448 wide plus
+  // 8px of air on each side, so the picture is naturally 464 × 44.
+  const naturalWidth = NODE_W * 2 + WAVE_GAP + PAD * 2
+  const naturalHeight = 28 + PAD * 2
+
+  it(`scales the whole picture DOWN to a narrower container`, () => {
+    withContainerWidth(naturalWidth / 2, () => {
+      view([node(), node({ id: `n2`, wave: 1 })])
+      const graph = screen.getByTestId(`workflow-graph`)
+      // The measurement really happened: the stub is what `scale` read.
+      expect(graph.clientWidth).toBe(naturalWidth / 2)
+      // ONE transform on the picture, which keeps its natural width, and the
+      // container takes the SCALED height — nothing is clipped, no inner
+      // scroller appears.
+      expect(picture().style.transform).toBe(`scale(0.5)`)
+      expect(picture().style.width).toBe(`${naturalWidth}px`)
+      expect(graph.style.height).toBe(`${naturalHeight / 2}px`)
+      expect(graph.className).not.toContain(`overflow`)
+    })
+  })
+
+  it(`never scales UP: a small graph keeps its true size in a wide column`, () => {
+    withContainerWidth(naturalWidth * 4, () => {
+      view([node(), node({ id: `n2`, wave: 1 })])
+      const graph = screen.getByTestId(`workflow-graph`)
+      expect(graph.clientWidth).toBe(naturalWidth * 4)
+      // No transform at all, and the container takes the picture's TRUE
+      // height — a graph narrower than its column is not blown up.
+      expect(picture().style.transform).toBe(``)
+      expect(graph.style.height).toBe(`${naturalHeight}px`)
+    })
+  })
+
+  // EXP-1014: the ONE glyph-slot rule.
+  it(`falls back to the issue's status glyph, and empties the slot without one`, () => {
+    view([
+      node({ id: `n1`, status: { icon: `circle-dashed`, colorClass: `text-yellow-500` } }),
+      node({
+        id: `n2`,
+        wave: 1,
+        glyph: <span data-testid="live-dot" />,
+        status: { icon: `circle-dashed`, colorClass: `text-yellow-500` },
+      }),
+      node({ id: `n3`, wave: 2 }),
+    ])
+    // No `glyph`: the issue's own status paints the slot.
+    expect(glyphSlot(`n1`)!.querySelector(`svg`)!.getAttribute(`class`)).toContain(
+      `text-yellow-500`
+    )
+    // A `glyph` always wins — a live run says how it is going, not the issue —
+    // and the slot paints it in the node's TONE (the caption's colour).
+    expect(glyphSlot(`n2`)!.querySelector(`svg`)).toBeNull()
+    expect(screen.getByTestId(`live-dot`)).toBeTruthy()
+    expect(glyphSlot(`n2`)!.className).toContain(`text-emerald-500`)
+    // The issue's status paints itself, whatever the tone around it.
+    expect(glyphSlot(`n1`)!.querySelector(`svg`)!.getAttribute(`class`)).toContain(
+      `text-yellow-500`
+    )
+    // Neither: an unsynced issue leaves the slot EMPTY — it is still there,
+    // so every chip's identifier starts at the same place.
+    expect(glyphSlot(`n3`)!.childElementCount).toBe(0)
   })
 
   it(`closes the graph with the final pull request, one wave past the last`, () => {

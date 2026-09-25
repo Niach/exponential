@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { conceptIcon } from "./icons.generated"
 import { IssueChipStack } from "./issue-chip"
+import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
 import { WaveGraph, waveGraphSize, type WaveGraphEdge } from "./wave-graph"
 import { cn } from "./cn"
 
@@ -72,9 +73,15 @@ export interface WorkflowGraphNode {
    *  state label once the workflow started. */
   caption: string
   tone: WorkflowGraphTone
-  /** The chip's glyph slot — the caller's node: the workflow state glyph in
-   *  its tone, or the live run's own dot. */
+  /** The chip's glyph slot — the caller's node: the workflow state glyph (the
+   *  slot paints it in `tone`) or the live run's own dot. Absent falls through
+   *  to `status`. */
   glyph?: ReactNode
+  /** EXP-1014: what the slot falls back to when there is no `glyph` — the
+   *  ISSUE's own already-resolved status, so an unstarted node reads exactly
+   *  like the same issue on every other surface. Absent = an empty slot (the
+   *  issue row has not synced). */
+  status?: StatusGlyphProps
   /** A compound node: the chip rides a stack of ghosts. */
   stacked?: boolean
   selected?: boolean
@@ -232,6 +239,16 @@ export function WorkflowNodeChip({
   onSelect?: () => void
 }) {
   const tone = TONE_CLASS[node.tone]
+  // ONE rule for the slot, ×4: the live dot, else the state's own glyph, else
+  // the issue's status — and nothing at all for an issue that has not synced.
+  const slot =
+    node.glyph ??
+    (node.status ? (
+      <StatusGlyph
+        {...node.status}
+        className={cn(`size-3.5`, node.status.className)}
+      />
+    ) : null)
   const chip = (
     <button
       type="button"
@@ -256,11 +273,20 @@ export function WorkflowNodeChip({
         node.selected && `ring-1 ring-primary`
       )}
     >
-      {node.glyph && (
-        <span className="flex size-3.5 shrink-0 items-center justify-center">
-          {node.glyph}
-        </span>
-      )}
+      {/* The slot is always THERE, so every chip's identifier starts at the
+          same place — an unsynced node simply leaves it empty (desktop
+          reserves it the same way). It carries the node's TONE, so a state
+          glyph reads in the same colour as its caption; a glyph that paints
+          itself — the live dot, the issue's status — keeps its own. */}
+      <span
+        className={cn(
+          `flex size-3.5 shrink-0 items-center justify-center`,
+          tone
+        )}
+        data-testid={`workflow-node-${node.id}-glyph`}
+      >
+        {slot}
+      </span>
       <span
         className={cn(
           `shrink-0 font-mono text-muted-foreground`,
