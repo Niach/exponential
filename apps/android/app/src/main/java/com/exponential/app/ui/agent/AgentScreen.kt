@@ -704,7 +704,9 @@ fun AgentScreen(
         RecentRunsSheet(
             pastRuns = pastRuns,
             onOpenRun = onOpenSteer,
+            onOpenWorkflow = onOpenWorkflow,
             onDismiss = { recentOpen = false },
+            treeContext = sessionsState.treeContext,
         )
     }
     if (issuePickerOpen) {

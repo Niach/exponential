@@ -211,7 +211,7 @@ fn live_run_tree<T>(
 /// ([`domain::session_tree::session_tree`]), flattened with their depths, each
 /// row turned into whatever the list draws. The collapsed set is applied
 /// LATER, in the render ([`drop_collapsed`]), so folding costs no re-derive.
-fn flatten_session_tree<T>(
+pub(crate) fn flatten_session_tree<T>(
     rows: Vec<&domain::rows::CodingSession>,
     inputs: queries::SessionTreeInputs,
     mut build_run: impl FnMut(&domain::rows::CodingSession) -> T,
