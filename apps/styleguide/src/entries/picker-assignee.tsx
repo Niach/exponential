@@ -59,9 +59,11 @@ export const entry: StyleguideEntry = {
           mode="single"
           search
           searchPlaceholder="Search people…"
-          items={assigneePickerItems(MEMBERS, true)}
+          items={assigneePickerItems(MEMBERS)}
           value="mina"
           onChange={noop}
+          noneLabel="Unassigned"
+          onNone={noop}
           // Exactly what `AssigneePicker` hands the primitive: the avatar,
           // then the primitive's own row body.
           renderItem={(item) => {

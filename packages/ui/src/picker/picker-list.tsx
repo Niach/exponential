@@ -44,7 +44,15 @@ interface PickerListBase<T extends string> {
 
 export type PickerListProps<T extends string = string> = PickerListBase<T> &
   (
-    | { mode: `single`; value: T | null; onChange: (value: T) => void }
+    | {
+        mode: `single`
+        value: T | null
+        onChange: (value: T) => void
+        /** The primitive's none row (the assignee picker's `Unassigned`),
+         *  reported through `onNone`: no sentinel value in `items`. */
+        noneLabel?: string
+        onNone?: () => void
+      }
     | {
         mode: `multi`
         value: readonly T[]
@@ -94,8 +102,10 @@ export function PickerList<T extends string = string>(
       : ({
           multiple: false as const,
           value: props.value,
+          noneLabel: props.noneLabel,
           onChange: (next: T | null) => {
-            if (next !== null) props.onChange(next)
+            if (next === null) props.onNone?.()
+            else props.onChange(next)
           },
         } as const)
 
