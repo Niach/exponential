@@ -10,6 +10,12 @@ import {
   workflowBody,
 } from "@/components/workflow-detail-selection"
 import {
+  DELETE_WORKFLOW_LABEL,
+  PICK_DEVICE_LABEL,
+  PLAN_WORKFLOW_LABEL,
+  REVIEW_FINAL_PR_LABEL,
+  RUNS_ON_LABEL,
+  STOP_WORKFLOW_LABEL,
   PAUSE_WORKFLOW_LABEL,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
@@ -39,6 +45,7 @@ const state = vi.hoisted(() => ({
   devices: [] as unknown[],
 }))
 const navigate = vi.hoisted(() => vi.fn())
+const openComposer = vi.hoisted(() => vi.fn())
 const mutates = vi.hoisted(() => ({
   update: vi.fn().mockResolvedValue({ txId: 1 }),
   delete: vi.fn().mockResolvedValue({ txId: 1 }),
@@ -92,6 +99,9 @@ vi.mock(`@/hooks/use-team-issue-graph`, () => ({
     issues: state.issues,
     counts: new Map(),
   }),
+}))
+vi.mock(`@/hooks/use-open-composer`, () => ({
+  useOpenComposer: () => openComposer,
 }))
 vi.mock(`@/hooks/use-remote-start`, () => ({
   useRemoteStart: () => ({ devices: state.devices }),
@@ -528,5 +538,66 @@ describe(`WorkflowDetail`, () => {
   it(`never offers Approve`, () => {
     renderPage({ status: `running` })
     expect(screen.queryByText(/Approve/)).toBeNull()
+  })
+
+  it(`the primary buttons read the shared labels`, () => {
+    const { unmount } = renderPage({ status: `draft`, deviceId: null })
+    expect(screen.getByText(PICK_DEVICE_LABEL)).toBeTruthy()
+    unmount()
+    renderPage({ status: `done` })
+    expect(screen.getByText(REVIEW_FINAL_PR_LABEL)).toBeTruthy()
+  })
+
+  it(`a chip shows its caption on hover`, () => {
+    state.nodes = [node(`n`, { state: `failed`, note: `Tests broke` })]
+    renderPage()
+    expect(screen.getByTestId(`workflow-node-n`).getAttribute(`title`)).toBe(
+      `Tests broke`
+    )
+  })
+
+  const openOverflow = async () => {
+    fireEvent.pointerDown(screen.getByTestId(`workflow-more`), {
+      button: 0,
+      pointerType: `mouse`,
+    })
+    await screen.findByRole(`menu`)
+    return screen
+      .getAllByRole(`menuitem`)
+      .map((item) => item.textContent)
+  }
+
+  it(`a draft's overflow: Plan, Runs on, Delete`, async () => {
+    renderPage({ status: `draft` })
+    expect(await openOverflow()).toEqual([
+      PLAN_WORKFLOW_LABEL,
+      RUNS_ON_LABEL,
+      DELETE_WORKFLOW_LABEL,
+    ])
+    fireEvent.click(screen.getByText(PLAN_WORKFLOW_LABEL))
+    expect(openComposer).toHaveBeenCalledWith({
+      actionId: `builtin:plan-workflow`,
+      workflowId: `wf`,
+    })
+  })
+
+  it(`Runs on opens the device picker`, async () => {
+    renderPage({ status: `draft` })
+    await openOverflow()
+    fireEvent.click(screen.getByText(RUNS_ON_LABEL))
+    expect(await screen.findByText(`MacBook`)).toBeTruthy()
+  })
+
+  it.each([`running`, `paused`])(`a %s overflow: Stop only`, async (status) => {
+    renderPage({ status })
+    expect(await openOverflow()).toEqual([STOP_WORKFLOW_LABEL])
+    fireEvent.click(screen.getByText(STOP_WORKFLOW_LABEL))
+    fireEvent.click(await screen.findByTestId(`workflow-cancel-confirm`))
+    expect(mutates.cancel).toHaveBeenCalledWith({ id: `wf` }, expect.anything())
+  })
+
+  it.each([`done`, `failed`, `cancelled`])(`a %s overflow: Delete only`, async (status) => {
+    renderPage({ status })
+    expect(await openOverflow()).toEqual([DELETE_WORKFLOW_LABEL])
   })
 })

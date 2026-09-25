@@ -76,6 +76,7 @@ import {
   useSessionListRows,
   useSessionRow,
 } from "@/hooks/use-agents-data"
+import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useReviewFiles } from "@/hooks/use-review-files"
 import { useSession } from "@/hooks/use-session"
@@ -100,6 +101,7 @@ import {
   workflowCollection,
   workflowEventCollection,
 } from "@/lib/collections"
+import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
 import { sessionIdentity } from "@/lib/session-identity"
 import { acquireSteerSession } from "@/lib/steer-session-store"
 import { deviceIsOnline } from "@/lib/steer-devices"
@@ -112,8 +114,15 @@ import {
 } from "@/lib/workflows/open-questions"
 import {
   ADMIT_NODE_LABEL,
+  ALL_NODES_LABEL,
   CANCEL_WORKFLOW_CONFIRM,
-  CANCEL_WORKFLOW_LABEL,
+  DECISIONS_LABEL,
+  PICK_DEVICE_LABEL,
+  PLAN_WORKFLOW_LABEL,
+  REVIEW_FINAL_PR_LABEL,
+  RUNS_ON_LABEL,
+  STOP_WORKFLOW_LABEL,
+  workflowOverflowMenu,
   DELETE_WORKFLOW_LABEL,
   DISMISS_NODE_LABEL,
   FINAL_PR_TITLE,
@@ -152,11 +161,6 @@ const MoreIcon = conceptIcon(`ui-more`)
 const StartIcon = conceptIcon(`action-run`)
 const ResumeIcon = conceptIcon(`run-resume`)
 
-/** The picker's first chip. */
-export const ALL_NODES_LABEL = `All`
-/** The collapsed log under the All × Issue list. */
-export const DECISIONS_LABEL = `Decisions`
-const SELECT_DEVICE_LABEL = `Select a device`
 
 type WorkflowIntent = `start` | `pause` | `resume` | `cancel`
 const INTENT_ERROR: Record<WorkflowIntent, string> = {
@@ -336,6 +340,8 @@ export function WorkflowDetail({
   )
   const [face, setFace] = useState<WorkflowFace>(initialFace)
   const [error, setError] = useState<string | null>(null)
+  const [runsOnOpen, setRunsOnOpen] = useState(false)
+  const openComposer = useOpenComposer()
   const [dialog, setDialog] = useState<
     `cancel` | `delete` | `merge` | { skip: string } | null
   >(null)
@@ -428,7 +434,6 @@ export function WorkflowDetail({
       ? workflowStartBlocker(workflow, workflow.metrics)
       : null
   const notice = workflow.status === `draft` ? (cycleNote ?? startBlocker) : null
-  const live = workflow.status === `running` || workflow.status === `paused`
 
   const runnerDevices: DevicePickerDevice[] = (remote.devices ?? [])
     .filter(
@@ -515,25 +520,66 @@ export function WorkflowDetail({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {live ? (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    data-testid="workflow-cancel"
-                    onSelect={() => setDialog(`cancel`)}
-                  >
-                    {CANCEL_WORKFLOW_LABEL}
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    data-testid="workflow-delete"
-                    onSelect={() => setDialog(`delete`)}
-                  >
-                    {DELETE_WORKFLOW_LABEL}
-                  </DropdownMenuItem>
+                {workflowOverflowMenu(workflow.status).map((item) =>
+                  item === `plan` ? (
+                    <DropdownMenuItem
+                      key={item}
+                      data-testid="workflow-plan"
+                      onSelect={() =>
+                        openComposer({
+                          actionId: BUILTIN_PLAN_WORKFLOW_ID,
+                          workflowId: workflow.id,
+                        })
+                      }
+                    >
+                      {PLAN_WORKFLOW_LABEL}
+                    </DropdownMenuItem>
+                  ) : item === `runs_on` ? (
+                    <DropdownMenuItem
+                      key={item}
+                      data-testid="workflow-runs-on"
+                      onSelect={() => setRunsOnOpen(true)}
+                    >
+                      {RUNS_ON_LABEL}
+                    </DropdownMenuItem>
+                  ) : item === `stop` ? (
+                    <DropdownMenuItem
+                      key={item}
+                      variant="destructive"
+                      data-testid="workflow-cancel"
+                      onSelect={() => setDialog(`cancel`)}
+                    >
+                      {STOP_WORKFLOW_LABEL}
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem
+                      key={item}
+                      variant="destructive"
+                      data-testid="workflow-delete"
+                      onSelect={() => setDialog(`delete`)}
+                    >
+                      {DELETE_WORKFLOW_LABEL}
+                    </DropdownMenuItem>
+                  )
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+            {runsOnOpen && (
+              <DevicePicker
+                mobileTitle={RUNS_ON_LABEL}
+                value={workflow.deviceId}
+                devices={runnerDevices}
+                open
+                onOpenChange={setRunsOnOpen}
+                hideTrigger
+                trigger={null}
+                data-testid="workflow-runs-on-picker"
+                onChange={(deviceId) => {
+                  setRunsOnOpen(false)
+                  void save({ deviceId })
+                }}
+              />
+            )}
           </div>
           <p
             className="truncate pl-7 text-xs text-muted-foreground"
@@ -660,9 +706,9 @@ export function WorkflowDetail({
       <ConfirmDialog
         open={dialog === `cancel`}
         onClose={() => setDialog(null)}
-        title={CANCEL_WORKFLOW_LABEL}
+        title={STOP_WORKFLOW_LABEL}
         description={CANCEL_WORKFLOW_CONFIRM}
-        confirm={CANCEL_WORKFLOW_LABEL}
+        confirm={STOP_WORKFLOW_LABEL}
         destructive
         testId="workflow-cancel-confirm"
         onConfirm={() => {
@@ -768,11 +814,11 @@ function PrimaryAction({
       return (
         <span className="inline-flex shrink-0" data-testid="workflow-device">
           <DevicePicker
-            mobileTitle={SELECT_DEVICE_LABEL}
+            mobileTitle={PICK_DEVICE_LABEL}
             value={deviceId}
             devices={devices}
             onChange={onPickDevice}
-            trigger={<Button size="sm">{SELECT_DEVICE_LABEL}</Button>}
+            trigger={<Button size="sm">{PICK_DEVICE_LABEL}</Button>}
           />
         </span>
       )
@@ -813,7 +859,7 @@ function PrimaryAction({
     case `review_final_pr`:
       return (
         <Button size="sm" data-testid="workflow-review" onClick={onReview}>
-          {FINAL_PR_TITLE}
+          {REVIEW_FINAL_PR_LABEL}
         </Button>
       )
     default:
@@ -926,6 +972,7 @@ function NodeStrip({
                 type="button"
                 aria-pressed={selected}
                 aria-label={`${chip.title} ${chip.caption}`}
+                title={chip.caption}
                 data-testid={`workflow-node-${chip.id}`}
                 data-display={chip.display}
                 className={cn(
