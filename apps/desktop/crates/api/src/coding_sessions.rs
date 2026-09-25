@@ -306,6 +306,13 @@ pub struct HeartbeatScope {
     /// lose which account its usage numbers belong to, and an absent value
     /// reads as UNKNOWN on every client, never as the ambient login.
     pub agent_account: Option<String>,
+    /// EXP-1068: the run's workflow membership (`LaunchOptions::workflow`),
+    /// echoed so a swept workflow run resurrects INSIDE its group. The server
+    /// honours it through the same runner-device gate `start` uses; all
+    /// `None` on every other run, so their wire is byte-identical.
+    pub workflow_id: Option<String>,
+    pub workflow_node_id: Option<String>,
+    pub workflow_role: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -340,6 +347,13 @@ struct HeartbeatInput<'a> {
     /// so an older server sees the wire it always did.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_account: Option<&'a str>,
+    /// EXP-1068 — the workflow membership, echoed like `agent_account`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_node_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_role: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -863,6 +877,9 @@ pub fn heartbeat(
                 .unwrap_or_default(),
             agent: scope.and_then(|scope| scope.agent.as_deref()),
             agent_account: scope.and_then(|scope| scope.agent_account.as_deref()),
+            workflow_id: scope.and_then(|scope| scope.workflow_id.as_deref()),
+            workflow_node_id: scope.and_then(|scope| scope.workflow_node_id.as_deref()),
+            workflow_role: scope.and_then(|scope| scope.workflow_role.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -1051,12 +1068,46 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: Some("claude".to_string()),
             agent_account: Some("system".to_string()),
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(
             request.ends_with(
                 r#"{"id":"sess-1","issueId":"issue-1","agent":"claude","agentAccount":"system"}"#
+            ),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn heartbeat_echoes_the_workflow_membership() {
+        // EXP-1068: a resurrected workflow run must land back in its group.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: Some("issue-1".to_string()),
+            team_id: None,
+            action_id: None,
+            action_name: None,
+            started_by_id: None,
+            device_id: Some("dev-1".to_string()),
+            started_reason: Some("workflow".to_string()),
+            automation_id: None,
+            branch: None,
+            batch_issue_ids: Vec::new(),
+            agent: None,
+            agent_account: None,
+            workflow_id: Some("wf-1".to_string()),
+            workflow_node_id: Some("node-1".to_string()),
+            workflow_role: Some("author".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#""deviceId":"dev-1","startedReason":"workflow","workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"}"#
             ),
             "{request}"
         );
@@ -1166,6 +1217,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1219,6 +1273,9 @@ mod tests {
             batch_issue_ids: vec!["i-1".to_string()],
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-b", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1266,6 +1323,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1290,6 +1350,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1458,6 +1521,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1486,6 +1552,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1541,6 +1610,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1692,6 +1764,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: Some("codex".to_string()),
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

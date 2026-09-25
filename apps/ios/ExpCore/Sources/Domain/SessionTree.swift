@@ -114,17 +114,28 @@ public enum SessionTree {
 /// the selector that also says a dozen rows are ONE thing: the nodes of a
 /// workflow, a stack, a resume succession.
 ///
-/// The CONTRACT is web `lib/sessions/session-tree.ts`; these are its rules, in
-/// this order, with the same test names (`SessionTreeTests`, desktop
-/// `session_tree`, Android `SessionTree.kt`):
+/// The CONTRACT is web `lib/sessions/session-tree.ts` (its module comment =
+/// the rules); same test names (`SessionTreeTests`, desktop `session_tree`,
+/// Android `SessionTree.kt`):
 ///
 ///   1. Resumed runs COLLAPSE: every resume succession (`RunChain`, EXP-974)
 ///      is ONE node, keyed by its newest row, `chain` oldest-first.
 ///   2. Children nest under their `parentSessionId`, following the parent's
-///      resume succession (EXP-906: a resume inherits it).
-///   3. The sessions of ONE workflow group under a workflow node, NAMED by the
-///      `workflows` row — a workflow the caller did not sync leaves its runs
-///      ungrouped, so `startedReason == workflow` alone never groups.
+///      resume succession (EXP-906) — UNLESS the child belongs to a workflow
+///      the parent does not (EXP-1068); a child with no workflow always nests.
+///   3. A run groups under the workflow its server-stamped `workflowId` names
+///      (EXP-1082 §1; a chain's membership = its NEWEST stamped row's), and
+///      only when `context.workflows` lists it — the group's NAME comes from
+///      there. No heuristic (node rows, issues, batches) ever groups. Inside:
+///      a. one row per node's AUTHOR chain;
+///      b. a REVIEW chain nests under its node's head author (live first, then
+///         newest), round off its branch (`reviewBranchRound`); a review with
+///         no author listed is a plain group child;
+///      c. `base_merge`/`plan`/`replan`/node-less rows are plain children;
+///      d. two live authors or two live reviewers on one node flag EVERY
+///         author row of it `duplicateLive`.
+///      The group carries the workflow's status + its caption counts
+///      (`workflowGroupCaption`).
 ///   4. A stack (`issues.pr_base_branch`, `PrStack`) groups in LINEAR order,
 ///      lowest first, and only when TWO of its runs are listed. Stacks and
 ///      workflows are NOT unified: a stack is a linear group with its own icon.
@@ -134,13 +145,8 @@ public enum SessionTree {
 ///   6. An orphan child whose parent is gone (swept, not synced) sits at top
 ///      level.
 ///
-/// EXP-1082: the rows now carry their server-stamped workflow membership
-/// (`workflowId`/`workflowNodeId`/`workflowRole`); grouping by it before any
-/// heuristic is EXP-1068 — the rules above are unchanged until then.
-///
 /// CONCRETE over `CodingSessionEntity`, not generic like `nest` above: rule 1
-/// is `RunChain.chain`, which is entity-typed, and going generic would mean a
-/// second copy of its backwards/forwards walk. A view whose row wraps a
+/// is `RunChain.chain`, which is entity-typed. A view whose row wraps a
 /// session (`AgentsViewModel.Row`) passes `rows.map(\.session)` and looks its
 /// own row back up by `session.id` — which is what web's list does too.
 extension SessionTree {
@@ -153,15 +159,16 @@ extension SessionTree {
     public static let collapseGroupLabel = "Collapse these runs"
     public static let expandGroupLabel = "Expand these runs"
 
-    /// What the rows alone cannot say: which workflow an issue belongs to, and
-    /// which issues stack on which. Every list is optional — a caller with no
-    /// workflows synced still gets the session/parent tree.
+    /// What the rows alone cannot say: which workflow is called what, how its
+    /// nodes stand, and which issues stack on which. Every list is optional —
+    /// a caller with no workflows synced still gets the session/parent tree.
     public struct Context: Sendable {
         /// The named workflows: a run only groups under one that is HERE,
         /// because this is where the group row's name comes from.
         public struct Workflow: Sendable {
             public let id: String
             public let name: String
+            /// contract `wfStatus` — the group row's dot.
             public let status: String
 
             public init(id: String, name: String, status: String) {
@@ -171,16 +178,37 @@ extension SessionTree {
             }
         }
 
-        /// `workflow_nodes`: which issue (or which run) sits in which workflow.
+        /// `workflow_nodes`. Since EXP-1068 they group NOTHING (the rows carry
+        /// their membership): `state` feeds the group caption's `5 of 8 done`,
+        /// `reviewRound`/`review` a review row's verdict.
         public struct WorkflowNode: Sendable {
+            public let id: String?
             public let workflowId: String
             public let issueId: String
             public let sessionId: String?
+            /// contract `wfNodeState`.
+            public let state: String?
+            /// Agent-review rounds submitted so far.
+            public let reviewRound: Int
+            /// The latest verdict, raw jsonb text (`WorkflowNodeReview.parse`).
+            public let review: String?
 
-            public init(workflowId: String, issueId: String, sessionId: String? = nil) {
+            public init(
+                id: String? = nil,
+                workflowId: String,
+                issueId: String,
+                sessionId: String? = nil,
+                state: String? = nil,
+                reviewRound: Int = 0,
+                review: String? = nil
+            ) {
+                self.id = id
                 self.workflowId = workflowId
                 self.issueId = issueId
                 self.sessionId = sessionId
+                self.state = state
+                self.reviewRound = reviewRound
+                self.review = review
             }
         }
 
@@ -224,13 +252,25 @@ extension SessionTree {
                 },
                 workflowNodes: workflowNodes.map {
                     WorkflowNode(
-                        workflowId: $0.workflowId, issueId: $0.issueId, sessionId: $0.sessionId
+                        id: $0.id,
+                        workflowId: $0.workflowId,
+                        issueId: $0.issueId,
+                        sessionId: $0.sessionId,
+                        state: $0.state,
+                        reviewRound: $0.reviewRound,
+                        review: $0.review
                     )
                 },
                 issues: issues.map {
                     StackIssue(id: $0.id, branch: $0.branch, prBaseBranch: $0.prBaseBranch)
                 }
             )
+        }
+
+        /// The `workflow_nodes` row a run's `workflowNodeId` names.
+        public func workflowNode(id: String?) -> WorkflowNode? {
+            guard let id, !id.isEmpty else { return nil }
+            return workflowNodes.first { $0.id == id }
         }
     }
 
@@ -243,33 +283,76 @@ extension SessionTree {
         public let children: [Node]
         /// The newest `updatedAt` across the chain AND the children, seconds.
         public let lastActivityAt: TimeInterval
+        /// EXP-1068 3b: a review chain's round, off its branch; nil elsewhere.
+        public let reviewRound: Int?
+        /// EXP-1068 3d: this AUTHOR row's node has two live author chains or
+        /// two live review chains — the warning glyph. Never on a review row.
+        public let duplicateLive: Bool
 
         public init(
             session: CodingSessionEntity,
             chain: [CodingSessionEntity],
             children: [Node],
-            lastActivityAt: TimeInterval
+            lastActivityAt: TimeInterval,
+            reviewRound: Int? = nil,
+            duplicateLive: Bool = false
         ) {
             self.session = session
             self.chain = chain
             self.children = children
             self.lastActivityAt = lastActivityAt
+            self.reviewRound = reviewRound
+            self.duplicateLive = duplicateLive
+        }
+
+        fileprivate func with(
+            children: [Node]? = nil,
+            lastActivityAt: TimeInterval? = nil,
+            duplicateLive: Bool? = nil
+        ) -> SessionNode {
+            SessionNode(
+                session: session,
+                chain: chain,
+                children: children ?? self.children,
+                lastActivityAt: lastActivityAt ?? self.lastActivityAt,
+                reviewRound: reviewRound,
+                duplicateLive: duplicateLive ?? self.duplicateLive
+            )
         }
     }
 
     /// The runs of ONE workflow (EXP-978), under a row that links to it.
     public struct WorkflowGroup: Sendable {
         public let workflowId: String
+        /// The workflow's synced name — never a hardcoded label.
         public let name: String
+        /// contract `wfStatus` — the group row's dot.
+        public let status: String
+        /// Live session nodes in the group's whole subtree.
+        public let liveRuns: Int
+        /// `workflow_nodes` in state `landed`, of `nodesTotal`.
+        public let nodesDone: Int
+        public let nodesTotal: Int
         /// The node runs, newest first.
         public let children: [Node]
         public let lastActivityAt: TimeInterval
 
         public init(
-            workflowId: String, name: String, children: [Node], lastActivityAt: TimeInterval
+            workflowId: String,
+            name: String,
+            status: String = "",
+            liveRuns: Int = 0,
+            nodesDone: Int = 0,
+            nodesTotal: Int = 0,
+            children: [Node],
+            lastActivityAt: TimeInterval
         ) {
             self.workflowId = workflowId
             self.name = name
+            self.status = status
+            self.liveRuns = liveRuns
+            self.nodesDone = nodesDone
+            self.nodesTotal = nodesTotal
             self.children = children
             self.lastActivityAt = lastActivityAt
         }
@@ -348,7 +431,97 @@ extension SessionTree {
         }
     }
 
+    // MARK: - The strings (EXP-1068, byte-identical ×4)
+
+    /// A row is LIVE until the server ends it (`running` and `in_review` both
+    /// are; `needs_input`/`blocked` are flags on a live row).
+    public static func sessionRowIsLive(status: String) -> Bool {
+        status != "ended"
+    }
+
+    /// EXP-1068 3b: the round a review branch carries — `exp/wf-<id8>-review-
+    /// <IDENT>-r<n>` → n; nil for any other branch. Only the SUFFIX is read.
+    public static func reviewBranchRound(_ branch: String?) -> Int? {
+        guard let branch, let marker = branch.range(of: "-r", options: .backwards) else {
+            return nil
+        }
+        let digits = branch[marker.upperBound...]
+        guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let round = Int(digits), round > 0
+        else { return nil }
+        return round
+    }
+
+    /// What a review row says about its verdict. `submitted` = an older round
+    /// whose verdict the node row no longer carries (only the latest is kept).
+    public enum ReviewRowVerdict: String, Sendable {
+        case approved
+        case changesRequested = "changes_requested"
+        case submitted
+        case none
+    }
+
+    /// EXP-1068 3b: the verdict for the review of `round`, from the node's
+    /// `review_round` (rounds submitted so far) and its latest `review`. A nil
+    /// `nodeReviewRound` = no node row known.
+    public static func reviewRoundVerdict(
+        round: Int?, nodeReviewRound: Int?, latestRound: Int?, latestVerdict: String?
+    ) -> ReviewRowVerdict {
+        guard let round, let nodeReviewRound else { return .none }
+        if let latestRound, let latestVerdict, latestRound == round {
+            return latestVerdict == "approve" ? .approved : .changesRequested
+        }
+        return round <= nodeReviewRound ? .submitted : .none
+    }
+
+    /// EXP-1068 3b: a review row's title — `Review r2 · approved`, `Review r2 ·
+    /// changes requested`, `Review r2 · submitted`, `Review r2 · no verdict`
+    /// (ended, nothing submitted), `Review r2` (still reviewing), `Review`.
+    public static func reviewRowCaption(
+        round: Int?, verdict: ReviewRowVerdict, live: Bool
+    ) -> String {
+        let title = round.map { "Review r\($0)" } ?? "Review"
+        switch verdict {
+        case .approved: return "\(title) · approved"
+        case .changesRequested: return "\(title) · changes requested"
+        case .submitted: return "\(title) · submitted"
+        case .none: return live ? title : "\(title) · no verdict"
+        }
+    }
+
+    /// EXP-1068 rule 3: the group row's trailing caption — `3 running · 5 of 8
+    /// done`; `5 of 8 done` with nothing live; `3 running` before the nodes
+    /// synced; empty with neither.
+    public static func workflowGroupCaption(liveRuns: Int, nodesDone: Int, nodesTotal: Int) -> String {
+        var parts: [String] = []
+        if liveRuns > 0 { parts.append("\(liveRuns) running") }
+        if nodesTotal > 0 { parts.append("\(nodesDone) of \(nodesTotal) done") }
+        return parts.joined(separator: " · ")
+    }
+
     // MARK: - The selector
+
+    /// A chain's workflow membership (EXP-1082 §1).
+    private struct Membership {
+        let workflowId: String
+        let nodeId: String?
+        let role: String?
+    }
+
+    /// A chain's membership: its NEWEST stamped row's (a resume inherits the
+    /// stamp, so the succession agrees; the newest wins if not).
+    private static func membershipOf(_ chain: [CodingSessionEntity]) -> Membership? {
+        for row in chain.reversed() {
+            if let workflowId = row.workflowId, !workflowId.isEmpty {
+                return Membership(
+                    workflowId: workflowId,
+                    nodeId: row.workflowNodeId.flatMap { $0.isEmpty ? nil : $0 },
+                    role: row.workflowRole
+                )
+            }
+        }
+        return nil
+    }
 
     /// The sessions list as a tree. Pure: no clock, no IO; sort ties break on
     /// the node key, so two clients agree.
@@ -373,9 +546,14 @@ extension SessionTree {
             for member in chain { canonicalOf[member.id] = canonical.id }
             chainOf[canonical.id] = chain.isEmpty ? [row] : chain
         }
+        var memberships: [String: Membership] = [:]
+        for (canonicalId, chain) in chainOf {
+            if let membership = membershipOf(chain) { memberships[canonicalId] = membership }
+        }
 
         // Rule 2: a child follows its parent's whole SUCCESSION, named by the
-        // newest row of the chain that names one at all.
+        // newest row of the chain that names one at all — unless the child is
+        // a workflow's and the parent is not that workflow's.
         var parentOf: [String: String] = [:]
         for (canonicalId, chain) in chainOf {
             var named: String?
@@ -387,9 +565,14 @@ extension SessionTree {
             }
             // Rule 6: a parent that is gone (swept, another team, not synced)
             // leaves the child at top level; so does a row naming itself.
-            if let parent = named.flatMap({ canonicalOf[$0] }), parent != canonicalId {
-                parentOf[canonicalId] = parent
+            guard let parent = named.flatMap({ canonicalOf[$0] }), parent != canonicalId
+            else { continue }
+            if let own = memberships[canonicalId],
+               own.workflowId != memberships[parent]?.workflowId
+            {
+                continue
             }
+            parentOf[canonicalId] = parent
         }
 
         // A cycle (never written by the server, but a synced row is a synced
@@ -416,29 +599,24 @@ extension SessionTree {
             guard let chain = chainOf[id], let session = chain.last else { return nil }
             let children = (childrenOf[id] ?? [])
                 .compactMap { build($0) }
-                .sorted { a, b in
-                    let (ca, cb) = (stamp(a.session.createdAt), stamp(b.session.createdAt))
-                    return ca != cb ? ca < cb : a.session.id < b.session.id
-                }
                 .map { Node.session($0) }
+                .sorted(by: byCreation)
             let own = activity[id] ?? 0
+            let membership = memberships[id]
             return SessionNode(
                 session: session,
                 chain: chain,
                 children: children,
-                lastActivityAt: max(own, children.map(\.lastActivityAt).max() ?? 0)
+                lastActivityAt: max(own, children.map(\.lastActivityAt).max() ?? 0),
+                reviewRound: membership?.role == "review" ? reviewBranchRound(session.branch) : nil
             )
         }
 
         // The walk order is FIXED rather than the store's dictionary order: it
         // decides which top-level node claims a stack member when two of them
-        // name the same issue, and two clients must claim the same one.
-        //
-        // The key is the chain's OLDEST row, not its newest: web, Rust and
-        // Kotlin discover a node when they reach the first row of its
-        // succession (walking every row oldest-first), so a resumed run holds
-        // the place its FIRST row earned. Keying on the canonical newest row
-        // would move it and break the tie-break ×4.
+        // name the same issue, and two clients must claim the same one. The
+        // key is the chain's OLDEST row (the others discover a node at the
+        // first row of its succession).
         let roots = rootIds
             .compactMap { build($0) }
             .sorted { a, b in
@@ -450,14 +628,13 @@ extension SessionTree {
 
         // Rules 3 then 4, over the TOP-LEVEL nodes only (a child run stays
         // under its parent wherever the parent lands).
-        let grouped = groupStacks(groupWorkflows(roots, context: context), context: context)
+        let grouped = groupStacks(
+            groupWorkflows(roots, memberships: memberships, context: context),
+            context: context
+        )
 
         // Rule 5: groups and lone nodes sort by last activity, newest first.
-        return grouped.sorted { a, b in
-            a.lastActivityAt != b.lastActivityAt
-                ? a.lastActivityAt > b.lastActivityAt
-                : nodeKey(a) < nodeKey(b)
-        }
+        return grouped.sorted(by: byActivity)
     }
 
     /// The tree flattened top to bottom, skipping everything under a COLLAPSED
@@ -498,83 +675,133 @@ extension SessionTree {
 
     // MARK: - Grouping
 
-    /// Rule 3: the sessions of ONE workflow under one group row. A node belongs
-    /// to the workflow that lists its issue (or the node run itself), and the
-    /// name comes from `context.workflows` — a workflow the caller did not sync
-    /// leaves its runs ungrouped.
+    /// Rule 5: children keep CREATION order, ties on the key.
+    private static func byCreation(_ a: Node, _ b: Node) -> Bool {
+        let created = { (node: Node) in node.sessionNode.map { stamp($0.session.createdAt) } ?? 0 }
+        let (ca, cb) = (created(a), created(b))
+        return ca != cb ? ca < cb : nodeKey(a) < nodeKey(b)
+    }
+
+    /// Newest activity first, ties on the key — groups' children and the top.
+    private static func byActivity(_ a: Node, _ b: Node) -> Bool {
+        a.lastActivityAt != b.lastActivityAt
+            ? a.lastActivityAt > b.lastActivityAt
+            : nodeKey(a) < nodeKey(b)
+    }
+
+    /// How many session nodes of a subtree are live.
+    private static func liveCount(_ nodes: [Node]) -> Int {
+        nodes.reduce(0) { count, node in
+            let own = node.sessionNode.map { sessionRowIsLive(status: $0.session.status) ? 1 : 0 } ?? 0
+            return count + own + liveCount(node.children)
+        }
+    }
+
+    /// Rule 3: the sessions of ONE workflow under one group row, by the rows'
+    /// own `workflowId`. The name comes from `context.workflows`, so a
+    /// workflow the caller did not sync leaves its runs ungrouped.
     private static func groupWorkflows(
-        _ roots: [SessionNode], context: Context
+        _ roots: [SessionNode], memberships: [String: Membership], context: Context
     ) -> [Node] {
         let workflows = Dictionary(
             context.workflows.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
         )
-        guard !workflows.isEmpty, !context.workflowNodes.isEmpty else {
-            return roots.map { Node.session($0) }
-        }
-        var byIssue: [String: String] = [:]
-        var bySession: [String: String] = [:]
-        for entry in context.workflowNodes where workflows[entry.workflowId] != nil {
-            if !entry.issueId.isEmpty, byIssue[entry.issueId] == nil {
-                byIssue[entry.issueId] = entry.workflowId
-            }
-            if let sessionId = entry.sessionId, !sessionId.isEmpty, bySession[sessionId] == nil {
-                bySession[sessionId] = entry.workflowId
-            }
-        }
-        func workflowOf(_ node: SessionNode) -> String? {
-            for row in node.chain {
-                if let named = bySession[row.id] { return named }
-                if let issueId = row.issueId, let named = byIssue[issueId] { return named }
-                // A batch node run covers several workflow issues (EXP-978).
-                for issueId in BatchRun.issueIds(row.batchIssueIds) {
-                    if let covered = byIssue[issueId] { return covered }
-                }
-            }
-            return nil
-        }
+        guard !workflows.isEmpty else { return roots.map { Node.session($0) } }
 
+        /// Per group: author and review chains by node id (first-seen order),
+        /// and the rows that are neither.
+        struct Part {
+            var nodeOrder: [String] = []
+            var authors: [String: [SessionNode]] = [:]
+            var reviewOrder: [String] = []
+            var reviews: [String: [SessionNode]] = [:]
+            var plain: [SessionNode] = []
+        }
         var out: [Node] = []
-        // Group ids in the order they first appear, so the collected children
-        // can be folded back in at the group's own slot.
         var order: [String] = []
-        var members: [String: [SessionNode]] = [:]
         var slot: [String: Int] = [:]
+        var parts: [String: Part] = [:]
         for node in roots {
-            guard let workflowId = workflowOf(node), let workflow = workflows[workflowId] else {
+            guard let membership = memberships[node.session.id],
+                  workflows[membership.workflowId] != nil
+            else {
                 out.append(.session(node))
                 continue
             }
-            if members[workflowId] == nil {
-                members[workflowId] = []
+            let workflowId = membership.workflowId
+            if parts[workflowId] == nil {
+                parts[workflowId] = Part()
                 order.append(workflowId)
                 slot[workflowId] = out.count
-                out.append(
-                    .workflow(
-                        WorkflowGroup(
-                            workflowId: workflowId, name: workflow.name, children: [],
-                            lastActivityAt: 0
-                        )
-                    )
-                )
+                // A placeholder, filled below at the group's own slot.
+                out.append(.session(node))
             }
-            members[workflowId]?.append(node)
+            if let nodeId = membership.nodeId, membership.role == "author" {
+                if parts[workflowId]?.authors[nodeId] == nil {
+                    parts[workflowId]?.nodeOrder.append(nodeId)
+                }
+                parts[workflowId]?.authors[nodeId, default: []].append(node)
+            } else if let nodeId = membership.nodeId, membership.role == "review" {
+                if parts[workflowId]?.reviews[nodeId] == nil {
+                    parts[workflowId]?.reviewOrder.append(nodeId)
+                }
+                parts[workflowId]?.reviews[nodeId, default: []].append(node)
+            } else {
+                parts[workflowId]?.plain.append(node)
+            }
         }
+
         for workflowId in order {
-            guard let index = slot[workflowId], let group = members[workflowId],
+            guard let index = slot[workflowId], let part = parts[workflowId],
                   let workflow = workflows[workflowId]
             else { continue }
-            // The node runs, newest first.
-            let children = group
-                .map { Node.session($0) }
-                .sorted { a, b in
-                    a.lastActivityAt != b.lastActivityAt
-                        ? a.lastActivityAt > b.lastActivityAt
-                        : nodeKey(a) < nodeKey(b)
+            var members: [SessionNode] = []
+            var reviewsLeft = part.reviews
+            for nodeId in part.nodeOrder {
+                // 3a/3d: one row per author chain; the node's HEAD author is
+                // the live one with the newest activity, else the newest.
+                var authors = (part.authors[nodeId] ?? []).sorted { a, b in
+                    let (la, lb) = (
+                        sessionRowIsLive(status: a.session.status),
+                        sessionRowIsLive(status: b.session.status)
+                    )
+                    if la != lb { return la }
+                    return byActivity(.session(a), .session(b))
                 }
+                guard let head = authors.first else { continue }
+                let reviews = reviewsLeft.removeValue(forKey: nodeId) ?? []
+                let liveAuthors = authors.filter { sessionRowIsLive(status: $0.session.status) }.count
+                let liveReviews = reviews.filter { sessionRowIsLive(status: $0.session.status) }.count
+                let duplicate = liveAuthors > 1 || liveReviews > 1
+                // 3b: the reviews nest under the head author, in creation
+                // order with its own children.
+                if !reviews.isEmpty {
+                    let children = (head.children + reviews.map { Node.session($0) })
+                        .sorted(by: byCreation)
+                    authors[0] = head.with(
+                        children: children,
+                        lastActivityAt: max(
+                            head.lastActivityAt, reviews.map(\.lastActivityAt).max() ?? 0
+                        )
+                    )
+                }
+                members += authors.map { $0.with(duplicateLive: duplicate) }
+            }
+            // 3b: a review whose node has no author listed is a plain child.
+            for nodeId in part.reviewOrder { members += reviewsLeft[nodeId] ?? [] }
+            // 3c: everything else.
+            members += part.plain
+            // The node runs, newest first.
+            let children = members.map { Node.session($0) }.sorted(by: byActivity)
+            let nodesOf = context.workflowNodes.filter { $0.workflowId == workflowId }
             out[index] = .workflow(
                 WorkflowGroup(
                     workflowId: workflowId,
                     name: workflow.name,
+                    status: workflow.status,
+                    liveRuns: liveCount(children),
+                    nodesDone: nodesOf.filter { $0.state == "landed" }.count,
+                    nodesTotal: nodesOf.count,
                     children: children,
                     lastActivityAt: children.map(\.lastActivityAt).max() ?? 0
                 )

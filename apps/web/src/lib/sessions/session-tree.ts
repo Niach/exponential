@@ -1,4 +1,5 @@
-// EXP-1029 contract — the session tree (EXP-996 implements).
+// EXP-1029 contract — the session tree (EXP-996 implements, EXP-1068 groups
+// by the server-stamped workflow membership).
 //
 // ONE selector over the synced `coding_sessions` rows that every sessions
 // list draws from: the web sidebar's Running section + `session-tree.tsx`,
@@ -9,15 +10,32 @@
 //   1. Resumed runs COLLAPSE: every resume succession (`runChain`, EXP-974)
 //      is ONE node, keyed by its newest row, `chain` oldest-first.
 //   2. Children nest under their `parentSessionId` (a `sessions_start`
-//      child, EXP-679/818), following the parent's resume succession.
+//      child, EXP-679/818), following the parent's resume succession —
+//      UNLESS the child belongs to a workflow the parent does not (EXP-1068:
+//      a chat that resumed a node run stays in the workflow's group, not
+//      under the chat; a child with no workflow of its own always nests).
 //   3. Sessions of ONE workflow group under `{ kind: 'workflow' }` — a row
-//      belongs to the workflow whose `workflow_nodes` name it (by session id,
-//      by issue, or by an issue a batch row covers) AND which the caller
-//      listed in `workflows`, because that row is where the group's NAME comes
-//      from. `startedReason: 'workflow'` alone never groups: it says a run is
-//      SOME workflow's node, not which, and a group row cannot be drawn
-//      without a name. (EXP-1029 wrote the looser rule; every client
-//      implements this one.)
+//      belongs to the workflow its `workflowId` names (EXP-1082 §1: stamped
+//      ONCE on the server, inherited by resumes and children; a chain's
+//      membership is its newest stamped row's). The group is drawn only when
+//      the caller listed that workflow in `workflows`, because that row is
+//      where the group's NAME comes from — nothing here invents a label. The
+//      old heuristics (a `workflow_nodes` row naming the session, the issue,
+//      or a batch's issues) are GONE: `startedReason: 'workflow'` alone never
+//      groups, and neither does an unstamped row. Inside a group:
+//        a. one row per node's AUTHOR chain (`workflowRole: author`);
+//        b. a REVIEW chain nests under its node's author row — the live one,
+//           else the newest — captioned by `reviewRowCaption` (`Review r2 ·
+//           approved`), its round parsed off the review branch
+//           (`reviewBranchRound`); a review whose node has no author listed
+//           is a plain child of the group;
+//        c. `base_merge`, `plan`, `replan` and any other stamped row are plain
+//           children of the group;
+//        d. a node with TWO live author chains or two live review chains is
+//           the duplicate case (workflow 3b828f50's five reviewers): every
+//           author row of that node carries `duplicateLive`, the warning.
+//      The group row carries the workflow's status and the counts its caption
+//      is made of (`workflowGroupCaption`: `3 running · 5 of 8 done`).
 //   4. A stack (`issues.pr_base_branch` edges, `lib/pr-stack.ts`) groups
 //      under `{ kind: 'stack', rootIssueId }` in LINEAR order, lowest first.
 //      Stacks and workflows are NOT unified (decision 5): a stack is a
@@ -27,8 +45,10 @@
 //   6. An orphan child whose parent is gone (swept, or not synced) sits at
 //      top level.
 //
-// This file is the CONTRACT: the types and a stub. `session-tree.test.ts`
-// carries the rules as a skipped table EXP-996 un-skips.
+// Mirrored ×4 with these test names: desktop `domain::session_tree`, iOS
+// `SessionTree.swift`, Android `SessionTree.kt`. Every string a client draws
+// off this module (`workflowGroupCaption`, `reviewRowCaption`) is
+// byte-identical there.
 import type { CodingSession } from "@/db/schema"
 import { stackChain, type PrStackNode } from "@/lib/pr-stack"
 import { runChain, type SessionRow as RunChainRow } from "./run-chain"
@@ -47,18 +67,28 @@ export type SessionTreeRow = RunChainRow &
     | `status`
     | `updatedAt`
   > &
-  // EXP-1082 §1: the server-stamped workflow membership. DECLARED only:
-  // EXP-1068 groups by `workflowId` first (the skipped table in
-  // session-tree.test.ts); optional so callers' rows need not carry it yet.
-  Partial<Pick<CodingSession, `workflowId` | `workflowNodeId` | `workflowRole`>>
+  // EXP-1082 §1: the server-stamped workflow membership, which EXP-1068
+  // groups by FIRST; `branch` carries a review run's round. Optional so a
+  // caller's rows need not carry them (an unstamped row is simply ungrouped).
+  Partial<
+    Pick<CodingSession, `workflowId` | `workflowNodeId` | `workflowRole` | `branch`>
+  >
 
-/** What the rows alone cannot say: which workflow an issue belongs to, and
- *  which issues stack on which. Every list is optional — a caller with no
- *  workflows synced still gets the session/parent tree. */
+/** What the rows alone cannot say: which workflow is called what, how its
+ *  nodes stand, and which issues stack on which. Every list is optional — a
+ *  caller with no workflows synced still gets the session/parent tree. */
 export interface SessionTreeContext<I extends PrStackNode = PrStackNode> {
   workflows?: readonly { id: string; name: string; status: string }[]
-  /** `workflow_nodes` rows: which issue sits in which workflow. */
-  workflowNodes?: readonly { workflowId: string; issueId: string; sessionId?: string | null }[]
+  /** `workflow_nodes` rows. Since EXP-1068 they group NOTHING (the rows
+   *  carry their membership); `state` (contract `wfNodeState`) feeds the
+   *  group caption's `5 of 8 done`. */
+  workflowNodes?: readonly {
+    id?: string
+    workflowId: string
+    issueId: string
+    sessionId?: string | null
+    state?: string | null
+  }[]
   /** The issues the sessions name, for the stack edges. */
   issues?: readonly I[]
 }
@@ -72,12 +102,27 @@ export interface SessionNode<T extends SessionTreeRow = SessionTreeRow> {
   children: SessionTreeNode<T>[]
   /** The newest `updatedAt` across the chain and the children, ms. */
   lastActivityAt: number
+  /** EXP-1068 3b: a review run's round, off its branch (`exp/wf-<id8>-
+   *  review-<IDENT>-r<n>`); null on every other row and on a review whose
+   *  branch did not sync. */
+  reviewRound: number | null
+  /** EXP-1068 3d: this author row's node has two live author chains or two
+   *  live review chains — the warning glyph. Never set on a review row. */
+  duplicateLive: boolean
 }
 
 export interface WorkflowGroupNode<T extends SessionTreeRow = SessionTreeRow> {
   kind: `workflow`
   workflowId: string
+  /** The workflow's synced name — never a hardcoded label (EXP-1068 rule 4). */
   name: string
+  /** contract `wfStatus` — the group row's glyph. */
+  status: string
+  /** How many session nodes of the whole subtree are live (not `ended`). */
+  liveRuns: number
+  /** `workflow_nodes` in state `landed`, of `nodesTotal` — the caption. */
+  nodesDone: number
+  nodesTotal: number
   /** The node runs, newest first. */
   children: SessionTreeNode<T>[]
   lastActivityAt: number
@@ -96,6 +141,101 @@ export type SessionTreeNode<T extends SessionTreeRow = SessionTreeRow> =
   | SessionNode<T>
   | WorkflowGroupNode<T>
   | StackGroupNode<T>
+
+/** A row is LIVE until the server ends it (`running` and `in_review` both
+ *  are; `needs_input`/`blocked` are flags on a live row). */
+export function sessionRowIsLive(row: Pick<SessionTreeRow, `status`>): boolean {
+  return row.status !== `ended`
+}
+
+/** EXP-1068 3b: the round a review branch carries — `exp/wf-<id8>-review-
+ *  <IDENT>-r<n>` → n. Null for any other branch. The rule the engine writes
+ *  it with is `coding::workflows::review_branch`; only the SUFFIX is read
+ *  here so the four clients cannot drift on the prefix. */
+export function reviewBranchRound(branch: string | null | undefined): number | null {
+  if (!branch) return null
+  const match = /-r(\d+)$/.exec(branch)
+  if (!match) return null
+  const round = Number(match[1])
+  return Number.isSafeInteger(round) && round > 0 ? round : null
+}
+
+/** What a review row says about its verdict. `submitted` = an older round
+ *  whose verdict the node row no longer carries (only the latest is stored). */
+export type ReviewRowVerdict = `approved` | `changes_requested` | `submitted` | `none`
+
+/** EXP-1068 3b: the verdict word for the review of `round`, from the node's
+ *  `review_round` (rounds submitted so far) and its latest `review`. */
+export function reviewRoundVerdict(
+  round: number | null,
+  node: {
+    reviewRound: number
+    review: { round: number; verdict: string } | null | undefined
+  } | null | undefined
+): ReviewRowVerdict {
+  if (round == null || !node) return `none`
+  const latest = node.review
+  if (latest && latest.round === round) {
+    return latest.verdict === `approve` ? `approved` : `changes_requested`
+  }
+  return round <= node.reviewRound ? `submitted` : `none`
+}
+
+/** EXP-1068 3b: a review row's title. `Review r2 · approved`, `Review r2 ·
+ *  changes requested`, `Review r2 · submitted`, `Review r2 · no verdict`
+ *  (ended, nothing submitted), `Review r2` (still reviewing), `Review` (no
+ *  round known). Byte-identical ×4. */
+export function reviewRowCaption(
+  round: number | null,
+  verdict: ReviewRowVerdict,
+  live: boolean
+): string {
+  const title = round == null ? `Review` : `Review r${round}`
+  switch (verdict) {
+    case `approved`:
+      return `${title} · approved`
+    case `changes_requested`:
+      return `${title} · changes requested`
+    case `submitted`:
+      return `${title} · submitted`
+    case `none`:
+      return live ? title : `${title} · no verdict`
+  }
+}
+
+/** EXP-1068 rule 3: the group row's trailing caption — `3 running · 5 of 8
+ *  done`; `5 of 8 done` with nothing live; `3 running` before the nodes
+ *  synced; empty with neither. Byte-identical ×4. */
+export function workflowGroupCaption(
+  group: Pick<WorkflowGroupNode, `liveRuns` | `nodesDone` | `nodesTotal`>
+): string {
+  const parts: string[] = []
+  if (group.liveRuns > 0) parts.push(`${group.liveRuns} running`)
+  if (group.nodesTotal > 0) parts.push(`${group.nodesDone} of ${group.nodesTotal} done`)
+  return parts.join(` · `)
+}
+
+interface Membership {
+  workflowId: string
+  nodeId: string | null
+  role: string | null
+}
+
+/** A chain's membership: its NEWEST stamped row's (a resume inherits the
+ *  stamp, so the whole succession agrees; the newest wins if not). */
+function membershipOf<T extends SessionTreeRow>(chain: readonly T[]): Membership | null {
+  for (let index = chain.length - 1; index >= 0; index -= 1) {
+    const row = chain[index]!
+    if (row.workflowId) {
+      return {
+        workflowId: row.workflowId,
+        nodeId: row.workflowNodeId ?? null,
+        role: row.workflowRole ?? null,
+      }
+    }
+  }
+  return null
+}
 
 /**
  * The sessions list as a tree. Pure: no clock, no IO; sort ties break on
@@ -123,9 +263,15 @@ export function sessionTree<T extends SessionTreeRow>(
     for (const member of chain) canonicalOf.set(member.id, canonical.id)
     chainOf.set(canonical.id, chain.length > 0 ? chain : [row])
   }
+  const memberships = new Map<string, Membership | null>()
+  for (const [canonicalId, chain] of chainOf) {
+    memberships.set(canonicalId, membershipOf(chain))
+  }
 
   // 2. Children nest under their parent's SUCCESSION (EXP-906: a resume
-  //    inherits `parentSessionId`, so the whole chain answers for it).
+  //    inherits `parentSessionId`, so the whole chain answers for it) —
+  //    unless the child is a workflow's and the parent is not that
+  //    workflow's (EXP-1068: the group claims it).
   const parentOf = new Map<string, string>()
   for (const [canonicalId, chain] of chainOf) {
     let named: string | null = null
@@ -135,18 +281,26 @@ export function sessionTree<T extends SessionTreeRow>(
     const parent = named ? canonicalOf.get(named) : undefined
     // Rule 6: a parent that is gone (swept, another team, not synced) leaves
     // the child at top level; so does a row naming itself.
-    if (parent && parent !== canonicalId) parentOf.set(canonicalId, parent)
+    if (!parent || parent === canonicalId) continue
+    const own = memberships.get(canonicalId)
+    const parents = memberships.get(parent)
+    if (own && own.workflowId !== parents?.workflowId) continue
+    parentOf.set(canonicalId, parent)
   }
 
   const nodes = new Map<string, SessionNode<T>>()
   for (const [canonicalId, chain] of chainOf) {
     const session = chain[chain.length - 1]!
+    const membership = memberships.get(canonicalId)
     nodes.set(canonicalId, {
       kind: `session`,
       session,
       chain,
       children: [],
       lastActivityAt: Math.max(...chain.map((row) => stamp(row.updatedAt)), 0),
+      reviewRound:
+        membership?.role === `review` ? reviewBranchRound(session.branch) : null,
+      duplicateLive: false,
     })
   }
 
@@ -167,7 +321,10 @@ export function sessionTree<T extends SessionTreeRow>(
 
   // 4. Workflow groups, then stack groups — over the TOP-LEVEL nodes only
   //    (a child run stays under its parent wherever the parent lands).
-  const grouped = groupStacks(groupWorkflows(roots, context), context)
+  const grouped = groupStacks(
+    groupWorkflows(roots, memberships, context),
+    context
+  )
 
   // 5. Groups and lone nodes sort by last activity, newest first.
   return grouped.sort(
@@ -218,6 +375,17 @@ function byCreation<T extends SessionTreeRow>(
   )
 }
 
+/** Newest activity first, ties on the key — groups' children and the top. */
+function byActivity<T extends SessionTreeRow>(
+  a: SessionTreeNode<T>,
+  b: SessionTreeNode<T>
+): number {
+  return (
+    b.lastActivityAt - a.lastActivityAt ||
+    compare(sessionTreeNodeKey(a), sessionTreeNodeKey(b))
+  )
+}
+
 /** A node's activity counts its whole subtree's. */
 function rollUp<T extends SessionTreeRow>(node: SessionTreeNode<T>): number {
   for (const child of node.children) {
@@ -226,79 +394,124 @@ function rollUp<T extends SessionTreeRow>(node: SessionTreeNode<T>): number {
   return node.lastActivityAt
 }
 
-/** Rule 3: the sessions of ONE workflow under one group row. A node belongs
- *  to the workflow that lists its issue (or the node run itself) — the name
- *  comes from the `workflows` list, so a workflow the caller did not sync
- *  leaves its runs ungrouped. */
+/** How many session nodes of a subtree are live. */
+function liveCount<T extends SessionTreeRow>(nodes: readonly SessionTreeNode<T>[]): number {
+  let count = 0
+  for (const node of nodes) {
+    if (node.kind === `session` && sessionRowIsLive(node.session)) count += 1
+    count += liveCount(node.children)
+  }
+  return count
+}
+
+/** Rule 3: the sessions of ONE workflow under one group row, by the rows'
+ *  own `workflowId`. The name comes from the `workflows` list, so a workflow
+ *  the caller did not sync leaves its runs ungrouped. */
 function groupWorkflows<T extends SessionTreeRow>(
   roots: readonly SessionNode<T>[],
+  memberships: ReadonlyMap<string, Membership | null>,
   context: SessionTreeContext
 ): SessionTreeNode<T>[] {
   const workflows = new Map(
     (context.workflows ?? []).map((workflow) => [workflow.id, workflow])
   )
-  if (workflows.size === 0 || !context.workflowNodes?.length) return [...roots]
-  const byIssue = new Map<string, string>()
-  const bySession = new Map<string, string>()
-  for (const entry of context.workflowNodes) {
-    if (!workflows.has(entry.workflowId)) continue
-    if (entry.issueId && !byIssue.has(entry.issueId)) {
-      byIssue.set(entry.issueId, entry.workflowId)
-    }
-    if (entry.sessionId && !bySession.has(entry.sessionId)) {
-      bySession.set(entry.sessionId, entry.workflowId)
-    }
-  }
-  const workflowOf = (node: SessionNode<T>): string | undefined => {
-    for (const row of node.chain) {
-      const named = bySession.get(row.id)
-      if (named) return named
-      if (row.issueId) {
-        const byIssueId = byIssue.get(row.issueId)
-        if (byIssueId) return byIssueId
-      }
-      // A batch node run covers several workflow issues (EXP-978).
-      for (const issueId of row.batchIssueIds ?? []) {
-        const covered = byIssue.get(issueId)
-        if (covered) return covered
-      }
-    }
-    return undefined
-  }
+  if (workflows.size === 0) return [...roots]
 
   const out: SessionTreeNode<T>[] = []
   const groups = new Map<string, WorkflowGroupNode<T>>()
+  /** Per group: the author chains and review chains by node id, and the
+   *  rows that are neither (plain children). */
+  const parts = new Map<
+    string,
+    {
+      authors: Map<string, SessionNode<T>[]>
+      reviews: Map<string, SessionNode<T>[]>
+      plain: SessionNode<T>[]
+    }
+  >()
   for (const node of roots) {
-    const workflowId = workflowOf(node)
-    const workflow = workflowId ? workflows.get(workflowId) : undefined
-    if (!workflowId || !workflow) {
+    const membership = memberships.get(node.session.id)
+    const workflow = membership ? workflows.get(membership.workflowId) : undefined
+    if (!membership || !workflow) {
       out.push(node)
       continue
     }
-    let group = groups.get(workflowId)
+    let group = groups.get(workflow.id)
     if (!group) {
+      const nodesOf = (context.workflowNodes ?? []).filter(
+        (entry) => entry.workflowId === workflow.id
+      )
       group = {
         kind: `workflow`,
-        workflowId,
+        workflowId: workflow.id,
         name: workflow.name,
+        status: workflow.status,
+        liveRuns: 0,
+        nodesDone: nodesOf.filter((entry) => entry.state === `landed`).length,
+        nodesTotal: nodesOf.length,
         children: [],
         lastActivityAt: 0,
       }
-      groups.set(workflowId, group)
+      groups.set(workflow.id, group)
+      parts.set(workflow.id, { authors: new Map(), reviews: new Map(), plain: [] })
       out.push(group)
     }
-    group.children.push(node)
-    group.lastActivityAt = Math.max(group.lastActivityAt, node.lastActivityAt)
+    const part = parts.get(workflow.id)!
+    const { nodeId, role } = membership
+    if (nodeId && role === `author`) {
+      push(part.authors, nodeId, node)
+    } else if (nodeId && role === `review`) {
+      push(part.reviews, nodeId, node)
+    } else {
+      part.plain.push(node)
+    }
   }
-  // The node runs, newest first.
-  for (const group of groups.values()) {
-    group.children.sort(
-      (a, b) =>
-        b.lastActivityAt - a.lastActivityAt ||
-        compare(sessionTreeNodeKey(a), sessionTreeNodeKey(b))
+
+  for (const [workflowId, group] of groups) {
+    const part = parts.get(workflowId)!
+    // 3a/3d: one row per author chain; the node's HEAD author is the live
+    // one with the newest activity, else the newest.
+    for (const [nodeId, authors] of part.authors) {
+      authors.sort(
+        (a, b) =>
+          Number(sessionRowIsLive(b.session)) - Number(sessionRowIsLive(a.session)) ||
+          byActivity(a, b)
+      )
+      const reviews = part.reviews.get(nodeId) ?? []
+      const liveAuthors = authors.filter((node) => sessionRowIsLive(node.session)).length
+      const liveReviews = reviews.filter((node) => sessionRowIsLive(node.session)).length
+      const duplicate = liveAuthors > 1 || liveReviews > 1
+      for (const author of authors) author.duplicateLive = duplicate
+      // 3b: the reviews nest under the head author, in creation order with
+      // its own children.
+      const head = authors[0]!
+      if (reviews.length > 0) {
+        head.children.push(...reviews)
+        head.children.sort(byCreation)
+        rollUp(head)
+      }
+      part.reviews.delete(nodeId)
+      group.children.push(...authors)
+    }
+    // 3b: a review whose node has no author listed is a plain child.
+    for (const reviews of part.reviews.values()) group.children.push(...reviews)
+    // 3c: everything else.
+    group.children.push(...part.plain)
+    // The node runs, newest first.
+    group.children.sort(byActivity)
+    group.lastActivityAt = Math.max(
+      ...group.children.map((child) => child.lastActivityAt),
+      0
     )
+    group.liveRuns = liveCount(group.children)
   }
   return out
+}
+
+function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const list = map.get(key)
+  if (list) list.push(value)
+  else map.set(key, [value])
 }
 
 /** Rule 4: a stack (`issues.pr_base_branch`) under one group row in LINEAR

@@ -3,6 +3,7 @@ package com.exponential.app.ui.session
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -58,6 +59,15 @@ internal fun RunningSessionRow(
     expandable: Boolean = false,
     expanded: Boolean = true,
     onToggle: () -> Unit = {},
+    // EXP-1068: a workflow REVIEW row's own title (`Review r2 · approved`);
+    // null = the ordinary subject title.
+    titleOverride: String? = null,
+    // EXP-1068: glyphs drawn right after the state dot (the "needs you" red
+    // dot, the duplicate-live warning).
+    dotAccessory: (@Composable RowScope.() -> Unit)? = null,
+    // EXP-1068: the run's account when it is not the machine's default for
+    // its agent — the byline then ends `· account <label>`.
+    accountLabel: String? = null,
 ) {
     // EXP-734: an issueless run carries its own PR state, so "in review with
     // a merged PR" reads as Done there too.
@@ -85,8 +95,8 @@ internal fun RunningSessionRow(
                 // screen's header (SessionRowTitle) so the two can't drift.
                 SessionRowTitle(
                     identifier = sessionRowIdentifier(issue, session, batchIssues),
-                    title = sessionRowTitle(session, issue, batchIssues),
-                    dot = {
+                    title = titleOverride ?: sessionRowTitle(session, issue, batchIssues),
+                    dot = { Row(verticalAlignment = Alignment.CenterVertically) {
                         when {
                             paused -> StaticDot(LostGray)
                             else -> when (state) {
@@ -100,7 +110,8 @@ internal fun RunningSessionRow(
                                 CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
                             }
                         }
-                    },
+                        dotAccessory?.invoke(this)
+                    } },
                 )
                 // EXP-850 (S8): what the run is DOING right now, written by
                 // the device (today the running workflow's caption) — the
@@ -135,7 +146,7 @@ internal fun RunningSessionRow(
                             CodingSessionDisplayState.Running ->
                                 "$deviceName · started ${relativeTime(session.startedAt)}"
                         }
-                    },
+                    } + (accountLabel?.let { " · account $it" } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = when {
                         paused -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)

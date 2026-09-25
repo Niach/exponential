@@ -325,7 +325,7 @@ struct LaunchAudit {
 impl LaunchAudit {
     /// Off the foreground: the sink is a blocking tRPC call.
     fn record(self, outcome: Outcome, executor: &gpui::BackgroundExecutor) {
-        let Some(event) = events::event_for(&self.decision, &outcome) else {
+        let Some(event) = events::launch_event_for(&self.decision, &outcome) else {
             return;
         };
         let sink = self.sink;
@@ -802,6 +802,7 @@ fn run_pass(
         .iter()
         .map(|node| (node.id.clone(), node.review_round))
         .collect();
+    let sink = TrpcEventSink::new(Arc::clone(&pass.trpc));
     for outcome in workflows::settle_review_runs(
         &mut state,
         &review_round_of,
@@ -809,6 +810,7 @@ fn run_pass(
         |session_id| pass.review_session_live.get(session_id).copied(),
         snapshot.now_ms,
     ) {
+        let event = events::event_for_review_end(&workflow_id, &outcome);
         match outcome {
             workflows::ReviewRunEnd::Verdict { .. } => {}
             workflows::ReviewRunEnd::Followed { node_id, session_id } => log::info!(
@@ -826,6 +828,9 @@ fn run_pass(
                 report.note = api::patch::Patch::Set(one_line(&note));
                 report_node(&pass.trpc, &report);
             }
+        }
+        if let Some(event) = event {
+            sink.record(event);
         }
     }
     snapshot.reviewed_head = state.reviewed_head.clone();
@@ -855,7 +860,6 @@ fn run_pass(
     // A base this pass could NOT put up. Nothing may be cut from it: the
     // node waits for the next beat rather than starting on a wrong base.
     let mut unbuilt: HashSet<String> = HashSet::new();
-    let sink = TrpcEventSink::new(Arc::clone(&pass.trpc));
     for decision in decisions {
         // EXP-1082: what the host did with it, for the audit trail.
         let decided = decision.clone();
@@ -1250,7 +1254,7 @@ fn run_pass(
         if matches!(outcome, Outcome::Queued) {
             continue;
         }
-        if let Some(event) = events::event_for(&decided, &outcome) {
+        if let Some(event) = events::event_for(&workflow_id, &decided, &outcome) {
             sink.record(event);
         }
     }

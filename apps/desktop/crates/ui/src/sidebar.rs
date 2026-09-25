@@ -1222,6 +1222,8 @@ impl RailView {
             }
             crate::run_rows::SessionGroupKind::Stack => None,
         };
+        let status_dot = facts.status_dot(muted);
+        let trailing = facts.trailing();
         crate::surface::flat_row_compact()
             .id(("rail-running-group", index))
             .w_full()
@@ -1252,15 +1254,18 @@ impl RailView {
                     .text_color(muted)
                     .child(facts.label.clone()),
             )
-            // A group IS its children, so how many there are is what the reader
-            // is deciding to fold away — the ×4 trailing cell.
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(facts.members.to_string()),
-            )
+            // EXP-1068: the workflow's status dot, then the ×4 trailing cell
+            // (`3 running · 5 of 8 done`; a stack's member count).
+            .children(status_dot.map(|tone| crate::surface::live_dot(tone, false)))
+            .when(!trailing.is_empty(), |this| {
+                this.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(trailing),
+                )
+            })
             .when_some(open, |this, workflow_id| {
                 this.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                     // EXP-851: a rail row opens its detail with no list beside
@@ -1316,9 +1321,11 @@ impl RailView {
             .into_any_element();
         // The compact square has no room for two texts: the tooltip is the
         // whole label the expanded row splits into identifier + title.
+        // EXP-1068: a review chain is titled by its round and verdict.
+        let title = run.marks.review_title.clone().unwrap_or_else(|| run.title.clone());
         let label: SharedString = match &run.identifier {
-            Some(identifier) => format!("{identifier} {}", run.title).into(),
-            None => run.title.clone(),
+            Some(identifier) => format!("{identifier} {title}").into(),
+            None => title.clone(),
         };
         let open = {
             let session_id = session_id.clone();
@@ -1349,7 +1356,12 @@ impl RailView {
             .into_any_element();
         }
         let fold = self.rail_run_fold(index, &row.key, row.has_children, cx);
-        let device_label = run.device_label.clone();
+        // EXP-1068: the rail row has no caption line, so a non-default account
+        // rides the device glyph's tooltip.
+        let device_label: Option<SharedString> = match (run.device_label.clone(), run.marks.account.clone()) {
+            (Some(device), Some(account)) => Some(format!("{device} · {account}").into()),
+            (device, account) => device.or(account),
+        };
         let device = div()
             .id(("rail-running-device", index))
             .flex_shrink_0()
@@ -1385,6 +1397,7 @@ impl RailView {
             ))
             .children(fold)
             .child(lead)
+            .children(crate::run_rows::needs_you_dot(run.marks.needs_you))
             .children(run.identifier.clone().map(|identifier| {
                 div()
                     .flex_shrink_0()
@@ -1393,7 +1406,12 @@ impl RailView {
                     .font_family(theme::terminal::FONT_FAMILY)
                     .child(identifier)
             }))
-            .child(div().flex_1().min_w_0().truncate().child(run.title.clone()))
+            .child(div().flex_1().min_w_0().truncate().child(title))
+            .children(crate::run_rows::duplicate_live_warning(
+                "rail-running",
+                index,
+                run.marks.duplicate_live,
+            ))
             .child(device)
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| open(window, cx)));
         // EXP-874: the kill rides the row's right-click menu, not a trailing

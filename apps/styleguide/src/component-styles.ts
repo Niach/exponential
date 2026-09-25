@@ -417,6 +417,7 @@ export const componentStyles = `
 }
 /* One nesting level: the row's own 8px plus TREE_INDENT. */
 .cmp-session-tree-row[data-depth="1"] { padding-left: 22px; }
+.cmp-session-tree-row[data-depth="2"] { padding-left: 36px; }
 /* A group is structure, not work: it wears the row fill, never a state dot. */
 .cmp-session-tree-group { background: var(--row); }
 .cmp-session-tree-icon { display: flex; flex: none; color: var(--muted-fg); }

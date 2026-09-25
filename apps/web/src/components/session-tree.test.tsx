@@ -38,8 +38,8 @@ vi.mock(`@tanstack/react-router`, () => ({
 // synced: these two hooks are the only door to the collections.
 const workflows = [{ id: `w1`, name: `EXP-996 +5`, status: `running` }]
 const nodes = [
-  { workflowId: `w1`, issueId: `i1`, sessionId: null },
-  { workflowId: `w1`, issueId: `i2`, sessionId: null },
+  { id: `wn1`, workflowId: `w1`, issueId: `i1`, sessionId: null, state: `running`, reviewRound: 1, review: { round: 1, verdict: `request_changes` } },
+  { id: `wn2`, workflowId: `w1`, issueId: `i2`, sessionId: null, state: `landed`, reviewRound: 0, review: null },
 ]
 vi.mock(`@/hooks/use-workflows`, () => ({
   useTeamWorkflows: () => workflows,
@@ -108,8 +108,8 @@ describe(`SessionTree (EXP-996)`, () => {
     const i1 = issue(`i1`)
     const i2 = issue(`i2`)
     draw([
-      row(`n1`, { issueId: `i1` }, { issue: i1 }),
-      row(`n2`, { issueId: `i2` }, { issue: i2 }),
+      row(`n1`, { issueId: `i1`, workflowId: `w1`, workflowNodeId: `wn1`, workflowRole: `author` }, { issue: i1 }),
+      row(`n2`, { issueId: `i2`, workflowId: `w1`, workflowNodeId: `wn2`, workflowRole: `author` }, { issue: i2 }),
     ])
     expect(screen.getByTestId(`session-group-workflow:w1`)).toBeTruthy()
     expect(
@@ -133,8 +133,8 @@ describe(`SessionTree (EXP-996)`, () => {
 
   it(`folds a group away with its runs`, () => {
     draw([
-      row(`n1`, { issueId: `i1` }, { issue: issue(`i1`) }),
-      row(`n2`, { issueId: `i2` }, { issue: issue(`i2`) }),
+      row(`n1`, { issueId: `i1`, workflowId: `w1`, workflowNodeId: `wn1`, workflowRole: `author` }, { issue: issue(`i1`) }),
+      row(`n2`, { issueId: `i2`, workflowId: `w1`, workflowNodeId: `wn2`, workflowRole: `author` }, { issue: issue(`i2`) }),
     ])
     fireEvent.click(screen.getByLabelText(`Collapse these runs`))
     expect(screen.getByTestId(`session-group-workflow:w1`)).toBeTruthy()
@@ -144,8 +144,8 @@ describe(`SessionTree (EXP-996)`, () => {
 
   it(`folds from the keyboard: the toggle is tabbable and Enter or Space flips it`, () => {
     draw([
-      row(`n1`, { issueId: `i1` }, { issue: issue(`i1`) }),
-      row(`n2`, { issueId: `i2` }, { issue: issue(`i2`) }),
+      row(`n1`, { issueId: `i1`, workflowId: `w1`, workflowNodeId: `wn1`, workflowRole: `author` }, { issue: issue(`i1`) }),
+      row(`n2`, { issueId: `i2`, workflowId: `w1`, workflowNodeId: `wn2`, workflowRole: `author` }, { issue: issue(`i2`) }),
     ])
     const toggle = screen.getByLabelText(`Collapse these runs`)
     expect(toggle.getAttribute(`tabindex`)).toBe(`0`)
@@ -165,6 +165,44 @@ describe(`SessionTree (EXP-996)`, () => {
     draw([row(`lone`)])
     expect(screen.queryByTestId(/^session-group-/)).toBeNull()
     expect(screen.getByTestId(`session-row-lone`)).toBeTruthy()
+  })
+
+  // EXP-1068: what a workflow member's row says beyond its identity.
+  it(`captions the group and titles a review under its node`, () => {
+    draw([
+      row(`n1`, { issueId: `i1`, workflowId: `w1`, workflowNodeId: `wn1`, workflowRole: `author` }, { issue: issue(`i1`) }),
+      row(`rev`, {
+        workflowId: `w1`,
+        workflowNodeId: `wn1`,
+        workflowRole: `review`,
+        actionName: `Review node`,
+        branch: `exp/wf-w1-review-I1-r1`,
+        createdAt: new Date(`2026-09-01T11:00:00Z`),
+        updatedAt: new Date(`2026-09-01T11:00:00Z`),
+      }),
+    ])
+    const group = screen.getByTestId(`session-group-workflow:w1`)
+    expect(group.textContent).toContain(`2 running · 1 of 2 done`)
+    expect(group.querySelector(`[data-slot="live-dot"]`)).toBeTruthy()
+    expect(screen.getByTestId(`session-row-rev`).textContent).toContain(`Review r1 · changes requested`)
+    expect(screen.queryByText(`Review node`)).toBeNull()
+  })
+
+  it(`flags a doubled node and dots an open question`, () => {
+    draw([
+      row(`a1`, { issueId: `i1`, workflowId: `w1`, workflowNodeId: `wn1`, workflowRole: `author` }, { issue: issue(`i1`) }),
+      row(`a2`, {
+        issueId: `i1`,
+        workflowId: `w1`,
+        workflowNodeId: `wn1`,
+        workflowRole: `author`,
+        pendingQuestion: { question: `Ship it?`, askedAt: `2026-09-01T11:00:00Z` },
+        createdAt: new Date(`2026-09-01T11:00:00Z`),
+        updatedAt: new Date(`2026-09-01T11:00:00Z`),
+      }, { issue: issue(`i1`) }),
+    ])
+    expect(screen.getAllByLabelText(`Two live runs on this node`)).toHaveLength(2)
+    expect(screen.getAllByLabelText(`Needs you`)).toHaveLength(1)
   })
 
   it(`renders the empty note when nothing is listed`, () => {
