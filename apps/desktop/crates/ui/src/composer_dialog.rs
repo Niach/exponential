@@ -24,11 +24,15 @@ use crate::navigation::{self, ChatSeed};
 /// The dialog's content width — the Agent page's own composer column, so the
 /// card is the same width in both presentations.
 const DIALOG_W: f32 = 640.;
-/// Its opening height: the headline, the card, the options row and room for a
-/// note. The window is user-resizable and caps against the opener's viewport.
-const DIALOG_H: f32 = 400.;
+/// Its opening height: the title bar, the headline, the card, the options row
+/// and one line of room for a note — measured against what the launcher
+/// actually draws, because a window that opens at twice its content reads as
+/// a half-loaded dialog. Anything taller (an action's typed input rows, a
+/// blocked-start question, an image strip) scrolls or is dragged bigger: the
+/// window is resizable and its body self-scrolls.
+const DIALOG_H: f32 = 258.;
 /// The resize floor (the card alone still fits).
-const DIALOG_MIN_H: f32 = 280.;
+const DIALOG_MIN_H: f32 = 240.;
 
 /// Open the composer prefilled with `seed`. Called from the ONE funnel
 /// (`navigation::navigate_to_chat_inner`), never from the play buttons

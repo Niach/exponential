@@ -275,9 +275,6 @@ pub(crate) fn build_screen_content(
         Screen::Drafts => cx
             .new(|cx| crate::drafts_view::DraftsView::new(window, cx))
             .into(),
-        Screen::Styleguide => cx
-            .new(|cx| crate::styleguide::screen::StyleguideView::new(window, cx))
-            .into(),
         Screen::Actions => cx
             .new(|cx| crate::actions_view::ActionsView::new(window, cx))
             .into(),
@@ -1064,9 +1061,6 @@ pub struct ScreensPanel {
     /// The Drafts page (EXP-878 — the create-issue dialogs closed with
     /// content in them; the same tab-less full-page mode).
     drafts: Entity<crate::drafts_view::DraftsView>,
-    /// EXP-1039: the IDE styleguide — the four shared sections and the
-    /// native controls under them. Debug-only (`EXP_DEV_STYLEGUIDE=1`).
-    styleguide: Entity<crate::styleguide::screen::StyleguideView>,
     /// The Actions page (EXP-467 — the team's action rows; EXP-480: a
     /// tab-less full-page mode like Settings).
     actions: Entity<crate::actions_view::ActionsView>,
@@ -1187,9 +1181,6 @@ impl ScreensPanel {
         let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
         let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
-        // EXP-1039: debug-only, built like every other screen (it holds no
-        // data of its own — the sections are a compile-time index).
-        let styleguide = cx.new(|cx| crate::styleguide::screen::StyleguideView::new(window, cx));
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let automations =
             cx.new(|cx| crate::automations_view::AutomationsView::new(window, cx));
@@ -1292,7 +1283,6 @@ impl ScreensPanel {
             pr_diff,
             devices,
             drafts,
-            styleguide,
             actions,
             automations,
             workflows,
@@ -1602,7 +1592,6 @@ impl ScreensPanel {
             | Screen::SourceControl
             | Screen::Devices
             | Screen::Drafts
-            | Screen::Styleguide
             | Screen::Actions
             | Screen::Automations
             | Screen::Workflows
@@ -3508,7 +3497,6 @@ impl Render for ScreensPanel {
             Some(Screen::SourceControl) => self.render_source_control_screen(cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
-            Some(Screen::Styleguide) => self.styleguide.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Automations) => self.automations.clone().into_any_element(),
             Some(Screen::Workflows) => self.workflows.clone().into_any_element(),
