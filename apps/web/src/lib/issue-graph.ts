@@ -269,3 +269,82 @@ export function blockGraph(
 
   return { nodes, edges, hasCycle: edges.some((edge) => edge.cycle), truncated }
 }
+
+// EXP-1057: THE mini-graph's geometry, identical ×4 and locked by
+// `domain-contract/fixtures/issue-graph-geometry.json` (desktop
+// `domain::issue_graph::geometry`, iOS `IssueGraph.Geometry`, Android
+// `IssueGraph.Geometry`). The web draws it through `@exp/ui` `WaveGraph`,
+// whose edge rule is the one below; the grid sits `inset` inside its scroll
+// box so the rings are never clipped.
+export const ISSUE_GRAPH_GEOMETRY = {
+  nodeWidth: 176,
+  nodeHeight: 28,
+  waveGap: 40,
+  laneGap: 8,
+  inset: 4,
+  maxViewWidth: 520,
+  maxViewHeight: 320,
+  edgeStroke: 1.25,
+  ringWidth: 1,
+  nodeRadius: 6,
+  railGutter: 8,
+  railNodeWidth: 24,
+  railDot: 10,
+  railDotRing: 2,
+} as const
+
+export interface GraphPoint {
+  x: number
+  y: number
+}
+
+/** A node box's top-left inside the grid. */
+export function issueGraphOrigin(wave: number, lane: number): GraphPoint {
+  const g = ISSUE_GRAPH_GEOMETRY
+  return {
+    x: g.inset + wave * (g.nodeWidth + g.waveGap),
+    y: g.inset + lane * (g.nodeHeight + g.laneGap),
+  }
+}
+
+/** The grid's natural size for `waves` × `lanes` (insets included) and the
+ *  viewport it shows before scrolling. */
+export function issueGraphSize(
+  waves: number,
+  lanes: number
+): { width: number; height: number; viewWidth: number; viewHeight: number } {
+  const g = ISSUE_GRAPH_GEOMETRY
+  if (waves <= 0 || lanes <= 0) {
+    return { width: 0, height: 0, viewWidth: 0, viewHeight: 0 }
+  }
+  const width = 2 * g.inset + waves * (g.nodeWidth + g.waveGap) - g.waveGap
+  const height = 2 * g.inset + lanes * (g.nodeHeight + g.laneGap) - g.laneGap
+  return {
+    width,
+    height,
+    viewWidth: Math.min(width, g.maxViewWidth),
+    viewHeight: Math.min(height, g.maxViewHeight),
+  }
+}
+
+/** One edge as a cubic: blocker's right-middle → blocked box's left-middle. */
+export function issueGraphEdge(
+  from: { wave: number; lane: number },
+  to: { wave: number; lane: number }
+): { start: GraphPoint; control1: GraphPoint; control2: GraphPoint; end: GraphPoint } {
+  const g = ISSUE_GRAPH_GEOMETRY
+  const a = issueGraphOrigin(from.wave, from.lane)
+  const b = issueGraphOrigin(to.wave, to.lane)
+  const start = { x: a.x + g.nodeWidth, y: a.y + g.nodeHeight / 2 }
+  const end = { x: b.x, y: b.y + g.nodeHeight / 2 }
+  const bend =
+    end.x > start.x
+      ? (end.x - start.x) / 2
+      : Math.max(g.waveGap / 2, Math.abs(end.x - start.x) / 2)
+  return {
+    start,
+    control1: { x: start.x + bend, y: start.y },
+    control2: { x: end.x - bend, y: end.y },
+    end,
+  }
+}
