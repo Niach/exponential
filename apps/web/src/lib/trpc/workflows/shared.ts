@@ -346,6 +346,8 @@ export async function loadNode(nodeId: string) {
       review: workflowNodes.review,
       reviewRound: workflowNodes.reviewRound,
       attempt: workflowNodes.attempt,
+      // EXP-1103: the review-wave gate reads the node's layer.
+      wave: workflowNodes.wave,
     })
     .from(workflowNodes)
     .where(eq(workflowNodes.id, nodeId))

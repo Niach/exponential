@@ -318,9 +318,10 @@ describe(`workflows.update`, () => {
   it(`re-binds a running workflow's runner without touching its launch`, async () => {
     selectQueue.push([workflow({ status: `running` })])
     await caller.update({ id: WF, deviceId: `dev-2` })
-    expect(written[0]!.values.deviceId).toBe(`dev-2`)
-    expect(written[0]!.values.launch).toBeUndefined()
-    expect(String(written[0]!.values.decisions)).toContain(`Runner moved to device dev-2`)
+    const values = written[0]!.values as Record<string, unknown>
+    expect(values.deviceId).toBe(`dev-2`)
+    expect(values.launch).toBeUndefined()
+    expect(String(values.decisions)).toContain(`Runner moved to device dev-2`)
   })
 
   // EXP-1066/1090: `startOn` and `launch` are no inputs; an old client still
@@ -641,7 +642,7 @@ describe(`the engine's write path`, () => {
         { id: `node-1`, issueId: A, memberIssueIds: [], state: `in_review`, baseBranch: null, wave: 1, approvedAt: null },
         { id: `m`, issueId: `i-m`, memberIssueIds: [], state: `blocked`, baseBranch: null, wave: 2, approvedAt: null },
         { id: `i`, issueId: `i-i`, memberIssueIds: [], state: `blocked`, baseBranch: null, wave: 3, approvedAt: null },
-      ],
+      ] as never,
       edges: [],
     })
     expect(await caller.landNode({ nodeId: NODE })).toEqual({

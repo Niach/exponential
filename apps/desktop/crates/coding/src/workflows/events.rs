@@ -243,6 +243,7 @@ mod tests {
     fn review(account: Option<&str>) -> Decision {
         Decision::StartReview {
             node_id: "n1".to_string(),
+            wave: 0,
             model: None,
             adversarial: false,
             workflow_id: "w".to_string(),
