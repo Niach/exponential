@@ -282,3 +282,31 @@ export function badgeLabel<I, S>(graph: PrGraph<I, S>): string | null {
   }
   return null
 }
+
+/** EXP-1058: what the header's STACKED issue chip draws in place of the old
+ *  pill — the front chip's issue and how many ride behind it (`+N`).
+ *  `issue` = the subject's pull request's representative row; `null` only on
+ *  the Run face of a run with no issue (the tree alone), where the front chip
+ *  names the run instead. `count` = every OTHER issue on the stack (all its
+ *  entries' issues) or batch, or every other run of the tree for `runs`.
+ *  `null` = no chip, exactly when `badgeShape` is null. Byte-identical ×4
+ *  (`pr_graph::badge_chip`, `PrGraph.badgeChip` ×2). */
+export interface BadgeChip<I> {
+  issue: I | null
+  count: number
+}
+
+export function badgeChip<I, S>(
+  graph: PrGraph<I, S>,
+  face: PrGraphFace
+): BadgeChip<I> | null {
+  const shape = badgeShape(graph, face)
+  if (!shape) return null
+  const issue = graph.entry?.issue ?? null
+  if (shape === `runs`) return { issue, count: graph.tree.length - 1 }
+  if (graph.stack.length >= 2) {
+    const total = graph.stack.reduce((sum, row) => sum + row.entry.issues.length, 0)
+    return { issue, count: total - 1 }
+  }
+  return { issue, count: (graph.batch?.issues.length ?? 1) - 1 }
+}
