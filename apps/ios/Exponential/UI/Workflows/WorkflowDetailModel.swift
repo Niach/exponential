@@ -37,15 +37,15 @@ final class WorkflowDetailModel {
     var busy = false
     /// The server's refusal, verbatim (a notice toast).
     var error: String?
-    /// The chip strip's pick: All, or one node.
+    /// The chip strip's pick: All, or the picked nodes (the page shows the
+    /// cursor's).
     var selection = WorkflowSelection()
 
     private var observationTask: Task<Void, Never>?
-    /// The open question's run, attached while the banner shows so an answer
-    /// goes out on the run's own steer socket — how a `needs_input` run is
-    /// answered everywhere else.
-    private var answerSessionId: String?
-    private var answerModel: AgentSessionModel?
+    /// The asking runs that are MINE, attached while the banner shows so an
+    /// answer goes out on the run's own steer socket — how a `needs_input`
+    /// run is answered everywhere else. Keyed by session id.
+    private var answerModels: [String: AgentSessionModel] = [:]
 
     init(workflowId: String, accountId: String, deps: AppDependencies) {
         self.workflowId = workflowId
@@ -85,7 +85,9 @@ final class WorkflowDetailModel {
     }
 
     var primaryAction: WorkflowPrimaryAction? {
-        WorkflowView.primaryAction(status: status, deviceLabel: deviceLabel)
+        WorkflowView.primaryAction(
+            status: status, deviceLabel: deviceLabel, finalPrState: workflow?.finalPrState
+        )
     }
 
     /// Why Start is disabled — the server's own sentence.
@@ -168,6 +170,26 @@ final class WorkflowDetailModel {
         IssueGraph.blockGraph(
             subjectIds: node.coveredIssueIds, relations: relations, issues: Array(issues.values)
         )
+    }
+
+    /// The faces a picked node's Work screen will offer, as far as the
+    /// synced rows tell: the page opens it on its face only when that face
+    /// can show (a missing one falls back like the Work screen's own switch).
+    func faces(for node: WorkflowNodeEntity) -> [WorkFaceKind] {
+        let issue = issues[node.issueId]
+        let runs = sessions.filter { $0.id == node.sessionId || $0.issueId == node.issueId }
+        let pushed = issue?.prUrl?.isEmpty == false || issue?.branch?.isEmpty == false
+        return WorkFaces.availableFaces(
+            hasIssue: true,
+            hasRun: !runs.isEmpty,
+            hasChanges: pushed,
+            hasResults: runs.contains { !parseSessionResults($0.results).isEmpty }
+        )
+    }
+
+    /// The nodes in the page's scope, in strip (DAG) order.
+    var orderedNodes: [WorkflowNodeEntity] {
+        order.compactMap { id in nodes.first { $0.id == id } }
     }
 
     /// Every run's published screenshots, by topic.
@@ -254,7 +276,7 @@ final class WorkflowDetailModel {
         events = snapshot.events
         deviceRows = snapshot.deviceRows
         loaded = true
-        selection.reconcile(with: order)
+        selection.prune(with: order)
         syncAnswerChannel()
     }
 
@@ -272,55 +294,67 @@ final class WorkflowDetailModel {
         )
     }
 
-    // MARK: - The open question
+    // MARK: - The open questions
 
-    /// The run behind the first open question, when it is MINE — a live run
-    /// is steerable only by its owner (EXP-312).
-    var answerableQuestion: WorkflowOpenQuestion? {
-        guard let question = openQuestions.first, let run = session(question.sessionId),
-              CodingSessionOwnership.isOwn(run, userId: deps.auth.userId)
-        else { return nil }
-        return question
+    /// Every open question renders; only the ones whose run is MINE take an
+    /// answer — a live run is steerable only by its owner (EXP-312), and a
+    /// teammate's question never hides mine.
+    func isAnswerable(_ question: WorkflowOpenQuestion) -> Bool {
+        guard let run = session(question.sessionId) else { return false }
+        return CodingSessionOwnership.isOwn(run, userId: deps.auth.userId)
     }
 
     private func syncAnswerChannel() {
-        let wanted = answerableQuestion?.sessionId
-        guard wanted != answerSessionId else { return }
-        releaseAnswerChannel()
-        guard let wanted, let run = session(wanted) else { return }
-        answerSessionId = wanted
-        answerModel = deps.steerSessions.attach(accountId: accountId, sessionId: wanted) {
-            AgentSessionModel(
-                accountId: accountId,
-                session: run,
-                currentUserId: deps.auth.userId,
-                steerApi: deps.steerApi,
-                attachmentsApi: deps.attachmentsApi,
-                issuesApi: deps.issuesApi,
-                db: deps.db
-            )
+        let wanted = Set(openQuestions.filter(isAnswerable).map(\.sessionId))
+        for id in answerModels.keys where !wanted.contains(id) {
+            deps.steerSessions.detach(accountId: accountId, sessionId: id)
+            answerModels[id] = nil
+        }
+        for id in wanted where answerModels[id] == nil {
+            guard let run = session(id) else { continue }
+            answerModels[id] = deps.steerSessions.attach(accountId: accountId, sessionId: id) {
+                AgentSessionModel(
+                    accountId: accountId,
+                    session: run,
+                    currentUserId: deps.auth.userId,
+                    steerApi: deps.steerApi,
+                    attachmentsApi: deps.attachmentsApi,
+                    issuesApi: deps.issuesApi,
+                    db: deps.db
+                )
+            }
         }
     }
 
     private func releaseAnswerChannel() {
-        if let answerSessionId {
-            deps.steerSessions.detach(accountId: accountId, sessionId: answerSessionId)
+        for id in answerModels.keys {
+            deps.steerSessions.detach(accountId: accountId, sessionId: id)
         }
-        answerSessionId = nil
-        answerModel = nil
+        answerModels = [:]
     }
 
     /// Send the answer as a message to the asking run. False while its socket
     /// is still connecting.
-    func answer(_ text: String) -> Bool {
+    func answer(_ text: String, to sessionId: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let answerModel else { return false }
+        guard !trimmed.isEmpty, let answerModel = answerModels[sessionId] else { return false }
         let sent = answerModel.sendMessage(trimmed)
         if !sent { error = "The run is not connected yet. Try again in a moment." }
         return sent
     }
 
     // MARK: - Writes
+
+    /// Save the edited name (commit or blur); blank or unchanged = nothing.
+    func rename(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != workflow?.name else { return }
+        run { accountId, id in
+            _ = try await self.deps.workflowsApi.update(
+                accountId: accountId, id: id, patch: WorkflowPatch(name: trimmed)
+            )
+        }
+    }
 
     func setDevice(_ deviceId: String?) {
         run { accountId, id in

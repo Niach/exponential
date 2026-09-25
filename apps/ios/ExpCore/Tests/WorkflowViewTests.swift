@@ -10,7 +10,6 @@ final class WorkflowViewTests: XCTestCase {
     private struct Fixture: Decodable {
         let bands: [BandCase]
         let shapeLines: [ShapeCase]
-        let captions: [CaptionCase]
         let titles: [TitleCase]
         let edges: [EdgeCase]
         // EXP-982 — running a workflow.
@@ -19,8 +18,6 @@ final class WorkflowViewTests: XCTestCase {
         let rowSubtitles: [RowSubtitleCase]
         // EXP-983 — speculative starts.
         let edgeStyles: [EdgeStyleCase]
-        // EXP-984 — the agent review gate.
-        let reviewLines: [ReviewLineCase]
     }
 
     private struct BandCase: Decodable {
@@ -32,19 +29,6 @@ final class WorkflowViewTests: XCTestCase {
         let metrics: WorkflowMetrics
         let line: String
         let cycleNote: String?
-    }
-
-    private struct CaptionCase: Decodable {
-        let node: FixtureNode
-        let workflowStatus: String
-        let caption: String
-        let tone: String
-    }
-
-    private struct FixtureNode: Decodable {
-        let kind: String
-        let state: String
-        let risk: String
     }
 
     private struct TitleCase: Decodable {
@@ -119,12 +103,6 @@ final class WorkflowViewTests: XCTestCase {
         let subtitle: String
     }
 
-    private struct ReviewLineCase: Decodable {
-        let review: WorkflowNodeReview
-        let approved: Bool
-        let line: String
-    }
-
     /// The committed contract fixture, read through `#filePath` because the
     /// unit-test bundle carries no repo resources.
     private func fixture() throws -> Fixture {
@@ -151,19 +129,6 @@ final class WorkflowViewTests: XCTestCase {
         for testCase in fixture.shapeLines {
             XCTAssertEqual(WorkflowView.shapeLine(testCase.metrics), testCase.line)
             XCTAssertEqual(WorkflowView.cycleNote(testCase.metrics), testCase.cycleNote)
-        }
-
-        for testCase in fixture.captions {
-            let node = WorkflowView.CaptionNode(
-                kind: testCase.node.kind, state: testCase.node.state, risk: testCase.node.risk
-            )
-            XCTAssertEqual(
-                WorkflowView.nodeCaption(node, workflowStatus: testCase.workflowStatus),
-                testCase.caption
-            )
-            XCTAssertEqual(
-                WorkflowView.nodeTone(testCase.node.state).rawValue, testCase.tone
-            )
         }
 
         for testCase in fixture.titles {
@@ -223,28 +188,7 @@ final class WorkflowViewTests: XCTestCase {
         }
     }
 
-    func testTheSpeculativeCopyIsByteLocked() {
-        XCTAssertEqual(WorkflowView.contractPublishedLabel, "Contract published")
-        XCTAssertEqual(WorkflowView.mergesInFirstLabel, "Merges in first")
-    }
-
     // MARK: - Review gate, dynamic graphs, budgets, metrics (EXP-984)
-
-    // The node panel's review line, over the same fixture the other three
-    // read: a verdict, its round, and what the oracle (or its absence) makes
-    // of it.
-    func testReviewLineFixtureCases() throws {
-        let fixture = try fixture()
-
-        XCTAssertFalse(fixture.reviewLines.isEmpty)
-        for testCase in fixture.reviewLines {
-            XCTAssertEqual(
-                WorkflowView.reviewLine(testCase.review, nodeApproved: testCase.approved),
-                testCase.line,
-                "\(testCase.review.verdict) round \(testCase.review.round) approved \(testCase.approved)"
-            )
-        }
-    }
 
     // The review gate's copy, byte for byte — the note is what a `proposed`
     // node's panel says before a member decides.
@@ -255,7 +199,6 @@ final class WorkflowViewTests: XCTestCase {
             WorkflowView.proposedNodeNote,
             "Filed during the run. Admit it into the workflow or dismiss it."
         )
-        XCTAssertEqual(WorkflowView.nodeModelLabel, "Model")
         XCTAssertEqual(WorkflowView.nodeUnsyncedTitle, "Not synced yet")
     }
 
@@ -397,7 +340,6 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(WorkflowView.startLabel, "Start")
         XCTAssertEqual(WorkflowView.pauseLabel, "Pause")
         XCTAssertEqual(WorkflowView.resumeLabel, "Resume")
-        XCTAssertEqual(WorkflowView.cancelLabel, "Cancel workflow")
         XCTAssertEqual(
             WorkflowView.cancelConfirm,
             "Its live runs end and its branch is deleted. Nothing reached the default branch."
@@ -408,7 +350,6 @@ final class WorkflowViewTests: XCTestCase {
             WorkflowView.mergeFinalPrConfirm,
             "The workflow's branch is squash-merged into the default branch and the run is done."
         )
-        XCTAssertEqual(WorkflowView.runningNowLabel, "Running now")
         XCTAssertEqual(WorkflowView.retryNodeLabel, "Retry")
         XCTAssertEqual(WorkflowView.skipNodeLabel, "Skip")
         XCTAssertEqual(
@@ -448,20 +389,6 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(WorkflowView.startAsBatchLabel, "Start as batch")
         XCTAssertEqual(WorkflowView.startAsStackLabel, "Start as stack")
         XCTAssertEqual(WorkflowView.createWorkflowLabel, "Create workflow…")
-    }
-
-    // Every contract value has a label; an unknown one falls through as itself
-    // rather than rendering blank.
-    func testEveryContractStateAndKindHasALabel() {
-        for state in DomainContract.wfNodeStateValues {
-            XCTAssertFalse(WorkflowView.nodeStateLabel(state).isEmpty, state)
-            XCTAssertNotEqual(WorkflowView.nodeStateLabel(state), state, state)
-        }
-        for kind in DomainContract.wfNodeKindValues {
-            XCTAssertNotEqual(WorkflowView.nodeKindLabel(kind), kind, kind)
-        }
-        XCTAssertEqual(WorkflowView.nodeStateLabel("brand-new"), "brand-new")
-        XCTAssertEqual(WorkflowView.nodeKindLabel("brand-new"), "brand-new")
     }
 
     // MARK: - The synced rows go through the same rule
@@ -688,6 +615,13 @@ final class WorkflowContractViewTests: XCTestCase {
         let chipMenus: [ChipMenuCase]
         let overflowMenus: [OverflowMenuCase]
         let pageLabels: [String: String]
+        let statusGlyphs: [StatusGlyphCase]
+        let proposedNodeNote: String
+    }
+
+    private struct StatusGlyphCase: Decodable {
+        let status: String
+        let display: String
     }
 
     private struct OverflowMenuCase: Decodable {
@@ -753,6 +687,7 @@ final class WorkflowContractViewTests: XCTestCase {
         let status: String
         let device: String?
         let action: String?
+        let finalPrState: String?
     }
 
     private struct ChipMenuCase: Decodable {
@@ -844,12 +779,36 @@ final class WorkflowContractViewTests: XCTestCase {
         XCTAssertFalse(fixture.primaryActions.isEmpty)
         for testCase in fixture.primaryActions {
             XCTAssertEqual(
-                WorkflowView.primaryAction(status: testCase.status, deviceLabel: testCase.device)?
-                    .rawValue,
+                WorkflowView.primaryAction(
+                    status: testCase.status, deviceLabel: testCase.device,
+                    finalPrState: testCase.finalPrState
+                )?.rawValue,
                 testCase.action,
-                "\(testCase.status) \(testCase.device ?? "nil")"
+                "\(testCase.status) \(testCase.device ?? "nil") \(testCase.finalPrState ?? "nil")"
             )
         }
+    }
+
+    func testStatusGlyphFixtureCases() throws {
+        let fixture = try fixture()
+        XCTAssertFalse(fixture.statusGlyphs.isEmpty)
+        for testCase in fixture.statusGlyphs {
+            XCTAssertEqual(
+                WorkflowView.statusGlyph(status: testCase.status).rawValue,
+                testCase.display, testCase.status
+            )
+        }
+    }
+
+    func testTheProposedNodeNoteIsByteLocked() throws {
+        XCTAssertEqual(WorkflowView.proposedNodeNote, try fixture().proposedNodeNote)
+        let strip = WorkflowView.nodeStrip(
+            nodes: [
+                StripNodeInput(id: "p", identifier: "EXP-9", state: "proposed", wave: 0, lane: 0),
+            ],
+            edges: []
+        )
+        XCTAssertEqual(strip.first?.nodes.first?.caption, WorkflowView.proposedNodeNote)
     }
 
     func testChipMenuFixtureCases() throws {

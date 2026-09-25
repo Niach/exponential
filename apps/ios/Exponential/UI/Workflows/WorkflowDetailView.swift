@@ -22,7 +22,9 @@ struct WorkflowDetailView: View {
     @Environment(\.openURL) private var openURL
 
     @State private var model: WorkflowDetailModel?
-    /// The face `All` shows.
+    /// The page's face — `All`'s, and the one a picked node's Work screen
+    /// opens on; a face switched inside that screen lifts back here, so a
+    /// step to the next node keeps it.
     @State private var face: WorkFaceKind = .issue
     @State private var switcherAnchor: CGRect = .zero
     @State private var switcherOpen = false
@@ -33,7 +35,13 @@ struct WorkflowDetailView: View {
     /// The chip whose mini-graph is up (long-press).
     @State private var graphNodeId: String?
     @State private var skipNodeId: String?
-    @State private var answerDraft = ""
+    @State private var dismissNodeId: String?
+    /// One draft per asking run.
+    @State private var answerDrafts: [String: String] = [:]
+    @State private var decisionsOpen = false
+    @State private var nameDraft = ""
+    @State private var seededName = false
+    @FocusState private var nameFocused: Bool
     @State private var showDeleteConfirm = false
     @State private var showStopConfirm = false
     @State private var showMergeConfirm = false
@@ -61,15 +69,28 @@ struct WorkflowDetailView: View {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
                     if let model, model.workflow != nil {
-                        let display = Self.display(status: model.status)
+                        let display = WorkflowView.statusGlyph(status: model.status)
                         AppIcon(Self.glyph(display), size: AppIcon.Size.small)
                             .foregroundStyle(Self.color(display))
                             .accessibilityIdentifier("workflow-status-glyph")
                     }
-                    Text(model?.workflow?.name ?? WorkflowView.title)
+                    if model?.workflow != nil {
+                        // The name saves on commit or blur (`rename`).
+                        GlassTextField("Name", text: $nameDraft, bordered: false) {
+                            EmptyView()
+                        } trailing: {
+                            EmptyView()
+                        }
                         .font(.headline)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                        .focused($nameFocused)
+                        .onSubmit { model?.rename(nameDraft) }
+                        .accessibilityIdentifier("workflow-name-field")
+                    } else {
+                        Text(WorkflowView.title)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
                 }
             }
         }
@@ -82,7 +103,20 @@ struct WorkflowDetailView: View {
             }
             model?.observe()
         }
-        .onDisappear { model?.stop() }
+        .onChange(of: model?.workflow?.name, initial: true) { _, name in
+            // Seed once, then leave the field alone: a synced echo must never
+            // stomp what is being typed.
+            guard let name, !seededName else { return }
+            seededName = true
+            nameDraft = name
+        }
+        .onChange(of: nameFocused) { _, focused in
+            if !focused { model?.rename(nameDraft) }
+        }
+        .onDisappear {
+            model?.rename(nameDraft)
+            model?.stop()
+        }
         .noticeToast(
             Binding(get: { model?.error }, set: { model?.error = $0 }), isError: true
         )
@@ -130,6 +164,18 @@ struct WorkflowDetailView: View {
         } message: {
             Text(WorkflowView.skipNodeConfirm)
         }
+        .confirmationDialog(
+            WorkflowView.dismissNodeLabel,
+            isPresented: Binding(get: { dismissNodeId != nil }, set: { if !$0 { dismissNodeId = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button(WorkflowView.dismissNodeLabel, role: .destructive) {
+                if let id = dismissNodeId { model?.perform(.dismiss, on: id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The node is removed from the workflow.")
+        }
         .alert(WorkflowView.mergeFinalPrLabel, isPresented: $showMergeConfirm) {
             Button(WorkflowView.mergeFinalPrLabel) { model?.mergeFinalPr() }
             Button("Cancel", role: .cancel) {}
@@ -148,14 +194,22 @@ struct WorkflowDetailView: View {
             stepper(model)
             if let node = model.selectedNode {
                 // One node = that issue's Work screen, in place.
-                WorkScreen(subject: .issue(id: node.issueId))
-                    .id(node.id)
+                // It opens on the page's face and reports a switch back, so
+                // a step keeps the face (a face the node lacks falls back).
+                WorkScreen(
+                    subject: .issue(id: node.issueId),
+                    initialFace: WorkFaces.fallbackFace(shown: face, available: model.faces(for: node))
+                        ?? .issue,
+                    onFaceChange: { face = $0 }
+                )
+                .id(node.id)
             } else {
                 allFace(model)
             }
         }
         .onChange(of: availableFaces(model)) { _, faces in
-            if !faces.contains(face), let next = WorkFaces.fallbackFace(shown: face, available: faces) {
+            // `All`'s faces only: a picked node's screen falls back itself.
+            if model.selection.isAll, !faces.contains(face), let next = WorkFaces.fallbackFace(shown: face, available: faces) {
                 face = next
             }
         }
@@ -163,46 +217,62 @@ struct WorkflowDetailView: View {
 
     // MARK: - The open question
 
+    /// EVERY open question; the answer field only on the ones whose run is
+    /// mine (`isAnswerable`).
     @ViewBuilder
     private func questionBanner(_ model: WorkflowDetailModel) -> some View {
-        if let question = model.openQuestions.first {
-            let answerable = model.answerableQuestion?.sessionId == question.sessionId
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    SessionStateDot(tone: .needsInput)
-                    if let node = model.node(question.nodeId) {
-                        Text(model.identifier(of: node))
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-                }
-                Text(question.question)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if answerable {
-                    GlassTextField("Answer", text: $answerDraft, lines: 1...4) {
-                        EmptyView()
-                    } trailing: {
-                        Button {
-                            if model.answer(answerDraft) { answerDraft = "" }
-                        } label: {
-                            AppIcon(AppIcons.uiSend, size: AppIcon.Size.medium)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(answerDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityLabel("Send answer")
-                    }
-                    .accessibilityIdentifier("workflow-question-answer")
+        let questions = model.openQuestions
+        if !questions.isEmpty {
+            VStack(spacing: 8) {
+                ForEach(questions, id: \.sessionId) { question in
+                    questionCard(question, model: model)
                 }
             }
-            .padding(12)
-            .glassCard()
             .padding(.horizontal, 16)
             .padding(.top, 8)
-            .accessibilityIdentifier("workflow-question")
         }
+    }
+
+    private func questionCard(_ question: WorkflowOpenQuestion, model: WorkflowDetailModel) -> some View {
+        let draft = Binding(
+            get: { answerDrafts[question.sessionId] ?? "" },
+            set: { answerDrafts[question.sessionId] = $0 }
+        )
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                SessionStateDot(tone: .needsInput)
+                if let node = model.node(question.nodeId) {
+                    Text(model.identifier(of: node))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+            Text(question.question)
+                .font(.subheadline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if model.isAnswerable(question) {
+                GlassTextField("Answer", text: draft, lines: 1...4) {
+                    EmptyView()
+                } trailing: {
+                    Button {
+                        if model.answer(draft.wrappedValue, to: question.sessionId) {
+                            answerDrafts[question.sessionId] = nil
+                        }
+                    } label: {
+                        AppIcon(AppIcons.uiSend, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityLabel("Send answer")
+                }
+                .accessibilityIdentifier("workflow-question-answer")
+            }
+        }
+        .padding(12)
+        .glassCard()
+        .accessibilityIdentifier("workflow-question")
     }
 
     // MARK: - Header
@@ -262,7 +332,7 @@ struct WorkflowDetailView: View {
         case .pause:
             GlassPill(
                 WorkflowView.pauseLabel,
-                icon: AppIcons.uiStop,
+                icon: AppIcons.runPause,
                 size: .md,
                 mode: .action { model.pause() },
                 enabled: !model.busy
@@ -283,7 +353,11 @@ struct WorkflowDetailView: View {
                 WorkflowView.reviewFinalPrLabel,
                 icon: AppIcons.navReviews,
                 size: .md,
-                mode: .action { pushRoute(.reviews) },
+                // The final PR row (with Merge) lives on All × Changes.
+                mode: .action {
+                    model.selection.click(nil, in: model.order)
+                    face = .changes
+                },
                 primary: true
             )
             .accessibilityIdentifier("workflow-review-button")
@@ -395,7 +469,9 @@ struct WorkflowDetailView: View {
     private func allChip(_ model: WorkflowDetailModel) -> some View {
         GlassPill(
             WorkflowView.allNodesLabel,
-            mode: .select(isSelected: model.selection.isAll) { model.selection.select(nil) }
+            mode: .select(isSelected: model.selection.isAll) {
+                model.selection.click(nil, in: model.order)
+            }
         )
         .accessibilityIdentifier("workflow-chip-all")
     }
@@ -404,12 +480,13 @@ struct WorkflowDetailView: View {
     private func nodeChip(_ chip: NodeChip, model: WorkflowDetailModel) -> some View {
         let node = model.node(chip.id)
         let menu = node.map { WorkflowView.nodeChipMenu(state: $0.state) } ?? []
-        let dimmed = !model.selection.isAll && model.selection.nodeId != chip.id
+        let dimmed = !model.selection.isAll && !model.selection.ids.contains(chip.id)
         let chipView = chipFace(chip)
             .overlay(alignment: .topTrailing) { chipDots(chip) }
             .opacity(dimmed ? 0.55 : 1)
             .contentShape(Rectangle())
-            .onTapGesture { model.selection.toggle(chip.id) }
+            // A tap picks exactly this node; the picked chip stays picked.
+            .onTapGesture { model.selection.click(chip.id, in: model.order) }
             .popover(
                 isPresented: Binding(
                     get: { graphNodeId == chip.id },
@@ -423,7 +500,7 @@ struct WorkflowDetailView: View {
                         onOpenIssue: { issueId in
                             graphNodeId = nil
                             if let target = model.node(coveringIssue: issueId) {
-                                model.selection.select(target.id)
+                                model.selection.click(target.id, in: model.order)
                             }
                         }
                     )
@@ -439,6 +516,8 @@ struct WorkflowDetailView: View {
                     Button(role: action == .skip || action == .dismiss ? .destructive : nil) {
                         if action == .skip {
                             skipNodeId = chip.id
+                        } else if action == .dismiss {
+                            dismissNodeId = chip.id
                         } else {
                             model.perform(action, on: chip.id)
                         }
@@ -482,16 +561,6 @@ struct WorkflowDetailView: View {
         .offset(x: 3, y: -3)
     }
 
-    /// The workflow's status in the chip vocabulary (web `workflowStatusGlyph`).
-    static func display(status: String) -> WorkflowNodeDisplayState {
-        switch status {
-        case DomainContract.wfStatusRunning, DomainContract.wfStatusPaused: .running
-        case DomainContract.wfStatusDone: .done
-        case DomainContract.wfStatusCancelled: .skipped
-        default: .queued
-        }
-    }
-
     static func glyph(_ display: WorkflowNodeDisplayState) -> String {
         switch display {
         case .queued: AppIcons.uiQueued
@@ -526,7 +595,9 @@ struct WorkflowDetailView: View {
         WorkFaces.availableFaces(
             hasIssue: true,
             hasRun: !model.sessions.isEmpty,
-            hasChanges: model.workflow?.finalPrUrl?.isEmpty == false,
+            // Every node's changes live here, so the face exists before the
+            // final PR does.
+            hasChanges: true,
             hasResults: !model.resultGroups.isEmpty
         )
     }
@@ -573,7 +644,7 @@ struct WorkflowDetailView: View {
         case .run:
             barred(model) { runsFace(model) }
         case .changes:
-            barred(model, center: { mergeButton(model) }) { finalPrFace(model) }
+            barred(model, center: { mergeButton(model) }) { changesFace(model) }
         case .issue:
             barred(model) { issuesFace(model) }
         }
@@ -607,6 +678,7 @@ struct WorkflowDetailView: View {
                     issueRow(row.issue, model: model)
                         .treeGuides(guides[index])
                 }
+                decisions(model)
             }
             .padding(.vertical, 8)
         }
@@ -616,7 +688,9 @@ struct WorkflowDetailView: View {
     private func issueRow(_ issue: IssueEntity, model: WorkflowDetailModel) -> some View {
         let status = IssueStatus.from(issue.status)
         return Button {
-            if let node = model.node(coveringIssue: issue.id) { model.selection.select(node.id) }
+            if let node = model.node(coveringIssue: issue.id) {
+                model.selection.click(node.id, in: model.order)
+            }
         } label: {
             HStack(spacing: 10) {
                 AppIcon(status.iconName, size: AppIcon.Size.small)
@@ -710,43 +784,151 @@ struct WorkflowDetailView: View {
         }
     }
 
-    /// The ONE final pull request: its state, GitHub, and Merge in the bar.
-    private func finalPrFace(_ model: WorkflowDetailModel) -> some View {
+    /// The collapsed decisions log under the nested issues; empty = hidden.
+    @ViewBuilder
+    private func decisions(_ model: WorkflowDetailModel) -> some View {
+        let text = model.workflow?.decisions.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !text.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    decisionsOpen.toggle()
+                } label: {
+                    GlassSectionBand(WorkflowView.decisionsLabel) {
+                        AppIcon(
+                            decisionsOpen ? AppIcons.uiChevronDown : AppIcons.uiChevronRight,
+                            size: 12
+                        )
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    } trailing: {
+                        EmptyView()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("workflow-decisions")
+                if decisionsOpen {
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .accessibilityIdentifier("workflow-decisions-body")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+        }
+    }
+
+    /// All × Changes: EVERY node in scope keeps its row (chip + PR state) —
+    /// one with a PR or pushed branch opens its own Changes face in place,
+    /// one without reads `No changes yet` — then the final PR (Merge sits in
+    /// the bar).
+    private func changesFace(_ model: WorkflowDetailModel) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(model.orderedNodes, id: \.id) { node in
+                    nodeChangesRow(node, model: model)
+                }
+                if model.workflow?.finalPrUrl?.isEmpty == false {
+                    finalPrRow(model)
+                        .padding(.top, 12)
+                }
+            }
+            .padding(16)
+        }
+        .accessibilityIdentifier("workflow-changes")
+    }
+
+    private func nodeChangesRow(_ node: WorkflowNodeEntity, model: WorkflowDetailModel) -> some View {
+        let issue = model.issues[node.issueId]
+        let pushed = issue?.prUrl?.isEmpty == false || issue?.branch?.isEmpty == false
+        let display = WorkflowView.nodeDisplayState(node.state)
+        return Button {
+            guard pushed else { return }
+            model.selection.click(node.id, in: model.order)
+            face = .changes
+        } label: {
+            HStack(spacing: 10) {
+                IssueChip(
+                    identifier: WorkflowView.nodeTitle(
+                        identifier: model.identifier(of: node), memberCount: node.memberIssueIds.count
+                    ),
+                    title: issue?.title ?? WorkflowView.nodeUnsyncedTitle,
+                    iconName: Self.glyph(display),
+                    statusColor: Self.color(display)
+                )
+                Spacer(minLength: 8)
+                Text(Self.changesLabel(issue))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                if pushed {
+                    AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .flatRow()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!pushed)
+        .accessibilityIdentifier("workflow-changes-node")
+    }
+
+    /// A node's PR state (`#12 · Open`), its pushed branch, or nothing yet.
+    static func changesLabel(_ issue: IssueEntity?) -> String {
+        guard let issue else { return "No changes yet" }
+        if issue.prUrl?.isEmpty == false {
+            let state = switch issue.prState {
+            case DomainContract.prStateMerged: "Merged"
+            case DomainContract.prStateClosed: "Closed"
+            default: "Open"
+            }
+            return issue.prNumber.map { "#\($0) · \(state)" } ?? state
+        }
+        if let branch = issue.branch, !branch.isEmpty { return branch }
+        return "No changes yet"
+    }
+
+    /// The ONE final pull request: its state and GitHub.
+    private func finalPrRow(_ model: WorkflowDetailModel) -> some View {
         let workflow = model.workflow
         let caption = WorkflowView.finalPrCaption(
             states: model.nodes.map(\.state),
             finalPrState: workflow?.finalPrState,
             finalPrNumber: workflow?.finalPrNumber
         ) ?? workflow?.finalPrNumber.map { "#\($0)" } ?? ""
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(WorkflowView.finalPrTitle)
-                Button {
-                    if let url = workflow?.finalPrUrl.flatMap(URL.init(string:)) { openURL(url) }
-                } label: {
-                    HStack(spacing: 10) {
-                        AppIcon(
-                            workflow?.finalPrState == DomainContract.prStateMerged
-                                ? AppIcons.prMerged : AppIcons.prOpen,
-                            size: AppIcon.Size.small
-                        )
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        Text(caption)
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                        Spacer(minLength: 0)
-                        AppIcon(AppIcons.uiGithub, size: AppIcon.Size.small)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .flatRow()
-                    .contentShape(Rectangle())
+        return VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand(WorkflowView.finalPrTitle)
+            Button {
+                if let url = workflow?.finalPrUrl.flatMap(URL.init(string:)) { openURL(url) }
+            } label: {
+                HStack(spacing: 10) {
+                    AppIcon(
+                        workflow?.finalPrState == DomainContract.prStateMerged
+                            ? AppIcons.prMerged : AppIcons.prOpen,
+                        size: AppIcon.Size.small
+                    )
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Text(caption)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    AppIcon(AppIcons.uiGithub, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .flatRow()
+                .contentShape(Rectangle())
             }
-            .padding(16)
+            .buttonStyle(.plain)
+            .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
         }
         .accessibilityIdentifier("workflow-final-pr")
     }

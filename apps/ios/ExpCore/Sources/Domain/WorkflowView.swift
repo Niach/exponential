@@ -55,73 +55,6 @@ public enum WorkflowView {
         return "These issues block each other in a cycle: \(spelled). Remove one relation to start."
     }
 
-    private static let stateLabels: [String: String] = [
-        "proposed": "Proposed",
-        "blocked": "Blocked",
-        "ready": "Ready",
-        "running": "Running",
-        "waiting": "Waiting",
-        "in_review": "In review",
-        "updating": "Updating",
-        "landed": "Landed",
-        "failed": "Failed",
-        "skipped": "Skipped",
-    ]
-
-    private static let kindLabels: [String: String] = [
-        "contract": "Contract",
-        "leaf": "Leaf",
-        "integration": "Integration",
-    ]
-
-    public static func nodeStateLabel(_ state: String) -> String {
-        stateLabels[state] ?? state
-    }
-
-    public static func nodeKindLabel(_ kind: String) -> String {
-        kindLabels[kind] ?? kind
-    }
-
-    /// The tone a node's state paints in. `waiting` is the ONLY amber one (and
-    /// the only one that pushes): amber means "a person is needed".
-    public enum Tone: String, Sendable {
-        case muted
-        case active
-        case amber
-        case success
-        case danger
-    }
-
-    public static func nodeTone(_ state: String) -> Tone {
-        if state == "waiting" { return .amber }
-        if state == "failed" { return .danger }
-        if state == "landed" { return .success }
-        if state == "running" || state == "updating" || state == "in_review" { return .active }
-        return .muted
-    }
-
-    /// What a caption is derived from — the node's plan and its state.
-    public struct CaptionNode: Sendable, Equatable {
-        public let kind: String
-        public let state: String
-        public let risk: String
-
-        public init(kind: String, state: String, risk: String) {
-            self.kind = kind
-            self.state = state
-            self.risk = risk
-        }
-    }
-
-    /// The ONE caption beside a node — the bare STATE, nothing else (EXP-1014).
-    /// A draft has no state worth reading, so it says nothing at all: what the
-    /// plan declares (kind, risk) belongs to the node's own panel, never to a
-    /// sub-subtitle under every row.
-    public static func nodeCaption(_ node: CaptionNode, workflowStatus: String) -> String {
-        if workflowStatus == DomainContract.wfStatusDraft { return "" }
-        return nodeStateLabel(node.state)
-    }
-
     /// EXP-1029 — the model ONE node's run spawns on: the workflow's STRONG
     /// model for a `contract` or `integration` node and for any `risk: high`
     /// node, else its cheap one. Mirrors web `modelForNode`
@@ -268,7 +201,6 @@ public enum WorkflowView {
     public static let startLabel = "Start"
     public static let pauseLabel = "Pause"
     public static let resumeLabel = "Resume"
-    public static let cancelLabel = "Cancel workflow"
     public static let cancelConfirm =
         "Its live runs end and its branch is deleted. Nothing reached the default branch."
     public static let finalPrTitle = "Final pull request"
@@ -277,9 +209,6 @@ public enum WorkflowView {
     public static let mergeFinalPrLabel = "Merge"
     public static let mergeFinalPrConfirm =
         "The workflow's branch is squash-merged into the default branch and the run is done."
-    /// The strip over the graph that lists the runs that are up, one tap away.
-    public static let runningNowLabel = "Running now"
-
     /// What Start reads off the workflow row.
     public struct StartableWorkflow: Sendable, Equatable {
         public let status: String
@@ -392,42 +321,16 @@ public enum WorkflowView {
         return .plain
     }
 
-    /// The node panel's line once a node announced its contract.
-    public static let contractPublishedLabel = "Contract published"
-
-    /// The node panel's chip line over `after_node_ids`. Byte-identical ×4.
-    public static let mergesInFirstLabel = "Merges in first"
-
     // MARK: - Review gate, dynamic graphs (EXP-984)
 
     public static let admitNodeLabel = "Admit"
     public static let dismissNodeLabel = "Dismiss"
     public static let proposedNodeNote =
         "Filed during the run. Admit it into the workflow or dismiss it."
-    /// The node panel's read-only line: what THIS node's run spawns on
-    /// (`modelForNode`).
-    public static let nodeModelLabel = "Model"
     /// EXP-1014: the chip of a node whose issue row has not synced yet — the
     /// identifier slot shows the first 8 characters of the issue id, the title
     /// this line. Byte-identical ×4.
     public static let nodeUnsyncedTitle = "Not synced yet"
-
-    /// The node panel's one line about the latest agent review:
-    /// `Approved · round 1 · checks passed`, `Approved · round 1`,
-    /// `Changes requested · round 2 · checks failed`,
-    /// `Changes requested · round 2`.
-    /// `nodeApproved` = the node's `approvedAt` is set. EXP-1010: an approval
-    /// with no oracle CLEARS the node, so `advisory` shows only when it did not.
-    public static func reviewLine(_ review: WorkflowNodeReview, nodeApproved: Bool) -> String {
-        let approved = review.verdict == DomainContract.wfReviewVerdictApprove
-        var parts = [approved ? "Approved" : "Changes requested", "round \(review.round)"]
-        if let oracle = review.oracle {
-            parts.append(oracle.passed ? "checks passed" : "checks failed")
-        } else if approved && !nodeApproved {
-            parts.append("advisory")
-        }
-        return parts.joined(separator: " · ")
-    }
 }
 
 // MARK: - EXP-1082 workflow contract: display states, strip, header, actions
@@ -584,7 +487,8 @@ extension WorkflowView {
     /// a node), lanes top to bottom within a wave, ties by id. The edges are
     /// the mini-graph popover's business; the strip only orders. A compound
     /// node is `stacked` (the `IssueChipStack`); the caption is the node's
-    /// note while it has one, else its display label (fixture `nodeStrips`).
+    /// note while it has one, a `proposed` node's `proposedNodeNote`, else its
+    /// display label (fixture `nodeStrips`).
     public static func nodeStrip(nodes: [StripNodeInput], edges _: [(String, String)]) -> [StripWave] {
         let byWave = Dictionary(grouping: nodes, by: \.wave)
         return byWave.keys.sorted().map { wave in
@@ -597,7 +501,10 @@ extension WorkflowView {
                         id: node.id,
                         title: nodeTitle(identifier: node.identifier, memberCount: node.members),
                         display: display,
-                        caption: note.isEmpty ? display.label : note,
+                        caption: !note.isEmpty
+                            ? note
+                            : node.state == DomainContract.wfNodeStateProposed
+                            ? proposedNodeNote : display.label,
                         stacked: node.members > 0,
                         members: node.members,
                         live: node.live,
@@ -648,15 +555,33 @@ extension WorkflowView {
     }
 
     /// The header's ONE primary button: a draft without a runner picks one, a
-    /// draft starts, running pauses, paused resumes, done reviews the final
-    /// PR. Failed and cancelled offer nothing (fixture `primaryActions`).
-    public static func primaryAction(status: String, deviceLabel: String?) -> WorkflowPrimaryAction? {
+    /// draft starts; a started workflow whose final PR is OPEN reviews it,
+    /// else running pauses and paused resumes; done reviews the final PR.
+    /// Failed and cancelled offer nothing (fixture `primaryActions`).
+    public static func primaryAction(
+        status: String, deviceLabel: String?, finalPrState: String? = nil
+    ) -> WorkflowPrimaryAction? {
         switch status {
-        case DomainContract.wfStatusDraft: deviceLabel == nil ? .pickDevice : .start
-        case DomainContract.wfStatusRunning: .pause
-        case DomainContract.wfStatusPaused: .resume
-        case DomainContract.wfStatusDone: .reviewFinalPr
-        default: nil
+        case DomainContract.wfStatusDraft: return deviceLabel == nil ? .pickDevice : .start
+        case DomainContract.wfStatusRunning, DomainContract.wfStatusPaused:
+            if finalPrState == "open" { return .reviewFinalPr }
+            return status == DomainContract.wfStatusRunning ? .pause : .resume
+        case DomainContract.wfStatusDone: return .reviewFinalPr
+        default: return nil
+        }
+    }
+
+    /// The header's status glyph, as the node display state it reads like:
+    /// draft → queued, running/paused → running, done → done, failed →
+    /// failed, cancelled → skipped, anything newer → queued (fixture
+    /// `statusGlyphs`).
+    public static func statusGlyph(status: String) -> WorkflowNodeDisplayState {
+        switch status {
+        case DomainContract.wfStatusRunning, DomainContract.wfStatusPaused: .running
+        case DomainContract.wfStatusDone: .done
+        case "failed": .failed
+        case DomainContract.wfStatusCancelled: .skipped
+        default: .queued
         }
     }
 
