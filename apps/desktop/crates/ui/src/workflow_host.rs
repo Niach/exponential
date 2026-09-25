@@ -317,6 +317,29 @@ struct StartOrder {
     options: LaunchOptions,
     trpc: Arc<api::TrpcClient>,
     in_flight: Option<Arc<InFlight>>,
+    audit: LaunchAudit,
+}
+
+/// EXP-1082 — the audit line a FOREGROUND launch still owes. The pass records
+/// `Done` for a start/review decision once its order is QUEUED; whether the
+/// launch itself came up is only known where the order executes
+/// (`launch_node` / `launch_review`), which records it here: `Done` on a
+/// launch, `Failed(msg)` on a failed prepare/launch.
+#[derive(Clone)]
+struct LaunchAudit {
+    decision: Decision,
+    sink: TrpcEventSink,
+}
+
+impl LaunchAudit {
+    /// Off the foreground: the sink is a blocking tRPC call.
+    fn record(self, outcome: Outcome, executor: &gpui::BackgroundExecutor) {
+        let Some(event) = events::event_for(&self.decision, &outcome) else {
+            return;
+        };
+        let sink = self.sink;
+        executor.spawn(async move { sink.record(event) }).detach();
+    }
 }
 
 /// One node whose PR would not merge and whose run has ENDED: the resume
@@ -355,6 +378,7 @@ struct ReviewOrder {
     settings_path: PathBuf,
     device_id: String,
     in_flight: Option<Arc<InFlight>>,
+    audit: LaunchAudit,
 }
 
 /// What one pass hands back to the foreground.
@@ -375,8 +399,9 @@ fn snapshot_for(
         return None;
     }
     let auth = crate::session::AuthContext::global(cx);
-    let device_id = steer::persistent_device_id(&auth.data_dir);
-    let settings_path = coding::Settings::default_path(&auth.data_dir);
+    let data_dir = auth.data_dir.clone();
+    let device_id = steer::persistent_device_id(&data_dir);
+    let settings_path = coding::Settings::default_path(&data_dir);
     let trpc = Arc::new(queries::trpc_client(cx)?);
     let collections = sync::Store::try_global(cx)?.collections().clone();
     let hub = CodingHub::global(cx);
@@ -575,7 +600,7 @@ fn snapshot_for(
         passes.push(Pass {
             trpc: Arc::clone(&trpc),
             settings_path: settings_path.clone(),
-            data_dir: auth.data_dir.clone(),
+            data_dir: data_dir.clone(),
             auto_rotate_accounts: settings.auto_rotate_accounts,
             repos_root: repos_root.clone(),
             device_id: device_id.clone(),
@@ -886,7 +911,7 @@ fn run_pass(
                     attempt,
                     base_branch,
                     model,
-                    workflow_id: _,
+                    workflow_id: member_workflow_id,
                     role,
                     account,
                 } => {
@@ -944,14 +969,31 @@ fn run_pass(
                     }
                     // EXP-1082: the row names its workflow, node and role;
                     // EXP-1005's rotation may pick the account.
-                    options.workflow = Some(workflows::WorkflowMembership {
-                        workflow_id: workflow_id.clone(),
-                        node_id: node_id.clone(),
-                        role,
-                    });
-                    if let Some(account) = account.or_else(|| start_account(&pass, &options, snapshot.now_ms)) {
-                        options.account = Some(account);
+                    // EXP-1005: the pick reads the usage CACHE (no probe on
+                    // the background pass); a move off the launch account is
+                    // an `account_picked` event.
+                    let profiles = coding::agent_usage::profile_usage_snapshot(
+                        options.agent,
+                        &pass.data_dir,
+                    );
+                    if let Some(pick) = workflows::apply_engine_start(
+                        &mut options,
+                        workflows::WorkflowMembership {
+                            workflow_id: member_workflow_id.clone(),
+                            node_id: Some(node_id.clone()),
+                            role,
+                        },
+                        account,
+                        &profiles,
+                        pass.auto_rotate_accounts,
+                        snapshot.now_ms,
+                    ) {
+                        note_account_pick(&pass.trpc, &member_workflow_id, &node_id, pick);
                     }
+                    // EXP-1082: `Done` here = the order was QUEUED. The launch
+                    // itself runs on the foreground, and `launch_node` records
+                    // its own outcome (Done on a launch, Failed on a failed
+                    // prepare/launch) through the order's `audit`.
                     orders.starts.push(StartOrder {
                         workflow_id: workflow_id.clone(),
                         workflow_name: pass.name.clone(),
@@ -966,6 +1008,10 @@ fn run_pass(
                         options,
                         trpc: Arc::clone(&pass.trpc),
                         in_flight: Some(Arc::new(claim)),
+                        audit: LaunchAudit {
+                            decision: decided.clone(),
+                            sink: sink.clone(),
+                        },
                     });
                 }
                 Decision::LandNode { node_id } => {
@@ -998,7 +1044,7 @@ fn run_pass(
                     if let Some(engine) = pass.engines.get(&session_id) {
                         engine.steer(text);
                         delivered();
-                        break 'decision Outcome::Skipped;
+                        break 'decision Outcome::Done;
                     }
                     if pass.session_is_local.contains(&session_id) {
                         break 'decision Outcome::Skipped; // a live run this app hosts but cannot reach
@@ -1017,19 +1063,25 @@ fn run_pass(
                     node_id,
                     model,
                     adversarial,
-                    workflow_id: _,
+                    workflow_id: member_workflow_id,
                     role,
                     account,
                 } => {
+                    let audit = LaunchAudit {
+                        decision: decided.clone(),
+                        sink: sink.clone(),
+                    };
                     let Some(order) = review_order(
                         &pass,
                         &snapshot,
                         &node_id,
                         model,
                         adversarial,
+                        member_workflow_id,
                         role,
                         account,
                         in_flight,
+                        audit,
                     ) else {
                         break 'decision Outcome::Skipped;
                     };
@@ -1041,6 +1093,8 @@ fn run_pass(
                             state.reviewed_head.insert(node_id.clone(), sha.clone());
                         });
                     }
+                    // EXP-1082: `Done` = the order was QUEUED; `launch_review`
+                    // records the launch's own outcome through its `audit`.
                     orders.reviews.push(order);
                 }
                 // EXP-984: the review asked for changes — its findings go to the
@@ -1102,10 +1156,11 @@ fn run_pass(
                     key,
                     text,
                 } => {
-                    if let Some(engine) = pass.engines.get(&session_id) {
-                        engine.steer(text);
-                        remember_nudge(&pass, &workflow_id, &session_id, &key);
-                    }
+                    let Some(engine) = pass.engines.get(&session_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    engine.steer(text);
+                    remember_nudge(&pass, &workflow_id, &session_id, &key);
                 }
                 Decision::OpenFinalPr => {
                     let Some(claim) = InFlight::claim(final_pr_in_flight, &workflow_id) else {
@@ -1121,9 +1176,10 @@ fn run_pass(
                     drop(claim);
                 }
                 Decision::KillSession { session_id } => {
-                    if let Some(engine) = pass.engines.get(&session_id) {
-                        engine.kill("ended");
-                    }
+                    let Some(engine) = pass.engines.get(&session_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    engine.kill("ended");
                 }
                 Decision::DeleteIntegrationBranch => {
                     if already_deleted(&pass, &workflow_id) {
@@ -1244,9 +1300,11 @@ fn review_order(
     node_id: &str,
     model: Option<String>,
     adversarial: bool,
+    member_workflow_id: String,
     role: workflows::WfSessionRole,
     account: Option<String>,
     in_flight: &Arc<Mutex<HashSet<String>>>,
+    audit: LaunchAudit,
 ) -> Option<ReviewOrder> {
     let node = snapshot.nodes.iter().find(|node| node.id == node_id)?;
     let identifier = snapshot.identifier.get(node_id)?.clone();
@@ -1267,13 +1325,20 @@ fn review_order(
         options.model = model;
     }
     // EXP-1082: the reviewer's row names its workflow node.
-    options.workflow = Some(workflows::WorkflowMembership {
-        workflow_id: snapshot.workflow.id.clone(),
-        node_id: node_id.to_string(),
-        role,
-    });
-    if let Some(account) = account.or_else(|| start_account(pass, &options, snapshot.now_ms)) {
-        options.account = Some(account);
+    let profiles = coding::agent_usage::profile_usage_snapshot(options.agent, &pass.data_dir);
+    if let Some(pick) = workflows::apply_engine_start(
+        &mut options,
+        workflows::WorkflowMembership {
+            workflow_id: member_workflow_id.clone(),
+            node_id: Some(node_id.to_string()),
+            role,
+        },
+        account,
+        &profiles,
+        pass.auto_rotate_accounts,
+        snapshot.now_ms,
+    ) {
+        note_account_pick(&pass.trpc, &member_workflow_id, node_id, pick);
     }
     Some(ReviewOrder {
         workflow_id: snapshot.workflow.id.clone(),
@@ -1293,42 +1358,31 @@ fn review_order(
         settings_path: pass.settings_path.clone(),
         device_id: pass.device_id.clone(),
         in_flight: Some(Arc::new(claim)),
+        audit,
     })
 }
 
-/// EXP-1082 — the account-rotation seam before every ENGINE start: the
-/// profile with the most headroom, or `None` (the workflow's own launch
-/// account stands). EXP-1005: read off the usage CACHE
-/// (`agent_usage::profile_usage_snapshot`, no probe — this runs on the
-/// background pass), gated by `Settings.auto_rotate_accounts`; a pick that
-/// moves the run off its launch account is recorded as an `account_picked`
-/// workflow event.
-fn start_account(pass: &Pass, options: &LaunchOptions, now_ms: i64) -> Option<String> {
-    let profiles = coding::agent_usage::profile_usage_snapshot(options.agent, &pass.data_dir);
-    let pick = coding::account_rotation::start_pick(
-        &profiles,
-        pass.auto_rotate_accounts,
-        options.agent,
-        Some(options.model.as_str()).filter(|model| !model.is_empty()),
-        options.account.as_deref(),
-        now_ms,
-    )?;
+/// EXP-1005 — an engine start moved off its launch account: say so in the
+/// workflow's event trail (`account_picked`), beside the log line.
+fn note_account_pick(
+    trpc: &Arc<api::TrpcClient>,
+    workflow_id: &str,
+    node_id: &str,
+    pick: coding::account_rotation::StartPick,
+) {
     log::info!(
-        "[workflows] start pick: {} → {} ({})",
+        "[workflows] {workflow_id} node {node_id}: {} ({} → {})",
+        pick.message,
         pick.from,
-        pick.to,
-        pick.message
+        pick.to
     );
-    if let Some(membership) = options.workflow.as_ref() {
-        TrpcEventSink::new(Arc::clone(&pass.trpc)).record(api::workflows::WorkflowEvent {
-            workflow_id: membership.workflow_id.clone(),
-            node_id: Some(membership.node_id.clone()),
-            session_id: None,
-            kind: "account_picked".to_string(),
-            message: pick.message.clone(),
-        });
-    }
-    Some(pick.to)
+    TrpcEventSink::new(Arc::clone(trpc)).record(api::workflows::WorkflowEvent {
+        workflow_id: workflow_id.to_string(),
+        node_id: Some(node_id.to_string()),
+        session_id: None,
+        kind: "account_picked".to_string(),
+        message: pick.message,
+    });
 }
 
 fn ensure_branch(
@@ -1408,6 +1462,7 @@ fn build_base(
             true
         }
         Ok(workflows::BaseOutcome::Conflict { left, right }) => {
+            // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
             let mut report = api::workflows::NodeReport::new(node_id, "waiting");
             report.note = api::patch::Patch::Set(one_line(&conflicting_blockers_note(
                 pass, &left, &right,
@@ -1419,6 +1474,7 @@ fn build_base(
             // Visible on the node, like a conflict: a `ready` node whose
             // base never comes up would otherwise sit there without a word.
             log::warn!("[workflows] {workflow_id}: base {base_branch} — {err}");
+            // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
             let mut report = api::workflows::NodeReport::new(node_id, "waiting");
             report.note = api::patch::Patch::Set(one_line(&format!(
                 "Its base {base_branch} could not be built: {err}"
@@ -1759,6 +1815,7 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         options,
         trpc,
         in_flight,
+        audit,
     } = order;
     let run = coding::WorkflowRun {
         workflow_id: workflow_id.clone(),
@@ -1783,14 +1840,19 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         ),
     };
     let Some((request, deps, subject)) = prepared else {
-        fail_node_async(&trpc, &node_id, "The run could not be prepared on this machine", cx);
+        let reason = "The run could not be prepared on this machine";
+        audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
+        fail_node_async(&trpc, &node_id, reason, cx);
         return;
     };
     let Some(window) = crate::steer_wiring::find_team_window(cx) else {
-        fail_node_async(&trpc, &node_id, "No Exponential window is open on the runner", cx);
+        let reason = "No Exponential window is open on the runner";
+        audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
+        fail_node_async(&trpc, &node_id, reason, cx);
         return;
     };
     let node = node_id.clone();
+    let audit_for_lost_window = audit.clone();
     cx.spawn(async move |cx| {
         let mut hold = in_flight;
         let prepared = cx
@@ -1812,6 +1874,7 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                 };
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
+                        audit.record(Outcome::Done, cx.background_executor());
                         let trpc = Arc::clone(&trpc);
                         let node = node.clone();
                         // The in-flight claim rides along until the node
@@ -1828,15 +1891,30 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                             })
                             .detach();
                     }
-                    Err(err) => fail_node_async(&trpc, &node, &err, cx),
+                    Err(err) => {
+                        audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
+                        fail_node_async(&trpc, &node, &err, cx)
+                    }
                 }
             }
             Ok(coding::Prepared::Disabled(reason)) => {
-                fail_node_async(&trpc, &node, &reason.message(), cx)
+                let reason = reason.message();
+                audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
+                fail_node_async(&trpc, &node, &reason, cx)
             }
-            Err(err) => fail_node_async(&trpc, &node, &err.to_string(), cx),
+            Err(err) => {
+                let reason = err.to_string();
+                audit.record(Outcome::Failed(reason.clone()), cx.background_executor());
+                fail_node_async(&trpc, &node, &reason, cx)
+            }
         });
         if updated.is_err() {
+            audit_for_lost_window.record(
+                Outcome::Failed(
+                    "The Exponential window closed before the run could start".to_string(),
+                ),
+                cx.background_executor(),
+            );
             cx.background_executor()
                 .spawn(async move {
                     fail_node(
@@ -1859,10 +1937,17 @@ fn launch_node(order: StartOrder, cx: &mut App) {
 fn launch_review(order: ReviewOrder, cx: &mut App) {
     let Some(deps) = coding_flow::build_action_deps(cx) else {
         log::warn!("[workflows] review of {}: not signed in", order.node_id);
+        order
+            .audit
+            .record(Outcome::Failed("not signed in".to_string()), cx.background_executor());
         return;
     };
     let Some(window) = crate::steer_wiring::find_team_window(cx) else {
         log::warn!("[workflows] review of {}: no window open", order.node_id);
+        order.audit.record(
+            Outcome::Failed("no Exponential window is open on the runner".to_string()),
+            cx.background_executor(),
+        );
         return;
     };
     let ReviewOrder {
@@ -1880,6 +1965,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
         settings_path,
         device_id,
         in_flight,
+        audit,
     } = order;
     let request = coding::PrepareRequest::Action(coding::ActionLaunchRequest {
         action_id: domain::contract::BUILTIN_REVIEW_NODE_ID.to_string(),
@@ -1922,21 +2008,26 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
             .background_executor()
             .spawn(async move { coding::prepare(&request, &deps) })
             .await;
-        let _ = window.update(cx, |_, window, cx| match prepared {
+        let audit_for_lost_window = audit.clone();
+        let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
                 let subject = SessionSubject::Action(session_id.clone());
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
-                    Ok(()) => remember_review_run(
-                        &settings_path,
-                        &device_id,
-                        &workflow_id,
-                        &node_id,
-                        &session_id,
-                        round_at_launch,
-                    ),
+                    Ok(()) => {
+                        audit.record(Outcome::Done, cx.background_executor());
+                        remember_review_run(
+                            &settings_path,
+                            &device_id,
+                            &workflow_id,
+                            &node_id,
+                            &session_id,
+                            round_at_launch,
+                        )
+                    }
                     Err(err) => {
                         log::warn!("[workflows] review of {node_id} — {err}");
+                        audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
                         forget_reviewed_head(
                             &failed_settings,
                             &failed_device,
@@ -1948,6 +2039,10 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
             }
             Ok(coding::Prepared::Disabled(reason)) => {
                 log::warn!("[workflows] review of {node_id} — {}", reason.message());
+                audit.record(
+                    Outcome::Failed(reason.message().to_string()),
+                    cx.background_executor(),
+                );
                 forget_reviewed_head(
                     &failed_settings,
                     &failed_device,
@@ -1957,6 +2052,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
             }
             Err(err) => {
                 log::warn!("[workflows] review of {node_id} — {err}");
+                audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
                 forget_reviewed_head(
                     &failed_settings,
                     &failed_device,
@@ -1965,6 +2061,14 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                 );
             }
         });
+        if updated.is_err() {
+            audit_for_lost_window.record(
+                Outcome::Failed(
+                    "The Exponential window closed before the review could start".to_string(),
+                ),
+                cx.background_executor(),
+            );
+        }
         drop(hold);
     })
     .detach();

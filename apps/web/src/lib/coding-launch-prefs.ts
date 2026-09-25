@@ -89,6 +89,8 @@ export interface AgentLaunchDefaults {
   effort?: string
   ultracode?: boolean
   planMode?: boolean
+  /** EXP-1005: claude only; absent = ON. */
+  autoRotateAccounts?: boolean
 }
 
 /** The model values pickable for `agent` (EXP-201). Blank ("CLI default") is
@@ -125,6 +127,12 @@ export function agentSupportsUltracode(agent: string): boolean {
 }
 
 export function agentSupportsPlanMode(agent: string): boolean {
+  return agent === `claude`
+}
+
+/** EXP-1005: auto-rotating accounts is a claude-only device setting (codex
+ * keeps one login per session by contract). */
+export function agentSupportsAccountRotation(agent: string): boolean {
   return agent === `claude`
 }
 

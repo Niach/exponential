@@ -61,7 +61,9 @@ import { deviceCollection, teamCollection } from "@/lib/collections"
 import {
   agentModelValues,
   agentSeed,
+  agentSupportsAccountRotation,
   agentSupportsPlanMode,
+  type AgentLaunchDefaults,
   agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
@@ -113,6 +115,22 @@ interface AgentDraft {
   effort: string
   ultracode: boolean
   planMode: boolean
+  /** EXP-1005: claude only; absent on the row = ON (the device default). */
+  autoRotateAccounts: boolean
+}
+
+/** The dialog's draft for `agent`: the launch seed plus the device-only
+ * toggles the launch composer never shows. */
+function draftSeed(
+  agent: string,
+  defaults: AgentLaunchDefaults | null | undefined
+): AgentDraft {
+  return {
+    ...agentSeed(agent, defaults ?? null),
+    autoRotateAccounts:
+      agentSupportsAccountRotation(agent) &&
+      (defaults?.autoRotateAccounts ?? true),
+  }
 }
 
 /** One queued/in-flight command the dialog is watching. `key` anchors the
@@ -271,7 +289,7 @@ export function DeviceSettingsDialog({
   const seedDefaultsFrom = (source: Device, agents: string[]) => {
     const seeded: Record<string, AgentDraft> = {}
     for (const agent of agents) {
-      seeded[agent] = agentSeed(
+      seeded[agent] = draftSeed(
         agent,
         source.launchDefaults?.agents?.[agent] ?? null
       )
@@ -369,7 +387,7 @@ export function DeviceSettingsDialog({
       })
   }
 
-  const draft = drafts[agentTab] ?? agentSeed(agentTab, null)
+  const draft = drafts[agentTab] ?? draftSeed(agentTab, null)
 
   // ── Section busy/error state ─────────────────────────────────────────────
   const [busySection, setBusySection] = useState<string | null>(null)
@@ -493,6 +511,7 @@ export function DeviceSettingsDialog({
         effort?: string
         ultracode?: boolean
         planMode?: boolean
+        autoRotateAccounts?: boolean
       }
     > = {}
     for (const [agent, value] of Object.entries(snapshot.drafts)) {
@@ -505,6 +524,11 @@ export function DeviceSettingsDialog({
         effort: value.effort,
         ...(agentSupportsUltracode(agent) ? { ultracode: value.ultracode } : {}),
         ...(agentSupportsPlanMode(agent) ? { planMode: value.planMode } : {}),
+        // EXP-1005: claude only — the server keeps the stored value when
+        // the key is absent.
+        ...(agentSupportsAccountRotation(agent)
+          ? { autoRotateAccounts: value.autoRotateAccounts }
+          : {}),
       }
     }
     setSavingDefaults(true)
@@ -573,7 +597,7 @@ export function DeviceSettingsDialog({
     setDrafts((current) => ({
       ...current,
       [agentTab]: {
-        ...(current[agentTab] ?? agentSeed(agentTab, null)),
+        ...(current[agentTab] ?? draftSeed(agentTab, null)),
         ...patch,
       },
     }))
@@ -937,6 +961,10 @@ export function DeviceSettingsDialog({
               onUltracodeChange={(value) => patchDraft({ ultracode: value })}
               planMode={draft.planMode}
               onPlanModeChange={(value) => patchDraft({ planMode: value })}
+              autoRotateAccounts={draft.autoRotateAccounts}
+              onAutoRotateAccountsChange={(value) =>
+                patchDraft({ autoRotateAccounts: value })
+              }
               /* EXP-1020: the LAST ROW of the agent card, not a card of its
                  own — the model pair a workflow started on this machine is
                  seeded from. Shown whichever agent is selected (it hangs off

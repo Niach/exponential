@@ -595,22 +595,32 @@ export const steerRouter = router({
         agentStarted.startedReason = `agent`
       }
 
-      // EXP-1082 §1: the membership the frame carries, verbatim (a Plan
-      // workflow start is that draft's `plan` run unless the caller says
-      // otherwise). Absent keys stay off the wire.
+      // EXP-1082 §1: only the workflow HOST may name a membership — a RUN
+      // (`ctx.viaMcp`; the MCP tool has already checked the calling run
+      // belongs to that workflow), never a browser or a phone: the device
+      // executes every start under its owner's login, so the runner-device
+      // gate in `codingSessions.start` alone would let any member brand a
+      // row. A person's keys are IGNORED, never refused. The Plan builtin's
+      // `plan` role is the server's own derivation and always rides. Absent
+      // keys stay off the wire.
+      const hostNamed = ctx.viaMcp === true
       const membershipFrame: {
         workflowId?: string
         workflowNodeId?: string
         workflowRole?: string
-      } = {
-        ...(input.workflowId ? { workflowId: input.workflowId } : {}),
-        ...(input.workflowNodeId ? { workflowNodeId: input.workflowNodeId } : {}),
-        ...(input.workflowRole
-          ? { workflowRole: input.workflowRole }
-          : input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID
-            ? { workflowRole: `plan` }
-            : {}),
-      }
+      } = hostNamed
+        ? {
+            ...(input.workflowId ? { workflowId: input.workflowId } : {}),
+            ...(input.workflowNodeId ? { workflowNodeId: input.workflowNodeId } : {}),
+            ...(input.workflowRole
+              ? { workflowRole: input.workflowRole }
+              : input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID
+                ? { workflowRole: `plan` }
+                : {}),
+          }
+        : input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID
+          ? { workflowId: input.workflowId, workflowRole: `plan` }
+          : {}
 
       // EXP-485: the persisted devices row (written by devices.register at
       // every daemon/control-channel start) is the ONLY source of a
@@ -1116,8 +1126,11 @@ export const steerRouter = router({
         }
         // EXP-981: the planner's prompt NAMES its workflow on the first line;
         // the server writes that line, so the id is one it has just checked.
+        // EXP-1082: a MEMBERSHIP workflowId on any other action start (a
+        // review-node run, a team action started from inside a workflow
+        // run) is not a plan and must never become one.
         let promptText = input.prompt
-        if (input.workflowId) {
+        if (input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID) {
           const [workflow] = await db
             .select({ teamId: workflows.teamId, status: workflows.status })
             .from(workflows)
@@ -1270,7 +1283,11 @@ export const steerRouter = router({
         requireStartPromptCap(device, prompt)
         // An older build has no Plan-workflow kind: it would fall through to
         // the Create-action prompt and author an ACTION instead.
-        if (input.workflowId && !device.caps.includes(PLAN_WORKFLOW_CAP)) {
+        if (
+          input.workflowId &&
+          input.actionId === BUILTIN_PLAN_WORKFLOW_ID &&
+          !device.caps.includes(PLAN_WORKFLOW_CAP)
+        ) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `That machine runs an older Exponential app that cannot plan workflows. Update it first.`,

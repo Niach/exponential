@@ -2554,9 +2554,18 @@ describe(`steer.startSession — workflow membership (EXP-1082)`, () => {
   const WF = `77777777-7777-4777-8777-777777777777`
   const NODE = `88888888-8888-4888-8888-888888888888`
 
-  it(`forwards workflowId, workflowNodeId and workflowRole on the frame`, async () => {
+  // Only a RUN (an MCP caller) is ever the workflow host; a browser or
+  // phone caller's keys are ignored, never refused.
+  const hostCaller = steerRouter.createCaller({
+    session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
+    db: ctxDb,
+    request: new Request(`http://localhost/`),
+    viaMcp: true,
+  } as never)
+
+  it(`forwards workflowId, workflowNodeId and workflowRole on the frame for a run`, async () => {
     queueOwnDevice()
-    await caller.startSession({
+    await hostCaller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
       workflowId: WF,
@@ -2568,6 +2577,44 @@ describe(`steer.startSession — workflow membership (EXP-1082)`, () => {
       workflowNodeId: NODE,
       workflowRole: `author`,
     })
+  })
+
+  it(`drops a person's membership keys from the frame`, async () => {
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    })
+    const body = lastStartBody()
+    expect(`workflowId` in body).toBe(false)
+    expect(`workflowNodeId` in body).toBe(false)
+    expect(`workflowRole` in body).toBe(false)
+  })
+
+  it(`carries a membership on an ordinary action start without treating it as a plan`, async () => {
+    queueAction({ name: `Code review` })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `start-prompt`] })
+    await hostCaller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      prompt: `Look at the diff`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    const body = lastStartBody()
+    expect(body).toMatchObject({
+      actionId: ACTION_ID,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    // The caller's prompt survives: no planner prompt, no workflows read.
+    expect(body.prompt).toBe(`Look at the diff`)
+    expect(h.dbQueue).toEqual([])
   })
 
   it(`keeps the keys off the wire when absent`, async () => {

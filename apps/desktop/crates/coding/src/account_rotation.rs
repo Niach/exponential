@@ -28,6 +28,10 @@
 //! whole thing off. The hop is SAID in the run ([`switch_prompt`]) and, for
 //! a workflow run, in the workflow's event trail ([`switch_event_message`],
 //! [`waiting_event_message`]).
+//!
+//! A START pick only: a resume (merge-upstream, review findings, a refused
+//! land, a conflict relaunch) keeps its RECORDED account (EXP-906) and never
+//! re-picks; moving a run that hit a wall is the mid-run switch above.
 
 use std::collections::BTreeMap;
 

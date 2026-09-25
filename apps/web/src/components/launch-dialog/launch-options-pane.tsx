@@ -10,6 +10,7 @@ import {
   agentAllowsBlankModel,
   agentEffortValues,
   agentModelValues,
+  agentSupportsAccountRotation,
   agentSupportsPlanMode,
   agentSupportsSubagentModel,
   agentSupportsUltracode,
@@ -85,6 +86,11 @@ interface LaunchToggleProps {
    * never re-enters plan mode (mirrors the desktop dialog). */
   planModeHidden?: boolean
   resumeRow?: ResumeRowProps | null
+  /** EXP-1005: the device-settings toggle only — absent in the launch
+   * composer, which never shows it. Start every run on the login with the
+   * most headroom and move a rate-limited run to another one between turns. */
+  autoRotateAccounts?: boolean
+  onAutoRotateAccountsChange?: (value: boolean) => void
 }
 
 type AgentOptionsFieldsProps = {
@@ -281,6 +287,17 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           onCheckedChange={toggles.onPlanModeChange}
         />
       )}
+      {toggles &&
+        agentSupportsAccountRotation(agent) &&
+        toggles.autoRotateAccounts !== undefined &&
+        toggles.onAutoRotateAccountsChange && (
+          <GlassToggleRow
+            id={`${idPrefix}-auto-rotate-accounts`}
+            label="Auto-rotate accounts"
+            checked={toggles.autoRotateAccounts}
+            onCheckedChange={toggles.onAutoRotateAccountsChange}
+          />
+        )}
       {trailing}
     </GlassGroup>
   )
