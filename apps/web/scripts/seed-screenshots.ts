@@ -43,6 +43,7 @@ import {
   issueDrafts,
   issueEvents,
   issueLabels,
+  issueRelations,
   issues,
   issueStatuses,
   issueSubscribers,
@@ -58,6 +59,8 @@ import {
   teamMembers,
   teams,
   widgetConfigs,
+  workflowNodes,
+  workflows,
 } from "@/db/schema"
 import { auth } from "@/lib/auth"
 import {
@@ -65,6 +68,11 @@ import {
   buildAttachmentUrl,
 } from "@/lib/storage/issue-attachments"
 import { generateWidgetKey } from "@/lib/widget/key"
+import {
+  launchFromDeviceDefaults,
+  storedLaunchFor,
+} from "@/lib/trpc/workflows/shared"
+import { replanWorkflow, workflowIntegrationBranch } from "@/lib/workflows"
 import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
 import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
 import { parseFreezeNow } from "./lib/freeze-now"
@@ -87,6 +95,7 @@ import {
   DEMO_SESSION_IDS,
   DEMO_TIMEZONE,
   DEMO_USER_ID,
+  DEMO_WORKFLOW,
   EMPTY_BOARD_SLUG,
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
@@ -775,6 +784,47 @@ async function main() {
     })
     .returning()
   inserted.push(duplicate)
+
+  // EXP-986: one DRAFT workflow for the `workflows-list` view, which otherwise
+  // photographs the empty state. Written the way `workflows.create` writes it
+  // (contract launch defaults, no runner, layout from `replanWorkflow`), plus
+  // the one `blocks` edge that gives the graph a second wave. The relation
+  // also puts a blocks rail/badge on two board rows, on purpose: every board
+  // view shows it now.
+  const byTitle = (title: string) => {
+    const row = inserted.find((issue) => issue.title === title)
+    if (!row) throw new Error(`seed has no issue titled "${title}"`)
+    return row
+  }
+  const [blocker, blocked] = DEMO_WORKFLOW.blocks.map(byTitle)
+  await db.insert(issueRelations).values({
+    issueId: blocker.id,
+    relatedIssueId: blocked.id,
+    type: `blocks`,
+    teamId: ws.id,
+    boardId: board.id,
+    createdAt: daysAgo(6),
+  })
+  await db.transaction(async (tx) => {
+    await tx.insert(workflows).values({
+      id: DEMO_WORKFLOW.id,
+      teamId: ws.id,
+      repositoryId: repo.id,
+      creatorId: demoId,
+      name: DEMO_WORKFLOW.name,
+      launch: storedLaunchFor(launchFromDeviceDefaults(null)),
+      integrationBranch: workflowIntegrationBranch(DEMO_WORKFLOW.id),
+      createdAt: daysAgo(1),
+    })
+    await tx.insert(workflowNodes).values(
+      DEMO_WORKFLOW.nodes.map((title) => ({
+        workflowId: DEMO_WORKFLOW.id,
+        teamId: ws.id,
+        issueId: byTitle(title).id,
+      }))
+    )
+    await replanWorkflow(tx, DEMO_WORKFLOW.id)
+  })
 
   // Showcase issue APP-5: comments + activity + subscribers for the
   // issue-detail and comments screenshots. The offsets are pinned rather than

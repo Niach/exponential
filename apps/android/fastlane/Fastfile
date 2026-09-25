@@ -146,6 +146,46 @@ platform :android do
     UI.important("Pop-rect sidecar merge skipped: #{e.message}")
   end
 
+  # EXP-986: SystemUI demo mode, the store lane's own copy of what `bun run
+  # shots` (packages/shots capture-all.ts `enableAndroidDemoMode`) does around
+  # it: the status bar is the DEVICE's, so without it the emulator's real clock
+  # and a no-internet triangle land in every raw. Pinned like iOS's Snapfile
+  # `override_status_bar`: 9:41, full battery, full signal, no notification
+  # icons. Best effort both ways; a capture never fails over the status bar.
+  STATUS_BAR_CLOCK = "0941".freeze
+
+  def demo_broadcast(*args)
+    sh("adb shell am broadcast -a com.android.systemui.demo -e #{args.shelljoin}", log: false)
+  end
+
+  def with_pinned_status_bar
+    entered = false
+    begin
+      sh("adb shell settings put global sysui_demo_allowed 1", log: false)
+      # One broadcast per command, `enter` first or the rest are dropped.
+      demo_broadcast("command", "enter")
+      demo_broadcast("command", "clock", "-e", "hhmm", STATUS_BAR_CLOCK)
+      demo_broadcast("command", "notifications", "-e", "visible", "false")
+      demo_broadcast("command", "network", "-e", "wifi", "show", "-e", "level", "4")
+      demo_broadcast("command", "network", "-e", "mobile", "show", "-e", "datatype", "none",
+                     "-e", "level", "4")
+      demo_broadcast("command", "battery", "-e", "level", "100", "-e", "plugged", "false")
+      entered = true
+      UI.message("Status bar pinned to #{STATUS_BAR_CLOCK[0, 2]}:#{STATUS_BAR_CLOCK[2, 2]} for the run")
+    rescue StandardError => e
+      UI.important("Could not enter SystemUI demo mode, the status bar stays the device's: #{e.message}")
+    end
+    yield
+  ensure
+    if entered
+      begin
+        demo_broadcast("command", "exit")
+      rescue StandardError
+        UI.important("Could not leave demo mode: adb shell am broadcast -a com.android.systemui.demo -e command exit")
+      end
+    end
+  end
+
   # screengrab ALWAYS auto-loads `fastlane/Screengrabfile` — the filename is
   # hardcoded in Screengrab.screengrabfile_name and there is no config-path
   # option or env var to point it elsewhere. To run a second suite we evaluate
@@ -174,10 +214,12 @@ platform :android do
     # Everything else (APK paths, package name, locales, output dir) comes from
     # fastlane/Screengrabfile.
     launch_arguments = screenshot_launch_arguments(options)
-    if launch_arguments
-      screengrab(launch_arguments: launch_arguments)
-    else
-      screengrab
+    with_pinned_status_bar do
+      if launch_arguments
+        screengrab(launch_arguments: launch_arguments)
+      else
+        screengrab
+      end
     end
 
     # Pop-out rect sidecars land beside the raw PNGs screengrab just wrote.
@@ -201,7 +243,7 @@ platform :android do
     config = screengrab_options_from("Screengrabfile-styleguide")
     launch_arguments = screenshot_launch_arguments(options)
     config[:launch_arguments] = launch_arguments if launch_arguments
-    screengrab(config)
+    with_pinned_status_bar { screengrab(config) }
   end
 
   # Release notes are en-US only: changelogs/<vc>.txt lives under en-US and Play

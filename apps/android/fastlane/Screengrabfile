@@ -25,6 +25,9 @@
 #      SCREENGRAB_INSTANCE_URL names a non-local backend.
 #   3. An English-locale phone emulator booted (only one device attached).
 #   4. Both APKs built: bundle exec fastlane screenshots does this for you.
+#   The lane pins the status bar itself (SystemUI demo mode, 9:41, full
+#   battery and signal; Fastfile `with_pinned_status_bar`, EXP-986), so a bare
+#   `fastlane screenshots` matches iOS's Snapfile override.
 #
 # Output lands in fastlane/screenshots-raw/en-US/images/phoneScreenshots/
 # (1_board.png … 8_support.png) — RAW device captures, not the Play upload set.

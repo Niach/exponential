@@ -678,6 +678,10 @@ struct ActionsListView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .flatRow()
+        // EXP-986: a container of its own, or SwiftUI hands the identifier to
+        // every child and the store lane's pop rect (PopRects.swift, first
+        // match) measured the icon instead of the row.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("action-row")
     }
 }
