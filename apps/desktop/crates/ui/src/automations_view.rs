@@ -173,8 +173,8 @@ impl AutomationsDerived {
                 let mut listed: Vec<&domain::rows::CodingSession> = runs.iter().collect();
                 listed.truncate(RECENT_RUNS_CAP);
                 let inputs = crate::queries::session_tree_inputs(cx, &listed);
-                crate::sessions_section::flatten_session_tree(listed, inputs, |session| {
-                    run_rows::RunListFacts::derive(session, now, cx)
+                crate::sessions_section::flatten_session_tree(listed, inputs, |node| {
+                    run_rows::RunListFacts::derive(node.session(), now, cx)
                 })
                 .into_iter()
                 .map(|row| RecentRun {
