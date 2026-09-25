@@ -136,12 +136,6 @@ pub enum Screen {
     /// Actions/Automations lightbulb can navigate straight into it (and so
     /// go-back / tab restore keep the tab the user was on).
     GettingStarted { tab: GettingStartedTab },
-    /// EXP-1039 — the IDE's own styleguide: the FOUR shared sections
-    /// (`apps/styleguide/src/sections/sections.json`) in order, each listing
-    /// the native controls that belong to it. DEBUG-ONLY, like the debug
-    /// board: reachable behind `EXP_DEV_STYLEGUIDE=1` (a rail entry) or
-    /// `EXP_DEV_SCREEN=styleguide`, never in a shipped build's UI.
-    Styleguide,
 }
 
 /// Which tab of the Getting-started page is up (EXP-686): the checklist, or
@@ -434,8 +428,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .map(gpui::SharedString::from)
             .unwrap_or_else(|| "Workflow".into()),
         Screen::Chat => "Chat".into(),
-        // EXP-1039: the debug-only styleguide screen.
-        Screen::Styleguide => "Styleguide".into(),
         Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
     }
@@ -763,9 +755,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         // dev value lands there.
         "usage" => Some(Screen::Devices),
         "chat" => Some(Screen::Chat),
-        // EXP-1039: the debug-only styleguide (also a rail entry behind
-        // `EXP_DEV_STYLEGUIDE=1`).
-        "styleguide" => Some(Screen::Styleguide),
         // EXP-706: Reviews left the rail's tool windows for its own page.
         "reviews" => Some(Screen::Reviews),
         // EXP-851: the four list screens the rail's tool windows became. A

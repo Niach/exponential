@@ -6,15 +6,17 @@
 //! index the web page reads (`apps/styleguide/src/sections/sections.json`,
 //! embedded at compile time), and one placeholder entry file per registered
 //! id (`entries/`), so a leaf fills its file on both platforms and never
-//! edits an index. EXP-1039 gave it its screen ([`screen`], a debug-only
-//! `Screen::Styleguide` behind `EXP_DEV_STYLEGUIDE=1`) and the IDE's own
-//! starting set of live entries ([`native`], filed under the same four
-//! sections); the drift test below keeps the two indexes one.
+//! edits an index. The drift test below keeps the two indexes one.
+//!
+//! There is NO styleguide surface inside this app and there must not be one:
+//! the styleguide is its own deployed application (`apps/styleguide`,
+//! styleguide.exponential.at), the IDE only shares the components it
+//! documents. This module is the section DATA the shared index defines, so
+//! the entry ids and their owners cannot drift from the page that draws
+//! them — it renders nothing and is reachable from no menu.
 #![allow(dead_code)]
 
 pub(crate) mod entries;
-pub(crate) mod native;
-pub(crate) mod screen;
 
 use serde::Deserialize;
 

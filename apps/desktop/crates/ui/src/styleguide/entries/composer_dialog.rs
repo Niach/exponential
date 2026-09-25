@@ -12,9 +12,12 @@
 //! take `&App` for the theme). It paints from the very same generated design
 //! tokens the recipes paint from (`theme::tokens`), and it says the same
 //! words the composer says (`domain::contract::COMPOSER_UI_*`), so the copy
-//! and the colours can never drift; the LIVE demo of the same stack is the
-//! `native-launcher-headline` + `native-composer-card` entries of this
-//! section (see [`crate::styleguide::native`]).
+//! and the colours can never drift.
+//!
+//! Nothing in this app renders it: the styleguide is its own deployed
+//! application (`apps/styleguide`), and this file is the section data that
+//! keeps the IDE's entry ids and owners from drifting from the page that
+//! draws them.
 
 use gpui::{div, px, Div, FontWeight, ParentElement as _, Styled as _};
 use theme::tokens as t;
