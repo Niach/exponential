@@ -1113,8 +1113,9 @@ pub struct WorkflowRow {
     /// `None` on a draft nobody bound yet.
     #[serde(default)]
     pub device_id: Option<String>,
-    /// jsonb `WorkflowLaunch` — every field optional, an absent one falls back
-    /// to the runner device's own launch defaults.
+    /// jsonb `WorkflowLaunch` of ANY vintage — read through
+    /// `coding::workflows::launch::normalize_workflow_launch` (EXP-1029),
+    /// which fills what is absent from the agent's contract defaults.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub launch: Option<serde_json::Value>,
     /// contract `wfStartOn` — raw wire word.
@@ -1203,25 +1204,6 @@ impl WorkflowRow {
                     .collect()
             })
             .unwrap_or_default()
-    }
-
-    /// One `launch` field as a wire string; blank/absent = the device default.
-    pub fn launch_str(&self, key: &str) -> Option<String> {
-        self.launch
-            .as_ref()
-            .and_then(|launch| launch.get(key))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-    }
-
-    /// `launch.maxParallel`, or the contract default when unset.
-    pub fn max_parallel(&self) -> usize {
-        self.launch
-            .as_ref()
-            .and_then(|launch| launch.get("maxParallel"))
-            .and_then(serde_json::Value::as_u64)
-            .map(|value| value as usize)
-            .unwrap_or(crate::contract::WORKFLOW_MAX_PARALLEL_DEFAULT)
     }
 }
 

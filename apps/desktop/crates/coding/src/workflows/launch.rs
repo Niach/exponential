@@ -225,6 +225,28 @@ mod tests {
         assert_eq!(launch.strong_model, "fable");
     }
 
+    /// The hosts (`ui::workflow_host`, the CLI daemon) normalize the synced
+    /// row's RAW `launch` jsonb. A round trip through the wire struct would
+    /// lose everything to ONE ill-typed legacy key — `serde` refuses the
+    /// whole object, and a workflow configured for codex would silently run
+    /// on the claude defaults.
+    #[test]
+    fn reads_a_rows_raw_launch_past_an_ill_typed_legacy_key() {
+        let row: domain::rows::WorkflowRow = serde_json::from_value(json!({
+            "id": "wf-1",
+            // jsonb arrives TEXT-stored; `maxParallel` was a number once and
+            // `effort` a word, both written the other way round here.
+            "launch": r#"{"agent":"codex","model":"gpt-5.6-sol",
+                "strongModel":"gpt-5.6-luna","maxParallel":"5","effort":3}"#,
+        }))
+        .unwrap();
+        let launch =
+            normalize_workflow_launch(row.launch.as_ref().unwrap_or(&serde_json::Value::Null));
+        assert_eq!(launch.agent, WorkflowLaunchAgent::Codex);
+        assert_eq!(launch.model, "gpt-5.6-sol");
+        assert_eq!(launch.strong_model, "gpt-5.6-luna");
+    }
+
     #[test]
     fn drops_a_blank_account() {
         assert_eq!(normalize_workflow_launch(&json!({ "account": "" })), claude());

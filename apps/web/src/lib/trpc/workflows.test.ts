@@ -164,7 +164,8 @@ describe(`workflows.create`, () => {
     expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
     expect(written[0]!.values).toMatchObject({ name: `APP-6 +1`, repositoryId: `repo-1` })
     // EXP-1029: two models and nothing else, and `startOn` is no longer a
-    // choice. No device is known here, so the contract defaults stand.
+    // choice. A workflow is BORN with no runner, so the contract defaults
+    // stand — binding a device (`update`) is what re-seeds them.
     expect(written[0]!.values).toMatchObject({
       launch: { agent: `claude`, model: `opus`, strongModel: `fable` },
       startOn: `contract`,

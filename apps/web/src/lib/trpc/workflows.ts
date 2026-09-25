@@ -85,12 +85,14 @@ function assertLaunch(launch: WorkflowLaunch): void {
 }
 
 /**
- * EXP-1032: a new workflow's launch, seeded from the machine that will run it
- * — its default ACCOUNT names the agent it runs on, its
- * `launch_defaults.workflow` the two models. A device that advertises none
- * (or no device at all) falls back to contract `workflowLaunch` defaults. A
- * model outside that agent's vocabulary is a stale advertisement: the
- * fallback stands in rather than a launch `assertLaunch` would refuse.
+ * EXP-1032: a workflow's launch, seeded from the machine BOUND to run it
+ * (`update({deviceId})` on a draft — a workflow is created on the contract
+ * defaults, with no runner) — the device's default ACCOUNT names the agent it
+ * runs on, its `launch_defaults.workflow` the two models. A device that
+ * advertises none (or no device at all, `null`) falls back to contract
+ * `workflowLaunch` defaults. A model outside that agent's vocabulary is a
+ * stale advertisement: the fallback stands in rather than a launch
+ * `assertLaunch` would refuse.
  */
 export function launchFromDeviceDefaults(
   defaults: DeviceLaunchDefaults | null | undefined
@@ -499,25 +501,10 @@ export const workflowsRouter = router({
         teamId: z.string().uuid(),
         name: z.string().trim().min(1).max(255).optional(),
         issueIds: z.array(z.string().uuid()).min(1).max(WORKFLOW_MAX_ISSUES),
-        // EXP-1032: the machine that will run it, when the caller already
-        // knows one — the launch is seeded from ITS agent defaults.
-        deviceId: z.string().min(1).max(128).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       await assertTeamMember(ctx.session.user.id, input.teamId)
-      const launch = input.deviceId
-        ? await launchForDevice(input.deviceId)
-        : launchFromDeviceDefaults(null)
-      if (input.deviceId) {
-        await assertDeviceUsable(
-          input.deviceId,
-          input.teamId,
-          ctx.session.user.id,
-          launch.agent,
-          WORKFLOW_DEVICE
-        )
-      }
       const picked = await loadPickableIssues(input.issueIds, input.teamId, null)
       // By NUMBER: "APP-10" sorts before "APP-6" as text.
       const first = [...picked.rows].sort((a, b) => a.number - b.number)[0]!
@@ -538,10 +525,10 @@ export const workflowsRouter = router({
             repositoryId: picked.repositoryId,
             creatorId: ctx.session.user.id,
             name,
-            ...(input.deviceId && { deviceId: input.deviceId }),
-            // EXP-1029: two models, seeded from the runner's agent defaults;
-            // the workflow screen has no settings panel to change them in.
-            launch,
+            // EXP-1029: a workflow is BORN on the contract defaults — no
+            // runner is bound yet, and the screen has no settings panel.
+            // Binding one (`update({deviceId})`) re-seeds from that machine.
+            launch: launchFromDeviceDefaults(null),
             // EXP-1029: every new workflow starts its dependents on the
             // blockers' CONTRACT. There is no choice any more.
             startOn: `contract`,

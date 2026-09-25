@@ -401,9 +401,11 @@ fn snapshot_for(
         };
         // EXP-1029: the stored launch of ANY vintage → the two models every
         // run of this workflow reads. Effort is the device's own default.
+        // The normalizer reads the RAW jsonb, never a round trip through the
+        // wire struct: ONE ill-typed legacy key there (an old `maxParallel`
+        // stored as a string) would drop the WHOLE launch to the defaults.
         let launch = workflows::launch::normalize_workflow_launch(
-            &serde_json::to_value(api::workflows::from_row(workflow).launch)
-                .unwrap_or(serde_json::Value::Null),
+            workflow.launch.as_ref().unwrap_or(&serde_json::Value::Null),
         );
         let engine_state = workflows::read_states(&settings_path, &device_id)
             .get(&workflow.id)

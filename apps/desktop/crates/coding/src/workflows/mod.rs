@@ -23,11 +23,11 @@
 //! whose work collides get a SERIALIZATION edge, and the train still lands in
 //! topological order.
 //!
-//! EXP-984 closes the loop (EXP-1010: for EVERY workflow): every node's pushed branch
-//! gets a REVIEWER run (adversarial, and never on the author's own model, for
-//! a `risk: high` node) whose `request_changes` findings go back to the author
-//! at most three rounds; and a follow-up node nobody admitted (`proposed`) is
-//! treated as absent from the run entirely.
+//! EXP-984 closes the loop (EXP-1010: for EVERY workflow): every node's pushed
+//! branch gets a REVIEWER run — always on the launch's STRONG model (EXP-1029),
+//! adversarial in its PROMPT for a `risk: high` node — whose `request_changes`
+//! findings go back to the author at most three rounds; and a follow-up node
+//! nobody admitted (`proposed`) is treated as absent from the run entirely.
 //!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
@@ -401,8 +401,11 @@ pub enum Decision {
         node_id: String,
         attempt: i64,
         base_branch: String,
-        /// EXP-1002: the model this node's PHASE runs on ([`node_model`]).
-        /// `None` = the device's own default, as for a review.
+        /// EXP-1029: the model this node's run spawns on ([`node_model`]) —
+        /// the launch's STRONG model for a `contract`/`integration` node and
+        /// for any `risk: high` one, else its cheap `model`. Always `Some`
+        /// (the launch always names both); an absent one would mean the
+        /// device's own default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
     },
@@ -427,9 +430,10 @@ pub enum Decision {
         after: Vec<String>,
     },
     /// EXP-984: start the hidden `builtin:review-node` run against this
-    /// node's pushed branch. `model` `None` = the device's own default;
-    /// `adversarial` is a `risk: high` node, reviewed by a model that is
-    /// never the author's.
+    /// node's pushed branch. EXP-1029: `model` is the launch's STRONG model
+    /// for EVERY review ([`review_model`]) — there is no model swap left, so
+    /// it is always `Some`; `adversarial` only flags the node's own
+    /// `risk: high` to the review PROMPT.
     #[serde(rename_all = "camelCase")]
     StartReview {
         node_id: String,

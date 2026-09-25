@@ -716,7 +716,6 @@ mod tests {
         assert_eq!(workflow.launch.agent.as_deref(), Some("claude"));
         assert_eq!(workflow.launch.subagent_model.as_deref(), Some("sonnet"));
         assert_eq!(workflow.launch.max_parallel, Some(5));
-        assert_eq!(row.max_parallel(), 5);
         assert_eq!(row.shape().nodes, 3);
         assert_eq!(row.shape().depth, 2);
 
@@ -727,10 +726,6 @@ mod tests {
         assert_eq!(bare.status_wire(), "draft");
         assert_eq!(bare.shape(), domain::workflow_view::WorkflowShape::default());
         assert!(bare.cycle_edges().is_empty());
-        assert_eq!(
-            bare.max_parallel(),
-            domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT
-        );
     }
 
     /// The nodes carry the SERVER's layout; an unknown/absent column degrades
