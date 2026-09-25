@@ -4872,8 +4872,6 @@ export function registerExponentialTools(
         teamId: uuidString,
         issueIds: z.array(z.string().min(1)).min(1).max(WORKFLOW_MAX_ISSUES),
         name: z.string().min(1).max(255).optional(),
-        // EXP-1090: accepted and IGNORED for one release (old CLIs send it).
-        startOn: z.string().optional(),
       }),
     },
     async ({ teamId, issueIds, name }) => {
@@ -5088,8 +5086,6 @@ export function registerExponentialTools(
         removeIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
         nodes: z.array(z.record(z.string(), z.unknown())).max(WORKFLOW_MAX_ISSUES).optional(),
         decision: z.string().min(1).max(2000).optional(),
-        // EXP-1090: accepted and IGNORED for one release (old CLIs send it).
-        startOn: z.string().optional(),
       }),
     },
     async (input) => {

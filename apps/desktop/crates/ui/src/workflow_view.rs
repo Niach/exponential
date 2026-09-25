@@ -1820,7 +1820,8 @@ fn primary_button(
             .icon(Icon::from(registry::NAV_REVIEWS))
             .label(REVIEW_FINAL_PR_LABEL)
             // All × Changes on THIS page: the final PR row with Merge lives
-            // there (Reviews never lists a workflow's final PR).
+            // there; the Reviews queue's Workflows row (EXP-1072) opens the
+            // same page.
             .on_click(move |_, _window, cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |this, cx| {

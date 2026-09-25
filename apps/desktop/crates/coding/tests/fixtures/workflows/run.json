@@ -432,7 +432,7 @@
     "expected": [{ "kind": "openFinalPr" }]
   },
   {
-    "name": "rule 5: every node skipped opens nothing",
+    "name": "rule 10 (EXP-1059): every node skipped = nothing shipped, the workflow is cancelled instead of opening an empty final PR",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
@@ -445,7 +445,7 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [{ "kind": "cancelUnshipped" }]
   },
   {
     "name": "rule 5: an open final PR is never opened twice",

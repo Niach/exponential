@@ -11,12 +11,11 @@ import {
 } from "@/db/schema"
 import {
   codingSessionResultSchema,
-  WORKFLOW_EVENT_MESSAGE_MAX,
-  WORKFLOW_EVENTS_MAX,
   type WfEventKind,
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
 import { carriedReviewAtCap } from "@/lib/trpc/workflows/shared"
+import { writeWorkflowEvent } from "@/lib/workflows/record-event"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import {
   createPullRequest,
@@ -192,10 +191,9 @@ type Executor = Pick<Db, `select` | `insert` | `update` | `delete`>
 /**
  * EXP-1082 §3 / EXP-1096: the SERVER-decided lines of a workflow's audit
  * trail (`completed`, `final_pr_reopened`, `cancelled`, the final-PR
- * `failed`); the runner device records its own decisions through
- * `workflows.appendEvent`. Same write as that procedure — one insert, then
- * the workflow trimmed to its newest WORKFLOW_EVENTS_MAX rows — inside the
- * caller's transaction.
+ * `failed`), written inside the caller's transaction; the runner device
+ * records its own decisions through `workflows.appendEvent`. One writer for
+ * all of them: `writeWorkflowEvent` (lib/workflows/record-event.ts).
  */
 export async function recordWorkflowEventInTx(
   tx: Executor,
@@ -208,27 +206,7 @@ export async function recordWorkflowEventInTx(
     sessionId?: string | null
   }
 ): Promise<void> {
-  await tx.insert(workflowEvents).values({
-    workflowId: event.workflowId,
-    teamId: event.teamId,
-    nodeId: event.nodeId ?? null,
-    sessionId: event.sessionId ?? null,
-    kind: event.kind,
-    message: event.message.replace(/\s+/g, ` `).trim().slice(0, WORKFLOW_EVENT_MESSAGE_MAX),
-  })
-  await tx
-    .delete(workflowEvents)
-    .where(
-      and(
-        eq(workflowEvents.workflowId, event.workflowId),
-        sql`${workflowEvents.id} NOT IN (
-          SELECT ${workflowEvents.id} FROM ${workflowEvents}
-          WHERE ${workflowEvents.workflowId} = ${event.workflowId}
-          ORDER BY ${workflowEvents.at} DESC, ${workflowEvents.id} DESC
-          LIMIT ${WORKFLOW_EVENTS_MAX}
-        )`
-      )
-    )
+  await writeWorkflowEvent(tx, event)
 }
 
 /** The decision line an all-skipped workflow ends on (EXP-1059). */

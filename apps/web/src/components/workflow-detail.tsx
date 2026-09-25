@@ -653,7 +653,8 @@ export function WorkflowDetail({
               onIntent={(which) => void intent(which)}
               onReview={() => {
                 // The final PR lives on this page (All × Changes: its link,
-                // and Merge while open); the Reviews queue never lists it.
+                // and Merge while open); the Reviews queue's Workflows group
+                // (EXP-1072) points back here for the same row.
                 setSelection(ALL_SELECTION)
                 setFace(`changes`)
               }}

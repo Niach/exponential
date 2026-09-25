@@ -642,7 +642,7 @@ mod tests {
             200,
             r#"{"result":{"data":{"workflow":{"id":"wf-1","teamId":"team-1",
                 "repositoryId":"repo-1","name":"EXP-996 +5","status":"running",
-                "deviceId":"dev-1","launch":{},"startOn":"contract",
+                "deviceId":"dev-1","launch":{},
                 "integrationBranch":"exp/wf-abcdef12",
                 "finalPrUrl":"https://github.com/acme/web/pull/829",
                 "finalPrNumber":829,"finalPrState":"open","metrics":null},
