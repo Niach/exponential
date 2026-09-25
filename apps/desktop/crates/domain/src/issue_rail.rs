@@ -1,36 +1,23 @@
-//! EXP-998 — the BLOCKS RAIL: the git-graph-style column at the right edge
-//! of an issue list that draws every open `blocks` relation between two
-//! VISIBLE rows as an arrow from the blocker to the issue it blocks (web
-//! `apps/web/src/lib/issue-rail.ts`, the same rule and the same tests). It
-//! replaces the per-row counts pill on the desktop and the web; a phone keeps
-//! the pill.
+//! EXP-998 / EXP-1057 — the BLOCKS RAIL: the column at the right edge of an
+//! issue list (web `apps/web/src/lib/issue-rail.ts`, the same rule and the
+//! same tests). It replaces the per-row counts pill on the desktop and the
+//! web; a phone keeps the pill.
 //!
-//! The rule is pure over the list's VISIBLE ENTRIES in order — issue rows,
-//! group headers and the like — because, like the tree connector
-//! ([`crate::tree_guides`]), every entry can only paint inside itself: an
-//! edge that crosses a group header is drawn as one slice per entry it
-//! passes. A row hidden by a fold is simply absent, so an edge to it is not
-//! drawn; the row's node still tells (its ring) that something is in its way,
-//! and the mini-graph behind it shows what.
-//!
-//! Lanes are assigned git-graph style: every edge is an interval over entry
-//! indices, walked in order, taking the lowest lane free at its start. Two
-//! edges may SHARE a lane when they only touch at one row (a chain A → B → C
-//! reads as one line with an arrowhead at each blocked node); overlapping
-//! edges never do. Lane 0 is nearest the nodes, which sit flush with the
-//! rail's RIGHT edge; lanes run leftwards from there.
+//! EXP-1057: the rail draws DOTS only — no lanes, no arrows between rows. A
+//! row with an open `blocks` relation gets a node (a ring when something open
+//! is in its way, a dot when it only blocks others); hovering it opens the
+//! mini-graph, which shows what. The rule is pure over the list's VISIBLE
+//! ENTRIES in order (issue rows, group headers and the like), one slice per
+//! entry, so a virtual list can paint each row alone.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::issue_graph::{open_edges, BlockCounts, GraphIssue, GraphRelation};
+use crate::issue_graph::{geometry, open_edges, BlockCounts, GraphIssue, GraphRelation};
 
 /// The node column, at the rail's RIGHT edge: the dot centred in it.
-pub const RAIL_NODE_WIDTH: f32 = 24.;
-/// One lane's width; lanes run leftwards from the node column.
-pub const RAIL_LANE_PITCH: f32 = 10.;
-/// The blank between the cell before the rail and the outermost lane — at
-/// rest, the space between that cell and the dot.
-pub const RAIL_GUTTER: f32 = 8.;
+pub const RAIL_NODE_WIDTH: f32 = geometry::RAIL_NODE_WIDTH;
+/// The blank between the cell before the rail and the node column.
+pub const RAIL_GUTTER: f32 = geometry::RAIL_GUTTER;
 
 /// One open `blocks` edge, blocker → blocked, computed ONCE per query over
 /// every synced issue (a blocker on another board is still in the way).
@@ -152,33 +139,8 @@ fn components<'a>(edges: &[(&'a str, &'a str)]) -> HashMap<&'a str, usize> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RailEntry<'a> {
     Row(&'a str),
-    /// A group header, a "Show more" button: lanes pass, nothing else.
+    /// A group header, a "Show more" button: never a node.
     Gap,
-}
-
-/// What a lane draws at ONE entry.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct RailLane {
-    pub lane: usize,
-    /// A vertical from the entry's top edge to its centre.
-    pub top: bool,
-    /// A vertical from the entry's centre to its bottom edge.
-    pub bottom: bool,
-    /// The lane joins this row's node under an arrowhead: this row is
-    /// blocked by the edge's other end.
-    pub into: bool,
-    /// The lane leaves this row's node: this row blocks the other end.
-    pub out: bool,
-    /// The edge whose other end sits ABOVE joins the node here — the line
-    /// from the top edge bends into the node.
-    pub join_above: bool,
-    /// The edge whose other end sits BELOW joins the node here.
-    pub join_below: bool,
-    /// Part of a blocking cycle — drawn red.
-    pub cycle: bool,
-    /// Indices into the [`BlockEdge`] list of the edges using this lane at
-    /// this entry — the hover target and its label.
-    pub edges: Vec<usize>,
 }
 
 /// The node dot: `Blocked` = an open blocker exists (a ring), `Blocking` =
@@ -196,36 +158,19 @@ pub struct RailRow {
     pub node: Option<RailNode>,
     /// Open blockers / open blocked issues, visible or not — the label.
     pub counts: BlockCounts,
-    /// By lane, ascending.
-    pub lanes: Vec<RailLane>,
 }
 
 impl RailRow {
     /// Nothing to draw for this entry.
     pub fn is_empty(&self) -> bool {
-        self.node.is_none() && self.lanes.is_empty()
-    }
-
-    /// The edges that touch this row's node.
-    pub fn node_edges(&self) -> Vec<usize> {
-        let mut out: Vec<usize> = Vec::new();
-        for lane in self.lanes.iter().filter(|lane| lane.into || lane.out) {
-            for &edge in &lane.edges {
-                if !out.contains(&edge) {
-                    out.push(edge);
-                }
-            }
-        }
-        out
+        self.node.is_none()
     }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct IssueRail {
-    /// One per entry, in order. A gap entry carries only pass-through lanes.
+    /// One per entry, in order.
     pub entries: Vec<RailRow>,
-    /// How many lanes the rail needs; 0 = no arrow to draw.
-    pub lane_count: usize,
     /// Any row with a node at all — the rail column exists when true.
     pub has_nodes: bool,
 }
@@ -233,162 +178,48 @@ pub struct IssueRail {
 impl IssueRail {
     /// The rail column's width: 0 without a node anywhere.
     pub fn width(&self) -> f32 {
-        rail_width(self.lane_count, self.has_nodes)
+        rail_width(self.has_nodes)
     }
 }
 
-/// The rail column's width for a lane count.
-pub fn rail_width(lane_count: usize, has_nodes: bool) -> f32 {
-    if !has_nodes {
-        return 0.;
+/// The rail column's width: the gutter plus the node column, or nothing.
+pub fn rail_width(has_nodes: bool) -> f32 {
+    if has_nodes {
+        RAIL_GUTTER + RAIL_NODE_WIDTH
+    } else {
+        0.
     }
-    RAIL_GUTTER + RAIL_LANE_PITCH * lane_count as f32 + RAIL_NODE_WIDTH
 }
 
-/// The x of the node dot's centre inside a rail `width` wide.
-pub fn rail_node_x(width: f32) -> f32 {
-    width - RAIL_NODE_WIDTH / 2.
-}
-
-/// The x of lane `lane`'s centre inside a rail `width` wide.
-pub fn rail_lane_x(lane: usize, width: f32) -> f32 {
-    width - RAIL_NODE_WIDTH - RAIL_LANE_PITCH * lane as f32 - RAIL_LANE_PITCH / 2.
-}
-
-/// The rail for `entries`, given the open edges and the per-row counts
-/// (both from [`crate::issue_graph`]'s one open-edge rule).
-pub fn issue_rail(
-    entries: &[RailEntry<'_>],
-    edges: &[BlockEdge],
-    counts: &HashMap<String, BlockCounts>,
-) -> IssueRail {
-    let mut at: HashMap<&str, usize> = HashMap::new();
-    for (index, entry) in entries.iter().enumerate() {
-        if let RailEntry::Row(id) = entry {
-            at.entry(id).or_insert(index);
-        }
-    }
-
-    // The drawable edges: both ends visible. Ordered by their upper end, then
-    // their lower end, then by key — so the lane walk is deterministic.
-    struct Span {
-        edge: usize,
-        from: usize,
-        to: usize,
-        lo: usize,
-        hi: usize,
-        cycle: bool,
-    }
-    let mut spans: Vec<Span> = edges
-        .iter()
-        .enumerate()
-        .filter_map(|(index, edge)| {
-            let from = *at.get(edge.from.as_str())?;
-            let to = *at.get(edge.to.as_str())?;
-            Some(Span {
-                edge: index,
-                from,
-                to,
-                lo: from.min(to),
-                hi: from.max(to),
-                cycle: edge.cycle,
-            })
-        })
-        .collect();
-    spans.sort_by(|a, b| {
-        a.lo.cmp(&b.lo).then(a.hi.cmp(&b.hi)).then_with(|| {
-            let ka = (&edges[a.edge].from, &edges[a.edge].to);
-            let kb = (&edges[b.edge].from, &edges[b.edge].to);
-            ka.cmp(&kb)
-        })
-    });
-
-    // Greedy lanes: the lowest lane whose last edge ENDED at or above this
-    // edge's start (touching at one row is sharing, overlapping is not).
-    let mut lane_end: Vec<usize> = Vec::new();
-    let lanes: Vec<usize> = spans
-        .iter()
-        .map(|span| match lane_end.iter().position(|&end| end <= span.lo) {
-            Some(lane) => {
-                lane_end[lane] = span.hi;
-                lane
-            }
-            None => {
-                lane_end.push(span.hi);
-                lane_end.len() - 1
-            }
-        })
-        .collect();
-
-    let mut rows: Vec<RailRow> = vec![RailRow::default(); entries.len()];
-    for (span, &lane) in spans.iter().zip(&lanes) {
-        for entry in span.lo..=span.hi {
-            let row = &mut rows[entry];
-            let slot = match row.lanes.iter().position(|slot| slot.lane == lane) {
-                Some(position) => &mut row.lanes[position],
-                None => {
-                    row.lanes.push(RailLane {
-                        lane,
-                        ..RailLane::default()
-                    });
-                    row.lanes.sort_by_key(|slot| slot.lane);
-                    let position = row
-                        .lanes
-                        .iter()
-                        .position(|slot| slot.lane == lane)
-                        .expect("just pushed");
-                    &mut row.lanes[position]
-                }
-            };
-            slot.edges.push(span.edge);
-            slot.cycle |= span.cycle;
-            if entry > span.lo {
-                slot.top = true;
-            }
-            if entry < span.hi {
-                slot.bottom = true;
-            }
-            if entry == span.from {
-                slot.out = true;
-            }
-            if entry == span.to {
-                slot.into = true;
-            }
-            if span.lo != span.hi {
-                if entry == span.lo {
-                    slot.join_below = true;
-                }
-                if entry == span.hi {
-                    slot.join_above = true;
-                }
-            }
-        }
-    }
-
+/// The rail for `entries`, given the per-row counts ([`crate::issue_graph`]'s
+/// one open-edge rule).
+pub fn issue_rail(entries: &[RailEntry<'_>], counts: &HashMap<String, BlockCounts>) -> IssueRail {
     let mut has_nodes = false;
-    for (index, entry) in entries.iter().enumerate() {
-        let RailEntry::Row(id) = entry else {
-            continue;
-        };
-        let Some(&count) = counts.get(*id) else {
-            continue;
-        };
-        if count.blocked_by == 0 && count.blocking == 0 {
-            continue;
-        }
-        let row = &mut rows[index];
-        row.counts = count;
-        row.node = Some(if count.blocked_by > 0 {
-            RailNode::Blocked
-        } else {
-            RailNode::Blocking
-        });
-        has_nodes = true;
-    }
-
+    let rows: Vec<RailRow> = entries
+        .iter()
+        .map(|entry| {
+            let RailEntry::Row(id) = entry else {
+                return RailRow::default();
+            };
+            let Some(&count) = counts.get(*id) else {
+                return RailRow::default();
+            };
+            if count.blocked_by == 0 && count.blocking == 0 {
+                return RailRow::default();
+            }
+            has_nodes = true;
+            RailRow {
+                node: Some(if count.blocked_by > 0 {
+                    RailNode::Blocked
+                } else {
+                    RailNode::Blocking
+                }),
+                counts: count,
+            }
+        })
+        .collect();
     IssueRail {
         entries: rows,
-        lane_count: lane_end.len(),
         has_nodes,
     }
 }
@@ -419,16 +250,7 @@ mod tests {
         relations: &[GraphRelation<'_>],
         issues: &[GraphIssue<'_>],
     ) -> IssueRail {
-        issue_rail(
-            entries,
-            &block_edges(relations, issues),
-            &block_counts(relations, issues),
-        )
-    }
-
-    /// `[lane, top, bottom, into, out]` — the web test's tuple.
-    fn shape(lane: &RailLane) -> (usize, bool, bool, bool, bool) {
-        (lane.lane, lane.top, lane.bottom, lane.into, lane.out)
+        issue_rail(entries, &block_counts(relations, issues))
     }
 
     const A: GraphIssue<'static> = GraphIssue {
@@ -459,35 +281,31 @@ mod tests {
             &[A, B],
         );
         assert!(!out.has_nodes);
-        assert_eq!(out.lane_count, 0);
         assert_eq!(out.width(), 0.);
         assert!(out.entries.iter().all(RailRow::is_empty));
     }
 
     #[test]
-    fn runs_one_lane_from_the_blocker_down_into_the_blocked_row() {
+    fn marks_the_blocker_and_the_blocked_row_and_nothing_between() {
         let out = rail(
             &[RailEntry::Row("a"), RailEntry::Gap, RailEntry::Row("b")],
             &[blocks("a", "b")],
             &[A, B],
         );
-        assert_eq!(out.lane_count, 1);
         assert!(out.has_nodes);
-        assert_eq!(out.width(), RAIL_GUTTER + RAIL_LANE_PITCH + RAIL_NODE_WIDTH);
+        assert_eq!(out.width(), RAIL_GUTTER + RAIL_NODE_WIDTH);
         let [a, header, b] = out.entries.as_slice() else {
             panic!("three entries");
         };
         assert_eq!(a.node, Some(RailNode::Blocking));
         assert_eq!(
-            a.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(0, false, true, false, true)]
+            a.counts,
+            BlockCounts {
+                blocked_by: 0,
+                blocking: 1
+            }
         );
-        // The header only carries the line through.
-        assert_eq!(header.node, None);
-        assert_eq!(
-            header.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(0, true, true, false, false)]
-        );
+        assert!(header.is_empty());
         assert_eq!(b.node, Some(RailNode::Blocked));
         assert_eq!(
             b.counts,
@@ -496,11 +314,24 @@ mod tests {
                 blocking: 0
             }
         );
-        assert_eq!(
-            b.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(0, true, false, true, false)]
+    }
+
+    #[test]
+    fn a_row_both_blocked_and_blocking_is_blocked() {
+        let out = rail(
+            &[RailEntry::Row("a"), RailEntry::Row("b"), RailEntry::Row("c")],
+            &[blocks("a", "b"), blocks("b", "c")],
+            &[A, B, C],
         );
-        assert_eq!(b.lanes[0].edges, vec![0]);
+        let nodes: Vec<Option<RailNode>> = out.entries.iter().map(|row| row.node).collect();
+        assert_eq!(
+            nodes,
+            vec![
+                Some(RailNode::Blocking),
+                Some(RailNode::Blocked),
+                Some(RailNode::Blocked)
+            ]
+        );
     }
 
     #[test]
@@ -508,76 +339,7 @@ mod tests {
         let edges = block_edges(&[blocks("a", "b")], &[A, B]);
         assert_eq!(edges[0].label, "EXP-A blocks EXP-B");
         assert!(!edges[0].cycle);
-    }
-
-    #[test]
-    fn points_the_arrow_up_when_the_blocker_sits_below() {
-        let out = rail(
-            &[RailEntry::Row("b"), RailEntry::Row("a")],
-            &[blocks("a", "b")],
-            &[A, B],
-        );
-        let [b, a] = out.entries.as_slice() else {
-            panic!("two entries");
-        };
-        assert_eq!(
-            b.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(0, false, true, true, false)]
-        );
-        assert_eq!(
-            a.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(0, true, false, false, true)]
-        );
-    }
-
-    #[test]
-    fn gives_overlapping_edges_their_own_lanes_shortest_innermost() {
-        let out = rail(
-            &[RailEntry::Row("a"), RailEntry::Row("b"), RailEntry::Row("c")],
-            &[blocks("a", "b"), blocks("a", "c")],
-            &[A, B, C],
-        );
-        assert_eq!(out.lane_count, 2);
-        let [a, b, c] = out.entries.as_slice() else {
-            panic!("three entries");
-        };
-        assert_eq!(
-            a.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(0, false, true, false, true), (1, false, true, false, true)]
-        );
-        assert_eq!(
-            b.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(0, true, false, true, false), (1, true, true, false, false)]
-        );
-        assert_eq!(
-            c.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(1, true, false, true, false)]
-        );
-    }
-
-    #[test]
-    fn shares_a_lane_along_a_chain_with_an_arrowhead_at_every_blocked_node() {
-        let out = rail(
-            &[RailEntry::Row("a"), RailEntry::Row("b"), RailEntry::Row("c")],
-            &[blocks("a", "b"), blocks("b", "c")],
-            &[A, B, C],
-        );
-        assert_eq!(out.lane_count, 1);
-        let [a, b, c] = out.entries.as_slice() else {
-            panic!("three entries");
-        };
-        assert_eq!(b.node, Some(RailNode::Blocked));
-        assert_eq!(
-            b.lanes.iter().map(shape).collect::<Vec<_>>(),
-            vec![(0, true, true, true, true)]
-        );
-        assert_eq!(b.lanes[0].edges, vec![0, 1]);
-        // Both edges bend into b's node: one from above, one from below —
-        // no straight pass-through.
-        assert_eq!((b.lanes[0].join_above, b.lanes[0].join_below), (true, true));
-        assert_eq!((a.lanes[0].join_above, a.lanes[0].join_below), (false, true));
-        assert_eq!((c.lanes[0].join_above, c.lanes[0].join_below), (true, false));
-        assert_eq!(b.node_edges(), vec![0, 1]);
+        assert_eq!(rail_edge_label("EXP-1", "EXP-2"), "EXP-1 blocks EXP-2");
     }
 
     #[test]
@@ -588,7 +350,6 @@ mod tests {
             &[blocks("a", "b"), blocks("b", "z")],
             &[A, B, z],
         );
-        assert_eq!(out.lane_count, 0);
         assert!(out.has_nodes);
         assert_eq!(out.width(), RAIL_GUTTER + RAIL_NODE_WIDTH);
         assert_eq!(out.entries[0].node, Some(RailNode::Blocked));
@@ -599,7 +360,6 @@ mod tests {
                 blocking: 1
             }
         );
-        assert!(out.entries[0].lanes.is_empty());
     }
 
     #[test]
@@ -615,38 +375,17 @@ mod tests {
 
     #[test]
     fn marks_a_blocking_cycle_on_every_edge_of_it() {
-        let out = rail(
-            &[RailEntry::Row("a"), RailEntry::Row("b"), RailEntry::Row("c")],
+        let edges = block_edges(
             &[blocks("a", "b"), blocks("b", "a"), blocks("b", "c")],
             &[A, B, C],
         );
-        let [a, b, c] = out.entries.as_slice() else {
-            panic!("three entries");
-        };
+        let cycles: Vec<(&str, &str, bool)> = edges
+            .iter()
+            .map(|edge| (edge.from.as_str(), edge.to.as_str(), edge.cycle))
+            .collect();
         assert_eq!(
-            a.lanes.iter().map(|lane| lane.cycle).collect::<Vec<_>>(),
-            vec![true, true]
+            cycles,
+            vec![("a", "b", true), ("b", "a", true), ("b", "c", false)]
         );
-        assert_eq!(
-            b.lanes.iter().map(|lane| lane.cycle).collect::<Vec<_>>(),
-            vec![true, true]
-        );
-        // b → c is not on the cycle.
-        assert_eq!(
-            c.lanes.iter().map(|lane| lane.cycle).collect::<Vec<_>>(),
-            vec![false]
-        );
-    }
-
-    #[test]
-    fn lays_the_lanes_out_leftwards_from_the_node_column() {
-        let width = RAIL_GUTTER + RAIL_LANE_PITCH * 3. + RAIL_NODE_WIDTH;
-        assert_eq!(rail_node_x(width), width - RAIL_NODE_WIDTH / 2.);
-        assert_eq!(
-            rail_lane_x(0, width),
-            width - RAIL_NODE_WIDTH - RAIL_LANE_PITCH / 2.
-        );
-        assert_eq!(rail_lane_x(2, width), RAIL_GUTTER + RAIL_LANE_PITCH / 2.);
-        assert_eq!(rail_edge_label("EXP-1", "EXP-2"), "EXP-1 blocks EXP-2");
     }
 }
