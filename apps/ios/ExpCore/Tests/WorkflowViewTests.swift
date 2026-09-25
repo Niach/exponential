@@ -301,12 +301,79 @@ final class WorkflowViewTests: XCTestCase {
             "Filed during the run. Admit it into the workflow or dismiss it."
         )
         XCTAssertEqual(WorkflowView.agentReviewTitle, "Agent review")
-        XCTAssertEqual(WorkflowView.reviewModelLabel, "Review model")
+        XCTAssertEqual(WorkflowView.nodeModelLabel, "Model")
+        XCTAssertEqual(WorkflowView.nodeUnsyncedTitle, "Not synced yet")
         XCTAssertEqual(WorkflowView.metricsTitle, "Metrics")
-        XCTAssertEqual(WorkflowView.contractModelLabel, "Contract model")
-        XCTAssertEqual(WorkflowView.integrationModelLabel, "Integration model")
-        XCTAssertEqual(WorkflowView.riskModelLabel, "High-risk model")
-        XCTAssertEqual(WorkflowView.sameAsModelLabel, "Same as Model")
+    }
+
+    // MARK: - The strict launch (EXP-1029)
+
+    // The phone CARRIES the stored launch and never edits it, so what it says
+    // about a node has to come out of the SAME rule the engine runs: two
+    // models, the deprecated pins folded into the strong one, the agent's own
+    // contract defaults where the row names nothing.
+    func testTheStoredLaunchNormalizesToTwoModels() {
+        let empty = WorkflowLaunch().normalized
+        XCTAssertEqual(empty.agent, "claude")
+        XCTAssertEqual(empty.model, DomainContract.workflowLaunchClaudeModel)
+        XCTAssertEqual(empty.strongModel, DomainContract.workflowLaunchClaudeStrongModel)
+        XCTAssertNil(empty.account)
+
+        // An agent outside the contract is claude, whatever it says.
+        XCTAssertEqual(WorkflowLaunch(agent: "brand-new").normalized.agent, "claude")
+
+        let codex = WorkflowLaunch(agent: "codex").normalized
+        XCTAssertEqual(codex.model, DomainContract.workflowLaunchCodexModel)
+        XCTAssertEqual(codex.strongModel, DomainContract.workflowLaunchCodexStrongModel)
+
+        // What the row names wins, blanks do not count, and the account rides
+        // through.
+        let pinned = WorkflowLaunch(
+            agent: "claude", model: "sonnet", strongModel: "opus", account: "  "
+        ).normalized
+        XCTAssertEqual(pinned.model, "sonnet")
+        XCTAssertEqual(pinned.strongModel, "opus")
+        XCTAssertNil(pinned.account)
+        XCTAssertEqual(
+            WorkflowLaunch(account: "profile-1").normalized.account, "profile-1"
+        )
+    }
+
+    // An OLD row carries the EXP-1002 pins and `reviewModel` instead of a
+    // strong model: they fold into it, first one set wins, in this order.
+    func testTheDeprecatedPinsFoldIntoTheStrongModel() {
+        func strong(_ launch: WorkflowLaunch) -> String { launch.normalized.strongModel }
+
+        XCTAssertEqual(
+            strong(WorkflowLaunch(
+                contractModel: "a", integrationModel: "b", riskModel: "c", reviewModel: "d"
+            )),
+            "d"
+        )
+        XCTAssertEqual(
+            strong(WorkflowLaunch(contractModel: "a", integrationModel: "b", riskModel: "c")), "c"
+        )
+        XCTAssertEqual(strong(WorkflowLaunch(contractModel: "a", integrationModel: "b")), "a")
+        XCTAssertEqual(strong(WorkflowLaunch(integrationModel: "b")), "b")
+        // A stored strong model beats every one of them.
+        XCTAssertEqual(
+            strong(WorkflowLaunch(strongModel: "fable", contractModel: "a", reviewModel: "d")),
+            "fable"
+        )
+    }
+
+    // Which of the two a NODE takes: the strong one for the two special kinds
+    // and for anything high-risk, the cheap one for the rest.
+    func testTheNodeModelFollowsItsKindAndRisk() {
+        let launch = WorkflowLaunch(agent: "claude", model: "sonnet", strongModel: "opus")
+        func model(_ kind: String, _ risk: String) -> String {
+            WorkflowView.modelForNode(launch, kind: kind, risk: risk)
+        }
+        XCTAssertEqual(model("leaf", "low"), "sonnet")
+        XCTAssertEqual(model("leaf", "medium"), "sonnet")
+        XCTAssertEqual(model("leaf", "high"), "opus")
+        XCTAssertEqual(model("contract", "low"), "opus")
+        XCTAssertEqual(model("integration", "low"), "opus")
     }
 
     // A `proposed` node is NOT part of the run: it never holds the final PR up,
@@ -412,6 +479,11 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(WorkflowView.mergeTrainTitle, "Merge train")
         XCTAssertEqual(WorkflowView.mergeTrainEmpty, "Nothing is waiting to land.")
         XCTAssertEqual(WorkflowView.finalPrTitle, "Final pull request")
+        XCTAssertEqual(WorkflowView.mergeFinalPrLabel, "Merge")
+        XCTAssertEqual(
+            WorkflowView.mergeFinalPrConfirm,
+            "The workflow's branch is squash-merged into the default branch and the run is done."
+        )
         XCTAssertEqual(WorkflowView.runningNowLabel, "Running now")
         XCTAssertEqual(WorkflowView.retryNodeLabel, "Retry")
         XCTAssertEqual(WorkflowView.skipNodeLabel, "Skip")
@@ -563,10 +635,11 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(nulled.effort, "high")
     }
 
-    // The phone has no picker for the phase pins, so what keeps them alive is
-    // the copy-and-edit every setter does: editing another field and encoding
-    // the result must hand the server the same three values back.
-    func testEditingAnotherLaunchFieldPreservesThePhaseModels() throws {
+    // The phone never writes a launch back (EXP-1033), but it still READS the
+    // one the row carries: a launch has to survive the Codable round trip with
+    // the three phase pins an older server may have written intact, since
+    // `modelForNode` folds them into the strong model.
+    func testALaunchRoundTripsWithItsPhaseModels() throws {
         var launch = WorkflowLaunch.parse(
             #"{"agent":"claude","contractModel":"fable","integrationModel":"sonnet","riskModel":"haiku","maxParallel":2}"#
         )
@@ -583,44 +656,35 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(decoded.maxParallel, 4)
     }
 
-    // The wire contract of `workflows.update`: for the three phase pins an
-    // ABSENT key means "keep the stored value", so this client always sends
-    // them — an explicit null when unset — while every other unset field stays
-    // omitted.
-    func testTheUpdatePayloadNamesThePhaseModelsExplicitly() throws {
-        func launchObject(_ launch: WorkflowLaunch) throws -> [String: Any] {
-            let input = WorkflowUpdateInput(id: "wf-1", patch: WorkflowPatch(launch: launch))
-            let root = try XCTUnwrap(
-                JSONSerialization.jsonObject(with: JSONEncoder().encode(input)) as? [String: Any]
+    // EXP-1014/EXP-1033: the wire contract of `workflows.update` as the phone
+    // sends it — the NAME and the runner device, nothing else. The workflow
+    // screen configures no run any more (binding a device re-seeds the launch
+    // server-side), so neither a launch nor the dead `startOn` ever leaves this
+    // client; an unset field is omitted, and an unbound runner is the one
+    // explicit null.
+    func testTheUpdatePayloadCarriesOnlyTheNameAndTheDevice() throws {
+        func object(_ patch: WorkflowPatch) throws -> [String: Any] {
+            try XCTUnwrap(
+                JSONSerialization.jsonObject(
+                    with: JSONEncoder().encode(WorkflowUpdateInput(id: "wf-1", patch: patch))
+                ) as? [String: Any]
             )
-            XCTAssertEqual(root["id"] as? String, "wf-1")
-            return try XCTUnwrap(root["launch"] as? [String: Any])
         }
 
-        let unset = try launchObject(WorkflowLaunch(agent: "codex", maxParallel: 3))
-        for key in ["contractModel", "integrationModel", "riskModel"] {
-            XCTAssertTrue(unset[key] is NSNull, "\(key) must ride as an explicit null")
-        }
-        XCTAssertEqual(unset["agent"] as? String, "codex")
-        XCTAssertEqual(unset["maxParallel"] as? Int, 3)
-        XCTAssertNil(unset["model"])
-        XCTAssertNil(unset["effort"])
-        XCTAssertNil(unset["reviewModel"])
+        let renamed = try object(WorkflowPatch(name: "Renamed"))
+        XCTAssertEqual(renamed["id"] as? String, "wf-1")
+        XCTAssertEqual(renamed["name"] as? String, "Renamed")
+        XCTAssertEqual(Set(renamed.keys), Set(["id", "name"]))
 
-        let pinned = try launchObject(WorkflowLaunch(
-            agent: "claude", contractModel: "fable", riskModel: "opus"
-        ))
-        XCTAssertEqual(pinned["contractModel"] as? String, "fable")
-        XCTAssertTrue(pinned["integrationModel"] is NSNull)
-        XCTAssertEqual(pinned["riskModel"] as? String, "opus")
+        let bound = try object(WorkflowPatch(deviceId: .some("dev-1")))
+        XCTAssertEqual(bound["deviceId"] as? String, "dev-1")
+        XCTAssertNil(bound["name"])
 
-        // A patch that does not touch `launch` sends no launch at all.
-        let nameOnly = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: JSONEncoder().encode(
-                WorkflowUpdateInput(id: "wf-1", patch: WorkflowPatch(name: "Renamed"))
-            )) as? [String: Any]
-        )
-        XCTAssertNil(nameOnly["launch"])
+        // Unbinding the runner is what an explicit null means.
+        XCTAssertTrue(try object(WorkflowPatch(deviceId: .some(nil)))["deviceId"] is NSNull)
+
+        // An empty patch names the row and nothing else.
+        XCTAssertEqual(Set(try object(WorkflowPatch()).keys), Set(["id"]))
     }
 
     // EXP-984: the review payload and the open counter set go the same way —

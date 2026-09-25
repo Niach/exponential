@@ -19,6 +19,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -67,6 +71,13 @@ fun IssueChip(
     /** Names the ✕ for TalkBack; defaults to the removal it performs. */
     removeContentDescription: String = "Remove $identifier",
     removeTestTag: String? = null,
+    /**
+     * EXP-1014: the glyph slot, for the ONE caller whose leading mark is not
+     * the issue's status — a workflow node wears its node state (or its live
+     * run's dot) there, so the graph's rows are THE chip rather than a second
+     * badge beside one. Takes [status]'s place; never drawn beside it.
+     */
+    leading: (@Composable () -> Unit)? = null,
 ) {
     // Web parity through the markdown renderer's own cap: a chip is a badge,
     // not a place to read a sentence.
@@ -74,7 +85,11 @@ fun IssueChip(
     ChipShell(modifier = modifier, onClick = onClick) {
         // A chip whose issue has not synced (another team's, a trashed board)
         // still names it: the glyph is the one part that can be missing.
-        if (status != null) StatusIcon(status, size = MdStyle.chipIconSize)
+        if (leading != null) {
+            leading()
+        } else if (status != null) {
+            StatusIcon(status, size = MdStyle.chipIconSize)
+        }
         // A BLANK identifier is the agent feed's one degenerate case: a tool
         // answered with a title and no code. The chip then names the issue by
         // its title alone rather than reserving an empty mono column.
@@ -108,6 +123,49 @@ fun IssueChip(
                 onClick = onRemove,
             )
         }
+    }
+}
+
+/**
+ * EXP-1014: ONE chip that stands for SEVERAL issues — a workflow's compound
+ * node (a parent and its sub-issues, run as one batch on one branch). The
+ * front chip is the ordinary [IssueChip]; behind it, offset towards the top
+ * right in [IssueChipDefaults.StackStep] steps, [ghosts] empty chip outlines
+ * say there is more than one issue in there.
+ *
+ * The ghosts are drawn INSIDE the composable's own bounds (the reserved inset
+ * is real padding), so nothing is ever clipped by a scroller or a row that
+ * clips its background.
+ */
+@Composable
+fun IssueChipStack(
+    modifier: Modifier = Modifier,
+    ghosts: Int = 2,
+    chip: @Composable () -> Unit,
+) {
+    val outline = MdStyle.IssueRefBorder
+    val radius = MdStyle.chipCornerRadius
+    val step = IssueChipDefaults.StackStep
+    val inset = step * ghosts
+    Box(
+        modifier = modifier
+            .padding(top = inset, end = inset)
+            .drawBehind {
+                val stepPx = step.toPx()
+                val corner = CornerRadius(radius.toPx())
+                // Back to front, so the nearest ghost sits over the far one.
+                for (depth in ghosts downTo 1) {
+                    drawRoundRect(
+                        color = outline,
+                        topLeft = Offset(stepPx * depth, -stepPx * depth),
+                        size = size,
+                        cornerRadius = corner,
+                        style = Stroke(IssueChipDefaults.BorderWidth.toPx()),
+                    )
+                }
+            },
+    ) {
+        chip()
     }
 }
 
@@ -180,6 +238,9 @@ object IssueChipDefaults {
     val HorizontalPadding: Dp = 6.dp
     val VerticalPadding: Dp = 3.dp
     val Spacing: Dp = 4.dp
+
+    /** [IssueChipStack]'s offset per ghost chip behind the front one. */
+    val StackStep: Dp = 3.dp
 
     /** The ✕: a 20dp hit area around a 10dp glyph (the composer's rung). */
     val RemoveHitArea: Dp = 20.dp
