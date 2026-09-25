@@ -22,6 +22,7 @@ import {
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { normalizeWorkflowLaunch } from "@/lib/workflow-launch"
+import { workflowDefaultsFor } from "@/lib/devices/workflow-defaults"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
   boards,
@@ -96,14 +97,11 @@ export function launchFromDeviceDefaults(
 ): WorkflowLaunch {
   const agent: WorkflowLaunchAgent =
     workflowLaunchAgentValues.find((value) => value === defaults?.defaultAgent) ?? `claude`
-  const fallback = WORKFLOW_LAUNCH_DEFAULTS[agent]
-  const models = agentModelValues[agent]!
-  const pick = (value: unknown, otherwise: string) =>
-    typeof value === `string` && models.includes(value) ? value : otherwise
+  // EXP-1020's clamp: a stored name counts only for the agent it belongs to,
+  // else that agent's contract pair stands in.
   const launch: WorkflowLaunch = {
     agent,
-    model: pick(defaults?.workflow?.model, fallback.model),
-    strongModel: pick(defaults?.workflow?.strongModel, fallback.strongModel),
+    ...workflowDefaultsFor(agent, defaults?.workflow),
   }
   // The default account is one of `defaultAgent`'s profile ids, so it only
   // ever rides beside a valid agent (`clampLaunchDefaults`).
