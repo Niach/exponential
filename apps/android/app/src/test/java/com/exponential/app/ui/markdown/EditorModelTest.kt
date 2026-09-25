@@ -132,6 +132,82 @@ class EditorModelTest {
         assertEquals(listOf("HelloA", "B"), run(m).lines)
     }
 
+    // --- EXP-1018: typing `---` draws a thematic break at once. ---
+
+    @Test
+    fun typingTheThirdDashTurnsTheLineIntoABreak() {
+        val m = model("Title")
+        m.updateRun(run(m).id, "Title\n-", 7)
+        m.updateRun(run(m).id, "Title\n--", 8)
+        m.updateRun(run(m).id, "Title\n---", 9)
+        val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH
+        assertEquals(listOf("Title", glyph, ""), run(m).lines)
+        assertEquals(
+            listOf(BlockKind.Paragraph, BlockKind.ThematicBreak, BlockKind.Paragraph),
+            run(m).paragraphs.map { it.kind },
+        )
+        assertEquals(run(m).id to 6 + glyph.length + 1, m.desiredSelection)
+        assertEquals("Title\n\n---", m.currentMarkdown())
+    }
+
+    @Test
+    fun theBreakShortcutKeepsTheLineBelow() {
+        val m = model("--\n\nNext")
+        m.updateRun(run(m).id, "---\nNext", 3)
+        assertEquals(listOf(MarkdownParser.THEMATIC_BREAK_GLYPH, "Next"), run(m).lines)
+        assertEquals("---\n\nNext", m.currentMarkdown())
+    }
+
+    @Test
+    fun dashesInsideTextOrPastedStayText() {
+        val m = model("a--")
+        m.updateRun(run(m).id, "a---", 4)
+        assertEquals("a---", run(m).text)
+        val pasted = model("")
+        pasted.updateRun(run(pasted).id, "---", 3)
+        assertEquals(BlockKind.Paragraph, run(pasted).paragraphs.single().kind)
+    }
+
+    @Test
+    fun backspaceIntoABreakRemovesTheWholeLine() {
+        val m = model("A\n\n---\n\nB")
+        val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH
+        assertEquals("A\n$glyph\nB", run(m).text)
+        // Backspace at the start of "B" deletes the newline joining it to the break.
+        m.updateRun(run(m).id, "A\n${glyph}B", 2 + glyph.length)
+        assertEquals("A\nB", run(m).text)
+        assertEquals("A\n\nB", m.currentMarkdown())
+        assertEquals(run(m).id to 2, m.desiredSelection)
+    }
+
+    @Test
+    fun backspaceAtTheBreakLineStartRemovesOnlyTheBreak() {
+        val m = model("A\n\n---\n\nB")
+        val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH
+        // Backspace at the glyph's start deletes the newline joining it to "A".
+        m.updateRun(run(m).id, "A${glyph}\nB", 1)
+        assertEquals("A\nB", run(m).text)
+        assertEquals("A\n\nB", m.currentMarkdown())
+        assertEquals(run(m).id to 1, m.desiredSelection)
+    }
+
+    @Test
+    fun deletingAGlyphCharRemovesTheBreakAndOneNewline() {
+        val m = model("A\n\n---\n\nB")
+        val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH
+        m.updateRun(run(m).id, "A\n${glyph.drop(1)}\nB", 2)
+        assertEquals("A\nB", run(m).text)
+    }
+
+    @Test
+    fun deletingPartOfATrailingBreakRemovesIt() {
+        val m = model("A\n\n---")
+        val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH
+        m.updateRun(run(m).id, "A\n" + glyph.dropLast(1), 1 + glyph.length)
+        assertEquals("A", run(m).text)
+        assertEquals("A", m.currentMarkdown())
+    }
+
     @Test
     fun enterOnEmptyListItemExitsList() {
         val m = model("- item")
