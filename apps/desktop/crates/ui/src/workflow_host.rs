@@ -996,6 +996,10 @@ fn run_pass(
                             sink: sink.clone(),
                         },
                     });
+                    // EXP-1082: the order was QUEUED; `launch_node` is the
+                    // ONE recorder of this decision (its `audit`), so the
+                    // pass records nothing — the CLI daemon records once too.
+                    break 'decision Outcome::Queued;
                 }
                 Decision::LandNode { node_id } => {
                     let Some(claim) = InFlight::claim(in_flight, &node_id) else {
@@ -1076,9 +1080,11 @@ fn run_pass(
                             state.reviewed_head.insert(node_id.clone(), sha.clone());
                         });
                     }
-                    // EXP-1082: `Done` = the order was QUEUED; `launch_review`
-                    // records the launch's own outcome through its `audit`.
+                    // EXP-1082: the order was QUEUED; `launch_review` is the
+                    // ONE recorder of this decision (its `audit`), so the
+                    // pass records nothing.
                     orders.reviews.push(order);
+                    break 'decision Outcome::Queued;
                 }
                 // EXP-984: the review asked for changes — its findings go to the
                 // node's AUTHOR verbatim, once per round.
@@ -1217,6 +1223,10 @@ fn run_pass(
             }
             Outcome::Done
         };
+        // A queued order is recorded at its launch site, never here.
+        if matches!(outcome, Outcome::Queued) {
+            continue;
+        }
         if let Some(event) = events::event_for(&decided, &outcome) {
             sink.record(event);
         }
