@@ -5,8 +5,10 @@ import {
   useParams,
   useSearch,
 } from "@tanstack/react-router"
+import { requestLaunchDialog } from "@/lib/launch-dialog-store"
 import {
   searchFromSeed,
+  seedHasSubject,
   type AgentSearch,
   type LaunchSeed,
 } from "@/lib/launch-seed"
@@ -18,11 +20,16 @@ import {
   type DetailOrigin,
 } from "@/lib/detail-origin"
 
-// EXP-825: "start something" is a NAVIGATION now — every play button (issue
-// detail, the bulk bar, an action's Run, New action / a suggestion, a
-// device's play, Reviews' Fix conflicts) sends the person to the Agent page
-// composer with a preselection, the way `useOpenSession` sends them to a
-// run. ONE place decides the URL shape.
+// EXP-825: "start something" is ONE call — every play button (issue detail,
+// the bulk bar, an action's Run, New action / a suggestion, a device's play,
+// Reviews' Fix conflicts) hands this hook a preselection instead of building
+// its own launcher. ONE place decides what that opens.
+//
+// EXP-1019: what it opens is now a DIALOG over the current surface whenever
+// the seed carries a subject (issues or an action) — navigating away to the
+// Agent page turned "run this action" into "here is a prompt box with a
+// badge on it". A subjectless start still travels to the page, which is the
+// home of a plain chat; everything below is about THAT case.
 //
 // EXP-851: the composer also carries the ORIGIN the click came from
 // (`?from=`), so the Agent page keeps that list nav beside it and the run it
@@ -70,6 +77,15 @@ export function useOpenComposer(): (
     (seed: Partial<LaunchSeed>, options?: OpenComposerOptions) => {
       if (!teamSlug) {
         console.warn(`useOpenComposer: no teamSlug in scope, ignoring`)
+        return
+      }
+      // EXP-1019: a start that already knows its SUBJECT opens the launcher
+      // as a dialog over the surface the click came from — the person stays
+      // where they were, and the dialog's headline says what pressing send
+      // will do. Only a subjectless start (the Agent nav entry, a plain
+      // chat) still travels to the page, which is where a chat lives.
+      if (seedHasSubject(seed)) {
+        requestLaunchDialog({ ...seed, issueIds: seed.issueIds ?? [] })
         return
       }
       const screen = screenFromPath(location ?? ``)

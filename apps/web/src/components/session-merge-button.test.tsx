@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import { TRPCClientError } from "@trpc/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
@@ -6,6 +12,10 @@ import {
   SessionMergeButton,
   SessionMergePill,
 } from "@/components/session-merge-button"
+import {
+  closeLaunchDialog,
+  useLaunchDialogSeed,
+} from "@/lib/launch-dialog-store"
 
 const mockState = vi.hoisted(() => ({
   mergeMutate: vi.fn(),
@@ -28,9 +38,10 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
-// EXP-825: the conflict swap's "Fix conflicts" is a NAVIGATION to the Agent
-// page composer (no dialog, no device lookup) — the router is the only thing
-// to stub.
+// EXP-825: the conflict swap's "Fix conflicts" hands the ONE launcher a seed
+// (no device lookup here). EXP-1019: that seed names an action, so it opens
+// the start-coding dialog over this surface instead of navigating — the
+// router stub stays, to prove nothing travels.
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => mockState.navigate,
   useParams: () => ({ teamSlug: `acme` }),
@@ -200,12 +211,16 @@ describe(`SessionMergeButton`, () => {
 
     // EXP-825: the click lands on the composer with the builtin picked and
     // this PR pre-filled (any linked issue id resolves the PR, EXP-323).
+    // EXP-1019: on the launcher DIALOG, over the run the merge failed on.
     fireEvent.click(fix)
-    expect(mockState.navigate).toHaveBeenCalledWith({
-      to: `/t/$teamSlug/agent`,
-      params: { teamSlug: `acme` },
-      search: { action: `builtin:fix-conflicts`, pr: `i1` },
+    expect(mockState.navigate).not.toHaveBeenCalled()
+    const { result } = renderHook(() => useLaunchDialogSeed())
+    expect(result.current).toEqual({
+      issueIds: [],
+      actionId: `builtin:fix-conflicts`,
+      prIssueId: `i1`,
     })
+    closeLaunchDialog()
   })
 
   // The swap must never be a dead end: a conflict resolved OUTSIDE the

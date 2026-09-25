@@ -2,6 +2,7 @@ package com.exponential.app.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -71,5 +72,37 @@ class AgentComposerPromptTest {
         assertEquals("Start batch · 2", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Issues(2)))
         assertEquals("Start batch · 30", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Issues(30)))
         assertEquals("Run action", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Action))
+    }
+
+    // EXP-1038: the headline verb over the composer — the contract's copy,
+    // one value per subject, and NOT the submit label.
+    @Test
+    fun `headlines follow the subject`() {
+        assertEquals("Ask the agent", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.None))
+        assertEquals("Implement", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Issues(1)))
+        // A batch says the same verb — the chips carry the count.
+        assertEquals("Implement", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Issues(7)))
+        assertEquals("Run", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Action))
+    }
+
+    @Test
+    fun `headlines are the contract's copy`() {
+        assertEquals(
+            DomainContract.composerUiChatHeadline,
+            AgentComposerPrompt.headline(AgentComposerPrompt.Subject.None),
+        )
+        assertEquals(
+            DomainContract.composerUiImplementHeadline,
+            AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Issues(2)),
+        )
+        assertEquals(
+            DomainContract.composerUiRunHeadline,
+            AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Action),
+        )
+        // The headline is the VERB, never the button's label.
+        assertNotEquals(
+            AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Action),
+            AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Action),
+        )
     }
 }

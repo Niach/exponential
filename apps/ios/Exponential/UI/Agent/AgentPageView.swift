@@ -3,11 +3,12 @@ import ExpUI
 import SwiftUI
 
 /// EXP-825: the team's AGENT page — the ONE launcher on every client. The
-/// composer card (`AgentComposerCard`: subject chips, the message, images,
-/// the labelled submit), the `@`/`#`/`:` candidate menu under it, the
-/// options line (`AgentOptionsRow`), the start captions, then the caller's
-/// Running and Recent sessions (`AgentSessionsList`, moved here from the
-/// Devices tab, which keeps machines only — web parity, EXP-818).
+/// subject headline (EXP-1038, `AgentComposerHeadline`: the contract verb
+/// plus the action or issue chips), the composer card (`AgentComposerCard`:
+/// the message, images, the labelled submit), the `@`/`#`/`:` candidate menu
+/// under it, the options line (`AgentOptionsRow`), the start captions, then
+/// the caller's Running and Recent sessions (`AgentSessionsList`, moved here
+/// from the Devices tab, which keeps machines only — web parity, EXP-818).
 ///
 /// A PUSHED detail (no tab bar, native back), reached from the Chat FAB on
 /// Devices/Actions with an empty seed and from every play button with a
@@ -61,6 +62,19 @@ struct AgentPageView: View {
                         if steerEnabled == false {
                             relayOffNote
                         } else if steerEnabled == true {
+                            // EXP-1038: the run's SUBJECT heads the page —
+                            // the contract verb ("Run" · "Implement") with
+                            // the action or issue chips beside it. It sits
+                            // ABOVE everything the composer offers, so a
+                            // prefilled start reads as a thing about to be
+                            // sent, not as a chip. A CHAT draws no row at all
+                            // (web `LaunchHeadline` returns null, ×4): the
+                            // field's placeholder already says "Ask the
+                            // agent…", and the same sentence twice is not a
+                            // heading.
+                            if composer.subject != AgentComposerPrompt.Subject.none {
+                                AgentComposerHeadline(model: composer)
+                            }
                             // EXP-820: a few suggestion chips over the empty
                             // prompt box — the pool is byte-identical ×4 and
                             // each mount draws `ChatSuggestions.count` of it.

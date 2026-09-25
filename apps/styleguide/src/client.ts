@@ -6,10 +6,13 @@
  * Component sections route exactly like view sections — same `.view` class,
  * same nav link, same hash. They just carry no shots.
  *
- * EXP-941: the page has three MODES (`views` / `components` / `style`) and
- * everything below acts WITHIN the current one — the filter, `j`/`k`, the
- * summary. A hash always wins: `#pill` switches to Components first and then
- * shows the entry, so a deep link never lands on a hidden section.
+ * EXP-1019: the page has FOUR sections (`style` / `general` / `special` /
+ * `views`, the contract's order) and everything below acts WITHIN the current
+ * one — the filter, `j`/`k`, the summary. `data-mode` on the body and on every
+ * `.view` names the section; the vocabulary below still says "mode" because
+ * that is the DOM contract the page has always carried. A hash always wins:
+ * `#pill` switches to General components first and then shows the entry, so a
+ * deep link never lands on a hidden section.
  */
 
 export const client = `
@@ -25,7 +28,7 @@ const dialog = document.querySelector("dialog.lightbox");
 const dialogImg = dialog.querySelector("img");
 const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
 const MODES = modeButtons.map((button) => button.dataset.mode);
-const STORAGE_KEY = "styleguide-mode";
+const STORAGE_KEY = "styleguide-section";
 let mode = "views";
 let current = ids[0];
 
@@ -117,7 +120,7 @@ addEventListener("keydown", (event) => {
   }
   if (dialog.open) return;
   if (event.key === "/") { event.preventDefault(); filter.focus(); filter.select(); return; }
-  const digit = MODES[["1", "2", "3"].indexOf(event.key)];
+  const digit = MODES[["1", "2", "3", "4"].indexOf(event.key)];
   if (digit) {
     event.preventDefault();
     setMode(digit);

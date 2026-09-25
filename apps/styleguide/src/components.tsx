@@ -1,8 +1,13 @@
 /**
- * The Components group (EXP-698) — the canonical glass control set: the REAL
- * `@exp/ui` component wherever one owns the form (an ISLAND, EXP-887), and
- * HTML/CSS driven by `@exp/design-tokens` for the compositions that have no
- * single owner.
+ * The canonical glass control set (EXP-698) — the REAL `@exp/ui` component
+ * wherever one owns the form (an ISLAND, EXP-887), and HTML/CSS driven by
+ * `@exp/design-tokens` for the compositions that have no single owner.
+ *
+ * EXP-1019 split these entries across the page's four SECTIONS: a spec's
+ * `kind` is now only the nav BAND inside one, and `sections/page.ts` derives
+ * the section (a Style kind → Style, an id in `SPECIAL_ENTRY_IDS` → a
+ * composition, else a general control) and splices in the registered entries
+ * of `entries/index.ts`.
  *
  * Screens are screenshots because a screen is a composition nobody can
  * reproduce from a spec. A CONTROL is the opposite: it is a handful of numbers,
@@ -204,11 +209,12 @@ export interface ComponentStatus {
 }
 
 /**
- * EXP-941: the page has THREE modes, and `kind` is the sub-group INSIDE one.
- * Views are the photographed catalog; Components are the controls; Style is
- * the values every control is built from. A spec carries no mode field —
- * `modeOf` derives it from the kind, so a mis-sorted entry is impossible
- * rather than merely gated.
+ * `kind` is the nav BAND a spec draws in, not where it lives: EXP-1019 turned
+ * the page's three modes into the four sections of `sections/sections.json`,
+ * and a spec's section is DERIVED from its id and its kind
+ * (`sections/page.ts` `sectionOfSpec`) so a mis-sorted entry stays impossible
+ * rather than merely gated. `BAND_ORDER` there is what orders these inside a
+ * section.
  */
 export type ComponentKind =
   | `Inputs & pickers`
@@ -222,36 +228,7 @@ export type ComponentKind =
   | `Motion`
   | `Icons`
 
-export type Mode = `views` | `components` | `style`
-
-export interface ModeInfo {
-  id: Mode
-  label: string
-  blurb: string
-}
-
-export const MODES: Record<Mode, ModeInfo> = {
-  views: {
-    id: `views`,
-    label: `Views`,
-    blurb: `Every screen in the catalog, photographed on all five platforms.`,
-  },
-  components: {
-    id: `components`,
-    label: `Components`,
-    blurb: `The glass control set, rendered live from @exp/ui and the design tokens — not photographed.`,
-  },
-  style: {
-    id: `style`,
-    label: `Style`,
-    blurb: `The values the controls are made of: colour, shape, type, motion and the icon registry.`,
-  },
-}
-
-/** Kept as the name the renderer and the tests already use for the mode. */
-export const COMPONENTS_GROUP = MODES.components
-
-/** The kinds that live under Style; every other kind is a Component. */
+/** The kinds that live under Style; every other kind is a component band. */
 export const STYLE_KINDS: readonly ComponentKind[] = [
   `Colour`,
   `Shape & size`,
@@ -259,16 +236,6 @@ export const STYLE_KINDS: readonly ComponentKind[] = [
   `Motion`,
   `Icons`,
 ]
-
-/** Nav order within a mode. The union of both lists IS `ComponentKind`. */
-export const KIND_ORDER: Record<Exclude<Mode, `views`>, readonly ComponentKind[]> = {
-  components: [`Inputs & pickers`, `Buttons & chips`, `Lists & rows`, `Surfaces`, `Feedback`],
-  style: STYLE_KINDS,
-}
-
-export function modeOf(spec: { kind: ComponentKind }): Exclude<Mode, `views`> {
-  return STYLE_KINDS.includes(spec.kind) ? `style` : `components`
-}
 
 interface ComponentSpecBase {
   id: string

@@ -359,6 +359,14 @@ final class AgentComposerModel {
         AgentComposerPrompt.submitTitle(for: subject)
     }
 
+    /// EXP-1038: the headline verb over the composer ("Run" · "Implement" ·
+    /// "Ask the agent"), the contract's copy ×4 — the subject chips sit
+    /// beside it, so what a send starts is the page's main element rather
+    /// than a footnote inside the card.
+    var headline: String {
+        AgentComposerPrompt.headline(for: subject)
+    }
+
     /// The field's prompt per subject (`AgentComposerPrompt.placeholder`,
     /// web parity): a chat asks for the message, a picked action shows its
     /// own composer hint (EXP-825), anything else asks for what is optional
