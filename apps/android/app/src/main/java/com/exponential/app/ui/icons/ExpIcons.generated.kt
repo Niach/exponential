@@ -8215,6 +8215,8 @@ public object ExpIcons {
     public val scPush: ImageVector get() = `upload`
     /** Concept `session-shell`. */
     public val sessionShell: ImageVector get() = `terminal`
+    /** Concept `session-tree`. */
+    public val sessionTree: ImageVector get() = `workflow`
     /** Concept `settings-about`. */
     public val settingsAbout: ImageVector get() = `info`
     /** Concept `settings-account`. */

@@ -1,5 +1,5 @@
 import { render, screen, within } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CodingSession, Issue } from "@/db/schema"
 
 // EXP-897 Part 4: the overlay's SECTIONS per face. The model has its own
@@ -40,13 +40,35 @@ vi.mock(`@/components/agent-session-row`, () => ({
   RunningIndicator: () => <span data-testid="run-dot" />,
 }))
 vi.mock(`@/lib/collections`, () => ({
+  boardCollection: {},
   codingSessionCollection: {},
   issueCollection: {},
   issueRelationCollection: {},
 }))
+// EXP-1079: the badge reads four collections through `useLiveQuery`, each
+// query aliasing its source (`s` sessions, `i` issues, `r` relations, `b`
+// boards). The stub runs the builder against a probe that records the alias
+// and answers with THAT table's rows — empty unless a test fills it.
+const liveRows = vi.hoisted(() => ({
+  tables: {} as Record<string, unknown[]>,
+}))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
-  return { ...actual, useLiveQuery: () => ({ data: [] }) }
+  return {
+    ...actual,
+    useLiveQuery: (build: (query: unknown) => unknown) => {
+      let alias = ``
+      const chain = { where: () => chain }
+      const probe = {
+        from: (source: Record<string, unknown>) => {
+          alias = Object.keys(source)[0] ?? ``
+          return chain
+        },
+      }
+      const result = build(probe)
+      return { data: result === undefined ? [] : (liveRows.tables[alias] ?? []) }
+    },
+  }
 })
 
 import { PrGraphBadge, PrGraphOverlay } from "@/components/pr-graph-badge"
@@ -242,5 +264,72 @@ describe(`PrGraphBadge fallback (EXP-916)`, () => {
       />
     )
     expect(container.innerHTML).toBe(``)
+  })
+})
+
+// EXP-1079: the desktop showed "the runs around this one" on the Run face of
+// any run with a family; the web showed nothing there. Same badge now — and
+// beside the face toggle it wears the toggle's rung, like Stop and Resume.
+describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
+  afterEach(() => {
+    liveRows.tables = {}
+  })
+
+  const family = [session(`child`, `root`), session(`root`)]
+
+  it(`wears the session-tree concept for a run with a family and no pr relation`, () => {
+    liveRows.tables = { s: family }
+    render(
+      <PrGraphBadge teamId="t1" teamSlug="acme" face="run" session={family[0]} />
+    )
+    const badge = screen.getByTestId(`pr-graph-badge`)
+    expect(badge.getAttribute(`aria-label`)).toBe(`The runs around this one`)
+    expect(badge.querySelector(`svg.lucide-workflow`)).toBeTruthy()
+    // No stack, no batch — no `2 of 3`, no `n issues`.
+    expect(badge.textContent).toBe(``)
+  })
+
+  it(`stays away for a run that is alone, and on the changes face`, () => {
+    liveRows.tables = { s: [session(`alone`)] }
+    const { unmount } = render(
+      <PrGraphBadge
+        teamId="t1"
+        teamSlug="acme"
+        face="run"
+        session={session(`alone`)}
+      />
+    )
+    expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
+    unmount()
+    liveRows.tables = { s: family }
+    render(
+      <PrGraphBadge teamId="t1" teamSlug="acme" face="changes" session={family[0]} />
+    )
+    expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
+  })
+
+  it(`takes its height from its placement — the toggle's rung in the header, a chip elsewhere`, () => {
+    liveRows.tables = { s: family }
+    const { unmount } = render(
+      <PrGraphBadge
+        teamId="t1"
+        teamSlug="acme"
+        face="run"
+        session={family[0]}
+        placement="header"
+      />
+    )
+    const header = screen.getByTestId(`pr-graph-badge`)
+    expect(header.getAttribute(`data-size`)).toBe(`md`)
+    expect(header.className.split(/\s+/)).toContain(`h-9`)
+    expect(header.querySelector(`svg`)?.getAttribute(`class`)).toContain(`size-4`)
+    unmount()
+    render(
+      <PrGraphBadge teamId="t1" teamSlug="acme" face="run" session={family[0]} />
+    )
+    const chip = screen.getByTestId(`pr-graph-badge`)
+    expect(chip.getAttribute(`data-size`)).toBe(`sm`)
+    expect(chip.className.split(/\s+/)).not.toContain(`h-9`)
+    expect(chip.querySelector(`svg`)?.getAttribute(`class`)).toContain(`size-3`)
   })
 })

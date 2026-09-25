@@ -20,7 +20,18 @@ import {
   issueCollection,
   issueRelationCollection,
 } from "@/lib/collections"
-import { badgeKind, badgeLabel, prGraph } from "@/lib/pr-graph"
+import {
+  badgeLabel,
+  badgeShape,
+  prGraph,
+  type PrGraphFace,
+} from "@/lib/pr-graph"
+import {
+  PLACEMENT_GLYPH,
+  PLACEMENT_SIZE,
+  placementClass,
+  type RunPillPlacement,
+} from "@/components/run-action-pills"
 import { blockGraph, type GraphRelation } from "@/lib/issue-graph"
 import { IssueGraphView } from "@/components/issue-graph"
 import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
@@ -57,9 +68,28 @@ const NO_RELATIONS: readonly GraphRelation[] = []
 
 const StackIcon = conceptIcon(`pr-stack`)
 const BatchIcon = conceptIcon(`pr-batch`)
+// EXP-1079: the Run face of a run with a family but no PR relation wears the
+// session tree's own concept (the desktop's `BadgeGlyph::Runs`).
+const TreeIcon = conceptIcon(`session-tree`)
 
-/** Which face the overlay's sections belong to. */
-export type PrGraphFace = `issue` | `run` | `changes`
+export type { PrGraphFace } from "@/lib/pr-graph"
+
+/** EXP-1079 — where the pill stands, which is the ONLY thing that sizes it:
+ *  `header` = the md+ work header's right cluster, beside the face toggle, so
+ *  it wears the toggle's rung exactly like Stop / Resume / Merge
+ *  (`run-action-pills.tsx` `placement="header"`); `chip` = the phone bars and
+ *  list headers, the 24px chip. A 24px badge next to a 36px Stop read as a
+ *  stray — the desktop `pr_graph::badge_size` is the same rule. */
+export type PrGraphBadgePlacement = `header` | `chip`
+
+/** The badge's own name for the run-pill recipe it borrows. */
+const PLACEMENT_RECIPE: Record<PrGraphBadgePlacement, RunPillPlacement> = {
+  header: `header`,
+  chip: `tray`,
+}
+
+/** Byte-identical with the desktop tooltip (`pr_graph::badge_tooltip`). */
+export const RUNS_BADGE_NAME = `The runs around this one`
 
 export function PrGraphBadge({
   teamId,
@@ -68,6 +98,7 @@ export function PrGraphBadge({
   issue = null,
   session = null,
   variant = `pill`,
+  placement = `chip`,
   fallback = null,
   onMergeStack,
   className,
@@ -80,6 +111,7 @@ export function PrGraphBadge({
   /** `pill` = the work header's glyph + `2 of 3`; `glyph` = a list row's
    *  lead icon (the Reviews queue's batch rows). */
   variant?: `pill` | `glyph`
+  placement?: PrGraphBadgePlacement
   /** EXP-916: what to draw when the graph has NO badge (a batch row whose
    *  siblings have not synced yet). A `glyph` badge sits in a fixed lead cell
    *  of a grid row, and returning nothing shifted the whole row one column. */
@@ -151,15 +183,19 @@ export function PrGraphBadge({
     [issue, session, issues, sessions, relations]
   )
 
-  const kind = badgeKind(graph)
+  const kind = badgeShape(graph, face)
   if (!kind) return fallback
-  const label = badgeLabel(graph)
+  const label = kind === `runs` ? null : badgeLabel(graph)
   const name =
-    kind === `stack+batch`
-      ? `Stack and batch`
-      : kind === `stack`
-        ? `Pull request stack`
-        : `Batch pull request`
+    kind === `runs`
+      ? RUNS_BADGE_NAME
+      : kind === `stack+batch`
+        ? `Stack and batch`
+        : kind === `stack`
+          ? `Pull request stack`
+          : `Batch pull request`
+  const recipe = PLACEMENT_RECIPE[placement]
+  const glyphClass = PLACEMENT_GLYPH[recipe]
 
   const trigger =
     variant === `glyph` ? (
@@ -183,21 +219,24 @@ export function PrGraphBadge({
       </button>
     ) : (
       <Pill
+        size={PLACEMENT_SIZE[recipe]}
         mode="action"
         aria-label={name}
         title={name}
         data-testid="pr-graph-badge"
-        className={className}
+        data-placement={placement}
+        className={cn(`shrink-0`, placementClass(recipe), className)}
         onClick={(event) => event.stopPropagation()}
         onMouseEnter={() => {
           if (!isMobile) setOpen(true)
         }}
       >
+        {kind === `runs` && <TreeIcon className={glyphClass} />}
         {(kind === `stack` || kind === `stack+batch`) && (
-          <StackIcon className="size-3" />
+          <StackIcon className={glyphClass} />
         )}
         {(kind === `batch` || kind === `stack+batch`) && (
-          <BatchIcon className="size-3" />
+          <BatchIcon className={glyphClass} />
         )}
         {label}
       </Pill>
