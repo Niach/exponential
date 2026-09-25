@@ -560,38 +560,6 @@ pub struct CreatedCommand {
     pub id: String,
 }
 
-/// `devices.createCommand` (owner-side) — queue a `worktree_remove` (repo +
-/// branch required) or `worktree_prune` against one of the CALLER's own
-/// devices; the device picks it up on its next heartbeat (nudged when
-/// online).
-pub fn create_command(
-    trpc: &TrpcClient,
-    device_id: &str,
-    kind: &str,
-    repo_full_name: Option<&str>,
-    branch: Option<&str>,
-) -> Result<CreatedCommand, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        device_id: &'a str,
-        kind: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        repo_full_name: Option<&'a str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        branch: Option<&'a str>,
-    }
-    trpc.mutation(
-        "devices.createCommand",
-        &Input {
-            device_id,
-            kind,
-            repo_full_name,
-            branch,
-        },
-    )
-}
-
 /// `devices.createCommand` for an `agent_login` (EXP-484) — ask one of the
 /// CALLER's own machines to run `agent`'s sign-in flow. `switch` first signs
 /// the current account out (a Codex switch REVOKES that session server-side,
@@ -1300,20 +1268,17 @@ mod tests {
     fn command_lifecycle_bindings_round_trip() {
         let (base, captured) =
             one_shot_server(200, r#"{"result":{"data":{"id":"cmd-9"}}}"#);
-        let created = create_command(
-            &client(&base),
-            "dev-1",
-            "worktree_remove",
-            Some("acme/web"),
-            Some("exp/EXP-7"),
-        )
-        .unwrap();
+        // EXP-1020: the worktree emitter is gone (no client queues those
+        // kinds any more), so the lifecycle rides the agent-update one —
+        // `complete_command` / `get_command` below are what the DEVICE side
+        // still calls for every kind, worktree commands from an older
+        // client included.
+        let created = create_agent_update_command(&client(&base), "dev-1", "claude").unwrap();
         assert_eq!(created.id, "cmd-9");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/devices.createCommand HTTP/1.1"));
-        assert!(request.ends_with(
-            r#"{"deviceId":"dev-1","kind":"worktree_remove","repoFullName":"acme/web","branch":"exp/EXP-7"}"#
-        ));
+        assert!(request
+            .ends_with(r#"{"deviceId":"dev-1","kind":"agent_update","agent":"claude"}"#));
 
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
         complete_command(&client(&base), "cmd-9", false, Some("Uncommitted changes")).unwrap();

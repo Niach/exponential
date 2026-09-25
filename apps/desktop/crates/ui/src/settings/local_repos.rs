@@ -25,7 +25,7 @@
 //!   hatch.
 //! - **Worktrees** (EXP-369, regrouped in EXP-694): the scan carries each
 //!   clone's linked worktrees, and the pane renders ALL of them as ONE flat
-//!   inset-grouped list — the Device settings dialog's look, no per-clone
+//!   inset-grouped list — no per-clone
 //!   nesting and no expander (a clone with no worktrees simply contributes no
 //!   row; its maintenance row still appears in the "Local repositories" group
 //!   below). Per worktree: a confirmed force-remove and a terminal button
@@ -42,7 +42,7 @@
 //!   modifications always skip (reported); untracked-only debris does not.
 //!   All git ops are `std::process::Command("git")` with explicit argv
 //!   (masterplan L5) — no `gh`, no git library, no shell. EXP-694: the
-//!   section header carries the Device-settings broom, which sweeps EVERY
+//!   section header carries the broom, which sweeps EVERY
 //!   clone (each still under its own policy and its own inline report); a
 //!   clone row keeps the same broom for itself alone.
 //! - **Remove local copy**: delete the clone dir + its `.worktrees` sibling
@@ -50,6 +50,13 @@
 //!   one of the clone's worktrees (the Remove button disables with the reason).
 //!
 //! No auto-GC (§4.7): every deletion is an explicit, confirmed user action.
+//!
+//! EXP-1020: this is THE worktrees surface. The device settings dialog's
+//! section (and the remote `worktree_remove` / `worktree_prune` queue behind
+//! it) is gone on all four clients — a machine's worktrees are LOCAL, so
+//! they are cleaned where they live. The section also says when the repos
+//! root's filesystem is running low, since worktrees are the one thing here
+//! that grows without being asked.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -155,6 +162,56 @@ struct ActionState {
 /// (refresh, prune, remove) drop the cache entry instead of waiting this out.
 const SIZE_TTL: Duration = Duration::from_secs(60);
 
+/// EXP-1020: how long a free-space reading stays good enough. One `statvfs`
+/// is cheap, but the pane re-renders on every synced echo and a syscall per
+/// frame is still a syscall per frame.
+const DISK_TTL: Duration = Duration::from_secs(30);
+
+/// EXP-1020: when the Worktrees section warns. Worktrees are the one thing
+/// on this page that GROWS without being asked, so the page that can delete
+/// them is where a full disk has to be said out loud — either bound trips
+/// it, so a small SSD warns on the fraction and a large one on the absolute
+/// headroom.
+const DISK_LOW_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+const DISK_LOW_FRACTION: f64 = 0.10;
+
+/// The filesystem holding `path`: `(free, capacity)` in bytes. `None` when
+/// the path does not exist yet, the syscall refuses, or the platform has no
+/// probe here — an unknown disk never warns.
+///
+/// `statvfs` is unix-only (libc does not declare it on Windows, and
+/// build-desktop.yml does build an msvc target), so the windows arm returns
+/// `None` until someone wires `GetDiskFreeSpaceExW`. A missing warning is
+/// the safe direction: the section still works, it just says nothing about
+/// headroom.
+#[cfg(unix)]
+fn disk_free(path: &Path) -> Option<(u64, u64)> {
+    let c_path = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).ok()?;
+    // SAFETY: `c_path` is a valid NUL-terminated string for the call, and
+    // `stat` is written only on success (the zeroed value is never read).
+    unsafe {
+        let mut stat: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(c_path.as_ptr(), &mut stat) != 0 {
+            return None;
+        }
+        let unit = stat.f_frsize as u64;
+        Some((stat.f_bavail as u64 * unit, stat.f_blocks as u64 * unit))
+    }
+}
+
+#[cfg(not(unix))]
+fn disk_free(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
+/// Whether `(free, capacity)` is low enough to say so.
+fn disk_is_low(free: u64, capacity: u64) -> bool {
+    if capacity == 0 {
+        return false;
+    }
+    free < DISK_LOW_BYTES || (free as f64 / capacity as f64) < DISK_LOW_FRACTION
+}
+
 pub struct LocalReposPane {
     scan: Scan,
     /// The `repos_root` the current `scan` belongs to; a settings change
@@ -164,6 +221,9 @@ pub struct LocalReposPane {
     /// re-scans so an auto-invalidation refills the rows instead of flashing
     /// skeletons, and feeds the [`SIZE_TTL`] freshness check.
     sizes: HashMap<PathBuf, (u64, Instant)>,
+    /// EXP-1020: the repos root's filesystem headroom, `((free, capacity),
+    /// when read)` — see [`DISK_TTL`].
+    disk: Option<((u64, u64), Instant)>,
     /// The scan no longer describes the disk (an action, a Refresh click, or
     /// one of the EXP-490 auto-invalidations) — the next render re-walks.
     stale: bool,
@@ -217,6 +277,7 @@ impl LocalReposPane {
             scan: Scan::Idle,
             scanned_root: None,
             sizes: HashMap::new(),
+            disk: None,
             stale: false,
             scanning: false,
             generation: 0,
@@ -545,9 +606,9 @@ impl LocalReposPane {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    /// EXP-694: the Worktrees section's prune affordance is MACHINE-wide,
-    /// like the Device settings dialog's broom — the flat list is not grouped
-    /// by clone any more, so neither is the sweep. Each clone still runs its
+    /// EXP-694: the Worktrees section's prune affordance is MACHINE-wide —
+    /// the flat list is not grouped by clone any more, so neither is the
+    /// sweep. Each clone still runs its
     /// own [`Self::run_prune`] (its own policy, its own inline report).
     fn run_prune_all(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let clones: Vec<(String, PathBuf)> = match &self.scan {
@@ -561,6 +622,20 @@ impl LocalReposPane {
         for (full_name, clone) in clones {
             self.run_prune(full_name, clone, window, cx);
         }
+    }
+
+    /// EXP-1020: the repos root's headroom, re-read at most every
+    /// [`DISK_TTL`]. Takes `&mut self` because the reading is cached on the
+    /// pane, and it is read from the render.
+    fn disk_headroom(&mut self, root: &Path) -> Option<(u64, u64)> {
+        if let Some((reading, at)) = self.disk {
+            if at.elapsed() < DISK_TTL {
+                return Some(reading);
+            }
+        }
+        let reading = disk_free(root)?;
+        self.disk = Some((reading, Instant::now()));
+        Some(reading)
     }
 
     /// Whether any clone is mid-prune/-remove (the header broom's spinner).
@@ -737,8 +812,7 @@ impl LocalReposPane {
     /// One worktree row of the FLAT worktrees group (EXP-369/694): its repo +
     /// branch (or directory) over the path on disk, with the terminal
     /// dropdown and the confirmed force-remove on the right. Not grouped by
-    /// clone any more — the machine's worktrees are ONE list, the way the
-    /// Device settings dialog shows them.
+    /// clone any more — the machine's worktrees are ONE list.
     #[allow(clippy::too_many_arguments)]
     fn render_worktree_row(
         &self,
@@ -897,8 +971,7 @@ impl Render for LocalReposPane {
             .unwrap_or_default();
 
         // The count would be a REPO count — misleading under this title.
-        // EXP-694: the broom sits in the header, machine-wide, exactly like
-        // the Device settings dialog's.
+        // EXP-694: the broom sits in the header, machine-wide.
         let sweeping = self.any_busy();
         let has_worktrees = matches!(&self.scan, Scan::Ready(repos)
             if repos.iter().any(|repo| !repo.worktrees.is_empty()));
@@ -932,6 +1005,23 @@ impl Render for LocalReposPane {
                 .text_ellipsis()
                 .child(SharedString::from(root.to_string_lossy().into_owned())),
         );
+
+        // EXP-1020: worktrees are the one thing on this page that grows
+        // without being asked, so a disk running out is said HERE, next to
+        // the broom that frees it.
+        if let Some((free, capacity)) = self.disk_headroom(&root) {
+            if disk_is_low(free, capacity) {
+                body = body.child(
+                    div().text_xs().text_color(cx.theme().warning).child(
+                        SharedString::from(format!(
+                            "Only {} free on this disk. Pruning merged worktrees frees \
+                             what the agents left behind.",
+                            format_size(free)
+                        )),
+                    ),
+                );
+            }
+        }
 
         match &self.scan {
             // Only before the FIRST result (or right after a root change) —
@@ -1358,6 +1448,21 @@ mod tests {
         assert_eq!(format_size(1024), "1.0 KB");
         assert_eq!(format_size(1_572_864), "1.5 MB");
         assert_eq!(format_size(1_610_612_736), "1.5 GB");
+    }
+
+    /// EXP-1020: either bound trips the warning — a small disk runs out of
+    /// FRACTION first, a large one out of absolute headroom.
+    #[test]
+    fn the_disk_warning_trips_on_the_fraction_or_the_headroom() {
+        const GB: u64 = 1024 * 1024 * 1024;
+        // Plenty on both counts.
+        assert!(!disk_is_low(200 * GB, 1000 * GB));
+        // A big disk with little left: the absolute bound.
+        assert!(disk_is_low(5 * GB, 4000 * GB));
+        // A small disk with a healthy-looking absolute number: the fraction.
+        assert!(disk_is_low(20 * GB, 1000 * GB));
+        // An unknown filesystem never warns.
+        assert!(!disk_is_low(0, 0));
     }
 
     #[test]
