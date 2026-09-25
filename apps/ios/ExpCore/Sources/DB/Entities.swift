@@ -2032,8 +2032,9 @@ extension DeviceEntity: Codable {
 // MARK: - DeviceWorktree (EXP-481)
 
 // Per-device worktree inventory — the 18th Electric shape, reported by the
-// device itself (powers resume offers + the device-settings worktree list,
-// from persisted data even while the machine is offline). `device_row_id`
+// device itself (powers the composer's resume offers, from persisted data
+// even while the machine is offline; EXP-1042 took the phone's worktree list
+// away, the IDE owns that surface). `device_row_id`
 // references the devices ROW id (uuid), never the steer device-id string.
 // The server-side scoping mirrors (user_id/shared_team_ids) stay out of the
 // allowlist and never reach this decoder.

@@ -1,10 +1,8 @@
 // Device settings (EXP-481) — the per-device view the row's settings gear
-// opens. Name, the EXP-622 default-device toggle and
-// sharing are registry writes (work offline); agent defaults edit the SERVER-AUTHORITATIVE devices row (an
-// offline device converges on its next heartbeat), and the worktree list
-// manages the device's reported inventory through the durable command queue
-// (worktree_remove / worktree_prune — queued commands run when an offline
-// device returns). Owner-only: the gear only exists on "My devices" rows.
+// opens. Name, the EXP-622 default-device toggle and sharing are registry
+// writes (work offline); agent defaults edit the SERVER-AUTHORITATIVE devices
+// row (an offline device converges on its next heartbeat). Owner-only: the
+// gear only exists on "My devices" rows.
 //
 // EXP-862: NO accounts here. Signing in, picking the default login and
 // removing one all live on the account chips (the device row's and the
@@ -13,12 +11,20 @@
 // EXP-909 follow-up: a device row carries ONE control, the gear — so Update
 // and Remove live HERE, as the last two sections, with the predicates and the
 // confirm copy they had on the row.
+//
+// EXP-1020: ONE layout on the four clients. No worktrees — a machine's
+// worktrees are a LOCAL surface, the IDE's Settings → Worktrees, and the
+// remote command queue that drove them from here is gone with them. The
+// agent-defaults card ends in a "Workflow settings" SUB-SHELL row (the model
+// pair a new workflow is seeded from, `launch_defaults.workflow`), and
+// "Remove device" is a plain row of the same shell rather than a section of
+// its own.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { contract } from "@exp/domain-contract"
 import type { DeviceIcon } from "@exp/db-schema/domain"
-import type { Device, SyncedDeviceWorktree } from "@/db/schema"
+import type { Device } from "@/db/schema"
 import {
   conceptIcon,
   Button,
@@ -29,6 +35,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AccountPicker,
+  Combobox,
   AlertDialogHeader,
   AlertDialogTitle,
   Dialog,
@@ -44,17 +51,24 @@ import {
   GlassSectionHeader,
   GlassToggleRow,
   Pill,
+  SubShell,
+  SubShellHost,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { useNow } from "@/hooks/use-now"
-import { deviceCollection, deviceWorktreeCollection, teamCollection } from "@/lib/collections"
+import { deviceCollection, teamCollection } from "@/lib/collections"
 import {
+  agentModelValues,
   agentSeed,
   agentSupportsPlanMode,
   agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
+import {
+  workflowDefaultsFor,
+  workflowDefaultsSummary,
+} from "@/lib/devices/workflow-defaults"
 import {
   deviceCanUpdateNow,
   deviceRowIsOnline,
@@ -65,15 +79,15 @@ import {
 import {
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,
+  modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
-import { accountOptionKey, flattenAccounts, type AccountOption } from "@/lib/accounts/account-option"
+import { accountOptionKey } from "@/lib/accounts/account-option"
+import { deviceAccountOptions } from "@/lib/devices/account-options"
 import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { agentLabel } from "@exp/ui"
 
-const BranchIcon = conceptIcon(`ui-branch`)
-const WarningIcon = conceptIcon(`ui-warning`)
-const PruneIcon = conceptIcon(`ui-clean`)
 const RemoveIcon = conceptIcon(`ui-delete`)
+const WorkflowIcon = conceptIcon(`nav-workflows`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
 const UpdateIcon = conceptIcon(`ui-update`)
 
@@ -102,7 +116,7 @@ interface AgentDraft {
 }
 
 /** One queued/in-flight command the dialog is watching. `key` anchors the
- * inline error/progress to its row (`prune` or `repo branch`). */
+ * inline error/progress to its row (`update <agent>`). */
 interface TrackedCommand {
   id: string
   key: string
@@ -142,25 +156,6 @@ export function DeviceSettingsDialog({
   )
   const row = (liveRows?.[0] as Device | undefined) ?? null
 
-  const { data: worktreeRows } = useLiveQuery(
-    (query) =>
-      open && rowId
-        ? query
-            .from({ w: deviceWorktreeCollection })
-            .where(({ w }) => eq(w.deviceRowId, rowId))
-        : undefined,
-    [open, rowId]
-  )
-  const worktrees = useMemo(
-    () =>
-      [...((worktreeRows ?? []) as SyncedDeviceWorktree[])].sort((a, b) =>
-        `${a.repoFullName} ${a.branch}`.localeCompare(
-          `${b.repoFullName} ${b.branch}`
-        )
-      ),
-    [worktreeRows]
-  )
-
   const { data: teamRows } = useLiveQuery(
     (query) => (open ? query.from({ t: teamCollection }) : undefined),
     [open]
@@ -198,6 +193,13 @@ export function DeviceSettingsDialog({
     string | undefined
   >(undefined)
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
+  // EXP-1020: the "Workflow settings" pair (`launch_defaults.workflow`) —
+  // what a new workflow created on this machine is seeded from. It belongs
+  // to the DEFAULT account's agent, not to the agent tab, so it reseeds
+  // whenever that changes.
+  const [workflowDraft, setWorkflowDraft] = useState(() =>
+    workflowDefaultsFor(contract.codingAgent.values[0], null)
+  )
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
   // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
@@ -229,21 +231,11 @@ export function DeviceSettingsDialog({
     row?.agentUsage,
   ])
 
-  // EXP-872: the default-account rows — the machine's flattened logins, or
-  // one ambient option per editable agent while it reports none (an offline
-  // machine's defaults stay editable either way).
+  // EXP-872/EXP-1020: the default-account rows — the machine's flattened
+  // logins plus one ambient option per editable agent that reports none, so
+  // a one-login machine can still be pointed at the other agent.
   const defaultAccountOptions = useMemo(() => {
-    const flat: AccountOption[] = row ? flattenAccounts(row) : []
-    const options: AccountOption[] =
-      flat.length > 0
-        ? flat
-        : editorAgents.map((agent) => ({
-            id: SYSTEM_PROFILE_ID,
-            agent: agent as AccountOption[`agent`],
-            email: agentLabel(agent),
-            isDeviceDefault: false,
-            health: `unknown` as const,
-          }))
+    const options = deviceAccountOptions(row, editorAgents)
     return options.map((option) => ({
       key: accountOptionKey(option),
       id: option.id,
@@ -253,6 +245,18 @@ export function DeviceSettingsDialog({
       limits: option.limits,
     }))
   }, [row, editorAgents])
+  // EXP-1020: the workflow pair is picked from the DEFAULT account's agent's
+  // models — the two vocabularies do not overlap, so the tab's agent would
+  // offer names a workflow on this machine could never run.
+  const workflowModelOptions = useMemo(
+    () =>
+      agentModelValues(defaultAgentDraft).map((value) => ({
+        value,
+        label: modelLabel(value),
+      })),
+    [defaultAgentDraft]
+  )
+
   const defaultAccountKey =
     defaultAccountOptions.find(
       (option) =>
@@ -287,6 +291,9 @@ export function DeviceSettingsDialog({
       configuredDefault === defaultAgent
         ? (source.launchDefaults?.defaultAccount ?? undefined)
         : undefined
+    )
+    setWorkflowDraft(
+      workflowDefaultsFor(defaultAgent, source.launchDefaults?.workflow ?? null)
     )
     return defaultAgent
   }
@@ -424,6 +431,7 @@ export function DeviceSettingsDialog({
     drafts,
     defaultAgentDraft,
     defaultAccountDraft,
+    workflowDraft,
     namePending,
     defaultsPending,
   })
@@ -434,6 +442,7 @@ export function DeviceSettingsDialog({
     drafts,
     defaultAgentDraft,
     defaultAccountDraft,
+    workflowDraft,
     namePending,
     defaultsPending,
   }
@@ -517,6 +526,10 @@ export function DeviceSettingsDialog({
               ? snapshot.defaultAccountDraft
               : null,
           agents,
+          // EXP-1020: the pair rides EVERY save — setLaunchDefaults REPLACES
+          // the stored object, and the server only carries a stored pair
+          // forward for clients that predate the key.
+          workflow: snapshot.workflowDraft,
         },
       })
       .then((result) => {
@@ -555,6 +568,11 @@ export function DeviceSettingsDialog({
     )
   }
 
+  const patchWorkflow = (patch: Partial<typeof workflowDraft>) => {
+    setWorkflowDraft((current) => ({ ...current, ...patch }))
+    scheduleDefaults()
+  }
+
   const patchDraft = (patch: Partial<AgentDraft>) => {
     setDrafts((current) => ({
       ...current,
@@ -577,20 +595,14 @@ export function DeviceSettingsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // ── Worktree commands (durable queue + poll while open) ──────────────────
+  // ── Agent CLI updates (durable queue + poll while open) ──────────────────
+  // EXP-1020: worktree_remove / worktree_prune left with the worktrees
+  // section — the only command this dialog still queues is an agent update.
   const [tracked, setTracked] = useState<TrackedCommand[]>([])
-  const [removeTarget, setRemoveTarget] =
-    useState<SyncedDeviceWorktree | null>(null)
-
-  const commandKey = (worktree: SyncedDeviceWorktree) =>
-    `${worktree.repoFullName} ${worktree.branch}`
 
   const queueCommand = async (
     key: string,
-    input:
-      | { kind: `worktree_prune` }
-      | { kind: `worktree_remove`; repoFullName: string; branch: string }
-      | { kind: `agent_update`; agent: string }
+    input: { kind: `agent_update`; agent: string }
   ) => {
     if (!deviceId) return
     setSectionErrors((current) => ({ ...current, [key]: `` }))
@@ -655,33 +667,8 @@ export function DeviceSettingsDialog({
     }
   }, [open, tracked, online])
 
-  // A tracked remove whose row vanished from the synced inventory is done —
-  // the Electric delta usually beats the next getCommand poll, so the spinner
-  // clears on the earliest signal. Prune stays poll-only: its outcome is a
-  // summary, not a specific row.
-  useEffect(() => {
-    if (tracked.length === 0) return
-    const present = new Set(worktrees.map((worktree) => commandKey(worktree)))
-    setTracked((current) =>
-      current.filter(
-        (command) =>
-          command.key === `prune` ||
-          isAgentUpdateKey(command.key) ||
-          present.has(command.key)
-      )
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worktrees])
-
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
-
-  const dirtyLabel = (dirty: string): string | null =>
-    dirty === `tracked`
-      ? `uncommitted changes`
-      : dirty === `untracked`
-        ? `untracked files`
-        : null
 
   // ── Update + Remove (EXP-909 follow-up) ──────────────────────────────────
   // The controls the device row used to carry, predicates and confirm copy
@@ -776,24 +763,16 @@ export function DeviceSettingsDialog({
           <DialogTitle>Device settings</DialogTitle>
         </DialogHeader>
         {/* EXP-694: one inset-grouped card stack — the same rows, in the same
-            order, as the iOS/Android device sheets. 8px between groups.
-            EXP-798: from `sm` up the stack splits LANDSCAPE like the IDE's
-            dialog (EXP-762): settings column left, worktrees column right,
-            each scrolling on its own — one portrait column overflowed the
-            viewport and clipped the agent card mid-row. The worktrees column
-            is a FIXED 20rem (the IDE's 320px) rather than a flex share, so a
-            wider panel widens the settings column (its pickers and account
-            line are what need the room); a mono `repo branch` path truncates.
-            Below `sm` the grid collapses back to the stacked phone sheet.
-            EXP-939: the grid needs an explicit `minmax(0,1fr)` ROW — an
-            implicit `auto` row sizes to its content, so the columns never got
-            a height to scroll inside and the panel simply clipped the last
-            rows (the agent card's Plan mode). Each column's own children keep
-            their natural height (`*:shrink-0`); without that the flex column
-            squeezed every group instead, and a group is `overflow-hidden`, so
-            a fifth shared team was cut off with nothing to scroll. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_20rem] sm:grid-rows-[minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
-          <div className="flex shrink-0 flex-col gap-2 *:shrink-0 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+            order, as the iOS/Android device sheets. 8px between groups. ONE
+            column on every width since EXP-1020 took the worktrees away: the
+            landscape split (EXP-798) existed to park them beside the
+            settings, and a single column is what the phone sheet and the
+            three native clients show.
+            EXP-1029/1020: the stack is a SUB-SHELL host — "Workflow settings"
+            slides its page in place of the whole stack, with a back button on
+            top, rather than opening a dialog on top of a dialog. */}
+        <SubShellHost className="min-h-0 flex-1 gap-2 overflow-y-auto">
+          <div className="flex flex-col gap-2 *:shrink-0">
             {/* ── Name ─────────────────────────────────────────────────── */}
             {/* EXP-924: the identity row every form shares (board, action):
                 the icon picker, then the bare name field. */}
@@ -929,6 +908,11 @@ export function DeviceSettingsDialog({
                   if (!option) return
                   setDefaultAgentDraft(option.agent)
                   setDefaultAccountDraft(option.id)
+                  // The pair belongs to the picked agent now: a name from the
+                  // other vocabulary falls back to that agent's defaults.
+                  setWorkflowDraft((current) =>
+                    workflowDefaultsFor(option.agent, current)
+                  )
                   scheduleDefaults()
                 }}
                 data-testid="device-settings-default-account"
@@ -957,128 +941,53 @@ export function DeviceSettingsDialog({
               onUltracodeChange={(value) => patchDraft({ ultracode: value })}
               planMode={draft.planMode}
               onPlanModeChange={(value) => patchDraft({ planMode: value })}
+              /* EXP-1020: the LAST ROW of the agent card, not a card of its
+                 own — the model pair a workflow started on this machine is
+                 seeded from. Shown whichever agent is selected (it hangs off
+                 the DEFAULT account's agent, not the tab), and it opens as a
+                 page of this same shell rather than a second dialog. */
+              trailing={
+                <SubShell
+                  label="Workflow settings"
+                  icon={WorkflowIcon}
+                  value={workflowDefaultsSummary(workflowDraft, modelLabel)}
+                  data-testid="device-settings-workflow"
+                >
+                  <GlassGroup>
+                    <Combobox
+                      triggerVariant="row"
+                      searchable={false}
+                      mobileTitle="Model"
+                      value={workflowDraft.model}
+                      onChange={(value) => {
+                        if (value !== null) patchWorkflow({ model: value })
+                      }}
+                      options={workflowModelOptions}
+                    />
+                    <Combobox
+                      triggerVariant="row"
+                      searchable={false}
+                      mobileTitle="Strong model"
+                      value={workflowDraft.strongModel}
+                      onChange={(value) => {
+                        if (value !== null) patchWorkflow({ strongModel: value })
+                      }}
+                      options={workflowModelOptions}
+                    />
+                  </GlassGroup>
+                  <p className="px-1 text-xs text-muted-foreground">
+                    Leaf nodes and the subagents inside them run on the model.
+                    Contract, integration and risky nodes, and every review,
+                    run on the strong model.
+                  </p>
+                </SubShell>
+              }
             />
             {sectionErrors.defaults && (
               <p className="px-1 text-xs text-destructive">
                 {sectionErrors.defaults}
               </p>
             )}
-          </div>
-
-          {/* ── Worktrees (reported inventory + durable commands) ─────── */}
-          <div className="flex shrink-0 flex-col gap-2 *:shrink-0 sm:min-h-0 sm:shrink sm:overflow-y-auto">
-            <GlassSectionHeader
-              label="Worktrees"
-              trailing={
-                /* EXP-688: icon only — the label repeated the section it sits
-                   in, and the row reads as a heading with an action again.
-                   EXP-862: a GHOST icon button ×4, no circle, no border. */
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground"
-                  aria-label="Prune merged worktrees"
-                  title="Prune merged worktrees"
-                  disabled={pendingKey(`prune`) || worktrees.length === 0}
-                  onClick={() =>
-                    void queueCommand(`prune`, { kind: `worktree_prune` })
-                  }
-                >
-                  {pendingKey(`prune`) ? (
-                    <LoaderCircle className="size-3.5 animate-spin" />
-                  ) : (
-                    <PruneIcon className="size-3.5" />
-                  )}
-                </Button>
-              }
-            />
-            {!online && (worktrees.length > 0 || pendingKey(`prune`)) && (
-              <p className="px-1 pb-1 text-xs text-muted-foreground">
-                This device is offline — queued changes run when it comes
-                online.
-              </p>
-            )}
-            {sectionErrors.prune && (
-              <p className="px-1 pb-1 text-xs text-destructive">
-                {sectionErrors.prune}
-              </p>
-            )}
-            <GlassGroup>
-              {worktrees.length === 0 ? (
-                <p className="px-4 py-3 text-xs text-muted-foreground">
-                  No worktrees reported by this device.
-                </p>
-              ) : (
-                worktrees.map((worktree) => {
-                  const key = commandKey(worktree)
-                  const removing = pendingKey(key)
-                  const dirty = dirtyLabel(worktree.dirty)
-                  return (
-                    <div
-                      key={worktree.id}
-                      className="flex flex-col gap-0.5 px-4 py-3"
-                    >
-                      <div className="flex items-center gap-2">
-                        <BranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                          <span className="text-muted-foreground">
-                            {worktree.repoFullName}
-                          </span>
-                          {` `}
-                          {worktree.branch}
-                        </span>
-                        {worktree.issueIdentifier && (
-                          <span className="shrink-0 rounded-sm border border-glass-stroke-card px-1 text-[10px] text-muted-foreground">
-                            {worktree.issueIdentifier}
-                          </span>
-                        )}
-                        {dirty && (
-                          <span
-                            className="flex shrink-0 items-center gap-0.5 text-[10px] text-amber-500"
-                            title={`This worktree has ${dirty}.`}
-                          >
-                            <WarningIcon className="size-3" />
-                            {dirty}
-                          </span>
-                        )}
-                        {worktree.busy && (
-                          <span
-                            className="shrink-0 text-[10px] text-emerald-500"
-                            title="A live coding session is using this worktree."
-                          >
-                            in use
-                          </span>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="shrink-0 text-muted-foreground"
-                          title={
-                            worktree.busy
-                              ? `A live session is using this worktree.`
-                              : `Remove this worktree on the device`
-                          }
-                          disabled={worktree.busy || removing}
-                          onClick={() => setRemoveTarget(worktree)}
-                        >
-                          {removing ? (
-                            <LoaderCircle className="size-3.5 animate-spin" />
-                          ) : (
-                            <RemoveIcon className="size-3.5" />
-                          )}
-                        </Button>
-                      </div>
-                      {sectionErrors[key] && (
-                        <p className="pl-5 text-xs text-destructive">
-                          {sectionErrors[key]}
-                        </p>
-                      )}
-                    </div>
-                  )
-                })
-              )}
-            </GlassGroup>
-
             {/* ── Update: the daemon row (server devices only — desktop apps
                 update themselves, EXP-420/FEED-36) plus one row per agent CLI
                 the machine reports, each with its own remote self-update. */}
@@ -1230,8 +1139,8 @@ export function DeviceSettingsDialog({
               </>
             )}
 
-            {/* ── Remove ───────────────────────────────────────────────── */}
-            <GlassSectionHeader label="Remove" />
+            {/* ── Remove (EXP-1020: a row of the same shell, not a section
+                of its own — it needs no headline to be found) ───────────── */}
             <GlassGroup>
               <Button
                 variant="ghost"
@@ -1243,44 +1152,7 @@ export function DeviceSettingsDialog({
               </Button>
             </GlassGroup>
           </div>
-        </div>
-
-        <AlertDialog
-          open={removeTarget !== null}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setRemoveTarget(null)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Remove worktree</AlertDialogTitle>
-              <AlertDialogDescription>
-                Remove {removeTarget?.branch} ({removeTarget?.repoFullName}) on
-                “{label}”? The device refuses if the worktree has uncommitted
-                changes.
-                {online ? `` : ` It runs when the device comes online.`}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  const target = removeTarget
-                  setRemoveTarget(null)
-                  if (target) {
-                    void queueCommand(commandKey(target), {
-                      kind: `worktree_remove`,
-                      repoFullName: target.repoFullName,
-                      branch: target.branch,
-                    })
-                  }
-                }}
-              >
-                Remove
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        </SubShellHost>
 
         {/* FEED-36: Update now — the daemon ends every live session on the
             machine and restarts on the queued version; confirmed, since it
