@@ -132,7 +132,8 @@ private fun ActionInputField(
         }
         // EXP-259: the value is the REPRESENTATIVE issue id of an open
         // issue-linked PR (batch PRs dedupe by prUrl, so one row can list
-        // several identifiers).
+        // several identifiers). EXP-1072: a workflow's open final PR is an
+        // option too, its value the WORKFLOW id.
         "pr" -> if (pullRequests.isEmpty()) {
             PickerRow(
                 label = label,

@@ -88,6 +88,11 @@ struct WorkflowsListView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                // EXP-1086: a run of it asked a person something.
+                if model?.asking.contains(workflow.id) == true {
+                    FloatingBarBadgeDot(color: DesignTokens.Semantic.red)
+                        .accessibilityLabel(WorkflowView.needsYouLabel)
+                }
                 if !metrics.cycles.isEmpty {
                     AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                         .foregroundStyle(DesignTokens.Palette.destructive)

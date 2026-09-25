@@ -277,9 +277,6 @@ struct Pass {
     /// EXP-984: `node id → its latest review`, whose findings the author is
     /// handed verbatim.
     review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
-    /// EXP-984: `node id → whether its run announced a contract`, the input
-    /// to the `contractChanges` metric.
-    checkpointed: HashSet<String>,
     /// EXP-984: `reviewer session id → live` off the synced rows, for every
     /// reviewer run this device recorded; a row that has not synced is
     /// absent. What settles a review that ended without a verdict.
@@ -296,9 +293,7 @@ struct StartOrder {
     workflow_id: String,
     workflow_name: String,
     decisions: String,
-    /// EXP-983: the workflow's start mode and the issues this node builds
-    /// on — the two extra prompt lines.
-    start_on: String,
+    /// EXP-983: the issues this node builds on — the prompt's upstream line.
     blockers: Vec<String>,
     /// The branch this node is cut from: the integration branch, a blocker's
     /// own branch, or a synthetic base of several (EXP-983).
@@ -454,7 +449,6 @@ fn snapshot_for(
         let mut edge_nodes = Vec::new();
         let mut board_id = None;
         let mut review_of: HashMap<String, domain::rows::WorkflowNodeReview> = HashMap::new();
-        let mut checkpointed: HashSet<String> = HashSet::new();
         // EXP-984: a REVIEWER run still up keeps its node out of the review
         // rule — its session id is the one this device recorded when it
         // started that review.
@@ -486,9 +480,6 @@ fn snapshot_for(
             }
             if let Some(review) = node.review_facts() {
                 review_of.insert(node.id.clone(), review);
-            }
-            if node.checkpoint_at.is_some() {
-                checkpointed.insert(node.id.clone());
             }
             let members = node.member_ids();
             // A plain node's head is its issue's branch; a COMPOUND one runs
@@ -621,12 +612,9 @@ fn snapshot_for(
                     status: status.to_string(),
                     integration_branch,
                     final_pr_url: workflow.final_pr_url.clone(),
+                    final_pr_state: workflow.final_pr_state.clone(),
                     // EXP-1029: not a launch field any more.
                     max_parallel: domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT,
-                    start_on: workflow
-                        .start_on
-                        .clone()
-                        .unwrap_or_else(|| workflows::START_ON_LANDED.to_string()),
                     launch: launch.clone(),
                 },
                 nodes,
@@ -638,6 +626,13 @@ fn snapshot_for(
                 integration_branch_exists: false,
                 in_flight: claimed.clone(),
                 final_pr_in_flight: final_claimed.contains(&workflow.id),
+                // EXP-1059: cleared by the read itself once the PR reads open.
+                final_pr_close_handled: workflows::final_pr_close_handled(
+                    &settings_path,
+                    &device_id,
+                    &workflow.id,
+                    workflow.final_pr_state.as_deref() == Some("closed"),
+                ),
                 nudged: engine_state.nudged.clone(),
                 // EXP-983: the git facts are filled on the background pass,
                 // where the clone and the token live.
@@ -663,7 +658,6 @@ fn snapshot_for(
             branch_of,
             team_id: workflow.team_id.clone().unwrap_or_default(),
             review_of,
-            checkpointed,
             review_session_live,
             review_live_on_branch,
         });
@@ -854,11 +848,6 @@ fn run_pass(
         });
     }
 
-    // EXP-984: the counters only this device can see, batched into ONE
-    // report at the end of the pass.
-    let mut metrics: std::collections::BTreeMap<String, u32> = Default::default();
-    tally_contract_changes(&pass, &snapshot, &workflow_id, &mut metrics);
-
     let decisions = workflows::evaluate(&snapshot);
     let mut orders = PassOrders::default();
     let mut resumes: Vec<ResumeOrder> = Vec::new();
@@ -985,7 +974,6 @@ fn run_pass(
                         workflow_id: workflow_id.clone(),
                         workflow_name: pass.name.clone(),
                         decisions: pass.decisions.clone(),
-                        start_on: snapshot.workflow.start_on.clone(),
                         blockers: blocker_identifiers(&snapshot, &node_id),
                         integration_branch: base_branch,
                         node_id,
@@ -1025,22 +1013,13 @@ fn run_pass(
                     };
                     let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
                     remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
-                    // EXP-984: a merge-in is counted when it is DELIVERED, not
-                    // when it is decided.
-                    let mut delivered = || {
-                        *metrics
-                            .entry(api::workflows::COUNTER_MERGE_INS.to_string())
-                            .or_default() += 1;
-                    };
                     if let Some(engine) = pass.engines.get(&session_id) {
                         engine.steer(text);
-                        delivered();
                         break 'decision Outcome::Done;
                     }
                     if pass.session_is_local.contains(&session_id) {
                         break 'decision Outcome::Skipped; // a live run this app hosts but cannot reach
                     }
-                    delivered();
                     remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
                     resumes.push(ResumeOrder {
                         session_id,
@@ -1168,6 +1147,47 @@ fn run_pass(
                     }
                     drop(claim);
                 }
+                // EXP-1059: this closed episode goes to the server ONCE it
+                // answered (reopened, or recorded as a person's decision);
+                // a transport failure is retried next pass, like OpenFinalPr.
+                Decision::ReopenFinalPr => {
+                    let Some(claim) = InFlight::claim(final_pr_in_flight, &workflow_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    let result = api::workflows::reopen_final_pr(&pass.trpc, &workflow_id);
+                    if result.is_ok() {
+                        update_state(&pass, &workflow_id, |state| {
+                            state.final_pr_close_handled = true;
+                        });
+                    }
+                    drop(claim);
+                    match result {
+                        Ok(outcome) if outcome.reopened => {
+                            log::info!("[workflows] {workflow_id}: final pull request reopened");
+                        }
+                        Ok(outcome) => {
+                            log::warn!(
+                                "[workflows] {workflow_id}: final PR not reopened — {}",
+                                outcome.reason.unwrap_or_default()
+                            );
+                            break 'decision Outcome::Skipped;
+                        }
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: final PR reopen — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                    }
+                }
+                // EXP-1059: nothing shipped — the server ends the workflow.
+                Decision::CancelUnshipped => {
+                    match api::workflows::cancel_unshipped(&pass.trpc, &workflow_id) {
+                        Ok(()) => log::info!("[workflows] {workflow_id}: nothing shipped, cancelled"),
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: cancel unshipped — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                    }
+                }
                 Decision::KillSession { session_id } => {
                     let Some(engine) = pass.engines.get(&session_id) else {
                         break 'decision Outcome::Skipped;
@@ -1239,53 +1259,7 @@ fn run_pass(
     for resume in resumes {
         RESUME_QUEUE.with_lock(resume);
     }
-    // EXP-984: one metrics report per beat, never one per decision.
-    if !metrics.is_empty() {
-        if let Err(err) = api::workflows::report_metrics(&pass.trpc, &workflow_id, &metrics) {
-            log::warn!("[workflows] {workflow_id}: reportMetrics — {err}");
-        }
-    }
     orders
-}
-
-/// EXP-984 — the `contractChanges` counter: a node that ALREADY announced its
-/// contract moved its branch again, which is what every dependent then has to
-/// merge in. The first tip seen after a checkpoint is the checkpoint itself,
-/// so it is recorded and not counted.
-fn tally_contract_changes(
-    pass: &Pass,
-    snapshot: &Snapshot,
-    workflow_id: &str,
-    metrics: &mut std::collections::BTreeMap<String, u32>,
-) {
-    let mut seen = read_state(pass, workflow_id).checkpoint_tips;
-    let mut changed = 0_u32;
-    let mut dirty = false;
-    for node in &snapshot.nodes {
-        if !pass.checkpointed.contains(&node.id) {
-            continue;
-        }
-        let Some(sha) = snapshot.pr_head.get(&node.id) else {
-            continue;
-        };
-        match seen.get(&node.id) {
-            Some(previous) if previous == sha => continue,
-            Some(_) => changed += 1,
-            None => {}
-        }
-        seen.insert(node.id.clone(), sha.clone());
-        dirty = true;
-    }
-    if changed > 0 {
-        *metrics
-            .entry(api::workflows::COUNTER_CONTRACT_CHANGES.to_string())
-            .or_default() += changed;
-    }
-    if dirty {
-        update_state(pass, workflow_id, |state| {
-            state.checkpoint_tips = seen.clone()
-        });
-    }
 }
 
 /// EXP-984 — everything one review start needs, resolved on the background
@@ -1783,7 +1757,6 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         workflow_id,
         workflow_name,
         decisions,
-        start_on,
         blockers,
         integration_branch,
         node_id,
@@ -1799,7 +1772,6 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         workflow_id: workflow_id.clone(),
         name: workflow_name,
         decisions,
-        start_on,
         blockers,
     };
     // A compound node is ONE batch run over its parent plus its members;
@@ -2176,7 +2148,7 @@ fn build_batch_start(
 }
 
 /// A node whose run never reached the agent: the state says so, in one
-/// sentence, so the node panel can offer Retry or Skip.
+/// sentence, so the chip's menu can offer Retry or Skip.
 fn fail_node(trpc: &Arc<api::TrpcClient>, node_id: &str, reason: &str) {
     let mut report = api::workflows::NodeReport::new(node_id, "failed");
     report.note = api::patch::Patch::Set(one_line(reason));

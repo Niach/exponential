@@ -21,7 +21,6 @@ import {
   loadWorkflow,
   assertEngine,
   loadNode,
-  bumpMetrics,
   reviewOutcome,
   isReviewRunOfNode,
 } from "./shared"
@@ -145,18 +144,6 @@ export const workflowReviewProcedures = {
             approvedAt: outcome.approve ? new Date() : null,
           })
           .where(eq(workflowNodes.id, input.nodeId))
-        await tx
-          .update(workflows)
-          .set({
-            metrics: bumpMetrics({
-              reviewRounds: 1,
-              ...(input.verdict === `request_changes` &&
-                (oraclePassed === false
-                  ? { defectsByOracle: 1 }
-                  : { defectsByAgentReview: 1 })),
-            }),
-          })
-          .where(eq(workflows.id, workflow.id))
         return { round, ...outcome }
       })
     }),

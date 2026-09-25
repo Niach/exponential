@@ -1,7 +1,9 @@
 package com.exponential.app.ui.agent
 
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.WorkflowFinalPr
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -111,5 +113,39 @@ class PullRequestOptionsTest {
         )
 
         assertEquals("EXP-1", options.single().label)
+    }
+
+    private fun workflow(
+        id: String,
+        name: String = "EXP-996 +5",
+        finalPrNumber: Int? = 829,
+        finalPrState: String? = DomainContract.prStateOpen,
+    ) = WorkflowEntity(
+        id = id,
+        teamId = "t-1",
+        name = name,
+        finalPrUrl = finalPrNumber?.let { "https://github.com/acme/web/pull/$it" },
+        finalPrNumber = finalPrNumber,
+        finalPrState = finalPrState,
+    )
+
+    @Test
+    fun `offers a workflow's open final pull request as its own option`() {
+        val options = buildPullRequestOptions(
+            listOf(issue(id = "i-1", identifier = "EXP-1", prNumber = 1)),
+            teamBoardIds = setOf("b-1"),
+            workflows = listOf(
+                workflow(id = "wf-1"),
+                workflow(id = "wf-merged", finalPrState = DomainContract.prStateMerged),
+                workflow(id = "wf-draft", finalPrNumber = null, finalPrState = null),
+            ),
+        )
+
+        assertEquals(listOf("i-1", "wf-1"), options.map { it.issueId })
+        val final = options.single { it.issueId == "wf-1" }
+        assertEquals("#829 · Workflow: EXP-996 +5", final.label)
+        assertEquals(WorkflowFinalPr.pickLabel(829, "EXP-996 +5"), final.label)
+        // A seed of the workflow id (Reviews' Fix conflicts) preselects it.
+        assertEquals("wf-1", options.optionForIssue("wf-1")?.issueId)
     }
 }

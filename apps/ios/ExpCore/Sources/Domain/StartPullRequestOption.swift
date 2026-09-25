@@ -48,9 +48,15 @@ public struct StartPullRequestOption: Identifiable, Sendable, Equatable {
     /// are filtered HERE — the open-PR guarantee lives in the helper, not in
     /// the caller's SQL (matching Android's builder). Ordering is stable: by
     /// label, so the list doesn't reshuffle as sync lands rows.
+    ///
+    /// EXP-1072: `workflows` = the team's workflows (caller-scoped); each one
+    /// whose ONE final pull request is open is offered too — it is the
+    /// workflow's own PR, so its value is the WORKFLOW id (the server resolves
+    /// a workflow id for the `pr` input), labelled `#829 · Workflow: <name>`.
     public static func build(
         from issues: [IssueEntity],
-        teamBoardIds: Set<String>
+        teamBoardIds: Set<String>,
+        workflows: [WorkflowEntity] = []
     ) -> [StartPullRequestOption] {
         var byPrUrl: [String: (
             issueId: String,
@@ -58,6 +64,14 @@ public struct StartPullRequestOption: Identifiable, Sendable, Equatable {
             identifiers: [String],
             linkedIssueIds: [String]
         )] = [:]
+        for workflow in workflows where workflow.finalPrState == DomainContract.prStateOpen {
+            byPrUrl[WorkflowFinalPr.reviewKey(workflowId: workflow.id)] = (
+                issueId: workflow.id,
+                prNumber: workflow.finalPrNumber,
+                identifiers: [WorkflowFinalPr.identifier(name: workflow.name)],
+                linkedIssueIds: [workflow.id]
+            )
+        }
         // Deterministic representative + identifier order regardless of the
         // fetch order GRDB happened to return.
         for issue in issues.sorted(by: { $0.id < $1.id }) {

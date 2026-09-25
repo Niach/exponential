@@ -319,10 +319,20 @@ push, or change any files — only call the MCP tools. {report_rule}"
 /// If the base goes stale MID-RUN (the parent merges while the agent works),
 /// the prompt points at `exponential_pr_retarget` as the self-heal.
 /// EXP-825: `extra` is the composer's free text, appended last.
+/// EXP-1072: how a fix-conflicts run merges a pull request that links NO
+/// issue — a workflow's final PR: `exponential_pr_merge({ repositoryId,
+/// prNumber })`, which completes the workflow and every issue it shipped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChorePrMerge {
+    pub repository_id: String,
+    pub pr_number: i64,
+}
+
 pub fn fix_pr_conflicts_prompt(
     identifier: &str,
     branch: &str,
     base_branch: &str,
+    chore_merge: Option<ChorePrMerge>,
     unattended: bool,
     extra: Option<&str>,
 ) -> String {
@@ -334,6 +344,29 @@ stopped)."
     } else {
         "Finally report the merge result here (merged, or why you stopped)."
     };
+    // EXP-1072: an issue's PR merges by its identifier (and may retarget a
+    // stale base); a workflow's final PR merges as a chore PR by repository
+    // and number, and its base — the default branch — is never retargeted.
+    let merge_rule = match chore_merge {
+        None => format!(
+            "merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
+`{identifier}` — merging completes every issue linked to the PR. If the merge is \
+rejected because the base branch is stale, merged, or closed, call the \
+`exponential_pr_retarget` MCP tool with the same issueId (omit `base` to retarget \
+onto the repository's default branch), rebase onto the new base, push again with \
+`--force-with-lease`, and retry the merge."
+        ),
+        Some(ChorePrMerge {
+            repository_id,
+            pr_number,
+        }) => format!(
+            "merge the pull request by calling the `exponential_pr_merge` MCP tool with \
+repositoryId `{repository_id}` and prNumber `{pr_number}` — it is a workflow's final pull \
+request, and merging it completes the workflow and every issue it shipped. Its base is \
+the repository's default branch; never retarget it. If the merge is rejected for any \
+other reason, stop and summarize the refusal."
+        ),
+    };
     let prompt = format!(
         "The pull request for `{identifier}` (branch `{branch}`) has merge conflicts and \
 cannot be merged. You are in a worktree checked out to `{branch}`. First run \
@@ -344,12 +377,7 @@ stale checkout would discard remote commits). Then rebase onto \
 `origin/{base_branch}` (the pull request's base branch), resolve every conflict \
 preserving both sides' intent, and \
 verify the build still passes. Then push the branch with `--force-with-lease` and \
-merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
-`{identifier}` — merging completes every issue linked to the PR. If the merge is \
-rejected because the base branch is stale, merged, or closed, call the \
-`exponential_pr_retarget` MCP tool with the same issueId (omit `base` to retarget \
-onto the repository's default branch), rebase onto the new base, push again with \
-`--force-with-lease`, and retry the merge. If the conflicts \
+{merge_rule} If the conflicts \
 cannot be resolved safely, do NOT push or merge: stop and summarize what blocks the \
 rebase instead. {report_rule}"
     );
@@ -535,6 +563,7 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
             "<the issue you pick>",
             "<its PR branch>",
             "<the PR's base branch>",
+            None,
             false,
             None,
         )),
@@ -1084,7 +1113,7 @@ follow-ups."
     /// mid-run.
     #[test]
     fn fix_pr_conflicts_prompt_rebases_pushes_and_merges_via_mcp() {
-        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, None);
+        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", None, false, None);
         assert_eq!(
             prompt,
             "The pull request for `EXP-42` (branch `exp/EXP-42`) has merge conflicts and \
@@ -1106,7 +1135,7 @@ cannot be resolved safely, do NOT push or merge: stop and summarize what blocks 
 rebase instead. Finally report the merge result here (merged, or why you stopped)."
         );
         // EXP-679: the unattended variant swaps ONLY the report sentence.
-        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", true, None);
+        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", None, true, None);
         assert_eq!(
             unattended,
             prompt.replace(
@@ -1127,7 +1156,7 @@ why you stopped)."
         // the agent re-verifies the checkout matches origin before pushing.
         assert!(prompt.contains("git rev-parse origin/exp/EXP-42"));
         // EXP-825: the composer's free text rides last.
-        let extra = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, Some("Keep the lockfile from main."));
+        let extra = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", None, false, Some("Keep the lockfile from main."));
         assert_eq!(
             extra,
             format!("{prompt}\n\n## Additional instructions from the requester\n\nKeep the lockfile from main.\n")
@@ -1138,11 +1167,35 @@ why you stopped)."
     /// launcher resolved, not the repo default.
     #[test]
     fn fix_pr_conflicts_prompt_substitutes_a_stacked_base() {
-        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", false, None);
+        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", None, false, None);
         assert!(
             prompt.contains("rebase onto `origin/exp/EXP-314` (the pull request's base branch)")
         );
         assert!(!prompt.contains("origin/main"));
+    }
+
+    /// EXP-1072: a workflow's FINAL pull request merges as a chore PR (by
+    /// repository and number, completing the workflow) and is never
+    /// retargeted — its base is the default branch.
+    #[test]
+    fn fix_pr_conflicts_prompt_merges_a_workflow_final_pr_as_a_chore_pr() {
+        let prompt = fix_pr_conflicts_prompt(
+            "Workflow: EXP-996 +5",
+            "exp/wf-3b828f50",
+            "master",
+            Some(ChorePrMerge {
+                repository_id: "repo-1".to_string(),
+                pr_number: 829,
+            }),
+            false,
+            None,
+        );
+        assert!(prompt.contains("The pull request for `Workflow: EXP-996 +5` (branch `exp/wf-3b828f50`)"));
+        assert!(prompt.contains("repositoryId `repo-1` and prNumber `829`"));
+        assert!(prompt.contains("completes the workflow"));
+        assert!(!prompt.contains("issueId"));
+        assert!(!prompt.contains("exponential_pr_retarget"));
+        assert!(prompt.contains("rebase onto `origin/master`"));
     }
 
     /// EXP-298: the builtin detail screens render these — they must resolve

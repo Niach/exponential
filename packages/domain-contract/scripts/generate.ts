@@ -44,7 +44,6 @@ interface Contract {
   wfStatus: Section
   wfNodeState: Section
   wfNodeKind: Section
-  wfStartOn: Section
   wfRisk: Section
   wfReviewVerdict: Section
   // EXP-1082: session membership roles, the engine's event log kinds and the
@@ -464,7 +463,6 @@ ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("wfStatusValues", contract.wfStatus.values)}
 ${swiftStringArray("wfNodeStateValues", contract.wfNodeState.values)}
 ${swiftStringArray("wfNodeKindValues", contract.wfNodeKind.values)}
-${swiftStringArray("wfStartOnValues", contract.wfStartOn.values)}
 ${swiftStringArray("wfRiskValues", contract.wfRisk.values)}
 ${swiftStringArray("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
 ${swiftStringArray("wfSessionRoleValues", contract.wfSessionRole.values)}
@@ -587,7 +585,6 @@ ${swiftNamedValues("prState", contract.prState.values)}
 ${swiftNamedValues("wfStatus", contract.wfStatus.values)}
 ${swiftNamedValues("wfNodeState", contract.wfNodeState.values)}
 ${swiftNamedValues("wfNodeKind", contract.wfNodeKind.values)}
-${swiftNamedValues("wfStartOn", contract.wfStartOn.values)}
 ${swiftNamedValues("wfRisk", contract.wfRisk.values)}
 ${swiftNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
 ${swiftNamedValues("wfSessionRole", contract.wfSessionRole.values)}
@@ -629,7 +626,6 @@ ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("wfStatusValues", contract.wfStatus.values)}
 ${kotlinStringArray("wfNodeStateValues", contract.wfNodeState.values)}
 ${kotlinStringArray("wfNodeKindValues", contract.wfNodeKind.values)}
-${kotlinStringArray("wfStartOnValues", contract.wfStartOn.values)}
 ${kotlinStringArray("wfRiskValues", contract.wfRisk.values)}
 ${kotlinStringArray("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
 ${kotlinStringArray("wfSessionRoleValues", contract.wfSessionRole.values)}
@@ -752,7 +748,6 @@ ${kotlinNamedValues("prState", contract.prState.values)}
 ${kotlinNamedValues("wfStatus", contract.wfStatus.values)}
 ${kotlinNamedValues("wfNodeState", contract.wfNodeState.values)}
 ${kotlinNamedValues("wfNodeKind", contract.wfNodeKind.values)}
-${kotlinNamedValues("wfStartOn", contract.wfStartOn.values)}
 ${kotlinNamedValues("wfRisk", contract.wfRisk.values)}
 ${kotlinNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
 ${kotlinNamedValues("wfSessionRole", contract.wfSessionRole.values)}
@@ -796,7 +791,6 @@ ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("wfStatusValues", contract.wfStatus.values)}
 ${rustStrSlice("wfNodeStateValues", contract.wfNodeState.values)}
 ${rustStrSlice("wfNodeKindValues", contract.wfNodeKind.values)}
-${rustStrSlice("wfStartOnValues", contract.wfStartOn.values)}
 ${rustStrSlice("wfRiskValues", contract.wfRisk.values)}
 ${rustStrSlice("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
 ${rustStrSlice("wfSessionRoleValues", contract.wfSessionRole.values)}
@@ -922,7 +916,6 @@ ${rustNamedValues("prState", contract.prState.values)}
 ${rustNamedValues("wfStatus", contract.wfStatus.values)}
 ${rustNamedValues("wfNodeState", contract.wfNodeState.values)}
 ${rustNamedValues("wfNodeKind", contract.wfNodeKind.values)}
-${rustNamedValues("wfStartOn", contract.wfStartOn.values)}
 ${rustNamedValues("wfRisk", contract.wfRisk.values)}
 ${rustNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
 ${rustNamedValues("wfSessionRole", contract.wfSessionRole.values)}

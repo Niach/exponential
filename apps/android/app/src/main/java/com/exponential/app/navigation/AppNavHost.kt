@@ -585,15 +585,15 @@ private fun AuthenticatedNav(
             )
         }
         composable("workflow/{workflowId}") {
-            // One workflow: its graph, how it runs, and the actions its status
-            // offers (Start / Pause / Resume / Cancel, Plan, Delete). The
+            // One workflow: the node strip over the Work screen faces, one
+            // primary action by status, Stop / Delete in the overflow. The
             // ViewModel reads workflowId from its SavedStateHandle like the
             // issue-detail route does.
             WorkflowDetailScreen(
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenAgent = openAgent,
-                // EXP-982: a running node's own coding run, and its PR's diff.
+                // A run outside every node (the planner), and a PR's diff.
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
             )
@@ -637,6 +637,7 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
                 onOpenAgent = openAgent,
+                onOpenWorkflow = openWorkflow,
             )
         }
         composable("settings") {

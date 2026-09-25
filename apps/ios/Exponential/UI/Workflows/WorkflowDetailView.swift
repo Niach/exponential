@@ -2,19 +2,16 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-981 — one workflow: what it is (the name, the shared shape line and the
-/// machine it runs on), its GRAPH, its merge train, its metrics, and what its
-/// status lets it do — a draft starts (or says why it cannot), gets planned and
-/// deleted; a live one pauses, resumes or is cancelled (EXP-982).
+/// EXP-1086 — one workflow on a phone: the open question (only while one is
+/// open), the caption line with the ONE primary action and an overflow, the
+/// chip strip (one row per wave, `All` first), and under it the Work screen's
+/// faces. `All` draws the workflow's own faces — its issues nested (Issue),
+/// its runs as the session tree (Run), the final pull request (Changes) and
+/// every run's screenshots (Results) — behind the SAME face switcher; one
+/// picked node is that issue's Work screen, in place.
 ///
-/// EXP-1014: the screen CONFIGURES nothing about the run. The launch (EXP-1029:
-/// one agent, a cheap model and a strong one) is picked where a workflow is
-/// planned and carried from there; the only control left is the runner machine,
-/// which a draft needs before it can start, and it sits in the header.
-///
-/// The graph is the phone form (`WorkflowGraphView`): waves as bands, nodes as
-/// issue chips. Tapping a node opens its panel — a SHEET here, where web and
-/// the IDE put a right-hand panel.
+/// What the page says is the shared view model (`WorkflowView`, ×4); which
+/// chip is picked is `WorkflowSelection`.
 struct WorkflowDetailView: View {
     let workflowId: String
 
@@ -22,36 +19,40 @@ struct WorkflowDetailView: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     @State private var model: WorkflowDetailModel?
-    /// The name is the one TYPED field, so the one with a draft; it saves on
-    /// return and when the field gives up focus, like the issue title.
+    /// The page's face — `All`'s, and the one a picked node's Work screen
+    /// opens on; a face switched inside that screen lifts back here, so a
+    /// step to the next node keeps it.
+    @State private var face: WorkFaceKind = .issue
+    @State private var switcherAnchor: CGRect = .zero
+    @State private var switcherOpen = false
+    @State private var menuAnchor: CGRect = .zero
+    @State private var menuOpen = false
+    @State private var devicePickerOpen = false
+    @State private var collapsedRuns: Set<String> = []
+    /// The chip whose mini-graph is up (long-press).
+    @State private var graphNodeId: String?
+    @State private var skipNodeId: String?
+    @State private var dismissNodeId: String?
+    /// One draft per asking run.
+    @State private var answerDrafts: [String: String] = [:]
+    @State private var decisionsOpen = false
     @State private var nameDraft = ""
     @State private var seededName = false
     @FocusState private var nameFocused: Bool
-    /// The node whose panel is up (by node id — the sheet reads the live row).
-    @State private var selectedNodeId: WorkflowNodeTarget?
     @State private var showDeleteConfirm = false
-    @State private var showCancelConfirm = false
+    @State private var showStopConfirm = false
+    @State private var showMergeConfirm = false
 
     var body: some View {
         ZStack {
             AppBackground()
-
             if let model {
                 if model.workflow != nil {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            header(model)
-                            graph(model)
-                            mergeTrain(model)
-                            metrics(model)
-                            actions(model)
-                        }
-                        .padding()
-                    }
+                    page(model)
                 } else if model.loaded {
-                    // The row is gone (deleted elsewhere) or has never synced.
                     missingState
                 } else {
                     ProgressView().tint(.white)
@@ -60,20 +61,49 @@ struct WorkflowDetailView: View {
                 ProgressView().tint(.white)
             }
         }
-        .navigationTitle(WorkflowView.title)
+        .navigationTitle(model?.workflow?.name ?? WorkflowView.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // The name with the workflow's status glyph beside it (the chip
+            // vocabulary, as web's header).
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    if let model, model.workflow != nil {
+                        let display = WorkflowView.statusGlyph(status: model.status)
+                        AppIcon(Self.glyph(display), size: AppIcon.Size.small)
+                            .foregroundStyle(Self.color(display))
+                            .accessibilityIdentifier("workflow-status-glyph")
+                    }
+                    if model?.workflow != nil {
+                        // The name saves on commit or blur (`rename`).
+                        GlassTextField("Name", text: $nameDraft, bordered: false) {
+                            EmptyView()
+                        } trailing: {
+                            EmptyView()
+                        }
+                        .font(.headline)
+                        .focused($nameFocused)
+                        .onSubmit { model?.rename(nameDraft) }
+                        .accessibilityIdentifier("workflow-name-field")
+                    } else {
+                        Text(WorkflowView.title)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workflow-detail")
         .onAppear {
             if model == nil {
-                model = WorkflowDetailModel(
-                    workflowId: workflowId, accountId: accountId, deps: deps
-                )
+                model = WorkflowDetailModel(workflowId: workflowId, accountId: accountId, deps: deps)
             }
             model?.observe()
         }
-        .onChange(of: model?.workflow?.name) { _, name in
+        .onChange(of: model?.workflow?.name, initial: true) { _, name in
             // Seed once, then leave the field alone: a synced echo must never
             // stomp what is being typed.
             guard let name, !seededName else { return }
@@ -87,358 +117,299 @@ struct WorkflowDetailView: View {
             model?.rename(nameDraft)
             model?.stop()
         }
-        .sheet(item: $selectedNodeId) { target in
-            if let model, let node = model.nodes.first(where: { $0.id == target.id }) {
-                WorkflowNodeSheet(
-                    node: node,
-                    nodes: model.nodes,
-                    issues: model.issues,
-                    launch: model.launch,
-                    isDraft: model.isDraft,
-                    busy: model.busy,
-                    onUpdate: { patch in
-                        model.updateNode(issueId: node.issueId, patch: patch)
-                    },
-                    onApprove: { approved in
-                        model.approveNode(node.id, approved: approved)
-                    },
-                    onResolve: { action in
-                        model.resolveNode(node.id, action: action)
-                    },
-                    onAdmit: { admit in
-                        model.admitNode(node.id, admit: admit)
-                    },
-                    onOpenIssue: { issueId in
-                        selectedNodeId = nil
-                        pushRoute(.issue(accountId: accountId, id: issueId))
-                    },
-                    onOpenRun: { sessionId in
-                        selectedNodeId = nil
-                        pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
-                    },
-                    onOpenChanges: { issueId in
-                        selectedNodeId = nil
-                        pushRoute(.changes(accountId: accountId, issueId: issueId))
-                    }
-                )
+        .noticeToast(
+            Binding(get: { model?.error }, set: { model?.error = $0 }), isError: true
+        )
+        .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
+            overflowItems
+        }
+        .glassMenuOverlay(isPresented: $switcherOpen, anchor: switcherAnchor, presentation: .inline) {
+            switcherItems
+        }
+        .background {
+            if let model {
+                DevicePicker(
+                    devices: model.runnerChoices.map(DevicePickerDevice.init),
+                    value: model.workflow?.deviceId,
+                    onChange: { model.setDevice($0) },
+                    title: WorkflowView.runsOnLabel,
+                    open: $devicePickerOpen,
+                    hideTrigger: true
+                ) { EmptyView() }
             }
         }
         .confirmationDialog(
-            WorkflowView.deleteLabel,
-            isPresented: $showDeleteConfirm,
-            titleVisibility: .visible
+            WorkflowView.deleteLabel, isPresented: $showDeleteConfirm, titleVisibility: .visible
         ) {
-            Button(WorkflowView.deleteLabel, role: .destructive) {
-                model?.delete { dismiss() }
-            }
+            Button(WorkflowView.deleteLabel, role: .destructive) { model?.delete { dismiss() } }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes the workflow and its plan. The issues stay where they are.")
         }
         .confirmationDialog(
-            WorkflowView.cancelLabel,
-            isPresented: $showCancelConfirm,
-            titleVisibility: .visible
+            "Stop this workflow?", isPresented: $showStopConfirm, titleVisibility: .visible
         ) {
-            Button(WorkflowView.cancelLabel, role: .destructive) { model?.cancel() }
+            Button(WorkflowView.stopWorkflowLabel, role: .destructive) { model?.cancel() }
             Button("Keep running", role: .cancel) {}
         } message: {
             Text(WorkflowView.cancelConfirm)
         }
+        .confirmationDialog(
+            WorkflowView.skipNodeLabel,
+            isPresented: Binding(get: { skipNodeId != nil }, set: { if !$0 { skipNodeId = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button(WorkflowView.skipNodeLabel, role: .destructive) {
+                if let id = skipNodeId { model?.perform(.skip, on: id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(WorkflowView.skipNodeConfirm)
+        }
+        .confirmationDialog(
+            WorkflowView.dismissNodeLabel,
+            isPresented: Binding(get: { dismissNodeId != nil }, set: { if !$0 { dismissNodeId = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button(WorkflowView.dismissNodeLabel, role: .destructive) {
+                if let id = dismissNodeId { model?.perform(.dismiss, on: id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(WorkflowView.dismissNodeConfirm)
+        }
+        .alert(WorkflowView.mergeFinalPrLabel, isPresented: $showMergeConfirm) {
+            Button(WorkflowView.mergeFinalPrLabel) { model?.mergeFinalPr() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(WorkflowView.mergeFinalPrConfirm)
+        }
+    }
+
+    // MARK: - Page
+
+    private func page(_ model: WorkflowDetailModel) -> some View {
+        VStack(spacing: 0) {
+            questionBanner(model)
+            header(model)
+            strip(model)
+            stepper(model)
+            if let node = model.selectedNode {
+                // One node = its Work screen, in place: the issue's, or a
+                // batch node's own run of mine (an issue subject cannot find
+                // an issue-less run). It opens on the page's face and reports
+                // a switch back, so a step keeps the face (a face the node
+                // lacks falls back).
+                let work = model.work(for: node)
+                WorkScreen(
+                    subject: Self.workSubject(work.subject),
+                    initialFace: WorkFaces.fallbackFace(shown: face, available: work.faces)
+                        ?? work.faces.first ?? .issue,
+                    onFaceChange: { face = $0 }
+                )
+                .id("\(node.id)|\(work.subject)")
+            } else {
+                allFace(model)
+            }
+        }
+        .onChange(of: availableFaces(model)) { _, faces in
+            // `All`'s faces only: a picked node's screen falls back itself.
+            if model.selection.isAll, !faces.contains(face), let next = WorkFaces.fallbackFace(shown: face, available: faces) {
+                face = next
+            }
+        }
+    }
+
+    private static func workSubject(_ subject: WorkflowNodeSubject) -> WorkSubject {
+        switch subject {
+        case let .issue(id): .issue(id: id)
+        case let .session(id): .session(id: id)
+        }
+    }
+
+    // MARK: - The open question
+
+    /// EVERY open question; the answer field only on the ones whose run is
+    /// mine (`isAnswerable`).
+    @ViewBuilder
+    private func questionBanner(_ model: WorkflowDetailModel) -> some View {
+        let questions = model.openQuestions
+        if !questions.isEmpty {
+            VStack(spacing: 8) {
+                ForEach(questions, id: \.sessionId) { question in
+                    questionCard(question, model: model)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        }
+    }
+
+    private func questionCard(_ question: WorkflowOpenQuestion, model: WorkflowDetailModel) -> some View {
+        let draft = Binding(
+            get: { answerDrafts[question.sessionId] ?? "" },
+            set: { answerDrafts[question.sessionId] = $0 }
+        )
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                SessionStateDot(tone: .needsInput)
+                if let node = model.node(question.nodeId) {
+                    Text(model.identifier(of: node))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+            Text(question.question)
+                .font(.subheadline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if model.isAnswerable(question) {
+                GlassTextField("Answer", text: draft, lines: 1...4) {
+                    EmptyView()
+                } trailing: {
+                    Button {
+                        if model.answer(draft.wrappedValue, to: question.sessionId) {
+                            answerDrafts[question.sessionId] = nil
+                        }
+                    } label: {
+                        AppIcon(AppIcons.uiSend, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityLabel("Send answer")
+                }
+                .accessibilityIdentifier("workflow-question-answer")
+            }
+        }
+        .padding(12)
+        .glassCard()
+        .accessibilityIdentifier("workflow-question")
     }
 
     // MARK: - Header
 
-    @ViewBuilder
     private func header(_ model: WorkflowDetailModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GlassTextField("Name", text: $nameDraft, bordered: false) {
-                EmptyView()
-            } trailing: {
-                EmptyView()
-            }
-            .focused($nameFocused)
-            .onSubmit { model.rename(nameDraft) }
-            .accessibilityIdentifier("workflow-name-field")
-
-            Text(WorkflowView.shapeLine(model.metrics))
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-
-            runner(model)
-
-            // A cyclic plan cannot start, so the note is destructive, not a
-            // hint — and it names the issues to unlink.
-            if let note = WorkflowView.cycleNote(model.metrics) {
-                Text(note)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Palette.destructive)
-                    .accessibilityIdentifier("workflow-cycle-note")
-            }
-            if let error = model.error {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .accessibilityIdentifier("workflow-error")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .glassCard()
-        .padding(.bottom, 12)
-    }
-
-    /// EXP-1014 — the ONE thing this screen still sets: WHICH machine runs the
-    /// workflow. A draft needs one bound before it can start, and once it has
-    /// started the pick is history, so the row goes inert rather than bouncing
-    /// on submit. Everything else about the run (agent, models) is carried on
-    /// the stored launch and is not edited here.
-    ///
-    /// EXP-1030: the SHARED `DevicePicker`; the row is only its trigger, so a
-    /// machine is picked here exactly as it is in the composer and the
-    /// automation editor — its own glyph, its owner under the name. The
-    /// leading row unbinds the runner again while the plan is still a draft.
-    @ViewBuilder
-    private func runner(_ model: WorkflowDetailModel) -> some View {
-        DevicePicker(
-            devices: [DevicePickerDevice(id: "", name: "No machine")]
-                + model.devices.map(DevicePickerDevice.init),
-            value: model.workflow?.deviceId ?? "",
-            onChange: { model.setDevice($0.isEmpty ? nil : $0) },
-            trigger: {
-                GlassPickerRowLabel(
-                    "Runs on",
-                    value: model.devices.first { $0.deviceId == model.workflow?.deviceId }
-                        .map(LaunchVocabulary.deviceCaption) ?? "No machine",
-                    enabled: model.isDraft
-                )
-            }
-        )
-        // Once it has started the pick is history: the row goes inert rather
-        // than bouncing on submit.
-        .disabled(!model.isDraft)
-        .font(.caption)
-        .accessibilityIdentifier("workflow-runner-row")
-    }
-
-    // MARK: - Graph
-
-    @ViewBuilder
-    private func graph(_ model: WorkflowDetailModel) -> some View {
-        WorkflowGraphView(
-            nodes: model.nodes,
-            edges: model.edges,
-            workflowStatus: model.status,
-            issues: model.issues,
-            finalPrCaption: model.finalPrCaption,
-            finalPrUrl: model.workflow?.finalPrUrl,
-            finalPrState: model.workflow?.finalPrState,
-            runs: model.runs,
-            busy: model.busy,
-            onSelect: { selectedNodeId = WorkflowNodeTarget(id: $0.id) },
-            onOpenRun: { pushRoute(.agentSession(accountId: accountId, sessionId: $0)) },
-            onMergeFinalPr: { model.mergeFinalPr() }
-        )
-    }
-
-    // MARK: - Merge train
-
-    /// EXP-982 — what is queued to land on the integration branch, in landing
-    /// order. Web and the IDE draw a horizontal strip; a phone gets the short
-    /// list. Hidden on a draft: nothing can be waiting there.
-    @ViewBuilder
-    private func mergeTrain(_ model: WorkflowDetailModel) -> some View {
-        if !model.isDraft {
-            let train = model.mergeTrain
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(WorkflowView.mergeTrainTitle)
-                    .padding(.top, 12)
-
-                if train.isEmpty {
-                    Text(WorkflowView.mergeTrainEmpty)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .flatRow()
-                } else {
-                    ForEach(train, id: \.id) { entry in
-                        if let node = model.nodes.first(where: { $0.id == entry.id }) {
-                            trainRow(node: node, entry: entry, model: model)
-                        }
-                    }
-                }
-            }
-            .accessibilityIdentifier("workflow-merge-train")
-        }
-    }
-
-    @ViewBuilder
-    private func trainRow(
-        node: WorkflowNodeEntity, entry: WorkflowView.TrainEntry, model: WorkflowDetailModel
-    ) -> some View {
-        Button { selectedNodeId = WorkflowNodeTarget(id: node.id) } label: {
-            HStack(spacing: 8) {
-                Text(WorkflowGraphView.nodeIdentifier(
-                    node, issue: model.issues[node.issueId]
-                ))
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                Spacer(minLength: 8)
-                Text(WorkflowView.trainStepLabel(entry.step))
-                    .font(.caption2)
-                    .foregroundStyle(Self.trainStepColor(entry.step))
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .flatRow()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("workflow-train-row")
-    }
-
-    /// The step's paint: amber only where a PERSON is needed, the same rule the
-    /// node tones follow.
-    private static func trainStepColor(_ step: WorkflowView.TrainStep) -> Color {
-        switch step {
-        case .next, .updating: DesignTokens.Semantic.green
-        case .needsApproval: DesignTokens.Semantic.yellow
-        case .queued: .white.opacity(TextOpacity.tertiary)
-        }
-    }
-
-    // MARK: - Metrics
-
-    /// EXP-984 — what the run cost and caught, the LAST section of a started
-    /// workflow's detail. Flat label/value rows; hidden on a draft, which has
-    /// no run to count.
-    @ViewBuilder
-    private func metrics(_ model: WorkflowDetailModel) -> some View {
-        if !model.isDraft {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(WorkflowView.metricsTitle)
-                    .padding(.top, 12)
-
-                ForEach(model.metricRows, id: \.label) { row in
-                    HStack(spacing: 8) {
-                        Text(row.label)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        Spacer(minLength: 8)
-                        Text(row.value)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .flatRow()
-                }
-            }
-            .accessibilityIdentifier("workflow-metrics")
-        }
-    }
-
-    // MARK: - Actions
-
-    /// EXP-982 — what a workflow can do, by status: a draft starts (or says
-    /// why it cannot), gets planned and deleted; a live one pauses or resumes
-    /// and can be cancelled; a finished one is only ever deleted.
-    @ViewBuilder
-    private func actions(_ model: WorkflowDetailModel) -> some View {
-        let blocker = model.startBlocker
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                switch model.status {
-                case DomainContract.wfStatusDraft:
-                    GlassPill(
-                        WorkflowView.startLabel,
-                        icon: AppIcons.codingRunning,
-                        size: .md,
-                        mode: .action { model.start() },
-                        primary: true,
-                        enabled: blocker == nil && !model.busy
-                    )
-                    .accessibilityIdentifier("workflow-start-button")
-
-                    GlassPill(
-                        WorkflowView.planLabel,
-                        icon: ActionIconDisplay.iconName(for: "layers"),
-                        size: .md,
-                        mode: .action { plan(model) },
-                        enabled: model.workflow != nil
-                    )
-                    .accessibilityIdentifier("workflow-plan-button")
-                case DomainContract.wfStatusRunning:
-                    GlassPill(
-                        WorkflowView.pauseLabel,
-                        icon: AppIcons.uiStop,
-                        size: .md,
-                        mode: .action { model.pause() },
-                        enabled: !model.busy
-                    )
-                    .accessibilityIdentifier("workflow-pause-button")
-                case DomainContract.wfStatusPaused:
-                    GlassPill(
-                        WorkflowView.resumeLabel,
-                        icon: AppIcons.codingRunning,
-                        size: .md,
-                        mode: .action { model.resume() },
-                        primary: true,
-                        enabled: !model.busy
-                    )
-                    .accessibilityIdentifier("workflow-resume-button")
-                default:
-                    EmptyView()
-                }
-
-                Spacer(minLength: 0)
-
-                // Cancelling is the destructive end of a live run; deleting is
-                // the destructive end of everything else. Never both.
-                if model.status == DomainContract.wfStatusRunning
-                    || model.status == DomainContract.wfStatusPaused {
-                    destructiveButton(WorkflowView.cancelLabel) { showCancelConfirm = true }
-                        .accessibilityIdentifier("workflow-cancel-button")
-                } else {
-                    destructiveButton(WorkflowView.deleteLabel) { showDeleteConfirm = true }
-                        .accessibilityIdentifier("workflow-delete-button")
-                }
+                Text(model.caption)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(2)
+                    .accessibilityIdentifier("workflow-caption")
+                Spacer(minLength: 8)
+                primaryButton(model)
+                GlassMenuBarButton(
+                    icon: AppIcons.uiMore,
+                    accessibilityLabel: "More",
+                    anchor: $menuAnchor,
+                    isPresented: $menuOpen
+                )
+                .accessibilityIdentifier("workflow-overflow")
             }
-
-            // Why Start is disabled, in the server's own sentence.
-            if model.isDraft, let blocker {
+            if model.primaryAction == .start, let blocker = model.startBlocker {
                 Text(blocker)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .foregroundStyle(DesignTokens.Palette.destructive)
                     .accessibilityIdentifier("workflow-start-blocker")
             }
         }
-        .padding(.top, 16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
-    private func destructiveButton(
-        _ label: String, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(DesignTokens.Palette.destructive)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .contentShape(Rectangle())
+    @ViewBuilder
+    private func primaryButton(_ model: WorkflowDetailModel) -> some View {
+        switch model.primaryAction {
+        case .pickDevice:
+            GlassPill(
+                WorkflowView.pickDeviceLabel,
+                icon: AppIcons.uiDevice,
+                size: .md,
+                mode: .action { openDevicePicker(model) },
+                primary: true,
+                enabled: !model.busy
+            )
+            .accessibilityIdentifier("workflow-pick-device")
+        case .start:
+            GlassPill(
+                WorkflowView.startLabel,
+                icon: AppIcons.actionRun,
+                size: .md,
+                mode: .action { model.start() },
+                primary: true,
+                enabled: model.startBlocker == nil && !model.busy
+            )
+            .accessibilityIdentifier("workflow-start-button")
+        case .pause:
+            GlassPill(
+                WorkflowView.pauseLabel,
+                icon: AppIcons.runPause,
+                size: .md,
+                mode: .action { model.pause() },
+                enabled: !model.busy
+            )
+            .accessibilityIdentifier("workflow-pause-button")
+        case .resume:
+            GlassPill(
+                WorkflowView.resumeLabel,
+                icon: AppIcons.runResume,
+                size: .md,
+                mode: .action { model.resume() },
+                primary: true,
+                enabled: !model.busy
+            )
+            .accessibilityIdentifier("workflow-resume-button")
+        case .reviewFinalPr:
+            GlassPill(
+                WorkflowView.reviewFinalPrLabel,
+                icon: AppIcons.navReviews,
+                size: .md,
+                // The final PR row (with Merge) lives on All × Changes.
+                mode: .action {
+                    model.selection.click(nil, in: model.order)
+                    face = .changes
+                },
+                primary: true
+            )
+            .accessibilityIdentifier("workflow-review-button")
+        case nil:
+            EmptyView()
         }
-        .buttonStyle(.plain)
+    }
+
+    /// The shared overflow rule (`WorkflowView.overflowMenu`, ×4).
+    @ViewBuilder
+    private var overflowItems: some View {
+        if let model {
+            ForEach(WorkflowView.overflowMenu(status: model.status), id: \.self) { item in
+                switch item {
+                case .plan:
+                    GlassMenuItem(WorkflowView.planLabel, icon: AppIcons.actionRun) { plan(model) }
+                case .runsOn:
+                    GlassMenuItem(WorkflowView.runsOnLabel, icon: AppIcons.uiDevice) {
+                        openDevicePicker(model)
+                    }
+                case .stop:
+                    GlassMenuItem(
+                        WorkflowView.stopWorkflowLabel, icon: AppIcons.uiStop, destructive: true
+                    ) { showStopConfirm = true }
+                case .delete:
+                    GlassMenuItem(
+                        WorkflowView.deleteLabel, icon: AppIcons.uiDelete, destructive: true
+                    ) { showDeleteConfirm = true }
+                }
+            }
+        }
+    }
+
+    private func openDevicePicker(_ model: WorkflowDetailModel) {
+        Task {
+            await model.loadDevices()
+            devicePickerOpen = true
+        }
     }
 
     /// The planner run: the Agent page composer with the hidden Plan-workflow
-    /// builtin as its subject and THIS workflow named — its free text is the
-    /// optional "anything the plan should respect".
+    /// builtin and THIS workflow named.
     private func plan(_ model: WorkflowDetailModel) {
         guard let workflow = model.workflow else { return }
         pushRoute(.agent(
@@ -451,6 +422,563 @@ struct WorkflowDetailView: View {
         ))
     }
 
+    // MARK: - Chip strip
+
+    private func strip(_ model: WorkflowDetailModel) -> some View {
+        let waves = model.strip
+        return ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(waves.enumerated()), id: \.element.wave) { index, wave in
+                    HStack(spacing: 8) {
+                        if index == 0 { allChip(model) }
+                        ForEach(wave.nodes, id: \.id) { chip in
+                            nodeChip(chip, model: model)
+                        }
+                    }
+                }
+                if waves.isEmpty { allChip(model) }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+        }
+        .accessibilityIdentifier("workflow-strip")
+    }
+
+    /// One node picked: step along the strip in DAG order, All at position 0
+    /// (`WorkflowSelection.step`). The Work screen's own switcher belongs to
+    /// the issue, so the stepping sits here, under the strip.
+    @ViewBuilder
+    private func stepper(_ model: WorkflowDetailModel) -> some View {
+        let order = model.order
+        if !model.selection.isAll, !order.isEmpty {
+            HStack(spacing: 8) {
+                GlassPill(
+                    "Previous",
+                    icon: AppIcons.uiChevronLeft,
+                    mode: .action { model.selection.step(-1, in: order) }
+                )
+                .accessibilityIdentifier("workflow-step-previous")
+                Spacer(minLength: 8)
+                Text("\(model.selection.position(in: order)) of \(order.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Spacer(minLength: 8)
+                GlassPill(
+                    "Next",
+                    icon: AppIcons.uiChevronRight,
+                    mode: .action { model.selection.step(1, in: order) },
+                    enabled: model.selection.position(in: order) < order.count
+                )
+                .accessibilityIdentifier("workflow-step-next")
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+        }
+    }
+
+    private func allChip(_ model: WorkflowDetailModel) -> some View {
+        GlassPill(
+            WorkflowView.allNodesLabel,
+            mode: .select(isSelected: model.selection.isAll) {
+                model.selection.click(nil, in: model.order)
+            }
+        )
+        .accessibilityIdentifier("workflow-chip-all")
+    }
+
+    @ViewBuilder
+    private func nodeChip(_ chip: NodeChip, model: WorkflowDetailModel) -> some View {
+        let node = model.node(chip.id)
+        let menu = node.map { WorkflowView.nodeChipMenu(state: $0.state) } ?? []
+        let dimmed = !model.selection.isAll && !model.selection.ids.contains(chip.id)
+        let chipView = chipFace(chip)
+            .overlay(alignment: .topTrailing) { chipDots(chip) }
+            .opacity(dimmed ? 0.55 : 1)
+            .contentShape(Rectangle())
+            // A tap picks exactly this node; the picked chip stays picked.
+            .onTapGesture { model.selection.click(chip.id, in: model.order) }
+            .popover(
+                isPresented: Binding(
+                    get: { graphNodeId == chip.id },
+                    set: { if !$0 { graphNodeId = nil } }
+                )
+            ) {
+                if let node {
+                    IssueGraphPopover(
+                        graph: model.blockGraph(for: node),
+                        issues: Array(model.issues.values),
+                        onOpenIssue: { issueId in
+                            graphNodeId = nil
+                            if let target = model.node(coveringIssue: issueId) {
+                                model.selection.click(target.id, in: model.order)
+                            }
+                        }
+                    )
+                    .presentationCompactAdaptation(.popover)
+                }
+            }
+            .accessibilityIdentifier("workflow-chip")
+        if menu.isEmpty {
+            chipView.onLongPressGesture { graphNodeId = chip.id }
+        } else {
+            chipView.contextMenu {
+                ForEach(menu, id: \.self) { action in
+                    Button(role: action == .skip || action == .dismiss ? .destructive : nil) {
+                        if action == .skip {
+                            skipNodeId = chip.id
+                        } else if action == .dismiss {
+                            dismissNodeId = chip.id
+                        } else {
+                            model.perform(action, on: chip.id)
+                        }
+                    } label: {
+                        Text(Self.menuLabel(action))
+                    }
+                }
+                Button { graphNodeId = chip.id } label: {
+                    Text("Blocks")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chipFace(_ chip: NodeChip) -> some View {
+        let issueChip = IssueChip(
+            identifier: chip.title,
+            title: chip.caption,
+            iconName: Self.glyph(chip.display),
+            statusColor: Self.color(chip.display)
+        )
+        if chip.stacked {
+            IssueChipStack { issueChip }
+        } else {
+            issueChip
+        }
+    }
+
+    /// The live dot while the node's agent is in a turn, the amber one while
+    /// it waits on a person.
+    @ViewBuilder
+    private func chipDots(_ chip: NodeChip) -> some View {
+        HStack(spacing: 2) {
+            if chip.live { SessionStateDot(tone: .running, pulsing: true, size: 7) }
+            if chip.needsYou {
+                SessionStateDot(tone: .needsInput, size: 7)
+                    .accessibilityLabel(WorkflowView.needsYouLabel)
+            }
+        }
+        .offset(x: 3, y: -3)
+    }
+
+    static func glyph(_ display: WorkflowNodeDisplayState) -> String {
+        switch display {
+        case .queued: AppIcons.uiQueued
+        case .running: AppIcons.codingRunning
+        case .done: AppIcons.prMerged
+        case .failed: AppIcons.uiError
+        case .skipped: AppIcons.statusCancelled
+        }
+    }
+
+    static func color(_ display: WorkflowNodeDisplayState) -> Color {
+        switch display {
+        case .queued, .skipped: .white.opacity(TextOpacity.tertiary)
+        case .running: DesignTokens.Semantic.green
+        case .done: DesignTokens.Semantic.blue
+        case .failed: DesignTokens.Semantic.red
+        }
+    }
+
+    static func menuLabel(_ action: NodeChipAction) -> String {
+        switch action {
+        case .retry: WorkflowView.retryNodeLabel
+        case .skip: WorkflowView.skipNodeLabel
+        case .admit: WorkflowView.admitNodeLabel
+        case .dismiss: WorkflowView.dismissNodeLabel
+        }
+    }
+
+    // MARK: - All: the workflow's own faces
+
+    private func availableFaces(_ model: WorkflowDetailModel) -> [WorkFaceKind] {
+        WorkFaces.availableFaces(
+            hasIssue: true,
+            // Every node's runs, changes and results live here, so each face
+            // exists before its first row does (`No runs yet` / `No changes
+            // yet` / `No results yet`, like web).
+            hasRun: true,
+            hasChanges: true,
+            hasResults: true
+        )
+    }
+
+    private func switcherTargets(_ model: WorkflowDetailModel) -> [WorkFaces.SwitcherTarget] {
+        WorkFaces.switcherTargets(
+            faces: availableFaces(model), shown: face, runIds: [], shownRunId: nil, offerStart: false
+        )
+    }
+
+    @ViewBuilder
+    private var switcherItems: some View {
+        if let model {
+            ForEach(switcherTargets(model), id: \.self) { target in
+                if case let .face(next) = target {
+                    GlassMenuItem(
+                        WorkFaces.faceLabel(next, multipleRuns: model.sessions.count > 1),
+                        icon: WorkFaceSwitcher.icon(target)
+                    ) { face = next }
+                }
+            }
+        }
+    }
+
+    private func switcher(_ model: WorkflowDetailModel) -> some View {
+        WorkFaceSwitcher(
+            mode: WorkFaces.switcherMode(switcherTargets(model)),
+            badge: nil,
+            badgePulsing: false,
+            anchor: $switcherAnchor,
+            menuOpen: $switcherOpen,
+            onSelect: { target in
+                if case let .face(next) = target { face = next }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func allFace(_ model: WorkflowDetailModel) -> some View {
+        let shown = availableFaces(model).contains(face) ? face : .issue
+        switch shown {
+        case .results:
+            if model.resultGroups.isEmpty {
+                barred(model) { emptyNote(WorkflowView.noResultsLabel, id: "workflow-results-empty") }
+            } else {
+                SessionResultsFace(groups: model.resultGroups) { switcher(model) }
+            }
+        case .run:
+            barred(model) { runsFace(model) }
+        case .changes:
+            barred(model, center: { mergeButton(model) }) { changesFace(model) }
+        case .issue:
+            barred(model) { issuesFace(model) }
+        }
+    }
+
+    private func barred<Content: View, Center: View>(
+        _ model: WorkflowDetailModel,
+        @ViewBuilder center: () -> Center = { EmptyView() },
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .safeAreaInset(edge: .bottom) {
+                FloatingBottomBar {
+                    EmptyView()
+                } center: {
+                    center()
+                } trailing: {
+                    switcher(model)
+                }
+            }
+    }
+
+    /// A face with nothing in scope yet: one quiet line.
+    private func emptyNote(_ text: String, id: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 24)
+            .accessibilityIdentifier(id)
+    }
+
+    /// Every covered issue, nested; a tap picks its node.
+    private func issuesFace(_ model: WorkflowDetailModel) -> some View {
+        let rows = model.nestedIssues
+        let guides = TreeGuides.compute(depths: rows.map(\.depth))
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.issue.id) { index, row in
+                    issueRow(row.issue, model: model)
+                        .treeGuides(guides[index])
+                }
+                decisions(model)
+            }
+            .padding(.vertical, 8)
+        }
+        .accessibilityIdentifier("workflow-issues")
+    }
+
+    private func issueRow(_ issue: IssueEntity, model: WorkflowDetailModel) -> some View {
+        let status = IssueStatus.from(issue.status)
+        return Button {
+            if let node = model.node(coveringIssue: issue.id) {
+                model.selection.click(node.id, in: model.order)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                AppIcon(status.iconName, size: AppIcon.Size.small)
+                    .foregroundStyle(status.color)
+                    .frame(width: 16)
+                Text(issue.identifier ?? "")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                Text(issue.title)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .flatRow()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The workflow's runs as the session tree, then its event log.
+    private func runsFace(_ model: WorkflowDetailModel) -> some View {
+        let rows = SessionTree.visibleRows(
+            SessionTree.sessionTree(
+                model.sessions,
+                context: SessionTree.Context(
+                    workflows: [WorkflowEntity](),
+                    workflowNodes: [WorkflowNodeEntity](),
+                    issues: Array(model.issues.values)
+                )
+            ),
+            collapsed: collapsedRuns
+        )
+        let guides = TreeGuides.compute(depths: rows.map(\.depth))
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if rows.isEmpty {
+                    emptyNote(WorkflowView.noRunsLabel, id: "workflow-runs-empty")
+                }
+                ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
+                    runRow(entry, model: model)
+                        .treeGuides(guides[index])
+                }
+                WorkflowEventList(events: model.events)
+            }
+            .padding(.vertical, 8)
+        }
+        .accessibilityIdentifier("workflow-runs")
+    }
+
+    @ViewBuilder
+    private func runRow(_ entry: SessionTree.FlatRow, model: WorkflowDetailModel) -> some View {
+        let expanded = !collapsedRuns.contains(entry.key)
+        let onToggle = {
+            if collapsedRuns.contains(entry.key) {
+                collapsedRuns.remove(entry.key)
+            } else {
+                collapsedRuns.insert(entry.key)
+            }
+        }
+        switch entry.node {
+        case let .session(node):
+            let session = node.session
+            let issue = session.issueId.flatMap { model.issues[$0] }
+            let batch = model.batchIssues(session)
+            RunningSessionRow(
+                session: session,
+                identifier: sessionRowIdentifier(issue: issue, session: session, batchIssues: batch),
+                title: sessionRowTitle(issue: issue, session: session, batchIssues: batch),
+                state: CodingSessionDisplayState.of(
+                    session: session, prState: issue?.prState ?? session.prState
+                ),
+                device: model.devicePresentation(session),
+                open: .route(.agentSession(accountId: accountId, sessionId: session.id)),
+                expandable: entry.hasChildren,
+                expanded: expanded,
+                onToggle: onToggle
+            )
+        case let .stack(group):
+            SessionGroupRow(
+                glyph: AppIcons.prStack,
+                title: SessionTree.stackGroupLabel,
+                count: group.children.count,
+                open: .none,
+                key: entry.key,
+                expanded: expanded,
+                onToggle: onToggle
+            )
+        case .workflow:
+            EmptyView()
+        }
+    }
+
+    /// The collapsed decisions log under the nested issues; empty = hidden.
+    @ViewBuilder
+    private func decisions(_ model: WorkflowDetailModel) -> some View {
+        let text = model.workflow?.decisions.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !text.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    decisionsOpen.toggle()
+                } label: {
+                    GlassSectionBand(WorkflowView.decisionsLabel) {
+                        AppIcon(
+                            decisionsOpen ? AppIcons.uiChevronDown : AppIcons.uiChevronRight,
+                            size: 12
+                        )
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    } trailing: {
+                        EmptyView()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("workflow-decisions")
+                if decisionsOpen {
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .accessibilityIdentifier("workflow-decisions-body")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+        }
+    }
+
+    /// All × Changes: EVERY node in scope keeps its row (chip + PR state) —
+    /// one with a PR or pushed branch opens its own Changes face in place,
+    /// one without reads `No changes yet` — then the final PR (Merge sits in
+    /// the bar).
+    private func changesFace(_ model: WorkflowDetailModel) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(model.orderedNodes, id: \.id) { node in
+                    nodeChangesRow(node, model: model)
+                }
+                if model.workflow?.finalPrUrl?.isEmpty == false {
+                    finalPrRow(model)
+                        .padding(.top, 12)
+                }
+            }
+            .padding(16)
+        }
+        .accessibilityIdentifier("workflow-changes")
+    }
+
+    private func nodeChangesRow(_ node: WorkflowNodeEntity, model: WorkflowDetailModel) -> some View {
+        let issue = model.issues[node.issueId]
+        let pushed = issue?.prUrl?.isEmpty == false || issue?.branch?.isEmpty == false
+        let display = WorkflowView.nodeDisplayState(node.state)
+        return Button {
+            guard pushed else { return }
+            model.selection.click(node.id, in: model.order)
+            face = .changes
+        } label: {
+            HStack(spacing: 10) {
+                IssueChip(
+                    identifier: WorkflowView.nodeTitle(
+                        identifier: model.identifier(of: node), memberCount: node.memberIssueIds.count
+                    ),
+                    title: issue?.title ?? WorkflowView.nodeUnsyncedTitle,
+                    iconName: Self.glyph(display),
+                    statusColor: Self.color(display)
+                )
+                Spacer(minLength: 8)
+                Text(Self.changesLabel(issue))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                if pushed {
+                    AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .flatRow()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!pushed)
+        .accessibilityIdentifier("workflow-changes-node")
+    }
+
+    /// A node's PR state (`#12 · Open`), its pushed branch, or nothing yet.
+    static func changesLabel(_ issue: IssueEntity?) -> String {
+        guard let issue else { return WorkflowView.noChangesLabel }
+        if issue.prUrl?.isEmpty == false {
+            let state = switch issue.prState {
+            case DomainContract.prStateMerged: "Merged"
+            case DomainContract.prStateClosed: "Closed"
+            default: "Open"
+            }
+            return issue.prNumber.map { "#\($0) · \(state)" } ?? state
+        }
+        if let branch = issue.branch, !branch.isEmpty { return branch }
+        return WorkflowView.noChangesLabel
+    }
+
+    /// The ONE final pull request: its state and GitHub.
+    private func finalPrRow(_ model: WorkflowDetailModel) -> some View {
+        let workflow = model.workflow
+        let caption = WorkflowView.finalPrCaption(
+            states: model.nodes.map(\.state),
+            finalPrState: workflow?.finalPrState,
+            finalPrNumber: workflow?.finalPrNumber
+        ) ?? workflow?.finalPrNumber.map { "#\($0)" } ?? ""
+        return VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand(WorkflowView.finalPrTitle)
+            Button {
+                if let url = workflow?.finalPrUrl.flatMap(URL.init(string:)) { openURL(url) }
+            } label: {
+                HStack(spacing: 10) {
+                    AppIcon(
+                        workflow?.finalPrState == DomainContract.prStateMerged
+                            ? AppIcons.prMerged : AppIcons.prOpen,
+                        size: AppIcon.Size.small
+                    )
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Text(caption)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    AppIcon(AppIcons.uiGithub, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .flatRow()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
+        }
+        .accessibilityIdentifier("workflow-final-pr")
+    }
+
+    @ViewBuilder
+    private func mergeButton(_ model: WorkflowDetailModel) -> some View {
+        let state = model.workflow?.finalPrState
+        if model.workflow?.finalPrNumber != nil,
+           state != DomainContract.prStateMerged, state != DomainContract.prStateClosed,
+           model.status != DomainContract.wfStatusCancelled {
+            GlassPill(
+                WorkflowView.mergeFinalPrLabel,
+                icon: AppIcons.prMerged,
+                size: .md,
+                mode: .action { showMergeConfirm = true },
+                primary: true,
+                enabled: !model.busy
+            )
+            .accessibilityIdentifier("workflow-merge-final-pr")
+        }
+    }
+
     private var missingState: some View {
         VStack(spacing: 12) {
             AppIcon(AppIcons.navWorkflows, size: 22)
@@ -461,466 +989,5 @@ struct WorkflowDetailView: View {
         }
         .padding(.horizontal, 40)
         .accessibilityIdentifier("workflow-missing")
-    }
-}
-
-/// The node whose panel is up (`.sheet(item:)`); the sheet reads the LIVE row
-/// behind this id rather than a snapshot.
-struct WorkflowNodeTarget: Identifiable {
-    let id: String
-}
-
-/// EXP-981 — one node's panel. Web and the IDE put it beside the graph; a phone
-/// gets a sheet. EXP-1014 pares it to exactly what a reader decides on: the
-/// node's issue chip, what the plan declares (Kind — draft-only — and Risk,
-/// which raises a node onto the strong model at ANY status), the model its run
-/// takes, its state and the actions that state allows, the sub-issues a
-/// compound node runs as one batch, the contract it published and the siblings
-/// it merges in first, the way out to the Work faces, and the latest agent
-/// review. The planner's `touches` globs stay off it: nobody acts on a glob.
-struct WorkflowNodeSheet: View {
-    let node: WorkflowNodeEntity
-    /// EXP-983 — the workflow's other nodes: what `after_node_ids` names is a
-    /// NODE, so `Merges in first` resolves its chips through these.
-    let nodes: [WorkflowNodeEntity]
-    let issues: [String: IssueEntity]
-    /// The workflow's stored launch, CARRIED (EXP-1029): the panel says which
-    /// of its two models this node's run takes and never writes it back.
-    let launch: WorkflowLaunch
-    /// The KIND shapes the plan, so the server takes it on a draft only; risk
-    /// rides at any status. A draft's nodes also keep the issue's own status
-    /// glyph, whatever their state says.
-    let isDraft: Bool
-    /// A write is in flight; the run controls go inert rather than double-fire.
-    let busy: Bool
-    let onUpdate: (WorkflowNodePatch) -> Void
-    let onApprove: (Bool) -> Void
-    let onResolve: (WorkflowNodeResolution) -> Void
-    /// EXP-984 — a `proposed` node: admit it into the run, or dismiss it.
-    let onAdmit: (Bool) -> Void
-    let onOpenIssue: (String) -> Void
-    let onOpenRun: (String) -> Void
-    let onOpenChanges: (String) -> Void
-
-    @State private var showSkipConfirm = false
-    /// The review's findings are folded to a few lines while they are long.
-    @State private var findingsExpanded = false
-
-    var body: some View {
-        GlassSheetChrome(
-            title: WorkflowGraphView.nodeIdentifier(node, issue: issues[node.issueId])
-        ) {
-            VStack(alignment: .leading, spacing: 10) {
-                subject
-                planRows
-                runControls
-                bookkeeping
-                faces
-                agentReview
-            }
-            .padding(.horizontal, GlassSheetTokens.headerHPadding)
-            .padding(.bottom, 16)
-        }
-        .accessibilityIdentifier("workflow-node-sheet")
-        .confirmationDialog(
-            WorkflowView.skipNodeLabel,
-            isPresented: $showSkipConfirm,
-            titleVisibility: .visible
-        ) {
-            Button(WorkflowView.skipNodeLabel, role: .destructive) { onResolve(.skip) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(WorkflowView.skipNodeConfirm)
-        }
-    }
-
-    // MARK: - The node
-
-    /// The node's own issue, as the chip the graph row draws — stacked when the
-    /// node is a compound one. The CHIP is the way into the issue; the faces
-    /// below are the way into its run and its changes.
-    @ViewBuilder
-    private var subject: some View {
-        Button { onOpenIssue(node.issueId) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                chip
-                if let title = issues[node.issueId]?.title {
-                    Text(title)
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("workflow-node-issue")
-    }
-
-    /// The node's chip, drawn by the graph's own rules: the state's glyph in
-    /// its tone once the state has one, the issue's status glyph before that,
-    /// the workflow ring around a proposed or cyclic node, and the stack behind
-    /// a compound one.
-    @ViewBuilder
-    private var chip: some View {
-        let issue = issues[node.issueId]
-        // No row, no status glyph; a draft's nodes have not run, so they keep
-        // the issue's own. The same rule ×4.
-        let status = issue.map { IssueStatus.from($0.status) }
-        let stateIcon = isDraft ? nil : WorkflowGraphView.stateIcon(node.state)
-        let face = IssueChip(
-            identifier: WorkflowGraphView.nodeIdentifier(node, issue: issue),
-            title: WorkflowGraphView.nodeChipTitle(issue),
-            iconName: stateIcon ?? status?.iconName,
-            statusColor: stateIcon == nil ? status?.color : Self.color(tone)
-        )
-        .overlay { WorkflowGraphView.ring(node) }
-        if node.memberIssueIds.isEmpty {
-            face
-        } else {
-            IssueChipStack { face }
-        }
-    }
-
-    /// What the plan declares about the node, and what that costs: the KIND,
-    /// which shapes the plan and is therefore a draft's to set, the RISK, which
-    /// is a pick at any status (the server only draft-gates kind and touches,
-    /// and `risk: high` is the one lever that puts a node on the workflow's
-    /// strong model), then that model, read-only. EXP-1029: the launch is set
-    /// where a workflow is planned; a node only says which half of it applies.
-    @ViewBuilder
-    private var planRows: some View {
-        // EXP-994: one grouped card, hairline-separated rows.
-        VStack(spacing: 0) {
-            GlassPickerRow(
-                "Kind",
-                selection: Binding(
-                    get: { node.kind },
-                    set: { onUpdate(WorkflowNodePatch(kind: $0)) }
-                ),
-                options: DomainContract.wfNodeKindValues,
-                label: WorkflowView.nodeKindLabel,
-                enabled: isDraft
-            )
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-
-            GlassDivider()
-
-            GlassPickerRow(
-                "Risk",
-                selection: Binding(
-                    get: { node.risk },
-                    set: { onUpdate(WorkflowNodePatch(risk: $0)) }
-                ),
-                options: DomainContract.wfRiskValues,
-                label: { $0.prefix(1).uppercased() + $0.dropFirst() },
-                enabled: !busy
-            )
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-
-            GlassDivider()
-
-            HStack(spacing: 8) {
-                Text(WorkflowView.nodeModelLabel)
-                    .foregroundStyle(.white.opacity(TextOpacity.primary))
-                Spacer(minLength: 8)
-                Text(LaunchVocabulary.modelLabel(
-                    WorkflowView.modelForNode(launch, kind: node.kind, risk: node.risk)
-                ))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("workflow-node-model")
-        }
-        .glassSection()
-    }
-
-    // MARK: - What else the node carries (EXP-983)
-
-    /// The rest of what the node IS, under the decisions: the sub-issues a
-    /// compound node runs as ONE batch, the contract it has published (its
-    /// dependents may already be building on it), and the siblings it merges in
-    /// first — the engine's serialization edges, without which a node waiting
-    /// on a sibling it does not depend on cannot be explained at all. Web and
-    /// the IDE keep all three in the panel beside the graph; the phone keeps
-    /// them here.
-    @ViewBuilder
-    private var bookkeeping: some View {
-        let members = node.memberIssueIds.compactMap { issues[$0] }
-        let mergesFirst = node.afterNodeIds.compactMap { id in
-            nodes.first { $0.id == id }
-        }
-        if !members.isEmpty {
-            FlowLayout(spacing: 6) {
-                ForEach(members, id: \.id) { member in
-                    IssueChip(
-                        identifier: member.identifier,
-                        title: member.title,
-                        status: IssueStatus.from(member.status),
-                        onTap: { onOpenIssue(member.id) }
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("workflow-node-members")
-        }
-        if let stamp = node.checkpointAt, !stamp.isEmpty {
-            Text(Self.contractPublishedLine(stamp))
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("workflow-node-checkpoint")
-        }
-        if !mergesFirst.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(WorkflowView.mergesInFirstLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                FlowLayout(spacing: 6) {
-                    ForEach(mergesFirst, id: \.id) { from in
-                        let issue = issues[from.issueId]
-                        IssueChip(
-                            identifier: WorkflowGraphView.nodeIdentifier(from, issue: issue),
-                            title: WorkflowGraphView.nodeChipTitle(issue),
-                            iconName: issue.map { IssueStatus.from($0.status).iconName },
-                            statusColor: issue.map { IssueStatus.from($0.status).color },
-                            onTap: { onOpenIssue(from.issueId) }
-                        )
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("workflow-node-merges-first")
-        }
-    }
-
-    /// `Contract published · 2 hr ago` — the label is byte-locked ×4, the stamp
-    /// is the app's own relative-date idiom (and drops out when the wire stamp
-    /// is unreadable).
-    private static func contractPublishedLine(_ stamp: String) -> String {
-        let relative = AgentUsagePresentation.relativeDate(stamp)
-        return relative.isEmpty
-            ? WorkflowView.contractPublishedLabel
-            : "\(WorkflowView.contractPublishedLabel) · \(relative)"
-    }
-
-    // MARK: - The Work faces (EXP-1024)
-
-    /// Issue · Run · Changes for this node, as the Work screen's own faces — a
-    /// node reads exactly like the screen it opens into. Which faces exist is
-    /// the shared rule (`WorkFaces.availableFaces`): no run, no Run; no pull
-    /// request, no Changes. Under two there is nothing to choose, and the chip
-    /// above is already the way into the issue.
-    @ViewBuilder
-    private var faces: some View {
-        let available = WorkFaces.availableFaces(
-            hasIssue: true,
-            hasRun: node.sessionId != nil,
-            hasChanges: issues[node.issueId]?.prNumber != nil,
-            hasResults: false
-        )
-        if available.count > 1 {
-            HStack(spacing: 8) {
-                ForEach(available, id: \.self) { face in
-                    GlassPill(
-                        WorkFaces.faceLabel(face),
-                        icon: WorkFaceSwitcher.icon(.face(face)),
-                        mode: .action { open(face) }
-                    )
-                }
-            }
-            .accessibilityIdentifier("workflow-node-faces")
-        }
-    }
-
-    private func open(_ face: WorkFaceKind) {
-        switch face {
-        case .run:
-            if let sessionId = node.sessionId { onOpenRun(sessionId) }
-        case .changes:
-            onOpenChanges(node.issueId)
-        case .issue, .results:
-            onOpenIssue(node.issueId)
-        }
-    }
-
-    // MARK: - Agent review (EXP-984)
-
-    /// The latest verdict an agent reviewer submitted: the one line, its
-    /// findings (folded while they are long), and the check it actually RAN —
-    /// an opinion is advisory, a passing oracle is evidence.
-    @ViewBuilder
-    private var agentReview: some View {
-        if let review = node.parsedReview {
-            let approved = review.verdict == DomainContract.wfReviewVerdictApprove
-            VStack(alignment: .leading, spacing: 6) {
-                Text(WorkflowView.agentReviewTitle)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Text(WorkflowView.reviewLine(review, nodeApproved: node.approvedAt != nil))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(
-                        approved
-                            ? DesignTokens.Semantic.green
-                            : DesignTokens.Palette.destructive
-                    )
-                    .accessibilityIdentifier("workflow-node-review-line")
-                if !review.findings.isEmpty {
-                    Text(review.findings)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .lineLimit(findingsExpanded ? nil : Self.findingsLines)
-                        .accessibilityIdentifier("workflow-node-review-findings")
-                    if Self.foldable(review.findings) {
-                        Button(findingsExpanded ? "Show less" : "Show more") {
-                            findingsExpanded.toggle()
-                        }
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .buttonStyle(.plain)
-                    }
-                }
-                if let command = review.oracle?.command, !command.isEmpty {
-                    Text(command)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .lineLimit(1)
-                        .accessibilityIdentifier("workflow-node-review-oracle")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .glassRow()
-            .accessibilityIdentifier("workflow-node-review")
-        }
-    }
-
-    /// The fold: a few lines, then "Show more" — the session view's own rule
-    /// for a long body.
-    private static let findingsLines = 4
-    private static let findingsChars = 280
-
-    private static func foldable(_ findings: String) -> Bool {
-        findings.count > findingsChars
-            || findings.filter { $0 == "\n" }.count >= findingsLines
-    }
-
-    // MARK: - State and its actions (EXP-982)
-
-    /// Where the node stands, and the only things a person can do about it:
-    /// admit or dismiss a proposal, retry or skip a failure, approve a PR or
-    /// take that approval back.
-    @ViewBuilder
-    private var runControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // The state in full, in its own tone — the graph row's caption,
-            // said where the decisions are made.
-            HStack(spacing: 6) {
-                if let icon = WorkflowGraphView.stateIcon(node.state) {
-                    AppIcon(icon, size: AppIcon.Size.small)
-                        .foregroundStyle(Self.color(tone))
-                }
-                Text(WorkflowView.nodeStateLabel(node.state))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Self.color(tone))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("workflow-node-state")
-
-            // The engine's own words for a `failed` / `waiting` node.
-            if let note = node.note, !note.isEmpty {
-                Text(note)
-                    .font(.caption)
-                    .foregroundStyle(Self.color(tone))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("workflow-node-note")
-            }
-
-            // EXP-984: a follow-up filed mid-run that was not plainly additive
-            // waits for a member. It is not part of the run yet, so none of the
-            // run's own controls apply to it — only Admit and Dismiss.
-            if node.isProposed {
-                Text(WorkflowView.proposedNodeNote)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("workflow-node-proposed-note")
-                HStack(spacing: 8) {
-                    GlassPill(
-                        WorkflowView.admitNodeLabel,
-                        icon: AppIcons.uiCheck,
-                        mode: .action { onAdmit(true) },
-                        primary: true,
-                        enabled: !busy
-                    )
-                    .accessibilityIdentifier("workflow-node-admit")
-                    GlassPill(
-                        WorkflowView.dismissNodeLabel,
-                        icon: AppIcons.uiClose,
-                        mode: .action { onAdmit(false) },
-                        enabled: !busy
-                    )
-                    .accessibilityIdentifier("workflow-node-dismiss")
-                }
-            }
-
-            // A failed node's two ways out.
-            if !node.isProposed, node.state == DomainContract.wfNodeStateFailed {
-                HStack(spacing: 8) {
-                    GlassPill(
-                        WorkflowView.retryNodeLabel,
-                        icon: AppIcons.uiRefresh,
-                        mode: .action { onResolve(.retry) },
-                        enabled: !busy
-                    )
-                    .accessibilityIdentifier("workflow-node-retry")
-                    GlassPill(
-                        WorkflowView.skipNodeLabel,
-                        icon: AppIcons.uiClose,
-                        mode: .action { showSkipConfirm = true },
-                        enabled: !busy
-                    )
-                    .accessibilityIdentifier("workflow-node-skip")
-                }
-            }
-
-            // A node with its PR up waits for an approval: the agent review's,
-            // or a person's by hand, which can be taken back until it lands.
-            if !node.isProposed {
-                if node.approvedAt != nil {
-                    if node.state != DomainContract.wfNodeStateLanded {
-                        GlassPill(
-                            WorkflowView.withdrawApprovalLabel,
-                            icon: AppIcons.uiClose,
-                            mode: .action { onApprove(false) },
-                            enabled: !busy
-                        )
-                        .accessibilityIdentifier("workflow-node-withdraw")
-                    }
-                } else if node.state == DomainContract.wfNodeStateInReview {
-                    GlassPill(
-                        WorkflowView.approveNodeLabel,
-                        icon: AppIcons.uiCheck,
-                        mode: .action { onApprove(true) },
-                        primary: true,
-                        enabled: !busy
-                    )
-                    .accessibilityIdentifier("workflow-node-approve")
-                }
-            }
-        }
-    }
-
-    private var tone: WorkflowView.Tone { WorkflowView.nodeTone(node.state) }
-
-    /// The node tones in this app's own state vocabulary — the graph's table.
-    private static func color(_ tone: WorkflowView.Tone) -> Color {
-        WorkflowGraphView.color(tone)
     }
 }

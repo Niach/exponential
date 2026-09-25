@@ -160,24 +160,6 @@ class WorkflowsWireFormatTest {
     }
 
     @Test
-    fun `approving and withdrawing differ only in the boolean`() {
-        assertEquals(
-            """{"nodeId":"node-1","approved":true}""",
-            json.encodeToString(
-                ApproveNodeInput.serializer(),
-                ApproveNodeInput(nodeId = "node-1", approved = true),
-            ),
-        )
-        assertEquals(
-            """{"nodeId":"node-1","approved":false}""",
-            json.encodeToString(
-                ApproveNodeInput.serializer(),
-                ApproveNodeInput(nodeId = "node-1", approved = false),
-            ),
-        )
-    }
-
-    @Test
     fun `resolving a node names retry or skip and nothing else`() {
         assertEquals(
             """{"nodeId":"node-1","action":"retry"}""",

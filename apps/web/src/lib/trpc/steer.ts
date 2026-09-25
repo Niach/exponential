@@ -30,6 +30,7 @@ import {
   getIssueTeamContext,
 } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
+import { workflowFinalPrIdentifier } from "@/lib/workflow-final-pr-identity"
 import {
   effectiveBoardBranch,
   effectiveDefaultBranch,
@@ -1112,8 +1113,31 @@ export const steerRouter = router({
                 .from(issues)
                 .where(eq(issues.id, issueId))
                 .limit(1)
-              return row && row.teamId === teamId && row.prState === `open`
-                ? { identifier: row.identifier, prNumber: row.prNumber }
+              if (row) {
+                return row.teamId === teamId && row.prState === `open`
+                  ? { identifier: row.identifier, prNumber: row.prNumber }
+                  : null
+              }
+              // EXP-1072: a WORKFLOW id names its final pull request — the
+              // workflow's own PR, fix-conflicts included. The chip reads
+              // like the PR's title on GitHub.
+              const [workflow] = await db
+                .select({
+                  teamId: workflows.teamId,
+                  name: workflows.name,
+                  finalPrNumber: workflows.finalPrNumber,
+                  finalPrState: workflows.finalPrState,
+                })
+                .from(workflows)
+                .where(eq(workflows.id, issueId))
+                .limit(1)
+              return workflow &&
+                workflow.teamId === teamId &&
+                workflow.finalPrState === `open`
+                ? {
+                    identifier: workflowFinalPrIdentifier(workflow.name),
+                    prNumber: workflow.finalPrNumber,
+                  }
                 : null
             },
           }
@@ -1188,20 +1212,46 @@ export const steerRouter = router({
                 .where(eq(boards.id, issueRow.boardId))
                 .limit(1)
             : []
-          if (!repoRow) {
+          // EXP-1072: a workflow's FINAL pull request lives in the
+          // workflow's ONE repository and targets its default branch.
+          const [workflowRepo] =
+            prIssueId && !issueRow
+              ? await db
+                  .select({
+                    id: repositories.id,
+                    fullName: repositories.fullName,
+                    defaultBranch: repositories.defaultBranch,
+                    defaultBranchOverride: repositories.defaultBranchOverride,
+                  })
+                  .from(workflows)
+                  .innerJoin(
+                    repositories,
+                    eq(repositories.id, workflows.repositoryId)
+                  )
+                  .where(eq(workflows.id, prIssueId))
+                  .limit(1)
+              : []
+          if (workflowRepo) {
+            repo = {
+              repositoryId: workflowRepo.id,
+              fullName: workflowRepo.fullName,
+              defaultBranch: effectiveDefaultBranch(workflowRepo),
+            }
+          } else if (!repoRow) {
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
               message: `The pull request's board has no linked repository`,
             })
-          }
-          repo = {
-            repositoryId: repoRow.id,
-            fullName: repoRow.fullName,
-            // The board's branch (EXP-712) is the rebase target for its PRs.
-            defaultBranch: effectiveBoardBranch(
-              { defaultBranch: repoRow.boardDefaultBranch },
-              repoRow
-            ),
+          } else {
+            repo = {
+              repositoryId: repoRow.id,
+              fullName: repoRow.fullName,
+              // The board's branch (EXP-712) is the rebase target for its PRs.
+              defaultBranch: effectiveBoardBranch(
+                { defaultBranch: repoRow.boardDefaultBranch },
+                repoRow
+              ),
+            }
           }
         } else if (input.actionId === BUILTIN_CHAT_ID) {
           // The chat builtin's repo is its OPTIONAL `repo` input (EXP-739) —

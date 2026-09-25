@@ -1,15 +1,19 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
 import type { db as database } from "@/db/connection"
 import {
   codingSessions,
   issues,
   repositories,
+  workflowEvents,
   workflowNodes,
   workflows,
 } from "@/db/schema"
 import {
   codingSessionResultSchema,
+  WORKFLOW_EVENT_MESSAGE_MAX,
+  WORKFLOW_EVENTS_MAX,
+  type WfEventKind,
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
 import { carriedReviewAtCap } from "@/lib/trpc/workflows/shared"
@@ -17,9 +21,12 @@ import { appBaseUrl } from "@/lib/notification-email-policy"
 import {
   createPullRequest,
   getPullRequest,
+  reopenPullRequest,
+  resolvePrBaseState,
   resolveRepoToken,
   retargetPullRequest,
 } from "@/lib/integrations/github-pr"
+import { assertTeamMember } from "@/lib/team-membership"
 import { loadWorkflowEdges } from "@/lib/workflows"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import {
@@ -178,6 +185,328 @@ export async function loadWorkflowResults(
     }
   }
   return out
+}
+
+type Executor = Pick<Db, `select` | `insert` | `update` | `delete`>
+
+/**
+ * EXP-1082 §3 / EXP-1096: the SERVER-decided lines of a workflow's audit
+ * trail (`completed`, `final_pr_reopened`, `cancelled`, the final-PR
+ * `failed`); the runner device records its own decisions through
+ * `workflows.appendEvent`. Same write as that procedure — one insert, then
+ * the workflow trimmed to its newest WORKFLOW_EVENTS_MAX rows — inside the
+ * caller's transaction.
+ */
+export async function recordWorkflowEventInTx(
+  tx: Executor,
+  event: {
+    workflowId: string
+    teamId: string
+    kind: WfEventKind
+    message: string
+    nodeId?: string | null
+    sessionId?: string | null
+  }
+): Promise<void> {
+  await tx.insert(workflowEvents).values({
+    workflowId: event.workflowId,
+    teamId: event.teamId,
+    nodeId: event.nodeId ?? null,
+    sessionId: event.sessionId ?? null,
+    kind: event.kind,
+    message: event.message.replace(/\s+/g, ` `).trim().slice(0, WORKFLOW_EVENT_MESSAGE_MAX),
+  })
+  await tx
+    .delete(workflowEvents)
+    .where(
+      and(
+        eq(workflowEvents.workflowId, event.workflowId),
+        sql`${workflowEvents.id} NOT IN (
+          SELECT ${workflowEvents.id} FROM ${workflowEvents}
+          WHERE ${workflowEvents.workflowId} = ${event.workflowId}
+          ORDER BY ${workflowEvents.at} DESC, ${workflowEvents.id} DESC
+          LIMIT ${WORKFLOW_EVENTS_MAX}
+        )`
+      )
+    )
+}
+
+/** The decision line an all-skipped workflow ends on (EXP-1059). */
+export const NOTHING_SHIPPED_DECISION = `nothing shipped: every node was skipped`
+
+/** What the final PR's `closed` state means once the engine gave up on it. */
+export const FINAL_PR_CLOSED_AGAIN_DECISION = (prNumber: number) =>
+  `the final pull request #${prNumber} was closed again after one reopen; open it from the workflow page to continue`
+
+export type ReopenFinalPrOutcome =
+  | { reopened: true; url: string }
+  /** Nothing to do: no final PR, or it is not closed (already open / merged). */
+  | { reopened: false; reason: string; gaveUp: false }
+  /** The ONE reopen was used up, or GitHub refused it: the workflow keeps
+   *  running with the decision line and a `failed` event; a member opens
+   *  the final PR again from the workflow page (`openFinalPr`). */
+  | { reopened: false; reason: string; gaveUp: true }
+
+async function finalPrToken(
+  db: Db,
+  workflow: { teamId: string; repositoryId: string | null },
+  actorUserId: string
+): Promise<{ fullName: string; token: string } | { error: string }> {
+  if (!workflow.repositoryId) return { error: `The workflow's repository is gone` }
+  const [repo] = await db
+    .select({ fullName: repositories.fullName })
+    .from(repositories)
+    .where(eq(repositories.id, workflow.repositoryId))
+    .limit(1)
+  if (!repo) return { error: `The workflow's repository is gone` }
+  const token = await resolveRepoToken({
+    actorUserId,
+    teamId: workflow.teamId,
+    repo: repo.fullName,
+  })
+  if (!token) return { error: `The GitHub App no longer has access to ${repo.fullName}` }
+  return { fullName: repo.fullName, token }
+}
+
+/**
+ * EXP-1059: a final PR someone closed WITHOUT merging is reopened — ONCE by
+ * the engine (`once: true`: a second close is a person's decision, the
+ * engine records it and stops), any number of times by a member from the
+ * workflow page (`once: false`). A refusal from GitHub (head branch gone,
+ * PR locked) is reported the same way; the member path then opens a NEW
+ * final PR instead (`workflows.openFinalPr`). Never throws on the once
+ * path: the engine reads the outcome, a member gets the message.
+ */
+export async function reopenWorkflowFinalPr(
+  db: Db,
+  workflowId: string,
+  actorUserId: string,
+  opts: { once: boolean }
+): Promise<ReopenFinalPrOutcome> {
+  const [workflow] = await db
+    .select({
+      id: workflows.id,
+      teamId: workflows.teamId,
+      repositoryId: workflows.repositoryId,
+      finalPrUrl: workflows.finalPrUrl,
+      finalPrNumber: workflows.finalPrNumber,
+      finalPrState: workflows.finalPrState,
+      decisions: workflows.decisions,
+    })
+    .from(workflows)
+    .where(eq(workflows.id, workflowId))
+    .limit(1)
+  if (!workflow) return { reopened: false, reason: `Workflow not found`, gaveUp: false }
+  if (!workflow.finalPrUrl || workflow.finalPrNumber == null) {
+    return { reopened: false, reason: `The workflow has no final pull request yet`, gaveUp: false }
+  }
+  if (workflow.finalPrState !== `closed`) {
+    return {
+      reopened: false,
+      reason: `The final pull request is ${workflow.finalPrState ?? `open`}`,
+      gaveUp: false,
+    }
+  }
+  const prNumber = workflow.finalPrNumber
+
+  const giveUp = async (reason: string): Promise<ReopenFinalPrOutcome> => {
+    // Said once: the line and the event are the same on every later beat.
+    const line = FINAL_PR_CLOSED_AGAIN_DECISION(prNumber)
+    if (!workflow.decisions.includes(line)) {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(workflows)
+          .set({ decisions: appendWorkflowDecision(workflow.decisions, line) })
+          .where(eq(workflows.id, workflow.id))
+        await recordWorkflowEventInTx(tx, {
+          workflowId: workflow.id,
+          teamId: workflow.teamId,
+          kind: `failed`,
+          message: reason,
+        })
+      })
+    }
+    return { reopened: false, reason, gaveUp: true }
+  }
+
+  if (opts.once) {
+    const [already] = await db
+      .select({ id: workflowEvents.id })
+      .from(workflowEvents)
+      .where(
+        and(
+          eq(workflowEvents.workflowId, workflow.id),
+          eq(workflowEvents.kind, `final_pr_reopened`)
+        )
+      )
+      .orderBy(desc(workflowEvents.at))
+      .limit(1)
+    if (already) {
+      return giveUp(`The final pull request #${prNumber} was closed again after one reopen`)
+    }
+  }
+
+  const access = await finalPrToken(db, workflow, actorUserId)
+  if (`error` in access) {
+    return opts.once
+      ? giveUp(`Could not reopen the final pull request #${prNumber}: ${access.error}`)
+      : { reopened: false, reason: access.error, gaveUp: true }
+  }
+  try {
+    await reopenPullRequest({ repo: access.fullName, prNumber, token: access.token })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return opts.once
+      ? giveUp(`Could not reopen the final pull request #${prNumber}: ${message}`)
+      : { reopened: false, reason: message, gaveUp: true }
+  }
+  await db.transaction(async (tx) => {
+    await tx
+      .update(workflows)
+      .set({
+        finalPrState: `open`,
+        decisions: appendWorkflowDecision(
+          workflow.decisions,
+          `reopened the final pull request #${prNumber} (it was closed without merging)`
+        ),
+      })
+      .where(eq(workflows.id, workflow.id))
+    await recordWorkflowEventInTx(tx, {
+      workflowId: workflow.id,
+      teamId: workflow.teamId,
+      kind: `final_pr_reopened`,
+      message: `Reopened the final pull request #${prNumber}`,
+    })
+  })
+  return { reopened: true, url: workflow.finalPrUrl }
+}
+
+/**
+ * EXP-1072: `issues.prepareConflictFix` for a WORKFLOW's final pull request
+ * — the same answer the issue path gives (the live rebase target, a stale
+ * base healed), so the fix-conflicts launcher treats the final PR like any
+ * linked PR. The final PR targets the repository's default branch: a base
+ * GitHub reports as anything else is retargeted there.
+ */
+export async function prepareWorkflowFinalPrConflictFix(
+  db: Db,
+  workflowId: string,
+  actorUserId: string
+): Promise<{
+  repo: string
+  prNumber: number
+  headRef: string
+  baseRef: string | null
+  baseKind: string
+  rebaseOnto: string
+  retargeted: boolean
+  defaultBranch: string
+}> {
+  const [workflow] = await db
+    .select({
+      teamId: workflows.teamId,
+      repositoryId: workflows.repositoryId,
+      integrationBranch: workflows.integrationBranch,
+      finalPrUrl: workflows.finalPrUrl,
+      finalPrNumber: workflows.finalPrNumber,
+      finalPrState: workflows.finalPrState,
+    })
+    .from(workflows)
+    .where(eq(workflows.id, workflowId))
+    .limit(1)
+  if (!workflow) throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+  await assertTeamMember(actorUserId, workflow.teamId)
+  if (!workflow.finalPrUrl || workflow.finalPrNumber == null) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The workflow has no final pull request yet`,
+    })
+  }
+  if (workflow.finalPrState !== `open`) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The pull request is ${workflow.finalPrState}. Only open pull requests can be conflict-fixed.`,
+    })
+  }
+  if (!workflow.repositoryId) {
+    throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `The workflow's repository is gone` })
+  }
+  const [repo] = await db
+    .select()
+    .from(repositories)
+    .where(eq(repositories.id, workflow.repositoryId))
+    .limit(1)
+  if (!repo) {
+    throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `The workflow's repository is gone` })
+  }
+  const token = await resolveRepoToken({
+    actorUserId,
+    teamId: workflow.teamId,
+    repo: repo.fullName,
+  })
+  if (!token) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The GitHub App no longer has access to ${repo.fullName}`,
+    })
+  }
+  const defaultBranch =
+    effectiveDefaultBranch(repo) ?? (await resolveRepoDefaultBranchCached(repo.fullName))
+  if (!defaultBranch) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `Could not resolve the default branch of ${repo.fullName}`,
+    })
+  }
+  let state
+  try {
+    state = await resolvePrBaseState({
+      repo: repo.fullName,
+      prNumber: workflow.finalPrNumber,
+      token,
+      defaultBranch,
+    })
+  } catch (err) {
+    throw new TRPCError({
+      code: `BAD_GATEWAY`,
+      message:
+        err instanceof Error ? err.message : `Failed to read the pull request from GitHub`,
+    })
+  }
+  if (state.prState !== `open`) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The pull request is already ${state.merged ? `merged` : `closed`} on GitHub`,
+    })
+  }
+  let retargeted = false
+  if (state.retargetTo != null) {
+    await retargetPullRequest({
+      repo: repo.fullName,
+      prNumber: workflow.finalPrNumber,
+      base: state.retargetTo,
+      token,
+    })
+    retargeted = true
+  }
+  return {
+    repo: repo.fullName,
+    prNumber: workflow.finalPrNumber,
+    headRef: state.headRef || workflow.integrationBranch,
+    baseRef: state.baseRef,
+    baseKind: state.kind,
+    rebaseOnto: state.rebaseOnto,
+    retargeted,
+    defaultBranch,
+  }
+}
+
+/** `2026-09-25: <text>` appended to the decisions log — the same shape
+ *  `trpc/workflows/shared.ts` `appendDecisionLine` writes, kept local so this
+ *  module never imports the router. */
+export function appendWorkflowDecision(log: string, text: string, now = new Date()): string {
+  const line = `${now.toISOString().slice(0, 10)}: ${text.replace(/\s+/g, ` `).trim()}`
+  return log.trim() ? `${log.trimEnd()}\n${line}` : line
 }
 
 export async function openWorkflowFinalPr(
@@ -367,6 +696,11 @@ export async function applyWorkflowFinalPrState(
         ...new Set(nodes.flatMap((node) => [node.issueId, ...node.members])),
       ]
       if (covered.length === 0) return
+      // EXP-1072: the SAME status writer the linked-PR merge path uses
+      // (`applyPrMergeState` → `applyPrLifecycleStatusInTx`): the team's
+      // PR-merge target, completedAt derivation, the status_changed event.
+      // The member issues' own `pr_merged` events were recorded when their
+      // node PRs landed on the integration branch.
       const rows = await tx
         .select({ id: issues.id, status: issues.status })
         .from(issues)
@@ -380,6 +714,12 @@ export async function applyWorkflowFinalPrState(
           event: `merged`,
         })
       }
+      await recordWorkflowEventInTx(tx, {
+        workflowId: workflow.id,
+        teamId: workflow.teamId,
+        kind: `completed`,
+        message: `Final pull request merged: ${covered.length} issue${covered.length === 1 ? `` : `s`} done`,
+      })
     })
     return true
   } catch (err) {

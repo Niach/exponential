@@ -26,8 +26,6 @@ import {
   mergeBelongsToAttempt,
   mergedNodeOutcome,
   appendDecisionLine,
-  bumpMetrics,
-  WORKFLOW_COUNTERS,
   carriedReviewAtCap,
   carriedFindingsLine,
 } from "./shared"
@@ -121,6 +119,10 @@ export const workflowNodeProcedures = {
                   // EXP-1010: a PR that merged before now is the old
                   // attempt's; it lands nothing.
                   mergedInto: null,
+                  // EXP-1066: the old attempt's announcement must not
+                  // release dependents before the new attempt announces
+                  // its own (the branch is reused, its head is not final).
+                  checkpointAt: null,
                   retriedAt: new Date(),
                 }
           )
@@ -152,39 +154,12 @@ export const workflowNodeProcedures = {
             .update(workflowNodes)
             .set({ state: `blocked`, note: null })
             .where(eq(workflowNodes.id, input.nodeId))
-          await tx
-            .update(workflows)
-            .set({ metrics: bumpMetrics({ admitted: 1 }) })
-            .where(eq(workflows.id, workflow.id))
         } else {
           await tx.delete(workflowNodes).where(eq(workflowNodes.id, input.nodeId))
         }
         await replanWorkflow(tx, workflow.id)
         return { txId }
       })
-    }),
-
-  /** ENGINE: counters only the device can see (merge-ins, contract changes). */
-  reportMetrics: authedProcedure
-    .input(
-      z.object({
-        id: z.string().uuid(),
-        // `partialRecord`: zod 4's `record` over an enum key is EXHAUSTIVE,
-        // and the engine sends one or two counters at a time.
-        deltas: z.partialRecord(
-          z.enum(WORKFLOW_COUNTERS),
-          z.number().int().min(0).max(10_000)
-        ),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const workflow = await loadWorkflow(input.id)
-      await assertEngine(workflow, ctx.session.user.id)
-      await ctx.db
-        .update(workflows)
-        .set({ metrics: bumpMetrics(input.deltas as Record<string, number>) })
-        .where(eq(workflows.id, input.id))
-      return { ok: true }
     }),
 
   /** ENGINE: a node's state moved. */
@@ -225,6 +200,10 @@ export const workflowNodeProcedures = {
           ...(input.sessionId !== undefined && { sessionId: input.sessionId }),
           ...(input.baseBranch !== undefined && { baseBranch: input.baseBranch }),
           ...(input.attempt !== undefined && { attempt: input.attempt }),
+          // EXP-1066: a fresh attempt (the engine's own retry) announces
+          // its own contract; the old announcement releases nobody.
+          ...(input.attempt !== undefined &&
+            input.attempt !== node.attempt && { checkpointAt: null }),
           ...(input.note !== undefined && { note: input.note }),
           ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })
@@ -409,13 +388,12 @@ export const workflowNodeProcedures = {
             )
           }
         }
-        await tx
-          .update(workflows)
-          .set({
-            metrics: bumpMetrics({ landed: 1 }),
-            ...(decisions !== undefined && { decisions }),
-          })
-          .where(eq(workflows.id, workflow.id))
+        if (decisions !== undefined) {
+          await tx
+            .update(workflows)
+            .set({ decisions })
+            .where(eq(workflows.id, workflow.id))
+        }
         return true
       })
       if (!landed) return { merged: true, reason: null, retargeted: [] as string[] }

@@ -3,7 +3,6 @@ import {
   and,
   eq,
   inArray,
-  sql,
 } from "drizzle-orm"
 import {
   WORKFLOW_DECISIONS_MAX,
@@ -225,7 +224,6 @@ export const wireColumns = {
   status: workflows.status,
   deviceId: workflows.deviceId,
   launch: workflows.launch,
-  startOn: workflows.startOn,
   integrationBranch: workflows.integrationBranch,
   finalPrUrl: workflows.finalPrUrl,
   finalPrNumber: workflows.finalPrNumber,
@@ -347,6 +345,7 @@ export async function loadNode(nodeId: string) {
       retriedAt: workflowNodes.retriedAt,
       review: workflowNodes.review,
       reviewRound: workflowNodes.reviewRound,
+      attempt: workflowNodes.attempt,
     })
     .from(workflowNodes)
     .where(eq(workflowNodes.id, nodeId))
@@ -446,33 +445,6 @@ export async function relayDecision(workflowId: string, text: string): Promise<v
   }
 }
 
-
-/** EXP-984: bump counters inside `workflows.metrics` (the shape keys the
- *  layout owns are never touched). */
-export function bumpMetrics(deltas: Record<string, number>) {
-  let expr = sql`${workflows.metrics}`
-  for (const [key, delta] of Object.entries(deltas)) {
-    if (!/^[a-zA-Z]+$/.test(key) || !Number.isFinite(delta)) continue
-    expr = sql`jsonb_set(${expr}, ${`{${key}}`}::text[], (coalesce((${workflows.metrics}->>${key})::numeric, 0) + ${delta})::text::jsonb)`
-  }
-  return expr
-}
-
-/** The counters the engine (or the server) may bump. The layout's shape keys
- *  (`nodes`, `edges`, `depth`, `width`, `cycles`, `cycleEdges`) are not among
- *  them. */
-export const WORKFLOW_COUNTERS = [
-  `landed`,
-  `mergeIns`,
-  `contractChanges`,
-  `escalations`,
-  `duplicateEscalations`,
-  `operatorMinutes`,
-  `reviewRounds`,
-  `defectsByOracle`,
-  `defectsByAgentReview`,
-  `admitted`,
-] as const
 
 /**
  * What one submitted review does to its node. Pure. EXP-1010: the agent

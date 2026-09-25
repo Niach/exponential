@@ -7,8 +7,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         { "id": "p", "issueId": "i-p", "kind": "leaf", "state": "proposed", "wave": 0, "lane": 0 },

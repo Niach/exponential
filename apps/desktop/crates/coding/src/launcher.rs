@@ -344,9 +344,6 @@ pub struct WorkflowRun {
     pub name: String,
     /// `workflows.decisions` as synced — the answers every sibling shares.
     pub decisions: String,
-    /// EXP-983: contract `wfStartOn` — under `contract` the run is asked to
-    /// announce one with `exponential_workflows_checkpoint`.
-    pub start_on: String,
     /// EXP-983: the identifiers of the issues this node builds on.
     pub blockers: Vec<String>,
 }
@@ -399,8 +396,15 @@ pub enum ActionRunKind {
         /// `exponential_pr_merge` argument).
         identifier: String,
         /// The representative issue's UUID — the `issues.prepareConflictFix`
-        /// argument (EXP-324).
+        /// argument (EXP-324). EXP-1072: the WORKFLOW's id when the pull
+        /// request is a workflow's final PR (the procedure accepts both).
         issue_id: String,
+        /// EXP-1072: the pull request is a WORKFLOW's final PR — the prompt
+        /// merges it as a chore PR (`exponential_pr_merge({ repositoryId,
+        /// prNumber })`, completing the workflow) and never retargets it: its
+        /// base is the repository's default branch. `identifier` then reads
+        /// like the PR's title (`Workflow: <name>`).
+        workflow_final_pr: bool,
     },
     /// The hidden "Plan workflow" builtin (EXP-981): the planner run of ONE
     /// draft workflow. Like [`Self::CreateAction`] it is REPO-LESS by
@@ -1702,7 +1706,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         name: &workflow.name,
         base_branch: &base_branch,
         decisions: &workflow.decisions,
-        start_on: &workflow.start_on,
         blockers: &workflow.blockers,
     });
     let rendered = match req {
@@ -2314,6 +2317,9 @@ fn prepare_action(
     // repo-backed arm below (None for every other kind); consumed by the
     // prompt render in step 3.
     let mut fix_rebase_onto: Option<String> = None;
+    // EXP-1072: the pull request's number as `issues.prepareConflictFix`
+    // read it — what a workflow's final PR is merged by.
+    let mut fix_pr_number: Option<i64> = None;
     // EXP-478/EXP-637: every repo-backed run now works in its OWN worktree
     // (fix-conflicts on the PR branch, Team/Chat on a fresh run branch), so
     // it gates the clone for the launch's whole flight like an issue/batch
@@ -2354,7 +2360,10 @@ fn prepare_action(
                     default_branch,
                     ..
                 } => match issues::prepare_conflict_fix(&deps.trpc, issue_id) {
-                    Ok(resolved) => Some(resolved.rebase_onto),
+                    Ok(resolved) => {
+                        fix_pr_number = Some(resolved.pr_number);
+                        Some(resolved.rebase_onto)
+                    }
                     Err(ApiError::Http { status: 404, .. }) => Some(default_branch.clone()),
                     Err(err) => {
                         return Err(CodingError::Io(format!(
@@ -2617,6 +2626,7 @@ fn prepare_action(
             branch,
             default_branch,
             identifier,
+            workflow_final_pr,
             ..
         } => Some(fix_pr_conflicts_prompt(
             identifier,
@@ -2624,6 +2634,17 @@ fn prepare_action(
             // The live base resolved above; the repo default only when the
             // server predates issues.prepareConflictFix (EXP-324).
             fix_rebase_onto.as_deref().unwrap_or(default_branch),
+            // EXP-1072: a workflow's final PR merges as a chore PR — by the
+            // repository and the number the server just read.
+            match (workflow_final_pr, req.repo.as_ref(), fix_pr_number) {
+                (true, Some(repo), Some(number)) => {
+                    Some(crate::action_prompt::ChorePrMerge {
+                        repository_id: repo.repository_id.clone(),
+                        pr_number: number,
+                    })
+                }
+                _ => None,
+            },
             unattended,
             req.prompt.as_deref(),
         )),
@@ -5368,6 +5389,7 @@ mod tests {
             board_id: None,
             identifier: "EXP-42".to_string(),
             issue_id: "issue-1".to_string(),
+            workflow_final_pr: false,
         };
         req.repo = None;
 
@@ -6425,6 +6447,7 @@ mod tests {
             board_id: None,
             identifier: "EXP-42".to_string(),
             issue_id: "issue-fix-1".to_string(),
+            workflow_final_pr: false,
         };
         req.repo = Some(RepoGroup {
             repository_id: repository_id.to_string(),

@@ -10,7 +10,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -72,30 +71,6 @@ class WorkflowViewTest {
             } else {
                 assertEquals(note, WorkflowView.cycleNote(shape))
             }
-        }
-    }
-
-    @Test
-    fun `every caption and its tone match the fixture`() {
-        val cases = fixture.getValue("captions").jsonArray
-        assertTrue(cases.size >= 8)
-        cases.forEach { element ->
-            val case = element.jsonObject
-            val node = case.getValue("node").jsonObject
-            val caption = WorkflowView.CaptionNode(
-                kind = node.getValue("kind").jsonPrimitive.content,
-                state = node.getValue("state").jsonPrimitive.content,
-                risk = node.getValue("risk").jsonPrimitive.content,
-            )
-            val status = case.getValue("workflowStatus").jsonPrimitive.content
-            assertEquals(
-                case.getValue("caption").jsonPrimitive.content,
-                WorkflowView.nodeCaption(caption, status),
-            )
-            assertEquals(
-                case.getValue("tone").jsonPrimitive.content,
-                WorkflowView.nodeTone(caption.state).key,
-            )
         }
     }
 
@@ -183,12 +158,6 @@ class WorkflowViewTest {
     }
 
     @Test
-    fun `the contract line is the shared sentence`() {
-        assertEquals("Contract published", WorkflowView.CONTRACT_PUBLISHED_LABEL)
-        assertEquals("Merges in first", WorkflowView.MERGES_IN_FIRST_LABEL)
-    }
-
-    @Test
     fun `the list and bulk-bar words are the shared ones`() {
         assertEquals(listOf("Running", "Draft", "Done"), WorkflowView.BANDS.map { it.title })
         assertEquals("Workflows", WorkflowView.WORKFLOWS_TITLE)
@@ -224,8 +193,7 @@ class WorkflowViewTest {
                 WorkflowView.startBlocker(startable, shape),
             )
         }
-        // EXP-983: a start mode is never a blocker — a ready draft starts,
-        // whatever its `start_on`.
+        // EXP-1066: one start rule — a ready draft with a runner starts.
         assertNull(
             WorkflowView.startBlocker(
                 WorkflowView.Startable(
@@ -236,50 +204,6 @@ class WorkflowViewTest {
                 WorkflowView.Shape(nodes = 3, depth = 2, width = 2),
             ),
         )
-    }
-
-    @Test
-    fun `the merge train orders and labels every waiting node`() {
-        val cases = fixture.getValue("trains").jsonArray
-        assertTrue(cases.size >= 2)
-        cases.forEach { element ->
-            val case = element.jsonObject
-            val name = case.getValue("name").jsonPrimitive.content
-            val nodes = case.getValue("nodes").jsonArray.map { node ->
-                val obj = node.jsonObject
-                WorkflowView.TrainNode(
-                    id = obj.getValue("id").jsonPrimitive.content,
-                    kind = obj.getValue("kind").jsonPrimitive.content,
-                    state = obj.getValue("state").jsonPrimitive.content,
-                    wave = obj.getValue("wave").jsonPrimitive.int,
-                    lane = obj.getValue("lane").jsonPrimitive.int,
-                    approvedAt = obj.getValue("approvedAt").stringOrNull(),
-                )
-            }
-            val expected = case.getValue("expected").jsonArray.map { entry ->
-                val obj = entry.jsonObject
-                obj.getValue("id").jsonPrimitive.content to
-                    obj.getValue("step").jsonPrimitive.content
-            }
-            assertEquals(
-                name,
-                expected,
-                WorkflowView.mergeTrain(nodes).map { it.id to it.step.key },
-            )
-        }
-    }
-
-    @Test
-    fun `each train step wears the fixture's word`() {
-        val labels = fixture.getValue("trainStepLabels").jsonObject
-        assertEquals(labels.size, WorkflowView.TrainStep.entries.size)
-        WorkflowView.TrainStep.entries.forEach { step ->
-            assertEquals(
-                step.key,
-                labels.getValue(step.key).jsonPrimitive.content,
-                WorkflowView.trainStepLabel(step),
-            )
-        }
     }
 
     @Test
@@ -327,15 +251,10 @@ class WorkflowViewTest {
         assertEquals("Start", WorkflowView.START_WORKFLOW_LABEL)
         assertEquals("Pause", WorkflowView.PAUSE_WORKFLOW_LABEL)
         assertEquals("Resume", WorkflowView.RESUME_WORKFLOW_LABEL)
-        assertEquals("Cancel workflow", WorkflowView.CANCEL_WORKFLOW_LABEL)
         assertEquals(
             "Its live runs end and its branch is deleted. Nothing reached the default branch.",
             WorkflowView.CANCEL_WORKFLOW_CONFIRM,
         )
-        assertEquals("Approve and land", WorkflowView.APPROVE_NODE_LABEL)
-        assertEquals("Withdraw approval", WorkflowView.WITHDRAW_APPROVAL_LABEL)
-        assertEquals("Merge train", WorkflowView.MERGE_TRAIN_TITLE)
-        assertEquals("Nothing is waiting to land.", WorkflowView.MERGE_TRAIN_EMPTY)
         assertEquals("Final pull request", WorkflowView.FINAL_PR_TITLE)
         // EXP-1033: merging that pull request is the run's ONE human review.
         assertEquals("Merge", WorkflowView.MERGE_FINAL_PR_LABEL)
@@ -344,7 +263,6 @@ class WorkflowViewTest {
                 "the run is done.",
             WorkflowView.MERGE_FINAL_PR_CONFIRM,
         )
-        assertEquals("Running now", WorkflowView.RUNNING_NOW_LABEL)
         assertEquals("Retry", WorkflowView.RETRY_NODE_LABEL)
         assertEquals("Skip", WorkflowView.SKIP_NODE_LABEL)
         assertEquals(
@@ -354,67 +272,16 @@ class WorkflowViewTest {
         )
     }
 
-    // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
+    // ── Review gate, dynamic graphs (EXP-984) ─────────────
 
     @Test
-    fun `every agent review reads as the fixture's one line`() {
-        val cases = fixture.getValue("reviewLines").jsonArray
-        assertTrue(cases.size >= 5)
-        cases.forEach { element ->
-            val case = element.jsonObject
-            val review = case.getValue("review").jsonObject
-            assertEquals(
-                case.getValue("line").jsonPrimitive.content,
-                WorkflowView.reviewLine(
-                    WorkflowView.ReviewLine(
-                        verdict = review.getValue("verdict").jsonPrimitive.content,
-                        round = review.getValue("round").jsonPrimitive.int,
-                        // A null oracle = the reviewer ran no check.
-                        oraclePassed = (review.getValue("oracle") as? kotlinx.serialization.json.JsonObject)
-                            ?.getValue("passed")?.jsonPrimitive?.boolean,
-                    ),
-                    // Advisory only while the verdict did not clear the node.
-                    nodeApproved = case.getValue("approved").jsonPrimitive.boolean,
-                ),
-            )
-        }
-    }
-
-    @Test
-    fun `the metrics section is the fixture's rows, in its order`() {
-        val cases = fixture.getValue("metricRows").jsonArray
-        assertTrue(cases.size >= 3)
-        cases.forEach { element ->
-            val case = element.jsonObject
-            // Through the tolerant jsonb read the synced row takes: a counter
-            // a newer server wrote as something other than a number simply
-            // does not count.
-            val counters = workflowMetricCounters(case.getValue("metrics").toString())
-            val expected = case.getValue("rows").jsonArray.map { row ->
-                val obj = row.jsonObject
-                obj.getValue("label").jsonPrimitive.content to
-                    obj.getValue("value").jsonPrimitive.content
-            }
-            assertEquals(
-                expected,
-                WorkflowView.metricRows(counters).map { it.label to it.value },
-            )
-        }
-    }
-
-    @Test
-    fun `the review, proposal, budget and metrics words are the shared ones`() {
+    fun `the review and proposal words are the shared ones`() {
         assertEquals("Admit", WorkflowView.ADMIT_NODE_LABEL)
         assertEquals("Dismiss", WorkflowView.DISMISS_NODE_LABEL)
         assertEquals(
             "Filed during the run. Admit it into the workflow or dismiss it.",
             WorkflowView.PROPOSED_NODE_NOTE,
         )
-        assertEquals("Agent review", WorkflowView.AGENT_REVIEW_TITLE)
-        assertEquals("Metrics", WorkflowView.METRICS_TITLE)
-        // EXP-1014: the per-phase model pickers are gone; the node sheet only
-        // NAMES the model its run spawns on.
-        assertEquals("Model", WorkflowView.NODE_MODEL_LABEL)
         // The chip of a node whose issue row has not synced: the first 8
         // characters of the issue id stand in for the identifier, this is the
         // title. A compound one still reads `abcd1234 +2`.
@@ -423,7 +290,7 @@ class WorkflowViewTest {
     }
 
     @Test
-    fun `a review's line is read off the synced jsonb cell`() {
+    fun `a review is read off the synced jsonb cell`() {
         val review = workflowNodeReview(
             """
                 {
@@ -436,7 +303,9 @@ class WorkflowViewTest {
                 }
             """.trimIndent(),
         )
-        assertEquals("Approved · round 1 · checks passed", WorkflowView.reviewLine(review!!.line, nodeApproved = true))
+        assertEquals("approve", review!!.verdict)
+        assertEquals(1, review.round)
+        assertEquals(true, review.oracle?.passed)
         // A cell with no verdict is nothing to show, never an empty card.
         assertNull(workflowNodeReview("""{"round": 2}"""))
         assertNull(workflowNodeReview(null))
@@ -589,10 +458,6 @@ class WorkflowViewTest {
             listOf("Low", "Medium", "High"),
             DomainContract.wfRiskValues.map(WorkflowView::riskLabel),
         )
-        assertEquals(
-            listOf("Contract", "Leaf", "Integration"),
-            DomainContract.wfNodeKindValues.map(WorkflowView::nodeKindLabel),
-        )
     }
 
     // ── EXP-1082: display states, the strip, the header, the actions ──────
@@ -616,7 +481,6 @@ class WorkflowViewTest {
         assertEquals(fixture.getValue("needsYouLabel").jsonPrimitive.content, WorkflowView.NEEDS_YOU_LABEL)
     }
 
-    @Ignore("EXP-1066")
     @Test
     fun `the node strip lays waves out as the fixture draws them`() {
         fixture.getValue("nodeStrips").jsonArray.forEach { element ->
@@ -634,10 +498,6 @@ class WorkflowViewTest {
                     needsYou = n.getValue("needsYou").jsonPrimitive.boolean,
                     note = n["note"]?.stringOrNull(),
                 )
-            }
-            val edges = case.getValue("edges").jsonArray.map { edge ->
-                val pair = edge.jsonArray
-                pair[0].jsonPrimitive.content to pair[1].jsonPrimitive.content
             }
             val expected = case.getValue("strip").jsonArray.map { raw ->
                 val w = raw.jsonObject
@@ -659,11 +519,10 @@ class WorkflowViewTest {
                     },
                 )
             }
-            assertEquals(case.getValue("name").jsonPrimitive.content, expected, WorkflowView.nodeStrip(nodes, edges))
+            assertEquals(case.getValue("name").jsonPrimitive.content, expected, WorkflowView.nodeStrip(nodes))
         }
     }
 
-    @Ignore("EXP-1066")
     @Test
     fun `the header caption is byte exact`() {
         fixture.getValue("headerCaptions").jsonArray.forEach { element ->
@@ -684,7 +543,6 @@ class WorkflowViewTest {
         }
     }
 
-    @Ignore("EXP-1066")
     @Test
     fun `the primary action follows status and runner`() {
         fixture.getValue("primaryActions").jsonArray.forEach { element ->
@@ -693,12 +551,15 @@ class WorkflowViewTest {
             assertEquals(
                 status,
                 case["action"]?.stringOrNull(),
-                WorkflowView.primaryAction(status, case["device"]?.stringOrNull())?.wire,
+                WorkflowView.primaryAction(
+                    status,
+                    case["device"]?.stringOrNull(),
+                    case["finalPrState"]?.stringOrNull(),
+                )?.wire,
             )
         }
     }
 
-    @Ignore("EXP-1066")
     @Test
     fun `a node chip menu offers only what its state allows`() {
         fixture.getValue("chipMenus").jsonArray.forEach { element ->
@@ -710,5 +571,60 @@ class WorkflowViewTest {
                 WorkflowView.nodeChipMenu(state).map { it.wire },
             )
         }
+    }
+
+    @Test
+    fun `the header overflow follows the status`() {
+        val cases = fixture.getValue("overflowMenus").jsonArray
+        assertTrue(cases.size >= 7)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val status = case.getValue("status").jsonPrimitive.content
+            assertEquals(
+                status,
+                case.getValue("menu").jsonArray.map { it.jsonPrimitive.content },
+                WorkflowView.overflowMenu(status).map { it.wire },
+            )
+        }
+    }
+
+    @Test
+    fun `the page labels are byte exact`() {
+        val labels = fixture.getValue("pageLabels").jsonObject
+        fun label(key: String) = labels.getValue(key).jsonPrimitive.content
+        assertEquals(label("allNodes"), WorkflowView.ALL_NODES_LABEL)
+        assertEquals(label("decisions"), WorkflowView.DECISIONS_LABEL)
+        assertEquals(label("stop"), WorkflowView.STOP_WORKFLOW_LABEL)
+        assertEquals(label("pickDevice"), WorkflowView.PICK_DEVICE_LABEL)
+        assertEquals(label("runsOn"), WorkflowView.RUNS_ON_LABEL)
+        assertEquals(label("reviewFinalPr"), WorkflowView.REVIEW_FINAL_PR_LABEL)
+        assertEquals(label("noChanges"), WorkflowView.NO_CHANGES_LABEL)
+        assertEquals(label("noRuns"), WorkflowView.NO_RUNS_LABEL)
+        assertEquals(label("noResults"), WorkflowView.NO_RESULTS_LABEL)
+        assertEquals(label("dismissNodeConfirm"), WorkflowView.DISMISS_NODE_CONFIRM)
+    }
+
+    @Test
+    fun `the header status glyph reads like a node display state`() {
+        val cases = fixture.getValue("statusGlyphs").jsonArray
+        assertTrue(cases.size >= 7)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val status = case.getValue("status").jsonPrimitive.content
+            assertEquals(
+                status,
+                case.getValue("display").jsonPrimitive.content,
+                WorkflowView.statusGlyph(status).wire,
+            )
+        }
+    }
+
+    @Test
+    fun `a proposed node's strip caption is the shared note`() {
+        assertEquals(fixture.getValue("proposedNodeNote").jsonPrimitive.content, WorkflowView.PROPOSED_NODE_NOTE)
+        val strip = WorkflowView.nodeStrip(
+            listOf(StripNodeInput("p", "EXP-9", "proposed", 0, 0, 0, live = false, needsYou = false)),
+        )
+        assertEquals(WorkflowView.PROPOSED_NODE_NOTE, strip.single().nodes.single().caption)
     }
 }

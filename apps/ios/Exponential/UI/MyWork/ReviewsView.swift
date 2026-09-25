@@ -36,6 +36,10 @@ struct ReviewsListContent: View {
     /// EXP-734: the agent run whose OWN pull request a merge confirm is
     /// pending for — its own alert, because the copy names no issues.
     @State private var runMergeTarget: RunReviewEntry?
+    /// EXP-1072: the workflow whose FINAL pull request a merge confirm is
+    /// pending for. The row leaves once the Electric echo of the workflow's
+    /// `final_pr_state` moves off `open`.
+    @State private var workflowMergeTarget: WorkflowReviewEntry?
     /// Merge failures keyed by `ReviewEntry.id` — rendered INLINE under the
     /// failing row (EXP-323). An alert made the reason modal and gave the
     /// conflict-recovery run nowhere to live. Each failure also records whether
@@ -55,13 +59,16 @@ struct ReviewsListContent: View {
         // EXP-734: agent runs parking their OWN pull request belong to no
         // board, so they get their own section after the board groups.
         let runs = viewModel?.runEntries(teamId: teamState.activeTeam?.id) ?? []
+        // EXP-1072: a workflow's ONE final pull request is the workflow's own
+        // PR — its own section, between the boards and the runs.
+        let workflows = viewModel?.workflowEntries(teamId: teamState.activeTeam?.id) ?? []
         Group {
             if viewModel == nil {
                 Color.clear
-            } else if groups.isEmpty && runs.isEmpty {
+            } else if groups.isEmpty && runs.isEmpty && workflows.isEmpty {
                 emptyState
             } else {
-                reviewList(groups, runs: runs)
+                reviewList(groups, runs: runs, workflows: workflows)
             }
         }
         .task(id: accountId) {
@@ -108,6 +115,23 @@ struct ReviewsListContent: View {
             let pr = entry.prNumber.map { "#\($0)" } ?? "this pull request"
             Text("Squash-merges PR \(pr) via the GitHub App. Any live coding session for it closes.")
         }
+        // EXP-1072: a workflow's final PR completes the whole workflow, so it
+        // confirms with its own copy (web parity).
+        .alert(
+            workflowMergeTarget?.prNumber.map { "Merge PR #\($0)?" } ?? "Merge pull request?",
+            isPresented: Binding(
+                get: { workflowMergeTarget != nil },
+                set: { if !$0 { workflowMergeTarget = nil } }
+            ),
+            presenting: workflowMergeTarget
+        ) { entry in
+            Button("Merge") { merge(workflow: entry) }
+            Button("Cancel", role: .cancel) { workflowMergeTarget = nil }
+        } message: { entry in
+            Text(
+                "Squash-merges the final pull request of the workflow \"\(entry.workflow.name)\" (\(entry.branch)) into the repository's default branch via the GitHub App. This completes the workflow and moves every landed issue to the team's PR-merge status."
+            )
+        }
         // EXP-897: merging a STACK is one call on the bottom row — the server
         // resolves the top and merges every unmerged member below it.
         .alert(
@@ -146,7 +170,11 @@ struct ReviewsListContent: View {
     }
 
     @ViewBuilder
-    private func reviewList(_ groups: [ReviewGroup], runs: [RunReviewEntry]) -> some View {
+    private func reviewList(
+        _ groups: [ReviewGroup],
+        runs: [RunReviewEntry],
+        workflows: [WorkflowReviewEntry]
+    ) -> some View {
         List {
             ForEach(groups) { group in
                 Section {
@@ -161,6 +189,23 @@ struct ReviewsListContent: View {
                     }
                 } header: {
                     boardHeader(board: group.board, count: group.rows.count)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                        .listRowBackground(Color.clear)
+                }
+            }
+
+            // EXP-1072: the workflows' FINAL pull requests — the one human
+            // sign-off of a whole run. Each merges through its workflow.
+            if !workflows.isEmpty {
+                Section {
+                    ForEach(workflows) { entry in
+                        workflowEntryRow(entry)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
+                    }
+                } header: {
+                    workflowsHeader(count: workflows.count)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
@@ -238,6 +283,182 @@ struct ReviewsListContent: View {
         .padding(.vertical, 6)
         .padding(.horizontal, 8)
         .textCase(nil)
+    }
+
+    /// EXP-1072: the "Workflows" section header — same shape as the runs'
+    /// header, with the Workflows glyph and the web's trailing caption.
+    @ViewBuilder
+    private func workflowsHeader(count: Int) -> some View {
+        HStack(spacing: 8) {
+            AppIcon(AppIcons.navWorkflows, size: 13)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+            Text("Workflows")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+            Text("\(count)")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+
+            Spacer()
+
+            Text("final pull requests")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .textCase(nil)
+    }
+
+    /// EXP-1072: one workflow's final pull request. The row opens the
+    /// workflow (its page carries the graph and the gate); Merge completes it.
+    /// A real conflict swaps Merge for the recovery run, like an issue row.
+    @ViewBuilder
+    private func workflowEntryRow(_ entry: WorkflowReviewEntry) -> some View {
+        let key = entry.id
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                AppIcon(AppIcons.prOpen, size: AppIcon.Size.small)
+                    .foregroundStyle(IssueStatus.inReview.color)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        if let prNumber = entry.prNumber {
+                            Text("#\(prNumber)")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        Text(entry.workflow.name)
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+
+                    if !entry.branch.isEmpty {
+                        Text(entry.branch)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                if canFixConflicts(workflow: entry) {
+                    GlassPill("Fix conflicts", icon: AppIcons.uiBranch)
+                        .contentShape(Capsule())
+                        .onTapGesture { fixConflicts(workflow: entry) }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("Fix merge conflicts")
+                } else {
+                    GlassPill("Merge") {
+                        if merging.contains(key) {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphSm)
+                        }
+                    }
+                    .contentShape(Capsule())
+                    .onTapGesture {
+                        guard !merging.contains(key) else { return }
+                        workflowMergeTarget = entry
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Merge pull request")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                pushRoute(.workflow(accountId: accountId, id: entry.workflow.id))
+            }
+            .swipeActions(edge: .trailing) {
+                Button { workflowMergeTarget = entry } label: {
+                    Label("Merge", appIcon: AppIcons.prMerged)
+                }
+                .tint(DesignTokens.Semantic.green)
+            }
+            .contextMenu {
+                Button {
+                    pushRoute(.workflow(accountId: accountId, id: entry.workflow.id))
+                } label: {
+                    Label("Open workflow", appIcon: AppIcons.navWorkflows)
+                }
+                Button {
+                    workflowMergeTarget = entry
+                } label: {
+                    Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
+                }
+                if canFixConflicts(workflow: entry) {
+                    Button {
+                        fixConflicts(workflow: entry)
+                    } label: {
+                        Label("Fix merge conflicts", appIcon: AppIcons.uiBranch)
+                    }
+                }
+                if let url = entry.prUrl.flatMap(URL.init(string:)) {
+                    Button {
+                        openURL(url)
+                    } label: {
+                        Label(DomainContract.diffUiOpenOnGithub, appIcon: AppIcons.uiGithub)
+                    }
+                }
+            }
+
+            if let failure = mergeErrors[key] {
+                Text(failure.message)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassCard()
+            }
+        }
+    }
+
+    /// EXP-1072: merging a workflow's FINAL pull request. GitHub's acceptance
+    /// completes the workflow and moves every landed issue to the team's
+    /// PR-merge status; the row leaves through sync (`final_pr_state`).
+    private func merge(workflow entry: WorkflowReviewEntry) {
+        workflowMergeTarget = nil
+        let key = entry.id
+        let workflowId = entry.workflow.id
+        mergeErrors[key] = nil
+        merging.insert(key)
+        Task {
+            do {
+                try await deps.workflowsApi.mergeFinalPr(accountId: accountId, id: workflowId)
+            } catch {
+                mergeErrors[key] = MergeFailure(error: error)
+            }
+            merging.remove(key)
+        }
+    }
+
+    /// EXP-1072: the recovery run is offered only on a REAL conflict (EXP-533)
+    /// and only with steering on; the integration branch is always recorded.
+    private func canFixConflicts(workflow entry: WorkflowReviewEntry) -> Bool {
+        steerEnabled && mergeErrors[entry.id]?.isConflict == true && !entry.branch.isEmpty
+    }
+
+    /// EXP-1072: the composer with "Fix merge conflicts" picked and the
+    /// WORKFLOW id as the `pr` value — the server resolves a workflow id to
+    /// its final pull request, and the picker offers it as an option.
+    private func fixConflicts(workflow entry: WorkflowReviewEntry) {
+        pushRoute(.agent(
+            accountId: accountId,
+            seed: AgentComposerSeed(
+                actionId: DomainContract.builtinFixConflictsId,
+                prIssueId: entry.workflow.id
+            )
+        ))
     }
 
     /// EXP-734: one agent run's own pull request. There is no issue and no

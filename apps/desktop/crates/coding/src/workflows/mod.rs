@@ -15,7 +15,7 @@
 //! reviewed PRs into the integration branch in order (the merge train), then
 //! opens ONE final PR integration → default.
 //!
-//! EXP-983 makes the starts SPECULATIVE: all three `start_on` modes are live,
+//! EXP-983 makes the starts SPECULATIVE: dependents start on their blockers' contract,
 //! so a dependent may start before its blockers landed. It then bases on
 //! THEIR work — one unlanded blocker means that blocker's branch, several
 //! mean a synthetic base the host merges them into — upstream movement
@@ -61,7 +61,8 @@ pub use facts::{
     prune_conflict_cache, NodeGit,
 };
 pub use state::{
-    hold_resume, merge_resuming, read_states, release_resume, write_states, WorkflowState,
+    final_pr_close_handled, hold_resume, merge_resuming, read_states, release_resume, write_states,
+    WorkflowState,
     WORKFLOW_ENGINE_KEY,
 };
 
@@ -142,6 +143,11 @@ pub struct WorkflowFacts {
     pub integration_branch: String,
     #[serde(default)]
     pub final_pr_url: Option<String>,
+    /// EXP-1059: contract `prState` of the final PR (`open`/`closed`/
+    /// `merged`), `None` while there is none. `closed` = someone closed it
+    /// WITHOUT merging: the engine reopens it once (rule 10).
+    #[serde(default)]
+    pub final_pr_state: Option<String>,
     /// Contract `workflow.maxParallelDefault` — how many node runs may be
     /// live at once. Not a launch field any more (EXP-1029): the hosts fill
     /// it from the contract.
@@ -153,17 +159,6 @@ pub struct WorkflowFacts {
     /// here and it normalizes the same way.
     #[serde(default, deserialize_with = "deserialize_launch")]
     pub launch: launch::WorkflowLaunch,
-    /// contract `wfStartOn` (`contract|pr_open|landed`). New workflows are
-    /// all `contract` (EXP-1029); an older row keeps what it was started
-    /// with, and an absent or unknown word reads as `landed`: the
-    /// conservative mode, which never starts a node on work that is not in
-    /// yet.
-    #[serde(default = "start_on_landed")]
-    pub start_on: String,
-}
-
-fn start_on_landed() -> String {
-    START_ON_LANDED.to_string()
 }
 
 /// The stored `launch` jsonb of ANY vintage → the strict launch.
@@ -182,19 +177,12 @@ impl Default for WorkflowFacts {
             status: String::new(),
             integration_branch: String::new(),
             final_pr_url: None,
+            final_pr_state: None,
             max_parallel: 0,
-            start_on: start_on_landed(),
             launch: launch::WorkflowLaunch::default(),
         }
     }
 }
-
-/// contract `wfStartOn` — a dependent starts once its blockers LANDED.
-pub const START_ON_LANDED: &str = "landed";
-/// A dependent starts once its blockers' pull requests are OPEN.
-pub const START_ON_PR_OPEN: &str = "pr_open";
-/// A dependent starts once its blockers announced their CONTRACT.
-pub const START_ON_CONTRACT: &str = "contract";
 
 /// One `workflow_nodes` row, as plain data.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -226,7 +214,7 @@ pub struct NodeFacts {
     pub approved_at: Option<String>,
     /// EXP-983: only its PRESENCE matters — the run announced its contract
     /// (`exponential_workflows_checkpoint`), which releases its dependents
-    /// under `start_on: contract`.
+    /// (EXP-1066: the one start rule).
     #[serde(default)]
     pub checkpoint_at: Option<String>,
     /// The branch this node's run was cut from, as reported at its start.
@@ -344,6 +332,15 @@ pub struct Snapshot {
     pub in_flight: HashSet<String>,
     #[serde(default)]
     pub final_pr_in_flight: bool,
+    /// Host fact (EXP-1059, persisted `WorkflowState::final_pr_close_handled`):
+    /// the CURRENT closed episode of the final PR was already put to the
+    /// server (`workflows.reopenFinalPr` answered — reopened, or gave up
+    /// because the one reopen was spent). The host clears it once the PR
+    /// reads `open` again, so EVERY close reaches the server and the
+    /// server's `final_pr_reopened` event is the once-gate; this flag only
+    /// keeps one closed episode from being asked every beat.
+    #[serde(default)]
+    pub final_pr_close_handled: bool,
     /// Host fact: `(session id, resets_at_ms)` pairs already nudged.
     #[serde(default)]
     pub nudged: HashSet<(String, i64)>,
@@ -629,6 +626,15 @@ pub enum Decision {
     },
     /// `workflows.openFinalPr` — integration branch → the default branch.
     OpenFinalPr,
+    /// EXP-1059: `workflows.reopenFinalPr` — the final PR was closed without
+    /// merging. The server reopens it ONCE and records a later close as a
+    /// person's decision; once it ANSWERED, the host remembers
+    /// `final_pr_close_handled` for this closed episode.
+    ReopenFinalPr,
+    /// EXP-1059: `workflows.cancelUnshipped` — every node was skipped, so
+    /// nothing reached the integration branch and there is no final PR to
+    /// open: the workflow ends `cancelled` with the `nothing shipped` note.
+    CancelUnshipped,
     /// Cancelled: end a live run.
     #[serde(rename_all = "camelCase")]
     KillSession { session_id: String },
@@ -738,19 +744,16 @@ fn is_synthetic(workflow_id: &str, branch: &str) -> bool {
     branch.starts_with(&synthetic_prefix(workflow_id))
 }
 
-/// A blocker satisfies the workflow's start mode (EXP-983 rule 1). `skipped`
-/// releases under every mode: there is nothing left to wait for.
-fn blocker_releases(start_on: &str, blocker: &NodeFacts) -> bool {
-    if blocker.state == "skipped" || blocker.state == "landed" {
-        return true;
-    }
-    match start_on {
-        START_ON_PR_OPEN => matches!(blocker.state.as_str(), "in_review" | "updating"),
-        START_ON_CONTRACT => {
-            blocker.checkpoint_at.is_some()
-                || matches!(blocker.state.as_str(), "in_review" | "updating")
-        }
-        // `landed` and anything a newer server invents: landed only.
+/// A blocker releases its dependents (EXP-983 rule 1) once it announced its
+/// CONTRACT, put its pull request up, landed or was skipped. EXP-1066: this
+/// is the ONE start rule — the `start_on` modes are gone, dependents always
+/// start on the blockers' contract. A checkpoint counts only while the
+/// blocker is AT WORK: a retried or failed blocker's old announcement
+/// releases nothing (the server nulls it on retry too).
+fn blocker_releases(blocker: &NodeFacts) -> bool {
+    match blocker.state.as_str() {
+        "in_review" | "updating" | "landed" | "skipped" => true,
+        "running" | "waiting" => blocker.checkpoint_at.is_some(),
         _ => false,
     }
 }
@@ -763,8 +766,8 @@ fn is_unlanded(state: &str) -> bool {
 
 /// The rule cascade, in order (the module doc names the hosts that run it):
 /// 0. no integration branch → create it, and NOTHING else this pass;
-/// 1. mirror every node's state off its session, PR and blockers, the
-///    blockers read through the workflow's START MODE (also while `paused`);
+/// 1. mirror every node's state off its session, PR and blockers, a blocker
+///    releasing on its contract, its PR or its landing (also while `paused`);
 /// 2. start `ready` nodes up to `max_parallel`, each on the base its
 ///    unlanded blockers dictate (building a synthetic one first);
 /// 3. refresh a synthetic base whose sources moved; 4. tell a run that the
@@ -1091,12 +1094,23 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     let all_in = !mirrored.is_empty()
         && mirrored.iter().all(|entry| is_final(&entry.state));
     let any_landed = mirrored.iter().any(|entry| entry.state == "landed");
-    if all_in
-        && any_landed
-        && snapshot.workflow.final_pr_url.is_none()
-        && !snapshot.final_pr_in_flight
-    {
-        decisions.push(Decision::OpenFinalPr);
+    if all_in && !snapshot.final_pr_in_flight {
+        if !any_landed {
+            // EXP-1059: every node skipped — nothing shipped, nothing to
+            // review. The server ends the workflow `cancelled` with its
+            // note; the next pass then sweeps the branch like any cancel.
+            decisions.push(Decision::CancelUnshipped);
+        } else if snapshot.workflow.final_pr_url.is_none() {
+            decisions.push(Decision::OpenFinalPr);
+        } else if snapshot.workflow.final_pr_state.as_deref() == Some("closed")
+            && !snapshot.final_pr_close_handled
+        {
+            // EXP-1059: closed without merging — every close goes to the
+            // server once: the first is reopened, a later one is recorded
+            // as a person's decision (a decision line + a `failed` event)
+            // and the workflow waits for a member (`openFinalPr`).
+            decisions.push(Decision::ReopenFinalPr);
+        }
     }
 
     // (11) A synthetic base nothing is building on any more: the branch goes,
@@ -1643,9 +1657,8 @@ fn desired_state(
         if node.state == "failed" && retry_in_backoff(snapshot, node) {
             return Some(state("failed"));
         }
-        // Not started yet: the blockers decide, read through the workflow's
-        // START MODE (EXP-983 — `landed` waits for the merge, `pr_open` for
-        // the pull request, `contract` for the announcement).
+        // Not started yet: the blockers decide (EXP-983 — a blocker releases
+        // on its contract announcement, its pull request or its landing).
         let ready = blockers
             .get(node.id.as_str())
             .map(|ids| {
@@ -1654,9 +1667,7 @@ fn desired_state(
                         .nodes
                         .iter()
                         .find(|candidate| candidate.id == *id)
-                        .is_some_and(|candidate| {
-                            blocker_releases(&snapshot.workflow.start_on, candidate)
-                        })
+                        .is_some_and(blocker_releases)
                 })
             })
             .unwrap_or(true);
@@ -2162,8 +2173,8 @@ mod tests {
                 status: "running".to_string(),
                 integration_branch: "exp/wf-abcdef12".to_string(),
                 final_pr_url: None,
+                final_pr_state: None,
                 max_parallel: 3,
-                start_on: START_ON_LANDED.to_string(),
                 launch: launch::WorkflowLaunch::default(),
             },
             nodes,
@@ -2211,6 +2222,64 @@ mod tests {
         // Both are final, at least one landed: the pass goes straight to the
         // final pull request without touching either row.
         assert_eq!(evaluate(&snapshot), vec![Decision::OpenFinalPr]);
+    }
+
+    /// EXP-1059 (§7): a final PR closed WITHOUT merging is reopened ONCE.
+    #[test]
+    fn a_closed_final_pr_is_reopened_once() {
+        let mut snapshot = running(vec![node("a", "landed", 0, 0), node("b", "skipped", 0, 1)]);
+        snapshot.workflow.final_pr_url = Some("https://gh/pr/9".to_string());
+        snapshot.workflow.final_pr_state = Some("closed".to_string());
+        assert_eq!(evaluate(&snapshot), vec![Decision::ReopenFinalPr]);
+
+        // The host is mid-call: nothing is asked twice in one flight.
+        let mut in_flight = snapshot.clone();
+        in_flight.final_pr_in_flight = true;
+        assert!(evaluate(&in_flight).is_empty());
+
+        // This closed episode was put to the server already (reopened, or
+        // recorded as closed for good): nothing is asked again until the PR
+        // reads open once more — the engine opens no second PR either.
+        let mut handled = snapshot.clone();
+        handled.final_pr_close_handled = true;
+        assert!(evaluate(&handled).is_empty());
+
+        // Closed AGAIN after a reopen (the host cleared the flag when the PR
+        // read open): the server is asked once more, and it is the one that
+        // knows the reopen was spent.
+        let mut again = snapshot.clone();
+        again.final_pr_close_handled = false;
+        assert_eq!(evaluate(&again), vec![Decision::ReopenFinalPr]);
+
+        // Open or merged: nothing to do either.
+        for state in ["open", "merged"] {
+            let mut other = snapshot.clone();
+            other.workflow.final_pr_state = Some(state.to_string());
+            assert!(evaluate(&other).is_empty(), "state {state}");
+        }
+    }
+
+    /// EXP-1059 (§7): every node skipped = nothing shipped — the workflow is
+    /// cancelled with a note instead of opening an empty final PR.
+    #[test]
+    fn an_all_skipped_workflow_is_cancelled_with_a_note() {
+        let snapshot = running(vec![node("a", "skipped", 0, 0), node("b", "skipped", 0, 1)]);
+        assert_eq!(evaluate(&snapshot), vec![Decision::CancelUnshipped]);
+
+        // A `proposed` node nobody admitted does not keep it alive.
+        let mut proposed = snapshot.clone();
+        proposed.nodes.push(node("c", "proposed", 1, 0));
+        assert_eq!(evaluate(&proposed), vec![Decision::CancelUnshipped]);
+
+        // Paused: the person's hold — the mirror keeps reading, nothing ends.
+        let mut paused = snapshot.clone();
+        paused.workflow.status = "paused".to_string();
+        assert!(evaluate(&paused).is_empty());
+
+        // Once the server flipped it, the cancel sweep takes over.
+        let mut cancelled = snapshot.clone();
+        cancelled.workflow.status = "cancelled".to_string();
+        assert_eq!(evaluate(&cancelled), vec![Decision::DeleteIntegrationBranch]);
     }
 
     /// EXP-1007: a merge that left the run UP (`endSessionsOnMerge` off,
