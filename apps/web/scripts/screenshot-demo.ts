@@ -234,8 +234,10 @@ export const DEMO_ATTACHMENT_DATES = {
  * top-down as the reverse of this array.
  */
 export const DEMO_API_KEYS = [
+  // EXP-1054: the launcher's `Device: <hostname>` shape, so the Security page
+  // lists it under Login sessions and the MCP key under API keys.
   {
-    name: DEMO_DEVICE_LABEL,
+    name: `Device: ${DEMO_DEVICE_LABEL}`,
     start: `expu_a`,
     createdAt: new Date(`2026-03-02T09:12:00Z`),
   },

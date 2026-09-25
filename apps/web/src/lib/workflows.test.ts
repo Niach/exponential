@@ -6,7 +6,9 @@ import {
   foldCompoundNodes,
   loadWorkflowEdges,
   nodeEdges,
+  isWorkflowReviewBranch,
   workflowIntegrationBranch,
+  workflowReviewBranch,
 } from "@/lib/workflows"
 
 // EXP-981 — the pure half of the workflow graph: how picked issues fold into
@@ -94,6 +96,24 @@ describe(`workflowIntegrationBranch`, () => {
     expect(workflowIntegrationBranch(`8cef8d22-dafc-4fb7-8e4f-01483ab0b5d0`)).toBe(
       `exp/wf-8cef8d22`
     )
+  })
+})
+
+// FEED-51: the review gate's branch evidence mirrors `crates/coding`
+// `review_branch` + `live_reviews_on_branches`.
+describe(`workflowReviewBranch`, () => {
+  const WF = `abcdef12-3456-7890-abcd-ef1234567890`
+  it(`names the workflow, the issue and the round`, () => {
+    expect(workflowReviewBranch(WF, `EXP-42`, 2)).toBe(`exp/wf-abcdef12-review-EXP-42-r2`)
+  })
+  it.each([
+    [`the same node, any round`, `exp/wf-abcdef12-review-EXP-10-r3`, true],
+    [`EXP-103's branch against EXP-10`, `exp/wf-abcdef12-review-EXP-103-r1`, false],
+    [`another workflow's branch`, `exp/wf-00000000-review-EXP-10-r1`, false],
+    [`a prefix with no round`, `exp/wf-abcdef12-review-EXP-10-r`, false],
+    [`the node's own PR branch`, `exp/EXP-10`, false],
+  ])(`matches %s: %s → %s`, (_name, branch, expected) => {
+    expect(isWorkflowReviewBranch(WF, `EXP-10`, branch)).toBe(expected)
   })
 })
 

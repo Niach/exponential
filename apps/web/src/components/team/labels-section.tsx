@@ -240,9 +240,6 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
           )
         }
       />
-      <p className="px-1 pb-2 text-xs text-foreground/50">
-        Deleting a label removes it from all issues.
-      </p>
       <div className="space-y-2">
         {labelList.map((label) => (
           <LabelRow

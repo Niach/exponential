@@ -283,6 +283,10 @@ struct Pass {
     /// reviewer run this device recorded; a row that has not synced is
     /// absent. What settles a review that ended without a verdict.
     review_session_live: HashMap<String, bool>,
+    /// `node id → the LIVE run on its review branch`, whatever id was
+    /// recorded: a resumed reviewer is followed, a stray one adopted, and
+    /// neither is doubled ([`workflows::live_reviews_on_branches`]).
+    review_live_on_branch: HashMap<String, String>,
 }
 
 /// One node the pass decided to start — executed on the foreground, where
@@ -548,6 +552,15 @@ fn snapshot_for(
             .iter()
             .filter_map(|node| Some((node.id.clone(), node.branch.clone()?)))
             .collect();
+        // A reviewer that was resumed runs on the SAME review branch under
+        // a new session id: the branch, not the recorded id, says which
+        // nodes are being reviewed right now.
+        let review_live_on_branch = workflows::live_reviews_on_branches(
+            &workflow.id,
+            &identifier,
+            live_session_branches(session_rows.iter()),
+        );
+        review_in_flight.extend(review_live_on_branch.keys().cloned());
         passes.push(Pass {
             trpc: Arc::clone(&trpc),
             settings_path: settings_path.clone(),
@@ -617,9 +630,26 @@ fn snapshot_for(
             review_of,
             checkpointed,
             review_session_live,
+            review_live_on_branch,
         });
     }
     Some(passes)
+}
+
+/// This team's LIVE runs as `(session id, branch)`, oldest first — what the
+/// branch-based reviewer lookup reads.
+fn live_session_branches<'a>(
+    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
+) -> Vec<(String, String)> {
+    let mut live: Vec<&domain::rows::CodingSession> = rows
+        .filter(|row| {
+            row.branch.is_some() && matches!(row.status.as_deref(), Some("running" | "in_review"))
+        })
+        .collect();
+    live.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+    live.into_iter()
+        .filter_map(|row| Some((row.id.clone(), row.branch.clone()?)))
+        .collect()
 }
 
 /// The `blocks` edges between a workflow's nodes — the ONE rule, shared with
@@ -742,11 +772,21 @@ fn run_pass(
         .iter()
         .map(|node| (node.id.clone(), node.review_round))
         .collect();
-    for outcome in workflows::settle_review_runs(&mut state, &review_round_of, |session_id| {
-        pass.review_session_live.get(session_id).copied()
-    }) {
+    for outcome in workflows::settle_review_runs(
+        &mut state,
+        &review_round_of,
+        &pass.review_live_on_branch,
+        |session_id| pass.review_session_live.get(session_id).copied(),
+        snapshot.now_ms,
+    ) {
         match outcome {
             workflows::ReviewRunEnd::Verdict { .. } => {}
+            workflows::ReviewRunEnd::Followed { node_id, session_id } => log::info!(
+                "[workflows] {workflow_id}: the review of {node_id} was resumed as {session_id}; following it"
+            ),
+            workflows::ReviewRunEnd::Adopted { node_id, session_id } => log::info!(
+                "[workflows] {workflow_id}: adopting the live review {session_id} of {node_id}"
+            ),
             workflows::ReviewRunEnd::Retry { node_id, failures } => log::warn!(
                 "[workflows] {workflow_id}: the review of {node_id} ended without a verdict ({failures}); trying again"
             ),
@@ -763,7 +803,7 @@ fn run_pass(
     // taken a hold since (off the foreground, while the git calls above
     // ran), and the write-back below must keep it.
     let resuming_before = state.resuming.clone();
-    workflows::apply_resuming(&mut snapshot, &mut state.resuming);
+    workflows::apply_resuming(&mut snapshot, &mut state.resuming, &state.review_runs);
     workflows::prune_land_refused(&mut state.land_refused, &snapshot.pr_head);
     snapshot.land_refused = state.land_refused.clone();
     {

@@ -46,11 +46,14 @@ vi.mock(`@/db/connection`, () => ({
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/team-membership`, () => ({ assertTeamMember: h.assertTeamMember }))
 vi.mock(`@/lib/trpc/automations`, () => ({ assertDeviceUsable: h.assertDeviceUsable }))
-vi.mock(`@/lib/workflows`, () => ({
+vi.mock(`@/lib/workflows`, async () => ({
   nodeEdges: () => [],
   loadWorkflowEdges: h.loadWorkflowEdges,
   replanWorkflow: h.replanWorkflow,
   workflowIntegrationBranch: (id: string) => `exp/wf-${id.slice(0, 8)}`,
+  // The real matcher: the review gate's branch evidence (FEED-51).
+  isWorkflowReviewBranch: (await vi.importActual<typeof import("@/lib/workflows")>(`@/lib/workflows`))
+    .isWorkflowReviewBranch,
 }))
 vi.mock(`@/lib/workflow-final-pr`, () => ({
   ensureNodePrOnIntegrationBranch: h.ensureNodePrOnIntegrationBranch,
@@ -103,7 +106,10 @@ const fakeDb = {
 dbHolder.db = fakeDb
 
 vi.mock(`@/lib/steer`, () => ({ getSteerRelayConfig: () => null, relayPostInput: vi.fn() }))
-vi.mock(`@/lib/steer-child-messages`, () => ({ oneLine: (text: string) => text }))
+vi.mock(`@/lib/steer-child-messages`, () => ({
+  oneLine: (text: string) => text,
+  MAX_SESSION_CHAIN_DEPTH: 20,
+}))
 
 import {
   appendDecisionLine,
@@ -540,6 +546,22 @@ describe(`the engine's write path`, () => {
     expect((written[0]!.values as { attempt?: unknown }).attempt).toBeDefined()
   })
 
+  it(`a person's approval drops the reviewer's head so the engine never reads it as stale`, async () => {
+    selectQueue.push([node({ approvedAt: null })], [workflow()], [{ since: new Date() }])
+    await caller.approveNode({ nodeId: NODE, approved: true } as never)
+    const write = written.find((w) => w.op === `update`)
+    expect(write?.values).toMatchObject({ approvedAt: expect.any(Date) })
+    expect(typeof (write?.values as { review: unknown }).review).toBe(`object`)
+    expect((write?.values as { review: unknown }).review).not.toBeNull()
+  })
+
+  it(`withdrawing an approval leaves the review alone`, async () => {
+    selectQueue.push([node()], [workflow()])
+    await caller.approveNode({ nodeId: NODE, approved: false } as never)
+    const write = written.find((w) => w.op === `update`)
+    expect(write?.values).toEqual({ approvedAt: null })
+  })
+
   it(`holds an unapproved node at the gate, server-side`, async () => {
     selectQueue.push(
       [node()],
@@ -798,8 +820,16 @@ describe(`workflows.submitReview`, () => {
     id: REVIEW_RUN,
     actionName: `Review node`,
     startedReason: `workflow`,
+    branch: `exp/wf-22222222-review-APP-6-r1`,
+    resumedFromId: null,
     ...over,
   })
+  // FEED-51: a reviewer resumed from a chat run (an account switch) carries
+  // `agent` + the chat as its parent; only its branch and `resumed_from_id`
+  // still say what it is.
+  const RESUMED_RUN = `88888888-8888-4888-8888-888888888888`
+  const resumed = (over: Record<string, unknown> = {}) =>
+    reviewer({ id: RESUMED_RUN, startedReason: `agent`, resumedFromId: REVIEW_RUN, ...over })
   const running = () => workflow({ status: `running`, deviceId: `dev-1` })
   const submit = (sessionId: string, over: Record<string, unknown> = {}) =>
     caller.submitReview({
@@ -820,13 +850,146 @@ describe(`workflows.submitReview`, () => {
 
   it.each([
     [`a run that is not the review builtin`, reviewer({ actionName: `Fix merge conflicts` })],
-    [`a review run a person started`, reviewer({ startedReason: null })],
+    [`a review run a person started`, reviewer({ startedReason: null, branch: null })],
     [`an unknown run`, null],
   ])(`refuses %s`, async (_name, row) => {
     selectQueue.push([node()], [running()], [{ id: `device-row` }], row ? [row] : [])
     const error = await rejection(submit(REVIEW_RUN))
     expect(error?.code).toBe(`FORBIDDEN`)
     expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  // FEED-51: an account switch resumes the reviewer through the MCP path,
+  // which re-brands the successor `agent` under the switching chat. The
+  // successor is still the workflow's reviewer: its branch says so, and
+  // failing that the guard walks `resumed_from_id` back.
+  it(`accepts a reviewer resumed after an account switch through its succession`, async () => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [resumed({ branch: null })], [reviewer()])
+    updateQueue.push([{ round: 2 }])
+    const result = await submit(RESUMED_RUN, { head: `e39378c61d3` })
+    expect(result).toMatchObject({ round: 2, approve: true, state: `in_review` })
+    expect(written[1]!.values).toMatchObject({
+      approvedAt: expect.any(Date),
+      review: expect.objectContaining({ head: `e39378c61d3`, round: 2 }),
+    })
+  })
+
+  it(`follows a chain of resumes to the run the workflow started`, async () => {
+    const MIDDLE = `99999999-9999-4999-8999-999999999999`
+    selectQueue.push(
+      [node()],
+      [running()],
+      [{ id: `device-row` }],
+      [resumed({ branch: null, resumedFromId: MIDDLE })],
+      [resumed({ id: MIDDLE, branch: null })],
+      [reviewer()]
+    )
+    updateQueue.push([{ round: 1 }])
+    await expect(submit(RESUMED_RUN)).resolves.toMatchObject({ round: 1 })
+  })
+
+  it.each([
+    [`a resume chain that never reaches a workflow-started review run`, [resumed({ branch: null })], [reviewer({ startedReason: null, branch: null })]],
+    [`a resume of the node's own run`, [resumed({ branch: null, resumedFromId: AUTHOR_RUN })], [reviewer({ id: AUTHOR_RUN })]],
+    [`a resume whose predecessor is not the review builtin`, [resumed({ branch: null })], [reviewer({ actionName: `Chat` })]],
+    [`a resume whose predecessor vanished`, [resumed({ branch: null })], []],
+  ])(`refuses %s`, async (_name, ...rows) => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], ...rows)
+    const error = await rejection(submit(RESUMED_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  it(`stops on a resume loop instead of spinning`, async () => {
+    selectQueue.push(
+      [node()],
+      [running()],
+      [{ id: `device-row` }],
+      [resumed({ branch: null, resumedFromId: RESUMED_RUN })]
+    )
+    const error = await rejection(submit(RESUMED_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.select).toHaveBeenCalledTimes(4)
+  })
+
+  it(`accepts a resumed reviewer on the node's review branch without walking the succession`, async () => {
+    selectQueue.push(
+      [node()],
+      [running()],
+      [{ id: `device-row` }],
+      [resumed({ branch: `exp/wf-22222222-review-APP-6-r3` })],
+      [{ identifier: `APP-6` }]
+    )
+    updateQueue.push([{ round: 3 }])
+    const result = await submit(RESUMED_RUN, { head: `e39378c61d30` })
+    expect(result).toMatchObject({ round: 3, approve: true })
+    // node, workflow, device, reviewer, issue — never the predecessor.
+    expect(fakeDb.select).toHaveBeenCalledTimes(5)
+  })
+
+  it(`follows a twice-resumed reviewer on another workflow's branch back to the run the engine started`, async () => {
+    const MID = `99999999-9999-4999-8999-999999999999`
+    selectQueue.push(
+      [node()],
+      [running()],
+      [{ id: `device-row` }],
+      [resumed({ branch: `exp/wf-00000000-review-APP-6-r1`, resumedFromId: MID })],
+      [{ identifier: `APP-6` }],
+      [{ actionName: `Review node`, startedReason: `agent`, resumedFromId: REVIEW_RUN }],
+      [{ actionName: `Review node`, startedReason: `workflow`, resumedFromId: null }]
+    )
+    updateQueue.push([{ round: 2 }])
+    expect(await submit(RESUMED_RUN)).toMatchObject({ round: 2, approve: true })
+  })
+
+  it(`refuses an agent-started review run on another node's branch with no succession`, async () => {
+    selectQueue.push(
+      [node()],
+      [running()],
+      [{ id: `device-row` }],
+      // `APP-60`'s branch shares `APP-6`'s prefix up to the digit rule.
+      [resumed({ branch: `exp/wf-22222222-review-APP-60-r1`, resumedFromId: null })],
+      [{ identifier: `APP-6` }]
+    )
+    const error = await rejection(submit(RESUMED_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a succession that reaches a run which is not the review builtin`, async () => {
+    selectQueue.push(
+      [node()],
+      [running()],
+      [{ id: `device-row` }],
+      [resumed({ branch: null })],
+      [{ actionName: `Chat`, startedReason: null, resumedFromId: null }]
+    )
+    const error = await rejection(submit(RESUMED_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a resumed AUTHOR run even when it names the review branch`, async () => {
+    // A node re-pointed at its author's resume: the author is never a review builtin.
+    selectQueue.push(
+      [node({ sessionId: AUTHOR_RUN })],
+      [running()],
+      [{ id: `device-row` }],
+      [resumed({ actionName: null, branch: `exp/wf-22222222-review-APP-6-r1` })]
+    )
+    const error = await rejection(submit(RESUMED_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+  })
+
+  it(`takes an oracle command longer than the old 500-character cap`, async () => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()])
+    updateQueue.push([{ round: 1 }])
+    const command = Array.from({ length: 20 }, (_, i) => `bun run test -- suite-${i}.test.ts`).join(` && `)
+    expect(command.length).toBeGreaterThan(500)
+    await submit(REVIEW_RUN, { oracle: { command, passed: true } })
+    expect(written[1]!.values).toMatchObject({
+      review: expect.objectContaining({ oracle: { command, passed: true } }),
+    })
   })
 
   it(`claims the round in SQL, stores the reviewed head and approves on evidence`, async () => {

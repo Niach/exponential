@@ -3177,11 +3177,23 @@ impl AutomationHost {
             let outcomes = coding::workflows::settle_review_runs(
                 &mut state,
                 &review_round_of,
+                &plan.review_live_on_branch,
                 |session_id| plan.review_session_live.get(session_id).copied(),
+                plan.snapshot.now_ms,
             );
             for outcome in outcomes {
                 match outcome {
                     coding::workflows::ReviewRunEnd::Verdict { .. } => {}
+                    coding::workflows::ReviewRunEnd::Followed { node_id, session_id } => {
+                        log::info!(
+                            "workflow {workflow_id}: the review of {node_id} was resumed as {session_id}; following it"
+                        )
+                    }
+                    coding::workflows::ReviewRunEnd::Adopted { node_id, session_id } => {
+                        log::info!(
+                            "workflow {workflow_id}: adopting the live review {session_id} of {node_id}"
+                        )
+                    }
                     coding::workflows::ReviewRunEnd::Retry { node_id, failures } => log::warn!(
                         "workflow {workflow_id}: the review of {node_id} ended without a verdict ({failures}); trying again"
                     ),
@@ -3198,7 +3210,11 @@ impl AutomationHost {
             // the remote-start thread may have taken a hold since, and the
             // write-back below must keep it.
             let resuming_before = state.resuming.clone();
-            coding::workflows::apply_resuming(&mut plan.snapshot, &mut state.resuming);
+            coding::workflows::apply_resuming(
+                &mut plan.snapshot,
+                &mut state.resuming,
+                &state.review_runs,
+            );
             coding::workflows::prune_land_refused(&mut state.land_refused, &plan.snapshot.pr_head);
             plan.snapshot.land_refused = state.land_refused.clone();
             update_workflow_state(settings_path, &self.device_id, &workflow_id, move |persisted| {
@@ -4077,6 +4093,10 @@ struct WorkflowPlan {
     /// reviewer run this device recorded (a row that has not synced is
     /// absent) — what settles a review that ended without a verdict.
     review_session_live: HashMap<String, bool>,
+    /// `node id → the LIVE run on its review branch`, whatever id was
+    /// recorded: a resumed reviewer is followed, a stray one adopted, and
+    /// neither is doubled ([`coding::workflows::live_reviews_on_branches`]).
+    review_live_on_branch: HashMap<String, String>,
     name: String,
     team_id: String,
     decisions: String,
@@ -4228,6 +4248,14 @@ fn workflow_plan(
     let launch = coding::workflows::launch::normalize_workflow_launch(
         workflow.launch.as_ref().unwrap_or(&serde_json::Value::Null),
     );
+    // A reviewer that was resumed runs on the SAME review branch under a
+    // new session id: the branch, not the recorded id, says which nodes are
+    // being reviewed right now.
+    let review_live_on_branch = coding::workflows::live_reviews_on_branches(
+        &workflow.id,
+        &identifier,
+        live_session_branches(session_rows),
+    );
     Some(WorkflowPlan {
         snapshot: coding::workflows::Snapshot {
             workflow: coding::workflows::WorkflowFacts {
@@ -4260,7 +4288,10 @@ fn workflow_plan(
             identifier,
             // EXP-984: the review gate's at-most-once bookkeeping (the heads
             // themselves are filled with the tips, in the pass).
-            review_in_flight: live_reviews(&engine_state, session_rows),
+            review_in_flight: live_reviews(&engine_state, session_rows)
+                .into_iter()
+                .chain(review_live_on_branch.keys().cloned())
+                .collect(),
             pr_head: HashMap::new(),
             reviewed_head: engine_state.reviewed_head.clone(),
             findings_sent: engine_state.findings_sent.clone(),
@@ -4273,6 +4304,7 @@ fn workflow_plan(
         review_of,
         checkpointed,
         review_session_live: review_session_liveness(&engine_state, session_rows),
+        review_live_on_branch,
         name: workflow.name.clone().unwrap_or_default(),
         team_id,
         decisions: workflow.decisions.clone().unwrap_or_default(),
@@ -4346,6 +4378,21 @@ fn live_reviews(
             })
         })
         .map(|(node_id, _)| node_id.clone())
+        .collect()
+}
+
+/// This team's LIVE runs as `(session id, branch)`, oldest first — what the
+/// branch-based reviewer lookup reads.
+fn live_session_branches(session_rows: &[domain::rows::CodingSession]) -> Vec<(String, String)> {
+    let mut live: Vec<&domain::rows::CodingSession> = session_rows
+        .iter()
+        .filter(|row| {
+            row.branch.is_some() && matches!(row.status.as_deref(), Some("running" | "in_review"))
+        })
+        .collect();
+    live.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+    live.into_iter()
+        .filter_map(|row| Some((row.id.clone(), row.branch.clone()?)))
         .collect()
 }
 

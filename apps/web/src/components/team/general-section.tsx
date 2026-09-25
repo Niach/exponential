@@ -11,11 +11,10 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 export const TEAM_PROMPT_MAX_BYTES = contract.team.agentPromptMaxBytes
 
 /** EXP-1025: the editor's copy, byte-identical on the IDE
- *  (`settings/team_general.rs`). The helper says what belongs WHERE, so the
- *  prompt never turns into a second CLAUDE.md. */
+ *  (`settings/team_general.rs`). EXP-1054: one short placeholder, no helper
+ *  paragraph under the field — the counter is the footer. */
 export const TEAM_PROMPT_TITLE = `Team prompt`
-export const TEAM_PROMPT_PLACEHOLDER = `Rules every coding run of this team should follow, as markdown. Repo facts belong in CLAUDE.md; this is for team process, conventions and who to ask.`
-export const TEAM_PROMPT_HELP = `Appended to the agent's system prompt after the run playbook, on every start and resume. It reaches every run on every member's machine, with the agent's full permissions. Applies to runs started or resumed from now on.`
+export const TEAM_PROMPT_PLACEHOLDER = `Rules every coding run of this team follows, as markdown.`
 
 /** `12.3k` / `840` — the counter's short form. */
 export function formatByteCount(bytes: number): string {
@@ -187,8 +186,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
             spellCheck={false}
             className="min-h-48 rounded-none border-0 bg-transparent px-4 py-3 font-mono text-xs shadow-none focus-visible:border-0"
           />
-          <div className="flex items-start justify-between gap-4 border-t border-glass-stroke-card px-4 py-2 text-xs leading-snug text-muted-foreground">
-            <span className="min-w-0">{TEAM_PROMPT_HELP}</span>
+          <div className="flex items-start justify-end gap-4 border-t border-glass-stroke-card px-4 py-2 text-xs leading-snug text-muted-foreground">
             <span
               className={`shrink-0 tabular-nums ${promptOver ? `text-destructive` : ``}`}
               data-testid="team-agent-prompt-counter"

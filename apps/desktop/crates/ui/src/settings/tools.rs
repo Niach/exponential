@@ -224,14 +224,7 @@ impl Render for ToolsPane {
         let dirty = self.dirty(cx);
 
         let card = section(cx)
-            .child(
-                v_flex()
-                    .child(crate::surface::glass_section_header("Tools", None, cx))
-                    .child(super::section_description(
-                        "Local per-machine settings, never synced.",
-                        cx,
-                    )),
-            )
+            .child(crate::surface::glass_section_header("Tools", None, cx))
             .child(crate::surface::glass_group_rows(vec![
                 Self::field_row("Repos & worktrees root", &self.repos_input, window, cx),
                 Self::field_row("Branch prefix", &self.prefix_input, window, cx),
