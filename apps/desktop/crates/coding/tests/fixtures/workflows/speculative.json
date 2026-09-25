@@ -2149,8 +2149,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -2231,8 +2230,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {

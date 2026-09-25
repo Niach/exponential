@@ -1,5 +1,6 @@
 package com.exponential.app.ui.agent
 
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -143,25 +145,7 @@ internal fun LazyListScope.agentSessionsList(
                             onToggle = { onToggleRunning(entry.key) },
                             titleOverride = reviewRowTitle(node, nodesById),
                             accountLabel = row?.accountLabel,
-                            dotAccessory = if (node.duplicateLive || node.session.pendingQuestion != null) {
-                                {
-                                    if (node.session.pendingQuestion != null) {
-                                        Spacer(Modifier.width(4.dp))
-                                        StaticDot(NeedsYouRed, size = 6.dp)
-                                    }
-                                    if (node.duplicateLive) {
-                                        Spacer(Modifier.width(4.dp))
-                                        Icon(
-                                            ExpIcons.uiWarning,
-                                            contentDescription = DUPLICATE_LIVE_LABEL,
-                                            modifier = Modifier.size(12.dp).testTag("session-duplicate-live"),
-                                            tint = NeedsInputAmber,
-                                        )
-                                    }
-                                }
-                            } else {
-                                null
-                            },
+                            dotAccessory = workflowRunDotAccessory(node),
                         )
                     }
                     // EXP-978: the workflow the runs below belong to — the row
@@ -194,6 +178,33 @@ internal fun LazyListScope.agentSessionsList(
 }
 
 /** EXP-1068: what the duplicate-live warning glyph announces. */
+/**
+ * EXP-1068: the glyphs after a workflow run's state dot — the red "needs
+ * you" dot of a pending question and the duplicate-live warning. Shared by
+ * the Agent page's lists and the workflow page's Runs face (EXP-1083); null
+ * when the row has neither, so a plain row draws nothing extra.
+ */
+internal fun workflowRunDotAccessory(
+    node: SessionTreeNode.Session,
+): (@Composable RowScope.() -> Unit)? {
+    if (!node.duplicateLive && node.session.pendingQuestion == null) return null
+    return {
+        if (node.session.pendingQuestion != null) {
+            Spacer(Modifier.width(4.dp))
+            StaticDot(NeedsYouRed, size = 6.dp)
+        }
+        if (node.duplicateLive) {
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                ExpIcons.uiWarning,
+                contentDescription = DUPLICATE_LIVE_LABEL,
+                modifier = Modifier.size(12.dp).testTag("session-duplicate-live"),
+                tint = NeedsInputAmber,
+            )
+        }
+    }
+}
+
 internal const val DUPLICATE_LIVE_LABEL = "Two live runs on this node"
 
 /** EXP-1068: the "needs you" dot of a run with an open question. */
@@ -201,7 +212,7 @@ private val NeedsYouRed = DesignTokens.Semantic.Red
 
 /** EXP-1068: a REVIEW chain's title (`Review r2 · approved`) off its node's
  *  `review_round` + latest `review` cell; null on every other row. */
-private fun reviewRowTitle(
+internal fun reviewRowTitle(
     node: SessionTreeNode.Session,
     nodesById: Map<String, WorkflowNodeEntity>,
 ): String? {

@@ -784,10 +784,17 @@ struct WorkflowDetailView: View {
             let session = node.session
             let issue = session.issueId.flatMap { model.issues[$0] }
             let batch = model.batchIssues(session)
+            // EXP-1068/1083: the same marks as the Agent page's lists — a
+            // review's `Review r2 · approved` title, the needs-you dot, the
+            // duplicate-run warning and the non-default account the run
+            // spends (the row the engine rotated, EXP-1067).
+            let nodeRow = session.workflowNodeId.flatMap { id in model.nodes.first { $0.id == id } }
             RunningSessionRow(
                 session: session,
                 identifier: sessionRowIdentifier(issue: issue, session: session, batchIssues: batch),
-                title: sessionRowTitle(issue: issue, session: session, batchIssues: batch),
+                title: RunningSessionRowMarks.reviewTitle(
+                    node, nodeReviewRound: nodeRow?.reviewRound, review: nodeRow?.review
+                ) ?? sessionRowTitle(issue: issue, session: session, batchIssues: batch),
                 state: CodingSessionDisplayState.of(
                     session: session, prState: issue?.prState ?? session.prState
                 ),
@@ -795,7 +802,12 @@ struct WorkflowDetailView: View {
                 open: .route(.agentSession(accountId: accountId, sessionId: session.id)),
                 expandable: entry.hasChildren,
                 expanded: expanded,
-                onToggle: onToggle
+                onToggle: onToggle,
+                marks: RunningSessionRowMarks(
+                    needsYou: !(session.pendingQuestion ?? "").isEmpty,
+                    duplicateLive: node.duplicateLive,
+                    account: RunningSessionRowMarks.nonDefaultAccount(session, devices: model.devices)
+                )
             )
         case let .stack(group):
             SessionGroupRow(

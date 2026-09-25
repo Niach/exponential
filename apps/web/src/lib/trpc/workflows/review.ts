@@ -15,7 +15,6 @@ import {
 } from "@exp/db-schema/domain"
 import { authedProcedure } from "@/lib/trpc"
 import { workflowNodes } from "@/db/schema"
-import { assertTeamMember } from "@/lib/team-membership"
 import {
   bad,
   loadWorkflow,
@@ -26,22 +25,6 @@ import {
 } from "./shared"
 
 export const workflowReviewProcedures = {
-
-  /** EXP-1065: a person no longer gates any node — the agent review clears
-   *  it, or the review cap does. The procedure stays REGISTERED only because
-   *  clients built before this rule still show an Approve button (the
-   *  integration node deletes it with them); it refuses every call. */
-  approveNode: authedProcedure
-    .input(z.object({ nodeId: z.string().uuid(), approved: z.boolean().default(true) }))
-    .mutation(async ({ ctx, input }) => {
-      const node = await loadNode(input.nodeId)
-      const workflow = await loadWorkflow(node.workflowId)
-      await assertTeamMember(ctx.session.user.id, workflow.teamId)
-      throw bad(
-        `Nobody approves a node by hand any more: the agent review clears it, or the review cap lands it with its findings carried to the final pull request`
-      )
-    }),
-
 
   /** A reviewer RUN's verdict on one node (EXP-984, MCP
    *  `exponential_workflows_review_submit`). Only the runner's owner may

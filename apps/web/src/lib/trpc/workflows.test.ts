@@ -598,18 +598,6 @@ describe(`the engine's write path`, () => {
     expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
   })
 
-  // EXP-1065: nobody approves a node by hand; the procedure only stays
-  // registered for clients that still show the button.
-  it(`refuses a person's approval and writes nothing`, async () => {
-    for (const approved of [true, false]) {
-      selectQueue.push([node({ approvedAt: null })], [workflow()])
-      const error = await rejection(caller.approveNode({ nodeId: NODE, approved } as never))
-      expect(error?.code).toBe(`BAD_REQUEST`)
-      expect(error?.message).toContain(`Nobody approves a node by hand`)
-    }
-    expect(written).toEqual([])
-  })
-
   it(`holds an unapproved node at the gate, server-side`, async () => {
     selectQueue.push(
       [node()],
