@@ -279,6 +279,34 @@ async function resolveStartMembership(
         workflowNodeId: input.workflowNodeId ?? null,
         workflowRole: input.workflowRole ?? null,
       }
+    } else if (
+      !input.workflowNodeId &&
+      (input.workflowRole === `plan` || input.workflowRole === `replan`)
+    ) {
+      // A PLANNER run: a person plans a DRAFT from whichever machine the
+      // composer picked, before or beside the runner (`workflows.device_id`
+      // is chosen by the person and may still be NULL), so the runner gate
+      // above cannot apply. A node-less `plan`/`replan` role brands
+      // nothing — it only lets the session tree name the plan-only group —
+      // so any draft of the team takes it.
+      const [draft] = await db
+        .select({ id: workflows.id })
+        .from(workflows)
+        .where(
+          and(
+            eq(workflows.id, input.workflowId),
+            eq(workflows.teamId, teamId),
+            eq(workflows.status, `draft`)
+          )
+        )
+        .limit(1)
+      if (draft) {
+        explicit = {
+          workflowId: input.workflowId,
+          workflowNodeId: null,
+          workflowRole: input.workflowRole,
+        }
+      }
     }
   }
   const needsNodes =
@@ -1060,6 +1088,12 @@ export const codingSessionsRouter = router({
           // EXP-909: echoed so a resurrected row keeps naming the LOGIN it
           // spends (the usage readout would otherwise fall back to a guess).
           agentAccount: z.string().min(1).max(64).optional(),
+          // EXP-1082 GAP, owned by EXP-1068: the workflow membership
+          // (`workflowId` / `workflowNodeId` / `workflowRole`) is NOT echoed
+          // yet, so a swept workflow run resurrects OUTSIDE its group. The
+          // device knows it (`LaunchOptions::workflow`); EXP-1068 adds the
+          // three keys here like `agentAccount`, runs them through the same
+          // runner-device gate `start` uses, and stamps the re-created rows.
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
