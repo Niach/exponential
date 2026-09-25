@@ -13,6 +13,7 @@ import {
   type WorkflowLaunch,
   type WorkflowLaunchAgent,
   type WorkflowLaunchStored,
+  type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { normalizeWorkflowLaunch } from "@/lib/workflow-launch"
@@ -475,38 +476,80 @@ export const WORKFLOW_COUNTERS = [
 
 /**
  * What one submitted review does to its node. Pure. EXP-1010: the agent
- * review is the ONLY gate, for every kind of node.
+ * review is the ONLY gate, for every kind of node. EXP-1065: no person ever
+ * takes over — `waiting` is never written.
  * - approve → the node is cleared for the train, unless the reviewer's own
- *   checks FAILED (an approval its evidence contradicts stays advisory and
- *   waits for a person).
- * - request_changes → back to the author, up to the round cap; after that the
- *   node stops bouncing and waits for a person.
+ *   checks FAILED: an approval its evidence contradicts is a request for
+ *   changes in all but name, and goes back to the author like one.
+ * - request_changes → back to the author, up to the round cap. The cap is a
+ *   bound on bouncing, not a hand-off: the last round's findings reach the
+ *   author once more, then the engine lands the node ([`carriedReviewAtCap`])
+ *   and the findings are CARRIED into the decisions log and the final pull
+ *   request, the one place a person reviews.
  */
 export function reviewOutcome(args: {
   verdict: `approve` | `request_changes`
   oraclePassed: boolean | null
   round: number
-}): { approve: boolean; state: `in_review` | `updating` | `waiting`; note: string } {
-  if (args.verdict === `approve`) {
-    const stands = args.oraclePassed !== false
+}): { approve: boolean; state: `in_review` | `updating`; note: string } {
+  const max = WORKFLOW_MAX_REVIEW_ROUNDS
+  if (args.verdict === `approve` && args.oraclePassed !== false) {
     return {
-      approve: stands,
+      approve: true,
       state: `in_review`,
-      note: stands
-        ? args.oraclePassed
-          ? `Agent review passed, backed by its checks`
-          : `Agent review passed`
-        : `Agent review passed but its checks failed: needs a person`,
+      note: args.oraclePassed
+        ? `Agent review passed, backed by its checks`
+        : `Agent review passed`,
     }
   }
-  if (args.round >= WORKFLOW_MAX_REVIEW_ROUNDS) {
+  const checksFailed = args.verdict === `approve`
+  if (args.round >= max) {
     return {
       approve: false,
-      state: `waiting`,
-      note: `Review did not converge after ${WORKFLOW_MAX_REVIEW_ROUNDS} rounds`,
+      state: `updating`,
+      note: checksFailed
+        ? `Review round ${max} of ${max}: its checks still fail; lands after the author's last push, carried to the final review`
+        : `Review round ${max} of ${max}: findings go to the author once more, then it lands with them carried`,
     }
   }
-  return { approve: false, state: `updating`, note: `Changes requested by the agent review` }
+  return {
+    approve: false,
+    state: `updating`,
+    note: checksFailed
+      ? `Agent review passed but its checks failed: back to the author`
+      : `Changes requested by the agent review (round ${args.round} of ${max})`,
+  }
+}
+
+/**
+ * EXP-1065: the review a node is cleared WITH at the cap — no approval, the
+ * cap's worth of verdicts that still ask for changes (a failed oracle under
+ * an approve counts), the latest at the node's own round. The engine lands
+ * such a node once the author's last run is done; `landNode` accepts it
+ * here and carries the findings. `null` = not that case.
+ */
+export function carriedReviewAtCap(node: {
+  reviewRound: number
+  review: WorkflowNodeReview | null
+  approvedAt: Date | null
+}): WorkflowNodeReview | null {
+  if (node.approvedAt || node.reviewRound < WORKFLOW_MAX_REVIEW_ROUNDS) return null
+  const review = node.review
+  if (!review || review.round !== node.reviewRound) return null
+  const changes = review.verdict === `request_changes` || review.oracle?.passed === false
+  return changes ? review : null
+}
+
+/** The decisions-log line a cap-cleared node leaves behind (one line, the
+ *  findings cut so one node can never evict the log's history). */
+export function carriedFindingsLine(identifier: string, review: WorkflowNodeReview): string {
+  const findings = review.findings.replace(/\s+/g, ` `).trim()
+  const cut = findings.length > 600 ? `${findings.slice(0, 600).trimEnd()}…` : findings
+  const checks =
+    review.oracle && review.oracle.passed === false && review.oracle.command
+      ? ` Checks failed: ${review.oracle.command}`
+      : ``
+  return `Unresolved review findings (${identifier}, round ${review.round}): ${cut || `(none written)`}${checks}`
 }
 
 export type Db = typeof import("@/db/connection").db

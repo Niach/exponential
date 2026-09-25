@@ -28,9 +28,11 @@ import {
 
 export const workflowReviewProcedures = {
 
-  /** A member clears a node's open PR for the merge train by hand (the agent
-   *  review normally does; this is the way out when it did not converge).
-   *  `approved: false` takes it back while the node has not landed. */
+  /** compat (EXP-1065): a person no longer gates any node — the agent
+   *  review clears it, or the review cap does. The procedure stays callable
+   *  only because clients built before this rule still show an Approve
+   *  button; the integration node deletes it. `approved: false` takes an
+   *  approval back while the node has not landed. */
   approveNode: authedProcedure
     .input(z.object({ nodeId: z.string().uuid(), approved: z.boolean().default(true) }))
     .mutation(async ({ ctx, input }) => {
@@ -55,22 +57,6 @@ export const workflowReviewProcedures = {
             }),
           })
           .where(eq(workflowNodes.id, input.nodeId))
-        if (input.approved) {
-          // EXP-984 metric: how long the node sat waiting for a person. The
-          // row's `updated_at` is when it last moved (into review).
-          const [row] = await tx
-            .select({ since: workflowNodes.updatedAt })
-            .from(workflowNodes)
-            .where(eq(workflowNodes.id, input.nodeId))
-            .limit(1)
-          const minutes = row
-            ? Math.max(0, Math.round((Date.now() - new Date(row.since).getTime()) / 60_000))
-            : 0
-          await tx
-            .update(workflows)
-            .set({ metrics: bumpMetrics({ operatorMinutes: minutes }) })
-            .where(eq(workflows.id, workflow.id))
-        }
         return { txId }
       })
     }),
@@ -133,7 +119,7 @@ export const workflowReviewProcedures = {
       return ctx.db.transaction(async (tx) => {
         // The round is claimed IN the update (concurrent verdicts cannot share
         // one), and only a node that is under review or being updated moves:
-        // a paused or waiting node keeps what a person decided.
+        // a landed, skipped or failed node keeps what it is.
         const [claimed] = await tx
           .update(workflowNodes)
           .set({ reviewRound: sql`${workflowNodes.reviewRound} + 1` })
@@ -148,7 +134,7 @@ export const workflowReviewProcedures = {
         const round = claimed.round
         if (round > WORKFLOW_MAX_REVIEW_ROUNDS) {
           throw bad(
-            `Review rounds are used up after ${WORKFLOW_MAX_REVIEW_ROUNDS}; a person decides this node now`
+            `Review rounds are used up after ${WORKFLOW_MAX_REVIEW_ROUNDS}; the node lands once its author is done and its findings are carried to the final pull request`
           )
         }
         const outcome = reviewOutcome({
@@ -172,8 +158,8 @@ export const workflowReviewProcedures = {
             state: outcome.state,
             note: outcome.note,
             // A verdict at a newer head supersedes any earlier approval: an
-            // approve stamps it, a request_changes withdraws it (a person can
-            // approve again after reading the findings).
+            // approve stamps it, a request_changes withdraws it (the next
+            // round's approve, or the cap, clears the node again).
             approvedAt: outcome.approve ? new Date() : null,
           })
           .where(eq(workflowNodes.id, input.nodeId))

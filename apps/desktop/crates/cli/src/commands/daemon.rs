@@ -3594,20 +3594,28 @@ impl AutomationHost {
                 true
             }
             Ok(coding::workflows::BaseOutcome::Conflict { left, right }) => {
-                // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
-                let mut report = api::workflows::NodeReport::new(node_id, "waiting");
-                report.note = api::patch::Patch::Set(one_line_note(
-                    &workflow_conflict_note(plan, &left, &right),
-                ));
-                self.report_node(&report);
+                // EXP-1065/EXP-1071: the engine's mirror carries the conflict
+                // note on the node's OWN state (never `waiting`); writing it
+                // here too was the beat-to-beat flap.
+                log::info!(
+                    "workflow {workflow_id}: base {base_branch} waits — {}",
+                    workflow_conflict_note(plan, &left, &right)
+                );
                 false
             }
             Err(err) => {
                 // Visible on the node, like a conflict: a `ready` node whose
                 // base never comes up would otherwise sit there without a word.
+                // The node keeps its state; only the note says what happened.
                 log::warn!("workflow {workflow_id}: base {base_branch} — {err}");
-                // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
-                let mut report = api::workflows::NodeReport::new(node_id, "waiting");
+                let state = plan
+                    .snapshot
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == node_id)
+                    .map(|node| node.state.clone())
+                    .unwrap_or_else(|| "blocked".to_string());
+                let mut report = api::workflows::NodeReport::new(node_id, &state);
                 report.note = api::patch::Patch::Set(one_line_note(&format!(
                     "Its base {base_branch} could not be built: {err}"
                 )));
@@ -4289,11 +4297,15 @@ fn workflow_plan(
                 verdict: review.verdict,
                 round: review.round,
                 head: review.head,
+                oracle: Some(coding::workflows::OracleFacts {
+                    passed: review.oracle_passed,
+                }),
             }),
             updated_at_ms: row
                 .updated_at
                 .as_deref()
                 .and_then(coding::workflows::parse_wire_timestamp_ms),
+            note: row.note.clone(),
         };
         by_id.insert(facts.id.clone(), facts.clone());
         nodes.push(facts);

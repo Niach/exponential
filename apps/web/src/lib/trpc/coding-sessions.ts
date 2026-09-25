@@ -1370,6 +1370,9 @@ export const codingSessionsRouter = router({
           userId: codingSessions.userId,
           hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
+          pendingQuestion: codingSessions.pendingQuestion,
+          workflowId: codingSessions.workflowId,
+          workflowNodeId: codingSessions.workflowNodeId,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, input.id))
@@ -1386,12 +1389,20 @@ export const codingSessionsRouter = router({
         })
       }
 
+      // EXP-1065: the run's next turn IS the answer to its open question
+      // (`exponential_sessions_ask_parent`): the question comes off the row
+      // with the flag, and a workflow run's answer lands in its event log.
+      const answered = !input.needsInput && existing.pendingQuestion != null
+
       // Status-conditioned like heartbeat: an ended row stays final and never
       // re-surfaces as "needs input". Every LIVE status takes both values
       // (EXP-679 — an in_review run is still a run awaiting its human).
       const updated = await ctx.db
         .update(codingSessions)
-        .set({ needsInput: input.needsInput })
+        .set({
+          needsInput: input.needsInput,
+          ...(answered && { pendingQuestion: null }),
+        })
         .where(
           and(
             eq(codingSessions.id, input.id),
@@ -1399,6 +1410,17 @@ export const codingSessionsRouter = router({
           )
         )
         .returning({ id: codingSessions.id })
+
+      if (answered && updated.length > 0 && existing.workflowId) {
+        const { recordWorkflowEvent } = await import(`@/lib/workflows/record-event`)
+        await recordWorkflowEvent(ctx.db, {
+          workflowId: existing.workflowId,
+          nodeId: existing.workflowNodeId,
+          sessionId: input.id,
+          kind: `question_answered`,
+          message: `Answered: ${existing.pendingQuestion?.question?.slice(0, 200) ?? ``}`,
+        })
+      }
 
       return { updated: updated.length > 0 }
     }),
@@ -1712,6 +1734,7 @@ export const codingSessionsRouter = router({
           endedAt: new Date(),
           endedBy: `client`,
           needsInput: false,
+          pendingQuestion: null,
           // EXP-848/850: an ended run is never busy and says nothing.
           agentBusy: false,
           agentCaption: null,

@@ -26,8 +26,13 @@
 //! EXP-984 closes the loop (EXP-1010: for EVERY workflow): every node's pushed
 //! branch gets a REVIEWER run — always on the launch's STRONG model (EXP-1029),
 //! adversarial in its PROMPT for a `risk: high` node — whose `request_changes`
-//! findings go back to the author at most three rounds; and a follow-up node
-//! nobody admitted (`proposed`) is treated as absent from the run entirely.
+//! findings go back to the author at most three rounds (EXP-1065: the cap
+//! is a bound on bouncing, not a hand-off — the last round's findings reach
+//! the author once more, then the train lands the node and the server
+//! carries them to the final pull request; no person ever gates a node, and
+//! `waiting` is never written: every hold is the node's own state plus a
+//! note); and a follow-up node nobody admitted (`proposed`) is treated as
+//! absent from the run entirely.
 //!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
@@ -91,10 +96,13 @@ pub fn launch_options(
     options
 }
 
-/// The note a node carries while it waits for an answer.
-pub const NOTE_NEEDS_ANSWER: &str = "Needs an answer";
-/// The note a node carries while its agent is rate limited.
-pub const NOTE_RATE_LIMITED: &str = "Rate limited";
+/// The note a node carries while its agent is rate limited (EXP-1065: a
+/// hold keeps the node's own state — `waiting` is never written — and says
+/// why here).
+pub const NOTE_RATE_LIMITED: &str = "Waiting for the account's reset";
+/// The two hold notes engines before EXP-1065 wrote next to `waiting`;
+/// recognised so the mirror clears them once the hold is over.
+const LEGACY_HOLD_NOTES: [&str; 2] = ["Needs an answer", "Rate limited"];
 /// The note a node carries when its run ended with nothing to review.
 pub const NOTE_NO_PULL_REQUEST: &str = "The run ended without a pull request";
 /// EXP-1007: the note a node carries when its start never came up on the
@@ -247,6 +255,10 @@ pub struct NodeFacts {
     /// = unknown, which holds.
     #[serde(default)]
     pub updated_at_ms: Option<i64>,
+    /// EXP-1071: the row's current note — the mirror writes a hold note only
+    /// when it changes, and clears its OWN notes once the hold is over.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// The half of `workflow_nodes.review` the engine reads.
@@ -264,6 +276,18 @@ pub struct ReviewFacts {
     /// stale: it clears nothing, and the new head gets its own review.
     #[serde(default)]
     pub head: Option<String>,
+    /// EXP-1065: the reviewer's own checks. A FAILED oracle under an
+    /// `approve` reads exactly like `request_changes` ([`changes_requested`]).
+    #[serde(default)]
+    pub oracle: Option<OracleFacts>,
+}
+
+/// The half of `workflow_nodes.review.oracle` the engine reads.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OracleFacts {
+    #[serde(default)]
+    pub passed: Option<bool>,
 }
 
 /// What the engine reads off a node's representative issue.
@@ -841,7 +865,20 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
                 } else {
                     state
                 };
-                if state != node.state {
+                // EXP-1071: ONE write per real change. A hold note is written
+                // when it appears or changes, cleared once the hold is over
+                // (only the engine's own notes: a review note the server
+                // wrote stays with an unchanged state), and a state change
+                // always writes.
+                let note_changed = match note.as_deref() {
+                    Some(next) if is_engine_hold_note(next) => node.note.as_deref() != Some(next),
+                    // A state-bound note (`failed` + why, `updating` + the
+                    // refusal) rides the state change that carries it; the
+                    // host's own reason on the row wins meanwhile.
+                    Some(_) => false,
+                    None => node.note.as_deref().is_some_and(is_engine_hold_note),
+                };
+                if state != node.state || note_changed {
                     decisions.push(Decision::SetNodeState {
                         node_id: node.id.clone(),
                         state: state.clone(),
@@ -910,6 +947,12 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
         if !is_synthetic(&snapshot.workflow.id, base) {
             continue;
         }
+        // EXP-1071: while two of its sources collide the base cannot be
+        // rebuilt — the mirror carries the reason on the node; rule 5
+        // serializes the pair. Asking every beat was the flap.
+        if conflicting_blockers(snapshot, entry.node, &blockers).is_some() {
+            continue;
+        }
         let sources = synthetic_sources(snapshot, entry.node, &blockers);
         let built: Vec<(String, String)> = sources
             .iter()
@@ -971,9 +1014,10 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     // graph both know about it.
     decisions.extend(serialization_decisions(snapshot, &mirrored));
 
-    // (6) A wall that lifted: tell the run to carry on, exactly once.
+    // (6) A wall that lifted: tell the run to carry on, exactly once. Keyed
+    // on the RUN (EXP-1065: a walled node keeps its own state).
     for entry in &mirrored {
-        if entry.state != "waiting" {
+        if is_final(&entry.state) {
             continue;
         }
         let Some(session_id) = entry.node.session_id.as_deref() else {
@@ -1008,13 +1052,14 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     // pull request is up, and a round's findings handed over exactly once.
     decisions.extend(review_decisions(snapshot, &mirrored));
 
-    // (8) EXP-984: a node that spent more than it was given stops there and
-    // waits for a person (`resolveNode retry` puts it back in the run).
+    // (8) EXP-984/EXP-1065: a node at the review cap stops bouncing — its
+    // last findings go to the author once more (rule 7), then the train
+    // takes it ([`is_cleared`]); nobody waits for a person.
 
     // (9) The merge train: ONE land per pass, and only while the host is not
     // already landing one. The train is strict order among LANDABLE nodes —
-    // a node still waiting for a person, for a blocker or for the sibling it
-    // has to merge in never blocks a landable one behind it.
+    // a node still waiting for its review, for a blocker or for the sibling
+    // it has to merge in never blocks a landable one behind it.
     // A land the mirror already asked for (a pull request merged behind our
     // back) IS this pass's land: its node still reads `in_review` here, and
     // the train would otherwise ask for the same one twice.
@@ -1032,7 +1077,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             .collect();
         if let Some(entry) = mirrored.iter().find(|entry| {
             entry.state == "in_review"
-                && is_cleared(entry.node)
+                && is_cleared(snapshot, entry.node)
                 && !approval_is_stale(snapshot, entry.node)
                 && is_landable(entry.node, &blockers, &state_of)
         }) {
@@ -1366,7 +1411,7 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
             continue;
         }
         if node.review_round >= domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS as i64 {
-            continue; // it stopped bouncing; a person owns it now
+            continue; // the cap: the last findings go once more, then the train takes it
         }
         if snapshot.review_in_flight.contains(&node.id) {
             continue;
@@ -1410,7 +1455,7 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
         let Some(review) = node.review.as_ref() else {
             continue;
         };
-        if review.verdict != VERDICT_REQUEST_CHANGES || review.round != node.review_round {
+        if !changes_requested(review) || review.round != node.review_round {
             continue;
         }
         if findings_delivered(snapshot, node, review.round) {
@@ -1441,13 +1486,24 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
     decisions
 }
 
+/// EXP-1065: a verdict that sends the author back to work — `request_changes`,
+/// or an `approve` the reviewer's own checks contradict (a FAILED oracle),
+/// which the server treats the same way (`reviewOutcome`).
+fn changes_requested(review: &ReviewFacts) -> bool {
+    review.verdict == VERDICT_REQUEST_CHANGES
+        || review
+            .oracle
+            .as_ref()
+            .is_some_and(|oracle| oracle.passed == Some(false))
+}
+
 /// Whether the node's CURRENT round still owes its author something: the
 /// findings were never delivered, or the run is mid-turn acting on them.
 fn findings_pending(snapshot: &Snapshot, node: &NodeFacts) -> bool {
     let Some(review) = node.review.as_ref() else {
         return false;
     };
-    if review.verdict != VERDICT_REQUEST_CHANGES || review.round != node.review_round {
+    if !changes_requested(review) || review.round != node.review_round {
         return false;
     }
     if !findings_delivered(snapshot, node, review.round) {
@@ -1612,9 +1668,9 @@ fn desired_state(
         // (rule 5 arranges that), so it waits here, and says why, instead of
         // flipping ready ↔ waiting on every beat.
         if let Some((left, right)) = conflicting_blockers(snapshot, node, blockers) {
-            // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
+            // EXP-1065: not started = `blocked`, with the reason on the row.
             return Some(state_with_note(
-                "waiting",
+                "blocked",
                 &conflicting_blockers_note(snapshot, &left, &right),
             ));
         }
@@ -1657,33 +1713,56 @@ fn desired_state(
             }
         }
     }
+    // EXP-1065/EXP-1071: a STARTED node whose unlanded blockers collide holds
+    // its own state and says why — the same note every beat, so the row is
+    // written once (the base build that found the conflict used to write
+    // `waiting`, and the mirror put the state back the next beat).
+    let conflict = conflicting_blockers(snapshot, node, blockers)
+        .map(|(left, right)| conflicting_blockers_note(snapshot, &left, &right));
+    let hold = |name: &str, note: Option<String>| -> Desired {
+        Desired::State {
+            state: name.to_string(),
+            note,
+        }
+    };
     if session.live {
         // A node merging the trunk in stays `updating` for as long as the
         // agent is actually working on it.
         if node.state == "updating" && session.agent_busy {
-            return Some(state("updating"));
+            return Some(hold("updating", conflict));
         }
         if pr_state == Some("open") {
-            return Some(state("in_review"));
+            return Some(hold("in_review", conflict));
         }
-        if session.needs_input {
-            // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
-            return Some(state_with_note("waiting", NOTE_NEEDS_ANSWER));
-        }
+        // An open question (`needs_input`) changes NOTHING here: the badge a
+        // person sees comes off the run's own `pending_question`.
         if session.blocked {
-            // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
-            return Some(state_with_note("waiting", NOTE_RATE_LIMITED));
+            // EXP-1065: a wall keeps the node `running`; the note says why.
+            return Some(hold(
+                "running",
+                conflict.or_else(|| Some(NOTE_RATE_LIMITED.to_string())),
+            ));
         }
-        return Some(state("running"));
+        return Some(hold("running", conflict));
     }
     match pr_state {
-        Some("open") => Some(state("in_review")),
-        // The run ended with nothing to review: one free retry, then a
-        // person's call. `attempt` counts the starts so far (the first run
-        // is attempt 1), so the retry is the second start.
+        Some("open") => Some(hold("in_review", conflict)),
+        // The run ended with nothing to review: one free retry, then the
+        // node fails and says so. `attempt` counts the starts so far (the
+        // first run is attempt 1), so the retry is the second start.
         _ if node.attempt <= 1 => Some(state("ready")),
         _ => Some(state_with_note("failed", NOTE_NO_PULL_REQUEST)),
     }
+}
+
+/// EXP-1071: a note the ENGINE itself put on a node while it held — the
+/// only notes the mirror may clear again (a server-written review note is
+/// never touched while the state stands).
+fn is_engine_hold_note(note: &str) -> bool {
+    note == NOTE_RATE_LIMITED
+        || LEGACY_HOLD_NOTES.contains(&note)
+        || (note.starts_with("Its blockers ") && note.ends_with("one has to merge the other in"))
+        || (note.starts_with("Its base ") && note.contains("could not be built"))
 }
 
 /// A launch that just failed is not retried for [`RETRY_BACKOFF_MS`] after
@@ -1940,10 +2019,44 @@ pub fn settle_review_runs(
 }
 
 /// EXP-1010: a node is cleared for the train once it carries an approval —
-/// the agent review's (the only gate there is) or a person's, by hand. The
-/// server enforces it.
-fn is_cleared(node: &NodeFacts) -> bool {
-    node.approved_at.is_some()
+/// the agent review's (the only gate there is). EXP-1065: or once it is AT
+/// THE CAP — `WORKFLOW_MAX_REVIEW_ROUNDS` verdicts that still ask for
+/// changes (a failed oracle counts), the last round's findings delivered,
+/// and the author done with them: its run ended, or live, idle and pushed
+/// past the reviewed head. The findings are not lost: the server carries
+/// them into the workflow's decisions and the final pull request, the one
+/// place a person reviews. The server enforces both readings (`landNode`).
+fn is_cleared(snapshot: &Snapshot, node: &NodeFacts) -> bool {
+    node.approved_at.is_some() || cleared_at_cap(snapshot, node)
+}
+
+fn cleared_at_cap(snapshot: &Snapshot, node: &NodeFacts) -> bool {
+    if node.review_round < domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS as i64 {
+        return false;
+    }
+    let Some(review) = node.review.as_ref() else {
+        return false;
+    };
+    if review.round != node.review_round || !changes_requested(review) {
+        return false;
+    }
+    if !findings_delivered(snapshot, node, review.round) {
+        return false;
+    }
+    let session = node
+        .session_id
+        .as_deref()
+        .and_then(|session_id| snapshot.sessions.get(session_id));
+    match session {
+        Some(session) if session.live => {
+            let pushed = match (snapshot.pr_head.get(&node.id), review.head.as_ref()) {
+                (Some(current), Some(reviewed)) => current != reviewed,
+                _ => false,
+            };
+            !session.agent_busy && pushed
+        }
+        _ => true,
+    }
 }
 
 /// An agent approval is tied to the commit the reviewer

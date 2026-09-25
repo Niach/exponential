@@ -363,14 +363,19 @@ rebase instead. {report_rule}"
 /// same line itself.
 pub const PLAN_WORKFLOW_PROMPT_PREFIX: &str = "Workflow: ";
 
-/// EXP-981 — the shipped program of the hidden "Plan workflow" builtin. It
-/// is a CONSTANT, byte-identical ×4 (web `apps/web/src/lib/workflows.ts`):
-/// the planner reads one draft workflow over the Exponential MCP tools,
-/// shapes its graph (contracts-first fan-out, `blocks` edges, sub-issues as
-/// compound nodes) and writes no code at all.
-pub const PLAN_WORKFLOW_PROGRAM: &str = "You are planning an Exponential WORKFLOW: a set of issues of one repository that will be implemented in parallel by separate coding runs, scheduled as a dependency graph. You write NO code in this run. You only shape the plan through the Exponential MCP tools.
+/// EXP-981 — the shipped program of the hidden "Plan workflow" builtin, a
+/// CONSTANT shipped by the launcher alone: the planner reads one draft
+/// workflow over the Exponential MCP tools, clears every open question with
+/// the person FIRST (EXP-1089: one batched `exponential_sessions_ask_parent`
+/// to the user before any graph write; a workflow is never shaped with a
+/// question open, and the contract lists decided answers, never leeway),
+/// then shapes its graph (contracts-first fan-out, `blocks` edges, sub-issues
+/// as compound nodes) and writes no code at all.
+pub const PLAN_WORKFLOW_PROGRAM: &str = "You are planning an Exponential WORKFLOW: a set of issues of one repository that will be implemented in parallel by separate coding runs, scheduled as a dependency graph. You write NO code in this run. You only shape the plan through the Exponential MCP tools, and you clear every open question with the person BEFORE the graph exists: a workflow is reviewed by a person once, at its final pull request, so an answer you guess here propagates into every run.
 
 The request below starts with `Workflow: <id>`. Begin with exponential_workflows_get for that id, then read every issue it covers (exponential_issues_get), including comments.
+
+1. The clarification pass, mandatory. BEFORE any exponential_workflows_update, exponential_issues_create or exponential_issue_relations_add: ask the person ONE batched question set with exponential_sessions_ask_parent (to: 'user'; number the questions, name the issue each one comes from, and put your recommended answer next to each so a yes settles it). Cover at least: the runner device; the review policy; account and rate-limit handling; what a state or a notification should mean to a person; platform coverage and mobile constraints; deployment prerequisites; compat shims for phones (column drops, enum removals); mockup fidelity and copy; anything two issues contradict; anything an issue leaves to decide. Then STOP and end your turn: the answers arrive as a user message. Record every answer with exponential_workflows_update (decision) and in the contract issue's text, and ask again if an answer opens a new question. No workflow is shaped while a question is open.
 
 How the graph works:
 - A `blocks` relation between two issues of the workflow is an EDGE: the blocker's work is merged into the blocked issue's branch before it starts. Add one with exponential_issue_relations_add (type blocks).
@@ -378,7 +383,7 @@ How the graph works:
 - Everything else runs in parallel. Depth is wall-clock time: every extra wave makes the whole workflow wait.
 
 Default shape, about three waves whatever the number of issues (contracts-first fan-out):
-1. ONE root contract issue that blocks every leaf: the shared types, interfaces, stubs, contract tests and acceptance tests the leaves build against. File it with exponential_issues_create, add it with exponential_workflows_update addIssueIds, mark it kind contract. It is always reviewed by a person, so keep it small and precise.
+1. ONE root contract issue that blocks every leaf: the shared types, interfaces, stubs, contract tests and acceptance tests the leaves build against. File it with exponential_issues_create, add it with exponential_workflows_update addIssueIds, mark it kind contract. Every leaf builds on it and it gets the same agent review as any node, so keep it small and precise. NO LEEWAY: it lists the decided answers, never a proposal to overrule; a leaf must never be able to pick between two readings the person could have settled.
 2. The user's original issues as parallel leaf nodes, each blocked only by the contract.
 3. ONE integration issue blocked by every leaf: wiring and end-to-end checks. Mark it kind integration.
 Add a chain between two leaves ONLY where a dependency truly cannot be turned into an interface in the contract.
@@ -389,7 +394,7 @@ For every node declare with exponential_workflows_update nodes[]:
 
 Split an issue into sub-issues when it would take one run more than a few hours. Never change an issue's meaning; put what you decided into the contract issue's description.
 
-Finish by calling exponential_workflows_get again: metrics.cycles must be empty, depth should be 3 unless you can justify more, and width should be close to the number of original issues. Then reply with a short summary of the plan: the waves, the contract's scope, every edge you added beyond the default shape and why.";
+Finish by calling exponential_workflows_get again: metrics.cycles must be empty, depth should be 3 unless you can justify more, and width should be close to the number of original issues. Then reply with a short summary of the plan: the waves, the contract's scope, every edge you added beyond the default shape and why, what you asked the person and what they answered, and what you decided alone (which should be nothing of substance).";
 
 /// The planner run's seed prompt (EXP-981): the shipped program, then the
 /// request under a `## Request` heading, then the scratch-dir note the
@@ -1179,6 +1184,35 @@ why you stopped)."
         assert!(PLAN_WORKFLOW_PROGRAM.contains("exponential_issue_relations_add"));
         // It writes no code — never a branch, a commit or a pull request.
         assert!(!PLAN_WORKFLOW_PROGRAM.contains("exponential_pr_open"));
+    }
+
+    /// EXP-1089: the planner clears every open question with the person
+    /// BEFORE the graph exists, records the answers as decisions, leaves the
+    /// contract no leeway, and says what it asked and what it decided alone.
+    /// EXP-1065: nobody reviews a node by hand any more, the contract included.
+    #[test]
+    fn plan_workflow_program_asks_first_and_leaves_no_leeway() {
+        assert!(PLAN_WORKFLOW_PROGRAM.contains("exponential_sessions_ask_parent"));
+        assert!(PLAN_WORKFLOW_PROGRAM.contains("BEFORE any exponential_workflows_update"));
+        for topic in [
+            "runner device",
+            "review policy",
+            "rate-limit",
+            "platform coverage",
+            "deployment prerequisites",
+            "compat shims",
+            "mockup fidelity",
+            "two issues contradict",
+        ] {
+            assert!(PLAN_WORKFLOW_PROGRAM.contains(topic), "the pass never asks about {topic}");
+        }
+        assert!(PLAN_WORKFLOW_PROGRAM.contains("No workflow is shaped while a question is open"));
+        assert!(PLAN_WORKFLOW_PROGRAM.contains("NO LEEWAY"));
+        assert!(PLAN_WORKFLOW_PROGRAM.contains("what you decided alone"));
+        assert!(!PLAN_WORKFLOW_PROGRAM.contains("always reviewed by a person"));
+        // A planner's batched set needs no Proposal line (that is a node's rule).
+        assert!(!PLAN_WORKFLOW_PROGRAM.contains("Proposal:"));
+        assert!(!PLAN_WORKFLOW_PROGRAM.contains('\u{2014}'), "no em dashes");
     }
 
     /// EXP-984 — the reviewer's program, byte for byte. An ordinary node's

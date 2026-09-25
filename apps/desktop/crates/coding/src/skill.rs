@@ -210,6 +210,24 @@ run `bun test`.\n"
         }
     }
 
+    /// EXP-1065 / EXP-1089: the workflow rules a node run cannot learn from
+    /// its prompt alone — one human review at the final PR, a question the
+    /// only human touch, the planner asks first.
+    #[test]
+    fn the_playbook_teaches_the_workflow_rules() {
+        assert!(RUN_SKILL.contains("## Workflows"));
+        assert!(RUN_SKILL.contains("final PR"));
+        assert!(RUN_SKILL.contains("`Proposal:`"));
+        assert!(RUN_SKILL.contains("plan-workflow"));
+        let tools = mentioned_tools(RUN_SKILL);
+        for name in [
+            "exponential_sessions_ask_parent",
+            "exponential_workflows_update",
+        ] {
+            assert!(tools.contains(&name), "the workflows section never names {name}");
+        }
+    }
+
     #[test]
     fn mentioned_tools_dedups_and_skips_the_bare_prefix() {
         let names = mentioned_tools(

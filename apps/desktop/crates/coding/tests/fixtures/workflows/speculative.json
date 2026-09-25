@@ -1085,7 +1085,7 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [{ "kind": "setNodeState", "nodeId": "b", "state": "running" }]
   },
   {
     "name": "rule 5: a colliding pair the DAG already orders gets no serialization edge",
@@ -1273,7 +1273,7 @@
       {
         "kind": "setNodeState",
         "nodeId": "c",
-        "state": "waiting",
+        "state": "blocked",
         "note": "Its blockers EXP-1 and EXP-2 conflict; one has to merge the other in"
       }
     ]
@@ -1351,5 +1351,163 @@
       { "kind": "setNodeState", "nodeId": "a", "state": "in_review" },
       { "kind": "landNode", "nodeId": "a" }
     ]
+  },
+  {
+    "name": "rule 1: a started node whose blockers conflict keeps its state and says why, once (EXP-1071)",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
+        "startOn": "pr_open"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12",
+          "afterNodeIds": ["a"]
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "integration",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c",
+          "branch": "exp/EXP-3",
+          "baseBranch": "exp/wf-abcdef12-base-EXP-3",
+          "approvedAt": "2026-09-25T10:00:00.000Z",
+          "reviewRound": 1,
+          "review": { "verdict": "approve", "round": 1, "head": "sha-c1" }
+        }
+      ],
+      "edges": [["a", "c"], ["b", "c"]],
+      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" }, "i-c": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": true }, "s-c": { "live": false } },
+      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "conflicts": [["a", "b"]],
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/EXP-3": "sha-c1",
+        "exp/wf-abcdef12": "sha-i1",
+        "exp/wf-abcdef12-base-EXP-3": "sha-s1"
+      },
+      "synthetic": { "exp/wf-abcdef12-base-EXP-3": [["exp/EXP-1", "sha-a0"], ["exp/EXP-2", "sha-b0"]] },
+      "propagated": {
+        "a": { "exp/wf-abcdef12": "sha-i1" },
+        "b": { "exp/wf-abcdef12": "sha-i1", "exp/EXP-1": "sha-a1" },
+        "c": { "exp/wf-abcdef12-base-EXP-3": "sha-s1" }
+      },
+      "prHead": { "c": "sha-c1" },
+      "reviewedHead": { "c": "sha-c1" },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "c",
+        "state": "in_review",
+        "note": "Its blockers EXP-1 and EXP-2 conflict; one has to merge the other in"
+      }
+    ]
+  },
+  {
+    "name": "rule 1: the conflict note already on the row is not written again, and no base is rebuilt (EXP-1071)",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" },
+        "startOn": "pr_open"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "branch": "exp/EXP-1",
+          "baseBranch": "exp/wf-abcdef12"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "branch": "exp/EXP-2",
+          "baseBranch": "exp/wf-abcdef12",
+          "afterNodeIds": ["a"]
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "integration",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c",
+          "branch": "exp/EXP-3",
+          "baseBranch": "exp/wf-abcdef12-base-EXP-3",
+          "approvedAt": "2026-09-25T10:00:00.000Z",
+          "reviewRound": 1,
+          "review": { "verdict": "approve", "round": 1, "head": "sha-c1" },
+          "note": "Its blockers EXP-1 and EXP-2 conflict; one has to merge the other in"
+        }
+      ],
+      "edges": [["a", "c"], ["b", "c"]],
+      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" }, "i-c": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": true }, "s-c": { "live": false } },
+      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "conflicts": [["a", "b"]],
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/EXP-3": "sha-c1",
+        "exp/wf-abcdef12": "sha-i1",
+        "exp/wf-abcdef12-base-EXP-3": "sha-s1"
+      },
+      "synthetic": { "exp/wf-abcdef12-base-EXP-3": [["exp/EXP-1", "sha-a0"], ["exp/EXP-2", "sha-b0"]] },
+      "propagated": {
+        "a": { "exp/wf-abcdef12": "sha-i1" },
+        "b": { "exp/wf-abcdef12": "sha-i1", "exp/EXP-1": "sha-a1" },
+        "c": { "exp/wf-abcdef12-base-EXP-3": "sha-s1" }
+      },
+      "prHead": { "c": "sha-c1" },
+      "reviewedHead": { "c": "sha-c1" },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
   }
 ]

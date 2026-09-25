@@ -487,6 +487,8 @@ impl LandOutcome {
         matches!(
             self.reason.as_deref(),
             Some("Waiting for a person to approve")
+                // EXP-1065: the server's wording once nobody approves by hand.
+                | Some("Waiting for the agent review to clear it")
                 | Some("The workflow is not running")
                 // EXP-983: the train lands in topological order, so a
                 // speculative node's turn simply has not come yet.

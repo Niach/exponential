@@ -160,6 +160,12 @@
     },
     "expected": [
       {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "running",
+        "note": "Waiting for the account's reset"
+      },
+      {
         "kind": "nudge",
         "sessionId": "s-a",
         "key": "500",
@@ -194,7 +200,14 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "running",
+        "note": "Waiting for the account's reset"
+      }
+    ]
   },
   {
     "name": "rule 3: a wall that has not lifted yet waits",
@@ -222,7 +235,14 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "running",
+        "note": "Waiting for the account's reset"
+      }
+    ]
   },
   {
     "name": "rule 4: the train holds an unapproved node, an approved one behind it lands",
@@ -364,7 +384,7 @@
     "expected": []
   },
   {
-    "name": "rule 4: nothing is cleared under a human gate",
+    "name": "rule 4: nothing is cleared without a verdict",
     "snapshot": {
       "workflow": {
         "id": "wf-1",

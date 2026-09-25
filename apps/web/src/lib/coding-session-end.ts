@@ -99,6 +99,7 @@ export async function endSessionByAgent(
       endedAt: new Date(),
       endedBy: `agent`,
       needsInput: false,
+      pendingQuestion: null,
       // EXP-848/850: an ended run is never busy and says nothing.
       agentBusy: false,
       agentCaption: null,
