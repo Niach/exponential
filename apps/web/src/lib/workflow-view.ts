@@ -204,10 +204,6 @@ export const PAUSE_WORKFLOW_LABEL = `Pause`
 export const RESUME_WORKFLOW_LABEL = `Resume`
 export const CANCEL_WORKFLOW_LABEL = `Cancel workflow`
 export const CANCEL_WORKFLOW_CONFIRM = `Its live runs end and its branch is deleted. Nothing reached the default branch.`
-export const APPROVE_NODE_LABEL = `Approve and land`
-export const WITHDRAW_APPROVAL_LABEL = `Withdraw approval`
-export const MERGE_TRAIN_TITLE = `Merge train`
-export const MERGE_TRAIN_EMPTY = `Nothing is waiting to land.`
 export const FINAL_PR_TITLE = `Final pull request`
 /** EXP-1033: the ONE human review of the whole run — squash-merging the
  *  workflow's final pull request from the workflow screen. */
@@ -220,7 +216,6 @@ export interface StartableWorkflow {
   status: string
   deviceId: string | null
   repositoryId: string | null
-  startOn: string
 }
 
 /**
@@ -238,56 +233,6 @@ export function workflowStartBlocker(
   if (!workflow.repositoryId) return `The workflow's repository is gone.`
   if (!workflow.deviceId) return `Pick the device that runs this workflow first.`
   return null
-}
-
-export interface TrainNode {
-  id: string
-  kind: string
-  state: string
-  wave: number
-  lane: number
-  approvedAt: string | Date | null
-}
-
-export type TrainStep = `next` | `queued` | `needs-approval` | `updating`
-
-export interface TrainEntry {
-  id: string
-  step: TrainStep
-}
-
-/**
- * The merge train: every node whose PR is up (`in_review`, or `updating`
- * while it merges the trunk in), in landing order (wave, then lane). The
- * FIRST node that is cleared to land is `next`; cleared ones behind it are
- * `queued`; one no review approved yet says so (EXP-1010: the agent review is
- * the only gate, a person may approve by hand).
- */
-export function workflowMergeTrain(nodes: readonly TrainNode[]): TrainEntry[] {
-  const waiting = nodes
-    .filter((node) => node.state === `in_review` || node.state === `updating`)
-    .sort((a, b) => a.wave - b.wave || a.lane - b.lane || (a.id < b.id ? -1 : 1))
-  let nextTaken = false
-  return waiting.map((node) => {
-    if (node.state === `updating`) return { id: node.id, step: `updating` }
-    if (!node.approvedAt) {
-      return { id: node.id, step: `needs-approval` }
-    }
-    if (nextTaken) return { id: node.id, step: `queued` }
-    nextTaken = true
-    return { id: node.id, step: `next` }
-  })
-}
-
-const TRAIN_STEP_LABELS: Record<TrainStep, string> = {
-  next: `Landing next`,
-  queued: `Queued`,
-  "needs-approval": `Needs approval`,
-  updating: `Merging the trunk in`,
-}
-
-export function workflowTrainStepLabel(step: TrainStep): string {
-  return TRAIN_STEP_LABELS[step]
 }
 
 /**
@@ -360,10 +305,6 @@ export const MERGES_IN_FIRST_LABEL = `Merges in first`
 
 // ── Review gate, dynamic graphs, metrics (EXP-984) ─────────────────────────
 
-export const ADMIT_NODE_LABEL = `Admit`
-export const DISMISS_NODE_LABEL = `Dismiss`
-export const PROPOSED_NODE_NOTE = `Filed during the run. Admit it into the workflow or dismiss it.`
-export const AGENT_REVIEW_TITLE = `Agent review`
 
 // EXP-1033: the workflow screen configures NOTHING any more — the per-phase
 // model pins of EXP-1002, the review model and the gate are gone with the
@@ -377,7 +318,6 @@ export const NODE_MODEL_LABEL = `Model`
  *  identifier slot shows the first 8 characters of the issue id, the title
  *  this line. Byte-identical ×4. */
 export const NODE_UNSYNCED_TITLE = `Not synced yet`
-export const METRICS_TITLE = `Metrics`
 
 export interface ReviewLine {
   verdict: string
@@ -398,64 +338,6 @@ export function workflowReviewLine(review: ReviewLine, approved: boolean): strin
   if (review.oracle) parts.push(review.oracle.passed ? `checks passed` : `checks failed`)
   else if (review.verdict === `approve` && !approved) parts.push(`advisory`)
   return parts.join(` · `)
-}
-
-export interface MetricRow {
-  label: string
-  value: string
-}
-
-const count = (metrics: Record<string, unknown>, key: string): number => {
-  const value = metrics[key]
-  return typeof value === `number` && Number.isFinite(value) ? value : 0
-}
-
-/**
- * The detail's Metrics section for a STARTED workflow, in this order. A row
- * appears only when it has something to say, except the critical path, which
- * always does.
- */
-export function workflowMetricRows(metrics: Record<string, unknown>): MetricRow[] {
-  const rows: MetricRow[] = [
-    {
-      label: `Critical path`,
-      value: `${count(metrics, `depth`)} waves for ${count(metrics, `nodes`)} nodes`,
-    },
-  ]
-  const landed = count(metrics, `landed`)
-  if (landed > 0) rows.push({ label: `Landed`, value: `${landed}` })
-  const mergeIns = count(metrics, `mergeIns`)
-  const changes = count(metrics, `contractChanges`)
-  if (mergeIns > 0) {
-    rows.push(
-      changes > 0
-        ? {
-            label: `Merge-ins per contract change`,
-            value: (mergeIns / changes).toFixed(1),
-          }
-        : { label: `Merge-ins`, value: `${mergeIns}` }
-    )
-  }
-  const escalations = count(metrics, `escalations`)
-  if (escalations > 0) {
-    rows.push({
-      label: `Escalations`,
-      value: `${escalations} (${count(metrics, `duplicateEscalations`)} duplicate)`,
-    })
-  }
-  const minutes = count(metrics, `operatorMinutes`)
-  if (minutes > 0) rows.push({ label: `Operator minutes`, value: `${minutes}` })
-  const rounds = count(metrics, `reviewRounds`)
-  if (rounds > 0) rows.push({ label: `Review rounds`, value: `${rounds}` })
-  const byOracle = count(metrics, `defectsByOracle`)
-  const byAgent = count(metrics, `defectsByAgentReview`)
-  if (byOracle + byAgent > 0) {
-    rows.push({
-      label: `Defects found`,
-      value: `${byOracle} by checks · ${byAgent} by agent review`,
-    })
-  }
-  return rows
 }
 
 // ── EXP-1082 §4: five display states + the `needs you` badge ───────────────
@@ -488,10 +370,10 @@ export function workflowNodeDisplayLabel(state: string): string {
   return DISPLAY_LABELS[workflowNodeDisplayState(state)]
 }
 
-// ── EXP-1082 §5: the workflow page view model — DECLARED only ──────────────
-// Typed stubs returning the empty value; the fixture sections `nodeStrips`,
-// `headerCaptions`, `primaryActions` and `chipMenus` lock them (skipped in
-// workflow-view.test.ts until the page lands ×4).
+// ── EXP-1082 §5 / EXP-1066: the workflow page view model ───────────────────
+// The page is a picker (the node strip) over a face toggle; these four
+// helpers are everything it asks the domain, locked ×4 by the fixture
+// sections `nodeStrips`, `headerCaptions`, `primaryActions`, `chipMenus`.
 
 export interface StripNodeInput {
   id: string
@@ -518,21 +400,83 @@ export interface NodeChip {
   needsYou: boolean
 }
 
-/** Waves left to right, lanes top to bottom within a wave. STUB. */
+/**
+ * The strip IS the graph: waves left to right (only the waves that hold a
+ * node), lanes top to bottom within a wave, ties by id. The edges are the
+ * mini-graph popover's business; the strip only orders. A compound node is
+ * `stacked` (the `IssueChipStack`); the caption is the node's note while it
+ * has one, else its display label.
+ */
 export function workflowNodeStrip(
-  _nodes: StripNodeInput[],
+  nodes: readonly StripNodeInput[],
   _edges: readonly [string, string][]
 ): { wave: number; nodes: NodeChip[] }[] {
-  return []
+  const byWave = new Map<number, StripNodeInput[]>()
+  for (const node of nodes) {
+    const wave = byWave.get(node.wave) ?? []
+    wave.push(node)
+    byWave.set(node.wave, wave)
+  }
+  return [...byWave.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([wave, members]) => ({
+      wave,
+      nodes: members
+        .sort((a, b) => a.lane - b.lane || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .map((node) => ({
+          id: node.id,
+          title: workflowNodeTitle(node.identifier, node.members),
+          display: workflowNodeDisplayState(node.state),
+          caption: node.note?.trim() || workflowNodeDisplayLabel(node.state),
+          stacked: node.members > 0,
+          members: node.members,
+          live: node.live,
+          needsYou: node.needsYou,
+        })),
+    }))
 }
 
-/** The one-line header under the workflow's name. STUB. */
+const STATUS_WORDS: Record<string, string> = {
+  draft: `Draft`,
+  done: `Done`,
+  failed: `Failed`,
+  cancelled: `Cancelled`,
+}
+
+/**
+ * The one line under the workflow's name. A draft counts its ISSUES (members
+ * included): `Draft · 8 issues`. A started workflow names its runner and
+ * counts NODES: `on MacBook · 5 of 8 done · 2 running` (the running tail only
+ * while something runs). Over, it counts what happened: `Done · 2 done · 1
+ * skipped`, `Cancelled · 1 done · 1 failed`. A `proposed` node was never
+ * admitted and is not counted.
+ */
 export function workflowHeaderCaption(
-  _status: string,
-  _nodes: readonly { state: string; members: number }[],
-  _deviceLabel: string | null
+  status: string,
+  nodes: readonly { state: string; members: number }[],
+  deviceLabel: string | null
 ): string {
-  return ``
+  const admitted = nodes.filter((node) => node.state !== `proposed`)
+  if (status === `draft`) {
+    const issues = admitted.reduce((sum, node) => sum + 1 + node.members, 0)
+    return `Draft · ${issues === 1 ? `1 issue` : `${issues} issues`}`
+  }
+  const tally = (display: WfNodeDisplayState) =>
+    admitted.filter((node) => workflowNodeDisplayState(node.state) === display).length
+  const done = tally(`done`)
+  if (status === `running` || status === `paused`) {
+    const parts = [`${done} of ${admitted.length} done`]
+    const running = tally(`running`)
+    if (running > 0) parts.push(`${running} running`)
+    return (deviceLabel ? [`on ${deviceLabel}`, ...parts] : parts).join(` · `)
+  }
+  const word = STATUS_WORDS[status] ?? status.charAt(0).toUpperCase() + status.slice(1)
+  const parts = [word, `${done} done`]
+  const failed = tally(`failed`)
+  if (failed > 0) parts.push(`${failed} failed`)
+  const skipped = tally(`skipped`)
+  if (skipped > 0) parts.push(`${skipped} skipped`)
+  return parts.join(` · `)
 }
 
 export type WorkflowPrimaryAction =
@@ -542,15 +486,34 @@ export type WorkflowPrimaryAction =
   | `resume`
   | `review_final_pr`
 
-/** The header's ONE primary button. STUB. */
+/**
+ * The header's ONE primary button: a draft without a runner picks one (the
+ * existing DevicePicker over own + team-shared online runners), a draft
+ * starts, running pauses, paused resumes, done reviews the final PR. Failed
+ * and cancelled offer nothing; Stop and Delete live in the overflow.
+ */
 export function workflowPrimaryAction(
-  _status: string,
-  _deviceLabel: string | null
+  status: string,
+  deviceLabel: string | null
 ): WorkflowPrimaryAction | null {
+  if (status === `draft`) return deviceLabel ? `start` : `pick_device`
+  if (status === `running`) return `pause`
+  if (status === `paused`) return `resume`
+  if (status === `done`) return `review_final_pr`
   return null
 }
 
-/** What a node chip's menu offers. STUB. */
-export function nodeChipMenu(_state: string): (`retry` | `skip`)[] {
+export type NodeChipMenuItem = `retry` | `skip` | `admit` | `dismiss`
+
+/** What a node chip's overflow offers: Retry / Skip on a `failed` node,
+ *  Admit / Dismiss on a `proposed` one (a follow-up filed mid-run), nothing
+ *  else anywhere. */
+export function nodeChipMenu(state: string): NodeChipMenuItem[] {
+  if (state === `failed`) return [`retry`, `skip`]
+  if (state === `proposed`) return [`admit`, `dismiss`]
   return []
 }
+
+export const ADMIT_NODE_LABEL = `Admit`
+export const DISMISS_NODE_LABEL = `Dismiss`
+export const PROPOSED_NODE_NOTE = `Filed during the run. Admit it into the workflow or dismiss it.`

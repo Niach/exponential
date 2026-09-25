@@ -6,13 +6,9 @@ import {
   workflowEdges,
   workflowEdgeStyle,
   workflowFinalPrCaption,
-  workflowMergeTrain,
-  workflowMetricRows,
   workflowReviewLine,
   workflowRowSubtitle,
   workflowStartBlocker,
-  workflowTrainStepLabel,
-  type TrainStep,
   workflowNodeCaption,
   workflowNodeTitle,
   workflowNodeTone,
@@ -67,18 +63,6 @@ describe(`workflow view (contract fixture)`, () => {
     }
   })
 
-  for (const c of fixture.trains) {
-    it(c.name, () => {
-      expect(workflowMergeTrain(c.nodes)).toEqual(c.expected)
-    })
-  }
-
-  it(`labels every train step`, () => {
-    for (const [step, label] of Object.entries(fixture.trainStepLabels)) {
-      expect(workflowTrainStepLabel(step as TrainStep)).toBe(label)
-    }
-  })
-
   it(`draws the final pull request node once everything landed`, () => {
     for (const c of fixture.finalPr) {
       expect(
@@ -106,12 +90,6 @@ describe(`workflow view (contract fixture)`, () => {
   it(`says the latest agent review in one line`, () => {
     for (const c of fixture.reviewLines) expect(workflowReviewLine(c.review, c.approved)).toBe(c.line)
   })
-
-  it(`lists the metrics that have something to say`, () => {
-    for (const c of fixture.metricRows) {
-      expect(workflowMetricRows(c.metrics as Record<string, unknown>)).toEqual(c.rows)
-    }
-  })
 })
 
 // EXP-1082 §4: five display states, locked ×4.
@@ -128,9 +106,9 @@ describe(`workflow node display states (EXP-1082)`, () => {
   })
 })
 
-// EXP-1082 §5: the page view model, DECLARED — un-skipped when it lands.
-describe(`workflow page view model (EXP-1082, declared)`, () => {
-  it.skip(`lays the node strip out by wave and lane`, () => {
+// EXP-1082 §5 / EXP-1066: the page view model, locked ×4.
+describe(`workflow page view model (EXP-1082)`, () => {
+  it(`lays the node strip out by wave and lane`, () => {
     for (const c of fixture.nodeStrips) {
       expect(
         workflowNodeStrip(c.nodes, c.edges as [string, string][]),
@@ -139,13 +117,13 @@ describe(`workflow page view model (EXP-1082, declared)`, () => {
     }
   })
 
-  it.skip(`captions the header`, () => {
+  it(`captions the header`, () => {
     for (const c of fixture.headerCaptions) {
       expect(workflowHeaderCaption(c.status, c.nodes, c.device), c.name).toBe(c.caption)
     }
   })
 
-  it.skip(`picks the one primary action`, () => {
+  it(`picks the one primary action`, () => {
     for (const c of fixture.primaryActions) {
       expect(workflowPrimaryAction(c.status, c.device)).toBe(
         c.action as WorkflowPrimaryAction | null
@@ -153,7 +131,7 @@ describe(`workflow page view model (EXP-1082, declared)`, () => {
     }
   })
 
-  it.skip(`offers retry and skip on a failed chip only`, () => {
+  it(`offers retry and skip on a failed chip only`, () => {
     for (const c of fixture.chipMenus) {
       expect(nodeChipMenu(c.state)).toEqual(c.menu)
     }

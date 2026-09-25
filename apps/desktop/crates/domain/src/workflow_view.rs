@@ -326,7 +326,6 @@ pub struct StartableWorkflow<'a> {
     pub status: &'a str,
     pub device_id: Option<&'a str>,
     pub repository_id: Option<&'a str>,
-    pub start_on: &'a str,
 }
 
 /// Why Start is disabled, or `None` when the draft can start. One reason, the
@@ -350,8 +349,6 @@ pub fn workflow_start_blocker(
     if workflow.device_id.is_none() {
         return Some("Pick the device that runs this workflow first.".to_string());
     }
-    // EXP-983: every `start_on` runs now — the mode never blocks a start.
-    let _ = workflow.start_on;
     None
 }
 
@@ -969,7 +966,6 @@ mod tests {
         status: String,
         device_id: Option<String>,
         repository_id: Option<String>,
-        start_on: String,
     }
 
     #[derive(Deserialize)]
@@ -1190,7 +1186,6 @@ mod tests {
                 status: &case.workflow.status,
                 device_id: case.workflow.device_id.as_deref(),
                 repository_id: case.workflow.repository_id.as_deref(),
-                start_on: &case.workflow.start_on,
             };
             assert_eq!(
                 workflow_start_blocker(workflow, &case.metrics.shape()),

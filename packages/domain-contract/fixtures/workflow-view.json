@@ -300,8 +300,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": "dev",
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 3,
@@ -315,8 +314,7 @@
       "workflow": {
         "status": "running",
         "deviceId": "dev",
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 3,
@@ -330,8 +328,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": "dev",
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 0,
@@ -345,8 +342,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": null,
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 2,
@@ -365,8 +361,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": "dev",
-        "repositoryId": null,
-        "startOn": "landed"
+        "repositoryId": null
       },
       "metrics": {
         "nodes": 3,
@@ -380,8 +375,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": null,
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 3,
@@ -395,8 +389,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": "dev",
-        "repositoryId": "repo",
-        "startOn": "contract"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 3,
@@ -407,116 +400,6 @@
       "blocker": null
     }
   ],
-  "trains": [
-    {
-      "name": "an unreviewed node waits, approved ones queue in landing order",
-      "nodes": [
-        {
-          "id": "l2",
-          "kind": "leaf",
-          "state": "in_review",
-          "wave": 1,
-          "lane": 1,
-          "approvedAt": "2026-09-19T00:00:00Z"
-        },
-        {
-          "id": "c",
-          "kind": "contract",
-          "state": "in_review",
-          "wave": 0,
-          "lane": 0,
-          "approvedAt": null
-        },
-        {
-          "id": "l1",
-          "kind": "leaf",
-          "state": "in_review",
-          "wave": 1,
-          "lane": 0,
-          "approvedAt": "2026-09-19T00:00:00Z"
-        },
-        {
-          "id": "r",
-          "kind": "leaf",
-          "state": "running",
-          "wave": 1,
-          "lane": 2,
-          "approvedAt": null
-        },
-        {
-          "id": "d",
-          "kind": "leaf",
-          "state": "landed",
-          "wave": 1,
-          "lane": 3,
-          "approvedAt": null
-        }
-      ],
-      "expected": [
-        {
-          "id": "c",
-          "step": "needs-approval"
-        },
-        {
-          "id": "l1",
-          "step": "next"
-        },
-        {
-          "id": "l2",
-          "step": "queued"
-        }
-      ]
-    },
-    {
-      "name": "only approved nodes are cleared, an updating node says so",
-      "nodes": [
-        {
-          "id": "a",
-          "kind": "leaf",
-          "state": "in_review",
-          "wave": 0,
-          "lane": 0,
-          "approvedAt": null
-        },
-        {
-          "id": "b",
-          "kind": "leaf",
-          "state": "in_review",
-          "wave": 0,
-          "lane": 1,
-          "approvedAt": "2026-09-19T00:00:00Z"
-        },
-        {
-          "id": "u",
-          "kind": "leaf",
-          "state": "updating",
-          "wave": 0,
-          "lane": 2,
-          "approvedAt": "2026-09-19T00:00:00Z"
-        }
-      ],
-      "expected": [
-        {
-          "id": "a",
-          "step": "needs-approval"
-        },
-        {
-          "id": "b",
-          "step": "next"
-        },
-        {
-          "id": "u",
-          "step": "updating"
-        }
-      ]
-    }
-  ],
-  "trainStepLabels": {
-    "next": "Landing next",
-    "queued": "Queued",
-    "needs-approval": "Needs approval",
-    "updating": "Merging the trunk in"
-  },
   "finalPr": [
     {
       "states": [],
@@ -742,85 +625,6 @@
       "line": "Changes requested · round 3"
     }
   ],
-  "metricRows": [
-    {
-      "metrics": {
-        "nodes": 12,
-        "depth": 3,
-        "width": 8,
-        "cycles": []
-      },
-      "rows": [
-        {
-          "label": "Critical path",
-          "value": "3 waves for 12 nodes"
-        }
-      ]
-    },
-    {
-      "metrics": {
-        "nodes": 12,
-        "depth": 3,
-        "landed": 5,
-        "mergeIns": 9,
-        "contractChanges": 2,
-        "escalations": 4,
-        "duplicateEscalations": 1,
-        "operatorMinutes": 37,
-        "reviewRounds": 6,
-        "defectsByOracle": 2,
-        "defectsByAgentReview": 1
-      },
-      "rows": [
-        {
-          "label": "Critical path",
-          "value": "3 waves for 12 nodes"
-        },
-        {
-          "label": "Landed",
-          "value": "5"
-        },
-        {
-          "label": "Merge-ins per contract change",
-          "value": "4.5"
-        },
-        {
-          "label": "Escalations",
-          "value": "4 (1 duplicate)"
-        },
-        {
-          "label": "Operator minutes",
-          "value": "37"
-        },
-        {
-          "label": "Review rounds",
-          "value": "6"
-        },
-        {
-          "label": "Defects found",
-          "value": "2 by checks · 1 by agent review"
-        }
-      ]
-    },
-    {
-      "metrics": {
-        "nodes": 2,
-        "depth": 2,
-        "mergeIns": 3,
-        "landed": "garbage"
-      },
-      "rows": [
-        {
-          "label": "Critical path",
-          "value": "2 waves for 2 nodes"
-        },
-        {
-          "label": "Merge-ins",
-          "value": "3"
-        }
-      ]
-    }
-  ],
   "displayStates": [
     {
       "state": "proposed",
@@ -882,7 +686,6 @@
   "nodeStrips": [
     {
       "name": "waves left to right, lanes top to bottom, a compound node stacked",
-      "skip": true,
       "nodes": [
         {
           "id": "c",
@@ -999,7 +802,6 @@
     },
     {
       "name": "a note replaces the bare caption while the node holds",
-      "skip": true,
       "nodes": [
         {
           "id": "a",
@@ -1031,12 +833,74 @@
           ]
         }
       ]
+    },
+    {
+      "name": "a proposed node rides in its wave as queued, a missing wave is skipped",
+      "nodes": [
+        {
+          "id": "p",
+          "identifier": "EXP-9",
+          "state": "proposed",
+          "wave": 3,
+          "lane": 0,
+          "members": 0,
+          "live": false,
+          "needsYou": false
+        },
+        {
+          "id": "r",
+          "identifier": "EXP-8",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "members": 0,
+          "live": false,
+          "needsYou": false
+        }
+      ],
+      "edges": [
+        [
+          "r",
+          "p"
+        ]
+      ],
+      "strip": [
+        {
+          "wave": 0,
+          "nodes": [
+            {
+              "id": "r",
+              "title": "EXP-8",
+              "display": "done",
+              "caption": "Done",
+              "stacked": false,
+              "members": 0,
+              "live": false,
+              "needsYou": false
+            }
+          ]
+        },
+        {
+          "wave": 3,
+          "nodes": [
+            {
+              "id": "p",
+              "title": "EXP-9",
+              "display": "queued",
+              "caption": "Queued",
+              "stacked": false,
+              "members": 0,
+              "live": false,
+              "needsYou": false
+            }
+          ]
+        }
+      ]
     }
   ],
   "headerCaptions": [
     {
       "name": "a draft counts its issues, members included",
-      "skip": true,
       "status": "draft",
       "device": null,
       "nodes": [
@@ -1057,7 +921,6 @@
     },
     {
       "name": "a running workflow names its runner and its progress",
-      "skip": true,
       "status": "running",
       "device": "MacBook",
       "nodes": [
@@ -1098,7 +961,6 @@
     },
     {
       "name": "a running workflow with nothing live says only its progress",
-      "skip": true,
       "status": "running",
       "device": "MacBook",
       "nodes": [
@@ -1115,7 +977,6 @@
     },
     {
       "name": "a paused workflow reads like a running one",
-      "skip": true,
       "status": "paused",
       "device": "build-box",
       "nodes": [
@@ -1132,7 +993,6 @@
     },
     {
       "name": "a done workflow counts what landed",
-      "skip": true,
       "status": "done",
       "device": "MacBook",
       "nodes": [
@@ -1153,7 +1013,6 @@
     },
     {
       "name": "a failed or cancelled workflow says so",
-      "skip": true,
       "status": "cancelled",
       "device": "MacBook",
       "nodes": [
@@ -1167,56 +1026,88 @@
         }
       ],
       "caption": "Cancelled · 1 done · 1 failed"
+    },
+    {
+      "name": "a failed workflow says so",
+      "status": "failed",
+      "device": "MacBook",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "failed",
+          "members": 0
+        },
+        {
+          "state": "skipped",
+          "members": 0
+        }
+      ],
+      "caption": "Failed · 1 done · 1 failed · 1 skipped"
+    },
+    {
+      "name": "a proposed node is not counted until it is admitted",
+      "status": "running",
+      "device": "MacBook",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "proposed",
+          "members": 0
+        },
+        {
+          "state": "running",
+          "members": 1
+        }
+      ],
+      "caption": "on MacBook · 1 of 2 done · 1 running"
     }
   ],
   "primaryActions": [
     {
       "status": "draft",
       "device": null,
-      "action": "pick_device",
-      "skip": true
+      "action": "pick_device"
     },
     {
       "status": "draft",
       "device": "MacBook",
-      "action": "start",
-      "skip": true
+      "action": "start"
     },
     {
       "status": "running",
       "device": "MacBook",
-      "action": "pause",
-      "skip": true
+      "action": "pause"
     },
     {
       "status": "paused",
       "device": "MacBook",
-      "action": "resume",
-      "skip": true
+      "action": "resume"
     },
     {
       "status": "done",
       "device": "MacBook",
-      "action": "review_final_pr",
-      "skip": true
+      "action": "review_final_pr"
     },
     {
       "status": "failed",
       "device": "MacBook",
-      "action": null,
-      "skip": true
+      "action": null
     },
     {
       "status": "cancelled",
       "device": "MacBook",
-      "action": null,
-      "skip": true
+      "action": null
     },
     {
       "status": "something-new",
       "device": "MacBook",
-      "action": null,
-      "skip": true
+      "action": null
     }
   ],
   "chipMenus": [
@@ -1225,33 +1116,38 @@
       "menu": [
         "retry",
         "skip"
-      ],
-      "skip": true
+      ]
     },
     {
       "state": "blocked",
-      "menu": [],
-      "skip": true
+      "menu": []
     },
     {
       "state": "running",
-      "menu": [],
-      "skip": true
+      "menu": []
     },
     {
       "state": "waiting",
-      "menu": [],
-      "skip": true
+      "menu": []
     },
     {
       "state": "landed",
-      "menu": [],
-      "skip": true
+      "menu": []
     },
     {
       "state": "skipped",
-      "menu": [],
-      "skip": true
+      "menu": []
+    },
+    {
+      "state": "proposed",
+      "menu": [
+        "admit",
+        "dismiss"
+      ]
+    },
+    {
+      "state": "brand-new",
+      "menu": []
     }
   ]
 }

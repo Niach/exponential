@@ -980,7 +980,7 @@ export const wfNodeStateValues = [
   `proposed`,
   // Waiting on a blocker.
   `blocked`,
-  // Every blocker satisfied `start_on`; the scheduler may start it.
+  // Every blocker announced its contract (or landed); the scheduler may start it.
   `ready`,
   `running`,
   // Needs a person: a question, a rate limit, a login. The ONLY amber state
@@ -994,19 +994,16 @@ export const wfNodeStateValues = [
   `skipped`,
 ] as const
 export const wfNodeKindValues = [`contract`, `leaf`, `integration`] as const
-export const wfStartOnValues = [`contract`, `pr_open`, `landed`] as const
 export const wfRiskValues = [`low`, `medium`, `high`] as const
 
 export type WfStatus = (typeof wfStatusValues)[number]
 export type WfNodeState = (typeof wfNodeStateValues)[number]
 export type WfNodeKind = (typeof wfNodeKindValues)[number]
-export type WfStartOn = (typeof wfStartOnValues)[number]
 export type WfRisk = (typeof wfRiskValues)[number]
 
 export const wfStatusSchema = z.enum(wfStatusValues)
 export const wfNodeStateSchema = z.enum(wfNodeStateValues)
 export const wfNodeKindSchema = z.enum(wfNodeKindValues)
-export const wfStartOnSchema = z.enum(wfStartOnValues)
 export const wfRiskSchema = z.enum(wfRiskValues)
 
 /** `contract.workflow`, hand-mirrored (drift-tested). */
@@ -1180,8 +1177,9 @@ export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
   workflow: { model: `opus`, strongModel: `fable` },
 }
 
-/** `workflows.metrics`: the plan's shape (written by the server layout) plus,
- *  from the engine's phases on, the run's counters. */
+/** `workflows.metrics`: the plan's LAYOUT facts, written by the server layout
+ *  and nothing else (EXP-1066: the run counters are gone; the planner and the
+ *  cycle gate read these, the page derives its caption from the node rows). */
 export interface WorkflowMetricsJson {
   nodes: number
   edges: number
@@ -1191,7 +1189,6 @@ export interface WorkflowMetricsJson {
   cycles: string[][]
   /** `<fromNodeId>\n<toNodeId>` of every edge inside a cycle. */
   cycleEdges?: string[]
-  [counter: string]: unknown
 }
 
 /** A `touches` glob: what a node expects to change (pre-serialises obvious

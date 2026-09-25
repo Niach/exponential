@@ -14,14 +14,13 @@ import {
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
 import { authedProcedure, generateTxId } from "@/lib/trpc"
-import { workflowNodes, workflows } from "@/db/schema"
+import { workflowNodes } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
 import {
   bad,
   loadWorkflow,
   assertEngine,
   loadNode,
-  bumpMetrics,
   reviewOutcome,
   isReviewRunOfNode,
 } from "./shared"
@@ -55,22 +54,6 @@ export const workflowReviewProcedures = {
             }),
           })
           .where(eq(workflowNodes.id, input.nodeId))
-        if (input.approved) {
-          // EXP-984 metric: how long the node sat waiting for a person. The
-          // row's `updated_at` is when it last moved (into review).
-          const [row] = await tx
-            .select({ since: workflowNodes.updatedAt })
-            .from(workflowNodes)
-            .where(eq(workflowNodes.id, input.nodeId))
-            .limit(1)
-          const minutes = row
-            ? Math.max(0, Math.round((Date.now() - new Date(row.since).getTime()) / 60_000))
-            : 0
-          await tx
-            .update(workflows)
-            .set({ metrics: bumpMetrics({ operatorMinutes: minutes }) })
-            .where(eq(workflows.id, workflow.id))
-        }
         return { txId }
       })
     }),
@@ -177,18 +160,6 @@ export const workflowReviewProcedures = {
             approvedAt: outcome.approve ? new Date() : null,
           })
           .where(eq(workflowNodes.id, input.nodeId))
-        await tx
-          .update(workflows)
-          .set({
-            metrics: bumpMetrics({
-              reviewRounds: 1,
-              ...(input.verdict === `request_changes` &&
-                (oraclePassed === false
-                  ? { defectsByOracle: 1 }
-                  : { defectsByAgentReview: 1 })),
-            }),
-          })
-          .where(eq(workflows.id, workflow.id))
         return { round, ...outcome }
       })
     }),

@@ -26,8 +26,6 @@ import {
   mergeBelongsToAttempt,
   mergedNodeOutcome,
   appendDecisionLine,
-  bumpMetrics,
-  WORKFLOW_COUNTERS,
 } from "./shared"
 
 export const workflowNodeProcedures = {
@@ -149,39 +147,12 @@ export const workflowNodeProcedures = {
             .update(workflowNodes)
             .set({ state: `blocked`, note: null })
             .where(eq(workflowNodes.id, input.nodeId))
-          await tx
-            .update(workflows)
-            .set({ metrics: bumpMetrics({ admitted: 1 }) })
-            .where(eq(workflows.id, workflow.id))
         } else {
           await tx.delete(workflowNodes).where(eq(workflowNodes.id, input.nodeId))
         }
         await replanWorkflow(tx, workflow.id)
         return { txId }
       })
-    }),
-
-  /** ENGINE: counters only the device can see (merge-ins, contract changes). */
-  reportMetrics: authedProcedure
-    .input(
-      z.object({
-        id: z.string().uuid(),
-        // `partialRecord`: zod 4's `record` over an enum key is EXHAUSTIVE,
-        // and the engine sends one or two counters at a time.
-        deltas: z.partialRecord(
-          z.enum(WORKFLOW_COUNTERS),
-          z.number().int().min(0).max(10_000)
-        ),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const workflow = await loadWorkflow(input.id)
-      await assertEngine(workflow, ctx.session.user.id)
-      await ctx.db
-        .update(workflows)
-        .set({ metrics: bumpMetrics(input.deltas as Record<string, number>) })
-        .where(eq(workflows.id, input.id))
-      return { ok: true }
     }),
 
   /** ENGINE: a node's state moved. */
@@ -385,13 +356,12 @@ export const workflowNodeProcedures = {
             new Date()
           )
         }
-        await tx
-          .update(workflows)
-          .set({
-            metrics: bumpMetrics({ landed: 1 }),
-            ...(decisions !== undefined && { decisions }),
-          })
-          .where(eq(workflows.id, workflow.id))
+        if (decisions !== undefined) {
+          await tx
+            .update(workflows)
+            .set({ decisions })
+            .where(eq(workflows.id, workflow.id))
+        }
         return true
       })
       if (!landed) return { merged: true, reason: null, retargeted: [] as string[] }

@@ -1287,12 +1287,6 @@ fn start_blocker(
             status: row.status_wire(),
             device_id: row.device_id.as_deref(),
             repository_id: row.repository_id.as_deref(),
-            // The column is NOT NULL DEFAULT `contract` server-side; every
-            // mode starts since EXP-983, so this never blocks either way.
-            start_on: row
-                .start_on
-                .as_deref()
-                .unwrap_or(domain::contract::WF_START_ON_CONTRACT),
         },
         shape,
     )

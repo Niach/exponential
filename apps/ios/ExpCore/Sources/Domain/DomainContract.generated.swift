@@ -27,7 +27,6 @@ public enum DomainContract {
     public static let wfStatusValues: [String] = ["draft", "running", "paused", "done", "cancelled"]
     public static let wfNodeStateValues: [String] = ["proposed", "blocked", "ready", "running", "waiting", "in_review", "updating", "landed", "failed", "skipped"]
     public static let wfNodeKindValues: [String] = ["contract", "leaf", "integration"]
-    public static let wfStartOnValues: [String] = ["contract", "pr_open", "landed"]
     public static let wfRiskValues: [String] = ["low", "medium", "high"]
     public static let wfReviewVerdictValues: [String] = ["approve", "request_changes"]
     public static let wfSessionRoleValues: [String] = ["author", "review", "base_merge", "plan", "replan"]
@@ -209,9 +208,6 @@ public enum DomainContract {
     public static let wfNodeKindContract: String = "contract"
     public static let wfNodeKindLeaf: String = "leaf"
     public static let wfNodeKindIntegration: String = "integration"
-    public static let wfStartOnContract: String = "contract"
-    public static let wfStartOnPrOpen: String = "pr_open"
-    public static let wfStartOnLanded: String = "landed"
     public static let wfRiskLow: String = "low"
     public static let wfRiskMedium: String = "medium"
     public static let wfRiskHigh: String = "high"

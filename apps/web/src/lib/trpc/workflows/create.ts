@@ -7,7 +7,7 @@ import {
   eq,
   inArray,
 } from "drizzle-orm"
-import { WORKFLOW_MAX_ISSUES, workflowLaunchSchema, wfStartOnSchema } from "@exp/db-schema/domain"
+import { WORKFLOW_MAX_ISSUES, type WorkflowLaunch } from "@exp/db-schema/domain"
 import { normalizeWorkflowLaunch } from "@/lib/workflow-launch"
 import { authedProcedure, generateTxId } from "@/lib/trpc"
 import {
@@ -22,7 +22,6 @@ import { nodeEdges, replanWorkflow, workflowIntegrationBranch } from "@/lib/work
 import {
   bad,
   WORKFLOW_DEVICE,
-  assertLaunch,
   normalizeLaunchLenient,
   storedLaunchFor,
   launchFromDeviceDefaults,
@@ -152,9 +151,6 @@ export const workflowCreateProcedures = {
             name,
             ...(input.deviceId && { deviceId: input.deviceId }),
             launch: storedLaunchFor(launch),
-            // EXP-1029: every new workflow starts its dependents on the
-            // blockers' CONTRACT. There is no choice any more.
-            startOn: `contract`,
             integrationBranch: workflowIntegrationBranch(id),
           })
           .returning(wireColumns)
@@ -179,8 +175,10 @@ export const workflowCreateProcedures = {
         id: z.string().uuid(),
         name: z.string().trim().min(1).max(255).optional(),
         deviceId: z.string().min(1).max(128).nullable().optional(),
-        launch: workflowLaunchSchema.optional(),
-        startOn: wfStartOnSchema.optional(),
+        // EXP-1066: `launch`, `startOn` and `gate` are no inputs any more —
+        // the launch is seeded from the runner device, dependents start on
+        // the blockers' contract, every node gets the agent review. An old
+        // client still sending them is stripped by zod, nothing written.
         // EXP-982: an answer worth keeping. Appended as a dated line to the
         // log every node prompt carries, at ANY status: a decision is not
         // configuration.
@@ -190,53 +188,33 @@ export const workflowCreateProcedures = {
     .mutation(async ({ ctx, input }) => {
       const existing = await loadWorkflow(input.id)
       await assertTeamMember(ctx.session.user.id, existing.teamId)
-      // EXP-1029: `startOn` is fixed to `contract` — an old client still sends
-      // it, and it changes nothing at all (not even the draft gate).
-      const { id, name, decision, startOn: _startOn, ...config } = input
-      void _startOn
-      // The name is a label; everything else is the run's configuration.
-      if (Object.values(config).some((value) => value !== undefined)) {
+      const { id, name, decision } = input
+      // The name is a label and a decision is not configuration; the runner
+      // binding is, and only a draft takes one.
+      if (input.deviceId !== undefined) {
         assertDraft(existing.status, `Changing how a workflow runs`)
       }
-      // EXP-1029: a launch is REPLACED whole by its normalized self — no
-      // phase-pin merge dance. An old client's pins fold into `strongModel`
-      // (a fold outside the agent's vocabulary heals to its default, compat).
-      let nextLaunch = input.launch
-        ? normalizeLaunchLenient(input.launch)
-        : undefined
-      if (nextLaunch) assertLaunch(nextLaunch)
-      const deviceId =
-        input.deviceId === undefined ? existing.deviceId : input.deviceId
       // EXP-1032: binding a runner to a DRAFT re-seeds agent, account and both
-      // models from THAT machine's agent defaults. (Setting `deviceId` already
-      // asserted the draft above.)
-      if (input.deviceId && !input.launch) {
+      // models from THAT machine's agent defaults.
+      let nextLaunch: WorkflowLaunch | undefined
+      if (input.deviceId) {
         nextLaunch = await seedLaunchFromBoundDevice(
           input.deviceId,
           existing.teamId,
           ctx.session.user.id
         )
-      }
-      const launch = nextLaunch ?? normalizeWorkflowLaunch(existing.launch)
-      if (deviceId && (input.deviceId !== undefined || input.launch)) {
         await assertDeviceUsable(
-          deviceId,
+          input.deviceId,
           existing.teamId,
           ctx.session.user.id,
-          launch.agent,
+          nextLaunch.agent,
           WORKFLOW_DEVICE
         )
       }
-      // compat: older clients still send the removed `gate` (EXP-1010) and
-      // `startOn` (EXP-1029); both are ignored, and a patch of nothing but
-      // those leaves nothing to set, which drizzle refuses with a 500. Answer
-      // with the row as it is.
-      if (
-        name === undefined &&
-        input.deviceId === undefined &&
-        nextLaunch === undefined &&
-        decision === undefined
-      ) {
+      // A patch of nothing (an old client sending only removed fields) leaves
+      // nothing to set, which drizzle refuses with a 500. Answer with the row
+      // as it is.
+      if (name === undefined && input.deviceId === undefined && decision === undefined) {
         return ctx.db.transaction(async (tx) => {
           const txId = await generateTxId(tx)
           const [workflow] = await tx

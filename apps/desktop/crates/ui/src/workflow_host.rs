@@ -296,9 +296,7 @@ struct StartOrder {
     workflow_id: String,
     workflow_name: String,
     decisions: String,
-    /// EXP-983: the workflow's start mode and the issues this node builds
-    /// on — the two extra prompt lines.
-    start_on: String,
+    /// EXP-983: the issues this node builds on — the prompt's upstream line.
     blockers: Vec<String>,
     /// The branch this node is cut from: the integration branch, a blocker's
     /// own branch, or a synthetic base of several (EXP-983).
@@ -619,10 +617,6 @@ fn snapshot_for(
                     final_pr_url: workflow.final_pr_url.clone(),
                     // EXP-1029: not a launch field any more.
                     max_parallel: domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT,
-                    start_on: workflow
-                        .start_on
-                        .clone()
-                        .unwrap_or_else(|| workflows::START_ON_LANDED.to_string()),
                     launch: launch.clone(),
                 },
                 nodes,
@@ -850,11 +844,6 @@ fn run_pass(
         });
     }
 
-    // EXP-984: the counters only this device can see, batched into ONE
-    // report at the end of the pass.
-    let mut metrics: std::collections::BTreeMap<String, u32> = Default::default();
-    tally_contract_changes(&pass, &snapshot, &workflow_id, &mut metrics);
-
     let decisions = workflows::evaluate(&snapshot);
     let mut orders = PassOrders::default();
     let mut resumes: Vec<ResumeOrder> = Vec::new();
@@ -981,7 +970,6 @@ fn run_pass(
                         workflow_id: workflow_id.clone(),
                         workflow_name: pass.name.clone(),
                         decisions: pass.decisions.clone(),
-                        start_on: snapshot.workflow.start_on.clone(),
                         blockers: blocker_identifiers(&snapshot, &node_id),
                         integration_branch: base_branch,
                         node_id,
@@ -1021,22 +1009,13 @@ fn run_pass(
                     };
                     let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
                     remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
-                    // EXP-984: a merge-in is counted when it is DELIVERED, not
-                    // when it is decided.
-                    let mut delivered = || {
-                        *metrics
-                            .entry(api::workflows::COUNTER_MERGE_INS.to_string())
-                            .or_default() += 1;
-                    };
                     if let Some(engine) = pass.engines.get(&session_id) {
                         engine.steer(text);
-                        delivered();
                         break 'decision Outcome::Done;
                     }
                     if pass.session_is_local.contains(&session_id) {
                         break 'decision Outcome::Skipped; // a live run this app hosts but cannot reach
                     }
-                    delivered();
                     remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
                     resumes.push(ResumeOrder {
                         session_id,
@@ -1235,53 +1214,7 @@ fn run_pass(
     for resume in resumes {
         RESUME_QUEUE.with_lock(resume);
     }
-    // EXP-984: one metrics report per beat, never one per decision.
-    if !metrics.is_empty() {
-        if let Err(err) = api::workflows::report_metrics(&pass.trpc, &workflow_id, &metrics) {
-            log::warn!("[workflows] {workflow_id}: reportMetrics — {err}");
-        }
-    }
     orders
-}
-
-/// EXP-984 — the `contractChanges` counter: a node that ALREADY announced its
-/// contract moved its branch again, which is what every dependent then has to
-/// merge in. The first tip seen after a checkpoint is the checkpoint itself,
-/// so it is recorded and not counted.
-fn tally_contract_changes(
-    pass: &Pass,
-    snapshot: &Snapshot,
-    workflow_id: &str,
-    metrics: &mut std::collections::BTreeMap<String, u32>,
-) {
-    let mut seen = read_state(pass, workflow_id).checkpoint_tips;
-    let mut changed = 0_u32;
-    let mut dirty = false;
-    for node in &snapshot.nodes {
-        if !pass.checkpointed.contains(&node.id) {
-            continue;
-        }
-        let Some(sha) = snapshot.pr_head.get(&node.id) else {
-            continue;
-        };
-        match seen.get(&node.id) {
-            Some(previous) if previous == sha => continue,
-            Some(_) => changed += 1,
-            None => {}
-        }
-        seen.insert(node.id.clone(), sha.clone());
-        dirty = true;
-    }
-    if changed > 0 {
-        *metrics
-            .entry(api::workflows::COUNTER_CONTRACT_CHANGES.to_string())
-            .or_default() += changed;
-    }
-    if dirty {
-        update_state(pass, workflow_id, |state| {
-            state.checkpoint_tips = seen.clone()
-        });
-    }
 }
 
 /// EXP-984 — everything one review start needs, resolved on the background
@@ -1771,7 +1704,6 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         workflow_id,
         workflow_name,
         decisions,
-        start_on,
         blockers,
         integration_branch,
         node_id,
@@ -1787,7 +1719,6 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         workflow_id: workflow_id.clone(),
         name: workflow_name,
         decisions,
-        start_on,
         blockers,
     };
     // A compound node is ONE batch run over its parent plus its members;

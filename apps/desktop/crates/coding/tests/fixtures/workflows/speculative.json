@@ -1,46 +1,13 @@
 [
   {
-    "name": "rule 1: start_on landed keeps a dependent blocked while its blocker is only in review",
+    "name": "rule 1+2: a blocker in review releases the dependent onto its OWN branch",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
-      },
-      "nodes": [
-        {
-          "id": "a",
-          "issueId": "i-a",
-          "kind": "contract",
-          "state": "in_review",
-          "wave": 0,
-          "lane": 0,
-          "sessionId": "s-a",
-          "branch": "exp/EXP-1"
-        },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
-      ],
-      "edges": [["a", "b"]],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true } },
-      "integrationBranchExists": true,
-      "nowMs": 1000
-    },
-    "expected": []
-  },
-  {
-    "name": "rule 1+2: start_on pr_open releases the dependent onto its blocker's OWN branch",
-    "snapshot": {
-      "workflow": {
-        "id": "abcdef12-3456-7890-abcd-ef1234567890",
-        "status": "running",
-        "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -67,15 +34,14 @@
     ]
   },
   {
-    "name": "rule 1: start_on contract releases on the CHECKPOINT, pr_open does not",
+    "name": "rule 1: a blocker's CHECKPOINT releases the dependent",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "contract"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -100,38 +66,6 @@
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
       { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
     ]
-  },
-  {
-    "name": "rule 1: the same checkpoint releases nothing under start_on pr_open",
-    "snapshot": {
-      "workflow": {
-        "id": "abcdef12-3456-7890-abcd-ef1234567890",
-        "status": "running",
-        "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
-      },
-      "nodes": [
-        {
-          "id": "a",
-          "issueId": "i-a",
-          "kind": "contract",
-          "state": "running",
-          "wave": 0,
-          "lane": 0,
-          "sessionId": "s-a",
-          "branch": "exp/EXP-1",
-          "checkpointAt": "2026-09-19T10:00:00.000Z"
-        },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
-      ],
-      "edges": [["a", "b"]],
-      "sessions": { "s-a": { "live": true } },
-      "integrationBranchExists": true,
-      "nowMs": 1000
-    },
-    "expected": []
   },
   {
     "name": "rule 2: a released blocker without a branch yet puts the dependent BACK to blocked",
@@ -141,8 +75,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "contract"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -172,8 +105,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "contract"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -204,8 +136,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -282,8 +213,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -364,8 +294,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -456,8 +385,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -512,8 +440,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -559,8 +486,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -606,8 +532,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -665,8 +590,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -730,8 +654,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -781,8 +704,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -838,8 +760,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -887,8 +808,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -935,8 +855,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -996,8 +915,7 @@
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -1048,8 +966,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -1095,8 +1012,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -1153,8 +1069,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -1218,8 +1133,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "pr_open"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -1286,8 +1200,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -1321,8 +1234,7 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" },
-        "startOn": "landed"
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {

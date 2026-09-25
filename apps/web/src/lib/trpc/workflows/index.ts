@@ -17,10 +17,8 @@ export const workflowsRouter = router({
 })
 
 export {
-  WORKFLOW_COUNTERS,
   WORKFLOW_DEVICE_CAP,
   appendDecisionLine,
-  bumpMetrics,
   launchFromDeviceDefaults,
   mergeBelongsToAttempt,
   mergedNodeOutcome,
