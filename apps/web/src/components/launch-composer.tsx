@@ -9,16 +9,20 @@ import { BlockedStartDialog } from "@/components/blocked-start-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
 import { ActionPicker } from "@/components/launch-dialog/action-picker"
 import { IssuePicker } from "@/components/launch-dialog/issue-picker"
+import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
-import { SubjectChips } from "@/components/launch-dialog/subject-chips"
 import { AttachmentThumb, Pill, conceptIcon, Composer, ComposerSubmit, ComposerTool } from "@exp/ui"
+import { contract } from "@exp/domain-contract"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
 
-// EXP-825: the ONE launcher — the Agent page's composer card. The subject
-// chips lead, an action's typed input fields follow, then the mention field
+// EXP-825: the ONE launcher — the composer card, rendered inline on the
+// Agent page and inside the start-coding dialog (EXP-1019, `launch-dialog.tsx`)
+// without a second implementation of any of it. The HEADLINE leads ("Run
+// <action>" / "Implement <issues>" — the chips live there now, not in the
+// card), an action's typed input fields follow, then the mention field
 // (`@` members, `#` issue refs, `:` emoji; Enter sends, Shift+Enter breaks
 // the line), the pending-image strip, and a tool row with `#` (issue
 // picker), ▶ (action picker) and the image button, the submit glyph carrying
@@ -53,16 +57,18 @@ function insertSuggestion(
   field?.insertText(suggestion, suggestionCaretOffset(suggestion))
 }
 
-/** What the field asks for, per subject. */
+/** What the field asks for, per subject. EXP-1019: the two standing
+ *  placeholders are the contract's (`composerUi`, ×4) — with a subject up in
+ *  the headline, the field is the SECONDARY half and says so. */
 export function composerPlaceholder(model: LaunchComposerModel): string {
   const { subject, selectedAction } = model
-  if (subject === null) return `Ask the agent…`
+  if (subject === null) return contract.composerUi.chatPlaceholder
   // EXP-825: an action can say what the requester should type here (its
   // `promptPlaceholder`, seeded from the retired free-text input); the
   // Create-action builtin carries its own.
   const hint = selectedAction?.promptPlaceholder?.trim()
   if (subject.kind === `action` && hint) return hint
-  return `Additional instructions (optional)…`
+  return contract.composerUi.instructionsPlaceholder
 }
 
 export function LaunchComposer({
@@ -116,6 +122,10 @@ export function LaunchComposer({
 
   return (
     <div className={cn(`flex flex-col gap-2`, className)}>
+      {/* EXP-1019: the SUBJECT leads — "Run <action>" / "Implement <issues>"
+          — and the field under it is the optional half. The chips are the
+          ones the card used to carry in its leading row, ✕ and all. */}
+      <LaunchHeadline model={model} />
       {/* EXP-790: the chips only while there is nothing typed and no subject
           — once the field has text they would just be in the way. */}
       {showSuggestions && (
@@ -134,19 +144,6 @@ export function LaunchComposer({
       )}
       <Composer
         data-testid="agent-composer"
-        leading={
-          hasSubject ? (
-            <SubjectChips
-              issues={model.checkedIssues}
-              pendingIssueCount={checkedCount - model.checkedIssues.length}
-              action={actionSubject ? model.selectedAction : null}
-              actionPending={actionSubject && model.selectedAction === null}
-              onRemoveIssue={model.toggleIssue}
-              onClearAction={model.clearAction}
-              disabled={busy}
-            />
-          ) : undefined
-        }
         strip={
           <>
             {actionSubject && subject && inputDefs.length > 0 && (

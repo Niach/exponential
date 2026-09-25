@@ -90,10 +90,10 @@ import kotlinx.coroutines.launch
  * row (null while it has not synced); issue chips never read a hint.
  */
 internal fun composerPlaceholder(subject: ComposerSubject?, selectedAction: ActionDto?): String {
-    if (subject == null) return "Ask the agent…"
+    if (subject == null) return DomainContract.composerUiChatPlaceholder
     val hint = selectedAction?.promptPlaceholder?.trim().orEmpty()
     if (subject is ComposerSubject.Action && hint.isNotEmpty()) return hint
-    return "Additional instructions (optional)…"
+    return DomainContract.composerUiInstructionsPlaceholder
 }
 
 /** What the composer is about — issue chips OR one action chip, never both. */

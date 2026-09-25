@@ -7,9 +7,10 @@ import UIKit
 /// EXP-825: the ONE launcher's card — the same `GlassComposer` the steer and
 /// comment composers wear. Slot order is leading · field · strip · tools:
 ///
-/// - leading: the subject chips (issue chips OR one action chip — tapping a
-///   chip removes it) and, under an action that declares inputs, its typed
-///   pick fields (`ActionInputFieldsView`);
+/// - leading: under an action that declares inputs, its typed pick fields
+///   (`ActionInputFieldsView`). EXP-1038: the subject chips are NOT here any
+///   more — they head the page, beside the contract verb
+///   (`AgentComposerHeadline`, mounted by the host above this card);
 /// - field: the one-block markdown field with the `@` / `#` / `:` typeahead
 ///   (the host mounts `EditorAutocompleteMenu` under the card);
 /// - strip: the pending images (the steer composer's tiles + markers);
@@ -122,89 +123,19 @@ struct AgentComposerCard: View {
         .accessibilityIdentifier("agent-composer")
     }
 
-    // MARK: - Subject chips
+    // MARK: - Action inputs
 
+    /// EXP-1038: the subject chips left the card — they are the run's SUBJECT
+    /// and now head the page (`AgentComposerHeadline`). What stays in the
+    /// leading slot is the picked action's typed pick fields, which belong
+    /// with the field they are filled next to.
     @ViewBuilder
     private var leading: some View {
-        let issues = model.checkedOptions
-        let action = model.selectedAction
-        if !issues.isEmpty || action != nil {
-            VStack(alignment: .leading, spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        if let action {
-                            actionChip(action)
-                        } else {
-                            ForEach(issues) { issueChip($0) }
-                        }
-                    }
-                }
-                if let action, let inputs = action.inputs, !inputs.isEmpty {
-                    ActionInputFieldsView(model: model, inputs: inputs)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
+        if let action = model.selectedAction, let inputs = action.inputs, !inputs.isEmpty {
+            ActionInputFieldsView(model: model, inputs: inputs)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
         }
-    }
-
-    /// One checked issue: the SHARED issue badge (EXP-885) — status glyph ·
-    /// mono identifier · title · ✕, the same chip a `#EXP-1` ref wears in
-    /// prose. EXP-827: only the ✕ removes (web and Android agree); the chip
-    /// body is inert.
-    private func issueChip(_ option: IssueOption) -> some View {
-        let id = "agent-composer-chip-issue-\(option.identifier ?? option.id)"
-        return IssueChip(
-            identifier: option.identifier,
-            title: option.title,
-            status: IssueStatus.from(option.status),
-            onRemove: { model.toggleIssue(option.id) }
-        )
-        .accessibilityIdentifier(id)
-    }
-
-    /// The one action: its curated glyph · name · ✕. Same split: the ✕ clears
-    /// the action, the body does nothing.
-    private func actionChip(_ action: ActionDto) -> some View {
-        GlassPill(
-            action.name,
-            mode: .readonly,
-            leading: {
-                AppIcon(action.icon ?? AppIcons.actionDefault, size: 12)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            },
-            trailing: { chipClose }
-        )
-        .overlay(alignment: .trailing) {
-            chipRemoveButton(name: action.name, identifier: "agent-composer-chip-action-remove") {
-                model.clearAction()
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-composer-chip-action")
-    }
-
-    /// The ✕ glyph a chip wears in its trailing slot. A readonly pill takes no
-    /// hits, so the tap target is the overlay button below, sat over it.
-    private var chipClose: some View {
-        AppIcon(AppIcons.uiClose, size: 10)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-    }
-
-    /// The chip's ONE control: a clear 28pt button over the trailing ✕.
-    private func chipRemoveButton(
-        name: String,
-        identifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Color.clear
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Remove \(name)")
-        .accessibilityIdentifier(identifier)
     }
 
     // MARK: - Return
@@ -266,5 +197,110 @@ struct AgentComposerCard: View {
             return
         }
         model.queueImage(normalized)
+    }
+}
+
+// MARK: - The headline
+
+/// EXP-1038: the composer's HEADLINE — the run's subject as the page's main
+/// element rather than a chip buried in the card. The contract verb
+/// (`AgentComposerPrompt.headline`, ×4: "Run" · "Implement") reads straight
+/// into the chips beside it: one action chip, or the checked issues. The HOST
+/// mounts this only with a subject: a chat's heading would repeat the field's
+/// own "Ask the agent…" placeholder, so there is no row at all (web
+/// `LaunchHeadline` returns null). The chips keep their remove affordances and their
+/// identifiers (`agent-composer-chip-action`,
+/// `agent-composer-chip-issue-<IDENT>`), so a pick still proves itself where
+/// the screenshot suites look for it; only their place changed.
+struct AgentComposerHeadline: View {
+    let model: AgentComposerModel
+
+    var body: some View {
+        let issues = model.checkedOptions
+        let action = model.selectedAction
+        HStack(alignment: .center, spacing: 8) {
+            Text(model.headline)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.white)
+                // The verb never shrinks under the chips: they scroll.
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityIdentifier("agent-composer-headline-verb")
+            if action != nil || !issues.isEmpty {
+                // Several issue chips scroll sideways rather than wrapping —
+                // a batch must not push the field off the first screen.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        if let action {
+                            actionChip(action)
+                        } else {
+                            ForEach(issues) { issueChip($0) }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agent-composer-headline")
+    }
+
+    /// One checked issue: the SHARED issue badge (EXP-885) — status glyph ·
+    /// mono identifier · title · ✕, the same chip a `#EXP-1` ref wears in
+    /// prose. EXP-827: only the ✕ removes (web and Android agree); the chip
+    /// body is inert.
+    private func issueChip(_ option: IssueOption) -> some View {
+        let id = "agent-composer-chip-issue-\(option.identifier ?? option.id)"
+        return IssueChip(
+            identifier: option.identifier,
+            title: option.title,
+            status: IssueStatus.from(option.status),
+            onRemove: { model.toggleIssue(option.id) }
+        )
+        .accessibilityIdentifier(id)
+    }
+
+    /// The one action: its curated glyph · name · ✕. Same split: the ✕ clears
+    /// the action, the body does nothing.
+    private func actionChip(_ action: ActionDto) -> some View {
+        GlassPill(
+            action.name,
+            mode: .readonly,
+            leading: {
+                AppIcon(action.icon ?? AppIcons.actionDefault, size: 12)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            },
+            trailing: { chipClose }
+        )
+        .overlay(alignment: .trailing) {
+            chipRemoveButton(name: action.name, identifier: "agent-composer-chip-action-remove") {
+                model.clearAction()
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agent-composer-chip-action")
+    }
+
+    /// The ✕ glyph a chip wears in its trailing slot. A readonly pill takes no
+    /// hits, so the tap target is the overlay button below, sat over it.
+    private var chipClose: some View {
+        AppIcon(AppIcons.uiClose, size: 10)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    }
+
+    /// The chip's ONE control: a clear 28pt button over the trailing ✕.
+    private func chipRemoveButton(
+        name: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Color.clear
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remove \(name)")
+        .accessibilityIdentifier(identifier)
     }
 }

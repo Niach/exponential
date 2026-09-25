@@ -73,6 +73,33 @@ final class AgentComposerPromptTests: XCTestCase {
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .action), "Run action")
     }
 
+    // EXP-1038: the headline verb over the composer — the contract's copy,
+    // one value per subject, and NOT the submit label.
+    func testHeadlinesFollowTheSubject() {
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .none), "Ask the agent")
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .issues(count: 1)), "Implement")
+        // A batch says the same verb — the chips carry the count.
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .issues(count: 7)), "Implement")
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .action), "Run")
+    }
+
+    func testHeadlinesAreTheContractsCopy() {
+        XCTAssertEqual(
+            AgentComposerPrompt.headline(for: .none), DomainContract.composerUiChatHeadline
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.headline(for: .issues(count: 2)),
+            DomainContract.composerUiImplementHeadline
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.headline(for: .action), DomainContract.composerUiRunHeadline
+        )
+        // The headline is the VERB, never the button's label.
+        XCTAssertNotEqual(
+            AgentComposerPrompt.headline(for: .action), AgentComposerPrompt.submitTitle(for: .action)
+        )
+    }
+
     // EXP-825: the field placeholder — web `composerPlaceholder` byte for
     // byte. No subject asks for the message; a picked action with a
     // non-blank hint shows the hint; everything else the generic prompt.

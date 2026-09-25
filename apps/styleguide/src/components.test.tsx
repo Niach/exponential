@@ -38,19 +38,27 @@ import {
   renderIsland,
 } from "@exp/ui/island"
 
+import { client } from "./client.ts"
 import { componentStyles } from "./component-styles.ts"
 import {
   COMPONENTS,
-  COMPONENTS_GROUP,
   COMPONENT_PLATFORMS,
-  KIND_ORDER,
-  MODES,
   PORTAL_ONLY_IDS,
   STYLE_KINDS,
   isIsland,
-  modeOf,
 } from "./components.tsx"
-import type { ComponentSpec, Mode } from "./components.tsx"
+import type { ComponentSpec } from "./components.tsx"
+import { ENTRIES } from "./entries/index.ts"
+import { escapeHtml } from "./html.ts"
+import { SECTIONS, SECTION_ENTRY_IDS } from "./sections/index.ts"
+import {
+  BAND_ORDER,
+  ENTRY_BAND,
+  SPECIAL_ENTRY_IDS,
+  buildPage,
+  sectionOfSpec,
+  sectionShortLabel,
+} from "./sections/page.ts"
 import { renderHtml } from "./render.ts"
 import { styles } from "./styles.ts"
 import type { GalleryData } from "./store.ts"
@@ -71,6 +79,29 @@ const html = renderHtml(EMPTY, COMPONENTS, uiCss)
 
 const ISLANDS = COMPONENTS.filter(isIsland)
 const HTML_DEMOS = COMPONENTS.filter((spec) => !isIsland(spec))
+/** The FILLED registered entries that draw by hand — same rules as a demo. */
+const ENTRY_DEMOS = ENTRIES.filter(
+  (entry) => entry.placeholder !== true && entry.render !== undefined
+)
+/** The registered entries that draw a REAL `@exp/ui` island (EXP-1021's
+ *  pickers, EXP-1020's sub-shell and device settings). The page renders these
+ *  beside `COMPONENTS`, so every page-wide island count is the SUM — counting
+ *  only `COMPONENTS` was right exactly while `entries/` was still a list of
+ *  placeholders nobody had spliced in. */
+const ENTRY_ISLANDS = ENTRIES.filter((entry) => entry.island !== undefined)
+const PAGE_ISLAND_COUNT = ISLANDS.length + ENTRY_ISLANDS.length
+
+/**
+ * The words the summary line uses for the four sections — spelled out here
+ * rather than read from `sectionLabel`, so retitling a section in
+ * `sections.json` lands as a failing test instead of a silently renamed part.
+ */
+const LABELS: Record<string, string> = {
+  style: `style`,
+  general: `general components`,
+  special: `special components`,
+  views: `views`,
+}
 
 /** How often `needle` occurs in `haystack`. */
 function occurrences(haystack: string, needle: string): number {
@@ -109,13 +140,23 @@ function demoMarkup(spec: ComponentSpec): string {
   return isIsland(spec) ? renderIsland(spec.island()) : spec.render()
 }
 
-/** The spec with that id — the demos are asserted through their markup. */
+/** The spec with that id — the demos are asserted through their markup.
+ *  Looks in `COMPONENTS` first, then the registered `ENTRIES`: since the
+ *  sections page splices those in, an entry's island is on the page exactly
+ *  like a component's and has to be assertable the same way. */
 function spec(id: string): { blurb: string; markup: string } {
   const found = COMPONENTS.find((entry) => entry.id === id)
-  expect(found === undefined ? `${id} is missing` : id).toBe(id)
+  if (found !== undefined) {
+    return { blurb: found.blurb, markup: demoMarkup(found) }
+  }
+  const entry = ENTRIES.find((candidate) => candidate.id === id)
+  expect(entry === undefined ? `${id} is missing` : id).toBe(id)
   return {
-    blurb: found?.blurb ?? ``,
-    markup: found === undefined ? `` : demoMarkup(found),
+    blurb: entry?.blurb ?? ``,
+    markup:
+      entry?.island !== undefined
+        ? renderIsland(entry.island())
+        : (entry?.render?.() ?? ``),
   }
 }
 
@@ -135,7 +176,9 @@ describe(`ids`, () => {
     const taken = new Set<string>([
       ...VIEWS.map((view) => view.id),
       ...GROUPS.map((group) => group.id),
-      COMPONENTS_GROUP.id,
+      // The four section ids are routing values (`data-mode`), so an entry
+      // may not answer to one.
+      ...SECTIONS.map((section) => section.id),
     ])
     for (const id of ids) {
       expect(id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/)
@@ -150,7 +193,7 @@ describe(`render`, () => {
       expect(
         occurrences(
           html,
-          `<section class="view component" data-mode="${modeOf(spec)}" data-view="${spec.id}"`
+          `<section class="view component" data-mode="${sectionOfSpec(spec)}" data-view="${spec.id}"`
         )
       ).toBe(1)
       expect(
@@ -159,35 +202,64 @@ describe(`render`, () => {
     }
   })
 
-  test(`the synthetic modes only appear when components are rendered`, () => {
-    // EXP-941 banded the two synthetic modes by `kind`, so the group id a
-    // reader can point at is the MODE, not one appended catalog group.
-    expect(html).toContain(`<div class="mode-section" data-mode="components">`)
-    expect(html).toContain(`<div class="mode-section" data-mode="style">`)
-    const bare = renderHtml(EMPTY, [])
-    expect(bare).toContain(`<div class="mode-section" data-mode="components"></div>`)
-    expect(bare).not.toContain(`class="view component"`)
+  test(`one section and one nav link per registered entry too`, () => {
+    for (const entry of ENTRIES) {
+      expect(
+        occurrences(
+          html,
+          `<section class="view component" data-mode="${entry.section}" data-view="${entry.id}"`
+        )
+      ).toBe(1)
+      expect(
+        occurrences(html, `<a class="nav-link" href="#${entry.id}" data-view="${entry.id}"`)
+      ).toBe(1)
+    }
   })
 
-  test(`inline JSON carries the components in order, and leaves the counts alone`, () => {
+  test(`the synthetic sections only appear when entries are rendered`, () => {
+    // EXP-1019 bands the three synthetic sections by `kind`, so the group id a
+    // reader can point at is the SECTION, not one appended catalog group.
+    for (const section of SECTIONS) {
+      expect(html).toContain(`<div class="mode-section" data-mode="${section.id}">`)
+    }
+    const bare = renderHtml(EMPTY, [], ``, [])
+    expect(bare).toContain(
+      `<div class="mode-section" data-mode="general"><p class="section-blurb">`
+    )
+    expect(bare).not.toContain(`class="view component"`)
+    expect(bare).not.toContain(`<div class="group-label">`)
+  })
+
+  test(`inline JSON carries every entry in nav order, and leaves the counts alone`, () => {
     const start = html.indexOf(`<script type="application/json" id="gallery-data">`)
     const from = html.indexOf(`>`, start) + 1
     const raw = html.slice(from, html.indexOf(`</script>`, from)).replace(/\\u003c/g, `<`)
     const parsed = JSON.parse(raw) as {
-      components: { id: string; title: string }[]
+      components: { id: string; title: string; mode: string }[]
       counts: GalleryData[`counts`]
       views: unknown[]
     }
-    expect(parsed.components.map((entry) => entry.id)).toEqual(COMPONENTS.map((spec) => spec.id))
+    const page = buildPage(COMPONENTS, ENTRIES)
+    expect(parsed.components.map((entry) => entry.id)).toEqual(
+      page.flatMap((section) => section.entries.map((entry) => entry.id))
+    )
+    // The client routes WITHIN a section, so the mode it reads is the section.
+    for (const entry of parsed.components) {
+      expect(SECTIONS.some((section) => section.id === entry.mode)).toBe(true)
+    }
     expect(parsed.counts).toEqual(EMPTY.counts)
     expect(parsed.views).toEqual([])
   })
 
-  test(`the summary counts each synthetic mode as its own part`, () => {
-    const components = COMPONENTS.filter((spec) => modeOf(spec) === `components`)
-    const style = COMPONENTS.filter((spec) => modeOf(spec) === `style`)
-    expect(html).toContain(`${components.length} components · ${style.length} style`)
-    expect(components.length + style.length).toBe(COMPONENTS.length)
+  test(`the summary counts each of the four sections`, () => {
+    const page = buildPage(COMPONENTS, ENTRIES)
+    const parts = page.map((section) => `${section.entries.length} ${LABELS[section.section.id]}`)
+    // An EMPTY gallery has no photographed views, so the Views part is just
+    // whatever registered entries live there.
+    expect(html).toContain(parts.join(` · `))
+    expect(page.reduce((sum, section) => sum + section.entries.length, 0)).toBe(
+      COMPONENTS.length + ENTRIES.length
+    )
   })
 })
 
@@ -197,7 +269,7 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`every island renders markup, inside a shadow root, on the app's face`, () => {
-    for (const entry of ISLANDS) {
+    for (const entry of [...ISLANDS, ...ENTRY_ISLANDS]) {
       const markup = renderIsland(entry.island())
       expect(markup.startsWith(`<div data-ui-island><template shadowrootmode="open">`)).toBe(true)
       expect(markup).toContain(`<div class="${ISLAND_ROOT_CLASS}">`)
@@ -212,19 +284,19 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`the page carries one shadow root per island, the CSS once, the script once`, () => {
-    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(ISLANDS.length)
-    expect(occurrences(html, `<div data-ui-island>`)).toBe(ISLANDS.length)
+    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(PAGE_ISLAND_COUNT)
+    expect(occurrences(html, `<div data-ui-island>`)).toBe(PAGE_ISLAND_COUNT)
     expect(occurrences(html, `<template id="ui-css">`)).toBe(1)
     expect(occurrences(html, ISLAND_CLIENT_SCRIPT)).toBe(1)
     // Both are gated on the stylesheet: no CSS, no islands worth adopting.
     const bare = renderHtml(EMPTY, COMPONENTS)
     expect(bare).not.toContain(`<template id="ui-css">`)
     expect(bare).not.toContain(ISLAND_CLIENT_SCRIPT)
-    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(ISLANDS.length)
+    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(PAGE_ISLAND_COUNT)
   })
 
   test(`every island sits in the same .cmp-demo canvas the HTML demos use`, () => {
-    for (const entry of ISLANDS) {
+    for (const entry of [...ISLANDS, ...ENTRY_ISLANDS]) {
       expect(html).toContain(`<div class="cmp-demo"><div data-ui-island>`)
       expect(html).toContain(`id="view-${entry.id}"`)
     }
@@ -330,14 +402,20 @@ describe(`demo markup`, () => {
 
   test(`no inline styles, and only known class names`, () => {
     // Islands are exempt by construction: they wear Tailwind utilities and
-    // whatever inline style the real component sets (an avatar's hue).
-    for (const spec of HTML_DEMOS) {
-      const markup = spec.render()
+    // whatever inline style the real component sets (an avatar's hue). A
+    // registered entry that draws by hand (EXP-1019) plays by the same rules;
+    // a PLACEHOLDER is exempt, its one line is the contract's own markup.
+    const drawn: { id: string; markup: string }[] = [
+      ...HTML_DEMOS.map((spec) => ({ id: spec.id, markup: spec.render() })),
+      ...ENTRY_DEMOS.map((entry) => ({ id: entry.id, markup: entry.render!() })),
+    ]
+    expect(ENTRY_DEMOS.length).toBeGreaterThan(0)
+    for (const { id, markup } of drawn) {
       expect(markup).not.toContain(`style="`)
       for (const name of classNames(markup)) {
         const known =
           /^cmp-[a-z0-9-]+$/.test(name) || STRUCTURAL.has(name) || TOKEN_MODIFIER.test(name)
-        expect(known ? name : `${spec.id}: unknown class "${name}"`).toBe(name)
+        expect(known ? name : `${id}: unknown class "${name}"`).toBe(name)
       }
     }
   })
@@ -512,8 +590,13 @@ describe(`component stylesheet`, () => {
       [...css.matchAll(/\.(cmp-[a-z0-9-]+)/g)].map((match) => match[1]!)
     )
     const used = new Set<string>()
-    for (const spec of HTML_DEMOS) {
-      for (const name of classNames(spec.render())) {
+    // Both halves of the page draw with this vocabulary (EXP-1019): the
+    // existing specs and the registered entries that are hand-written.
+    for (const markup of [
+      ...HTML_DEMOS.map((spec) => spec.render()),
+      ...ENTRY_DEMOS.map((entry) => entry.render!()),
+    ]) {
+      for (const name of classNames(markup)) {
         if (name.startsWith(`cmp-`)) used.add(name)
       }
     }
@@ -605,7 +688,7 @@ describe(`status table`, () => {
       // (`tokens-icons`) is best documented by rendering its own glyphs, and
       // its source is a `.ts`, not a component file.
       const styleUnderPackage =
-        modeOf(spec) === `style` && file !== undefined && file.startsWith(`packages/ui/`)
+        sectionOfSpec(spec) === `style` && file !== undefined && file.startsWith(`packages/ui/`)
       if (styleUnderPackage) continue
       const portalOnly = PORTAL_ONLY_IDS.includes(spec.id)
       const expected = inPackage && !portalOnly
@@ -691,42 +774,129 @@ describe(`the GitHub connect surfaces (FEED-42)`, () => {
   })
 })
 
-describe(`modes (EXP-941)`, () => {
-  test(`every spec lands in exactly one mode, and Style holds only Style kinds`, () => {
-    const components = COMPONENTS.filter((spec) => modeOf(spec) === `components`)
-    const style = COMPONENTS.filter((spec) => modeOf(spec) === `style`)
-    expect(components.length + style.length).toBe(COMPONENTS.length)
-    expect(components.length).toBeGreaterThan(0)
-    expect(style.length).toBeGreaterThan(0)
-    for (const spec of style) {
-      expect(STYLE_KINDS.includes(spec.kind) ? spec.id : `${spec.id}: ${spec.kind} is not a Style kind`).toBe(spec.id)
+describe(`the four sections (EXP-941/EXP-1019)`, () => {
+  const page = buildPage(COMPONENTS, ENTRIES)
+
+  test(`every spec lands in exactly one section, and Style holds only Style kinds`, () => {
+    const byId = new Map<string, string[]>()
+    for (const section of page) {
+      for (const entry of section.entries) {
+        byId.set(entry.id, [...(byId.get(entry.id) ?? []), section.section.id])
+      }
     }
-    for (const spec of components) {
-      expect(STYLE_KINDS.includes(spec.kind) ? `${spec.id}: ${spec.kind} belongs to Style` : spec.id).toBe(spec.id)
+    // Exactly one, not at least one: a spec that answered to two sections
+    // would render twice and route to whichever came first.
+    for (const spec of COMPONENTS) {
+      expect(byId.get(spec.id) ?? []).toEqual([sectionOfSpec(spec)])
     }
-    // Every kind a spec carries has a place in its mode's nav order, or the
+    for (const id of [`style`, `general`, `special`] as const) {
+      const section = page.find((entry) => entry.section.id === id)!
+      expect(section.entries.length).toBeGreaterThan(0)
+    }
+    for (const spec of COMPONENTS) {
+      const style = sectionOfSpec(spec) === `style`
+      expect(
+        STYLE_KINDS.includes(spec.kind) === style
+          ? spec.id
+          : `${spec.id}: ${spec.kind} and section ${sectionOfSpec(spec)} disagree`
+      ).toBe(spec.id)
+    }
+    // Every kind a spec carries has a place in its section's nav order, or the
     // entry would render in no band at all.
     for (const spec of COMPONENTS) {
-      const order = KIND_ORDER[modeOf(spec)]
-      expect(order.includes(spec.kind) ? spec.id : `${spec.id}: ${spec.kind} is not in KIND_ORDER`).toBe(spec.id)
+      const order = BAND_ORDER[sectionOfSpec(spec)]
+      expect(order.includes(spec.kind) ? spec.id : `${spec.id}: ${spec.kind} is not in BAND_ORDER`).toBe(spec.id)
     }
   })
 
-  test(`three mode sections, three segments, and the counts are the link counts`, () => {
-    const modes = Object.keys(MODES) as Mode[]
-    expect(modes).toEqual([`views`, `components`, `style`])
-    for (const mode of modes) {
-      expect(occurrences(html, `<div class="mode-section" data-mode="${mode}">`)).toBe(1)
-      const open = html.indexOf(`<div class="mode-section" data-mode="${mode}">`)
+  test(`SPECIAL_ENTRY_IDS names real controls, and only compositions`, () => {
+    const ids = new Set(COMPONENTS.map((spec) => spec.id))
+    expect(new Set(SPECIAL_ENTRY_IDS).size).toBe(SPECIAL_ENTRY_IDS.length)
+    for (const id of SPECIAL_ENTRY_IDS) {
+      expect(ids.has(id) ? id : `${id} is in SPECIAL_ENTRY_IDS but is not a component`).toBe(id)
+      // A Style entry documents a VALUE; it can never be a composition.
+      const spec = COMPONENTS.find((entry) => entry.id === id)
+      expect(
+        spec !== undefined && STYLE_KINDS.includes(spec.kind) ? `${id} is a Style kind` : id
+      ).toBe(id)
+    }
+  })
+
+  test(`every registered entry keeps the contract's section and gets a band`, () => {
+    for (const entry of ENTRIES) {
+      // The section is the CONTRACT's, never re-derived here.
+      const section = page.find((candidate) =>
+        candidate.entries.some((drawn) => drawn.id === entry.id)
+      )
+      expect(section?.section.id).toBe(entry.section)
+      // …and the band is ours, explicitly, for every registered id.
+      expect(ENTRY_BAND[entry.id] === undefined ? `${entry.id}: no band` : entry.id).toBe(entry.id)
+      expect(BAND_ORDER[entry.section].includes(ENTRY_BAND[entry.id]!)).toBe(true)
+    }
+    expect(SECTION_ENTRY_IDS.length).toBe(ENTRIES.length)
+  })
+
+  test(`the four sections render in the contract's order, with its titles and blurbs`, () => {
+    let at = -1
+    for (const section of SECTIONS) {
+      const open = html.indexOf(`<div class="mode-section" data-mode="${section.id}">`)
+      expect(open > at ? section.id : `${section.id} is out of order`).toBe(section.id)
+      at = open
+      expect(html).toContain(`<p class="section-blurb">${escapeHtml(section.blurb)}</p>`)
+      // The segment carries the contract's blurb and title, and a label short
+      // enough not to ellipsise: the title's first two words.
+      expect(html).toContain(
+        `<button class="mode-btn" type="button" data-mode="${section.id}" aria-pressed="${section.id === `views` ? `true` : `false`}" title="${escapeHtml(`${section.title} — ${section.blurb}`)}"><span class="label">${escapeHtml(sectionShortLabel(section))}</span>`
+      )
+      // …and the stylesheet shows exactly that section's nav for that body.
+      expect(stripComments(styles)).toContain(
+        `body[data-mode="${section.id}"] .mode-section[data-mode="${section.id}"]`
+      )
+    }
+  })
+
+  test(`four section navs, four segments, and the summary counts the links`, () => {
+    expect(SECTIONS.map((section) => section.id)).toEqual([`style`, `general`, `special`, `views`])
+    for (const { id } of SECTIONS) {
+      expect(occurrences(html, `<div class="mode-section" data-mode="${id}">`)).toBe(1)
+      const open = html.indexOf(`<div class="mode-section" data-mode="${id}">`)
       const section = html.slice(open, html.indexOf(`<div class="mode-section"`, open + 1) >= 0 ? html.indexOf(`<div class="mode-section"`, open + 1) : html.indexOf(`<div class="nav-empty`, open))
       const links = occurrences(section, `<a class="nav-link" href="#`)
-      const button = html.slice(html.indexOf(`<button class="mode-btn" type="button" data-mode="${mode}"`))
-      const count = Number(button.slice(button.indexOf(`<span class="count">`) + 20, button.indexOf(`</span></button>`)))
-      expect(`${mode}:${count}`).toBe(`${mode}:${links}`)
+      // The SIZE of each section is the summary's, not a number on the
+      // segment: four labels and four counts cannot share a sidebar without
+      // ellipsising the words. It still has to be the link count.
+      expect(html.includes(`${links} ${LABELS[id]}`) ? id : `${id}: the summary is not ${links}`).toBe(id)
+      expect(occurrences(html, `<button class="mode-btn" type="button" data-mode="${id}"`)).toBe(1)
     }
-    // The empty gallery still renders all three: a mode bar that appears and
-    // disappears is a mode bar nobody learns.
-    expect(occurrences(html, `<button class="mode-btn"`)).toBe(3)
+    // The empty gallery still renders all four: a section bar that appears and
+    // disappears is a section bar nobody learns.
+    expect(occurrences(html, `<button class="mode-btn"`)).toBe(4)
+    // …and each one is reachable by its own digit.
+    expect(client).toContain(`["1", "2", "3", "4"].indexOf(event.key)`)
+  })
+
+  test(`a placeholder renders its owner and NO status table`, () => {
+    const placeholders = ENTRIES.filter((entry) => entry.placeholder === true)
+    expect(placeholders.length).toBeGreaterThan(0)
+    for (const entry of placeholders) {
+      const at = html.indexOf(`data-view="${entry.id}" id="view-${entry.id}">`)
+      expect(at >= 0 ? entry.id : `${entry.id}: no section`).toBe(entry.id)
+      const section = html.slice(at, html.indexOf(`</section>`, at))
+      expect(section).toContain(entry.owner)
+      expect(section).not.toContain(`<table class="cmp-status">`)
+      // No dots either: a placeholder makes no claim about any platform.
+      const link = html.slice(
+        html.indexOf(`<a class="nav-link" href="#${entry.id}"`),
+        html.indexOf(`</a>`, html.indexOf(`<a class="nav-link" href="#${entry.id}"`))
+      )
+      expect(occurrences(link, `<span class="dot `)).toBe(0)
+    }
+    // A FILLED entry is the opposite on both counts.
+    for (const entry of ENTRIES.filter((row) => row.placeholder !== true)) {
+      const at = html.indexOf(`data-view="${entry.id}" id="view-${entry.id}">`)
+      const section = html.slice(at, html.indexOf(`</section>`, at))
+      expect(section.includes(`<table class="cmp-status">`) ? entry.id : `${entry.id}: no table`).toBe(entry.id)
+    }
   })
 
   test(`every .view carries the data-mode of its nav link`, () => {
@@ -736,7 +906,7 @@ describe(`modes (EXP-941)`, () => {
         linkMode.set(link[1]!, match[1]!)
       }
     }
-    expect(linkMode.size).toBe(COMPONENTS.length)
+    expect(linkMode.size).toBe(COMPONENTS.length + ENTRIES.length)
     for (const section of html.matchAll(/<section class="view[^"]*" data-mode="([a-z]+)" data-view="([a-z0-9-]+)"/g)) {
       const mode = linkMode.get(section[2]!)
       expect(mode === undefined ? `${section[2]}: no nav link` : `${section[2]}:${section[1]}`).toBe(
@@ -745,7 +915,7 @@ describe(`modes (EXP-941)`, () => {
     }
   })
 
-  test(`the mode bar is painted from the tokens, like everything else`, () => {
+  test(`the section bar is painted from the tokens, like everything else`, () => {
     const css = stripComments(styles)
     const at = css.indexOf(`.mode-bar {`)
     expect(at).toBeGreaterThan(0)

@@ -49,6 +49,7 @@ mod coding_selects;
 mod comment_attachments;
 mod comments;
 mod composer;
+mod composer_dialog;
 mod composer_images;
 mod commit_graph;
 mod context_layout;

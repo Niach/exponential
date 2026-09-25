@@ -67,6 +67,14 @@ interface Contract {
     toolOutputMaxBytes: number
     liveToolOutputTailLines: number
   }
+  composerUi: {
+    runHeadline: string
+    implementHeadline: string
+    chatHeadline: string
+    chatPlaceholder: string
+    instructionsPlaceholder: string
+    dialogTitle: string
+  }
   diffUi: {
     filterPlaceholder: string
     changedFilesTitle: string
@@ -245,6 +253,27 @@ const rustDiffUi = [
   ...diffUiStrings.map(([k, v]) => `pub const DIFF_UI_${screaming(k)}: &str = "${v}";`),
   ...diffUiInts.map(([k, v]) => `pub const DIFF_UI_${screaming(k)}: usize = ${v};`),
 ].join("\n")
+
+// EXP-1019: the launcher's copy — the verb in front of the subject chips and
+// what the field asks for once the subject leads. One wording ×4.
+const composerUi = contract.composerUi
+const composerUiStrings: [string, string][] = [
+  ["runHeadline", composerUi.runHeadline],
+  ["implementHeadline", composerUi.implementHeadline],
+  ["chatHeadline", composerUi.chatHeadline],
+  ["chatPlaceholder", composerUi.chatPlaceholder],
+  ["instructionsPlaceholder", composerUi.instructionsPlaceholder],
+  ["dialogTitle", composerUi.dialogTitle],
+]
+const swiftComposerUi = composerUiStrings
+  .map(([k, v]) => `    public static let composerUi${capFirst(k)}: String = "${v}"`)
+  .join("\n")
+const kotlinComposerUi = composerUiStrings
+  .map(([k, v]) => `    const val composerUi${capFirst(k)}: String = "${v}"`)
+  .join("\n")
+const rustComposerUi = composerUiStrings
+  .map(([k, v]) => `pub const COMPOSER_UI_${screaming(k)}: &str = "${v}";`)
+  .join("\n")
 
 // The 7 locked builtin issue statuses (EXP-314) — emitted as parallel arrays
 // (keys/categories/names/colors/sortOrders) so every client can construct its
@@ -531,6 +560,7 @@ ${swiftStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
     public static let steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
     public static let steerFeedLiveToolOutputTailLines: Int = ${steerFeed.liveToolOutputTailLines}
 ${swiftDiffUi}
+${swiftComposerUi}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
@@ -688,6 +718,7 @@ ${kotlinStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
     const val steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
     const val steerFeedLiveToolOutputTailLines: Int = ${steerFeed.liveToolOutputTailLines}
 ${kotlinDiffUi}
+${kotlinComposerUi}
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
@@ -850,6 +881,7 @@ pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = ${steerFeed.toolOutputMaxLin
 pub const STEER_FEED_TOOL_OUTPUT_MAX_BYTES: usize = ${steerFeed.toolOutputMaxBytes};
 pub const STEER_FEED_LIVE_TOOL_OUTPUT_TAIL_LINES: usize = ${steerFeed.liveToolOutputTailLines};
 ${rustDiffUi}
+${rustComposerUi}
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}
