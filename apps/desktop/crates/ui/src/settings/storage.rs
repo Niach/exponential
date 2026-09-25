@@ -480,17 +480,8 @@ impl Render for StoragePane {
         };
         self.ensure_loaded(&team_id, cx);
 
-        // EXP-771: the web's description under the title — the rows never
-        // said what a deletion costs, and it is permanent.
-        let mut body = section(cx).child(
-            v_flex()
-                .child(crate::surface::glass_section_header("Storage", None, cx))
-                .child(super::section_description(
-                    "Files and images attached to this team's issues. Deleting \
-                     an attachment is permanent.",
-                    cx,
-                )),
-        );
+        let mut body =
+            section(cx).child(crate::surface::glass_section_header("Storage", None, cx));
 
         // Refresh lives at the TOP of the pane (EXP-316) — inside the
         // summary/sweep header row once the list is up, on its own row while

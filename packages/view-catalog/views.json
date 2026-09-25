@@ -1760,7 +1760,7 @@
       "id": "settings-api-keys",
       "group": "settings",
       "title": "Settings · Security",
-      "blurb": "Personal expu_ keys: list, mint, revoke, the credential the MCP wiring rides on. Passkeys moved here off the Account page in EXP-862, which is what renamed the section from API keys to Security.",
+      "blurb": "Login sessions (the devices signed in through the desktop app or CLI, each with a Log out) over the personal expu_ API keys for scripts and MCP clients: list, mint, revoke (EXP-1054). Passkeys moved here off the Account page in EXP-862, which is what renamed the section from API keys to Security.",
       "order": 12,
       "web": {
         "route": "/t/$teamSlug/settings/security",

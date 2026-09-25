@@ -1,20 +1,12 @@
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
-import {
-  conceptIcon,
-  Combobox,
-  Switch,
-  GlassGroup,
-  GlassToggleRow,
-} from "@exp/ui"
+import { Combobox, GlassGroup, GlassToggleRow } from "@exp/ui"
 import type { NotificationType } from "@/lib/domain"
 import type { DigestCadence } from "@/lib/notification-email-policy"
 
 export type EmailPrefs = Awaited<
   ReturnType<typeof trpc.notifications.emailPrefs.query>
 >
-
-const UiMailIcon = conceptIcon(`ui-mail`)
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => hour)
 
@@ -126,32 +118,12 @@ export function EmailNotificationsCard({
       .catch((err) => console.error(`[prefs] update failed:`, err))
   }
 
-  // EXP-616: no outer Card. A card wrapping the notice plus two glass groups
-  // read as three nested boxes; iOS-style the header is plain text
-  // (GlassSectionHeader's idiom, with a leading glyph and the master switch
-  // riding along) and the groups sit straight on the page background.
+  // EXP-1054: ONE list — the master email switch, the per-type switches and
+  // the agents block are rows of the same group (the IDE's
+  // notifications_prefs.rs twin); only Delivery + Send time keep a shell of
+  // their own. The "no mail transport" notice sits above, not inside.
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3 px-1 pt-1 pb-1">
-        <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
-          <UiMailIcon className="h-5 w-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">
-            Email notifications
-          </p>
-          <p className="text-xs text-foreground/50">
-            Notifications still unread are bundled into one digest email.
-          </p>
-        </div>
-        <Switch
-          checked={emailEnabled}
-          onCheckedChange={handleEmailEnabled}
-          disabled={!transportConfigured}
-          aria-label="Email notifications"
-        />
-      </div>
-
       {!transportConfigured && (
         <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
           Email sending is not configured on this server. Set
@@ -167,6 +139,14 @@ export function EmailNotificationsCard({
       )}
 
       <GlassGroup>
+        <GlassToggleRow
+          id="email-enabled"
+          label="Email notifications"
+          description="Notifications still unread are bundled into one digest email."
+          checked={emailEnabled}
+          onCheckedChange={handleEmailEnabled}
+          disabled={!transportConfigured}
+        />
         {TYPE_ROWS.map((row) => (
           <GlassToggleRow
             key={row.type}
@@ -178,13 +158,10 @@ export function EmailNotificationsCard({
             disabled={!transportConfigured}
           />
         ))}
-      </GlassGroup>
-
-      {/* EXP-801: a BLOCK, not a delivery mute — off means another member's
-          agent cannot message this user over MCP at all (no inbox row, no
-          push). The user's own agents always get through, so the row stays
-          live whatever the email transport says. */}
-      <GlassGroup>
+        {/* EXP-801: a BLOCK, not a delivery mute — off means another member's
+            agent cannot message this user over MCP at all (no inbox row, no
+            push). The user's own agents always get through, so the row stays
+            live whatever the email transport says. */}
         <GlassToggleRow
           id="allow-agent-messages"
           label="Messages from teammates' agents"

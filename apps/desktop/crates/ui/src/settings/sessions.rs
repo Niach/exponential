@@ -15,7 +15,7 @@ use gpui::{IntoElement, ParentElement, Render, SharedString, Styled, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _,
+    ActiveTheme as _,
 };
 
 use coding::session_retention::{self, CHOICES};
@@ -23,10 +23,6 @@ use coding::session_retention::{self, CHOICES};
 use crate::surface::{glass_group_rows, glass_picker_row, picker_value_label};
 
 use super::{error_notice, section};
-
-const CAPTION: &str = "Transcripts and resume records of finished runs are stored only on this \
-machine, never on Exponential's servers. Older ones are deleted when you pick a shorter window \
-and each time the app starts.";
 
 /// The menu label for a stored window. A value the pane does not offer (a
 /// hand-edited file) still reads truthfully.
@@ -143,11 +139,7 @@ impl Render for SessionsPane {
         );
 
         let mut card = section(cx)
-            .child(
-                v_flex()
-                    .child(crate::surface::glass_section_header("Sessions", None, cx))
-                    .child(super::section_description(CAPTION, cx)),
-            )
+            .child(crate::surface::glass_section_header("Sessions", None, cx))
             .child(glass_group_rows(vec![row]));
         if let Some(error) = &self.save_error {
             card = card.child(error_notice(error.clone(), cx));

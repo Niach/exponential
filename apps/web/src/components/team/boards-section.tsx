@@ -390,10 +390,6 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
         leading={<Archive className="size-3.5 text-foreground/50" />}
         label="Archived boards"
       />
-      <p className="px-1 pb-2 text-xs text-foreground/50">
-        Archived boards and their issues are hidden from everyone in the team.
-        Nothing is deleted: unarchive to bring a board back exactly as it was.
-      </p>
       {!archived || archived.length === 0 ? (
         <GlassRow className="px-3 py-2 text-sm text-muted-foreground">
           No archived boards.
