@@ -2,3 +2,5 @@
 - Agentkjøringer: listen over kjøringer nøstes, kjøringene til en workflow under én rad som åpner workflowen og en stacks under én rad, og pilen folder begge sammen
 - Workflows: skjermen mister innstillingsblokken, en node sier sin egen tilstand og åpnes i Issue, Run og Changes, og den siste pull requesten merges derfra
 - Maskininnstillinger: panelet er omordnet, og en ny side «Workflow settings» holder modellene en ny workflow starter på
+- Teambytter: en prikk på pilen når et annet team har en av kjøringene dine i gang, ravgul når den venter på svar
+- Medlemmer: et medlem i listen som ingen har invitert ennå, står som «Not invited» i stedet for «Invite expired»

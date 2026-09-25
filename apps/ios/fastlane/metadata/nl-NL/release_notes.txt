@@ -2,3 +2,5 @@
 - Agentruns: de lijst met lopende runs nestelt, de runs van een workflow onder één rij die de workflow opent en die van een stack onder een andere, de pijl klapt beide dicht
 - Workflows: het scherm verliest zijn instellingenblok, een node noemt zijn eigen toestand en opent in Issue, Run en Changes, en de laatste pull request wordt daar gemerged
 - Machine-instellingen: het venster is opnieuw geordend, en een nieuwe pagina "Workflow settings" bewaart de modellen waarmee een nieuwe workflow start
+- Teamwisselaar: een stip op de pijl wanneer een ander team een van je lopende runs heeft, amberkleurig wanneer die invoer nodig heeft
+- Leden: een lid in de lijst dat nog niemand heeft uitgenodigd, leest "Not invited" in plaats van "Invite expired"

@@ -2,3 +2,5 @@
 - Agent runs: the running list nests, a workflow's runs under one row that opens the workflow and a stack's under one row, each folded away by its chevron
 - Workflows: the screen drops its settings block, a node reads its own state and opens into Issue, Run and Changes, and the workflow's final pull request merges from there
 - Machine settings: the sheet is reordered, and a new Workflow settings page holds the models a new workflow starts on
+- Team switcher: a dot on the chevron when another team has one of your live runs, amber when it needs input
+- Members: a roster member nobody has invited yet reads Not invited instead of Invite expired

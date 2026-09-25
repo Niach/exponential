@@ -2,3 +2,5 @@
 - Execuções do agente: a lista de execuções a decorrer fica aninhada, as de um workflow sob uma linha que abre o workflow e as de uma stack sob outra, e a seta fecha ambas
 - Workflows: o ecrã perde o bloco de definições, um nó diz o seu próprio estado e abre em Issue, Run e Changes, e o pull request final é integrado a partir dali
 - Definições da máquina: o painel está reordenado, e uma nova página «Workflow settings» guarda os modelos com que arranca um workflow novo
+- Troca de team: um ponto na seta quando outro team tem uma das suas execuções a decorrer, âmbar quando espera uma entrada
+- Membros: um membro da lista que ainda ninguém convidou aparece como «Not invited» em vez de «Invite expired»

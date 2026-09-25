@@ -2,3 +2,5 @@
 - Agentkørsler: listen over kørsler er nu indlejret, et workflows kørsler står under én række, der åbner workflowet, en stacks under én række, og pilen folder begge sammen
 - Workflows: skærmen mister sin indstillingsblok, en node fortæller sin egen tilstand og åbner i Issue, Run og Changes, og den sidste pull request merges derfra
 - Maskinindstillinger: panelet er omordnet, og en ny side "Workflow settings" rummer de modeller, et nyt workflow starter på
+- Teamskifter: en prik på pilen, når et andet team har en af dine kørsler i gang, ravgul når den venter på svar
+- Medlemmer: et medlem på listen, som ingen endnu har inviteret, står som "Not invited" i stedet for "Invite expired"

@@ -2,3 +2,5 @@
 - Běhy agentů: seznam běžících běhů se vnořuje, běhy workflow stojí pod jedním řádkem, který workflow otevře, běhy stacku pod dalším, a šipka oba sbalí
 - Workflows: obrazovka ztrácí blok nastavení, uzel říká svůj vlastní stav a otevírá se do Issue, Run a Changes a finální pull request se mergne odtud
 - Nastavení stroje: list je přeuspořádaný a nová stránka „Workflow settings“ drží modely, se kterými nový workflow startuje
+- Přepínač teamů: na šipce se objeví tečka, když jiný team drží některý z vašich živých běhů, a je jantarová, když běh čeká na vstup
+- Členové: člen v seznamu, kterého zatím nikdo nepozval, hlásí „Not invited“ místo „Invite expired“

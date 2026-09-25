@@ -2,3 +2,5 @@
 - Izvođenja agenta: popis aktivnih izvođenja se ugniježđuje, izvođenja workflowa stoje pod jednim redom koji otvara workflow, ona stacka pod drugim, a strelica sklapa oba
 - Workflowi: zaslon gubi blok postavki, čvor govori svoje stanje i otvara se u Issue, Run i Changes, a završni pull request se spaja odande
 - Postavke stroja: list je preslagan, a nova stranica „Workflow settings“ drži modele s kojima novi workflow kreće
+- Prebacivanje teamova: točka na strelici kad drugi team drži neko od vaših živih izvođenja, jantarna kad izvođenje čeka unos
+- Članovi: član s popisa kojeg još nitko nije pozvao piše „Not invited“ umjesto „Invite expired“

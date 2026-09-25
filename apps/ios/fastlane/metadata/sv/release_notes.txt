@@ -2,3 +2,5 @@
 - Agentkörningar: listan över pågående körningar nästlas, ett workflows körningar under en rad som öppnar workflowet och en stacks under en annan, och pilen fäller ihop båda
 - Workflows: skärmen tappar sitt inställningsblock, en nod säger sitt eget tillstånd och öppnas i Issue, Run och Changes, och den sista pull requesten slås ihop därifrån
 - Maskininställningar: rutan är omordnad, och en ny sida "Workflow settings" håller de modeller ett nytt workflow startar på
+- Teamväxlare: en prick på pilen när ett annat team har en av dina pågående körningar, bärnstensfärgad när den väntar på indata
+- Medlemmar: en medlem i listan som ingen har bjudit in än står som "Not invited" i stället för "Invite expired"

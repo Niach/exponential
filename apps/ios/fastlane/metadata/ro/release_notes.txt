@@ -2,3 +2,5 @@
 - Rulări ale agentului: lista rulărilor în curs se imbrică, rulările unui workflow stau sub un rând care deschide workflow-ul, cele ale unui stack sub altul, iar săgeata le pliază pe amândouă
 - Workflow-uri: ecranul pierde blocul de setări, un nod își spune propria stare și se deschide în Issue, Run și Changes, iar pull request-ul final se îmbină de acolo
 - Setările mașinii: panoul este rearanjat, iar o pagină nouă „Workflow settings” ține modelele cu care pornește un workflow nou
+- Comutatorul de team: un punct pe săgeată când alt team are una dintre rulările tale în curs, chihlimbariu când rularea așteaptă o intrare
+- Membri: un membru din listă pe care nu l-a invitat încă nimeni apare „Not invited” în loc de „Invite expired”

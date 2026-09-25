@@ -2,3 +2,5 @@
 - Ejecuciones del agente: la lista de ejecuciones en curso se anida, las de un workflow bajo una fila que abre el workflow y las de un stack bajo otra, y la flecha pliega ambas
 - Workflows: la pantalla pierde su bloque de ajustes, un nodo dice su propio estado y se abre en Issue, Run y Changes, y el pull request final se fusiona desde ahí
 - Ajustes de la máquina: el panel está reordenado, y una nueva página «Workflow settings» guarda los modelos con los que arranca un workflow nuevo
+- Cambio de team: un punto en la flecha cuando otro team tiene una de tus ejecuciones en vivo, ámbar cuando espera una entrada
+- Miembros: un miembro de la lista al que nadie ha invitado todavía aparece como «Not invited» en lugar de «Invite expired»
