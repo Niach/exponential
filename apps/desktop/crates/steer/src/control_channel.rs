@@ -797,14 +797,18 @@ mod tests {
 
     #[test]
     fn a_frame_names_its_workflow_membership_except_on_a_resume() {
-        // EXP-1082: all three keys make a membership; a resume inherits
+        // EXP-1082: a workflow id + a role make a membership (the node is
+        // optional: the Plan-workflow frame has none); a resume inherits
         // server-side and never takes one.
         let issue = RemoteStartSubject::Issue("issue-1".to_string());
         let membership = with_workflow(&issue, Some("wf"), Some("n"), Some("review")).unwrap();
         assert_eq!(membership.workflow_id, "wf");
-        assert_eq!(membership.node_id, "n");
+        assert_eq!(membership.node_id.as_deref(), Some("n"));
         assert_eq!(membership.role, coding::workflows::WfSessionRole::Review);
-        assert_eq!(with_workflow(&issue, Some("wf"), None, Some("review")), None);
+        let plan = with_workflow(&issue, Some("wf"), None, Some("plan")).unwrap();
+        assert_eq!(plan.node_id, None);
+        assert_eq!(plan.role, coding::workflows::WfSessionRole::Plan);
+        assert_eq!(with_workflow(&issue, Some("wf"), Some("n"), None), None);
         let resume = RemoteStartSubject::Resume {
             session_id: "s".to_string(),
         };

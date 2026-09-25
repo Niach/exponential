@@ -32,6 +32,14 @@
 //
 // Membership falls through: a resume or child whose source carries NO
 // workflow still gets (d) — only a source that HAS one decides.
+//
+// The order above is what ONE call sees. A device-created CHILD is two
+// calls: the device's `codingSessions.start` has no parent yet (the MCP
+// tool stamps `parent_session_id` after its poll), so (d) runs at insert
+// and (c) runs afterwards and only FILLS a row that got no workflow — a
+// child on an issue that is a node of ANOTHER draft/running workflow keeps
+// (d)'s stamp. The frame cannot carry the parent's ids instead: explicit
+// values are honoured only from the workflow's runner device (a).
 
 export interface WorkflowMembershipIds {
   workflowId: string | null
