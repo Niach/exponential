@@ -95,6 +95,8 @@ pub(crate) struct PastRunFacts {
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: SharedString,
     pub(crate) byline: SharedString,
+    /// EXP-1068: what the session TREE adds (empty off a flat list).
+    pub(crate) marks: RunTreeMarks,
 }
 
 /// EXP-996 — what a GROUP row of a session tree groups. A group row is NOT a
@@ -115,9 +117,17 @@ pub(crate) struct SessionGroupFacts {
     /// The workflow's name, or [`domain::session_tree::STACK_GROUP_LABEL`] —
     /// both ×4 copy owned by `domain`.
     pub(crate) label: SharedString,
-    /// How many runs the group holds: the trailing cell every client draws.
+    /// How many runs the group holds: a STACK's trailing cell.
     pub(crate) members: usize,
     pub(crate) kind: SessionGroupKind,
+    /// EXP-1068: a workflow's contract `wfStatus` (the status dot); `None` on
+    /// a stack.
+    pub(crate) status: Option<String>,
+    /// EXP-1068: a workflow's caption counts
+    /// ([`domain::session_tree::workflow_group_caption`]).
+    pub(crate) live_runs: usize,
+    pub(crate) nodes_done: usize,
+    pub(crate) nodes_total: usize,
 }
 
 impl SessionGroupFacts {
@@ -127,6 +137,32 @@ impl SessionGroupFacts {
             SessionGroupKind::Workflow { .. } => registry::NAV_WORKFLOWS,
             SessionGroupKind::Stack => registry::PR_STACK,
         }
+    }
+
+    /// The trailing cell: a workflow's `3 running · 5 of 8 done` (empty with
+    /// neither), a stack's member count.
+    pub(crate) fn trailing(&self) -> String {
+        match self.kind {
+            SessionGroupKind::Workflow { .. } => domain::session_tree::workflow_group_caption(
+                self.live_runs,
+                self.nodes_done,
+                self.nodes_total,
+            ),
+            SessionGroupKind::Stack => self.members.to_string(),
+        }
+    }
+
+    /// EXP-1068: a workflow group's status dot — the run rows' own dot
+    /// tones: draft/cancelled muted, running green, paused amber, done blue
+    /// (the session dot's "done"). `None` on a stack.
+    pub(crate) fn status_dot(&self, muted: Hsla) -> Option<Hsla> {
+        let status = self.status.as_deref()?;
+        Some(match status {
+            "running" => theme::tokens::GREEN.to_hsla(),
+            "paused" => theme::tokens::YELLOW.to_hsla(),
+            "done" => theme::tokens::BLUE.to_hsla(),
+            _ => muted.opacity(0.4),
+        })
     }
 
     /// The facts of a group node — `None` for a session node, which draws as a
@@ -142,14 +178,134 @@ impl SessionGroupFacts {
                 kind: SessionGroupKind::Workflow {
                     workflow_id: group.workflow_id.clone(),
                 },
+                status: Some(group.status.clone()),
+                live_runs: group.live_runs,
+                nodes_done: group.nodes_done,
+                nodes_total: group.nodes_total,
             }),
             domain::session_tree::SessionTreeNode::Stack(group) => Some(Self {
                 label: SharedString::from(domain::session_tree::STACK_GROUP_LABEL),
                 members: group.children.len(),
                 kind: SessionGroupKind::Stack,
+                status: None,
+                live_runs: 0,
+                nodes_done: 0,
+                nodes_total: 0,
             }),
         }
     }
+}
+
+/// The tooltip of a node's duplicate-run warning (EXP-1068).
+pub(crate) const DUPLICATE_LIVE_TOOLTIP: &str = "Two live runs on this node";
+
+/// EXP-1068 — what a session TREE node adds to its run's row, beyond the
+/// session row itself: a review's `Review r2 · approved` title, the
+/// duplicate-run warning, the red "needs you" dot of a pending question and
+/// the non-default account the run spends.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct RunTreeMarks {
+    /// `Some` on a REVIEW chain: replaces the action-name title.
+    pub(crate) review_title: Option<SharedString>,
+    pub(crate) duplicate_live: bool,
+    /// `pending_question` is set — a person has to answer.
+    pub(crate) needs_you: bool,
+    /// `account <label>` when the run spends an account other than its
+    /// device's default for that agent.
+    pub(crate) account: Option<SharedString>,
+}
+
+impl RunTreeMarks {
+    pub(crate) fn derive(
+        node: &domain::session_tree::SessionNode<&domain::rows::CodingSession>,
+        cx: &App,
+    ) -> Self {
+        let session: &domain::rows::CodingSession = node.session();
+        let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
+        // The chain's membership = its newest stamped row's (the tree's rule).
+        let member = node.chain.iter().rev().find(|row| row.workflow_id.is_some());
+        let review_title = member
+            .filter(|row| row.workflow_role.as_deref() == Some("review"))
+            .map(|row| {
+                let node_row = row.workflow_node_id.as_deref().and_then(|id| {
+                    collections
+                        .as_ref()
+                        .and_then(|collections| collections.workflow_nodes.read(cx).get(id).cloned())
+                });
+                let review = node_row.as_ref().and_then(|row| row.review_facts());
+                let verdict = domain::session_tree::review_round_verdict(
+                    node.review_round,
+                    node_row.as_ref().map(|row| {
+                        (
+                            row.review_count(),
+                            review.as_ref().map(|review| (review.round, review.verdict.as_str())),
+                        )
+                    }),
+                );
+                SharedString::from(domain::session_tree::review_row_caption(
+                    node.review_round,
+                    verdict,
+                    domain::session_tree::session_row_is_live(session.status.as_deref().unwrap_or_default()),
+                ))
+            });
+        let needs_you = session
+            .pending_question
+            .as_ref()
+            .is_some_and(|question| !question.is_null());
+        let account = collections
+            .as_ref()
+            .and_then(|collections| run_account_label(session, collections, cx))
+            .map(SharedString::from);
+        Self {
+            review_title,
+            duplicate_live: node.duplicate_live,
+            needs_you,
+            account,
+        }
+    }
+}
+
+/// EXP-1068 — `account <label>` for a run that spends an account OTHER than
+/// its device's default for that agent (the launch rule: the stored
+/// `default_account` belongs to `default_agent` only, every other agent runs
+/// on its ambient login). The label is the login's `accountName`, else the
+/// profile id. `None` for the default, the ambient login, or no account.
+fn run_account_label(
+    session: &domain::rows::CodingSession,
+    collections: &sync::collections::Collections,
+    cx: &App,
+) -> Option<String> {
+    let account = session
+        .agent_account
+        .as_deref()
+        .filter(|id| !id.is_empty() && *id != coding::SYSTEM_PROFILE)?;
+    let agent = session.agent.as_deref().and_then(coding::CodingAgent::parse);
+    let devices = collections.devices.read(cx);
+    let device = queries::session_device_row(session, devices.iter());
+    let mut label = account.to_string();
+    if let Some(device) = device {
+        let settings = queries::device_launch_settings(device.launch_defaults.as_ref());
+        let default = agent
+            .filter(|agent| *agent == settings.default_agent)
+            .and_then(|_| settings.default_account.clone());
+        if default.as_deref() == Some(account) {
+            return None;
+        }
+        let accounts: coding::agent_accounts::AgentAccounts =
+            crate::device_settings::parse_agent_map(device.agent_accounts.as_ref());
+        if let Some(option) = coding::flatten_accounts(
+            &accounts,
+            &Default::default(),
+            Some(settings.default_agent.id()),
+            settings.default_account.as_deref(),
+        )
+        .into_iter()
+        .find(|option| option.id == account && agent.is_none_or(|agent| option.agent == agent))
+        {
+            label = option.email;
+        }
+    }
+    Some(format!("account {label}"))
 }
 
 /// A LIVE run's row facts. `local_caption` and `local_busy` are the engine's
@@ -249,6 +405,7 @@ pub(crate) fn past_run_facts(
         identifier: run_identifier(session, issue.as_ref(), &batch_issues),
         title: run_title(session, issue.as_ref(), &batch_issues),
         byline: SharedString::from(past_run_byline(session, device_label.as_deref(), now_epoch)),
+        marks: RunTreeMarks::default(),
     }
 }
 
@@ -510,6 +667,13 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
     } = spec;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
+    let marks = facts.marks.clone();
+    let title = marks.review_title.clone().unwrap_or(facts.title);
+    let byline: SharedString = match &marks.account {
+        Some(account) if facts.byline.is_empty() => account.clone(),
+        Some(account) => format!("{} · {account}", facts.byline).into(),
+        None => facts.byline,
+    };
     let line1 = div()
         .flex()
         .w_full()
@@ -517,6 +681,7 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
         .items_center()
         .gap_2()
         .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
+        .children(needs_you_dot(marks.needs_you))
         .children(facts.identifier.map(|identifier| {
             div()
                 .flex_shrink_0()
@@ -531,14 +696,15 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                 .text_sm()
                 .truncate()
                 .text_color(theme.foreground)
-                .child(facts.title),
-        );
+                .child(title),
+        )
+        .children(duplicate_live_warning(id_prefix, index, marks.duplicate_live));
     let body = gpui_component::v_flex()
         .flex_1()
         .min_w_0()
         .gap_0p5()
         .child(line1)
-        .when(!facts.byline.is_empty(), |this| {
+        .when(!byline.is_empty(), |this| {
             this.child(
                 div()
                     .w_full()
@@ -546,7 +712,7 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                     .truncate()
                     .text_xs()
                     .text_color(muted)
-                    .child(facts.byline),
+                    .child(byline),
             )
         });
     row_shell(id_prefix, index, &guides, active, true, cx)
@@ -558,6 +724,35 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                 .child(Icon::from(registry::UI_CHEVRON_RIGHT).xsmall().text_color(muted)),
         )
         .into_any_element()
+}
+
+/// EXP-1068: the red "needs you" dot of a run with a pending question — beside
+/// the state dot, never instead of the amber needs-input tone.
+pub(crate) fn needs_you_dot(needs_you: bool) -> Option<gpui::AnyElement> {
+    needs_you.then(|| crate::surface::live_dot(theme::tokens::RED.to_hsla(), false))
+}
+
+/// EXP-1068: the warning glyph an author row wears while its node has two
+/// live runs ([`domain::session_tree::SessionNode::duplicate_live`]).
+pub(crate) fn duplicate_live_warning(
+    id_prefix: &'static str,
+    index: usize,
+    duplicate_live: bool,
+) -> Option<gpui::AnyElement> {
+    duplicate_live.then(|| {
+        div()
+            .id((SharedString::from(format!("{id_prefix}-duplicate")), index))
+            .flex_shrink_0()
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new(DUPLICATE_LIVE_TOOLTIP).build(window, cx)
+            })
+            .child(
+                Icon::from(registry::UI_WARNING)
+                    .xsmall()
+                    .text_color(theme::tokens::YELLOW.to_hsla()),
+            )
+            .into_any_element()
+    })
 }
 
 /// EXP-996 — one GROUP row of a session tree ([`render_group_row`]).
@@ -586,6 +781,8 @@ pub(crate) fn render_group_row(spec: GroupRowSpec, cx: &App) -> gpui::AnyElement
     } = spec;
     let muted = cx.theme().muted_foreground;
     let icon = facts.icon();
+    let status_dot = facts.status_dot(muted);
+    let trailing = facts.trailing();
     let row = row_shell(id_prefix, index, &guides, false, on_open.is_some(), cx)
         .children(fold.map(|fold| {
             fold_chevron_labelled(
@@ -611,15 +808,19 @@ pub(crate) fn render_group_row(spec: GroupRowSpec, cx: &App) -> gpui::AnyElement
                 .text_color(muted)
                 .child(facts.label),
         )
-        // A group IS its children, so how many there are is what the reader is
-        // deciding to fold away — the ×4 trailing cell.
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(muted)
-                .child(facts.members.to_string()),
-        );
+        // EXP-1068: the workflow's status, the run rows' own dot tones.
+        .children(status_dot.map(|tone| crate::surface::live_dot(tone, false)))
+        // The ×4 trailing cell: a workflow's `3 running · 5 of 8 done`
+        // (EXP-1068), a stack's member count.
+        .when(!trailing.is_empty(), |row| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(trailing),
+            )
+        });
     match on_open {
         Some(on_open) => row
             .on_click(move |event, window, cx| on_open(event, window, cx))

@@ -3169,6 +3169,7 @@ impl AutomationHost {
         // rows and tips: a reviewer run that ended without a verdict
         // releases its head (bounded), a session this daemon is resuming
         // reads live, and a land refusal is forgotten once the head moved.
+        let sink = TrpcEventSink::new(Arc::clone(&self.ctx.trpc));
         {
             let mut state = workflow_state(settings_path, &self.device_id, &workflow_id);
             let review_round_of: HashMap<String, i64> = plan
@@ -3185,6 +3186,7 @@ impl AutomationHost {
                 plan.snapshot.now_ms,
             );
             for outcome in outcomes {
+                let event = events::event_for_review_end(&workflow_id, &outcome);
                 match outcome {
                     coding::workflows::ReviewRunEnd::Verdict { .. } => {}
                     coding::workflows::ReviewRunEnd::Followed { node_id, session_id } => {
@@ -3206,6 +3208,9 @@ impl AutomationHost {
                         report.note = api::patch::Patch::Set(one_line_note(&note));
                         self.report_node(&report);
                     }
+                }
+                if let Some(event) = event {
+                    sink.record(event);
                 }
             }
             plan.snapshot.reviewed_head = state.reviewed_head.clone();
@@ -3240,7 +3245,6 @@ impl AutomationHost {
         // report at the end of the pass.
         let mut metrics: BTreeMap<String, u32> = BTreeMap::new();
         self.tally_workflow_contract_changes(&plan, settings_path, &mut metrics);
-        let sink = TrpcEventSink::new(Arc::clone(&self.ctx.trpc));
         for decision in coding::workflows::evaluate(&plan.snapshot) {
             // EXP-1082: what the host did with it, for the audit trail.
             let decided = decision.clone();
@@ -3524,7 +3528,7 @@ impl AutomationHost {
                 }
                 Outcome::Done
             };
-            if let Some(event) = events::event_for(&decided, &outcome) {
+            if let Some(event) = events::event_for(&workflow_id, &decided, &outcome) {
                 sink.record(event);
             }
         }
