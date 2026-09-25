@@ -1,7 +1,7 @@
 //! EXP-1029 contract — every IDE styleguide entry under the four sections,
 //! one file each, registered here by fixed name. A leaf fills ITS file.
 
-use gpui::Div;
+use gpui::{App, Div, Window};
 
 pub(crate) mod picker;
 pub(crate) mod picker_board;
@@ -32,11 +32,17 @@ pub(crate) fn is_placeholder(id: &str) -> bool {
     id == toast::ID
 }
 
+/// A demo: the entry's element, built with the window and the app so it
+/// can be the REAL component (EXP-1063) — every glass recipe takes the theme
+/// from `cx`, a select or a nav stack needs an entity, and
+/// `window.use_keyed_state` keeps that entity alive across frames.
+pub(crate) type Render = fn(&mut Window, &mut App) -> Div;
+
 /// One entry: its id (the section index's), its owner, its demo.
 pub(crate) struct Entry {
     pub id: &'static str,
     pub owner: &'static str,
-    pub render: fn() -> Div,
+    pub render: Render,
 }
 
 /// Every entry, in the section index's order.

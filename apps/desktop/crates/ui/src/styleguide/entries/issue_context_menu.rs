@@ -8,14 +8,15 @@
 //! (the Estimate submenu since EXP-1077). iOS and Android have no row menu
 //! by decision: status and priority sit on the row, a long-press selects.
 //!
-//! Describes rather than paints (`fn() -> Div`, no `&App`), like `sub_shell`.
+//! Still describes rather than paints; building the real menu here is
+//! EXP-1092 (entries get the window and the app since EXP-1063).
 
-use gpui::{div, Div, ParentElement as _};
+use gpui::{div, App, Div, ParentElement as _, Window};
 
 pub(crate) const ID: &str = "issue-context-menu";
 pub(crate) const OWNER: &str = "EXP-1074";
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     div()
         .child("Issue context menu — header band (identifier, title), then:")
         .child("Open issue · Mark as done / Move to backlog · Copy issue ID · [Select on a phone] · [Unmark duplicate]")

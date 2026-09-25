@@ -10,7 +10,7 @@
 //! clicking it opens the face's overlay. The demo draws the REAL element
 //! ([`crate::pr_graph::chip_face`]) over static data — never live rows.
 
-use gpui::{div, Div, ParentElement as _, SharedString, Styled as _};
+use gpui::{div, App, Div, ParentElement as _, SharedString, Styled as _, Window};
 
 use crate::pr_graph::{chip_face, ChipFace};
 
@@ -26,7 +26,7 @@ struct State {
     count: usize,
 }
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     let states = [
         // The Run face of a run with a family and no issue.
         State { identifier: "", title: "Chat: tidy the release notes", runs: true, count: 2 },

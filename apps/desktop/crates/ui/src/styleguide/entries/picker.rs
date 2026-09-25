@@ -2,9 +2,8 @@
 //! its two surfaces and its selection language.
 //!
 //! This file also holds the small demo kit the ten TYPED picker entries
-//! share (`demo`, `chip`, the fixture rows) — an entry's `render` is a bare
-//! `fn() -> Div` with no window and no theme handle, and a picker needs
-//! both, so a demo builds its element at PAINT time through [`PickerDemo`].
+//! share (`demo`, `chip`, the fixture rows) — each demo cell builds its
+//! live picker at PAINT time through [`PickerDemo`], under its caption.
 //! Filled by EXP-1021; no entry file edits `entries/mod.rs` nor the index.
 
 use std::rc::Rc;
@@ -76,7 +75,7 @@ pub(crate) fn inert<T: Clone>() -> OnPickerChange<T> {
     Rc::new(|_, _, _| {})
 }
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     column(vec![
         demo(
             "single, short — the PopupMenu surface; the picked row wears the check",

@@ -9,7 +9,7 @@
 //! session, so it carries no state dot, no device glyph and no Stop. The demo
 //! is static on purpose: the entry documents the SHAPE, never live rows.
 
-use gpui::{div, px, Div, ParentElement as _, Styled as _};
+use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::{Icon, Sizable as _};
 
 use crate::icons::{registry, ExpIcon};
@@ -51,7 +51,7 @@ fn run(depth: usize, identifier: &'static str, label: &'static str, folded: Opti
     }
 }
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     let rows = vec![
         // A workflow's node runs, newest activity first.
         group(
