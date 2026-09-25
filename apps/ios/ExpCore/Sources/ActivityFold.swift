@@ -21,8 +21,9 @@ import Foundation
 //
 // "Field" derives from the event type: `status_changed` → status,
 // `assignee_changed` → assignee, `priority_changed` → priority,
-// `board_moved` → board, `label_added`/`label_removed` → that ONE label
-// (`payload.labelId`; an add and a remove of the same label cancel),
+// `estimate_changed` → estimate, `board_moved` → board,
+// `label_added`/`label_removed` → that ONE label (`payload.labelId`; an add
+// and a remove of the same label cancel),
 // `relation_added`/`relation_removed` → that one relation
 // (`payload.type` + `payload.relatedIssueId`).
 
@@ -59,6 +60,8 @@ public func foldFieldKey(_ event: IssueEventEntity) -> String? {
         return "assignee"
     case DomainContract.issueEventTypePriorityChanged:
         return "priority"
+    case DomainContract.issueEventTypeEstimateChanged:
+        return "estimate"
     case DomainContract.issueEventTypeBoardMoved:
         return "board"
     case DomainContract.issueEventTypeLabelAdded,
@@ -293,7 +296,8 @@ private func activityBefore(_ event: IssueEventEntity) -> String {
     case DomainContract.issueEventTypeStatusChanged:
         return activityStringified(activityCoalesce(payload, "fromStatusId", "from"))
     case DomainContract.issueEventTypeAssigneeChanged,
-         DomainContract.issueEventTypePriorityChanged:
+         DomainContract.issueEventTypePriorityChanged,
+         DomainContract.issueEventTypeEstimateChanged:
         return activityStringified(activityCoalesce(payload, "from"))
     case DomainContract.issueEventTypeBoardMoved:
         return activityStringified(activityCoalesce(payload, "fromBoardId"))
@@ -314,7 +318,8 @@ private func activityAfter(_ event: IssueEventEntity) -> String {
     case DomainContract.issueEventTypeStatusChanged:
         return activityStringified(activityCoalesce(payload, "toStatusId", "to"))
     case DomainContract.issueEventTypeAssigneeChanged,
-         DomainContract.issueEventTypePriorityChanged:
+         DomainContract.issueEventTypePriorityChanged,
+         DomainContract.issueEventTypeEstimateChanged:
         return activityStringified(activityCoalesce(payload, "to"))
     case DomainContract.issueEventTypeBoardMoved:
         return activityStringified(activityCoalesce(payload, "toBoardId"))

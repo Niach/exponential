@@ -20,8 +20,9 @@
 //!
 //! "Field" derives from the event type: `status_changed` → status,
 //! `assignee_changed` → assignee, `priority_changed` → priority,
-//! `board_moved` → board, `label_added`/`label_removed` → that ONE label
-//! (`payload.labelId`; an add and a remove of the same label cancel),
+//! `estimate_changed` → estimate, `board_moved` → board,
+//! `label_added`/`label_removed` → that ONE label (`payload.labelId`; an add
+//! and a remove of the same label cancel),
 //! `relation_added`/`relation_removed` → that one relation (`payload.type` +
 //! `payload.relatedIssueId`).
 
@@ -86,6 +87,7 @@ pub fn fold_field_key(event: &IssueEvent) -> Option<String> {
         "status_changed" => Some("status".to_string()),
         "assignee_changed" => Some("assignee".to_string()),
         "priority_changed" => Some("priority".to_string()),
+        "estimate_changed" => Some("estimate".to_string()),
         "board_moved" => Some("board".to_string()),
         "label_added" | "label_removed" => {
             optional_string(payload.get("labelId")).map(|label_id| format!("label:{label_id}"))
@@ -108,7 +110,7 @@ fn before_of(event: &IssueEvent) -> String {
     let payload = payload_of(event);
     match kind_of(event) {
         "status_changed" => coalesced_string(&payload, &["fromStatusId", "from"]),
-        "assignee_changed" | "priority_changed" => coalesced_string(&payload, &["from"]),
+        "assignee_changed" | "priority_changed" | "estimate_changed" => coalesced_string(&payload, &["from"]),
         "board_moved" => coalesced_string(&payload, &["fromBoardId"]),
         "label_added" | "relation_added" => "absent".to_string(),
         "label_removed" | "relation_removed" => "present".to_string(),
@@ -120,7 +122,7 @@ fn after_of(event: &IssueEvent) -> String {
     let payload = payload_of(event);
     match kind_of(event) {
         "status_changed" => coalesced_string(&payload, &["toStatusId", "to"]),
-        "assignee_changed" | "priority_changed" => coalesced_string(&payload, &["to"]),
+        "assignee_changed" | "priority_changed" | "estimate_changed" => coalesced_string(&payload, &["to"]),
         "board_moved" => coalesced_string(&payload, &["toBoardId"]),
         "label_added" | "relation_added" => "present".to_string(),
         "label_removed" | "relation_removed" => "absent".to_string(),
