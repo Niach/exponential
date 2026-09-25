@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { badgeChip, badgeKind, badgeLabel, badgeShape, prGraph } from "./pr-graph"
+import { badgeChip, badgeKind, badgeShape, prGraph } from "./pr-graph"
 
 // EXP-897 Part 4 — the badge model. Every `it` name here is mirrored by iOS
 // PrGraphTests, Android PrGraphTest and the desktop `pr_graph` tests.
@@ -60,7 +60,6 @@ describe(`prGraph`, () => {
       `upper`,
     ])
     expect(graph.stack.map((row) => row.depth)).toEqual([0, 1])
-    expect(badgeLabel(graph)).toBe(`2 of 2`)
     expect(graph.batch).toBeNull()
   })
 
@@ -71,7 +70,6 @@ describe(`prGraph`, () => {
     const graph = prGraph({ issue: one, issues: [one, two], sessions: [] })
     expect(badgeKind(graph)).toBe(`batch`)
     expect(graph.batch?.issues.map((row) => row.id)).toEqual([`one`, `two`])
-    expect(badgeLabel(graph)).toBe(`2 issues`)
     expect(graph.stack).toEqual([])
   })
 
@@ -100,7 +98,6 @@ describe(`prGraph`, () => {
       url,
     ])
     expect(graph.batch?.issues).toHaveLength(2)
-    expect(badgeLabel(graph)).toBe(`2 of 2`)
   })
 
   // EXP-876: the pill and its sheet are the surface built to name work that
@@ -115,7 +112,6 @@ describe(`prGraph`, () => {
     expect(badgeKind(graph)).toBe(`batch`)
     // The composer's order, so the sheet reads like the row that named it.
     expect(graph.batch?.issues.map((row) => row.id)).toEqual([`one`, `two`])
-    expect(badgeLabel(graph)).toBe(`2 issues`)
     // No pull request yet, so no stack — a batch of two is not a stack of two.
     expect(graph.stack).toEqual([])
   })
@@ -172,7 +168,6 @@ describe(`prGraph`, () => {
     const lone = issue(`lone`)
     const graph = prGraph({ issue: lone, issues: [lone], sessions: [] })
     expect(badgeKind(graph)).toBeNull()
-    expect(badgeLabel(graph)).toBeNull()
   })
 
   // EXP-1079: the desktop's `is_visible` + `badge_glyphs` — a run with a

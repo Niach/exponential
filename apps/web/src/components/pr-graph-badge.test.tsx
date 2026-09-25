@@ -268,8 +268,8 @@ describe(`PrGraphBadge fallback (EXP-916)`, () => {
 })
 
 // EXP-1079: the desktop showed "the runs around this one" on the Run face of
-// any run with a family; the web showed nothing there. Same badge now — and
-// beside the face toggle it wears the toggle's rung, like Stop and Resume.
+// any run with a family; the web showed nothing there. EXP-1058: the header's
+// badge is the STACKED issue chip — front chip + `+N` behind it.
 describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
   afterEach(() => {
     liveRows.tables = {}
@@ -285,8 +285,8 @@ describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
     const badge = screen.getByTestId(`pr-graph-badge`)
     expect(badge.getAttribute(`aria-label`)).toBe(`The runs around this one`)
     expect(badge.querySelector(`svg.lucide-workflow`)).toBeTruthy()
-    // No stack, no batch — no `2 of 3`, no `n issues`.
-    expect(badge.textContent).toBe(``)
+    // One other run rides behind the front chip.
+    expect(within(badge).getByText(`+1`)).toBeTruthy()
   })
 
   it(`stays away for a run that is alone, and on the changes face`, () => {
@@ -307,29 +307,22 @@ describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
     )
     expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
   })
+})
 
-  it(`takes its height from its placement — the toggle's rung in the header, a chip elsewhere`, () => {
-    liveRows.tables = { s: family }
-    const { unmount } = render(
-      <PrGraphBadge
-        teamId="t1"
-        teamSlug="acme"
-        face="run"
-        session={family[0]}
-        placement="header"
-      />
-    )
-    const header = screen.getByTestId(`pr-graph-badge`)
-    expect(header.getAttribute(`data-size`)).toBe(`md`)
-    expect(header.className.split(/\s+/)).toContain(`h-9`)
-    expect(header.querySelector(`svg`)?.getAttribute(`class`)).toContain(`size-4`)
-    unmount()
+describe(`PrGraphBadge as the stacked issue chip (EXP-1058)`, () => {
+  afterEach(() => {
+    liveRows.tables = {}
+  })
+
+  it(`names the representative issue and the count`, () => {
+    liveRows.tables = { i: [batchA, batchB], b: [{ id: `b1`, slug: `web` }] }
     render(
-      <PrGraphBadge teamId="t1" teamSlug="acme" face="run" session={family[0]} />
+      <PrGraphBadge teamId="t1" teamSlug="acme" face="issue" issue={batchB} />
     )
-    const chip = screen.getByTestId(`pr-graph-badge`)
-    expect(chip.getAttribute(`data-size`)).toBe(`sm`)
-    expect(chip.className.split(/\s+/)).not.toContain(`h-9`)
-    expect(chip.querySelector(`svg`)?.getAttribute(`class`)).toContain(`size-3`)
+    const badge = screen.getByTestId(`pr-graph-badge`)
+    const stack = within(badge).getByTestId(`pr-graph-chip`)
+    expect(stack.getAttribute(`data-slot`)).toBe(`issue-chip-stack`)
+    expect(within(stack).getByTestId(`chip-BATA`)).toBeTruthy()
+    expect(within(stack).getByText(`+1`)).toBeTruthy()
   })
 })

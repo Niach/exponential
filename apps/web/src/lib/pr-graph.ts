@@ -1,6 +1,6 @@
 // EXP-897 Part 4: the ONE model behind the stack/batch BADGE and its overlay.
 // A piece of work can be related to other work three ways, and every client
-// draws the same pill and the same three sections off this one function
+// draws the same stacked chip and the same three sections off this one function
 // (iOS `PrGraph.swift`, Android `PrGraph.kt`, desktop `pr_graph.rs`):
 //
 //   · a STACK   — pull requests based on each other (`issues.pr_base_branch`)
@@ -241,7 +241,7 @@ export function prGraph<
   return { entry: subjectEntry, stack, batch, tree, blockedBy, position, size }
 }
 
-/** Which glyph(s) the pill wears — `null` = no pill at all. */
+/** Which relation(s) the subject has — `null` = no chip at all. */
 export function badgeKind<I, S>(graph: PrGraph<I, S>): BadgeKind {
   const stacked = graph.stack.length >= 2
   const batched = graph.batch !== null
@@ -270,17 +270,6 @@ export function badgeShape<I, S>(
   const kind = badgeKind(graph)
   if (kind) return kind
   return face === `run` && graph.tree.length > 1 ? `runs` : null
-}
-
-/** The pill's own label: the stack position when there is one, else the
- *  batch's size. Byte-identical ×4. */
-export function badgeLabel<I, S>(graph: PrGraph<I, S>): string | null {
-  if (graph.stack.length >= 2) return `${graph.position} of ${graph.size}`
-  if (graph.batch) {
-    const count = graph.batch.issues.length
-    return count === 1 ? `1 issue` : `${count} issues`
-  }
-  return null
 }
 
 /** EXP-1058: what the header's STACKED issue chip draws in place of the old

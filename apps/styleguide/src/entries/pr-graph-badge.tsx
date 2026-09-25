@@ -1,135 +1,80 @@
-import { escapeHtml, svgBoxes, svgCircleX, svgLayers, svgWorkflow } from "../html.ts"
+import {
+  BUILTIN_STATUS_COLOR_CLASS,
+  CHIP_GLYPH_CLASS,
+  categoryStatusIcon,
+  ChipBox,
+  conceptIcon,
+  IssueChip,
+  IssueChipStack,
+} from "@exp/ui"
+
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1079: the work header's graph badge — the ONE pill that says what a
-// piece of work is PART OF, and the popover behind it.
-//
-// Hand-drawn, like the session tree it opens onto: the real `PrGraphBadge`
-// reads four Electric collections, and a specimen that needs a team documents
-// nothing. What the page has to show is the RULE — which concept the pill
-// wears for which relation, and that beside the face toggle it stands at the
-// toggle's own height (the desktop's `pr_graph::badge_size`, the web's
-// `placement="header"`), where it used to be a 24px chip next to a 36px Stop.
+// EXP-1058 — the work header's graph badge IS the stacked issue chip: the
+// representative issue in front, `+N` for the rest of the stack / batch / run
+// family behind it (`lib/pr-graph.ts` `badgeChip`, ×4). Hover (pointer) or tap
+// (phones) opens the same overlay as before; the specimen shows the chip only,
+// since the overlay reads four Electric collections.
 
-/** The four things the badge can say. `runs` has no label: the tree alone. */
-function badge(glyphs: string[], label: string | null, placement: `header` | `chip`): string {
-  return [
-    `<button class="cmp-pill" data-size="${placement === `header` ? `md` : `sm`}"`,
-    ` data-mode="action" data-placement="${placement}" type="button">`,
-    glyphs.join(``),
-    label === null ? `` : `<span class="label">${escapeHtml(label)}</span>`,
-    `</button>`,
-  ].join(``)
+const TreeIcon = conceptIcon(`session-tree`)
+
+const startedStatus = {
+  icon: categoryStatusIcon(`started`, 0, 2),
+  colorClass: BUILTIN_STATUS_COLOR_CLASS.in_progress,
 }
-
-/** The Stop pill the badge stands beside — the same rung, the same recipe. */
-function stop(placement: `header` | `chip`): string {
-  return [
-    `<button class="cmp-pill cmp-pr-graph-stop" data-size="${placement === `header` ? `md` : `sm`}"`,
-    ` data-mode="action" data-placement="${placement}" type="button">`,
-    svgCircleX,
-    `<span class="label">Stop</span>`,
-    `</button>`,
-  ].join(``)
-}
-
-/** The face toggle, 36 tall — what the header rung is measured against. */
-const TOGGLE = [
-  `<div class="cmp-pr-graph-toggle" role="tablist">`,
-  `<span class="cmp-pr-graph-segment" data-active>Run</span>`,
-  `<span class="cmp-pr-graph-segment">Changes</span>`,
-  `</div>`,
-].join(``)
-
-function cluster(placement: `header` | `chip`, glyphs: string[], label: string | null): string {
-  return [
-    `<div class="cmp-pr-graph-cluster" data-placement="${placement}">`,
-    badge(glyphs, label, placement),
-    placement === `header` ? TOGGLE : ``,
-    stop(placement),
-    `</div>`,
-  ].join(``)
-}
-
-/** The popover's rows — the session tree's own row vocabulary (EXP-996). */
-function run(depth: number, title: string, live: boolean): string {
-  return [
-    `<div class="cmp-session-tree-row" data-depth="${depth}">`,
-    `<span class="cmp-session-tree-dot"${live ? ` data-live` : ``}></span>`,
-    `<span class="cmp-session-tree-title">${escapeHtml(title)}</span>`,
-    `</div>`,
-  ].join(``)
-}
-
-function issueRow(identifier: string, title: string): string {
-  return [
-    `<div class="cmp-session-tree-row" data-depth="0">`,
-    `<span class="cmp-session-tree-id">${escapeHtml(identifier)}</span>`,
-    `<span class="cmp-session-tree-title">${escapeHtml(title)}</span>`,
-    `</div>`,
-  ].join(``)
-}
-
-const POPOVER = [
-  `<div class="cmp-pr-graph-popover">`,
-  `<div class="cmp-pr-graph-section">`,
-  `<span class="cmp-pr-graph-caption">Runs</span>`,
-  run(0, `Chat`, true),
-  run(1, `Plants overview + plant detail pages`, false),
-  run(1, `Indexer: trades, bundles, offers, zap volume`, true),
-  `</div>`,
-  `<div class="cmp-pr-graph-section">`,
-  `<span class="cmp-pr-graph-caption">In batch with</span>`,
-  issueRow(`STRA-43`, `Indexer: trades, bundles, offers, zap volume`),
-  issueRow(`STRA-45`, `Indexer query API for the web app`),
-  `</div>`,
-  `</div>`,
-].join(``)
 
 export const entry: StyleguideEntry = {
   id: `pr-graph-badge`,
   section: `special`,
-  owner: `EXP-1079`,
+  owner: `EXP-1058`,
   title: `Work header badge`,
-  blurb: `The ONE pill in the work header that says what this work is PART OF, and the popover behind it (EXP-897 §4). The glyph is a concept, never a raw icon: pr-stack (layers) with \`2 of 3\` for a stacked pull request, pr-batch (boxes) with \`3 issues\` for a pull request that closes several, both for a batch inside a stack, and session-tree (the workflow glyph) alone on the Run face of a run that started or was started by other runs. Absent when there is nothing to say. Beside the face toggle it wears the toggle's own 36px rung with a 16px glyph, exactly like Stop, Resume and Merge (EXP-926: the placement is the only thing that sizes a header action); in the phone bars and list headers it is the 24px chip. The popover lists the face's section with the session tree's row vocabulary: Runs on the Run face, Blocked by and In batch with on the Issue face, the pull request stack bottom-up on Changes.`,
+  blurb: `What this work is PART OF, as the stacked issue chip (EXP-1058): the front chip names the subject pull request's representative issue, the ghosts behind it and \`+N\` count every other issue on its stack or batch, or every other run of its family on the Run face (a run without an issue names itself, with the session-tree glyph). Absent when there is nothing to say. Hover on pointer platforms, tap on phones: the overlay lists the face's section — Blocked by and In batch with on Issue, Runs on Run, the pull request stack bottom-up on Changes.`,
   status: {
     web: {
       state: `ok`,
       symbol: `PrGraphBadge`,
       file: `apps/web/src/components/pr-graph-badge.tsx`,
-      note: `placement="header" in the md+ work header; the shape rule is lib/pr-graph.ts badgeShape`,
+      note: `the rule is lib/pr-graph.ts badgeChip`,
     },
     desktop: {
       state: `ok`,
       symbol: `pr_graph::badge`,
       file: `apps/desktop/crates/ui/src/pr_graph.rs`,
-      note: `badge_size() = work_header::header_action_size(false); glyphs from registry::SESSION_TREE / PR_STACK / PR_BATCH`,
+      note: `the rule is domain pr_graph::badge_chip`,
     },
     ios: {
-      state: `leftover`,
+      state: `ok`,
       symbol: `PrGraphBadge`,
       file: `apps/ios/Exponential/UI/Work/PrGraphBadge.swift`,
-      note: `chip-scale in the Work bar by design; no session-tree pill on the Run face yet`,
+      note: `the rule is ExpCore PrGraph.badgeChip`,
     },
     android: {
-      state: `leftover`,
+      state: `ok`,
       symbol: `PrGraphBadge`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/work/PrGraphBadge.kt`,
-      note: `chip-scale in the Work bar by design; no session-tree pill on the Run face yet`,
+      note: `the rule is domain PrGraph.badgeChip`,
     },
   },
-  render: () =>
-    [
-      `<div class="cmp-pr-graph">`,
-      // The header rung: every badge state beside the toggle and Stop.
-      cluster(`header`, [svgWorkflow], null),
-      cluster(`header`, [svgLayers], `2 of 3`),
-      cluster(`header`, [svgBoxes], `3 issues`),
-      cluster(`header`, [svgLayers, svgBoxes], `2 of 3`),
-      // The chip, where the bar is chip-scale.
-      cluster(`chip`, [svgBoxes], `2 issues`),
-      // What the Run face's pill opens.
-      POPOVER,
-      `</div>`,
-    ].join(``),
+  island: () => (
+    <div className="flex flex-wrap items-center gap-6 p-2">
+      <IssueChipStack count={2}>
+        <IssueChip identifier="STRA-43" title="Indexer: trades, bundles, offers" status={startedStatus} />
+      </IssueChipStack>
+      <IssueChipStack count={1}>
+        <IssueChip identifier="STRA-45" title="Indexer query API for the web app" status={startedStatus} />
+      </IssueChipStack>
+      <IssueChipStack count={2}>
+        <ChipBox
+          slot="issue-chip"
+          openLabel="The runs around this one"
+          body={
+            <>
+              <TreeIcon className={`${CHIP_GLYPH_CLASS} text-muted-foreground`} />
+              <span className="min-w-0 truncate text-[0.8125rem] font-medium text-foreground">Chat</span>
+            </>
+          }
+        />
+      </IssueChipStack>
+    </div>
+  ),
 }
