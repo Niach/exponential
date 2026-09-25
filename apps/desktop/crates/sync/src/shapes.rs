@@ -269,6 +269,10 @@ pub const SHAPES: [ShapeSpec; 24] = [
             // existing store tables and refetches the (tiny) table.
             "placeholder_user_id",
             "accepted_at",
+            // EXP-1076: NULL = a roster row nobody was ever invited (the
+            // Linear import) — the Members list reads "Not invited" and
+            // offers a first send, never "Invite expired".
+            "sent_at",
             "expires_at",
             "created_at",
             "updated_at",
@@ -1125,6 +1129,9 @@ mod tests {
         // not-yet-joined member as an ordinary one and hides "Resend invite".
         let spec = shape_by_name("team_invites").unwrap();
         assert!(spec.columns.contains(&"placeholder_user_id"));
+        // EXP-1076: without it every imported (never-invited) seat would read
+        // "Invite expired" — the wrong copy over the right action.
+        assert!(spec.columns.contains(&"sent_at"));
         // REV-4/14: the bearer secret stays out (module header).
         assert!(!spec.columns.contains(&"token"), "bearer secret");
     }

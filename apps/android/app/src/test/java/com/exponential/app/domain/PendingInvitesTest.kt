@@ -23,6 +23,9 @@ class PendingInvitesTest {
         teamId = "team-1",
         role = "member",
         placeholderUserId = placeholderUserId,
+        // Every link here WAS issued (EXP-1076: a never-sent import seat is
+        // `sentAt` null and reads "Not invited", not lapsed).
+        sentAt = "2026-09-17 10:00:00+00",
         acceptedAt = acceptedAt,
         expiresAt = expiresAt,
         createdAt = "2026-09-17 10:00:00+00",

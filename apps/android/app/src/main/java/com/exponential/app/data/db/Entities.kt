@@ -250,6 +250,11 @@ data class TeamInviteEntity(
     // lists badge it "Invited" / "Invite expired" while `accepted_at` is null.
     // Null for link invites and for invites to an existing account.
     @ColumnInfo(name = "placeholder_user_id") @SerialName("placeholder_user_id") @JsonNames("placeholderUserId") val placeholderUserId: String? = null,
+    // EXP-1076: when the invite LINK was issued. Null = a roster row nobody
+    // was ever invited (the Linear import seats its placeholders without a
+    // mail) — member lists read "Not invited", never "Invite expired" (such
+    // rows are minted with `expires_at = created_at`).
+    @ColumnInfo(name = "sent_at") @SerialName("sent_at") @JsonNames("sentAt") val sentAt: String? = null,
     @ColumnInfo(name = "expires_at") @SerialName("expires_at") @JsonNames("expiresAt") val expiresAt: String,
     @ColumnInfo(name = "accepted_at") @SerialName("accepted_at") @JsonNames("acceptedAt") val acceptedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,

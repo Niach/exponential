@@ -304,6 +304,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 // The placeholder member the invite created (EXP-630) —
                 // NULL for link invites and invites to an existing account.
                 t.column("placeholder_user_id", .text)
+                // When the link was issued (EXP-1076) — NULL for a roster
+                // row nobody was ever invited (the Linear import).
+                t.column("sent_at", .text)
                 t.column("expires_at", .text).notNull()
                 t.column("accepted_at", .text)
                 t.column("created_at", .text).notNull()
@@ -1975,6 +1978,29 @@ public final class DatabaseManager: @unchecked Sendable {
             guard !existing.contains("placeholder_user_id") else { return }
             try db.alter(table: "team_invites") { t in
                 t.add(column: "placeholder_user_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'team-invites'
+                    """)
+            }
+        }
+
+        // v54 (EXP-1076 "Not invited"): `team_invites.sent_at` rides along on
+        // the team-invites shape — NULL marks a roster row nobody was ever
+        // invited (the Linear import's placeholder members), which the member
+        // list must badge "Not invited" rather than "Invite expired". Same
+        // shape as v53: guarded additive ALTER, then the team-invites offset
+        // resets so already-synced rows re-snapshot carrying the column
+        // (shape key 'team-invites' WITH A DASH).
+        migrator.registerMigration("v54_invite_sent_at") { db in
+            guard try db.tableExists("team_invites") else { return }
+            let existing = Set(try db.columns(in: "team_invites").map(\.name))
+            guard !existing.contains("sent_at") else { return }
+            try db.alter(table: "team_invites") { t in
+                t.add(column: "sent_at", .text)
             }
             if try db.tableExists("electric_offsets") {
                 try db.execute(sql: """
