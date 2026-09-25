@@ -56,6 +56,8 @@ import {
   ENTRY_BAND,
   SPECIAL_ENTRY_IDS,
   buildPage,
+  isPageIsland,
+  pageEntries,
   sectionOfSpec,
   sectionShortLabel,
 } from "./sections/page.ts"
@@ -79,6 +81,14 @@ const html = renderHtml(EMPTY, COMPONENTS, uiCss)
 
 const ISLANDS = COMPONENTS.filter(isIsland)
 const HTML_DEMOS = COMPONENTS.filter((spec) => !isIsland(spec))
+/**
+ * Every island the PAGE draws — the specs' plus the registered entries a
+ * leaf filled with a real `@exp/ui` component (EXP-1020's sub-shell and
+ * device settings were the first). The per-SPEC island rules below stay on
+ * `ISLANDS`; only the page-level counts span both lists, because since
+ * EXP-1019 the page draws both.
+ */
+const PAGE_ISLANDS = pageEntries(COMPONENTS).filter(isPageIsland)
 /** The FILLED registered entries that draw by hand — same rules as a demo. */
 const ENTRY_DEMOS = ENTRIES.filter(
   (entry) => entry.placeholder !== true && entry.render !== undefined
@@ -267,15 +277,15 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`the page carries one shadow root per island, the CSS once, the script once`, () => {
-    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(ISLANDS.length)
-    expect(occurrences(html, `<div data-ui-island>`)).toBe(ISLANDS.length)
+    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(PAGE_ISLANDS.length)
+    expect(occurrences(html, `<div data-ui-island>`)).toBe(PAGE_ISLANDS.length)
     expect(occurrences(html, `<template id="ui-css">`)).toBe(1)
     expect(occurrences(html, ISLAND_CLIENT_SCRIPT)).toBe(1)
     // Both are gated on the stylesheet: no CSS, no islands worth adopting.
     const bare = renderHtml(EMPTY, COMPONENTS)
     expect(bare).not.toContain(`<template id="ui-css">`)
     expect(bare).not.toContain(ISLAND_CLIENT_SCRIPT)
-    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(ISLANDS.length)
+    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(PAGE_ISLANDS.length)
   })
 
   test(`every island sits in the same .cmp-demo canvas the HTML demos use`, () => {

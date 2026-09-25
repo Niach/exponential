@@ -15,6 +15,7 @@ import { compileUiCss } from "@exp/ui/island"
 
 import { COMPONENTS } from "./components.tsx"
 import { renderHtml } from "./render.ts"
+import { isPageIsland, pageEntries } from "./sections/page.ts"
 import { manualPairs, missingPairs, readGallery, storeDir } from "./store.ts"
 
 const distDir = path.resolve(import.meta.dir, `..`, `dist`)
@@ -42,7 +43,10 @@ async function build(): Promise<void> {
 
   const total = data.counts.ok + data.counts.missing + data.counts.manual
   console.log(`styleguide → ${path.join(distDir, `index.html`)}`)
-  console.log(`  ui css ${Math.round(uiCss.length / 1024)} KB · ${COMPONENTS.filter((spec) => spec.island !== undefined).length} islands`)
+  // Every island the PAGE draws: the specs' plus the registered entries a
+  // leaf filled with a real component (EXP-1019 put both on the page).
+  const islands = pageEntries(COMPONENTS).filter(isPageIsland).length
+  console.log(`  ui css ${Math.round(uiCss.length / 1024)} KB · ${islands} islands`)
   console.log(
     `  ${data.views.length} views · ${data.counts.ok}/${total} captured · ${data.counts.manual} awaiting manual capture · ${data.counts.na} n/a · store ${existsSync(source) ? source : `${source} (absent)`}`
   )
