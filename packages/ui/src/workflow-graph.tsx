@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 import { conceptIcon } from "./icons.generated"
 import { IssueChipStack } from "./issue-chip"
 import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
@@ -104,20 +104,27 @@ export interface WorkflowGraphFinalPr {
 /** The final-PR chip's name, byte-identical ×4 (`FINAL_PR_TITLE`). */
 const FINAL_PR_TITLE = `Final pull request`
 
-/** The container's inner width, live. SSR is off in this app, so the first
- *  paint measures on the effect and nothing flashes at the wrong size. */
+/**
+ * The container's inner width, live. Measured from a ref CALLBACK, not an
+ * effect: the view renders nothing while its nodes are still on their way
+ * (a cold load reads the workflow row one shape before its nodes), so the
+ * measured div mounts LATER than the component — an effect with empty deps
+ * would have run once against no element and never again, leaving the
+ * scale pinned to 1 and a wide graph overflowing its column. SSR is off in
+ * this app, so the first paint of the div measures before anything flashes.
+ */
 function useContainerWidth() {
-  const ref = useRef<HTMLDivElement | null>(null)
+  const observer = useRef<ResizeObserver | null>(null)
   const [width, setWidth] = useState(0)
-  useEffect(() => {
-    const host = ref.current
+  const ref = useCallback((host: HTMLDivElement | null) => {
+    observer.current?.disconnect()
+    observer.current = null
     if (!host) return
     const measure = () => setWidth(host.clientWidth)
     measure()
     if (typeof ResizeObserver === `undefined`) return
-    const observer = new ResizeObserver(measure)
-    observer.observe(host)
-    return () => observer.disconnect()
+    observer.current = new ResizeObserver(measure)
+    observer.current.observe(host)
   }, [])
   return { ref, width }
 }

@@ -148,6 +148,24 @@ describe(`WorkflowGraphView`, () => {
     })
   })
 
+  it(`measures a container that mounts AFTER the nodes arrive (a cold load)`, () => {
+    // The page reads the workflow row one shape before its nodes, so the view
+    // first renders NOTHING and the measured div mounts on a later commit. The
+    // measurement has to happen then — not on a first-render effect that saw
+    // no element and never ran again.
+    withContainerWidth(naturalWidth / 2, () => {
+      const { rerender } = view([])
+      expect(screen.queryByTestId(`workflow-graph`)).toBeNull()
+      rerender(
+        <WorkflowGraphView nodes={[node(), node({ id: `n2`, wave: 1 })]} edges={[]} />
+      )
+      const graph = screen.getByTestId(`workflow-graph`)
+      expect(graph.clientWidth).toBe(naturalWidth / 2)
+      expect(picture().style.transform).toBe(`scale(0.5)`)
+      expect(graph.style.height).toBe(`${naturalHeight / 2}px`)
+    })
+  })
+
   it(`never scales UP: a small graph keeps its true size in a wide column`, () => {
     withContainerWidth(naturalWidth * 4, () => {
       view([node(), node({ id: `n2`, wave: 1 })])
