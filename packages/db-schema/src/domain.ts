@@ -1143,8 +1143,15 @@ export interface WorkflowNodeReview {
   head?: string
 }
 
+// FEED-51: the review prompt asks for the EXACT commands run, and a
+// multi-platform oracle (web + desktop + a native suite) did not fit 500.
+export const WORKFLOW_REVIEW_ORACLE_COMMAND_MAX = 2000
+
 export const workflowReviewOracleSchema = z
-  .object({ command: z.string().min(1).max(500), passed: z.boolean() })
+  .object({
+    command: z.string().min(1).max(WORKFLOW_REVIEW_ORACLE_COMMAND_MAX),
+    passed: z.boolean(),
+  })
   .strict()
 
 /** `WorkflowNodeReview.head`: a git commit sha, abbreviated or full. */

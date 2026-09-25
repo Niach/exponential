@@ -1437,6 +1437,7 @@ function AgentReviewBlock({
         <span
           className="truncate font-mono text-xs text-muted-foreground"
           data-testid="workflow-node-review-oracle"
+          title={review.oracle.command}
         >
           {review.oracle.command}
         </span>
