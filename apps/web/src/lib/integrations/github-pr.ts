@@ -158,6 +158,38 @@ export async function closePullRequest(opts: {
   }
 }
 
+// EXP-1059: reopen a pull request that was closed WITHOUT merging (the
+// workflow's final PR, closed by hand). GitHub refuses (422) when the head
+// branch is gone or the PR was merged — the caller decides what to do then.
+export async function reopenPullRequest(opts: {
+  repo: string
+  prNumber: number
+  token: string
+}): Promise<void> {
+  const res = await fetch(
+    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
+    {
+      method: `PATCH`,
+      headers: {
+        ...githubApiHeaders(opts.token),
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({ state: `open` }),
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    let message = text.slice(0, 300)
+    try {
+      const parsed = JSON.parse(text) as { message?: string }
+      if (parsed.message) message = parsed.message
+    } catch {
+      // Non-JSON error body — surface the raw text.
+    }
+    throw new GitHubMergeError(res.status, message)
+  }
+}
+
 // Pull-request resolution state (for the merge poller).
 export interface PullState {
   state: `open` | `closed`

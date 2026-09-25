@@ -3454,6 +3454,42 @@ impl AutomationHost {
                             }
                         }
                     }
+                    // EXP-1059: this closed episode goes to the server ONCE
+                    // it answered; a transport failure is retried next pass.
+                    coding::workflows::Decision::ReopenFinalPr => {
+                        let result = api::workflows::reopen_final_pr(&self.ctx.trpc, &workflow_id);
+                        if result.is_ok() {
+                            update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
+                                state.final_pr_close_handled = true;
+                            });
+                        }
+                        match result {
+                            Ok(outcome) if outcome.reopened => {
+                                log::info!("workflow {workflow_id}: final pull request reopened");
+                            }
+                            Ok(outcome) => {
+                                log::warn!(
+                                    "workflow {workflow_id}: final PR not reopened — {}",
+                                    outcome.reason.unwrap_or_default()
+                                );
+                                break 'decision Outcome::Skipped;
+                            }
+                            Err(err) => {
+                                log::warn!("workflow {workflow_id}: final PR reopen — {err}");
+                                break 'decision Outcome::Failed(err.to_string());
+                            }
+                        }
+                    }
+                    // EXP-1059: nothing shipped — the server ends the workflow.
+                    coding::workflows::Decision::CancelUnshipped => {
+                        match api::workflows::cancel_unshipped(&self.ctx.trpc, &workflow_id) {
+                            Ok(()) => log::info!("workflow {workflow_id}: nothing shipped, cancelled"),
+                            Err(err) => {
+                                log::warn!("workflow {workflow_id}: cancel unshipped — {err}");
+                                break 'decision Outcome::Failed(err.to_string());
+                            }
+                        }
+                    }
                     coding::workflows::Decision::KillSession { session_id } => {
                         let Some(live) = workflow_session(&self.sessions, &session_id) else {
                             break 'decision Outcome::Skipped;
@@ -4276,6 +4312,7 @@ fn workflow_plan(
                 status: workflow.status_wire().to_string(),
                 integration_branch,
                 final_pr_url: workflow.final_pr_url.clone(),
+                final_pr_state: workflow.final_pr_state.clone(),
                 // EXP-1029: not a launch field any more.
                 max_parallel: domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT,
                 launch: launch.clone(),
@@ -4287,6 +4324,13 @@ fn workflow_plan(
             integration_branch_exists: false,
             in_flight: Default::default(),
             final_pr_in_flight: false,
+            // EXP-1059: cleared by the read itself once the PR reads open.
+            final_pr_close_handled: coding::workflows::final_pr_close_handled(
+                settings_path,
+                device_id,
+                &workflow.id,
+                workflow.final_pr_state.as_deref() == Some("closed"),
+            ),
             nudged: engine_state.nudged.clone(),
             // EXP-983: the git facts are filled by the pass itself, where
             // the clone and the token are.

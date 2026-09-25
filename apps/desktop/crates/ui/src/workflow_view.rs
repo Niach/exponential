@@ -1695,6 +1695,11 @@ fn render_final_pr(row: &WorkflowRow, cx: &App) -> AnyElement {
     if row.final_pr_state.as_deref() == Some("open") {
         chip = chip.trailing(merge_final_pr_button(row.id.clone(), cx));
     }
+    // EXP-1059 — closed without merging: the chip offers the way back
+    // (`workflows.openFinalPr` reopens it, or opens a fresh one).
+    if row.final_pr_state.as_deref() == Some("closed") {
+        chip = chip.trailing(open_final_pr_button(row.id.clone(), cx));
+    }
     if let Some(url) = row.final_pr_url.clone() {
         chip = chip.on_click(move |_: &ClickEvent, _window, cx| cx.open_url(&url));
     }
@@ -2156,6 +2161,47 @@ fn spawn_reported(
 
 /// `workflows.mergeFinalPr`; a refusal is a sentence worth reading, so it
 /// lands as an error notification.
+/// EXP-1059 — the final PR was closed without merging: `Open final PR`
+/// calls the member-callable `workflows.openFinalPr` (reopened, or a fresh
+/// one when GitHub refuses). No confirm — nothing lands. The synced echo
+/// (`final_pr_state` back to `open`) swaps the chip's action to Merge; a
+/// refusal is a notification.
+fn open_final_pr_button(workflow_id: String, cx: &App) -> AnyElement {
+    crate::controls::text_button(
+        "workflow-final-pr-open",
+        domain::workflow_final_pr::OPEN_FINAL_PR_LABEL,
+        crate::controls::TextButtonVariant::Text,
+        cx,
+    )
+    .on_click(move |_, window, cx| {
+        cx.stop_propagation();
+        spawn_open_final_pr(workflow_id.clone(), window, cx);
+    })
+    .into_any_element()
+}
+
+fn spawn_open_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::workflows::open_final_pr(&trpc, &workflow_id) })
+            .await;
+        let _ = handle.update(cx, |_, window, cx| {
+            if let Err(err) = result {
+                window.push_notification(
+                    Notification::error(SharedString::from(err.user_message())),
+                    cx,
+                );
+            }
+        });
+    })
+    .detach();
+}
+
 fn spawn_merge_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) {
     if MergingFinalPrs::contains(&workflow_id, cx) {
         return;

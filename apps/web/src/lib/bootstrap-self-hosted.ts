@@ -1,4 +1,4 @@
-import { and, eq, gte, isNotNull, isNull, or } from "drizzle-orm"
+import { and, eq, gte, inArray, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { applyWorkflowFinalPrState } from "@/lib/workflow-final-pr"
 import { issues, boards, codingSessions, workflows } from "@/db/schema"
@@ -233,11 +233,14 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         prState: workflows.finalPrState,
       })
       .from(workflows)
+      // EXP-1059: a CLOSED final PR is polled too — the engine's reopen and
+      // a member's `openFinalPr` write `open` themselves, but a reopen done
+      // on github.com has only this mirror on a self-host without webhooks.
       .where(
         and(
           isNotNull(workflows.finalPrUrl),
           isNotNull(workflows.finalPrNumber),
-          eq(workflows.finalPrState, `open`)
+          inArray(workflows.finalPrState, [`open`, `closed`])
         )
       )
     for (const row of workflowRows) {
@@ -250,6 +253,7 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         const action = decidePrPollAction(row.prState, state)
         if (action === `merge`) await applyWorkflowFinalPrState(db, row.prUrl, `merged`)
         if (action === `close`) await applyWorkflowFinalPrState(db, row.prUrl, `closed`)
+        if (action === `reopen`) await applyWorkflowFinalPrState(db, row.prUrl, `open`)
       } catch (err) {
         console.error(`[pr-merge-poll] workflow ${row.id}:`, err)
       }

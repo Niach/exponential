@@ -608,6 +608,7 @@ fn snapshot_for(
                     status: status.to_string(),
                     integration_branch,
                     final_pr_url: workflow.final_pr_url.clone(),
+                    final_pr_state: workflow.final_pr_state.clone(),
                     // EXP-1029: not a launch field any more.
                     max_parallel: domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT,
                     launch: launch.clone(),
@@ -621,6 +622,13 @@ fn snapshot_for(
                 integration_branch_exists: false,
                 in_flight: claimed.clone(),
                 final_pr_in_flight: final_claimed.contains(&workflow.id),
+                // EXP-1059: cleared by the read itself once the PR reads open.
+                final_pr_close_handled: workflows::final_pr_close_handled(
+                    &settings_path,
+                    &device_id,
+                    &workflow.id,
+                    workflow.final_pr_state.as_deref() == Some("closed"),
+                ),
                 nudged: engine_state.nudged.clone(),
                 // EXP-983: the git facts are filled on the background pass,
                 // where the clone and the token live.
@@ -1134,6 +1142,47 @@ fn run_pass(
                         }
                     }
                     drop(claim);
+                }
+                // EXP-1059: this closed episode goes to the server ONCE it
+                // answered (reopened, or recorded as a person's decision);
+                // a transport failure is retried next pass, like OpenFinalPr.
+                Decision::ReopenFinalPr => {
+                    let Some(claim) = InFlight::claim(final_pr_in_flight, &workflow_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    let result = api::workflows::reopen_final_pr(&pass.trpc, &workflow_id);
+                    if result.is_ok() {
+                        update_state(&pass, &workflow_id, |state| {
+                            state.final_pr_close_handled = true;
+                        });
+                    }
+                    drop(claim);
+                    match result {
+                        Ok(outcome) if outcome.reopened => {
+                            log::info!("[workflows] {workflow_id}: final pull request reopened");
+                        }
+                        Ok(outcome) => {
+                            log::warn!(
+                                "[workflows] {workflow_id}: final PR not reopened — {}",
+                                outcome.reason.unwrap_or_default()
+                            );
+                            break 'decision Outcome::Skipped;
+                        }
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: final PR reopen — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                    }
+                }
+                // EXP-1059: nothing shipped — the server ends the workflow.
+                Decision::CancelUnshipped => {
+                    match api::workflows::cancel_unshipped(&pass.trpc, &workflow_id) {
+                        Ok(()) => log::info!("[workflows] {workflow_id}: nothing shipped, cancelled"),
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: cancel unshipped — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                    }
                 }
                 Decision::KillSession { session_id } => {
                     let Some(engine) = pass.engines.get(&session_id) else {

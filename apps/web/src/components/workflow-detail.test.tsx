@@ -63,6 +63,7 @@ const mutates = vi.hoisted(() => ({
   resolveNode: vi.fn().mockResolvedValue({ txId: 1 }),
   admitNode: vi.fn().mockResolvedValue({ txId: 1 }),
   mergeFinalPr: vi.fn().mockResolvedValue({ merged: true }),
+  openFinalPr: vi.fn().mockResolvedValue({ url: `https://github.com/acme/app/pull/42` }),
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
@@ -1076,6 +1077,26 @@ describe(`WorkflowDetail`, () => {
     await vi.waitFor(() =>
       expect(mutates.mergeFinalPr).toHaveBeenCalledWith({ id: `wf` }, expect.anything())
     )
+  })
+
+  // EXP-1059: closed without merging — the row offers the way back, no
+  // confirm (nothing lands), and the synced row swaps it back to Merge.
+  it(`offers Open final PR on a final pull request closed without merging`, async () => {
+    renderPage(
+      {
+        status: `running`,
+        finalPrUrl: `https://github.com/acme/app/pull/42`,
+        finalPrNumber: 42,
+        finalPrState: `closed`,
+      },
+      { initialFace: `changes` }
+    )
+    expect(screen.queryByTestId(`workflow-final-pr-merge`)).toBeNull()
+    fireEvent.click(screen.getByTestId(`workflow-final-pr-open`))
+    await vi.waitFor(() =>
+      expect(mutates.openFinalPr).toHaveBeenCalledWith({ id: `wf` }, expect.anything())
+    )
+    expect(mutates.mergeFinalPr).not.toHaveBeenCalled()
   })
 
   it(`offers no Merge on a merged final pull request`, () => {

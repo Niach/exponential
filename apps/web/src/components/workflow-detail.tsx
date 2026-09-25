@@ -114,6 +114,7 @@ import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
 import { sessionIdentity } from "@/lib/session-identity"
 import { acquireSteerSession } from "@/lib/steer-session-store"
 import { deviceIsOnline } from "@/lib/steer-devices"
+import { OPEN_FINAL_PR_LABEL } from "@/lib/workflow-final-pr-identity"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { cn } from "@/lib/utils"
@@ -376,6 +377,7 @@ export function WorkflowDetail({
   )
   const [face, setFace] = useState<WorkflowFace>(initialFace)
   const [error, setError] = useState<string | null>(null)
+  const [openingFinalPr, setOpeningFinalPr] = useState(false)
   const [runsOnOpenState, setRunsOnOpen] = useState(false)
   // While the name is being edited a chip's hover must not open the
   // mini-graph: the popover takes focus and the blur would save the name.
@@ -536,6 +538,26 @@ export function WorkflowDetail({
     void run(`The node could not be admitted`, () =>
       trpc.workflows.admitNode.mutate({ nodeId, admit: true }, quiet)
     )
+  }
+
+  // EXP-1059: a final PR closed WITHOUT merging — the member's way back.
+  // `workflows.openFinalPr` reopens it, or opens a fresh one when GitHub
+  // refuses; the synced row swaps the row's action back to Merge.
+  const openFinalPr = async () => {
+    setError(null)
+    setOpeningFinalPr(true)
+    try {
+      await trpc.workflows.openFinalPr.mutate(
+        { id: workflow.id },
+        { context: { skipErrorToast: true } }
+      )
+    } catch (caught) {
+      setError(
+        trpcErrorMessage(caught, `The final pull request could not be opened`)
+      )
+    } finally {
+      setOpeningFinalPr(false)
+    }
   }
 
   const primary = workflowPrimaryAction(
@@ -831,6 +853,16 @@ export function WorkflowDetail({
                     onClick={() => setDialog(`merge`)}
                   >
                     {MERGE_FINAL_PR_LABEL}
+                  </Button>
+                )}
+                {workflow.finalPrState === `closed` && (
+                  <Button
+                    size="sm"
+                    disabled={openingFinalPr}
+                    data-testid="workflow-final-pr-open"
+                    onClick={() => void openFinalPr()}
+                  >
+                    {OPEN_FINAL_PR_LABEL}
                   </Button>
                 )}
               </div>

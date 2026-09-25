@@ -748,14 +748,16 @@ final class AgentsViewModel {
     }
 
     /// EXP-825: the team's open issue-linked pull requests, one option per
-    /// PR (EXP-259/EXP-270) — the `pr` inputs pick from them. Issues don't
+    /// PR (EXP-259/EXP-270), plus its workflows' open final PRs (EXP-1072) — the `pr` inputs pick from them. Issues don't
     /// sync team_id, so the scope comes from the synced boards.
     func openPullRequests(teamId: String?) -> [StartPullRequestOption] {
         guard let teamId else { return [] }
         let boardIds = Set(boards.filter { $0.teamId == teamId }.map(\.id))
         return StartPullRequestOption.build(
             from: issues.filter { $0.prState == DomainContract.prStateOpen },
-            teamBoardIds: boardIds
+            teamBoardIds: boardIds,
+            // EXP-1072: a workflow's open final PR is its own linked PR.
+            workflows: workflows.filter { $0.teamId == teamId }
         )
     }
 

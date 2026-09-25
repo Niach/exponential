@@ -5,6 +5,17 @@ const h = vi.hoisted(() => ({
   resolveRepoToken: vi.fn(async (..._args: unknown[]): Promise<string | null> => `tok`),
   retargetPullRequest: vi.fn(async (..._args: unknown[]) => {}),
   getPullRequest: vi.fn(async (..._args: unknown[]) => ({ baseRef: `main` })),
+  reopenPullRequest: vi.fn(async (..._args: unknown[]) => {}),
+  resolvePrBaseState: vi.fn(async (..._args: unknown[]) => ({
+    prState: `open` as const,
+    merged: false,
+    headRef: `exp/wf-11111111`,
+    baseRef: `main`,
+    kind: `default`,
+    rebaseOnto: `main`,
+    retargetTo: null as string | null,
+  })),
+  assertTeamMember: vi.fn(async (..._args: unknown[]) => ({ role: `member` })),
   applyPrLifecycleStatusInTx: vi.fn(async (..._args: unknown[]) => {}),
   loadWorkflowEdges: vi.fn(
     async (..._args: unknown[]) => ({
@@ -20,7 +31,10 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
   resolveRepoToken: h.resolveRepoToken,
   retargetPullRequest: h.retargetPullRequest,
   getPullRequest: h.getPullRequest,
+  reopenPullRequest: h.reopenPullRequest,
+  resolvePrBaseState: h.resolvePrBaseState,
 }))
+vi.mock(`@/lib/team-membership`, () => ({ assertTeamMember: h.assertTeamMember }))
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrLifecycleStatusInTx: h.applyPrLifecycleStatusInTx,
 }))
@@ -34,8 +48,11 @@ import {
   applyWorkflowFinalPrState,
   ensureNodePrOnIntegrationBranch,
   finalPrBody,
+  FINAL_PR_CLOSED_AGAIN_DECISION,
   NODE_PR_OFF_BRANCH_REASON,
   pickAuditNodes,
+  prepareWorkflowFinalPrConflictFix,
+  reopenWorkflowFinalPr,
   retargetReleasedDependents,
 } from "@/lib/workflow-final-pr"
 
@@ -60,6 +77,8 @@ function chain(result: unknown[]): Chain {
   }
   return p
 }
+// Every INSERT's values (the `workflow_events` rows the module records).
+const inserts: Array<Record<string, unknown>> = []
 const fakeDb = {
   select: () => chain(selectQueue.shift() ?? []),
   update: () => {
@@ -70,15 +89,26 @@ const fakeDb = {
     }
     return p
   },
+  insert: () => {
+    const p = chain([])
+    p.values = (values: unknown) => {
+      inserts.push(values as Record<string, unknown>)
+      return p
+    }
+    return p
+  },
+  delete: () => chain([]),
   transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeDb),
 } as never
 
 beforeEach(() => {
   selectQueue.length = 0
   updates.length = 0
+  inserts.length = 0
   updateQueue.length = 0
   wheres.length = 0
   vi.clearAllMocks()
+  h.reopenPullRequest.mockResolvedValue(undefined)
   h.resolveRepoToken.mockResolvedValue(`tok`)
   h.retargetPullRequest.mockResolvedValue(undefined)
   h.getPullRequest.mockResolvedValue({ baseRef: `main` })
@@ -323,6 +353,32 @@ describe(`applyWorkflowFinalPrState`, () => {
     expect(updates[0]!.endedAt).toBeInstanceOf(Date)
   })
 
+  // EXP-1072: the ONE status codepath. The covered issues move through
+  // `applyPrLifecycleStatusInTx` — what `applyPrMergeState` (the linked-PR
+  // merge) calls — and the workflow's trail gets its `completed` line.
+  it(`flips the member issues through the linked-PR merge path's status writer and records completed`, async () => {
+    selectQueue.push(
+      [{ id: WF, teamId: `team-1`, finalPrState: `open` }],
+      [{ issueId: `issue-a`, members: [`issue-a1`, `issue-a2`] }],
+      [
+        { id: `issue-a`, status: `in_review` },
+        { id: `issue-a1`, status: `in_progress` },
+        { id: `issue-a2`, status: `backlog` },
+      ]
+    )
+    await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/1`, `merged`)
+    expect(h.applyPrLifecycleStatusInTx.mock.calls.map((call) => call[1])).toEqual([
+      expect.objectContaining({ issueId: `issue-a`, teamId: `team-1`, event: `merged`, currentStatus: `in_review` }),
+      expect.objectContaining({ issueId: `issue-a1`, event: `merged` }),
+      expect.objectContaining({ issueId: `issue-a2`, event: `merged` }),
+    ])
+    // No `issues` UPDATE of its own: the helper owns the status write.
+    expect(updates).toHaveLength(1)
+    expect(inserts).toEqual([
+      expect.objectContaining({ workflowId: WF, teamId: `team-1`, kind: `completed`, message: `Final pull request merged: 3 issues done` }),
+    ])
+  })
+
   it(`applies a merge exactly once: a row that already reads merged writes nothing`, async () => {
     selectQueue.push([{ id: WF, teamId: `team-1`, finalPrState: `merged` }])
     expect(await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/1`, `merged`)).toBe(true)
@@ -363,5 +419,165 @@ describe(`applyWorkflowFinalPrState`, () => {
     selectQueue.push([])
     expect(await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/7`, `merged`)).toBe(false)
     expect(updates).toEqual([])
+  })
+})
+
+
+// EXP-1059 — a final PR closed WITHOUT merging.
+describe(`reopenWorkflowFinalPr`, () => {
+  const closedRow = (over: Record<string, unknown> = {}) => ({
+    id: WF,
+    teamId: `team-1`,
+    repositoryId: `repo-1`,
+    finalPrUrl: `https://gh/pr/9`,
+    finalPrNumber: 9,
+    finalPrState: `closed`,
+    decisions: ``,
+    ...over,
+  })
+
+  it(`the engine reopens it once: GitHub PATCHed, state open, a final_pr_reopened event`, async () => {
+    selectQueue.push(
+      [closedRow()],
+      // No `final_pr_reopened` event yet.
+      [],
+      [{ fullName: `o/r` }]
+    )
+    expect(await reopenWorkflowFinalPr(fakeDb, WF, `user-1`, { once: true })).toEqual({
+      reopened: true,
+      url: `https://gh/pr/9`,
+    })
+    expect(h.reopenPullRequest).toHaveBeenCalledWith({ repo: `o/r`, prNumber: 9, token: `tok` })
+    expect(updates[0]).toMatchObject({ finalPrState: `open` })
+    expect(updates[0]!.decisions).toMatch(/reopened the final pull request #9/)
+    expect(inserts).toEqual([expect.objectContaining({ kind: `final_pr_reopened` })])
+  })
+
+  it(`closed again after the one reopen: gives up with a decision line and a failed event, GitHub untouched`, async () => {
+    selectQueue.push([closedRow()], [{ id: `event-1` }])
+    const outcome = await reopenWorkflowFinalPr(fakeDb, WF, `user-1`, { once: true })
+    expect(outcome).toMatchObject({ reopened: false, gaveUp: true })
+    expect(h.reopenPullRequest).not.toHaveBeenCalled()
+    expect(updates[0]!.decisions).toContain(FINAL_PR_CLOSED_AGAIN_DECISION(9))
+    expect(updates[0]).not.toHaveProperty(`finalPrState`)
+    expect(inserts).toEqual([expect.objectContaining({ kind: `failed` })])
+
+    // Said once: the next beat finds the line and writes nothing more.
+    updates.length = 0
+    inserts.length = 0
+    selectQueue.push(
+      [closedRow({ decisions: `2026-09-25: ${FINAL_PR_CLOSED_AGAIN_DECISION(9)}` })],
+      [{ id: `event-1` }]
+    )
+    expect(await reopenWorkflowFinalPr(fakeDb, WF, `user-1`, { once: true })).toMatchObject({
+      gaveUp: true,
+    })
+    expect(updates).toEqual([])
+    expect(inserts).toEqual([])
+  })
+
+  it(`GitHub refuses the reopen: the engine gives up the same way, a member is just told`, async () => {
+    h.reopenPullRequest.mockRejectedValueOnce(new Error(`Validation Failed`))
+    selectQueue.push([closedRow()], [], [{ fullName: `o/r` }])
+    expect(await reopenWorkflowFinalPr(fakeDb, WF, `user-1`, { once: true })).toMatchObject({
+      reopened: false,
+      gaveUp: true,
+    })
+    expect(updates[0]!.decisions).toContain(FINAL_PR_CLOSED_AGAIN_DECISION(9))
+    expect(inserts).toEqual([expect.objectContaining({ kind: `failed` })])
+
+    // The member path (`workflows.openFinalPr`) opens a fresh PR on a refusal
+    // — this helper records nothing for it.
+    updates.length = 0
+    inserts.length = 0
+    h.reopenPullRequest.mockRejectedValueOnce(new Error(`Validation Failed`))
+    selectQueue.push([closedRow()], [{ fullName: `o/r` }])
+    expect(await reopenWorkflowFinalPr(fakeDb, WF, `user-1`, { once: false })).toEqual({
+      reopened: false,
+      reason: `Validation Failed`,
+      gaveUp: true,
+    })
+    expect(updates).toEqual([])
+    expect(inserts).toEqual([])
+  })
+
+  it(`nothing to reopen: no final PR, or one that is open or merged`, async () => {
+    for (const row of [
+      closedRow({ finalPrUrl: null, finalPrNumber: null, finalPrState: null }),
+      closedRow({ finalPrState: `open` }),
+      closedRow({ finalPrState: `merged` }),
+    ]) {
+      selectQueue.push([row])
+      expect(await reopenWorkflowFinalPr(fakeDb, WF, `user-1`, { once: true })).toMatchObject({
+        reopened: false,
+        gaveUp: false,
+      })
+    }
+    expect(h.reopenPullRequest).not.toHaveBeenCalled()
+    expect(updates).toEqual([])
+  })
+})
+
+// EXP-1072 — the fix-conflicts launcher treats the final PR like a linked PR.
+describe(`prepareWorkflowFinalPrConflictFix`, () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    teamId: `team-1`,
+    repositoryId: `repo-1`,
+    integrationBranch: INTEGRATION,
+    finalPrUrl: `https://gh/pr/9`,
+    finalPrNumber: 9,
+    finalPrState: `open`,
+    ...over,
+  })
+  const repo = { fullName: `o/r`, defaultBranch: `main`, defaultBranchOverride: null }
+
+  it(`answers the issue path's shape: the live rebase target for the final PR`, async () => {
+    selectQueue.push([row()], [repo])
+    expect(await prepareWorkflowFinalPrConflictFix(fakeDb, WF, `user-1`)).toEqual({
+      repo: `o/r`,
+      prNumber: 9,
+      headRef: INTEGRATION,
+      baseRef: `main`,
+      baseKind: `default`,
+      rebaseOnto: `main`,
+      retargeted: false,
+      defaultBranch: `main`,
+    })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, `team-1`)
+    expect(h.retargetPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`retargets a final PR GitHub reports on a stale base back onto the default branch`, async () => {
+    h.resolvePrBaseState.mockResolvedValueOnce({
+      prState: `open`,
+      merged: false,
+      headRef: INTEGRATION,
+      baseRef: `exp/APP-6`,
+      kind: `merged-parent`,
+      rebaseOnto: `main`,
+      retargetTo: `main`,
+    })
+    selectQueue.push([row()], [repo])
+    expect(await prepareWorkflowFinalPrConflictFix(fakeDb, WF, `user-1`)).toMatchObject({
+      rebaseOnto: `main`,
+      retargeted: true,
+    })
+    expect(h.retargetPullRequest).toHaveBeenCalledWith({
+      repo: `o/r`,
+      prNumber: 9,
+      base: `main`,
+      token: `tok`,
+    })
+  })
+
+  it(`refuses a workflow without an open final PR`, async () => {
+    selectQueue.push([row({ finalPrState: `closed` })])
+    await expect(prepareWorkflowFinalPrConflictFix(fakeDb, WF, `user-1`)).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+    })
+    selectQueue.push([])
+    await expect(prepareWorkflowFinalPrConflictFix(fakeDb, WF, `user-1`)).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
   })
 })

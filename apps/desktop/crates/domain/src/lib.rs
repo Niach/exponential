@@ -105,6 +105,8 @@ pub mod session_results;
 pub mod session_tree;
 pub mod statuses;
 pub mod tree_guides;
+// EXP-1072: a workflow's final PR — identifier, picker label, review key.
+pub mod workflow_final_pr;
 pub mod workflow_view;
 // EXP-1082: the open questions of a workflow's live runs (EXP-1065).
 pub mod workflow_questions;

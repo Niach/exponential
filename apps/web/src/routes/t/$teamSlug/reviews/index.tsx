@@ -29,6 +29,7 @@ import {
   type ReviewEntry,
   type ReviewRow,
   type SessionReviewEntry,
+  type WorkflowReviewEntry,
 } from "@/hooks/use-reviews-data"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
 import {
@@ -71,6 +72,7 @@ const BranchIcon = conceptIcon(`ui-branch`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const StackIcon = conceptIcon(`pr-stack`)
 const BatchIcon = conceptIcon(`pr-batch`)
+const WorkflowIcon = conceptIcon(`nav-workflows`)
 
 interface ExternalMergeTarget {
   repositoryId: string
@@ -84,6 +86,7 @@ function ReviewsPage() {
   const team = useTeamBySlug(teamSlug)
   const {
     groups,
+    workflowEntries,
     sessionEntries,
     externalGroups,
     count,
@@ -114,6 +117,11 @@ function ReviewsPage() {
   // Electric echo (the session row's prState leaves `open`).
   const [sessionMergeTarget, setSessionMergeTarget] =
     useState<SessionReviewEntry | null>(null)
+  // EXP-1072: the workflow whose FINAL PR's confirm dialog is open. Its
+  // spinner rides `mergingIds` too, released by the Electric echo of the
+  // workflow row's `final_pr_state` leaving `open`.
+  const [workflowMergeTarget, setWorkflowMergeTarget] =
+    useState<WorkflowReviewEntry | null>(null)
   // A refused merge (conflicts, branch protection, GitHub App errors) captions
   // ITS row, keyed by entry.key (EXP-323) — the global toast is transient and
   // gave the conflict-recovery run nowhere to live.
@@ -138,8 +146,12 @@ function ReviewsPage() {
     for (const entry of sessionEntries) {
       map[entry.key] = String(entry.session.updatedAt ?? ``)
     }
+    // A workflow's final PR stamps the workflow row (EXP-1072).
+    for (const entry of workflowEntries) {
+      map[entry.key] = String(entry.workflow.updatedAt ?? ``)
+    }
     return map
-  }, [groups, sessionEntries])
+  }, [groups, sessionEntries, workflowEntries])
   const stampSignature = Object.entries(stamps)
     .map(([key, value]) => `${key}=${value}`)
     .join(`|`)
@@ -178,6 +190,22 @@ function ReviewsPage() {
       actionId: BUILTIN_FIX_CONFLICTS_ID,
       prIssueId: entry.issue.id,
     })
+  // EXP-1072: the final PR's recovery run — the `pr` input takes the
+  // WORKFLOW id (the server resolves it to the final PR's branch and base).
+  const openWorkflowFixConflicts = (entry: WorkflowReviewEntry) =>
+    openComposer({
+      actionId: BUILTIN_FIX_CONFLICTS_ID,
+      prIssueId: entry.workflow.id,
+    })
+
+  // A workflow's row opens the workflow itself — its page carries the graph,
+  // the decisions and the final PR chip.
+  const openWorkflow = (workflowId: string) => {
+    void navigate({
+      to: `/t/$teamSlug/workflows/$workflowId`,
+      params: { teamSlug, workflowId },
+    })
+  }
 
   // The row opens the review-detail page (PR/branch diff + Merge/Close), not the
   // issue itself — a batch entry's representative identifier stands for the PR.
@@ -278,6 +306,37 @@ function ReviewsPage() {
         { sessionId: entry.session.id },
         { context: { skipErrorToast: true } }
       )
+      .catch((error: unknown) => {
+        setMergeErrors((prev) => ({
+          ...prev,
+          [entry.key]: mergeFailure(
+            error,
+            `The pull request could not be merged`
+          ),
+        }))
+        setMergingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(entry.key)
+          return next
+        })
+      })
+  }
+
+  // EXP-1072: merging a workflow's FINAL pull request. GitHub's acceptance
+  // completes the workflow and moves every landed node's issue to the
+  // team's PR-merge status (the linked-PR merge path's own status writer).
+  const confirmWorkflowMerge = () => {
+    const entry = workflowMergeTarget
+    if (!entry) return
+    setWorkflowMergeTarget(null)
+    setMergingIds((prev) => new Set(prev).add(entry.key))
+    setMergeErrors((prev) => {
+      const next = { ...prev }
+      delete next[entry.key]
+      return next
+    })
+    trpc.workflows.mergeFinalPr
+      .mutate({ id: entry.workflow.id }, { context: { skipErrorToast: true } })
       .catch((error: unknown) => {
         setMergeErrors((prev) => ({
           ...prev,
@@ -549,6 +608,113 @@ function ReviewsPage() {
               </div>
             ))}
 
+            {/* EXP-1072: the workflows' FINAL pull requests — the one
+                human sign-off of a whole run. Each is the workflow's own PR:
+                it merges through the workflow (completing it and its
+                issues), and a real conflict swaps in the recovery run like
+                any linked PR. */}
+            {workflowEntries.length > 0 && (
+              <div className="mb-6">
+                <GlassSectionHeader
+                  leading={
+                    <WorkflowIcon className="size-3.5 shrink-0 text-foreground/50" />
+                  }
+                  label="Workflows"
+                  trailing={
+                    <span className="text-xs text-foreground/50">
+                      final pull requests
+                    </span>
+                  }
+                />
+
+                <div className="flex flex-col gap-0">
+                  {workflowEntries.map((entry) => {
+                    const workflow = entry.workflow
+                    const merging = mergingIds.has(entry.key)
+                    const mergeError = mergeErrors[entry.key]
+                    const canFixConflicts = Boolean(
+                      mergeError?.conflict && steerEnabled
+                    )
+                    return (
+                      <ListRow
+                        key={entry.key}
+                        interactive
+                        className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
+                        onClick={() => openWorkflow(workflow.id)}
+                        data-testid={`review-workflow-${workflow.id}`}
+                      >
+                        <PrOpenIcon className="h-4 w-4 text-emerald-500" />
+                        <span className="truncate font-mono text-xs text-muted-foreground">
+                          #{workflow.finalPrNumber}
+                        </span>
+                        <div className="min-w-0 pr-3">
+                          <div className="truncate text-sm">{workflow.name}</div>
+                          <div className="truncate font-mono text-xs text-muted-foreground">
+                            {workflow.integrationBranch}
+                          </div>
+                        </div>
+                        {canFixConflicts ? (
+                          <Pill
+                            size="md"
+                            mode="action"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openWorkflowFixConflicts(entry)
+                            }}
+                          >
+                            <BranchIcon className="h-3.5 w-3.5" />
+                            Fix conflicts
+                          </Pill>
+                        ) : (
+                          <Pill
+                            size="md"
+                            mode="action"
+                            disabled={merging}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setWorkflowMergeTarget(entry)
+                            }}
+                          >
+                            {merging ? (
+                              <>
+                                <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
+                                Merging…
+                              </>
+                            ) : (
+                              <>
+                                <PrMergedIcon className="h-3.5 w-3.5" />
+                                Merge
+                              </>
+                            )}
+                          </Pill>
+                        )}
+                        {mergeError && (
+                          <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
+                            <span className="text-destructive text-xs">
+                              {mergeError.message}
+                            </span>
+                            {canFixConflicts && (
+                              <Pill
+                                mode="action"
+                                disabled={merging}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setWorkflowMergeTarget(entry)
+                                }}
+                              >
+                                <PrMergedIcon className="size-3" />
+                                Retry merge
+                              </Pill>
+                            )}
+                          </div>
+                        )}
+                      </ListRow>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* EXP-734: pull requests a coding run opened for itself — an
                 action or chat run with no linked issue. They merge through
                 the run, not an issue, so they group on their own. */}
@@ -782,6 +948,26 @@ function ReviewsPage() {
           <DialogFooter>
             <DialogCancel onClick={() => setSessionMergeTarget(null)} />
             <Button onClick={confirmSessionMerge}>Merge pull request</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={workflowMergeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setWorkflowMergeTarget(null)
+        }}
+      >
+        <DialogContent mobile="alert" data-testid="merge-workflow-dialog">
+          <DialogHeader>
+            <DialogTitle>{`Merge PR #${workflowMergeTarget?.workflow.finalPrNumber}?`}</DialogTitle>
+            <DialogDescription>
+              {`Squash-merges the final pull request of the workflow "${workflowMergeTarget?.workflow.name}" (${workflowMergeTarget?.workflow.integrationBranch}) into the repository's default branch via the GitHub App. This completes the workflow and moves every landed issue to the team's PR-merge status.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogCancel onClick={() => setWorkflowMergeTarget(null)} />
+            <Button onClick={confirmWorkflowMerge}>Merge pull request</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

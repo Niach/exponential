@@ -76,6 +76,9 @@ impl ReviewsView {
             // EXP-734: the "Agent runs" block is a live read over the synced
             // `coding_sessions` rows (a run's own chore PR lives there).
             subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
+            // EXP-1072: the "Workflows" block reads the synced `workflows`
+            // rows (a workflow's ONE final PR lives there).
+            subscriptions.push(cx.observe(&collections.workflows, |_, _, cx| cx.notify()));
         }
         // EXP-325: the rows' merge arm/spinner/error live in the shared
         // app-global merge state (any surface can drive them).
@@ -695,6 +698,230 @@ impl ReviewsView {
             .into_any_element()
     }
 
+    /// EXP-1072 — one "Workflows" row: a workflow's ONE final pull request
+    /// (integration branch → default branch), the workflow's OWN linked PR.
+    /// Shaped like [`Self::run_row`]: PR glyph + `#N` + the workflow's name
+    /// with a trailing Merge, the integration branch as the sub-line, an
+    /// error caption. Merging goes through `workflows.mergeFinalPr` and is
+    /// ECHO-settled on the workflow row's `final_pr_state`. A refusal on a
+    /// REAL conflict swaps the Merge slot for "Fix conflicts" (the builtin's
+    /// `pr` input takes the workflow id), Merge stepping down to the ghost
+    /// "Retry merge" beside it. Clicking the row opens the workflow.
+    fn workflow_row(
+        &self,
+        workflow: &domain::rows::WorkflowRow,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
+        let danger = theme.danger;
+        let row_active = theme.list_active;
+        let row_hover = row_active.opacity(0.5);
+        let pr_green = theme::tokens::GREEN.to_hsla();
+
+        let selected = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::Workflow { workflow_id }) if workflow_id == workflow.id
+        );
+        let key = crate::pr_merge::workflow_merge_key(&workflow.id);
+        let (merging, armed, error, failed_op, is_conflict) = {
+            let state = MergeState::global(cx);
+            let state = state.read(cx);
+            (
+                state.merging(&key),
+                state.armed(&key),
+                state.error(&key),
+                state.failed_op(&key),
+                state.is_conflict(&key),
+            )
+        };
+
+        let number = match workflow.final_pr_number {
+            Some(number) => format!("#{number}"),
+            None => String::new(),
+        };
+        let title = workflow.name.clone().unwrap_or_default();
+        let branch = workflow
+            .integration_branch
+            .clone()
+            .filter(|branch| !branch.is_empty());
+
+        // EXP-533/917: the ONE swap rule — a refused MERGE on a real conflict
+        // with a recorded branch (the integration branch the run rebases).
+        let fixing = branch.as_deref().is_some_and(|branch| {
+            crate::coding_flow::LocalSessions::global_ref(cx)
+                .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
+        });
+        let fix_button = crate::work_header::merge_slot_swapped(
+            workflow.final_pr_state.as_deref() == Some(domain::contract::PR_STATE_OPEN),
+            failed_op == Some(crate::pr_merge::FailedOp::Merge),
+            is_conflict,
+            branch.is_some(),
+        )
+        .then(|| {
+            let mut button =
+                Button::new(SharedString::from(format!("workflow-fix-{}", workflow.id)))
+                    .web_sm()
+                    .outline()
+                    .cursor_pointer();
+            if fixing {
+                button = button.label("Fixing…").disabled(true);
+            } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
+                button = button.label("Fix conflicts").tooltip(reason).disabled(true);
+            } else {
+                button = button.label("Fix conflicts");
+            }
+            let click_id = workflow.id.clone();
+            button
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    // The builtin's `pr` input takes the WORKFLOW id (EXP-1072).
+                    this.on_fix_conflicts_click(click_id.clone(), window, cx);
+                }))
+                .into_any_element()
+        });
+        let swapped = fix_button.is_some();
+
+        let merge_button = {
+            let mut button =
+                Button::new(SharedString::from(format!("workflow-merge-{}", workflow.id)))
+                    .web_sm()
+                    .cursor_pointer();
+            button = if swapped {
+                button.ghost()
+            } else {
+                button.outline()
+            };
+            if merging {
+                button = button.label("Merging…").loading(true).disabled(true);
+            } else if armed {
+                button = button.label("Confirm merge").danger().cursor_pointer();
+            } else {
+                button = button.icon(Icon::new(registry::PR_MERGED)).label(if swapped {
+                    crate::work_header::RETRY_MERGE_LABEL
+                } else {
+                    "Merge"
+                });
+            }
+            let workflow_id = workflow.id.clone();
+            button
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    // Echo-settled: the row leaves this list when the synced
+                    // `final_pr_state` flips off `open`.
+                    crate::pr_merge::two_click(
+                        MergeOp::MergeWorkflowFinalPr {
+                            workflow_id: workflow_id.clone(),
+                        },
+                        None,
+                        None,
+                        cx,
+                    );
+                }))
+                .into_any_element()
+        };
+        let trailing = match fix_button {
+            Some(fix) => h_flex()
+                .flex_shrink_0()
+                .items_center()
+                .gap_1()
+                .child(merge_button)
+                .child(fix)
+                .into_any_element(),
+            None => merge_button,
+        };
+
+        let nav_id = workflow.id.clone();
+        crate::surface::flat_row()
+            .id(SharedString::from(format!("workflow-{}", workflow.id)))
+            .flex()
+            .flex_row()
+            .items_center()
+            .w_full()
+            .min_w_0()
+            .px_3()
+            .py_2p5()
+            .gap_2()
+            .when(selected, |this| this.bg(row_active))
+            .hover(move |this| this.bg(row_hover))
+            .cursor_pointer()
+            .on_click(cx.listener(move |_, _, window, cx| {
+                MergeState::disarm(cx);
+                // The workflow's detail: its graph, gate and final PR caption.
+                let screen = Screen::Workflow {
+                    workflow_id: nav_id.clone(),
+                };
+                match Screen::Reviews.list_origin() {
+                    Some(origin) => {
+                        crate::navigation::navigate_from(window, cx, screen, origin)
+                    }
+                    None => crate::navigation::navigate(window, cx, screen),
+                }
+            }))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_0p5()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                Icon::from(ExpIcon::GitPullRequest)
+                                    .xsmall()
+                                    .flex_shrink_0()
+                                    .text_color(pr_green),
+                            )
+                            .when(!number.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_xs()
+                                        .text_color(muted)
+                                        .font_family(theme::terminal::FONT_FAMILY)
+                                        .child(SharedString::from(number.clone())),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .truncate()
+                                    .text_color(fg)
+                                    .child(SharedString::from(title)),
+                            ),
+                    )
+                    .when_some(branch, |this, branch| {
+                        this.child(
+                            div()
+                                .pl_5()
+                                .text_xs()
+                                .truncate()
+                                .font_family(theme::terminal::FONT_FAMILY)
+                                .text_color(muted)
+                                .child(SharedString::from(branch)),
+                        )
+                    })
+                    .when_some(error, |this, message| {
+                        this.child(
+                            div()
+                                .pl_5()
+                                .text_xs()
+                                .truncate()
+                                .text_color(danger)
+                                .child(SharedString::from(message)),
+                        )
+                    }),
+            )
+            .child(trailing)
+            .into_any_element()
+    }
+
     /// One unlinked-PR row: `#N` + title with a trailing Merge button
     /// (disabled for drafts — GitHub refuses those), sub-line `branch → base`,
     /// optional Draft pill and error caption. Clicking the row opens the PR on
@@ -877,11 +1104,21 @@ impl Render for ReviewsView {
             .as_deref()
             .map(|id| queries::review_runs(cx, id))
             .unwrap_or_default();
+        // EXP-1072: each workflow's ONE final PR — the workflow's own, so it
+        // is never listed among the unlinked pulls below.
+        let workflows = team_id
+            .as_deref()
+            .map(|id| queries::review_workflows(cx, id))
+            .unwrap_or_default();
+        let workflow_pr_urls = team_id
+            .as_deref()
+            .map(|id| queries::workflow_final_pr_urls(cx, id))
+            .unwrap_or_default();
         let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
             .open_pulls
             .as_ref()
             .filter(|(ws, _)| Some(ws.as_str()) == team_id.as_deref())
-            .map(|(_, repos)| queries::visible_pull_repos(repos))
+            .map(|(_, repos)| queries::visible_pull_repos(repos, &workflow_pr_urls))
             .unwrap_or_default();
 
         // Unlinked pulls have no Electric echo — a pull merged elsewhere drops
@@ -909,7 +1146,11 @@ impl Render for ReviewsView {
                 .child(crate::controls::skeleton().h_3p5().w_40())
                 .child(crate::controls::skeleton().h_3p5().w_48())
                 .child(crate::controls::skeleton().h_3p5().w_32())
-        } else if groups.is_empty() && runs.is_empty() && pull_repos.is_empty() {
+        } else if groups.is_empty()
+            && workflows.is_empty()
+            && runs.is_empty()
+            && pull_repos.is_empty()
+        {
             // EXP-525: the web `EmptyState` (icon disc + title + description).
             v_flex().min_w_0().child(crate::controls::empty_state(
                 Icon::from(ExpIcon::GitPullRequest),
@@ -987,6 +1228,57 @@ impl Render for ReviewsView {
                         &guides.get(index).cloned().unwrap_or_default(),
                         cx,
                     ));
+                }
+                children.push(block.into_any_element());
+            }
+            // EXP-1072: a workflow's ONE final PR, between the board groups
+            // and the agent runs — the workflow's own linked PR (its merge
+            // completes the workflow), never an external one.
+            if !workflows.is_empty() {
+                let mut block = v_flex().min_w_0().pb_2().child(
+                    // EXP-818: the group BAND (`surface::glass_section_band`).
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .px_3()
+                        .py_1p5()
+                        .mb_1()
+                        .rounded(gpui::px(theme::tokens::radius::MD))
+                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+                        .gap_1p5()
+                        .items_center()
+                        .child(
+                            Icon::new(registry::NAV_WORKFLOWS)
+                                .xsmall()
+                                .flex_shrink_0()
+                                .text_color(heading_fg.opacity(0.7)),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_sm()
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(heading_fg.opacity(0.7))
+                                .child("Workflows"),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(heading_fg.opacity(0.5))
+                                .child(SharedString::from(format!("{}", workflows.len()))),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(muted.opacity(0.8))
+                                .child("final pull requests"),
+                        ),
+                );
+                for workflow in &workflows {
+                    block = block.child(self.workflow_row(workflow, cx));
                 }
                 children.push(block.into_any_element());
             }

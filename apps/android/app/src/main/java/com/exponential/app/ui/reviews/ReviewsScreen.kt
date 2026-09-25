@@ -79,6 +79,8 @@ fun ReviewsScreen(
     // EXP-825: a row's "Fix conflicts" navigates to the Agent page composer
     // on the builtin action with this PR pre-picked (EXP-323).
     onOpenAgent: (AgentComposerSeed) -> Unit,
+    // EXP-1072: a workflow's final-PR row opens the workflow itself.
+    onOpenWorkflow: (String) -> Unit,
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
     Scaffold(containerColor = Color.Transparent) { padding ->
@@ -93,6 +95,7 @@ fun ReviewsScreen(
                 onOpenIssue = onOpenIssue,
                 onOpenChanges = onOpenChanges,
                 onOpenAgent = onOpenAgent,
+                onOpenWorkflow = onOpenWorkflow,
             )
         }
     }
@@ -104,6 +107,7 @@ private fun ReviewsListContent(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
     onOpenAgent: (AgentComposerSeed) -> Unit,
+    onOpenWorkflow: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
@@ -116,6 +120,8 @@ private fun ReviewsListContent(
     var mergeRunTarget by remember { mutableStateOf<RunReviewEntry?>(null) }
     // EXP-897: the bottom row whose whole stack is about to be merged.
     var mergeStackTarget by remember { mutableStateOf<ReviewRowEntry?>(null) }
+    // EXP-1072: the workflow whose FINAL pull request is about to be merged.
+    var mergeWorkflowTarget by remember { mutableStateOf<WorkflowReviewEntry?>(null) }
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
@@ -163,6 +169,31 @@ private fun ReviewsListContent(
                     )
                 }
             }
+            // EXP-1072: the workflows' FINAL pull requests — the one human
+            // sign-off of a whole run. Each is the workflow's own PR: it
+            // merges through the workflow (completing it and its issues), and
+            // a real conflict swaps in the recovery run like any linked PR.
+            if (state.workflows.isNotEmpty()) {
+                item(key = "header-workflows") { WorkflowsHeader() }
+                items(state.workflows, key = { it.groupKey }) { entry ->
+                    WorkflowReviewRow(
+                        entry = entry,
+                        failure = mergeErrors[entry.groupKey],
+                        merging = entry.groupKey in merging,
+                        onClick = { onOpenWorkflow(entry.workflow.id) },
+                        onMerge = { mergeWorkflowTarget = entry },
+                        // The server resolves a WORKFLOW id for the `pr` input.
+                        onFixConflicts = {
+                            onOpenAgent(
+                                AgentComposerSeed(
+                                    actionId = DomainContract.builtinFixConflictsId,
+                                    prIssueId = entry.workflow.id,
+                                ),
+                            )
+                        },
+                    )
+                }
+            }
             // EXP-734: the runs that opened a pull request of their OWN — an
             // action or chat run whose PR links no issue, so no board group
             // can hold it. Listed last, under one header.
@@ -199,6 +230,32 @@ private fun ReviewsListContent(
                 mergeStackTarget = null
             },
             onDismiss = { mergeStackTarget = null },
+        )
+    }
+
+    mergeWorkflowTarget?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { mergeWorkflowTarget = null },
+            title = { Text("Merge PR #${entry.prNumber}?") },
+            text = {
+                Text(
+                    "Squash-merges the final pull request of the workflow " +
+                        "\"${entry.title}\" (${entry.workflow.integrationBranch}) into the " +
+                        "repository's default branch via the GitHub App. This completes the " +
+                        "workflow and moves every landed issue to the team's PR-merge status.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.mergeWorkflow(entry)
+                        mergeWorkflowTarget = null
+                    },
+                ) { Text("Merge") }
+            },
+            dismissButton = {
+                TextButton(onClick = { mergeWorkflowTarget = null }) { Text("Cancel") }
+            },
         )
     }
 
@@ -258,6 +315,123 @@ private fun RunsHeader() {
             )
         },
     )
+}
+
+/**
+ * EXP-1072: the band over the workflows' final pull requests — the
+ * nav-workflows concept glyph, captioned like web's group.
+ */
+@Composable
+private fun WorkflowsHeader() {
+    SectionHeader(
+        "Workflows",
+        leading = {
+            Icon(
+                ExpIcons.navWorkflows,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            )
+        },
+        trailing = {
+            Text(
+                "final pull requests",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        },
+    )
+}
+
+/**
+ * EXP-1072: a workflow's ONE final pull request — the workflow's own PR, so
+ * the row opens the workflow (its page carries the graph and the gate), merges
+ * through `workflows.mergeFinalPr`, and a real conflict swaps the pill for the
+ * recovery run with the WORKFLOW id as its `pr` input.
+ */
+@Composable
+private fun WorkflowReviewRow(
+    entry: WorkflowReviewEntry,
+    failure: MergeFailure?,
+    merging: Boolean,
+    onClick: () -> Unit,
+    onMerge: () -> Unit,
+    onFixConflicts: () -> Unit,
+) {
+    val canFixConflicts = canOfferFixConflicts(failure, entry.branch)
+    Column(modifier = Modifier.fillMaxWidth().testTag("review-workflow-${entry.workflow.id}")) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .flatRow()
+                .clickable(onClick = onClick)
+                .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                ExpIcons.prOpen,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = DesignTokens.Semantic.Green,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        entry.prNumber?.let { "#$it" } ?: "PR",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        entry.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                if (!entry.branch.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        entry.branch,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            GlassPill(
+                if (canFixConflicts) "Fix conflicts" else "Merge",
+                onClick = if (canFixConflicts) onFixConflicts else onMerge,
+                icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                enabled = !merging,
+                loading = merging,
+            )
+        }
+
+        if (failure != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 3.dp)
+                    .glassCard()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    failure.message,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
 }
 
 /**

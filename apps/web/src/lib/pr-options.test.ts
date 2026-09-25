@@ -85,3 +85,27 @@ describe(`findPrOptionForIssue`, () => {
     expect(findPrOptionForIssue(options, `unknown`)).toBeNull()
   })
 })
+
+// EXP-1072: a workflow's OPEN final pull request is a pickable PR — its value
+// is the WORKFLOW id (the server resolves it), its label the PR's title.
+describe(`buildPrOptions with workflows`, () => {
+  it(`lists a workflow's open final pull request under its own id`, () => {
+    const options = buildPrOptions(BATCH_ROWS, new Set([`b-1`]), [
+      { id: `wf-1`, teamId: `t-1`, name: `EXP-996 +5`, finalPrNumber: 829, finalPrState: `open` },
+      { id: `wf-2`, teamId: `t-1`, name: `EXP-1 +1`, finalPrNumber: 830, finalPrState: `merged` },
+      { id: `wf-3`, teamId: `t-1`, name: `EXP-2 +1`, finalPrNumber: null, finalPrState: null },
+    ])
+    const workflow = options.find((option) => option.issueId === `wf-1`)!
+    expect(workflow).toMatchObject({
+      prNumber: 829,
+      label: `#829 · Workflow: EXP-996 +5`,
+      linkedIssueIds: [`wf-1`],
+    })
+    expect(options.some((option) => option.issueId === `wf-2`)).toBe(false)
+    expect(options.some((option) => option.issueId === `wf-3`)).toBe(false)
+    // The Reviews row seeds the field with the workflow id, like an issue id.
+    expect(findPrOptionForIssue(options, `wf-1`)).toBe(workflow)
+    // The issue options are untouched.
+    expect(options).toHaveLength(3)
+  })
+})

@@ -15,10 +15,12 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.WorkflowFinalPr
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.components.toPickerBoard
@@ -229,13 +231,23 @@ class AgentLaunchDataViewModel @Inject constructor(
     val pullRequestOptions: StateFlow<List<StartPullRequestOption>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+        // EXP-1072: the team's workflows — an open FINAL pull request is the
+        // workflow's own PR, pickable like any issue-linked one.
+        combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId == null) {
+                    flowOf(emptyList())
+                } else {
+                    db.workflowDao().observeByTeam(teamId)
+                }
+            },
         selection.selectedId,
-    ) { issues, boards, teamId ->
+    ) { issues, boards, workflows, teamId ->
         if (teamId == null) {
             emptyList()
         } else {
             val teamBoardIds = boards.filter { it.teamId == teamId }.map { it.id }.toSet()
-            buildPullRequestOptions(issues, teamBoardIds)
+            buildPullRequestOptions(issues, teamBoardIds, workflows.filter { it.teamId == teamId })
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 }
@@ -245,9 +257,35 @@ class AgentLaunchDataViewModel @Inject constructor(
  * [teamBoardIds], rows whose PR isn't open, and rows without a `prUrl` are
  * skipped (such an id wouldn't resolve server-side anyway). Sorted by label so
  * the list doesn't reshuffle as sync lands rows; the representative issue is
- * the lowest id, so it doesn't depend on query order either.
+ * the lowest id, so it doesn't depend on query order either. [workflows] (the
+ * team's) add one option per OPEN workflow final PR (EXP-1072).
  */
 fun buildPullRequestOptions(
+    issues: List<IssueEntity>,
+    teamBoardIds: Set<String>,
+    workflows: List<WorkflowEntity> = emptyList(),
+): List<StartPullRequestOption> = (workflowPullRequestOptions(workflows) + issuePullRequestOptions(issues, teamBoardIds))
+    .sortedWith(compareBy({ it.label }, { it.issueId }))
+
+/**
+ * EXP-1072: a workflow whose ONE final pull request is open offers it as the
+ * workflow's OWN PR — value = the workflow id (the server resolves a workflow
+ * id for the `pr` input), labelled like the PR's title
+ * (`#829 · Workflow: EXP-996 +5`, = [WorkflowFinalPr.pickLabel]).
+ */
+private fun workflowPullRequestOptions(workflows: List<WorkflowEntity>): List<StartPullRequestOption> =
+    workflows
+        .filter { it.finalPrState == DomainContract.prStateOpen }
+        .map { workflow ->
+            StartPullRequestOption(
+                issueId = workflow.id,
+                prNumber = workflow.finalPrNumber,
+                identifiers = listOf(WorkflowFinalPr.identifier(workflow.name)),
+                linkedIssueIds = listOf(workflow.id),
+            )
+        }
+
+private fun issuePullRequestOptions(
     issues: List<IssueEntity>,
     teamBoardIds: Set<String>,
 ): List<StartPullRequestOption> = issues
@@ -267,7 +305,6 @@ fun buildPullRequestOptions(
             linkedIssueIds = linked.map { it.id },
         )
     }
-    .sortedWith(compareBy({ it.label }, { it.issueId }))
 
 /**
  * The option a given issue id belongs to — by MEMBERSHIP, not by the

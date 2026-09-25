@@ -1465,16 +1465,78 @@ pub(crate) fn review_runs_from<'a>(
     rows
 }
 
+/// EXP-1072: the Reviews page's "Workflows" block — each workflow's ONE
+/// final pull request (integration branch → default branch) while it is
+/// open. It is the workflow's OWN linked PR, never an unlinked one: the
+/// server keeps it out of `repositories.openPulls`, and no issue row carries
+/// it, so this synced read is the only listing.
+pub fn review_workflows(cx: &App, team_id: &str) -> Vec<domain::rows::WorkflowRow> {
+    review_workflows_from(
+        Store::global(cx).collections().workflows.read(cx).iter(),
+        team_id,
+    )
+}
+
+/// Pure core of [`review_workflows`]: this team's workflows whose final PR
+/// is `open` and has a url, newest `created_at` first (id-tiebroken so the
+/// order is stable across repaints — the collection is a map).
+pub(crate) fn review_workflows_from<'a>(
+    workflows: impl Iterator<Item = &'a domain::rows::WorkflowRow>,
+    team_id: &str,
+) -> Vec<domain::rows::WorkflowRow> {
+    let mut rows: Vec<domain::rows::WorkflowRow> = workflows
+        .filter(|workflow| {
+            workflow.team_id.as_deref() == Some(team_id)
+                && workflow.final_pr_state.as_deref() == Some("open")
+                && workflow
+                    .final_pr_url
+                    .as_deref()
+                    .is_some_and(|url| !url.is_empty())
+        })
+        .cloned()
+        .collect();
+    rows.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    rows
+}
+
+/// EXP-1072: every final-PR url of this team's workflows — the unlinked
+/// pulls below the synced blocks drop these (the server already excludes
+/// them; this is the client-side dedupe for an older server or a lagging
+/// cache).
+pub fn workflow_final_pr_urls(cx: &App, team_id: &str) -> HashSet<String> {
+    Store::global(cx)
+        .collections()
+        .workflows
+        .read(cx)
+        .iter()
+        .filter(|workflow| workflow.team_id.as_deref() == Some(team_id))
+        .filter_map(|workflow| workflow.final_pr_url.clone())
+        .filter(|url| !url.is_empty())
+        .collect()
+}
+
 /// The Reviews page's unlinked-PR sections: keep only repos that have
 /// open pulls (the server returns every team repo, unreachable ones with
-/// an empty list — an empty section is noise, web parity).
+/// an empty list — an empty section is noise, web parity). EXP-1072: a pull
+/// whose url is a workflow's final PR (`workflow_pr_urls`) is the workflow's
+/// own and renders in the Workflows block instead — never here.
 pub fn visible_pull_repos(
     repos: &[api::repositories::OpenPullsRepo],
+    workflow_pr_urls: &HashSet<String>,
 ) -> Vec<api::repositories::OpenPullsRepo> {
     repos
         .iter()
+        .map(|repo| {
+            let mut repo = repo.clone();
+            repo.pulls
+                .retain(|pull| !workflow_pr_urls.contains(&pull.url));
+            repo
+        })
         .filter(|repo| !repo.pulls.is_empty())
-        .cloned()
         .collect()
 }
 
@@ -3226,9 +3288,67 @@ mod tests {
     #[test]
     fn visible_pull_repos_hides_empty_repos() {
         let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[])];
-        let visible = visible_pull_repos(&repos);
+        let visible = visible_pull_repos(&repos, &HashSet::new());
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].repository_id, "repo-1");
+    }
+
+    /// EXP-1072: a workflow's final PR is the workflow's own — it never
+    /// renders among the unlinked pulls, and a repo left empty by that drops.
+    #[test]
+    fn visible_pull_repos_drops_workflow_final_prs() {
+        let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[3])];
+        let urls: HashSet<String> = [
+            "https://github.com/acme/web/pull/2".to_string(),
+            "https://github.com/acme/web/pull/3".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        let visible = visible_pull_repos(&repos, &urls);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].repository_id, "repo-1");
+        assert_eq!(
+            visible[0].pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
+            [1]
+        );
+    }
+
+    /// EXP-1072: the "Workflows" block lists this team's workflows whose ONE
+    /// final PR is open, newest first.
+    #[test]
+    fn review_workflows_from_lists_only_this_teams_open_final_prs() {
+        let workflow = |id: &str,
+                        team: &str,
+                        url: Option<&str>,
+                        state: Option<&str>,
+                        created_at: &str|
+         -> domain::rows::WorkflowRow {
+            serde_json::from_value(json!({
+                "id": id, "team_id": team, "name": format!("wf {id}"),
+                "status": "running", "integration_branch": format!("exp/wf-{id}"),
+                "final_pr_url": url, "final_pr_number": "12", "final_pr_state": state,
+                "created_at": created_at,
+            }))
+            .unwrap()
+        };
+        let newest = workflow("wf-new", "t-1", Some("pr/1"), Some("open"), "2026-09-04T10:00:00Z");
+        let older = workflow("wf-old", "t-1", Some("pr/2"), Some("open"), "2026-09-01T10:00:00Z");
+        // Excluded: another team, a merged/closed final PR, none opened yet.
+        let other_team = workflow("wf-x", "t-2", Some("pr/9"), Some("open"), "2026-09-03T10:00:00Z");
+        let merged = workflow("wf-m", "t-1", Some("pr/3"), Some("merged"), "2026-09-03T10:00:00Z");
+        let closed = workflow("wf-c", "t-1", Some("pr/4"), Some("closed"), "2026-09-03T10:00:00Z");
+        let unopened = workflow("wf-u", "t-1", None, None, "2026-09-03T10:00:00Z");
+        let urlless = workflow("wf-e", "t-1", Some(""), Some("open"), "2026-09-03T10:00:00Z");
+
+        let rows = review_workflows_from(
+            [&older, &other_team, &newest, &merged, &closed, &unopened, &urlless].into_iter(),
+            "t-1",
+        );
+        assert_eq!(
+            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            ["wf-new", "wf-old"]
+        );
+        assert_eq!(rows[0].final_pr_number, Some(12));
     }
 
     #[test]
