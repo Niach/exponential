@@ -85,7 +85,9 @@ const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 /** FEED-36: the caller's LIVE sessions per machine (`running`/`in_review`
  * off the synced coding_sessions shape), with the issue identifier joined
  * for the blocker line. One query for the whole list, not one per row. */
-function useUpdateBlockers(): (device: SteerDevice) => UpdateBlockerSession[] {
+function useUpdateBlockers(
+  teamId: string | undefined
+): (device: SteerDevice) => UpdateBlockerSession[] {
   const { data: sessionRows } = useLiveQuery(
     (q) =>
       q
@@ -125,6 +127,10 @@ function useUpdateBlockers(): (device: SteerDevice) => UpdateBlockerSession[] {
         userId: s.userId,
         startedAt: s.startedAt,
         updatedAt: s.updatedAt,
+        // EXP-1075: the shape spans every team the caller syncs, and one
+        // machine runs them all — a blocker from elsewhere is counted but
+        // never named.
+        foreignTeam: s.teamId !== teamId,
       }))
 }
 
@@ -217,7 +223,7 @@ export function MyMachines({
   // EXP-909: 30 s, not the default minute — the login rows under each device
   // age their "as of …" captions on this clock, and so does the refresh loop.
   const now = useNow(30_000)
-  const blockersFor = useUpdateBlockers()
+  const blockersFor = useUpdateBlockers(teamId)
   const { data: userRows } = useLiveQuery(
     (q) => q.from({ u: userCollection }),
     []

@@ -24,7 +24,7 @@
 //! by name via the `ui::init` panel registry. v1 scope: layout only — no
 //! per-panel inner-state round-trip.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
@@ -403,6 +403,13 @@ pub struct Shell {
     /// window's size (see [`crate::window_size::WindowSizeTracker`]). Only
     /// ordinal 0 observes bounds, so it is inert on further windows.
     size_tracker: crate::window_size::WindowSizeTracker,
+    /// EXP-1075: my own live runs per team — what the fixed header's team
+    /// switcher draws its dot from. Held (not derived per paint) so the
+    /// switcher repaints only when a team's tally actually moves.
+    team_live_runs: BTreeMap<String, crate::queries::TeamLiveRuns>,
+    /// The clock half of that tally: a run going stale produces no collection
+    /// delta, so the map is re-derived on the session lists' own tick.
+    _team_runs_tick: Task<()>,
 }
 
 impl Shell {
@@ -431,6 +438,26 @@ impl Shell {
         // changes.
         let shared = Store::global(cx).state();
         cx.observe(&shared, |_, _, cx| cx.notify()).detach();
+
+        // EXP-1075: the team switcher's live-run dot. Its inputs are my
+        // `coding_sessions` rows, the issues whose `pr_state` demotes a
+        // `needs_input`, and the runs THIS process hosts (which count with no
+        // relay at all).
+        let collections = Store::global(cx).collections().clone();
+        cx.observe(&collections.coding_sessions, |this: &mut Self, _, cx| {
+            this.refresh_team_runs(cx)
+        })
+        .detach();
+        cx.observe(&collections.issues, |this: &mut Self, _, cx| {
+            this.refresh_team_runs(cx)
+        })
+        .detach();
+        let local_sessions = crate::coding_flow::LocalSessions::global(cx);
+        cx.observe(&local_sessions, |this: &mut Self, _, cx| {
+            this.refresh_team_runs(cx)
+        })
+        .detach();
+        let team_live_runs = crate::queries::own_live_runs_by_team_now(cx);
 
         // Re-render when the launch-time update check flips the "update
         // available" flag (§11.2) so the dismissible banner appears without a
@@ -631,6 +658,24 @@ impl Shell {
             size_tracker: crate::window_size::WindowSizeTracker::new(
                 crate::window_size::launch_size(),
             ),
+            team_live_runs,
+            _team_runs_tick: crate::sessions_section::tick(
+                cx,
+                |this: &mut Self, cx| this.refresh_team_runs(cx),
+            ),
+        }
+    }
+
+    /// EXP-1075 — re-derive the team switcher's live-run tally
+    /// ([`crate::queries::own_live_runs_by_team_now`]). Notifies ONLY when the
+    /// map moved: its inputs (every session delta, a 5s tick) fire far more
+    /// often than a dot changes, and the fixed header repaints the whole
+    /// column.
+    fn refresh_team_runs(&mut self, cx: &mut gpui::Context<Self>) {
+        let next = crate::queries::own_live_runs_by_team_now(cx);
+        if next != self.team_live_runs {
+            self.team_live_runs = next;
+            cx.notify();
         }
     }
 
@@ -703,7 +748,8 @@ impl Shell {
             cx,
         );
         let nav = navigation::nav_for_window(window, cx);
-        let header = crate::sidebar::render_left_column_header(&nav, cx);
+        let header =
+            crate::sidebar::render_left_column_header(&nav, &self.team_live_runs, cx);
 
         // EXP-870: under the fixed header the column is TWO slots side by
         // side — the rail (expanded, or folded to its icon column while a

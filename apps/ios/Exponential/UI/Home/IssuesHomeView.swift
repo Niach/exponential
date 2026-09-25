@@ -114,6 +114,8 @@ struct IssuesHomeView: View {
             BoardSwitcherSheet(
                 boardLoader: boardLoader,
                 currentBoard: currentBoard,
+                liveRunsByTeam: teamState.liveRunsByTeam,
+                activeTeamId: teamState.activeTeamId,
                 onSelect: { accountId, boardId in
                     showSwitcher = false
                     onSelectBoard(accountId, boardId)
@@ -223,10 +225,45 @@ struct IssuesHomeView: View {
         } trailing: {
             AppIcon(AppIcons.navTeamSwitcher, size: GlassPillTokens.glyphMd)
                 .foregroundStyle(.white.opacity(hasAnyBoards ? TextOpacity.secondary : TextOpacity.quaternary))
+                // EXP-1075: "another team has your live runs". The lists and
+                // the Agents tab dot are ACTIVE-team-only, so an own run in
+                // another team is otherwise silent — this is the pointer to
+                // the switcher that reveals it. A dot, never a count; the
+                // active team's own runs are the tab's job.
+                .overlay(alignment: .topTrailing) { otherTeamRunsDot }
         }
         // MUST stay on the tappable element: the styleguide/screenshot suites
         // reach the switcher via `app.buttons["Switch board"]`.
         .accessibilityLabel("Switch board")
+    }
+
+    /// The switcher pill's live-elsewhere dot: amber when any of those runs
+    /// wants the user, else green — the SAME tone rule as the Agents tab dot
+    /// (`AppNavigator.recomputeAgentDots`). Sits on the expander glyph's
+    /// top-trailing corner with a background-coloured ring so it separates
+    /// from the chevron the way the tab bar's badge separates from its icon.
+    @ViewBuilder
+    private var otherTeamRunsDot: some View {
+        let elsewhere = CodingSessionOwnership.otherTeamsLive(
+            teamState.liveRunsByTeam, activeTeamId: teamState.activeTeamId
+        )
+        if elsewhere.any {
+            Circle()
+                .fill(SessionStateDot.color(elsewhere.needsInput ? .needsInput : .running))
+                .frame(width: 6, height: 6)
+                // A 1pt background ring, so the dot reads as its own mark
+                // rather than a serif on the chevron.
+                .background {
+                    Circle()
+                        .fill(DesignTokens.Palette.background)
+                        .frame(width: 8, height: 8)
+                }
+                .offset(x: 3, y: -3)
+                // The pill's own "Switch board" label MUST stay the button's
+                // whole label (the screenshot suites select on it); the sheet
+                // this opens carries the spoken "Live runs".
+                .accessibilityHidden(true)
+        }
     }
 
     // MARK: - Empty state

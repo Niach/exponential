@@ -278,13 +278,24 @@ export interface UpdateBlockerSession {
   userId: string
   startedAt: Date | string
   updatedAt: Date | string
+  /** EXP-1075: the run belongs to a team OTHER than the one this screen is
+   * showing. The machine is one machine across every team, so its queued
+   * update is held by runs the reader may have no business seeing named. */
+  foreignTeam: boolean
 }
 
 /** `EXP-12` for an issue run, the action's name for an action run, `Chat`
- * for a repo-less/batch one — the same precedence `childRunLabel` uses. */
+ * for a repo-less/batch one — the same precedence `childRunLabel` uses.
+ * EXP-1075: a run in another team is named GENERICALLY — the blocker line
+ * must explain why the update waits without leaking another team's issue
+ * identifiers or action names into this one. */
 export function updateBlockerLabel(
-  session: Pick<UpdateBlockerSession, `issueIdentifier` | `actionName`>
+  session: Pick<
+    UpdateBlockerSession,
+    `issueIdentifier` | `actionName` | `foreignTeam`
+  >
 ): string {
+  if (session.foreignTeam) return `a run in another team`
   return session.issueIdentifier ?? session.actionName ?? `Chat`
 }
 

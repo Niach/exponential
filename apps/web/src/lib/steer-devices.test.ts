@@ -912,6 +912,7 @@ describe(`update blockers (FEED-36)`, () => {
     userId: `u-danny`,
     startedAt: `2026-09-09T13:12:00Z`,
     updatedAt: `2026-09-09T16:29:00Z`,
+    foreignTeam: false,
     ...over,
   })
   const users = new Map([
@@ -931,13 +932,53 @@ describe(`update blockers (FEED-36)`, () => {
 
   it(`labels a row by issue, then action, then Chat`, () => {
     expect(
-      updateBlockerLabel({ issueIdentifier: `EXP-12`, actionName: `Nightly` })
+      updateBlockerLabel({
+        issueIdentifier: `EXP-12`,
+        actionName: `Nightly`,
+        foreignTeam: false,
+      })
     ).toBe(`EXP-12`)
     expect(
-      updateBlockerLabel({ issueIdentifier: null, actionName: `Nightly` })
+      updateBlockerLabel({
+        issueIdentifier: null,
+        actionName: `Nightly`,
+        foreignTeam: false,
+      })
     ).toBe(`Nightly`)
-    expect(updateBlockerLabel({ issueIdentifier: null, actionName: null })).toBe(
-      `Chat`
+    expect(
+      updateBlockerLabel({
+        issueIdentifier: null,
+        actionName: null,
+        foreignTeam: false,
+      })
+    ).toBe(`Chat`)
+  })
+
+  // EXP-1075: one machine serves every team, so its queued update can be held
+  // by a run the reader is not looking at — say THAT, never its identifier.
+  it(`names a blocker from another team generically`, () => {
+    expect(
+      updateBlockerLabel({
+        issueIdentifier: `MET-9`,
+        actionName: `Nightly`,
+        foreignTeam: true,
+      })
+    ).toBe(`a run in another team`)
+    const text = describeUpdateBlockers(
+      [
+        session({ issueIdentifier: `EXP-12` }),
+        session({
+          issueIdentifier: `MET-9`,
+          foreignTeam: true,
+          userId: `u-lisa`,
+          startedAt: `2026-09-09T14:02:00Z`,
+        }),
+      ],
+      users,
+      NOW
+    )
+    expect(text).toBe(
+      `Update queued behind 2 live sessions: EXP-12 · Danny · started ${local(`2026-09-09T13:12:00Z`)}; a run in another team · Lisa · started ${local(`2026-09-09T14:02:00Z`)}`
     )
   })
 

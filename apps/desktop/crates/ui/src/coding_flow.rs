@@ -1629,6 +1629,11 @@ pub(crate) fn follow_remote_start(
     cx: &mut App,
 ) {
     let known: HashSet<String> = session_ids(cx);
+    // EXP-1075: the run lands on the team the launch was made from. The
+    // predicate is TOLERANT — a row whose `team_id` has not decoded is never
+    // dropped, because losing the run we just started is worse than following
+    // a row that turns out to live elsewhere.
+    let team = crate::navigation::active_team_id(&crate::navigation::nav_for_window(window, cx), cx);
     // EXP-1037: the run opens SECONDS from now, in a window that still
     // exists then — a composer DIALOG has closed itself by that point, so the
     // wait is pinned to the window that opened it.
@@ -1637,7 +1642,8 @@ pub(crate) fn follow_remote_start(
         let deadline = std::time::Instant::now() + REMOTE_OPEN_WAIT;
         loop {
             cx.background_executor().timer(REMOTE_OPEN_TICK).await;
-            if let Some(session_id) = cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, cx))
+            if let Some(session_id) =
+                cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
             {
                 // The window may have closed while we waited; there is nothing
                 // else to do with the run then (its tab opens on the next
@@ -1670,12 +1676,18 @@ fn session_ids(cx: &App) -> HashSet<String> {
         .collect()
 }
 
-/// The newest row that is NEW (not in `known`), live, hosted on `device_id` and
-/// matches `subject`.
+/// The newest row that is NEW (not in `known`), live, hosted on `device_id`,
+/// on `team` and matching `subject`.
+///
+/// EXP-1075: `team` is the team the start was made from — the run opens there,
+/// where its rail row is. The check is TOLERANT: a row whose `team_id` is
+/// `None` (not decoded yet) still matches, because the alternative is silently
+/// losing the run the user just started.
 fn fresh_remote_run(
     known: &HashSet<String>,
     device_id: &str,
     subject: &RemoteRunSubject,
+    team: Option<&str>,
     cx: &App,
 ) -> Option<String> {
     let store = Store::try_global(cx)?;
@@ -1685,6 +1697,10 @@ fn fresh_remote_run(
         .filter(|row| !known.contains(&row.id))
         .filter(|row| row.device_id.as_deref() == Some(device_id))
         .filter(|row| row.status.as_deref() != Some("ended"))
+        .filter(|row| match team {
+            Some(team) => row.team_id.is_none() || row.team_id.as_deref() == Some(team),
+            None => true,
+        })
         .filter(|row| subject.matches(row))
         .max_by(|a, b| {
             a.started_at

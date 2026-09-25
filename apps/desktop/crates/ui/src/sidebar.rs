@@ -34,7 +34,7 @@
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::{
@@ -1089,7 +1089,10 @@ impl RailView {
     /// Returns `None` with nothing running (the caller renders neither the
     /// rule nor the label).
     fn render_running_section(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        let rows = crate::sessions_section::rail_running_rows(cx);
+        // EXP-1075: the ACTIVE team's own live runs only — the other teams
+        // are the switcher's dot now.
+        let nav = self.nav.clone();
+        let rows = crate::sessions_section::rail_running_rows(&nav, cx);
         // EXP-996: the icon column draws no structure — 14px of indent inside a
         // 32px square would only clip the mark, and a group row there would be
         // a square with no work behind it. The runs stay, flat.
@@ -1880,6 +1883,23 @@ pub(crate) fn left_column_divider(cx: &App) -> gpui::AnyElement {
         .into_any_element()
 }
 
+/// EXP-1075 — one team's live-run dot, or `None` when that team has none of
+/// my runs going. Amber while any of them is parked on a question, else the
+/// plain live green ([`session_dot_tone`]'s tokens — one palette, one
+/// meaning). A DOT, never a count: the switcher answers "is something waiting
+/// for me elsewhere", and the number is the rail's job once you are there.
+fn team_run_dot(live: Option<&queries::TeamLiveRuns>) -> Option<Hsla> {
+    let runs = live?;
+    if runs.count == 0 {
+        return None;
+    }
+    Some(if runs.needs_input {
+        theme::tokens::YELLOW.to_hsla()
+    } else {
+        theme::tokens::GREEN.to_hsla()
+    })
+}
+
 /// EXP-723: the sidebar's header row, the desktop mirror of the web
 /// `SidebarHeader` (`apps/web/src/components/team/sidebar.tsx`): the team
 /// switcher taking the width, then icon-only Search and New issue.
@@ -1899,24 +1919,40 @@ pub(crate) fn left_column_divider(cx: &App) -> gpui::AnyElement {
 /// through the actions.
 pub(crate) fn render_left_column_header(
     nav: &Entity<Navigation>,
+    live: &BTreeMap<String, queries::TeamLiveRuns>,
     cx: &mut App,
 ) -> impl IntoElement {
     let active_team = active_team_id(nav, cx);
-    let teams: Vec<(String, String, bool)> = Store::global(cx)
+    // EXP-1075: the rail's Running section is the ACTIVE team's runs now, so
+    // the switcher carries the others — a dot per team, never a count.
+    let teams: Vec<(String, String, bool, Option<Hsla>)> = Store::global(cx)
         .collections()
         .teams_sorted(cx)
         .into_iter()
         .map(|team| {
             let active = Some(team.id.as_str()) == active_team.as_deref();
-            (team.id, team.name, active)
+            let dot = team_run_dot(live.get(&team.id));
+            (team.id, team.name, active, dot)
         })
         .collect();
+    // The trigger's own dot folds every OTHER team into one: amber wins over
+    // green, because a run asking a question is the thing you must be told.
+    let elsewhere = teams
+        .iter()
+        .filter(|(_, _, active, _)| !*active)
+        .filter_map(|(id, _, _, _)| live.get(id))
+        .fold(queries::TeamLiveRuns::default(), |mut acc, runs| {
+            acc.count += runs.count;
+            acc.needs_input |= runs.needs_input && runs.count > 0;
+            acc
+        });
+    let elsewhere_tone = team_run_dot(Some(&elsewhere));
     // The trigger names the ACTIVE team; nothing synced yet degrades to
     // the app letter (`team_avatar`'s own fallback) and an empty label.
     let team_name: SharedString = teams
         .iter()
-        .find(|(_, _, active)| *active)
-        .map(|(_, name, _)| SharedString::from(name.clone()))
+        .find(|(_, _, active, _)| *active)
+        .map(|(_, name, _, _)| SharedString::from(name.clone()))
         .unwrap_or_default();
     // EXP-449: `active_board_id` falls back to the team's first board, so
     // this is `None` only when nothing is in scope at all.
@@ -1944,10 +1980,33 @@ pub(crate) fn render_left_column_header(
                         .child(team_name.clone()),
                 )
                 .child(
-                    Icon::new(registry::NAV_TEAM_SWITCHER)
-                        .xsmall()
+                    // EXP-1075: the chevron wears the other teams' live-run
+                    // dot on its corner — the rail running row's badge, on
+                    // the one glyph that means "somewhere else".
+                    div()
+                        .relative()
                         .flex_shrink_0()
-                        .text_color(cx.theme().muted_foreground),
+                        .child(
+                            Icon::new(registry::NAV_TEAM_SWITCHER)
+                                .xsmall()
+                                .flex_shrink_0()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .when_some(elsewhere_tone, |this, tone| {
+                            this.child(
+                                div()
+                                    .absolute()
+                                    .top(px(-2.))
+                                    .right(px(-2.))
+                                    .size(px(6.))
+                                    .rounded_full()
+                                    .bg(tone)
+                                    // The hairline keeps the dot readable
+                                    // over the glyph it overlaps.
+                                    .border_1()
+                                    .border_color(theme::tokens::BACKGROUND.to_hsla()),
+                            )
+                        }),
                 ),
         )
         .dropdown_menu_with_anchor(gpui::Anchor::TopLeft, move |menu, _window, _cx| {
@@ -1955,14 +2014,35 @@ pub(crate) fn render_left_column_header(
             // shown, even with a single team (EXP-434: no teams=1 special
             // case anywhere).
             let mut menu = menu;
-            for (id, name, active) in &teams {
-                menu = menu.menu_with_check(
-                    SharedString::from(name.clone()),
-                    *active,
-                    Box::new(SwitchTeam {
-                        team_id: id.clone(),
-                    }),
-                );
+            for (id, name, active, dot) in &teams {
+                let label = SharedString::from(name.clone());
+                let switch = Box::new(SwitchTeam {
+                    team_id: id.clone(),
+                });
+                // EXP-1075: the ACTIVE team never wears a dot — its runs are
+                // the rail's Running section, right there. Every other team
+                // with live runs of mine gets the trailing 6px disc.
+                match (*active, *dot) {
+                    (false, Some(tone)) => {
+                        menu = menu.menu_element_with_check(false, switch, move |_window, _cx| {
+                            h_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .items_center()
+                                .justify_between()
+                                .gap_2()
+                                .child(div().truncate().child(label.clone()))
+                                .child(
+                                    div()
+                                        .size(px(6.))
+                                        .rounded_full()
+                                        .flex_shrink_0()
+                                        .bg(tone),
+                                )
+                        });
+                    }
+                    _ => menu = menu.menu_with_check(label, *active, switch),
+                }
             }
             menu.separator()
                 .menu_with_icon("New team", registry::UI_ADD, Box::new(CreateTeam))
