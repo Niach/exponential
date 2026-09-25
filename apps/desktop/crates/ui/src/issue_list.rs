@@ -42,6 +42,7 @@ use sync::Store;
 use theme::tokens as t;
 
 use domain::board::format_short_date;
+use domain::issue_estimate::{estimate_label, estimate_picker_values, NO_ESTIMATE};
 use domain::issue_rail::{issue_rail, BlockEdge, RailEntry, RailRow};
 use domain::options::{get_issue_priority_config, ColorToken, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::{Issue, Label, Board, User};
@@ -2221,11 +2222,12 @@ fn assignable_users(board_id: &str, current: Option<&str>, cx: &App) -> Vec<User
 // Row context menu (web `issue-row-menu/context-menu.tsx`)
 // ---------------------------------------------------------------------------
 
-/// Mirror of the web `IssueRowContextMenu`: header label, Open issue, Mark as
-/// done / Move to backlog, Copy issue ID, Mark as duplicate… / Unmark duplicate,
-/// then Status / Assignee / Priority / Labels /
-/// Move-to-board / Set-due-date submenus, then the Delete-issue confirm
-/// submenu. Mutations are the §4.1 un-gated form.
+/// Mirror of the web issue context menu — ONE layout, `@exp/ui`
+/// `ISSUE_MENU_LAYOUT` (`packages/ui/src/issue-menu.ts`, the styleguide's
+/// "Issue context menu"): header label, Open issue, Mark as done / Move to
+/// backlog, Copy issue ID, Unmark duplicate, then the Status / Assignee /
+/// Priority / Labels / Estimate / Set-due-date / Move-to-board / Add-relation
+/// submenus, then Delete issue. Mutations are the §4.1 un-gated form.
 pub(crate) fn build_row_context_menu(
     menu: PopupMenu,
     issue: &Issue,
@@ -2439,21 +2441,41 @@ pub(crate) fn build_row_context_menu(
         });
     }
 
-    // Move to board submenu (EXP-57, web `BoardSubmenu`): the team's
-    // boards with the current one disabled; hidden unless another board
-    // exists. The server renumbers the issue in the target board
-    // (EXP-42 → ABC-17); the row re-homes on the Electric echo.
-    if !move_target_boards(cx, &issue.board_id).is_empty() {
+    // Estimate submenu (EXP-1077, web `EstimateSubmenu`): "No estimate", then
+    // the team scale's ladder (plus an off-ladder current value) — the
+    // header's `estimate_control` rows. Absent while the team's scale is
+    // `none`: estimates are OFF, not merely empty.
+    if let Some(scale) = estimate_scale_of(&issue.board_id, cx) {
         let issue_id = issue.id.clone();
-        let identifier = issue.identifier.clone();
-        let board_id = issue.board_id.clone();
-        menu = menu.submenu_with_icon(
-            Some(Icon::from(ExpIcon::SquareKanban)),
-            "Move to board",
-            window,
-            cx,
-            move |menu, _, cx| move_to_board_menu(menu, &issue_id, &identifier, &board_id, cx),
-        );
+        let current = issue.estimate;
+        let icon = Icon::new(registry::UI_ESTIMATE);
+        menu = menu.submenu_with_icon(Some(icon), "Estimate", window, cx, move |menu, _, _| {
+            let mut menu = menu.check_side(Side::Right);
+            let clear_id = issue_id.clone();
+            menu = menu.item(
+                PopupMenuItem::new(SharedString::from(NO_ESTIMATE))
+                    .checked(current.is_none())
+                    .on_click(move |_, _, cx| {
+                        let mut input = api::issues::IssuesUpdateInput::new(clear_id.clone());
+                        input.estimate = api::Patch::Null;
+                        spawn_issue_update(cx, input);
+                    }),
+            );
+            for value in estimate_picker_values(current, &scale) {
+                let issue_id = issue_id.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(SharedString::from(estimate_label(Some(value), &scale)))
+                        .checked(current == Some(value))
+                        .on_click(move |_, _, cx| {
+                            let mut input =
+                                api::issues::IssuesUpdateInput::new(issue_id.clone());
+                            input.estimate = api::Patch::Set(value);
+                            spawn_issue_update(cx, input);
+                        }),
+                );
+            }
+            menu
+        });
     }
 
     // Set due date submenu (web `due-date-presets.tsx`: Tomorrow / End of this
@@ -2497,6 +2519,23 @@ pub(crate) fn build_row_context_menu(
             }
             menu
         });
+    }
+
+    // Move to board submenu (EXP-57, web `BoardSubmenu`): the team's
+    // boards with the current one disabled; hidden unless another board
+    // exists. The server renumbers the issue in the target board
+    // (EXP-42 → ABC-17); the row re-homes on the Electric echo.
+    if !move_target_boards(cx, &issue.board_id).is_empty() {
+        let issue_id = issue.id.clone();
+        let identifier = issue.identifier.clone();
+        let board_id = issue.board_id.clone();
+        menu = menu.submenu_with_icon(
+            Some(Icon::from(ExpIcon::SquareKanban)),
+            "Move to board",
+            window,
+            cx,
+            move |menu, _, cx| move_to_board_menu(menu, &issue_id, &identifier, &board_id, cx),
+        );
     }
 
     // EXP-760: "Add relation" — the same six picks the issue header's `…`
@@ -2715,6 +2754,15 @@ pub(crate) fn spawn_issue_delete(cx: &mut App, issue_id: String) {
 /// thread; the UI reflects the change when the Electric echo lands (observe →
 /// re-render). Errors are logged — the row simply stays put (the echo never
 /// arrives), matching the web's silent-toastless inline behavior.
+/// The team's estimate scale behind a board (`teams.estimation_type`), or
+/// `None` while the team does not estimate (EXP-630 `none`).
+fn estimate_scale_of(board_id: &str, cx: &App) -> Option<String> {
+    let collections = Store::global(cx).collections();
+    let team_id = collections.boards.read(cx).get(board_id)?.team_id.clone();
+    let scale = collections.teams.read(cx).get(&team_id)?.estimation().to_string();
+    (scale != domain::contract::ISSUE_ESTIMATION_NONE).then_some(scale)
+}
+
 fn spawn_issue_update(cx: &mut App, input: api::issues::IssuesUpdateInput) {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] issues.update skipped: no signed-in account");
