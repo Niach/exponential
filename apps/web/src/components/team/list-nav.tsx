@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { GitPullRequest } from "lucide-react"
-import type { Board, CodingSession, Team } from "@/db/schema"
+import type { Board, CodingSession, Label, Team, User } from "@/db/schema"
+import type { IssueGroup } from "@/lib/board-view"
 import {
   originBoardSlug,
   originLabel,
@@ -25,6 +26,8 @@ import {
   SegmentedControl,
 } from "@exp/ui"
 import { BoardIssueListPane } from "@/components/board-issue-list-pane"
+import { BulkActionBar } from "@/components/bulk-action-bar"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { SupportThreadList } from "@/components/helpdesk/support-inbox"
 import { SidebarBackRow } from "@/components/team/sidebar-back-row"
@@ -115,6 +118,88 @@ function useActiveDetail(): {
   }
 }
 
+/** EXP-996/EXP-1048: the sidebar's issue pane WITH the multiselect the IDE's
+ *  own list column has (`sidebar.rs` `nav_*`). The selection lives here — the
+ *  board page's model exactly: the host owns the ids, the list owns the
+ *  gestures, and the bulk bar renders outside the pane's scrollport. Its
+ *  "Start coding" IS the run entry point the selection feeds; no new copy. */
+function IssueNavPane({
+  groups,
+  teamSlug,
+  boardSlug,
+  boardSlugById,
+  activeIssueId,
+  from,
+  team,
+  issueLabelMap,
+  labels,
+  users,
+  listKey,
+}: {
+  groups: IssueGroup[]
+  teamSlug: string
+  boardSlug: string
+  boardSlugById?: Map<string, string>
+  activeIssueId: string
+  from: string
+  team: Team | null | undefined
+  issueLabelMap: Map<string, Label[]>
+  labels: Label[]
+  users: User[]
+  /** WHICH list this is. The selection is per list: a new occupant starts
+   *  empty (the IDE clears it on every origin change). */
+  listKey: string
+}) {
+  const permissions = useTeamPermissions(team)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [listKey])
+  const selectedIssues = useMemo(
+    () =>
+      groups
+        .flatMap((group) => group.issues)
+        .filter((issue) => selectedIds.has(issue.id)),
+    [groups, selectedIds]
+  )
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <BoardIssueListPane
+        groups={groups}
+        teamSlug={teamSlug}
+        boardSlug={boardSlug}
+        boardSlugById={boardSlugById}
+        activeIssueId={activeIssueId}
+        from={from}
+        bulkTeamId={team?.id}
+        canModerate={permissions.isModerator}
+        selectedIds={selectedIds}
+        onSelectedIdsChange={setSelectedIds}
+      />
+      {team && selectedIssues.length > 0 && (
+        // EXP-289's no-jump rule: the bar FLOATS over the bottom of the rows,
+        // which never move for it. The strip itself is click-through, so the
+        // rows beside the capsule stay reachable.
+        <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center px-2">
+          <div className="pointer-events-auto">
+            {/* 17rem of column: glyphs only, folding onto a second line. */}
+            <BulkActionBar
+              issues={selectedIssues}
+              issueLabelMap={issueLabelMap}
+              labels={labels}
+              users={users}
+              teamId={team.id}
+              onClear={() => setSelectedIds(new Set())}
+              iconOnly
+              wrap
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** The board's issue rows — the same pane the issue page used to carry on its
  *  left, now in the sidebar where one list belongs. */
 function BoardListNav({
@@ -124,10 +209,15 @@ function BoardListNav({
   teamSlug: string
   boardSlug: string
 }) {
-  const { visibleGroups, boardReady, board } = useBoardViewData({
-    boardSlug,
-    teamSlug,
-  })
+  const {
+    visibleGroups,
+    boardReady,
+    board,
+    team,
+    issueLabelMap,
+    labelList,
+    users,
+  } = useBoardViewData({ boardSlug, teamSlug })
   const { issueIdentifier } = useActiveDetail()
   const activeIssueId = useMemo(() => {
     if (!issueIdentifier) return ``
@@ -148,12 +238,17 @@ function BoardListNav({
     )
   }
   return (
-    <BoardIssueListPane
+    <IssueNavPane
       groups={visibleGroups}
       teamSlug={teamSlug}
       boardSlug={boardSlug}
       activeIssueId={activeIssueId}
       from={`board:${boardSlug}`}
+      team={team}
+      issueLabelMap={issueLabelMap}
+      labels={labelList}
+      users={users}
+      listKey={`board:${boardSlug}`}
     />
   )
 }
@@ -210,10 +305,8 @@ function InboxNavRows({ teamSlug }: { teamSlug: string }) {
 
 function MyIssuesNavRows({ teamSlug }: { teamSlug: string }) {
   const { data: session } = useSession()
-  const { visibleGroups, boardMap } = useMyIssuesData({
-    userId: session?.user?.id,
-    teamSlug,
-  })
+  const { visibleGroups, boardMap, team, issueLabelMap, labelList, users } =
+    useMyIssuesData({ userId: session?.user?.id, teamSlug })
   const { issueIdentifier } = useActiveDetail()
   const boardSlugById = useMemo(
     () =>
@@ -233,7 +326,7 @@ function MyIssuesNavRows({ teamSlug }: { teamSlug: string }) {
     return ``
   }, [visibleGroups, issueIdentifier])
   return (
-    <BoardIssueListPane
+    <IssueNavPane
       groups={visibleGroups}
       teamSlug={teamSlug}
       // Cross-board: every row resolves its own board, this is the fallback.
@@ -241,6 +334,11 @@ function MyIssuesNavRows({ teamSlug }: { teamSlug: string }) {
       boardSlugById={boardSlugById}
       activeIssueId={activeIssueId}
       from="inbox:my-issues"
+      team={team}
+      issueLabelMap={issueLabelMap}
+      labels={labelList}
+      users={users}
+      listKey={`inbox:my-issues`}
     />
   )
 }

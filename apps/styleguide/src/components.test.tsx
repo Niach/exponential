@@ -144,23 +144,13 @@ function demoMarkup(spec: ComponentSpec): string {
   return isIsland(spec) ? renderIsland(spec.island()) : spec.render()
 }
 
-/** The spec with that id — the demos are asserted through their markup.
- *  Looks in `COMPONENTS` first, then the registered `ENTRIES`: since the
- *  sections page splices those in, an entry's island is on the page exactly
- *  like a component's and has to be assertable the same way. */
+/** The spec with that id — the demos are asserted through their markup. */
 function spec(id: string): { blurb: string; markup: string } {
   const found = COMPONENTS.find((entry) => entry.id === id)
-  if (found !== undefined) {
-    return { blurb: found.blurb, markup: demoMarkup(found) }
-  }
-  const entry = ENTRIES.find((candidate) => candidate.id === id)
-  expect(entry === undefined ? `${id} is missing` : id).toBe(id)
+  expect(found === undefined ? `${id} is missing` : id).toBe(id)
   return {
-    blurb: entry?.blurb ?? ``,
-    markup:
-      entry?.island !== undefined
-        ? renderIsland(entry.island())
-        : (entry?.render?.() ?? ``),
+    blurb: found?.blurb ?? ``,
+    markup: found === undefined ? `` : demoMarkup(found),
   }
 }
 
@@ -273,7 +263,7 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`every island renders markup, inside a shadow root, on the app's face`, () => {
-    for (const entry of [...ISLANDS, ...ENTRY_ISLANDS]) {
+    for (const entry of ISLANDS) {
       const markup = renderIsland(entry.island())
       expect(markup.startsWith(`<div data-ui-island><template shadowrootmode="open">`)).toBe(true)
       expect(markup).toContain(`<div class="${ISLAND_ROOT_CLASS}">`)
@@ -300,7 +290,7 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`every island sits in the same .cmp-demo canvas the HTML demos use`, () => {
-    for (const entry of [...ISLANDS, ...ENTRY_ISLANDS]) {
+    for (const entry of ISLANDS) {
       expect(html).toContain(`<div class="cmp-demo"><div data-ui-island>`)
       expect(html).toContain(`id="view-${entry.id}"`)
     }

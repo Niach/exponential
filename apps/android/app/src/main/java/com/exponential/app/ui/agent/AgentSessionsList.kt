@@ -8,10 +8,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.SessionTreeContext
+import com.exponential.app.domain.SessionTreeNode
 import com.exponential.app.domain.TreeGuides
+import com.exponential.app.domain.sessionTree
+import com.exponential.app.domain.visibleSessionTreeRows
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TreeGuidesRow
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.session.AgentRow
 import com.exponential.app.ui.session.RunningSessionRow
 import com.exponential.app.ui.theme.TextEmphasis
@@ -31,17 +37,26 @@ internal val AGENT_LIST_ROW_GAP = 6.dp
  * ([RecentRunsSheet]) — the composer is what the page is for, and a band that
  * had to be unfolded to read was neither here nor there.
  *
- * EXP-897: STATELESS — the band nests its children (`SessionTree`) and the
- * fold state lives on the page, so a rebuilt list never loses it.
+ * EXP-897: STATELESS — the band nests its children and the fold state lives on
+ * the page, so a rebuilt list never loses it.
+ *
+ * EXP-1050: the nesting is the NODE tree (`sessionTree`, the EXP-996 contract)
+ * — resumes collapse into one row, children keep nesting under their parent,
+ * and a workflow's or a stack's runs sit under one group row ([treeContext] is
+ * what tells them apart). Every group folds by the same key.
  */
 internal fun LazyListScope.agentSessionsList(
     rows: List<AgentRow>,
-    /** The ids whose CHILD runs are folded away. */
+    /** The ids (and group keys) whose children are folded away. */
     collapsedRunning: Set<String>,
     onToggleRunning: (String) -> Unit,
     steerEnabled: Boolean,
     onOpenSteer: (String) -> Unit,
     onOpenIssue: (String) -> Unit,
+    onOpenWorkflow: (String) -> Unit,
+    /** What the rows alone cannot say: the team's workflows and their nodes,
+     *  plus the issues the stack edges live on. */
+    treeContext: SessionTreeContext = SessionTreeContext(),
 ) {
     item(key = "__running_header__") { SectionHeader("Running") }
     if (rows.isEmpty()) {
@@ -58,16 +73,17 @@ internal fun LazyListScope.agentSessionsList(
             )
         }
     } else {
-        // EXP-818: a run started by another run nests under its parent,
-        // indented (`SessionTree`, the ×4 rule). EXP-897: a parent folds.
-        val tree = SessionTree.visibleRows(
-            SessionTree.nest(rows, { it.session.id }, { it.session.parentSessionId }, { it.session.startedAt }),
+        // EXP-818/EXP-996: a run started by another run nests under its parent,
+        // a resume succession is ONE row, and a workflow's or a stack's runs
+        // hang off a group row. EXP-897: everything with children folds.
+        val tree = visibleSessionTreeRows(
+            sessionTree(rows.map { it.session }, treeContext),
             collapsedRunning,
-        ) { it.session.id }
+        )
+        val rowsBySessionId = rows.associateBy { it.session.id }
         // EXP-965: the indent alone made a child read as a shifted stranger.
         val guides = TreeGuides.compute(tree.map { it.depth })
-        itemsIndexed(tree, key = { _, it -> it.session.session.id }) { index, entry ->
-            val row = entry.session
+        itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->
             TreeGuidesRow(
                 depth = entry.depth,
                 guide = guides.getOrNull(index),
@@ -75,29 +91,57 @@ internal fun LazyListScope.agentSessionsList(
                 // bridges that gap instead of breaking at every row.
                 gap = AGENT_LIST_ROW_GAP,
             ) {
-                // EXP-893: a row only OPENS the run — the Work screen it
-                // lands on merges (Changes face) and reaches the issue or
-                // the action from there; the trailing circles are gone.
-                RunningSessionRow(
-                    session = row.session,
-                    issue = row.issue,
-                    device = row.device,
-                    // EXP-876: a batch names itself after its issues.
-                    batchIssues = row.batchIssues,
-                    onClick = {
-                        // Every listed row is the caller's own (EXP-312), so
-                        // steer availability alone decides the live viewer.
-                        if (steerEnabled) {
-                            onOpenSteer(row.session.id)
-                        } else {
-                            // Batch multi-issue sessions carry no issue.
-                            row.session.issueId?.let(onOpenIssue)
-                        }
-                    },
-                    expandable = entry.hasChildren,
-                    expanded = row.session.id !in collapsedRunning,
-                    onToggle = { onToggleRunning(row.session.id) },
-                )
+                when (val node = entry.node) {
+                    is SessionTreeNode.Session -> {
+                        val row = rowsBySessionId[node.session.id]
+                        // EXP-893: a row only OPENS the run — the Work screen
+                        // it lands on merges (Changes face) and reaches the
+                        // issue or the action from there; the trailing circles
+                        // are gone.
+                        RunningSessionRow(
+                            session = node.session,
+                            issue = row?.issue,
+                            device = row?.device ?: SessionDevicePresentation.Unknown,
+                            // EXP-876: a batch names itself after its issues.
+                            batchIssues = row?.batchIssues.orEmpty(),
+                            onClick = {
+                                // Every listed row is the caller's own
+                                // (EXP-312), so steer availability alone
+                                // decides the live viewer.
+                                if (steerEnabled) {
+                                    onOpenSteer(node.session.id)
+                                } else {
+                                    // Batch multi-issue sessions carry no issue.
+                                    node.session.issueId?.let(onOpenIssue)
+                                }
+                            },
+                            expandable = entry.hasChildren,
+                            expanded = entry.key !in collapsedRunning,
+                            onToggle = { onToggleRunning(entry.key) },
+                        )
+                    }
+                    // EXP-978: the workflow the runs below belong to — the row
+                    // LEADS to it, which is where the graph lives.
+                    is SessionTreeNode.Workflow -> SessionTreeGroupRow(
+                        icon = ExpIcons.navWorkflows,
+                        label = node.name,
+                        count = node.children.size,
+                        nodeKey = entry.key,
+                        expanded = entry.key !in collapsedRunning,
+                        onToggle = { onToggleRunning(entry.key) },
+                        onClick = { onOpenWorkflow(node.workflowId) },
+                    )
+                    // EXP-897: the stack, lowest first. There is no stack
+                    // screen to open — its members are the rows below.
+                    is SessionTreeNode.Stack -> SessionTreeGroupRow(
+                        icon = ExpIcons.prStack,
+                        label = SessionTree.STACK_GROUP_LABEL,
+                        count = node.children.size,
+                        nodeKey = entry.key,
+                        expanded = entry.key !in collapsedRunning,
+                        onToggle = { onToggleRunning(entry.key) },
+                    )
+                }
             }
         }
     }
