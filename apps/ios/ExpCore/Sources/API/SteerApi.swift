@@ -569,6 +569,25 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         (unauthedAgents ?? []).filter { DomainContract.codingAgentValues.contains($0) }
     }
 
+    /// Every agent whose DEFAULTS are editable for this machine: runnable ∪
+    /// signed-out installs ∪ the agents the stored defaults, the reported
+    /// ACCOUNTS or the reported USAGE already name — an offline machine's
+    /// defaults stay editable even though nothing is advertised as runnable
+    /// right now, and an agent known only from a login still gets a tab.
+    /// A machine that names NOTHING offers every contract agent.
+    ///
+    /// The twin of web's `editorAgents` (device-settings dialog); contract
+    /// order, so the tabs never shuffle with the report order.
+    public var editableAgentIds: [String] {
+        var set = Set(agentIds)
+        set.formUnion(unauthedAgentIds)
+        if let stored = launchDefaults?.agents?.keys { set.formUnion(stored) }
+        if let accounts = agentAccounts?.keys { set.formUnion(accounts) }
+        if let usage = agentUsage?.keys { set.formUnion(usage) }
+        let known = DomainContract.codingAgentValues.filter { set.contains($0) }
+        return known.isEmpty ? DomainContract.codingAgentValues : known
+    }
+
     /// EXP-749: the ACP-drivable agents as contract ids. Empty means nothing
     /// can start on this machine, which is also what a stale NULL column
     /// reads as now that every build above the floor reports the set.

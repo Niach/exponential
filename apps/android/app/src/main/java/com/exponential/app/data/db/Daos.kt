@@ -554,9 +554,6 @@ interface DeviceWorktreeDao {
     @Query("SELECT * FROM device_worktrees ORDER BY repo_full_name, branch")
     fun observeAll(): Flow<List<DeviceWorktreeEntity>>
 
-    @Query("SELECT * FROM device_worktrees WHERE device_row_id = :deviceRowId ORDER BY repo_full_name, branch")
-    fun observeByDevice(deviceRowId: String): Flow<List<DeviceWorktreeEntity>>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: DeviceWorktreeEntity)
 

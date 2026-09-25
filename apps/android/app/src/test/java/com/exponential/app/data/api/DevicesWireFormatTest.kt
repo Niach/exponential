@@ -61,16 +61,11 @@ class DevicesWireFormatTest {
         )
     }
 
+    // EXP-1043: the `worktree_remove` / `worktree_prune` emitters went with
+    // the worktree surface — a client that sends no such command needs no
+    // wire lock for it.
     @Test
     fun `command builders emit the flat server payloads`() {
-        assertEquals(
-            """{"deviceId":"dev-1","kind":"worktree_remove","repoFullName":"acme/api","branch":"exp/EXP-42"}""",
-            worktreeRemoveCommand("dev-1", "acme/api", "exp/EXP-42").toString(),
-        )
-        assertEquals(
-            """{"deviceId":"dev-1","kind":"worktree_prune"}""",
-            worktreePruneCommand("dev-1").toString(),
-        )
         assertEquals(
             """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false}""",
             agentLoginCommand("dev-1", "claude", false).toString(),

@@ -198,6 +198,12 @@ function clampLaunchDefaults(
     ) {
       out.workflow = { model, strongModel }
     }
+  } else if (input.workflow === undefined && existing?.workflow) {
+    // EXP-1020: the KEY is absent (an explicit null is a clear), so a client
+    // that predates the pair — every build before this one, since a save
+    // REPLACES the whole object — rides the stored one along instead of
+    // wiping what the "Workflow settings" sub-shell set.
+    out.workflow = existing.workflow
   }
   return out
 }

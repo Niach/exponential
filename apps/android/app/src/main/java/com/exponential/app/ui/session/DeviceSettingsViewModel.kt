@@ -9,11 +9,8 @@ import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
 import com.exponential.app.data.api.trpcErrorMessage
-import com.exponential.app.data.api.worktreePruneCommand
-import com.exponential.app.data.api.worktreeRemoveCommand
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -22,7 +19,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -31,24 +27,22 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 // The device-settings sheet's data + mutations (EXP-481): rename, team
 // sharing, the server-authoritative launch-defaults edit — all of which work
 // with the machine OFFLINE (the row is the truth; the machine converges) —
-// and the worktree command queue (remove / prune), whose progress is polled
-// off `devices.getCommand` while the material outcome arrives through the
-// synced device_worktrees shape.
+// and the durable command queue the remote sign-ins ride (EXP-484), whose
+// progress is polled off `devices.getCommand`. EXP-1043 removed the worktree
+// commands with the sheet's worktree section: worktrees are the IDE's.
 //
 // EXP-490: name and defaults AUTO-SAVE. Every edit queues its value and the
 // mutation fires once the user pauses — each `devices.*` write nudges the
 // machine over the relay, so a call per keystroke or per picker tap is not an
 // option — with a flush on field blur and on sheet dismiss.
 
-/** One issued worktree command's UI state, keyed by [DeviceSettingsViewModel.commandStates]. */
+/** One issued device command's UI state, keyed by [DeviceSettingsViewModel.commandStates]. */
 sealed interface DeviceCommandUiState {
     data object Sending : DeviceCommandUiState
     /** Queued server-side; the machine is offline and runs it on return. */
@@ -58,9 +52,6 @@ sealed interface DeviceCommandUiState {
     data class Done(val message: String?) : DeviceCommandUiState
     data class Failed(val message: String) : DeviceCommandUiState
 }
-
-/** The prune button's stable key in [DeviceSettingsViewModel.commandStates]. */
-const val PRUNE_COMMAND_KEY = "__prune__"
 
 /**
  * WHICH sign-in a login slot belongs to: device × agent × login, the
@@ -83,7 +74,7 @@ internal fun agentLoginSlot(
 /**
  * One sign-in's command key in [DeviceSettingsViewModel.commandStates]
  * (EXP-484), per [agentLoginSlot] — the prefix is what tells a `Done` result
- * apart from a worktree command's plain-text summary, so its payload is parsed
+ * apart from another command's plain-text summary, so its payload is parsed
  * as a login URL.
  */
 fun agentLoginCommandKey(
@@ -111,7 +102,6 @@ private const val LOGIN_KEY_PREFIX = "login:"
 /** The prefix [agentLoginCodeCommandKey] builds — see [DeviceSettingsViewModel.issueCommand]. */
 private const val LOGIN_CODE_KEY_PREFIX = "login-code:"
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DeviceSettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
@@ -132,19 +122,6 @@ class DeviceSettingsViewModel @Inject constructor(
         if (previous != null && previous != deviceRowId) flushPending()
         boundRowId.value = deviceRowId
     }
-
-    /** The bound machine's synced worktree inventory. */
-    val worktrees: StateFlow<List<DeviceWorktreeEntity>> = boundRowId
-        .flatMapLatest { rowId ->
-            if (rowId == null) {
-                flowOf(emptyList())
-            } else {
-                dbFlow.scopedQuery(emptyList<DeviceWorktreeEntity>()) {
-                    it.deviceWorktreeDao().observeByDevice(rowId)
-                }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The caller's teams — one sharing switch each (FEED-33). */
     val teams: StateFlow<List<TeamEntity>> =
@@ -172,9 +149,8 @@ class DeviceSettingsViewModel @Inject constructor(
     private val _defaultsError = MutableStateFlow<String?>(null)
     val defaultsError: StateFlow<String?> = _defaultsError
 
-    // Worktree command progress, keyed by "<repo> <branch>" (or
-    // [PRUNE_COMMAND_KEY]); a terminal state stays until the next command on
-    // the same key.
+    // Command progress, keyed by the issuing slot ([agentLoginCommandKey]);
+    // a terminal state stays until the next command on the same key.
     private val _commandStates = MutableStateFlow<Map<String, DeviceCommandUiState>>(emptyMap())
     val commandStates: StateFlow<Map<String, DeviceCommandUiState>> = _commandStates
 
@@ -302,20 +278,12 @@ class DeviceSettingsViewModel @Inject constructor(
         }
     }
 
-    fun removeWorktree(deviceId: String, worktree: DeviceWorktreeEntity, deviceOnline: Boolean) {
-        issueCommand(
-            key = "${worktree.repoFullName} ${worktree.branch}",
-            command = worktreeRemoveCommand(deviceId, worktree.repoFullName, worktree.branch),
-            deviceOnline = deviceOnline,
-        )
-    }
-
     /**
      * EXP-484: ask the machine to run [agent]'s own sign-in flow and publish
      * the login URL (plus codex's device code) back as the command result —
      * no credential ever travels. [switchAccount] signs the current account
      * out first (which, for codex, revokes the token server-side — the sheet
-     * confirms before calling). Same durable queue as the worktree commands,
+     * confirms before calling). Same durable queue as every other command,
      * but only offered for an ONLINE machine that advertises the cap: a login
      * link parked until tomorrow would be expired anyway.
      */
@@ -375,18 +343,9 @@ class DeviceSettingsViewModel @Inject constructor(
         )
     }
 
-    fun pruneWorktrees(deviceId: String, deviceOnline: Boolean) {
-        issueCommand(
-            key = PRUNE_COMMAND_KEY,
-            command = worktreePruneCommand(deviceId),
-            deviceOnline = deviceOnline,
-        )
-    }
-
     // Queue the command and follow it to a terminal state on the shared
-    // [runDeviceCommand] rails (the machine also re-reports its worktrees on
-    // completion, so the list updates through sync). Everything this adds is
-    // the keyed slot and the Done bookkeeping.
+    // [runDeviceCommand] rails. Everything this adds is the keyed slot and
+    // the Done bookkeeping.
     private fun issueCommand(key: String, command: kotlinx.serialization.json.JsonObject, deviceOnline: Boolean) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch

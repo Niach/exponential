@@ -1041,7 +1041,7 @@
       "id": "machine-settings",
       "group": "coding",
       "title": "Device settings",
-      "blurb": "One device up close, opened by the gear on its row: name, whether it is your default, what it shares with the team, its per-agent defaults, its worktrees and — last — Update and Remove. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
+      "blurb": "One device up close, opened by the gear on its row: name, whether it is your default, what it shares with the team, its per-agent defaults ending in the Workflow settings sub-shell, then Update and Remove device as a plain row. EXP-1020 took the worktrees out — a machine's worktrees are local, so the IDE's Settings \u2192 Worktrees owns them. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
       "order": 8,
       "web": {
         "route": "/t/$teamSlug/devices",
