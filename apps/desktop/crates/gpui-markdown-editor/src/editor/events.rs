@@ -3389,6 +3389,61 @@ mod tests {
     }
 
     #[gpui::test]
+    async fn typing_three_dashes_becomes_a_separator_without_enter(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "Title\n\nx".to_string(), None));
+
+        cx.update(|_window, cx| {
+            editor.update(cx, |editor, cx| {
+                let block = editor.document.visible_blocks()[1].entity.clone();
+                block.update(cx, |block, block_cx| {
+                    let end = block.visible_len();
+                    block.replace_text_in_visible_range(0..end, "", None, false, block_cx);
+                    for offset in 0..3 {
+                        block.replace_text_in_visible_range(
+                            offset..offset,
+                            "-",
+                            None,
+                            false,
+                            block_cx,
+                        );
+                    }
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 3);
+            assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(visible[1].entity.read(cx).kind(), BlockKind::Separator);
+            assert_eq!(visible[2].entity.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(visible[2].entity.read(cx).display_text(), "");
+        });
+    }
+
+    #[gpui::test]
+    async fn pasting_three_dashes_stays_a_paragraph_until_enter(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, String::new(), None));
+
+        cx.update(|_window, cx| {
+            editor.update(cx, |editor, cx| {
+                let block = editor.document.visible_blocks()[0].entity.clone();
+                block.update(cx, |block, block_cx| {
+                    block.replace_text_in_visible_range(0..0, "---", None, false, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 1);
+            assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::Paragraph);
+        });
+    }
+
+    #[gpui::test]
     async fn dash_underline_without_heading_target_stays_a_separator(cx: &mut TestAppContext) {
         let cx = cx.add_empty_window();
         let editor = cx.new(|cx| Editor::from_markdown(cx, String::new(), None));

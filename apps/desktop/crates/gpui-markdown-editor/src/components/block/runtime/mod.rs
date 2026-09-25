@@ -1772,6 +1772,26 @@ impl Block {
         if self.record.kind != old_kind || self.record.title != old_title {
             cx.emit(BlockEvent::Changed);
         }
+
+        // EXP-1018: typing the third `-` of a lone `---` turns the paragraph
+        // into a separator at once (web TipTap's input rule), no Enter needed,
+        // and continues in a fresh paragraph below.
+        if old_kind == BlockKind::Paragraph
+            && self.record.kind == BlockKind::Paragraph
+            && !self.is_table_cell()
+            && !self.uses_raw_text_editing()
+            && self.marked_range.is_none()
+            && self.selected_range.is_empty()
+            && old_title.visible_text() == "--"
+            && self.display_text() == "---"
+            && self.cursor_offset() == self.visible_len()
+        {
+            self.convert_to_separator(cx);
+            cx.emit(BlockEvent::RequestNewline {
+                trailing: InlineTextTree::plain(String::new()),
+                source_already_mutated: true,
+            });
+        }
         cx.notify();
     }
 
