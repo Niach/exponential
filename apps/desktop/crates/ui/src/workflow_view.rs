@@ -410,7 +410,9 @@ impl WorkflowView {
         match question.node_id.as_deref() {
             Some(node_id) => {
                 self.selection.select(node_id);
-                self.open_run = None;
+                // The ASKING run (a reviewer, an older attempt), never the
+                // node's newest session.
+                self.open_run = Some(question.session_id.clone());
             }
             None => {
                 self.selection.select_all();
@@ -934,10 +936,11 @@ impl WorkflowView {
                 )
             })
             .flatten();
-        // The picker IS the answer to the "pick a device" blocker.
+        // The picker IS the answer to the "pick a device" blocker; every
+        // other blocker (cycle, no issues, no repo) still reads as the notice.
         let notice = blocker
             .clone()
-            .filter(|_| action != Some(WorkflowPrimaryAction::PickDevice));
+            .filter(|sentence| sentence.as_str() != PICK_DEVICE_BLOCKER);
         let (glyph, tint) = status_glyph(&status, cx);
         let primary = action.map(|action| primary_button(action, row, blocker.is_some(), cx));
 
@@ -1343,12 +1346,17 @@ fn display_glyph(display: WorkflowNodeDisplayState) -> Option<crate::icons::ExpI
     }
 }
 
+/// `domain::workflow_view::workflow_start_blocker`'s device sentence, the
+/// ONE blocker the Pick device primary already answers.
+const PICK_DEVICE_BLOCKER: &str = "Pick the device that runs this workflow first.";
+
 /// The workflow status beside its name.
 fn status_glyph(status: &str, cx: &App) -> (crate::icons::ExpIcon, gpui::Hsla) {
     let theme = cx.theme();
     match status {
         "draft" => (registry::PR_DRAFT, theme.muted_foreground),
         "running" => (registry::CODING_RUNNING, theme.foreground),
+        // TODO(icons.json): no pause concept in the ONE icon registry yet.
         "paused" => (registry::CODING_STOP, theme.muted_foreground),
         "done" => (registry::STATUS_DONE, theme.success),
         "failed" => (registry::UI_ERROR, theme.danger),
@@ -1665,6 +1673,8 @@ fn primary_button(
         WorkflowPrimaryAction::Pause => Button::new("workflow-primary")
             .primary()
             .small()
+            // TODO(icons.json): no pause concept in the ONE icon registry
+            // yet; Pause borrows the Stop glyph until one lands.
             .icon(Icon::from(registry::CODING_STOP))
             .label(PAUSE_WORKFLOW_LABEL)
             .on_click(move |_, _window, cx| spawn_command(Command::Pause, id.clone(), cx))

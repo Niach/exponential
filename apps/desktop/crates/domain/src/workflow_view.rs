@@ -5,7 +5,10 @@
 //! (web `apps/web/src/lib/workflow-view.ts`, iOS `WorkflowView.swift`, Android
 //! `WorkflowView.kt`) and locked by the contract fixture
 //! `packages/domain-contract/fixtures/workflow-view.json`. All strings
-//! byte-identical.
+//! byte-identical. The page these words land on (EXP-1084/1085/1086) is a
+//! node STRIP picker (`All`, then the chips in DAG order) over the work FACE
+//! toggle (Issue · Runs · Changes · Results): a selected node's lines below
+//! read on its Issue face, not in a separate node panel.
 
 use std::collections::{HashMap, HashSet};
 
@@ -179,7 +182,7 @@ pub struct CaptionNode<'a> {
 
 /// The ONE caption under a node: the bare STATE label once the workflow has
 /// started (`Running`, `In review`, `Landed`), nothing at all in a draft. The
-/// kind and the risk are the node panel's (EXP-1014: no `Leaf`, no
+/// kind and the risk are the selected node's Issue face (EXP-1014: no `Leaf`, no
 /// `Contract · high risk` beside the chips — the chip names the issue, the
 /// caption says only what is happening to it).
 pub fn workflow_node_caption(node: CaptionNode<'_>, workflow_status: &str) -> String {
@@ -438,9 +441,9 @@ pub fn workflow_edge_style(
     WorkflowEdgeStyle::Plain
 }
 
-/// The node panel's line once a node announced its contract.
+/// A selected node's Issue face: line once a node announced its contract.
 pub const CONTRACT_PUBLISHED_LABEL: &str = "Contract published";
-/// The node panel's line over the `after_node_ids` chips.
+/// A selected node's Issue face: line over the `after_node_ids` chips.
 pub const MERGES_IN_FIRST_LABEL: &str = "Merges in first";
 
 // ── Review gate, dynamic graphs (EXP-984) ─────────────────
@@ -450,7 +453,7 @@ pub const ADMIT_NODE_LABEL: &str = "Admit";
 pub const DISMISS_NODE_LABEL: &str = "Dismiss";
 pub const PROPOSED_NODE_NOTE: &str =
     "Filed during the run. Admit it into the workflow or dismiss it.";
-/// The node panel's read-only line: what THIS node's run spawns on
+/// A selected node's Issue face: read-only line: what THIS node's run spawns on
 /// (`model_for_node`).
 pub const NODE_MODEL_LABEL: &str = "Model";
 /// EXP-1014: the chip of a node whose issue row has not synced yet — the
@@ -470,7 +473,7 @@ pub struct ReviewLine<'a> {
     pub approved: bool,
 }
 
-/// The node panel's one line about the latest agent review:
+/// A selected node's Issue face: one line about the latest agent review:
 /// `Approved · round 1 · checks passed`, `Approved · round 1`,
 /// `Changes requested · round 2 · checks failed`, `Changes requested · round 3`.
 /// EXP-1010: an approval with no oracle CLEARS the node, so `advisory` shows
@@ -1190,7 +1193,7 @@ mod tests {
 
     /// The strings the ×4 clients say WORD FOR WORD (web
     /// `lib/workflow-view.ts`, iOS `WorkflowView.swift`, Android
-    /// `WorkflowView.kt`): the final-PR merge pair and the node panel's two
+    /// `WorkflowView.kt`): the final-PR merge pair and the node Issue face's two
     /// EXP-1014 lines. A drift here is a drift in the product's voice.
     #[test]
     fn the_shared_labels_are_byte_identical() {
