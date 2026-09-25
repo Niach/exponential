@@ -1,85 +1,56 @@
-//! EXP-1079 — `pr-graph-badge` (Special components): the work header's graph
-//! badge, the IDE half of the styleguide entry the web page draws.
+//! EXP-1079/EXP-1058 — `pr-graph-badge` (Special components): the work
+//! header's graph badge, the IDE half of the styleguide entry the web page
+//! draws.
 //!
-//! The badge (`crate::pr_graph::badge`) is ONE glass pill that says what a
-//! piece of work is PART OF: the `pr-stack` concept with `2 of 3` for a
-//! stacked pull request, `pr-batch` with `3 issues` for a batch, both for a
-//! batch inside a stack, and `session-tree` alone on the Run face of a run
-//! with a family. It stands beside the face toggle, so it wears the toggle's
-//! rung — [`crate::pr_graph::badge_size`] = the header action size (EXP-926),
-//! never a size of its own. The demo is static on purpose: it documents the
-//! glyph-per-relation rule and the rung, never live rows.
+//! The badge (`crate::pr_graph::badge`) is the STACKED issue chip
+//! (`crate::issue_chip`'s deck, EXP-1058): the front chip names the subject
+//! pull request's representative issue and `+N` counts every other issue on
+//! the stack or batch; on the Run face of a run with no issue the same chip
+//! box leads with the `session-tree` concept and names the run. Hovering or
+//! clicking it opens the face's overlay. The demo draws the REAL element
+//! ([`crate::pr_graph::chip_face`]) over static data — never live rows.
 
-use gpui::{div, px, Div, ParentElement as _, Styled as _};
-use gpui_component::{Icon, Sizable as _};
+use gpui::{div, Div, ParentElement as _, SharedString, Styled as _};
 
-use crate::icons::{registry, ExpIcon};
+use crate::pr_graph::{chip_face, ChipFace};
 
 pub(crate) const ID: &str = "pr-graph-badge";
-pub(crate) const OWNER: &str = "EXP-1079";
+pub(crate) const OWNER: &str = "EXP-1058";
 
-/// One badge state: its concept glyph(s) and the label beside them.
+/// One badge state: the front chip's words, whether it is a run's, and how
+/// many ride behind it.
 struct State {
-    glyphs: Vec<ExpIcon>,
-    label: Option<&'static str>,
-}
-
-/// The capsule at the header rung: the glyphs at the rung's own glyph size,
-/// the label after them — the shape `glass_pill_button` draws, without the
-/// theme a static demo has no `App` for.
-fn capsule(state: &State) -> Div {
-    let size = crate::pr_graph::badge_size();
-    let muted = theme::tokens::MUTED_FOREGROUND.to_hsla();
-    let mut pill = div()
-        .flex()
-        .items_center()
-        .flex_shrink_0()
-        .h(px(size.height()))
-        .px_3()
-        .gap_1p5()
-        .rounded_full()
-        .border_1()
-        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla());
-    for glyph in &state.glyphs {
-        pill = pill.child(
-            Icon::new(glyph.clone())
-                .with_size(px(size.glyph()))
-                .text_color(muted),
-        );
-    }
-    if let Some(label) = state.label {
-        pill = pill.child(div().text_sm().text_color(muted).child(label));
-    }
-    pill
+    identifier: &'static str,
+    title: &'static str,
+    runs: bool,
+    count: usize,
 }
 
 pub(crate) fn render() -> Div {
-    let states = vec![
-        // The Run face of a run with a family and no pull-request relation.
-        State {
-            glyphs: vec![registry::SESSION_TREE],
-            label: None,
-        },
-        // A stacked pull request: its position.
-        State {
-            glyphs: vec![registry::PR_STACK],
-            label: Some("2 of 3"),
-        },
+    let states = [
+        // The Run face of a run with a family and no issue.
+        State { identifier: "", title: "Chat: tidy the release notes", runs: true, count: 2 },
+        // A stacked pull request: the others on the stack.
+        State { identifier: "EXP-12", title: "Stacked follow-up", runs: false, count: 2 },
         // A pull request that closes several issues.
-        State {
-            glyphs: vec![registry::PR_BATCH],
-            label: Some("3 issues"),
-        },
-        // A batch INSIDE a stack wears both concepts (EXP-897 §4).
-        State {
-            glyphs: vec![registry::PR_STACK, registry::PR_BATCH],
-            label: Some("2 of 3"),
-        },
+        State { identifier: "EXP-20", title: "Batch of fixes", runs: false, count: 2 },
+        // Blockers alone on the Issue face: the subject, nothing behind it.
+        State { identifier: "EXP-30", title: "Waiting on a blocker", runs: false, count: 0 },
     ];
-    let mut row = div().flex().flex_wrap().items_center().gap_2();
-    for state in &states {
-        row = row.child(capsule(state));
+    let muted = theme::tokens::MUTED_FOREGROUND.to_hsla();
+    let mut row = div().flex().flex_wrap().items_center().gap_4().pt_2();
+    for (index, state) in states.iter().enumerate() {
+        row = row.child(chip_face(
+            &format!("styleguide-pr-graph-badge-{index}"),
+            ChipFace {
+                identifier: SharedString::from(state.identifier),
+                title: SharedString::from(state.title),
+                status: None,
+                runs: state.runs,
+                count: state.count,
+            },
+            muted,
+        ));
     }
     row
 }
