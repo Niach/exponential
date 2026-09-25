@@ -1274,7 +1274,7 @@ pub struct WorkflowNodeRow {
     #[serde(default)]
     pub approved_at: Option<String>,
     /// EXP-983: when the node's run announced its CONTRACT
-    /// (`exponential_workflows_checkpoint`). Under `start_on: contract` its
+    /// (`exponential_workflows_checkpoint`); its
     /// dependents may start from that moment.
     #[serde(default)]
     pub checkpoint_at: Option<String>,
