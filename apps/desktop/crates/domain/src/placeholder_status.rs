@@ -10,31 +10,53 @@
 //! `pending` = the link still works, `expired` = it lapsed or was superseded
 //! (the roster row stays until removed; "Resend invite" mints a fresh link, at
 //! a corrected address if need be).
+//!
+//! EXP-1076 adds `unsent`: the Linear import seats everyone it found so
+//! attributions land, but nobody was ever asked to join — those rows carry
+//! `sent_at` NULL (and an already-lapsed `expires_at`, so expiry readers treat
+//! the token as dead). "Invite expired" would be a lie there; it reads "Not
+//! invited" and the menu offers a FIRST "Send invite" (the same re-invite call
+//! underneath).
 
 use std::collections::HashMap;
 
 use crate::rows::TeamInvite;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Declared worst-first: the derived `Ord` IS the web's `RANK` — a member
+/// holding several rows (a superseded link, then a fresh one) wears the best
+/// news, and any issued link outranks "never invited".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PlaceholderStatus {
-    Pending,
+    /// EXP-1076: on the roster, never sent a link (`sent_at` NULL).
+    Unsent,
     Expired,
+    Pending,
 }
 
 impl PlaceholderStatus {
     /// Web `PLACEHOLDER_LABELS` — the badge text, byte-identical ×4.
     pub fn label(self) -> &'static str {
         match self {
+            PlaceholderStatus::Unsent => "Not invited",
             PlaceholderStatus::Pending => "Invited",
             PlaceholderStatus::Expired => "Invite expired",
+        }
+    }
+
+    /// The overflow-menu verb that (re)issues the link — web
+    /// `members-section.tsx`: a first send for an unsent row, a resend else.
+    pub fn invite_verb(self) -> &'static str {
+        match self {
+            PlaceholderStatus::Unsent => "Send invite",
+            PlaceholderStatus::Pending | PlaceholderStatus::Expired => "Resend invite",
         }
     }
 }
 
 /// Placeholder member id → its badge, for every invite bound to a placeholder
 /// member that has NOT been accepted. `now_ms` = epoch millis (the web's
-/// `now`); a pending link outranks an expired one for the same member, in
-/// either input order.
+/// `now`); pending > expired > unsent for the same member, in any input
+/// order.
 pub fn placeholder_statuses(
     invites: &[TeamInvite],
     now_ms: i64,
@@ -47,12 +69,16 @@ pub fn placeholder_statuses(
         if is_accepted(invite) {
             continue;
         }
-        let status = if is_live(invite, now_ms) {
+        // Never sent ⇒ never expired: the import stamps `expires_at =
+        // created_at` on purpose, so expiry says nothing about this row.
+        let status = if !is_sent(invite) {
+            PlaceholderStatus::Unsent
+        } else if is_live(invite, now_ms) {
             PlaceholderStatus::Pending
         } else {
             PlaceholderStatus::Expired
         };
-        if statuses.get(user_id) == Some(&PlaceholderStatus::Pending) {
+        if statuses.get(user_id).is_some_and(|current| *current >= status) {
             continue;
         }
         statuses.insert(user_id.to_string(), status);
@@ -77,6 +103,15 @@ fn placeholder_of(invite: &TeamInvite) -> Option<&str> {
 fn is_accepted(invite: &TeamInvite) -> bool {
     invite
         .accepted_at
+        .as_deref()
+        .is_some_and(|at| !at.is_empty())
+}
+
+/// `sent_at` set — the link was issued. The web's `!invite.sentAt` twin (an
+/// empty string is what a pre-EXP-1076 store's healed column may hold).
+fn is_sent(invite: &TeamInvite) -> bool {
+    invite
+        .sent_at
         .as_deref()
         .is_some_and(|at| !at.is_empty())
 }
@@ -108,11 +143,22 @@ mod tests {
         accepted_at: Option<&str>,
         expires_at: &str,
     ) -> TeamInvite {
+        invite_sent(id, placeholder, accepted_at, expires_at, Some(EARLIER))
+    }
+
+    fn invite_sent(
+        id: &str,
+        placeholder: Option<&str>,
+        accepted_at: Option<&str>,
+        expires_at: &str,
+        sent_at: Option<&str>,
+    ) -> TeamInvite {
         serde_json::from_value(json!({
             "id": id,
             "team_id": "t-1",
             "placeholder_user_id": placeholder,
             "accepted_at": accepted_at,
+            "sent_at": sent_at,
             "expires_at": expires_at,
         }))
         .unwrap()
@@ -153,10 +199,63 @@ mod tests {
         );
     }
 
+    /// EXP-1076: the import stamps expires_at = created_at, so the row is
+    /// "expired" by date from the moment it exists — the label must not say
+    /// so. A pre-EXP-1076 server omits the key; that decodes as sent-less too,
+    /// but every such row was backfilled server-side before the column ever
+    /// reached a shape, so the decode default only matters for fixtures.
     #[test]
-    fn labels_both_states() {
+    fn reads_a_never_sent_row_as_unsent_whatever_its_expiry_says() {
+        let statuses = placeholder_statuses(
+            &[
+                invite_sent("i-1", Some("p-import"), None, EARLIER, None),
+                invite_sent("i-2", Some("p-future"), None, LATER, None),
+                invite_sent("i-3", Some("p-healed"), None, LATER, Some("")),
+            ],
+            NOW_MS,
+        );
+        assert_eq!(statuses.get("p-import"), Some(&PlaceholderStatus::Unsent));
+        assert_eq!(statuses.get("p-future"), Some(&PlaceholderStatus::Unsent));
+        assert_eq!(statuses.get("p-healed"), Some(&PlaceholderStatus::Unsent));
+    }
+
+    #[test]
+    fn ranks_pending_over_expired_over_unsent_in_either_order() {
+        let unsent = invite_sent("i-u", Some("p"), None, EARLIER, None);
+        let expired = invite("i-e", Some("p"), None, EARLIER);
+        let pending = invite("i-p", Some("p"), None, LATER);
+        for (rows, want) in [
+            (vec![unsent.clone(), expired.clone()], PlaceholderStatus::Expired),
+            (vec![expired.clone(), unsent.clone()], PlaceholderStatus::Expired),
+            (vec![unsent.clone(), pending.clone()], PlaceholderStatus::Pending),
+            (vec![pending.clone(), unsent.clone()], PlaceholderStatus::Pending),
+            (
+                vec![pending.clone(), expired.clone(), unsent.clone()],
+                PlaceholderStatus::Pending,
+            ),
+        ] {
+            assert_eq!(placeholder_statuses(&rows, NOW_MS).get("p"), Some(&want));
+        }
+    }
+
+    #[test]
+    fn labels_all_three_states_and_their_menu_verbs() {
+        assert_eq!(PlaceholderStatus::Unsent.label(), "Not invited");
         assert_eq!(PlaceholderStatus::Pending.label(), "Invited");
         assert_eq!(PlaceholderStatus::Expired.label(), "Invite expired");
+        assert_eq!(PlaceholderStatus::Unsent.invite_verb(), "Send invite");
+        assert_eq!(PlaceholderStatus::Pending.invite_verb(), "Resend invite");
+        assert_eq!(PlaceholderStatus::Expired.invite_verb(), "Resend invite");
+    }
+
+    /// The pending LIST ignores `sent_at` on purpose: an unsent import seat is
+    /// minted already lapsed, so the same expiry test keeps it out.
+    #[test]
+    fn an_unsent_seat_is_never_a_pending_link() {
+        assert!(!invite_is_pending(
+            &invite_sent("i-1", Some("p"), None, EARLIER, None),
+            NOW_MS
+        ));
     }
 
     /// Electric delivers Postgres timestamptz text (`… …+00`), not only

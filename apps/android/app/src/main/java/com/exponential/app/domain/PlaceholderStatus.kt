@@ -9,17 +9,29 @@ import com.exponential.app.data.db.TeamInviteEntity
  * "Resend invite" mints a fresh link). Mirrors web `lib/placeholder-status.ts`
  * — Android keeps the invite surface itself web-only (EXP-725), so the badge
  * is all four clients share here.
+ *
+ * EXP-1076 adds [UNSENT]: the Linear import seats everyone it found so
+ * attributions land, but nobody was ever asked to join — those rows carry
+ * `sent_at` null (and an already-lapsed `expires_at`, so expiry readers treat
+ * the token as dead). "Invite expired" would be a lie there; it reads
+ * "Not invited".
+ *
+ * [rank] is web's `RANK`: a member may hold several rows (a superseded link,
+ * then a fresh one) and wears the best news — a live link outranks a lapsed
+ * one, and any issued link outranks "never invited".
  */
-enum class PlaceholderStatus(val label: String) {
-    PENDING("Invited"),
-    EXPIRED("Invite expired"),
+enum class PlaceholderStatus(val label: String, internal val rank: Int) {
+    UNSENT("Not invited", 0),
+    PENDING("Invited", 2),
+    EXPIRED("Invite expired", 1),
 }
 
 /**
  * The badge each placeholder member's row wears, keyed by the placeholder
  * user id. An invite counts only while it is bound to a placeholder AND
- * unaccepted; an [expiresAt] that won't parse reads as lapsed (web's
- * `new Date(invalid) > now` is false too).
+ * unaccepted; a null (or empty) `sent_at` is [PlaceholderStatus.UNSENT]
+ * whatever the expiry says; else an [expiresAt] that won't parse reads as
+ * lapsed (web's `new Date(invalid) > now` is false too).
  */
 fun placeholderStatuses(
     invites: List<TeamInviteEntity>,
@@ -29,14 +41,22 @@ fun placeholderStatuses(
     for (invite in invites) {
         val userId = invite.placeholderUserId ?: continue
         if (invite.acceptedAt != null) continue
-        val expiresMs = WireTimestamps.parseEpochMs(invite.expiresAt)
-        val status = if (expiresMs != null && expiresMs > nowMs) {
-            PlaceholderStatus.PENDING
+        val status = if (invite.sentAt.isNullOrEmpty()) {
+            // Never sent ⇒ never expired: the import stamps
+            // `expires_at = created_at` on purpose, so expiry says nothing
+            // about this row.
+            PlaceholderStatus.UNSENT
         } else {
-            PlaceholderStatus.EXPIRED
+            val expiresMs = WireTimestamps.parseEpochMs(invite.expiresAt)
+            if (expiresMs != null && expiresMs > nowMs) {
+                PlaceholderStatus.PENDING
+            } else {
+                PlaceholderStatus.EXPIRED
+            }
         }
-        // A pending link outranks an expired one for the same member.
-        if (result[userId] == PlaceholderStatus.PENDING) continue
+        // pending > expired > unsent for the same member, in any input order.
+        val current = result[userId]
+        if (current != null && current.rank >= status.rank) continue
         result[userId] = status
     }
     return result

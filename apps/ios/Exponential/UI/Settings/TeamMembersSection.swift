@@ -7,9 +7,9 @@ struct TeamMembersSection: View {
     let teamId: String
     let members: [TeamMemberEntity]
     let users: [UserEntity]
-    /// The team's synced invites — read for the "Invited" / "Invite expired"
-    /// badge alone (EXP-630 placeholder members). Minting and resending stay
-    /// web-only surfaces.
+    /// The team's synced invites — read for the "Invited" / "Invite expired" /
+    /// "Not invited" badge alone (EXP-630 placeholder members, EXP-1076 import
+    /// seats). Minting and resending stay web-only surfaces.
     var invites: [TeamInviteEntity] = []
     let currentUserId: String?
     let membersApi: TeamMembersApi
@@ -122,8 +122,9 @@ struct TeamMembersSection: View {
             // EXP-630: an emailed invite puts its recipient on the roster at
             // once, so a row can be a member who has not joined yet. The badge
             // says which — muted, right after the role, web parity
-            // (members-section.tsx). Resending is a web surface (EXP-725), so
-            // the badge is all iOS shows.
+            // (members-section.tsx); EXP-1076: a row the Linear import seated
+            // without ever mailing reads "Not invited". Resending is a web
+            // surface (EXP-725), so the badge is all iOS shows.
             if let placeholder {
                 GlassPill(
                     placeholder.label,

@@ -341,9 +341,14 @@ import androidx.room.TypeConverters
     //      badge that row "Invited" / "Invite expired" until the person claims
     //      it. Nullable, new on the team-invites shape allowlist; destructive
     //      fallback wipes + resyncs so every invite row arrives carrying it.
+    // v74 (EXP-1076): team_invites.sent_at — when the link was issued; NULL =
+    //      a roster row nobody was ever invited (the Linear import), which the
+    //      Members list badges "Not invited" instead of "Invite expired".
+    //      Nullable, new on the team-invites shape allowlist; destructive
+    //      fallback wipes + resyncs so every invite row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 73,
+    version = 74,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

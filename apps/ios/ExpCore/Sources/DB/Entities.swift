@@ -1378,6 +1378,12 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
     // invite is unaccepted. NULL for link invites and invites to an existing
     // account; rides the team-invites shape.
     public let placeholderUserId: String?
+    // EXP-1076: when the invite LINK was issued. NULL = a roster row nobody
+    // was ever invited (the Linear import seats its placeholders without a
+    // mail) — the member list reads "Not invited", never "Invite expired"
+    // (such rows are minted with `expires_at = created_at`). Rides the
+    // team-invites shape.
+    public let sentAt: String?
     public let expiresAt: String
     public let acceptedAt: String?
     public let createdAt: String
@@ -1390,6 +1396,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
         token: String?,
         email: String? = nil,
         placeholderUserId: String? = nil,
+        sentAt: String? = nil,
         expiresAt: String,
         acceptedAt: String?,
         createdAt: String,
@@ -1401,6 +1408,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
         self.token = token
         self.email = email
         self.placeholderUserId = placeholderUserId
+        self.sentAt = sentAt
         self.expiresAt = expiresAt
         self.acceptedAt = acceptedAt
         self.createdAt = createdAt
@@ -1411,6 +1419,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
         case id, role, token, email
         case teamId = "team_id"
         case placeholderUserId = "placeholder_user_id"
+        case sentAt = "sent_at"
         case expiresAt = "expires_at"
         case acceptedAt = "accepted_at"
         case createdAt = "created_at"

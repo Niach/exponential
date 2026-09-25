@@ -745,8 +745,10 @@ private fun MembersSection(
                 GlassPill(row.member.role, size = PillSize.Sm, mode = PillMode.Readonly)
                 // EXP-630: an email invite put this member on the roster before
                 // the person signed in — a MUTED mail pill right after the role
-                // says so ("Invited" / "Invite expired"), exactly as web. The
-                // invite surface itself stays web-only (EXP-725).
+                // says so ("Invited" / "Invite expired"), exactly as web;
+                // EXP-1076: a row the Linear import seated without ever mailing
+                // reads "Not invited". The invite surface itself stays web-only
+                // (EXP-725).
                 row.placeholder?.let { placeholder ->
                     GlassPill(
                         placeholder.label,
