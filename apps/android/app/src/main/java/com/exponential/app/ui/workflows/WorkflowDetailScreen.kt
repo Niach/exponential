@@ -131,6 +131,9 @@ fun WorkflowDetailScreen(
     var selectedNode by remember { mutableStateOf<WorkflowNodeEntity?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmCancel by remember { mutableStateOf(false) }
+    // EXP-1033: merging the final pull request is the run's ONE human review,
+    // so it asks first — the same confirmation the cancel pill takes.
+    var confirmMergeFinalPr by remember { mutableStateOf(false) }
     // The name field is LOCAL while it is being typed; a blur writes it.
     var nameDraft by remember { mutableStateOf<String?>(null) }
 
@@ -264,6 +267,11 @@ fun WorkflowDetailScreen(
                     onOpenRun = onOpenSession,
                     finalPrCaption = finalPrCaption,
                     finalPrUrl = row.finalPrUrl,
+                    // Only an OPEN pull request can be merged; the synced row
+                    // carries the result back, so the control goes with it.
+                    finalPrMergeable = row.finalPrState == DomainContract.prStateOpen,
+                    onMergeFinalPr = { confirmMergeFinalPr = true },
+                    busy = busy,
                     selectedNodeId = sheetNode?.id,
                 )
             }
@@ -393,6 +401,33 @@ fun WorkflowDetailScreen(
                 onOpenChanges(issueId)
             },
             onDismiss = { selectedNode = null },
+        )
+    }
+
+    if (confirmMergeFinalPr) {
+        AlertDialog(
+            onDismissRequest = { confirmMergeFinalPr = false },
+            title = {
+                Text(
+                    "${WorkflowView.MERGE_FINAL_PR_LABEL} " +
+                        WorkflowView.FINAL_PR_TITLE.lowercase(),
+                )
+            },
+            text = { Text(WorkflowView.MERGE_FINAL_PR_CONFIRM) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmMergeFinalPr = false
+                    viewModel.mergeFinalPr()
+                }) {
+                    Text(
+                        WorkflowView.MERGE_FINAL_PR_LABEL,
+                        modifier = Modifier.testTag("workflow-final-pr-merge-confirm"),
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmMergeFinalPr = false }) { Text("Cancel") }
+            },
         )
     }
 
@@ -841,7 +876,7 @@ private fun WorkflowNodeSheet(
             // collided, so this node merges theirs in before it pushes.
             if (node.afterNodeIds.isNotEmpty()) {
                 Text(
-                    "Merges in first",
+                    WorkflowView.MERGES_IN_FIRST_LABEL,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier
@@ -920,7 +955,7 @@ private fun WorkflowNodeSheet(
                 // one for a contract, an integration or a high-risk node, the
                 // cheap one otherwise. A statement, never a pick.
                 MetaRow(
-                    label = WorkflowView.MODEL_LABEL,
+                    label = WorkflowView.NODE_MODEL_LABEL,
                     enabled = false,
                     onClick = {},
                     value = {

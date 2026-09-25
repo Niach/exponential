@@ -408,9 +408,10 @@ export function WorkflowDetail({
                   data-testid={`workflow-running-${node.id}`}
                 >
                   <RunningIndicator state={run.state} working={run.working} />
-                  {issue
-                    ? workflowNodeTitle(issue.identifier, node.memberIssueIds.length)
-                    : node.issueId.slice(0, 8)}
+                  {workflowNodeTitle(
+                    issue?.identifier ?? node.issueId.slice(0, 8),
+                    node.memberIssueIds.length
+                  )}
                 </Link>
               </Button>
             )
@@ -962,13 +963,13 @@ export function WorkflowNodePanel({
       {review && (
         <AgentReviewBlock review={review} nodeApproved={Boolean(node.approvedAt)} />
       )}
-      {/* Kind is the PLAN: a pick while the workflow is a draft and a plain
-          reading after — the server refuses it once the engine has been
-          cutting branches off it (`updateNode` asserts the draft for kind and
-          touches only). Risk stays a pick at any status, ×4 (IDE, Android and
-          the server agree): after the plan it is the one per-node lever over
-          which of the launch's two models the run spawns on (`modelForNode`).
-          EXP-1033: the third row is derived, never picked. */}
+      {/* Kind shapes the PLAN, so it is a pick while the workflow is a draft
+          and a plain reading after — `updateNode` asserts a draft for it.
+          RISK does not: the server takes it at any status, and since EXP-1029
+          it is the ONE lever that moves a node onto the launch's strong model,
+          so the pick stays live for the whole run (×4).
+          EXP-1033: the third row is derived, never picked — `modelForNode`
+          says which of the launch's two models THIS node's run spawns on. */}
       <GlassGroup>
         {draft ? (
           <Combobox
@@ -992,6 +993,7 @@ export function WorkflowNodePanel({
           searchable={false}
           mobileTitle="Risk"
           value={node.risk}
+          data-testid="workflow-node-risk"
           options={wfRiskValues.map((value) => ({
             value: value as string,
             label: RISK_LABELS[value] ?? value,

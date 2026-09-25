@@ -91,9 +91,10 @@ struct WorkflowDetailView: View {
             if let model, let node = model.nodes.first(where: { $0.id == target.id }) {
                 WorkflowNodeSheet(
                     node: node,
+                    nodes: model.nodes,
                     issues: model.issues,
                     launch: model.launch,
-                    enabled: model.isDraft,
+                    isDraft: model.isDraft,
                     busy: model.busy,
                     onUpdate: { patch in
                         model.updateNode(issueId: node.issueId, patch: patch)
@@ -238,9 +239,12 @@ struct WorkflowDetailView: View {
             issues: model.issues,
             finalPrCaption: model.finalPrCaption,
             finalPrUrl: model.workflow?.finalPrUrl,
+            finalPrState: model.workflow?.finalPrState,
             runs: model.runs,
+            busy: model.busy,
             onSelect: { selectedNodeId = WorkflowNodeTarget(id: $0.id) },
-            onOpenRun: { pushRoute(.agentSession(accountId: accountId, sessionId: $0)) }
+            onOpenRun: { pushRoute(.agentSession(accountId: accountId, sessionId: $0)) },
+            onMergeFinalPr: { model.mergeFinalPr() }
         )
     }
 
@@ -283,9 +287,8 @@ struct WorkflowDetailView: View {
     ) -> some View {
         Button { selectedNodeId = WorkflowNodeTarget(id: node.id) } label: {
             HStack(spacing: 8) {
-                Text(WorkflowView.nodeTitle(
-                    identifier: model.issues[node.issueId]?.identifier ?? node.issueId,
-                    memberCount: node.memberIssueIds.count
+                Text(WorkflowGraphView.nodeIdentifier(
+                    node, issue: model.issues[node.issueId]
                 ))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.white)
@@ -476,20 +479,25 @@ struct WorkflowNodeTarget: Identifiable {
 
 /// EXP-981 — one node's panel. Web and the IDE put it beside the graph; a phone
 /// gets a sheet. EXP-1014 pares it to exactly what a reader decides on: the
-/// node's issue chip, what the plan declares (Kind / Risk — draft-only, and
-/// between them they pick the model), the model its run takes, its state and
-/// the actions that state allows, the way out to the Work faces, and the latest
-/// agent review. Nothing else: the planner's `touches` globs, the members of a
-/// compound node and the engine's serialization edges are bookkeeping, not
-/// something a reader acts on here.
+/// node's issue chip, what the plan declares (Kind — draft-only — and Risk,
+/// which raises a node onto the strong model at ANY status), the model its run
+/// takes, its state and the actions that state allows, the sub-issues a
+/// compound node runs as one batch, the contract it published and the siblings
+/// it merges in first, the way out to the Work faces, and the latest agent
+/// review. The planner's `touches` globs stay off it: nobody acts on a glob.
 struct WorkflowNodeSheet: View {
     let node: WorkflowNodeEntity
+    /// EXP-983 — the workflow's other nodes: what `after_node_ids` names is a
+    /// NODE, so `Merges in first` resolves its chips through these.
+    let nodes: [WorkflowNodeEntity]
     let issues: [String: IssueEntity]
     /// The workflow's stored launch, CARRIED (EXP-1029): the panel says which
     /// of its two models this node's run takes and never writes it back.
     let launch: WorkflowLaunch
-    /// Kind and risk shape the PLAN, so the server takes them on a draft only.
-    let enabled: Bool
+    /// The KIND shapes the plan, so the server takes it on a draft only; risk
+    /// rides at any status. A draft's nodes also keep the issue's own status
+    /// glyph, whatever their state says.
+    let isDraft: Bool
     /// A write is in flight; the run controls go inert rather than double-fire.
     let busy: Bool
     let onUpdate: (WorkflowNodePatch) -> Void
@@ -507,15 +515,13 @@ struct WorkflowNodeSheet: View {
 
     var body: some View {
         GlassSheetChrome(
-            title: WorkflowView.nodeTitle(
-                identifier: issues[node.issueId]?.identifier ?? node.issueId,
-                memberCount: node.memberIssueIds.count
-            )
+            title: WorkflowGraphView.nodeIdentifier(node, issue: issues[node.issueId])
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 subject
                 planRows
                 runControls
+                bookkeeping
                 faces
                 agentReview
             }
@@ -565,16 +571,15 @@ struct WorkflowNodeSheet: View {
     @ViewBuilder
     private var chip: some View {
         let issue = issues[node.issueId]
-        let status = IssueStatus.from(issue?.status)
-        let stateIcon = WorkflowGraphView.stateIcon(node.state)
+        // No row, no status glyph; a draft's nodes have not run, so they keep
+        // the issue's own. The same rule ×4.
+        let status = issue.map { IssueStatus.from($0.status) }
+        let stateIcon = isDraft ? nil : WorkflowGraphView.stateIcon(node.state)
         let face = IssueChip(
-            identifier: WorkflowView.nodeTitle(
-                identifier: issue?.identifier ?? node.issueId,
-                memberCount: node.memberIssueIds.count
-            ),
-            title: issue?.title,
-            iconName: stateIcon ?? status.iconName,
-            statusColor: stateIcon == nil ? status.color : Self.color(tone)
+            identifier: WorkflowGraphView.nodeIdentifier(node, issue: issue),
+            title: WorkflowGraphView.nodeChipTitle(issue),
+            iconName: stateIcon ?? status?.iconName,
+            statusColor: stateIcon == nil ? status?.color : Self.color(tone)
         )
         .overlay { WorkflowGraphView.ring(node) }
         if node.memberIssueIds.isEmpty {
@@ -584,12 +589,12 @@ struct WorkflowNodeSheet: View {
         }
     }
 
-    /// What the plan declares about the node, and what that costs: kind
-    /// (draft-only — it shapes the run), risk (adjustable at any status, ×4
-    /// with the server: after the plan it is the one per-node lever over
-    /// which of the workflow's two models the run spawns on), then that
-    /// model, read-only. EXP-1029: the launch is set where a workflow is
-    /// planned; a node only says which half of it applies.
+    /// What the plan declares about the node, and what that costs: the KIND,
+    /// which shapes the plan and is therefore a draft's to set, the RISK, which
+    /// is a pick at any status (the server only draft-gates kind and touches,
+    /// and `risk: high` is the one lever that puts a node on the workflow's
+    /// strong model), then that model, read-only. EXP-1029: the launch is set
+    /// where a workflow is planned; a node only says which half of it applies.
     @ViewBuilder
     private var planRows: some View {
         // EXP-994: one grouped card, hairline-separated rows.
@@ -602,7 +607,7 @@ struct WorkflowNodeSheet: View {
                 ),
                 options: DomainContract.wfNodeKindValues,
                 label: WorkflowView.nodeKindLabel,
-                enabled: enabled
+                enabled: isDraft
             )
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
@@ -617,8 +622,7 @@ struct WorkflowNodeSheet: View {
                 ),
                 options: DomainContract.wfRiskValues,
                 label: { $0.prefix(1).uppercased() + $0.dropFirst() },
-                // Risk stays adjustable after the draft (server parity).
-                enabled: true
+                enabled: !busy
             )
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
@@ -626,7 +630,7 @@ struct WorkflowNodeSheet: View {
             GlassDivider()
 
             HStack(spacing: 8) {
-                Text("Model")
+                Text(WorkflowView.nodeModelLabel)
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
                 Spacer(minLength: 8)
                 Text(LaunchVocabulary.modelLabel(
@@ -641,6 +645,75 @@ struct WorkflowNodeSheet: View {
             .accessibilityIdentifier("workflow-node-model")
         }
         .glassSection()
+    }
+
+    // MARK: - What else the node carries (EXP-983)
+
+    /// The rest of what the node IS, under the decisions: the sub-issues a
+    /// compound node runs as ONE batch, the contract it has published (its
+    /// dependents may already be building on it), and the siblings it merges in
+    /// first — the engine's serialization edges, without which a node waiting
+    /// on a sibling it does not depend on cannot be explained at all. Web and
+    /// the IDE keep all three in the panel beside the graph; the phone keeps
+    /// them here.
+    @ViewBuilder
+    private var bookkeeping: some View {
+        let members = node.memberIssueIds.compactMap { issues[$0] }
+        let mergesFirst = node.afterNodeIds.compactMap { id in
+            nodes.first { $0.id == id }
+        }
+        if !members.isEmpty {
+            FlowLayout(spacing: 6) {
+                ForEach(members, id: \.id) { member in
+                    IssueChip(
+                        identifier: member.identifier,
+                        title: member.title,
+                        status: IssueStatus.from(member.status),
+                        onTap: { onOpenIssue(member.id) }
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("workflow-node-members")
+        }
+        if let stamp = node.checkpointAt, !stamp.isEmpty {
+            Text(Self.contractPublishedLine(stamp))
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("workflow-node-checkpoint")
+        }
+        if !mergesFirst.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(WorkflowView.mergesInFirstLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                FlowLayout(spacing: 6) {
+                    ForEach(mergesFirst, id: \.id) { from in
+                        let issue = issues[from.issueId]
+                        IssueChip(
+                            identifier: WorkflowGraphView.nodeIdentifier(from, issue: issue),
+                            title: WorkflowGraphView.nodeChipTitle(issue),
+                            iconName: issue.map { IssueStatus.from($0.status).iconName },
+                            statusColor: issue.map { IssueStatus.from($0.status).color },
+                            onTap: { onOpenIssue(from.issueId) }
+                        )
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("workflow-node-merges-first")
+        }
+    }
+
+    /// `Contract published · 2 hr ago` — the label is byte-locked ×4, the stamp
+    /// is the app's own relative-date idiom (and drops out when the wire stamp
+    /// is unreadable).
+    private static func contractPublishedLine(_ stamp: String) -> String {
+        let relative = AgentUsagePresentation.relativeDate(stamp)
+        return relative.isEmpty
+            ? WorkflowView.contractPublishedLabel
+            : "\(WorkflowView.contractPublishedLabel) · \(relative)"
     }
 
     // MARK: - The Work faces (EXP-1024)

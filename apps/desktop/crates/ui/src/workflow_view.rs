@@ -38,7 +38,8 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    notification::Notification,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
@@ -49,8 +50,10 @@ use domain::workflow_view::{
     workflow_node_tone, workflow_review_line, workflow_shape_line, workflow_start_blocker,
     workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation, ReviewLine, StartableWorkflow,
     TrainNode, WorkflowNodeTone, ADMIT_NODE_LABEL, AGENT_REVIEW_TITLE, APPROVE_NODE_LABEL,
-    CANCEL_WORKFLOW_CONFIRM, CANCEL_WORKFLOW_LABEL, DELETE_WORKFLOW_LABEL, DISMISS_NODE_LABEL,
-    FINAL_PR_TITLE, MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE, PAUSE_WORKFLOW_LABEL,
+    CANCEL_WORKFLOW_CONFIRM, CANCEL_WORKFLOW_LABEL, CONTRACT_PUBLISHED_LABEL,
+    DELETE_WORKFLOW_LABEL, DISMISS_NODE_LABEL, FINAL_PR_TITLE, MERGES_IN_FIRST_LABEL,
+    MERGE_FINAL_PR_CONFIRM, MERGE_FINAL_PR_LABEL, MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE,
+    METRICS_TITLE, NODE_MODEL_LABEL, NODE_UNSYNCED_TITLE, PAUSE_WORKFLOW_LABEL,
     PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE, RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL,
     RUNNING_NOW_LABEL, SKIP_NODE_CONFIRM, SKIP_NODE_LABEL, START_WORKFLOW_LABEL,
     WITHDRAW_APPROVAL_LABEL,
@@ -98,6 +101,16 @@ fn graph_scale(waves: usize, available: f32) -> f32 {
         return 1.;
     }
     (available / natural).max(MIN_GRAPH_SCALE)
+}
+
+/// EXP-1014 — the laid-out width the grid is finally given: never wider than
+/// the cell it sits in, so a plan the floor scale cannot fit scrolls INSIDE
+/// its own cell instead of painting over the node panel beside it. The clamp
+/// is unconditional; its own floor is one chip ([`NODE_W`]), which is what a
+/// cell narrower than that (a phone-width window with the panel open, an
+/// unmeasured cell) gets.
+fn clamped_view_w(view_w: f32, available: f32) -> f32 {
+    view_w.min(available.max(NODE_W))
 }
 
 /// The grid at `scale`: the column pitch, the lane pitch and the box width
@@ -400,9 +413,7 @@ impl WorkflowView {
         // The one case the fill rule cannot fill: a plan so deep that even
         // the floor scale overruns the cell. The grid then scrolls inside
         // it rather than painting over the panel beside it.
-        if available > NODE_W {
-            geometry.view_w = geometry.view_w.min(available);
-        }
+        geometry.view_w = clamped_view_w(geometry.view_w, available);
         let grid = grid_view(&grid_nodes, &edges, geometry, &notes, &render, cx);
         // The runs that are up right now, one tap away: a node's chip says
         // THAT it runs, this strip is the way in.
@@ -529,7 +540,7 @@ impl WorkflowView {
                         "Kind",
                         &WF_KIND_CHOICES,
                         node.kind_wire(),
-                        draft,
+                        node_pick_enabled(NodePick::Kind, draft),
                         {
                             let workflow_id = workflow_id.clone();
                             let issue_id = issue_id.clone();
@@ -549,8 +560,7 @@ impl WorkflowView {
                         "Risk",
                         &WF_RISK_CHOICES,
                         node.risk_wire(),
-                        // Risk stays adjustable after the plan is fixed.
-                        true,
+                        node_pick_enabled(NodePick::Risk, draft),
                         {
                             let workflow_id = workflow_id.clone();
                             let issue_id = issue_id.clone();
@@ -569,7 +579,7 @@ impl WorkflowView {
                     // the ONE place a model comes from, and the workflow's
                     // own two are fixed at create.
                     crate::surface::glass_picker_row(
-                        "Model",
+                        NODE_MODEL_LABEL,
                         None,
                         div()
                             .text_sm()
@@ -621,6 +631,16 @@ impl WorkflowView {
                             }),
                     )
                 })
+                // The three facts the panel is the only place for (web and
+                // Android say them too): what a COMPOUND node covers, the
+                // moment this one published its contract — its dependents
+                // may have been building on it since — and the siblings it
+                // has to merge in before it can land, which is the only
+                // explanation a node waiting on work it does not depend on
+                // has.
+                .children(node_members_block(&node, cx))
+                .children(checkpoint_line(&node, cx))
+                .children(merges_in_first_block(&node, nodes, cx))
                 // EXP-1024: the node's faces — Issue · Run · Changes.
                 .children((!proposed).then(|| node_face_strip(&node, &issue_id, cx)).flatten())
                 // EXP-984: the latest AGENT review — its verdict line in the
@@ -747,7 +767,6 @@ impl Render for WorkflowView {
         let shape = row.shape();
         let cycle_note = workflow_cycle_note(&shape);
         let workflow_id = self.workflow_id.clone();
-        let team_id = row.team_id.clone().unwrap_or_default();
         let delete_id = workflow_id.clone();
         let delete_view = cx.entity().downgrade();
         let status = row.status_wire().to_string();
@@ -873,7 +892,7 @@ impl Render for WorkflowView {
         let available = if measured > 1. {
             measured
         } else {
-            fallback_graph_width(_window, panel.is_some())
+            fallback_graph_width(_window, cx, panel.is_some())
         };
         self.scaled_for = available;
         let graph = self.render_graph(&row, &nodes, available, cx);
@@ -919,7 +938,6 @@ impl Render for WorkflowView {
         let train = (!draft).then(|| render_merge_train(&nodes, cx));
         // EXP-984: the run's counters. A draft has run nothing to count.
         let metrics = (!draft).then(|| render_metrics(&row, cx)).flatten();
-        let _ = team_id;
 
         page_scaffold_with(
             "workflow-screen-scroll",
@@ -936,11 +954,126 @@ impl Render for WorkflowView {
 }
 
 /// The width the graph may use before its own cell has been measured: the
-/// page's column (capped, gutters off) minus the picked node's panel.
-fn fallback_graph_width(window: &Window, panel: bool) -> f32 {
-    let column = f32::from(window.viewport_size().width).min(WORKFLOW_COLUMN_W) - PAGE_GUTTER;
+/// page's column (capped, gutters off) minus the picked node's panel. The
+/// WINDOW is not the page — the rail (with whatever list is folded beside
+/// it) and the shell's cutout never belong to the graph — so the first frame
+/// of every open would otherwise lay out far too wide and visibly re-scale
+/// the moment the probe lands.
+fn fallback_graph_width(window: &Window, cx: &App, panel: bool) -> f32 {
+    graph_cell_width(
+        f32::from(window.viewport_size().width),
+        crate::shell::window_left_column_width(window, cx),
+        panel,
+    )
+}
+
+/// [`fallback_graph_width`]'s arithmetic, as a pure function: the window
+/// minus the left column and the shell's own cutout margins, capped at the
+/// page column, minus the page gutter and the picked node's panel.
+fn graph_cell_width(viewport_w: f32, left_column_w: f32, panel: bool) -> f32 {
+    let shell = viewport_w - left_column_w - 2. * crate::shell::PANEL_MARGIN;
+    let column = shell.min(WORKFLOW_COLUMN_W) - PAGE_GUTTER;
     let taken = if panel { NODE_PANEL_W + NODE_PANEL_GAP } else { 0. };
     (column - taken).max(NODE_W)
+}
+
+/// A COMPOUND node's sub-issues, as chips: the node runs them as ONE batch,
+/// and the graph's `EXP-14 +3` only counts them. A member whose row has not
+/// synced here is left out rather than drawn as a uuid (web's rule).
+fn node_members_block(
+    node: &domain::rows::WorkflowNodeRow,
+    cx: &App,
+) -> Option<gpui::AnyElement> {
+    let members: Vec<gpui::AnyElement> = node
+        .member_ids()
+        .into_iter()
+        .filter(|issue_id| crate::issue_chip::synced_issue_status(issue_id, cx).is_some())
+        .map(|issue_id| issue_chip_for(&issue_id, cx))
+        .collect();
+    if members.is_empty() {
+        return None;
+    }
+    Some(
+        h_flex()
+            .min_w_0()
+            .flex_wrap()
+            .gap_1p5()
+            .children(members)
+            .into_any_element(),
+    )
+}
+
+/// EXP-983 — the node announced its CONTRACT, so its dependents may already
+/// be building on it: when that happened, in the app's usual relative words.
+fn checkpoint_line(node: &domain::rows::WorkflowNodeRow, cx: &App) -> Option<gpui::AnyElement> {
+    let at = node.checkpoint_at.as_deref()?;
+    let when = crate::comments::relative_time(at, chrono::Utc::now().timestamp());
+    if when.is_empty() {
+        return None;
+    }
+    Some(
+        div()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(SharedString::from(format!("{CONTRACT_PUBLISHED_LABEL} {when}")))
+            .into_any_element(),
+    )
+}
+
+/// EXP-983 — the nodes this one merges in FIRST: the engine wrote them after
+/// its work collided with theirs, and the graph draws those edges dashed.
+/// Named by their issues, `EXP-14 +3` for a compound one; a node whose issue
+/// has not synced is left out rather than drawn as a uuid.
+fn merges_in_first_block(
+    node: &domain::rows::WorkflowNodeRow,
+    nodes: &[domain::rows::WorkflowNodeRow],
+    cx: &App,
+) -> Option<gpui::AnyElement> {
+    let chips: Vec<gpui::AnyElement> = node
+        .after_ids()
+        .into_iter()
+        .filter_map(|id| nodes.iter().find(|candidate| candidate.id == id))
+        .filter_map(|candidate| node_chip(candidate, cx))
+        .collect();
+    if chips.is_empty() {
+        return None;
+    }
+    Some(
+        v_flex()
+            .min_w_0()
+            .gap_1p5()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(MERGES_IN_FIRST_LABEL)),
+            )
+            .child(h_flex().min_w_0().flex_wrap().gap_1p5().children(chips))
+            .into_any_element(),
+    )
+}
+
+/// One NODE as a chip — its representative issue, named the way the graph
+/// names it (`EXP-14 +3` for a compound node). `None` while that issue has
+/// not synced here.
+fn node_chip(node: &domain::rows::WorkflowNodeRow, cx: &App) -> Option<gpui::AnyElement> {
+    let issue_id = node.issue_id.as_deref()?;
+    let issue = Store::try_global(cx)?
+        .collections()
+        .issues
+        .read(cx)
+        .get(issue_id)
+        .cloned()?;
+    let mut chip = crate::issue_chip::issue_chip(
+        SharedString::from(format!("workflow-node-chip-{}", node.id)),
+        workflow_node_title(&issue.identifier, node.member_ids().len()),
+        issue.title.clone(),
+    )
+    .flexible();
+    if let Some(status) = crate::issue_chip::synced_issue_status(issue_id, cx) {
+        chip = chip.status(status);
+    }
+    Some(chip.into_any_element())
 }
 
 /// EXP-1002 — the node's FACES, as the app's own segmented capsule: Issue ·
@@ -1245,6 +1378,38 @@ fn cancel_button(id: String, name: String, _cx: &App) -> gpui::AnyElement {
         .into_any_element()
 }
 
+/// EXP-1032 — "Merge", ON the final-PR chip: squash-merging that one pull
+/// request is the whole run's single human review, so the action sits where
+/// the pull request is named. It confirms with the shared sentence first
+/// (the Cancel workflow pattern), and the click never reaches the chip under
+/// it, whose own job is to open the pull request in a browser.
+fn merge_final_pr_button(workflow_id: String, cx: &App) -> gpui::AnyElement {
+    crate::controls::text_button(
+        "workflow-final-pr-merge",
+        MERGE_FINAL_PR_LABEL,
+        crate::controls::TextButtonVariant::Text,
+        cx,
+    )
+    .on_click(move |_, window, cx| {
+        cx.stop_propagation();
+        let workflow_id = workflow_id.clone();
+        crate::native_dialog::open_alert(
+            window,
+            cx,
+            crate::native_dialog::AlertSpec::new(
+                format!("{MERGE_FINAL_PR_LABEL} {}", FINAL_PR_TITLE.to_lowercase()),
+                MERGE_FINAL_PR_CONFIRM,
+                MERGE_FINAL_PR_LABEL,
+            )
+            .on_ok(move |window, cx| {
+                spawn_merge_final_pr(workflow_id.clone(), window, cx);
+                true
+            }),
+        );
+    })
+    .into_any_element()
+}
+
 /// EXP-982 — the merge train under the graph: every node whose PR is up, in
 /// landing order, each with where it stands. Hidden on a draft.
 fn render_merge_train(nodes: &[domain::rows::WorkflowNodeRow], cx: &App) -> gpui::AnyElement {
@@ -1337,6 +1502,25 @@ fn render_metrics(row: &domain::rows::WorkflowRow, cx: &App) -> Option<gpui::Any
     )
 }
 
+/// The two things the node panel still picks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NodePick {
+    Kind,
+    Risk,
+}
+
+/// Which of the node panel's picks a workflow's status still allows — the
+/// server's rule verbatim (`workflows.updateNode`: "Kind and touches shape
+/// the PLAN; risk stays adjustable", and only the first asserts a draft).
+/// Risk is the ONE lever onto the strong model (`model_for_node`), so it
+/// stays a pick while the run is up; the plan's shape does not.
+fn node_pick_enabled(pick: NodePick, draft: bool) -> bool {
+    match pick {
+        NodePick::Kind => draft,
+        NodePick::Risk => true,
+    }
+}
+
 /// The contract's node KIND picks with their shipped labels.
 const WF_KIND_CHOICES: [(&str, &str); 3] = [
     ("Contract", domain::contract::WF_NODE_KIND_CONTRACT),
@@ -1375,6 +1559,13 @@ struct NodeFacts {
     /// EXP-984: a follow-up nobody admitted yet — drawn with a DASHED
     /// outline, because it is not part of the run.
     proposed: bool,
+    /// EXP-1014: the node's ISSUE row has not synced here yet — the chip
+    /// names it by the id's first 8 characters and its glyph slot stays
+    /// EMPTY rather than claiming a status nobody knows (×4).
+    unsynced: bool,
+    /// EXP-1032: this is the final-PR chip and its pull request is OPEN —
+    /// the workflow id the Merge action on it calls with.
+    merge_final_pr: Option<String>,
     /// The node's coding session, once it has one that synced.
     run: Option<NodeRun>,
 }
@@ -1443,12 +1634,23 @@ impl NodeFacts {
                 .get(issue_id)
                 .cloned()
         });
+        // EXP-1014 — a node whose issue row has not synced here still names
+        // itself (×4): the issue id's first 8 characters in the mono slot,
+        // `+N` for a compound one, and the ONE line that says why there is
+        // no title yet.
         let identifier = issue
             .as_ref()
             .map(|issue| issue.identifier.clone())
-            .unwrap_or_default();
+            .filter(|identifier| !identifier.is_empty())
+            .unwrap_or_else(|| {
+                node.issue_id
+                    .as_deref()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(8)
+                    .collect()
+            });
         Self {
-            // A node whose issue row is not synced renders its caption only.
             identifier: if identifier.is_empty() {
                 String::new()
             } else {
@@ -1457,7 +1659,7 @@ impl NodeFacts {
             title: issue
                 .as_ref()
                 .map(|issue| issue.title.clone())
-                .unwrap_or_default(),
+                .unwrap_or_else(|| NODE_UNSYNCED_TITLE.to_string()),
             caption: workflow_node_caption(
                 CaptionNode {
                     kind: node.kind_wire(),
@@ -1473,6 +1675,8 @@ impl NodeFacts {
                 .as_ref()
                 .map(|issue| queries::resolve_issue_status(cx, issue)),
             proposed: node.state_wire() == domain::contract::WF_NODE_STATE_PROPOSED,
+            unsynced: issue.is_none(),
+            merge_final_pr: None,
             run: NodeRun::derive(node, cx),
         }
     }
@@ -1495,6 +1699,11 @@ impl NodeFacts {
             glyph: Some(registry::NOTIFICATION_PR_MERGED),
             status: None,
             proposed: false,
+            unsynced: false,
+            // EXP-1032: merging it is the run's ONE human review, and the
+            // button sits on the chip that IS the pull request.
+            merge_final_pr: (row.final_pr_state.as_deref() == Some("open"))
+                .then(|| row.id.clone()),
             run: None,
         }
     }
@@ -1547,6 +1756,8 @@ fn render_node_box(
     let proposed = facts.is_some_and(|facts| facts.proposed);
     let glyph = facts.and_then(|facts| facts.glyph.clone());
     let status = facts.and_then(|facts| facts.status.clone());
+    let unsynced = facts.is_some_and(|facts| facts.unsynced);
+    let merge_final_pr = facts.and_then(|facts| facts.merge_final_pr.clone());
     let target = node_id.to_string();
 
     let mut chip = crate::issue_chip::issue_chip(
@@ -1559,12 +1770,16 @@ fn render_node_box(
     if let Some(status) = status {
         chip = chip.status(status);
     }
-    // The glyph slot says what is happening to this node: the live dot of
-    // the run that is up on it, else the state's own mark.
+    // The ONE slot rule, ×4: the live dot of the run that is up on it, else
+    // the state's own mark, else the issue's status (set above) — and
+    // nothing at all while that issue has not synced, since a chip with no
+    // status must not invent one.
     if let Some(run) = live_run.as_ref() {
         chip = chip.slot(crate::surface::live_dot(run.tone, run.busy));
     } else if let Some(glyph) = glyph {
         chip = chip.slot(Icon::from(glyph).xsmall().text_color(tint));
+    } else if unsynced {
+        chip = chip.slot(div());
     }
     // The caption trails INSIDE the chip, in the node's tone. It is set even
     // when it is empty (a draft says nothing yet): a chip with a note takes
@@ -1592,6 +1807,11 @@ fn render_node_box(
     }
     if compound {
         chip = chip.stacked();
+    }
+    // EXP-1032 — the final pull request is the run's ONE human review: its
+    // chip carries Merge, which confirms before it lands anything.
+    if let Some(workflow_id) = merge_final_pr {
+        chip = chip.trailing(merge_final_pr_button(workflow_id, cx));
     }
 
     // The pick: an accent ring OUTSIDE the chip, so its own hairline keeps
@@ -1701,11 +1921,16 @@ fn issue_identifier(issue_id: &str, cx: &App) -> String {
 fn issue_chip_element(issue_id: &str, cx: &App) -> crate::issue_chip::IssueChip {
     let row = Store::try_global(cx)
         .and_then(|store| store.collections().issues.read(cx).get(issue_id).cloned());
+    // EXP-1014, as in the graph's own chips: a row that has not synced here
+    // reads as the issue id's first 8 characters and the ONE line that says
+    // why there is no title — never a bare uuid.
     let identifier = row
         .as_ref()
         .map(|issue| issue.identifier.clone())
-        .unwrap_or_else(|| issue_id.to_string());
-    let title = row.map(|issue| issue.title.clone()).unwrap_or_default();
+        .unwrap_or_else(|| issue_id.chars().take(8).collect());
+    let title = row
+        .map(|issue| issue.title.clone())
+        .unwrap_or_else(|| NODE_UNSYNCED_TITLE.to_string());
     let mut chip = crate::issue_chip::issue_chip(
         SharedString::from(format!("workflow-issue-{issue_id}")),
         identifier,
@@ -1863,6 +2088,35 @@ fn spawn_command(command: Command, workflow_id: String, cx: &mut App) {
         .detach();
 }
 
+/// EXP-1032 — `workflows.mergeFinalPr`: the workflow's branch is
+/// squash-merged into the default branch and the run is done. Idempotent
+/// server-side; a refusal (no final PR yet, GitHub said no) is a sentence
+/// worth reading, so it lands as an error notification rather than a log
+/// line nobody sees.
+fn spawn_merge_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::workflows::merge_final_pr(&trpc, &workflow_id) })
+            .await;
+        let _ = handle.update(cx, |_, window, cx| {
+            // The synced echo repaints the chip; only a refusal has to say
+            // anything.
+            if let Err(err) = result {
+                window.push_notification(
+                    Notification::error(SharedString::from(err.user_message())),
+                    cx,
+                );
+            }
+        });
+    })
+    .detach();
+}
+
 /// The node-level calls a person makes: the human gate, and unsticking a
 /// failed node.
 fn spawn_approve(node_id: String, approved: bool, cx: &mut App) {
@@ -1998,6 +2252,8 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 glyph: Some(registry::NOTIFICATION_PR_MERGED),
                 status: Some(constructed_default(IssueStatus::Done)),
                 proposed: false,
+                unsynced: false,
+                merge_final_pr: None,
                 run: None,
             },
         );
@@ -2015,6 +2271,8 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 glyph: None,
                 status: Some(constructed_default(IssueStatus::Backlog)),
                 proposed: false,
+                unsynced: false,
+                merge_final_pr: None,
                 run: None,
             },
         );
@@ -2032,6 +2290,8 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 glyph: Some(registry::ACTION_RUN),
                 status: Some(constructed_default(IssueStatus::InProgress)),
                 proposed: false,
+                unsynced: false,
+                merge_final_pr: None,
                 run: Some(NodeRun {
                     session_id: "styleguide".to_string(),
                     live: true,
@@ -2061,6 +2321,8 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 glyph: Some(registry::NOTIFICATION_PR_MERGED),
                 status: Some(constructed_default(IssueStatus::Done)),
                 proposed: false,
+                unsynced: false,
+                merge_final_pr: None,
                 run: None,
             },
         );
@@ -2078,6 +2340,8 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 glyph: None,
                 status: Some(constructed_default(IssueStatus::Backlog)),
                 proposed: false,
+                unsynced: false,
+                merge_final_pr: None,
                 run: None,
             },
         );
@@ -2094,6 +2358,10 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 glyph: Some(registry::NOTIFICATION_PR_MERGED),
                 status: None,
                 proposed: false,
+                unsynced: false,
+                // EXP-1032: the sample's final pull request is OPEN, so the
+                // entry shows the Merge action that rides on that chip.
+                merge_final_pr: Some("styleguide".to_string()),
                 run: None,
             },
         );
@@ -2219,6 +2487,62 @@ mod tests {
         assert_eq!(graph_scale(8, 10.), MIN_GRAPH_SCALE);
         // An unmeasured cell never scales at all.
         assert_eq!(graph_scale(8, 0.), 1.);
+    }
+
+    /// EXP-1014 — the grid is NEVER laid out wider than the cell it sits in,
+    /// whatever the floor scale left over: a deep plan scrolls inside its own
+    /// cell instead of painting over the node panel beside it. The clamp's
+    /// only floor is one chip, which is what a cell narrower than that (a
+    /// window ~500px wide with a node picked) gets.
+    #[test]
+    fn the_grid_never_overruns_the_cell_it_was_given() {
+        // Room to spare: the natural layout is untouched.
+        assert_eq!(clamped_view_w(460., 900.), 460.);
+        // A cell UNDER one chip wide — the old guard switched the clamp off
+        // exactly here and the grid painted over the panel.
+        assert_eq!(clamped_view_w(460., 150.), NODE_W);
+        // Wider than one chip: clamped to the cell itself.
+        assert_eq!(clamped_view_w(460., 320.), 320.);
+        // An unmeasured cell still clamps, to the same floor.
+        assert_eq!(clamped_view_w(460., 0.), NODE_W);
+    }
+
+    /// EXP-1014 — the first frame measures the PAGE's cell, not the window:
+    /// the rail (with whatever list is folded beside it) and the shell's
+    /// cutout are not the graph's to use, or every open would lay out too
+    /// wide and visibly re-scale the moment the probe lands.
+    #[test]
+    fn the_first_frame_budgets_around_the_rail_and_the_panel() {
+        let rail = crate::shell::left_column_width_for(crate::shell::LeftOccupant::Rail);
+        // A wide window: the page column caps it, panel or no panel.
+        let wide = graph_cell_width(2200., rail, false);
+        assert_eq!(wide, WORKFLOW_COLUMN_W - PAGE_GUTTER);
+        assert_eq!(
+            graph_cell_width(2200., rail, true),
+            wide - NODE_PANEL_W - NODE_PANEL_GAP
+        );
+        // A narrow one: the rail and the cutout come off the top, so the
+        // cell is smaller than the window says.
+        let narrow = graph_cell_width(900., rail, false);
+        assert_eq!(
+            narrow,
+            900. - rail - 2. * crate::shell::PANEL_MARGIN - PAGE_GUTTER
+        );
+        assert!(narrow < 900. - PAGE_GUTTER);
+        // Nothing left at all: one chip, and the page's own column scrolls.
+        assert_eq!(graph_cell_width(520., rail, true), NODE_W);
+    }
+
+    /// EXP-1014 — what the node panel may still pick, by status. The
+    /// server's `updateNode` asserts a draft for the KIND (it shapes the
+    /// plan) and never for the RISK, which is the one lever onto the strong
+    /// model and stays adjustable while the run is up.
+    #[test]
+    fn risk_stays_a_pick_after_the_plan_is_fixed() {
+        assert!(node_pick_enabled(NodePick::Kind, true));
+        assert!(!node_pick_enabled(NodePick::Kind, false));
+        assert!(node_pick_enabled(NodePick::Risk, true));
+        assert!(node_pick_enabled(NodePick::Risk, false));
     }
 
     /// EXP-1014 — a node's Model line reads the ONE launch rule, and spells

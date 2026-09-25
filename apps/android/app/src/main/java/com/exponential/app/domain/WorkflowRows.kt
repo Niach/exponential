@@ -50,14 +50,7 @@ data class WorkflowLaunch(
     val contractModel: String? = null,
     val integrationModel: String? = null,
     val riskModel: String? = null,
-) {
-    /**
-     * The pins come out of the AGENT's model vocabulary (the server validates
-     * them against it), so an agent switch drops them like it drops `model`.
-     */
-    fun withoutPhaseModels(): WorkflowLaunch =
-        copy(contractModel = null, integrationModel = null, riskModel = null)
-}
+)
 
 /**
  * EXP-1029: the STRICT launch every node run reads — two models, no more.

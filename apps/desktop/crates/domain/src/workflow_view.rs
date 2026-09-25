@@ -307,6 +307,12 @@ pub const WITHDRAW_APPROVAL_LABEL: &str = "Withdraw approval";
 pub const MERGE_TRAIN_TITLE: &str = "Merge train";
 pub const MERGE_TRAIN_EMPTY: &str = "Nothing is waiting to land.";
 pub const FINAL_PR_TITLE: &str = "Final pull request";
+/// EXP-1032 — merging the final pull request is the run's ONE human review,
+/// so the action sits on the chip that IS that pull request, and confirms
+/// with this sentence. Byte-identical ×4.
+pub const MERGE_FINAL_PR_LABEL: &str = "Merge";
+pub const MERGE_FINAL_PR_CONFIRM: &str =
+    "The workflow's branch is squash-merged into the default branch and the run is done.";
 pub const RETRY_NODE_LABEL: &str = "Retry";
 pub const SKIP_NODE_LABEL: &str = "Skip";
 pub const SKIP_NODE_CONFIRM: &str =
@@ -542,6 +548,13 @@ pub const PROPOSED_NODE_NOTE: &str =
 /// launch is two models (`coding::workflows::launch`), so the per-phase and
 /// review-model launch rows (and their labels) are gone.
 pub const AGENT_REVIEW_TITLE: &str = "Agent review";
+/// The node panel's read-only line: what THIS node's run spawns on
+/// (`model_for_node`).
+pub const NODE_MODEL_LABEL: &str = "Model";
+/// EXP-1014: the chip of a node whose issue row has not synced yet — the
+/// identifier slot shows the first 8 characters of the issue id, the title
+/// this line. Byte-identical ×4.
+pub const NODE_UNSYNCED_TITLE: &str = "Not synced yet";
 pub const METRICS_TITLE: &str = "Metrics";
 
 /// What the review line reads off `workflow_nodes.review`.
@@ -1168,6 +1181,21 @@ mod tests {
         assert_eq!(titles, ["Running", "Draft", "Done"]);
         let wires: Vec<&str> = WORKFLOW_BANDS.iter().map(|band| band.as_wire()).collect();
         assert_eq!(wires, ["running", "draft", "done"]);
+    }
+
+    /// The strings the ×4 clients say WORD FOR WORD (web
+    /// `lib/workflow-view.ts`, iOS `WorkflowView.swift`, Android
+    /// `WorkflowView.kt`): the final-PR merge pair and the node panel's two
+    /// EXP-1014 lines. A drift here is a drift in the product's voice.
+    #[test]
+    fn the_shared_labels_are_byte_identical() {
+        assert_eq!(MERGE_FINAL_PR_LABEL, "Merge");
+        assert_eq!(
+            MERGE_FINAL_PR_CONFIRM,
+            "The workflow's branch is squash-merged into the default branch and the run is done."
+        );
+        assert_eq!(NODE_MODEL_LABEL, "Model");
+        assert_eq!(NODE_UNSYNCED_TITLE, "Not synced yet");
     }
 
     /// An unknown state/kind (a newer server) renders its raw wire word

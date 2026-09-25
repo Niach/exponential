@@ -1,93 +1,59 @@
-import {
-  conceptIcon,
-  ListRow,
-  LiveDot,
-  TREE_BASE,
-  TREE_INDENT,
-  TreeGuides,
-  treeGuides,
-} from "@exp/ui"
-
+import { escapeHtml, svgChevronDown, svgChevronRight, svgLayers, svgWorkflow } from "../html.ts"
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-996 — the session tree: what a list of runs looks like once it admits
+// EXP-996: the session tree — what a list of runs looks like once it admits
 // that a dozen rows are ONE thing.
 //
-// EXP-1030 turned the hand-drawn specimen into a real island. The app's own
-// `SessionTree` reads four Electric collections and the router, so it cannot
-// be mounted here — but everything the page has to SHOW is chrome the package
-// already owns: `ListRow` is the row, `treeGuides` + `TreeGuides` are the
-// EXP-965 connector, `LiveDot` is the state dot and `conceptIcon` names the
-// two group glyphs. Drawing the specimen out of those is the same geometry
-// the web, the IDE, iOS and Android all paint, with no inline style and no
-// second copy of Lucide's paths.
+// The specimen is deliberately hand-drawn markup rather than the app's own
+// component: `SessionTree` reads four Electric collections and the router, and
+// a specimen that needs a team to exist documents nothing. What the page has
+// to show is the SHAPE — which rows are group rows, what each group's icon
+// says, and how the connector nests a child run — and that is geometry.
+//
+// It draws in the page's own vocabulary (`.cmp-session-tree*` in
+// `component-styles.ts`, the two glyphs in `html.ts`): EXP-1019 holds a filled
+// entry to the same rules as a component demo, so no inline style and no class
+// the stylesheet does not declare.
 
-const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
-const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
-/** The two group glyphs, by CONCEPT: a workflow is a graph, a stack a chain. */
-const WorkflowIcon = conceptIcon(`nav-workflows`)
-const StackIcon = conceptIcon(`pr-stack`)
+/** 14px of indent per level — `TREE_INDENT`, the ×4 constant, in the CSS. */
+function row(depth: number, body: string, group = false): string {
+  const cls = group ? `cmp-session-tree-row cmp-session-tree-group` : `cmp-session-tree-row`
+  return `<div class="${cls}" data-depth="${depth}">${body}</div>`
+}
 
-/** One row of the specimen — a group, or a run. */
-type Row =
-  | {
-      kind: `group`
-      depth: number
-      icon: typeof WorkflowIcon
-      name: string
-      count: number
-      /** A workflow's name links onward; a stack is not a place you can go. */
-      link?: boolean
-      expanded?: boolean
-    }
-  | {
-      kind: `run`
-      depth: number
-      identifier: string
-      title: string
-      tone: `live` | `done` | `idle`
-    }
+/** A group row: the fold chevron, the group's icon, its name, its count. */
+function group(
+  depth: number,
+  icon: string,
+  name: string,
+  count: number,
+  { open = true, link = false }: { open?: boolean; link?: boolean } = {}
+): string {
+  const label = link
+    ? `<span class="cmp-session-tree-link">${escapeHtml(name)}</span>`
+    : escapeHtml(name)
+  return row(
+    depth,
+    [
+      `<span class="cmp-session-tree-icon">${open ? svgChevronDown : svgChevronRight}</span>`,
+      `<span class="cmp-session-tree-icon">${icon}</span>`,
+      `<span class="cmp-session-tree-name">${label}</span>`,
+      `<span class="cmp-session-tree-count">${count}</span>`,
+    ].join(``),
+    true
+  )
+}
 
-const ROWS: Row[] = [
-  // A workflow: its name is the only thing that links onward.
-  { kind: `group`, depth: 0, icon: WorkflowIcon, name: `EXP-996 +5`, count: 3, link: true },
-  { kind: `run`, depth: 1, identifier: `EXP-1048`, title: `Session tree (web)`, tone: `done` },
-  { kind: `run`, depth: 1, identifier: `EXP-1049`, title: `Session tree (IDE)`, tone: `live` },
-  {
-    kind: `run`,
-    depth: 1,
-    identifier: `EXP-1050`,
-    title: `Session tree (iOS + Android)`,
-    tone: `idle`,
-  },
-  // A stack is a linear group: lowest first, and nowhere to go.
-  { kind: `group`, depth: 0, icon: StackIcon, name: `Stacked pull requests`, count: 2 },
-  { kind: `run`, depth: 1, identifier: `APP-41`, title: `Extract the merge queue`, tone: `done` },
-  { kind: `run`, depth: 1, identifier: `APP-42`, title: `Retry a failed merge`, tone: `done` },
-  // A parent run and its `sessions_start` child, one level deeper.
-  { kind: `run`, depth: 0, identifier: `APP-88`, title: `Plan the release train`, tone: `done` },
-  {
-    kind: `run`,
-    depth: 1,
-    identifier: `APP-89`,
-    title: `Bump the iOS build number`,
-    tone: `done`,
-  },
-  // Folded: the group stays, its runs are gone.
-  {
-    kind: `group`,
-    depth: 0,
-    icon: WorkflowIcon,
-    name: `REV2-12 +2`,
-    count: 3,
-    link: true,
-    expanded: false,
-  },
-]
-
-/** The ×4 indent rule, the same one every drawn list applies. */
-function indent(depth: number): string {
-  return `${TREE_BASE + depth * TREE_INDENT}px`
+/** A run row: its state dot, the identifier, the title. */
+function run(depth: number, identifier: string, title: string, live = true): string {
+  return row(
+    depth,
+    [
+      `<span class="cmp-session-tree-dot"${live ? ` data-live` : ``}></span>`,
+      `<span class="cmp-session-tree-id">${escapeHtml(identifier)}</span>`,
+      `<span class="cmp-session-tree-title">${escapeHtml(title)}</span>`,
+    ].join(``)
+  )
 }
 
 export const entry: StyleguideEntry = {
@@ -122,64 +88,23 @@ export const entry: StyleguideEntry = {
       note: `drawn by ui/agent/AgentSessionsList.kt`,
     },
   },
-  island: () => {
-    // The connector reads off the VISIBLE depths, exactly as the app's
-    // `useSessionTreeRows` does — a folded subtree simply is not there.
-    const guides = treeGuides(ROWS.map((row) => row.depth))
-    return (
-      <div className="flex w-[420px] max-w-full flex-col">
-        {ROWS.map((row, index) => {
-          const guide = guides[index]!
-          if (row.kind === `group`) {
-            const Icon = row.icon
-            const expanded = row.expanded !== false
-            const Fold = expanded ? ChevronDownIcon : ChevronRightIcon
-            return (
-              <ListRow
-                key={`${row.name}-${index}`}
-                interactive
-                className="relative h-8 gap-1.5 py-0 pr-2 text-sm"
-                style={{ paddingLeft: indent(row.depth) }}
-              >
-                <TreeGuides guide={guide} />
-                <Fold className="size-3 shrink-0 text-muted-foreground" />
-                <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span
-                  className={
-                    row.link
-                      ? `min-w-0 flex-1 truncate font-medium underline underline-offset-2`
-                      : `min-w-0 flex-1 truncate font-medium`
-                  }
-                >
-                  {row.name}
-                </span>
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {row.count}
-                </span>
-              </ListRow>
-            )
-          }
-          return (
-            <ListRow
-              key={row.identifier}
-              interactive
-              className="relative h-8 gap-2 py-0 pr-2 text-sm"
-              style={{ paddingLeft: indent(row.depth) }}
-            >
-              <TreeGuides guide={guide} />
-              <LiveDot
-                tone={row.tone}
-                ping={row.tone === `live`}
-                className="size-1.5 shrink-0"
-              />
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {row.identifier}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{row.title}</span>
-            </ListRow>
-          )
-        })}
-      </div>
-    )
-  },
+  render: () =>
+    [
+      `<div class="cmp-session-tree">`,
+      // A workflow: its name is the only thing that links onward.
+      group(0, svgWorkflow, `EXP-996 +5`, 3, { link: true }),
+      run(1, `EXP-1048`, `Session tree (web)`),
+      run(1, `EXP-1049`, `Session tree (IDE)`),
+      run(1, `EXP-1050`, `Session tree (iOS + Android)`, false),
+      // A stack is a linear group: lowest first, and nowhere to go.
+      group(0, svgLayers, `Stacked pull requests`, 2),
+      run(1, `APP-41`, `Extract the merge queue`),
+      run(1, `APP-42`, `Retry a failed merge`),
+      // A parent run and its `sessions_start` child, one level deeper.
+      run(0, `APP-88`, `Plan the release train`),
+      run(1, `APP-89`, `Bump the iOS build number`),
+      // Folded: the group stays, its runs are gone.
+      group(0, svgWorkflow, `REV2-12 +2`, 3, { open: false, link: true }),
+      `</div>`,
+    ].join(``),
 }

@@ -483,6 +483,25 @@ pub fn land_node(trpc: &TrpcClient, node_id: &str) -> Result<LandOutcome, ApiErr
     trpc.mutation("workflows.landNode", &Input { node_id })
 }
 
+/// MEMBER: `workflows.mergeFinalPr` — squash-merge the workflow's ONE final
+/// pull request, the one human review of the whole run; GitHub's acceptance
+/// completes the workflow in the same call (EXP-1032). Idempotent for an
+/// already merged PR; a refusal (no final PR yet, GitHub said no) is the
+/// server's sentence.
+pub fn merge_final_pr(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Response {
+        #[allow(dead_code)]
+        merged: bool,
+    }
+    let _: Response = trpc.mutation("workflows.mergeFinalPr", &Input { id })?;
+    Ok(())
+}
+
 /// ENGINE: `workflows.openFinalPr` — the ONE final pull request, integration
 /// branch → the repository's default branch. Idempotent; returns its url.
 pub fn open_final_pr(trpc: &TrpcClient, id: &str) -> Result<String, ApiError> {
@@ -736,7 +755,6 @@ mod tests {
         assert_eq!(workflow.launch.agent.as_deref(), Some("claude"));
         assert_eq!(workflow.launch.subagent_model.as_deref(), Some("sonnet"));
         assert_eq!(workflow.launch.max_parallel, Some(5));
-        assert_eq!(row.max_parallel(), 5);
         assert_eq!(row.shape().nodes, 3);
         assert_eq!(row.shape().depth, 2);
 
@@ -747,10 +765,6 @@ mod tests {
         assert_eq!(bare.status_wire(), "draft");
         assert_eq!(bare.shape(), domain::workflow_view::WorkflowShape::default());
         assert!(bare.cycle_edges().is_empty());
-        assert_eq!(
-            bare.max_parallel(),
-            domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT
-        );
     }
 
     /// The nodes carry the SERVER's layout; an unknown/absent column degrades

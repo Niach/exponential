@@ -154,14 +154,14 @@ class WorkflowsWireFormatTest {
         assertEquals(JsonNull, launch["integrationModel"])
         assertEquals(JsonPrimitive("opus"), launch["riskModel"])
 
-        // An agent switch drops the pins (they are the OLD agent's models) —
-        // as explicit nulls, never as absent keys the server would "keep".
+        // An unpinned launch states all three as explicit nulls, never as
+        // absent keys the server would "keep".
         val switched = updateWorkflowInput(
             id = "wf-1",
             name = null,
             deviceId = null,
             clearDevice = false,
-            launch = edited.copy(agent = "codex", model = "", effort = "").withoutPhaseModels(),
+            launch = WorkflowLaunch(agent = "codex"),
             startOn = null,
         )["launch"] as JsonObject
         for (key in listOf("contractModel", "integrationModel", "riskModel")) {
@@ -243,6 +243,25 @@ class WorkflowsWireFormatTest {
         assertEquals(
             """{"id":"wf-1"}""",
             json.encodeToString(WorkflowIdInput.serializer(), WorkflowIdInput(id = "wf-1")),
+        )
+    }
+
+    /**
+     * EXP-1033: merging the final pull request takes the run verbs' ONE input
+     * ([WorkflowIdInput], locked above) and answers with the flag alone — the
+     * RESULT arrives over the synced row, so an unknown key a newer server
+     * adds is ignored, and a body that says nothing is not a merge.
+     */
+    @Test
+    fun `merging the final pull request reads one flag`() {
+        assertTrue(
+            json.decodeFromString(
+                WorkflowMergeResult.serializer(),
+                """{"merged":true,"someFutureKey":1}""",
+            ).merged,
+        )
+        assertFalse(
+            json.decodeFromString(WorkflowMergeResult.serializer(), "{}").merged,
         )
     }
 

@@ -294,6 +294,16 @@ final class WorkflowDetailModel {
         run { try await self.deps.workflowsApi.cancel(accountId: $0, id: $1) }
     }
 
+    /// EXP-1033 — squash-merge the workflow's ONE final pull request, the one
+    /// human review of the whole run: the server completes the workflow in the
+    /// same call and the synced row carries that back, so a phone finishes a
+    /// workflow without leaving for GitHub. A refusal lands in `error`.
+    func mergeFinalPr() {
+        run { accountId, id in
+            _ = try await self.deps.workflowsApi.mergeFinalPr(accountId: accountId, id: id)
+        }
+    }
+
     /// The human gate: clear a node's open PR for the merge train, or take the
     /// approval back while the node has not landed.
     func approveNode(_ nodeId: String, approved: Bool) {

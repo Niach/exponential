@@ -3,14 +3,18 @@ import {
   conceptIcon,
   LiveDot,
   WorkflowGraphView,
+  type StatusGlyphProps,
   type WorkflowGraphNode,
   type WorkflowGraphTone,
 } from "@exp/ui"
 import { RunningIndicator } from "@/components/agent-session-row"
+import { statusColorClass } from "@/components/issue-properties/status-dropdown"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { SessionDisplayState } from "@/lib/coding-session-display"
 import type { WorkflowNodeRun } from "@/lib/workflow-run"
 import type { Issue, WorkflowNode } from "@/db/schema"
 import {
+  NODE_UNSYNCED_TITLE,
   workflowEdges,
   workflowEdgeStyle,
   workflowNodeCaption,
@@ -35,6 +39,13 @@ import {
 // is in, one extra chip after the last wave stands for the workflow's single
 // final pull request.
 //
+// EXP-1014: ONE rule for the chip's glyph slot ×4 — a live run shows the live
+// dot, a started workflow's state shows its own glyph WHEN it has one, and
+// everything else (a draft, or blocked / ready / proposed / skipped) shows the
+// ISSUE's own status glyph, resolved against the team's rows exactly the way
+// `components/issue-chip.tsx` resolves it. An issue that has not synced leaves
+// the slot empty.
+//
 // EXP-983: what an edge says is `workflowEdgeStyle`'s call — green out of a
 // landed node, red while the dependent merges a moved upstream in, and DASHED
 // while it builds on work that has not landed.
@@ -56,10 +67,12 @@ const RUN_TONE: Record<SessionDisplayState, WorkflowGraphTone> = {
   done: `active`,
 }
 
-/** The state's shape, beside the caption that carries its colour. States with
- *  nothing happening yet (proposed/blocked/ready/paused) and `skipped` stay
- *  bare: the caption alone says it. `running` borrows the session dot. */
-export function WorkflowStateGlyph({ state }: { state: string }) {
+/** The state's shape, beside the caption that carries its colour — for the
+ *  states that HAVE one. A state with nothing happening yet (blocked, ready,
+ *  proposed) and `skipped` return null, and the chip falls back to the ISSUE's
+ *  own status glyph, so an unstarted node reads exactly like the same issue
+ *  anywhere else in the app. `running` borrows the session dot. */
+export function workflowStateGlyph(state: string): ReactNode | null {
   const className = `size-3.5 shrink-0`
   if (state === `running`) return <LiveDot tone="live" ping className="shrink-0" />
   if (state === `waiting`) return <WarningIcon className={className} />
@@ -102,6 +115,15 @@ export function WorkflowGraph({
   onSelect: (nodeId: string) => void
   className?: string
 }) {
+  const { resolve } = useTeamStatusesContext()
+  const resolveStatus = (issue: Issue): StatusGlyphProps => {
+    const status = resolve(issue)
+    return {
+      icon: status.icon,
+      colorClass: statusColorClass(status),
+      colorHex: status.builtinKey ? undefined : status.colorHex,
+    }
+  }
   const nodeById = useMemo(
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes]
@@ -127,24 +149,33 @@ export function WorkflowGraph({
     const issue = issueById.get(node.issueId)
     const run = runByNodeId?.get(node.id)
     const liveRun = run?.live ? run : undefined
+    // A draft has no states yet, and a started workflow's quiet states
+    // (blocked/ready/proposed/skipped) have no glyph of their own: both fall
+    // through to the issue's status.
+    const stateGlyph =
+      workflowStatus === `draft` ? null : workflowStateGlyph(node.state)
+    const status = issue ? resolveStatus(issue) : undefined
     return {
       id: node.id,
       wave: node.wave,
       lane: node.lane,
       // A node whose issue row has not synced keeps its place and its caption
       // — the graph must never blank out on a row that is still on its way.
-      title: issue
-        ? workflowNodeTitle(issue.identifier, node.memberIssueIds.length)
-        : node.issueId.slice(0, 8),
-      name: issue?.title ?? ``,
+      // EXP-1014: it reads as the issue id's first 8 characters plus the ONE
+      // line that says why there is no title yet.
+      title: workflowNodeTitle(
+        issue?.identifier ?? node.issueId.slice(0, 8),
+        node.memberIssueIds.length
+      ),
+      name: issue?.title ?? NODE_UNSYNCED_TITLE,
       caption: workflowNodeCaption(node, workflowStatus),
       tone: liveRun ? RUN_TONE[liveRun.state] : workflowNodeTone(node.state),
       glyph: liveRun ? (
         <RunningIndicator state={liveRun.state} working={liveRun.working} />
-      ) : workflowStatus === `draft` ? undefined : (
-        // A draft has no states yet: nothing reads off it.
-        <WorkflowStateGlyph state={node.state} />
+      ) : (
+        (stateGlyph ?? undefined)
       ),
+      status,
       stacked: node.memberIssueIds.length > 0,
       selected: selectedNodeId === node.id,
       proposed: node.state === `proposed`,

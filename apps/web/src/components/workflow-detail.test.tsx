@@ -15,6 +15,7 @@ import {
   MERGE_TRAIN_EMPTY,
   METRICS_TITLE,
   NODE_MODEL_LABEL,
+  NODE_UNSYNCED_TITLE,
   PAUSE_WORKFLOW_LABEL,
   PLAN_WORKFLOW_LABEL,
   PROPOSED_NODE_NOTE,
@@ -48,6 +49,16 @@ import {
 // EXP-984: the reviewer's verdict reads off the node, a `proposed` follow-up is
 // decided on rather than run, and the workflow
 // carries its counters.
+
+// Radix positions its popovers with ResizeObserver and cmdk scrolls the active
+// row into view; jsdom has neither.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= ResizeObserverStub as never
+Element.prototype.scrollIntoView ??= function scrollIntoView() {}
 
 const nodeRows = vi.hoisted(() => ({ rows: [] as unknown[] }))
 const nodeRuns = vi.hoisted(() => ({ byNodeId: new Map<string, unknown>() }))
@@ -216,6 +227,25 @@ function mount(over: Partial<SyncedWorkflow> = {}) {
   return render(<WorkflowDetail workflow={workflow(over)} teamSlug="acme" />)
 }
 
+/** EXP-1014: the chip's ONE glyph slot — always drawn, empty when nothing
+ *  resolves into it (an unsynced issue). */
+function glyphSlot(id: string): HTMLElement | null {
+  return screen.queryByTestId(`workflow-node-${id}-glyph`)
+}
+
+/** The glass picker row a `Combobox triggerVariant="row"` draws, by its
+ *  leading label. */
+function pickerRow(label: string): HTMLElement {
+  const row = Array.from(
+    document.querySelectorAll(`[data-slot=glass-picker-row]`)
+  ).find((element) => element.textContent?.startsWith(label))
+  if (!row) throw new Error(`no picker row for ${label}`)
+  return row as HTMLElement
+}
+
+const commandRows = () =>
+  Array.from(document.querySelectorAll(`[data-slot=command-item]`))
+
 describe(`WorkflowDetail graph`, () => {
   it(`positions nodes from the synced wave and lane`, () => {
     nodeRows.rows = [
@@ -279,8 +309,13 @@ describe(`WorkflowDetail graph`, () => {
     )
   })
 
+  // EXP-1014: an unsynced node reads the same ×4 — the first 8 characters of
+  // the issue id in the mono slot (`+n` for a compound one), the ONE line that
+  // says why there is no title, and an EMPTY glyph slot.
   it(`keeps a node whose issue has not synced, caption and all`, () => {
-    nodeRows.rows = [node(`n1`, { state: `ready` })]
+    nodeRows.rows = [
+      node(`n1`, { state: `ready`, issueId: `abcd1234-5e6f-4a7b-8c9d-0e1f2a3b4c5d` }),
+    ]
     graphState.issues = []
     graphState.relations = []
     mount({ status: `running` })
@@ -288,6 +323,66 @@ describe(`WorkflowDetail graph`, () => {
     expect(screen.getByTestId(`workflow-node-n1-caption`).textContent).toBe(
       `Ready`
     )
+    expect(screen.getByTestId(`workflow-node-n1-title`).textContent).toBe(
+      `abcd1234`
+    )
+    expect(screen.getByTestId(`workflow-node-n1-name`).textContent).toBe(
+      NODE_UNSYNCED_TITLE
+    )
+    // The slot is still drawn, and it is EMPTY: nothing resolves a status for
+    // an issue that has not arrived.
+    expect(glyphSlot(`n1`)!.childElementCount).toBe(0)
+  })
+
+  it(`titles an unsynced COMPOUND node with its member count`, () => {
+    nodeRows.rows = [
+      node(`n1`, {
+        issueId: `abcd1234-5e6f-4a7b-8c9d-0e1f2a3b4c5d`,
+        memberIssueIds: [`i-a`, `i-b`],
+      }),
+    ]
+    graphState.issues = []
+    graphState.relations = []
+    mount()
+    expect(screen.getByTestId(`workflow-node-n1-title`).textContent).toBe(
+      `abcd1234 +2`
+    )
+  })
+
+  // EXP-1014, the ONE glyph rule ×4: a live run shows the live dot, a started
+  // workflow's state shows its own glyph WHEN it has one, and everything else
+  // — a draft, or blocked / ready / proposed / skipped — shows the ISSUE's own
+  // status glyph, so an unstarted node reads like the same issue anywhere else.
+  it(`falls back to the issue's status glyph wherever the state has none`, () => {
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, state: `ready` }),
+      node(`n2`, { wave: 1, state: `landed` }),
+    ]
+    graphState.issues = [
+      issue(`i-n1`, `APP-1`, { status: `in_progress` }),
+      issue(`i-n2`, `APP-2`, { status: `in_progress` }),
+    ]
+    graphState.relations = []
+
+    // A draft has no states at all: both chips read as their issue.
+    const draft = mount()
+    for (const id of [`n1`, `n2`]) {
+      expect(glyphSlot(id)!.querySelector(`svg`)!.getAttribute(`class`)).toContain(
+        `text-yellow-500`
+      )
+    }
+    draft.unmount()
+
+    // Started: `landed` has a glyph of its own — painted in the node's tone —
+    // while `ready` still has none and stays the issue's status.
+    mount({ status: `running` })
+    expect(glyphSlot(`n1`)!.querySelector(`svg`)!.getAttribute(`class`)).toContain(
+      `text-yellow-500`
+    )
+    expect(
+      glyphSlot(`n2`)!.querySelector(`svg`)!.getAttribute(`class`)
+    ).not.toContain(`text-yellow-500`)
+    expect(glyphSlot(`n2`)!.className).toContain(`text-emerald-500`)
   })
 
   it(`spells out a blocking cycle and paints its edges red`, () => {
@@ -1102,13 +1197,14 @@ describe(`WorkflowDetail node model, final merge and metrics`, () => {
     expect(
       screen.getByTestId(`workflow-node-row-${NODE_MODEL_LABEL}`).textContent
     ).toBe(`${NODE_MODEL_LABEL}Sonnet`)
-    // Kind is a plain reading once the run owns it; risk STAYS a pick at any
-    // status (server parity, ×4): it is the per-node lever over the model.
+    // Kind is a plain reading once the run owns the plan; RISK stays a PICK —
+    // the server takes it at any status and it is the one lever onto the
+    // strong model (EXP-1029).
     expect(screen.getByTestId(`workflow-node-row-Kind`).textContent).toBe(
       `KindLeaf`
     )
     expect(screen.queryByTestId(`workflow-node-row-Risk`)).toBeNull()
-    expect(screen.getByRole(`button`, { name: /Risk/ }).textContent).toContain(`Low`)
+    expect(pickerRow(`Risk`).textContent).toContain(`Low`)
     leaf.unmount()
 
     nodeRows.rows = [node(`n1`, { kind: `leaf`, risk: `high` })]
@@ -1117,6 +1213,28 @@ describe(`WorkflowDetail node model, final merge and metrics`, () => {
     expect(
       screen.getByTestId(`workflow-node-row-${NODE_MODEL_LABEL}`).textContent
     ).toBe(`${NODE_MODEL_LABEL}Opus`)
+  })
+
+  // EXP-1029: risk is the ONE lever that moves a node onto the strong model,
+  // and `updateNode` asserts a draft for `kind`/`touches` ONLY — so the Risk
+  // pick stays live for the whole run, not just while the plan is a draft.
+  it(`re-picks a node's risk on a RUNNING workflow`, async () => {
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+    nodeRows.rows = [node(`n1`, { kind: `leaf`, risk: `low` })]
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    graphState.relations = []
+    mount({ ...startable(), status: `running` })
+    fireEvent.click(screen.getByTestId(`workflow-node-n1-card`))
+
+    fireEvent.click(pickerRow(`Risk`))
+    const high = commandRows().find((row) => row.textContent?.includes(`High`))
+    fireEvent.click(high!)
+    await vi.waitFor(() =>
+      expect(runMutates.updateNode).toHaveBeenCalledWith(
+        { workflowId: `wf`, issueId: `i-n1`, risk: `high` },
+        expect.anything()
+      )
+    )
   })
 
   // EXP-1033: the one human review of the whole run, from the chip that IS

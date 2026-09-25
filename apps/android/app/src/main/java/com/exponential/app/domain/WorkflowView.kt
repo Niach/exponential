@@ -233,6 +233,14 @@ object WorkflowView {
     const val MERGE_TRAIN_EMPTY = "Nothing is waiting to land."
     const val FINAL_PR_TITLE = "Final pull request"
 
+    /**
+     * EXP-1033: the ONE human review of the whole run — squash-merging the
+     * workflow's final pull request from the workflow screen.
+     */
+    const val MERGE_FINAL_PR_LABEL = "Merge"
+    const val MERGE_FINAL_PR_CONFIRM =
+        "The workflow's branch is squash-merged into the default branch and the run is done."
+
     /** The strip over the graph that lists the runs that are up, one tap away. */
     const val RUNNING_NOW_LABEL = "Running now"
 
@@ -395,6 +403,7 @@ object WorkflowView {
 
     /** The node panel's line once a node announced its contract. */
     const val CONTRACT_PUBLISHED_LABEL = "Contract published"
+    const val MERGES_IN_FIRST_LABEL = "Merges in first"
 
     // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
 
@@ -411,7 +420,14 @@ object WorkflowView {
      * model any more — the two the launch carries are picked where the
      * workflow is created.
      */
-    const val MODEL_LABEL = "Model"
+    const val NODE_MODEL_LABEL = "Model"
+
+    /**
+     * EXP-1014: the chip of a node whose issue row has not synced yet — the
+     * identifier slot shows the first 8 characters of the issue id, the title
+     * this line. Byte-identical ×4.
+     */
+    const val NODE_UNSYNCED_TITLE = "Not synced yet"
 
     /**
      * The three fields [reviewLine] reads off `workflow_nodes.review`.

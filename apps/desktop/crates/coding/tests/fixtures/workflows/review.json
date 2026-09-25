@@ -361,14 +361,13 @@
     "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }]
   },
   {
-    "name": "rule 7: an adversarial review with no models at all runs on the default strong model",
+    "name": "rule 7: an adversarial review with NO launch at all runs on the claude default strong model",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "maxParallel": 3
       },
       "nodes": [
         {
@@ -391,14 +390,14 @@
     "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }]
   },
   {
-    "name": "rule 7: an ordinary review with no models at all runs on the default strong model",
+    "name": "rule 7: an ordinary review with an EMPTY launch runs on the claude default strong model",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {}
       },
       "nodes": [
         {
@@ -450,14 +449,14 @@
     "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
   },
   {
-    "name": "rule 7: a codex workflow with no models at all reviews on its default strong model",
+    "name": "rule 7: a PARTIAL codex launch (the agent alone) reviews on the codex default strong model",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "agent": "codex", "model": "gpt-5.6-sol", "strongModel": "gpt-5.6-luna" }
+        "launch": { "agent": "codex" }
       },
       "nodes": [
         {
@@ -817,5 +816,109 @@
       "nowMs": 1000
     },
     "expected": []
+  },
+  {
+    "name": "launch: a node with NO launch at all runs on the claude default cheap model",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "ready", "wave": 0, "lane": 0 }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startNode", "nodeId": "a", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+    ]
+  },
+  {
+    "name": "launch: a PARTIAL launch (the agent alone) runs a codex leaf on the codex default cheap model",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": { "agent": "codex" }
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "ready", "wave": 0, "lane": 0 }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "startNode",
+        "nodeId": "a",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "gpt-5.6-sol"
+      }
+    ]
+  },
+  {
+    "name": "launch: a PARTIAL launch's legacy riskModel pin folds into the strong model a high-risk node runs on",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": { "model": "sonnet", "riskModel": "fable" }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "ready",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0
+        },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "ready", "wave": 0, "lane": 1 }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startNode", "nodeId": "a", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "fable" },
+      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "sonnet" }
+    ]
+  },
+  {
+    "name": "rule 7: a PARTIAL launch's legacy riskModel pin is the review model too",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": { "model": "sonnet", "riskModel": "fable" }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
   }
 ]

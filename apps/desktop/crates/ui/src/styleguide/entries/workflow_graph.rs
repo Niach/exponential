@@ -6,8 +6,9 @@
 //! The sample: a landed CONTRACT node, three leaves after it (a compound one
 //! drawn as a deck of chips, one with a live run, one landed), an
 //! INTEGRATION node they all block, and the final pull request after the
-//! last wave. The running node is the picked one — the accent ring outside
-//! its chip.
+//! last wave — its chip carrying the Merge action, since that pull request
+//! is open (EXP-1032). The running node is the picked one — the accent ring
+//! outside its chip.
 
 use gpui::{div, App, Div, IntoElement, ParentElement as _, RenderOnce, Window};
 

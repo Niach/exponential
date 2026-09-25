@@ -1,5 +1,7 @@
 import {
+  BUILTIN_STATUS_COLOR_CLASS,
   Button,
+  categoryStatusIcon,
   conceptIcon,
   LiveDot,
   WorkflowGraphView,
@@ -22,6 +24,17 @@ const MergedGlyph = conceptIcon(`notification-pr-merged`)
 const ReviewGlyph = conceptIcon(`nav-reviews`)
 
 const landed = <MergedGlyph className="size-3.5 shrink-0" />
+
+/** What a node with nothing happening to it yet falls back to: the issue's
+ *  own resolved status, exactly as `IssueChip` draws it. */
+const backlogStatus = {
+  icon: categoryStatusIcon(`backlog`, 0, 2),
+  colorClass: BUILTIN_STATUS_COLOR_CLASS.backlog,
+}
+const startedStatus = {
+  icon: categoryStatusIcon(`started`, 0, 2),
+  colorClass: BUILTIN_STATUS_COLOR_CLASS.in_progress,
+}
 
 /** Contract → three leaves (one batched, one live, one landed) → integration. */
 const NODES: WorkflowGraphNode[] = [
@@ -69,6 +82,17 @@ const NODES: WorkflowGraphNode[] = [
     glyph: landed,
   },
   {
+    id: `blocked`,
+    wave: 2,
+    lane: 0,
+    title: `EXP-108`,
+    name: `Document the new wire kinds`,
+    caption: `Blocked`,
+    tone: `muted`,
+    // Nothing is happening to it: the chip reads as the ISSUE does elsewhere.
+    status: backlogStatus,
+  },
+  {
     id: `integration`,
     wave: 2,
     lane: 1,
@@ -76,6 +100,7 @@ const NODES: WorkflowGraphNode[] = [
     name: `Fold the four clients together`,
     caption: `Ready`,
     tone: `muted`,
+    status: startedStatus,
   },
 ]
 
@@ -86,6 +111,7 @@ const EDGES: WaveGraphEdge[] = [
   { from: `batch`, to: `integration`, style: `plain` },
   { from: `live`, to: `integration`, style: `speculative` },
   { from: `done`, to: `integration`, style: `landed` },
+  { from: `batch`, to: `blocked`, style: `plain` },
 ]
 
 export const entry: StyleguideEntry = {

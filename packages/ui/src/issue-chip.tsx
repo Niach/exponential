@@ -152,9 +152,3 @@ export function IssueChipStack({
     </span>
   )
 }
-
-// EXP-1029 forbids editing `index.ts` in this workflow and `index.ts` already
-// re-exports this file, so the two graph modules ride along here until the
-// integration node gives them their own lines.
-export * from "./wave-graph"
-export * from "./workflow-graph"

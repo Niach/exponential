@@ -4221,10 +4221,12 @@ fn workflow_plan(
         .filter_map(|node| Some((node.id.clone(), node.branch.clone()?)))
         .collect();
     // EXP-1029: the stored launch of ANY vintage → the two models every run
-    // of this workflow reads. Effort is the device's own default.
+    // of this workflow reads. Effort is the device's own default. The
+    // normalizer reads the RAW jsonb, never a round trip through the wire
+    // struct: ONE ill-typed legacy key there (an old `maxParallel` stored as
+    // a string) would drop the WHOLE launch to the defaults.
     let launch = coding::workflows::launch::normalize_workflow_launch(
-        &serde_json::to_value(api::workflows::from_row(workflow).launch)
-            .unwrap_or(serde_json::Value::Null),
+        workflow.launch.as_ref().unwrap_or(&serde_json::Value::Null),
     );
     Some(WorkflowPlan {
         snapshot: coding::workflows::Snapshot {

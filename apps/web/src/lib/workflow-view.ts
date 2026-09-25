@@ -368,6 +368,10 @@ export const AGENT_REVIEW_TITLE = `Agent review`
 /** The node panel's read-only line: what THIS node's run spawns on
  *  (`modelForNode`). */
 export const NODE_MODEL_LABEL = `Model`
+/** EXP-1014: the chip of a node whose issue row has not synced yet — the
+ *  identifier slot shows the first 8 characters of the issue id, the title
+ *  this line. Byte-identical ×4. */
+export const NODE_UNSYNCED_TITLE = `Not synced yet`
 export const METRICS_TITLE = `Metrics`
 
 export interface ReviewLine {
