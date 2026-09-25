@@ -540,6 +540,14 @@ public enum WorkflowPrimaryAction: String, Sendable {
     case reviewFinalPr = "review_final_pr"
 }
 
+/// What the page's overflow offers (fixture `overflowMenus`).
+public enum WorkflowOverflowItem: String, Sendable {
+    case plan
+    case runsOn = "runs_on"
+    case stop
+    case delete
+}
+
 /// What a node chip's menu offers (fixture `chipMenus`).
 public enum NodeChipAction: String, Sendable {
     case retry
@@ -659,5 +667,24 @@ extension WorkflowView {
         if state == DomainContract.wfNodeStateFailed { return [.retry, .skip] }
         if state == DomainContract.wfNodeStateProposed { return [.admit, .dismiss] }
         return []
+    }
+
+    // MARK: - Page labels + overflow (fixture `pageLabels` / `overflowMenus`)
+
+    public static let allNodesLabel = "All"
+    public static let decisionsLabel = "Decisions"
+    public static let stopWorkflowLabel = "Stop"
+    public static let pickDeviceLabel = "Pick device"
+    public static let runsOnLabel = "Runs on"
+    public static let reviewFinalPrLabel = "Review final PR"
+
+    /// The header's overflow: a draft plans, re-binds its runner or is
+    /// deleted; a live workflow stops; anything else is deleted.
+    public static func overflowMenu(status: String) -> [WorkflowOverflowItem] {
+        switch status {
+        case DomainContract.wfStatusDraft: [.plan, .runsOn, .delete]
+        case DomainContract.wfStatusRunning, DomainContract.wfStatusPaused: [.stop]
+        default: [.delete]
+        }
     }
 }

@@ -686,6 +686,13 @@ final class WorkflowContractViewTests: XCTestCase {
         let headerCaptions: [HeaderCaptionCase]
         let primaryActions: [PrimaryActionCase]
         let chipMenus: [ChipMenuCase]
+        let overflowMenus: [OverflowMenuCase]
+        let pageLabels: [String: String]
+    }
+
+    private struct OverflowMenuCase: Decodable {
+        let status: String
+        let menu: [String]
     }
 
     private struct DisplayStateCase: Decodable {
@@ -855,5 +862,28 @@ final class WorkflowContractViewTests: XCTestCase {
                 testCase.state
             )
         }
+    }
+
+    func testOverflowMenuFixtureCases() throws {
+        let fixture = try fixture()
+        XCTAssertFalse(fixture.overflowMenus.isEmpty)
+        for testCase in fixture.overflowMenus {
+            XCTAssertEqual(
+                WorkflowView.overflowMenu(status: testCase.status).map(\.rawValue),
+                testCase.menu,
+                testCase.status
+            )
+        }
+    }
+
+    func testPageLabelsAreByteLocked() throws {
+        let labels = try fixture().pageLabels
+        XCTAssertEqual(labels.count, 6)
+        XCTAssertEqual(labels["allNodes"], WorkflowView.allNodesLabel)
+        XCTAssertEqual(labels["decisions"], WorkflowView.decisionsLabel)
+        XCTAssertEqual(labels["stop"], WorkflowView.stopWorkflowLabel)
+        XCTAssertEqual(labels["pickDevice"], WorkflowView.pickDeviceLabel)
+        XCTAssertEqual(labels["runsOn"], WorkflowView.runsOnLabel)
+        XCTAssertEqual(labels["reviewFinalPr"], WorkflowView.reviewFinalPrLabel)
     }
 }

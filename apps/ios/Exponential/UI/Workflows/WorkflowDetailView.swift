@@ -80,7 +80,7 @@ struct WorkflowDetailView: View {
                     devices: model.runnerChoices.map(DevicePickerDevice.init),
                     value: model.workflow?.deviceId,
                     onChange: { model.setDevice($0) },
-                    title: "Runs on",
+                    title: WorkflowView.runsOnLabel,
                     open: $devicePickerOpen,
                     hideTrigger: true
                 ) { EmptyView() }
@@ -95,7 +95,7 @@ struct WorkflowDetailView: View {
         .confirmationDialog(
             "Stop this workflow?", isPresented: $showStopConfirm, titleVisibility: .visible
         ) {
-            Button("Stop", role: .destructive) { model?.cancel() }
+            Button(WorkflowView.stopWorkflowLabel, role: .destructive) { model?.cancel() }
             Button("Keep running", role: .cancel) {}
         } message: {
             Text(WorkflowView.cancelConfirm)
@@ -222,7 +222,7 @@ struct WorkflowDetailView: View {
         switch model.primaryAction {
         case .pickDevice:
             GlassPill(
-                "Pick device",
+                WorkflowView.pickDeviceLabel,
                 icon: AppIcons.uiDevice,
                 size: .md,
                 mode: .action { openDevicePicker(model) },
@@ -261,7 +261,7 @@ struct WorkflowDetailView: View {
             .accessibilityIdentifier("workflow-resume-button")
         case .reviewFinalPr:
             GlassPill(
-                "Review",
+                WorkflowView.reviewFinalPrLabel,
                 icon: AppIcons.navReviews,
                 size: .md,
                 mode: .action { pushRoute(.reviews) },
@@ -273,24 +273,26 @@ struct WorkflowDetailView: View {
         }
     }
 
-    /// Stop while it runs, Delete otherwise; a draft also re-binds its runner
-    /// and opens the planner.
+    /// The shared overflow rule (`WorkflowView.overflowMenu`, ×4).
     @ViewBuilder
     private var overflowItems: some View {
         if let model {
-            if model.isDraft {
-                if model.workflow?.deviceId != nil {
-                    GlassMenuItem("Runs on", icon: AppIcons.uiDevice) { openDevicePicker(model) }
-                }
-                GlassMenuItem(WorkflowView.planLabel, icon: AppIcons.actionRun) { plan(model) }
-            }
-            if model.isLive {
-                GlassMenuItem("Stop", icon: AppIcons.uiStop, destructive: true) {
-                    showStopConfirm = true
-                }
-            } else {
-                GlassMenuItem(WorkflowView.deleteLabel, icon: AppIcons.uiDelete, destructive: true) {
-                    showDeleteConfirm = true
+            ForEach(WorkflowView.overflowMenu(status: model.status), id: \.self) { item in
+                switch item {
+                case .plan:
+                    GlassMenuItem(WorkflowView.planLabel, icon: AppIcons.actionRun) { plan(model) }
+                case .runsOn:
+                    GlassMenuItem(WorkflowView.runsOnLabel, icon: AppIcons.uiDevice) {
+                        openDevicePicker(model)
+                    }
+                case .stop:
+                    GlassMenuItem(
+                        WorkflowView.stopWorkflowLabel, icon: AppIcons.uiStop, destructive: true
+                    ) { showStopConfirm = true }
+                case .delete:
+                    GlassMenuItem(
+                        WorkflowView.deleteLabel, icon: AppIcons.uiDelete, destructive: true
+                    ) { showDeleteConfirm = true }
                 }
             }
         }
@@ -341,7 +343,7 @@ struct WorkflowDetailView: View {
 
     private func allChip(_ model: WorkflowDetailModel) -> some View {
         GlassPill(
-            "All",
+            WorkflowView.allNodesLabel,
             mode: .select(isSelected: model.selection.isAll) { model.selection.select(nil) }
         )
         .accessibilityIdentifier("workflow-chip-all")
