@@ -129,6 +129,8 @@ import {
   PICK_DEVICE_LABEL,
   PLAN_WORKFLOW_LABEL,
   REVIEW_FINAL_PR_LABEL,
+  NO_CHANGES_LABEL,
+  DISMISS_NODE_CONFIRM,
   RUNS_ON_LABEL,
   STOP_WORKFLOW_LABEL,
   workflowOverflowMenu,
@@ -171,8 +173,6 @@ const StartIcon = conceptIcon(`action-run`)
 const ResumeIcon = conceptIcon(`run-resume`)
 const PauseIcon = conceptIcon(`run-pause`)
 
-/** A node with no changes to show (× Changes). Byte-identical ×4. */
-const NO_CHANGES_LABEL = `No changes yet`
 
 
 type WorkflowIntent = `start` | `pause` | `resume` | `cancel`
@@ -873,7 +873,7 @@ export function WorkflowDetail({
         open={dismissNodeId !== null}
         onClose={() => setDialog(null)}
         title={DISMISS_NODE_LABEL}
-        description="The node is removed from the workflow."
+        description={DISMISS_NODE_CONFIRM}
         confirm={DISMISS_NODE_LABEL}
         destructive
         testId="workflow-node-dismiss-confirm"

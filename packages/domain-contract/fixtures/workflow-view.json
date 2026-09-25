@@ -1107,7 +1107,9 @@
     "stop": "Stop",
     "pickDevice": "Pick device",
     "runsOn": "Runs on",
-    "reviewFinalPr": "Review final PR"
+    "reviewFinalPr": "Review final PR",
+    "noChanges": "No changes yet",
+    "dismissNodeConfirm": "The node is removed from the workflow."
   },
   "statusGlyphs": [
     {

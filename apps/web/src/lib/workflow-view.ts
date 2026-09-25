@@ -432,6 +432,10 @@ export const PICK_DEVICE_LABEL = `Pick device`
 export const RUNS_ON_LABEL = `Runs on`
 /** The `review_final_pr` primary button. */
 export const REVIEW_FINAL_PR_LABEL = `Review final PR`
+/** A node (or the workflow) with no pull request yet, on the Changes face. */
+export const NO_CHANGES_LABEL = `No changes yet`
+/** The Dismiss confirm's one sentence (a proposed node leaves the workflow). */
+export const DISMISS_NODE_CONFIRM = `The node is removed from the workflow.`
 
 export type WorkflowOverflowItem = `plan` | `runs_on` | `stop` | `delete`
 

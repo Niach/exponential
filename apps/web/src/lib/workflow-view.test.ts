@@ -19,6 +19,8 @@ import {
   PICK_DEVICE_LABEL,
   RUNS_ON_LABEL,
   REVIEW_FINAL_PR_LABEL,
+  NO_CHANGES_LABEL,
+  DISMISS_NODE_CONFIRM,
   workflowHeaderCaption,
   workflowNodeDisplayLabel,
   workflowNodeDisplayState,
@@ -154,6 +156,8 @@ describe(`workflow page view model (EXP-1082)`, () => {
       pickDevice: PICK_DEVICE_LABEL,
       runsOn: RUNS_ON_LABEL,
       reviewFinalPr: REVIEW_FINAL_PR_LABEL,
+      noChanges: NO_CHANGES_LABEL,
+      dismissNodeConfirm: DISMISS_NODE_CONFIRM,
     }).toEqual(fixture.pageLabels)
   })
 })
