@@ -17,12 +17,10 @@ struct NestedIssueRow: Identifiable {
 /// list row's badge, the Work header overlay's Issue face (where it replaced
 /// the flat "Blocked by" chip section) and the blocked-start sheet.
 ///
-/// A phone has no room for the grid web and the IDE draw, so it renders the
-/// SAME `IssueGraph.Graph` as a LIST grouped by wave (the ×4 rule): a
-/// `Wave 1` / `Wave 2` … band per column, one row per node, and under each row
-/// the chips of its direct blockers INSIDE the graph — red where the edge is
-/// part of a cycle. Subject rows are outlined. The two notes under the graph
-/// are the byte-locked `IssueGraph` copy.
+/// EXP-1057: it draws the SAME grid web, desktop and Android draw — the shared
+/// ExpUI `IssueGraphPopover` (waves × lanes, chip boxes, cubic edges, red on a
+/// cycle, geometry locked by `issue-graph-geometry.json`). An empty graph
+/// says so instead of drawing nothing.
 struct IssueGraphView: View {
     let graph: IssueGraph.Graph
     /// The synced rows the nodes are named from; a node with no row prints its
@@ -30,108 +28,18 @@ struct IssueGraphView: View {
     let issues: [IssueEntity]
     let onOpenIssue: (String) -> Void
 
-    private var issuesById: [String: IssueEntity] {
-        Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    /// The nodes grouped by column, in the rule's order (nodes already come
-    /// back sorted by wave then lane).
-    private var waves: [(wave: Int, nodes: [IssueGraph.Node])] {
-        var order: [Int] = []
-        var byWave: [Int: [IssueGraph.Node]] = [:]
-        for node in graph.nodes {
-            if byWave[node.wave] == nil { order.append(node.wave) }
-            byWave[node.wave, default: []].append(node)
-        }
-        return order.map { (wave: $0, nodes: byWave[$0] ?? []) }
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if graph.nodes.isEmpty {
-                note("Nothing blocks this work.")
-            } else {
-                ForEach(waves, id: \.wave) { entry in
-                    GlassSectionBand("Wave \(entry.wave + 1)")
-                    ForEach(entry.nodes, id: \.id) { node in
-                        nodeRow(node)
-                    }
-                }
-            }
-            if graph.hasCycle { note(IssueGraph.cycleNote) }
-            if graph.truncated { note(IssueGraph.truncatedNote) }
+        if graph.nodes.isEmpty {
+            Text("Nothing blocks this work.")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .accessibilityIdentifier("issue-graph")
+        } else {
+            IssueGraphPopover(graph: graph, issues: issues, onOpenIssue: onOpenIssue)
         }
-        .accessibilityIdentifier("issue-graph")
-    }
-
-    @ViewBuilder
-    private func nodeRow(_ node: IssueGraph.Node) -> some View {
-        // The edges pointing AT this node: its direct blockers inside the
-        // graph, in the rule's edge order.
-        let incoming = graph.edges.filter { $0.to == node.id }
-        Button { onOpenIssue(node.id) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    chip(for: node.id, cycle: false)
-                    Spacer(minLength: 0)
-                }
-                if !incoming.isEmpty {
-                    HStack(spacing: 6) {
-                        Text("Blocked by")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        // A wide fan-in would push the row off a phone: the
-                        // chips scroll sideways instead of wrapping.
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 4) {
-                                ForEach(incoming, id: \.from) { edge in
-                                    chip(for: edge.from, cycle: edge.cycle)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .flatRow()
-            // The picked work reads as picked, the way a selected issue row
-            // does — the graph is otherwise all the same weight.
-            .overlay {
-                if node.subject {
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(DesignTokens.Palette.primary.opacity(0.45), lineWidth: 1)
-                        .allowsHitTesting(false)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// One node, as the shared issue badge. `cycle` paints its status glyph
-    /// red — the list's stand-in for the red EDGE the grid clients draw.
-    @ViewBuilder
-    private func chip(for id: String, cycle: Bool) -> some View {
-        let issue = issuesById[id]
-        let status = IssueStatus.from(issue?.status)
-        IssueChip(
-            identifier: issue?.identifier ?? id,
-            title: issue?.title,
-            iconName: status.iconName,
-            statusColor: cycle ? DesignTokens.Semantic.red : status.color
-        )
-    }
-
-    @ViewBuilder
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
     }
 }
 
