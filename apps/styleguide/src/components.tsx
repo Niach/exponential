@@ -279,14 +279,15 @@ export function isIsland(
 }
 
 /**
- * The three entries whose web symbol DOES live in `packages/ui` and still keep
+ * The two entries whose web symbol DOES live in `packages/ui` and still keep
  * a hand-written demo: a closed Radix portal renders nothing at all to static
  * markup, so an island of any of them would be an empty box. Anything else
  * under `packages/ui/` must be an island — `components.test.tsx` gates both
  * directions, and exempts only these and the Style entries, which document a
- * VALUE rather than a control.
+ * VALUE rather than a control. (The menu left this list with EXP-1074: its
+ * `menu` entry draws the real row recipe at rest through `MenuSpecimen`.)
  */
-export const PORTAL_ONLY_IDS: readonly string[] = [`sheet`, `menu`, `dialog`]
+export const PORTAL_ONLY_IDS: readonly string[] = [`sheet`, `dialog`]
 
 const { glass, radius, size, motion } = designTokens
 
@@ -2232,35 +2233,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="card-head">${svgCircleHelp}<span class="label">Needs input</span></div>`,
         `<div>Should a batch PR merge close every linked issue, or only the ones whose branch matches?</div>`,
         `</div>`,
-        `</div>`,
-      ].join(``),
-  },
-  {
-    id: `menu`,
-    title: `Menu surface`,
-    kind: `Surfaces`,
-    blurb: `180–280 wide, padding 4, radius 12. Opaque by construction: the card fill is composited over the popover solid so nothing shows through.`,
-    status: {
-      web: ok(
-        `DropdownMenuContent`,
-        `packages/ui/src/dropdown-menu.tsx`,
-        `MENU_SURFACE_CLASS paints the three panels too: mention-textarea, markdown-editor's #/@ list, steer-command-menu.`
-      ),
-      desktop: ok(
-        `theme::exponential_dark (accent = glass fillActive)`,
-        `apps/desktop/crates/theme/src/lib.rs`,
-        `PopupMenu reads theme.accent; EXP-811 points it at the glass active fill.`
-      ),
-      ios: ok(`GlassMenu + GlassMenuTokens`, `apps/ios/ExpUI/Sources/GlassMenu.swift`),
-      android: ok(`GlassDropdownMenu + GlassMenuDefaults`, `${ANDROID_COMPONENTS}/GlassMenu.kt`),
-    },
-    render: () =>
-      [
-        `<div class="cmp-menu">`,
-        `<div class="item">${svgPlay}Start coding</div>`,
-        `<div class="item">${svgGitMerge}Open pull request</div>`,
-        `<div class="divider"></div>`,
-        `<div class="item destructive">${svgTrash}Delete issue</div>`,
         `</div>`,
       ].join(``),
   },

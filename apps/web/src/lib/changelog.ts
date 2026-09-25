@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-25-issue-context-menu`,
+    date: `2026-09-25`,
+    title: `One issue context menu`,
+    summary: `The issue context menu opens from every list, the sidebar and issue chips, no longer closes on its own, takes the estimate, and every web menu is tighter.`,
+    body: `- **Everywhere**: a right-click (or a long-press on a phone) opens the issue menu on a board row, the sidebar list beside an issue, a reviews row and any issue chip, with the same items in the same order.
+- **Stays open**: the menu no longer fires the item under the cursor when the right button is released a few pixels into it, which is what made it open and close in one go.
+- **Estimate**: the menu sets the estimate on the team's scale, beside status, assignee, priority, labels and due date.
+- **Menu density**: menus on the web at desktop widths use tighter rows, matching the desktop app's rhythm at the web's text size; phones keep their touch-sized rows. The values are shared design tokens, shown in the styleguide with the issue context menu as its own entry.`,
+  },
+  {
     id: `2026-09-24-release-train`,
     date: `2026-09-24`,
     title: `Release train 2026-09-24`,

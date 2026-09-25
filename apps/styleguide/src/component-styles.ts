@@ -643,34 +643,6 @@ export const componentStyles = `
 .cmp-markdown .show-more { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--fg-70); cursor: pointer; }
 .cmp-markdown .show-more:hover { color: var(--fg); }
 
-/* ----------------------------------------------------------------- menu */
-/* Opaque by construction: the alpha fill is composited over the popover solid
-   so a menu never shows the row it floats above. */
-.cmp-menu {
-  min-width: 180px;
-  max-width: 280px;
-  padding: 4px;
-  border-radius: var(--r-lg);
-  border: 1px solid var(--stroke);
-  background: var(--menu-bg);
-}
-.cmp-menu .item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 48px;
-  padding: 0 12px;
-  border-radius: var(--r-sm);
-  font-size: 14px;
-  color: var(--fg-90);
-  cursor: pointer;
-  transition: background var(--dur) var(--ease);
-}
-.cmp-menu .item:hover { background: var(--active); }
-.cmp-menu .item.destructive { color: var(--destructive); }
-.cmp-menu .item .glyph { flex: none; width: 16px; height: 16px; }
-.cmp-menu .divider { height: 1px; margin: 4px 0; background: var(--stroke-soft); }
-
 /* -------------------------------------------------------------- tab bar */
 .cmp-tab-bar {
   display: inline-flex;

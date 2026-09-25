@@ -5,7 +5,17 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 
 import { cn } from "./cn"
-import { MENU_SURFACE_CLASS } from "./menu-surface"
+import {
+  MENU_CHECK_ITEM_CLASS,
+  MENU_CHEVRON_CLASS,
+  MENU_CONTENT_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_LABEL_CLASS,
+  MENU_SEPARATOR_CLASS,
+  MENU_SHORTCUT_CLASS,
+  MENU_SUB_TRIGGER_CLASS,
+  MENU_SURFACE_CLASS,
+} from "./menu-surface"
 
 function DropdownMenu({
   ...props
@@ -46,7 +56,8 @@ function DropdownMenuContent({
           // EXP-698 menu recipe: opaque card composite, 12 radius, NO blur and
           // NO shadow — see `bg-glass-card-opaque` in styles.css.
           MENU_SURFACE_CLASS,
-          `max-h-(--radix-dropdown-menu-content-available-height) min-w-[180px] max-w-[280px] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto p-1`,
+          MENU_CONTENT_CLASS,
+          `max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto`,
           className
         )}
         {...props}
@@ -78,7 +89,7 @@ function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        `relative flex min-h-12 cursor-default items-center gap-3 rounded-sm px-3 py-1.5 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!`,
+        MENU_ITEM_CLASS,
         className
       )}
       {...props}
@@ -96,7 +107,7 @@ function DropdownMenuCheckboxItem({
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
-        `relative flex min-h-12 cursor-default items-center gap-3 rounded-sm py-1.5 pr-3 pl-8 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
+        MENU_CHECK_ITEM_CLASS,
         className
       )}
       checked={checked}
@@ -132,7 +143,7 @@ function DropdownMenuRadioItem({
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
-        `relative flex min-h-12 cursor-default items-center gap-3 rounded-sm py-1.5 pr-3 pl-8 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
+        MENU_CHECK_ITEM_CLASS,
         className
       )}
       {...props}
@@ -159,7 +170,7 @@ function DropdownMenuLabel({
       data-slot="dropdown-menu-label"
       data-inset={inset}
       className={cn(
-        `px-3 py-1.5 text-sm font-medium data-[inset]:pl-8`,
+        MENU_LABEL_CLASS,
         className
       )}
       {...props}
@@ -174,7 +185,7 @@ function DropdownMenuSeparator({
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn(`-mx-1 my-1 h-px bg-glass-stroke`, className)}
+      className={cn(MENU_SEPARATOR_CLASS, className)}
       {...props}
     />
   )
@@ -188,7 +199,7 @@ function DropdownMenuShortcut({
     <span
       data-slot="dropdown-menu-shortcut"
       className={cn(
-        `ml-auto text-xs tracking-widest text-muted-foreground`,
+        MENU_SHORTCUT_CLASS,
         className
       )}
       {...props}
@@ -220,13 +231,13 @@ function DropdownMenuSubTrigger({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        `flex min-h-12 cursor-default items-center gap-3 rounded-sm px-3 py-1.5 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[inset]:pl-8 data-[state=open]:bg-glass-active data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:data-[state=open]:bg-destructive/10 data-[variant=destructive]:data-[state=open]:text-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!`,
+        MENU_SUB_TRIGGER_CLASS,
         className
       )}
       {...props}
     >
       {children}
-      <ChevronRightIcon className="ml-auto size-4" />
+      <ChevronRightIcon className={MENU_CHEVRON_CLASS} />
     </DropdownMenuPrimitive.SubTrigger>
   )
 }
@@ -245,7 +256,8 @@ function DropdownMenuSubContent({
         data-slot="dropdown-menu-sub-content"
         className={cn(
           MENU_SURFACE_CLASS,
-          `min-w-[180px] max-w-[280px] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden p-1`,
+          MENU_CONTENT_CLASS,
+          `origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden`,
           className
         )}
         {...props}

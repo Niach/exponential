@@ -81,12 +81,15 @@ itself.
 What stays hand-written HTML/CSS driven by `@exp/design-tokens`
 (`src/components.tsx` + `src/component-styles.ts`) is what no single component
 owns: the **compositions** (app shell, settings page header, comment card,
-sheet shell, composer, markdown blocks, menu surface, tab bar, bulk bar, usage
+sheet shell, composer, markdown blocks, tab bar, bulk bar, usage
 bar, session bar, relations card, the GitHub connect pair) and the **token**
-swatch tables. Three entries — **sheet shell**, **menu surface** and
-**dialog** — have their web symbol in `packages/ui` and still keep a demo,
-because a closed Radix portal renders nothing at all statically;
-`PORTAL_ONLY_IDS` names them and the test checks the exception stays honest.
+swatch tables. Two entries — **sheet shell** and **dialog** — have their web
+symbol in `packages/ui` and still keep a demo, because a closed Radix portal
+renders nothing at all statically; `PORTAL_ONLY_IDS` names them and the test
+checks the exception stays honest. The **menu** (and the **issue context
+menu** under Special) is no exception since EXP-1074: `MenuSpecimen` draws the
+menu at rest on plain elements wearing the SAME row classes the Radix items
+wear, in both densities the `menu` tokens define.
 
 `shots/` holds nothing for these, `views.json` declares nothing — the two
 synthetic modes have no catalog entry at all — and `--check` never sees them.

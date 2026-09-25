@@ -70,8 +70,9 @@ export interface IssueRefContextValue {
     query: string,
     opts?: { excludeIssueIds?: string[]; limit?: number }
   ) => ResolvedIssueRef[]
-  /** Navigate to an issue's full-page detail route by identifier. */
-  open: (identifier: string) => void
+  /** Navigate to an issue's full-page detail route by identifier. `from` =
+   * the list the detail keeps beside it (EXP-851, `lib/detail-origin.ts`). */
+  open: (identifier: string, options?: { from?: string }) => void
 }
 
 const IssueRefContext = createContext<IssueRefContextValue | null>(null)
@@ -194,7 +195,7 @@ export function IssueRefProvider({
           limit: opts?.limit ?? 8,
           exclude: opts?.excludeIssueIds,
         }),
-      open: (identifier) => {
+      open: (identifier, options) => {
         const ref = byIdentifier.get(identifier.toUpperCase())
         if (!ref) return
         void navigate({
@@ -204,6 +205,7 @@ export function IssueRefProvider({
             boardSlug: ref.boardSlug,
             issueIdentifier: ref.identifier,
           },
+          search: options?.from ? { from: options.from } : {},
         })
       },
     }),

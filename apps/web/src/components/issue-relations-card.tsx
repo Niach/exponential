@@ -24,6 +24,7 @@ import {
 import { IssuePickerDialog } from "@/components/issue-picker-dialog"
 import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { issueMenuProps } from "@/components/issue-context-menu/attr"
 
 // EXP-736 — the issue's relation graph, both sides in one card. Rows come off
 // the `issue_relations` shape (never a fetch): the shape is scoped by the row's
@@ -273,6 +274,7 @@ export function IssueRelationGroups({
                 <div
                   key={row.id}
                   className="group flex min-w-0 items-center gap-2 py-1"
+                  {...issueMenuProps(row.other.id)}
                 >
                   <Icon className="size-3.5 shrink-0 text-muted-foreground" />
                   {/* The hover preview wraps the identifier + title cluster;

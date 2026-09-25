@@ -1,4 +1,3 @@
-import * as React from "react"
 import { render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { Issue } from "@/db/schema"
@@ -6,17 +5,13 @@ import type { IssueGroup } from "@/lib/board-view"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import { IssueList } from "@/components/issue-list"
 
-// Importing the real modules opens Electric shapes / a tRPC client.
-vi.mock(`@/lib/collections`, () => ({ boardCollection: {} }))
+// Importing the real modules opens a tRPC client.
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: { issues: { update: { mutate: vi.fn(async () => ({})) } } },
 }))
-vi.mock(`@tanstack/react-db`, () => ({
-  useLiveQuery: () => ({ data: [] }),
-  eq: () => undefined,
-}))
-// The row's three dropdowns and its context menu are scenery here: this test
-// is about the row GRID, not the cells' own behaviour.
+// The row's three dropdowns are scenery here: this test is about the row
+// GRID, not the cells' own behaviour (the context menu is the layout's host,
+// EXP-1074 — a row only carries its attribute).
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({
   StatusDropdown: () => null,
   // The group header above the rows reaches for this one.
@@ -27,11 +22,6 @@ vi.mock(`@/components/issue-properties/priority-dropdown`, () => ({
 }))
 vi.mock(`@/components/issue-properties/assignee-picker`, () => ({
   AssigneePicker: () => null,
-}))
-vi.mock(`@/components/issue-row-menu/context-menu`, () => ({
-  IssueRowContextMenu: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
 }))
 
 const status: StatusRowOption = {
@@ -65,7 +55,6 @@ function renderList(groups: IssueGroup[]) {
     <IssueList
       groups={groups}
       issueLabelMap={new Map()}
-      labels={[]}
       users={[]}
       userMap={new Map()}
       onNewIssue={() => {}}

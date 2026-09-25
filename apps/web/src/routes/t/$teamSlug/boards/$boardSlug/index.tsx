@@ -200,9 +200,9 @@ function BoardPage() {
           issueGraph={issueGraph}
           graphTeamId={team?.id}
           issueLabelMap={issueLabelMap}
-          labels={labelList}
           users={users}
           userMap={userMap}
+          menuFrom={`board:${boardSlug}`}
           onNewIssue={handleNewIssue}
           onIssueClick={(issue) =>
             void navigate({

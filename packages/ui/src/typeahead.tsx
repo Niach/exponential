@@ -127,8 +127,9 @@ export function useTypeahead<TItem>({
   return { active: activeIndex, setActive, handleKeyDown, acceptActive }
 }
 
-/** The row recipe every autocomplete list has drawn since EXP-551. */
-export const TYPEAHEAD_ROW_CLASS = `flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm`
+/** The row recipe every autocomplete list has drawn since EXP-551 — on the
+ *  menu row geometry since EXP-1074, like every other menu-like row. */
+export const TYPEAHEAD_ROW_CLASS = `flex min-h-(--menu-item-height) w-full items-center gap-(--menu-item-gap) px-(--menu-item-padding-x) py-1 text-left text-sm`
 
 const PLACEMENT_CLASS = {
   above: `bottom-full mb-1`,

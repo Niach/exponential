@@ -23,6 +23,7 @@ const tokens = JSON.parse(
   diff: Record<string, string>
   motion: { duration: Record<string, number>; ease: Record<string, number[]> }
   transcript: Record<string, number | string>
+  menu: { pointer: Record<string, number>; touch: Record<string, number> }
 }
 
 const stylesCss = readFileSync(
@@ -261,6 +262,37 @@ describe(`design-tokens parity with web styles.css`, () => {
         rootVars[cssVar],
         `tokens.transcript.${key} should equal --${cssVar} in styles.css`
       ).toBe(`${value}px`)
+    }
+  })
+
+  // EXP-1074: menu row geometry, both density classes, as flat px vars in
+  // :root — the live --menu-* set aliases one of them per breakpoint, and
+  // every menu-like row in @exp/ui reads the live set.
+  it(`every menu token matches the corresponding --menu-<density>-* CSS variable`, () => {
+    for (const density of [`pointer`, `touch`] as const) {
+      const keys = Object.keys(tokens.menu[density]).filter((k) => !k.startsWith(`$`))
+      expect(keys).toEqual([
+        `itemHeight`,
+        `itemPaddingX`,
+        `itemGap`,
+        `iconSize`,
+        `surfacePadding`,
+        `minWidth`,
+        `maxWidth`,
+      ])
+      for (const key of keys) {
+        const cssVar = `menu-${density}-${kebab(key)}`
+        expect(
+          rootVars[cssVar],
+          `tokens.menu.${density}.${key} should equal --${cssVar} in styles.css`
+        ).toBe(`${tokens.menu[density][key]}px`)
+        // The live var defaults to the touch set; the md+ block (outside the
+        // parsed :root block) re-points it at the pointer set.
+        expect(rootVars[`menu-${kebab(key)}`]).toBe(`var(--menu-touch-${kebab(key)})`)
+        expect(cssNoComments).toContain(
+          `--menu-${kebab(key)}: var(--menu-pointer-${kebab(key)});`
+        )
+      }
     }
   })
 

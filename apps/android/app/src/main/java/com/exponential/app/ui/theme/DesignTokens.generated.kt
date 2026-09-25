@@ -112,6 +112,30 @@ object DesignTokens {
         val RowHeight: Dp = 32.dp
     }
 
+    // Menu row geometry (EXP-1074), two density classes. Android draws the
+    // TOUCH set (GlassMenuDefaults / M3's 48dp rows); Pointer is web at md+.
+    object Menu {
+        object Pointer {
+            val ItemHeight: Dp = 36.dp
+            val ItemPaddingX: Dp = 8.dp
+            val ItemGap: Dp = 8.dp
+            val IconSize: Dp = 16.dp
+            val SurfacePadding: Dp = 4.dp
+            val MinWidth: Dp = 180.dp
+            val MaxWidth: Dp = 280.dp
+        }
+
+        object Touch {
+            val ItemHeight: Dp = 48.dp
+            val ItemPaddingX: Dp = 12.dp
+            val ItemGap: Dp = 12.dp
+            val IconSize: Dp = 16.dp
+            val SurfacePadding: Dp = 4.dp
+            val MinWidth: Dp = 180.dp
+            val MaxWidth: Dp = 280.dp
+        }
+    }
+
     // The agent transcript's measure, gap ladder and type scale (EXP-787) —
     // gaps and widths in dp, the type entries in sp; the call site adds the
     // unit. The gap is chosen by domain/AgentFeed.kt `transcriptGap`.

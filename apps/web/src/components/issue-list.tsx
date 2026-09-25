@@ -1,12 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Issue, Label, Board, User } from "@/db/schema"
-import { boardCollection } from "@/lib/collections"
+import type { Issue, Label, User } from "@/db/schema"
 import { StatusDropdown } from "@/components/issue-properties/status-dropdown"
 import { IssueGroupHeader } from "@/components/issue-group-header"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
-import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
+import { issueMenuProps } from "@/components/issue-context-menu/attr"
+import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
 import {
   EmptyState,
   Button,
@@ -59,8 +58,8 @@ const AvatarPlaceholderIcon = conceptIcon(`ui-avatar-placeholder`)
 // REV-46: the desktop IDE virtualizes this exact list (issue_list.rs
 // v_virtual_list — "the list can be long; virtualization is mandatory"). The
 // web analog follows @exp/ui file-diff-card.tsx instead: cap + expand, so a board with
-// thousands of issues never mounts thousands of interactive rows (each row is
-// a Radix context menu around three dropdown components) in one commit.
+// thousands of issues never mounts thousands of interactive rows (each row
+// hosts three dropdown components) in one commit.
 // Each group renders this many rows before a "Show more" button takes over.
 /** EXP-980: nudges the first gutter's centre under the parent's priority glyph
  *  (a 24px column, glyph centred at 12; a gutter centre sits at 7). */
@@ -79,7 +78,6 @@ const GROUP_ROW_CHUNK = 400
 interface IssueListProps {
   groups: IssueGroup[]
   issueLabelMap: Map<string, Label[]>
-  labels: Label[]
   users: User[]
   userMap: Map<string, User>
   onNewIssue: (status?: StatusRowOption) => void
@@ -116,6 +114,9 @@ interface IssueListProps {
   // functional updates.
   selectedIds?: Set<string>
   onSelectedIdsChange?: React.Dispatch<React.SetStateAction<Set<string>>>
+  /** EXP-1074: the `?from=` origin the context menu's "Open issue" carries
+   *  (EXP-851) — the same token `onIssueClick` navigates with. */
+  menuFrom?: string
 }
 
 const EMPTY_SELECTION = new Set<string>()
@@ -200,10 +201,9 @@ function AssigneeCell({
 interface IssueRowProps {
   issue: Issue
   issueLabels: Label[]
-  labels: Label[]
   users: User[]
   userMap: Map<string, User>
-  teamBoards?: Board[]
+  menuFrom: string | undefined
   rowGridClass: string
   today: string
   isSolo: boolean
@@ -237,16 +237,17 @@ interface IssueRowProps {
 
 // REV-46: memoized so a selection toggle reconciles only the toggled row —
 // `selectedIds` lives in the route, so every checkbox click re-renders the
-// whole page; without the memo each click re-rendered every row's context
-// menu + three dropdowns. All props are primitives or referentially stable
-// (the callbacks come from the latest-ref wrappers in IssueList).
+// whole page; without the memo each click re-rendered every row's three
+// dropdowns. All props are primitives or referentially stable (the callbacks
+// come from the latest-ref wrappers in IssueList). The row's context menu is
+// NOT here: it is the layout's one host (EXP-1074), the row only carries
+// `data-issue-menu`.
 const IssueRow = memo(function IssueRow({
   issue,
   issueLabels,
-  labels,
   users,
   userMap,
-  teamBoards,
+  menuFrom,
   rowGridClass,
   today,
   isSolo,
@@ -276,19 +277,6 @@ const IssueRow = memo(function IssueRow({
   )
   const indent = depth * TREE_INDENT
   return (
-    <IssueRowContextMenu
-      issue={issue}
-      issueLabels={issueLabels}
-      labels={labels}
-      users={users}
-      userMap={userMap}
-      boards={teamBoards}
-      onOpenIssue={() => onOpen(issue)}
-      onToggleSelect={
-        bulkEnabled ? () => onToggleSelect(issue.id, false) : undefined
-      }
-      isSelected={isSelected}
-    >
       <div
         // EXP-620: below md the row is a native-style glass CARD in a flex
         // line (mirroring the iOS HStack / Compose Row), at md+ the flush
@@ -298,7 +286,10 @@ const IssueRow = memo(function IssueRow({
         // order: `bg-glass-active` and `bg-glass-row` are both `bg-*`
         // utilities, so which one won would come down to stylesheet order.
         className={`relative max-md:flex max-md:items-center max-md:gap-2.5 max-md:rounded-md max-md:border max-md:border-glass-stroke md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 md:hover:bg-glass-row md:border-b md:border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active max-md:border-glass-stroke-active` : `max-md:bg-glass-row`}`}
-        onClick={() => {
+        onClick={(event) => {
+          // A ctrl-click is a right-click on macOS, and Firefox fires the
+          // click too — the menu opened, the row must not navigate under it.
+          if (event.ctrlKey) return
           if (mobileSelectionActive) {
             onToggleSelect(issue.id, false)
             return
@@ -306,6 +297,7 @@ const IssueRow = memo(function IssueRow({
           onOpen(issue)
         }}
         data-testid={`issue-row-${issue.identifier}`}
+        {...issueMenuProps(issue.id, menuFrom)}
         data-depth={depth}
         style={
           indent > 0
@@ -474,14 +466,12 @@ const IssueRow = memo(function IssueRow({
             affordance, so it stays mobile-only. */}
         <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground md:hidden max-md:order-3" />
       </div>
-    </IssueRowContextMenu>
   )
 })
 
 export function IssueList({
   groups,
   issueLabelMap,
-  labels,
   users,
   userMap,
   onNewIssue,
@@ -497,6 +487,7 @@ export function IssueList({
   bulkTeamId,
   selectedIds = EMPTY_SELECTION,
   onSelectedIdsChange: setSelectedIds = noopSetSelectedIds,
+  menuFrom,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   // Extra rows revealed per group id beyond GROUP_ROW_CAP via "Show more"
@@ -519,28 +510,6 @@ export function IssueList({
   // instead of navigating (deselecting the last row exits — the native
   // EXP-405 contract). Desktop click-to-open is untouched.
   const mobileSelectionActive = isMobile && bulkEnabled && selectedIds.size > 0
-
-  // Team boards feed the context menu's move-to-board submenu
-  // (EXP-57). Trashed boards never reach the client (the boards shape
-  // filters them server-side).
-  const { data: boardRows } = useLiveQuery(
-    (query) =>
-      bulkTeamId
-        ? query
-            .from({ boards: boardCollection })
-            .where(({ boards }) => eq(boards.teamId, bulkTeamId))
-        : undefined,
-    [bulkTeamId]
-  )
-  const teamBoards = useMemo(
-    () =>
-      bulkTeamId
-        ? [...((boardRows ?? []) as Board[])].sort((left, right) =>
-            left.name.localeCompare(right.name)
-          )
-        : undefined,
-    [boardRows, bulkTeamId]
-  )
 
   const renderLimit = (groupId: string) =>
     GROUP_ROW_CAP + (extraRows.get(groupId) ?? 0)
@@ -620,6 +589,25 @@ export function IssueList({
     [setSelectedIds]
   )
 
+  // EXP-1074: the phone's "Select" menu item toggles through the layout's
+  // menu host; the list registers its selection while bulk select is on.
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
+  useIssueMenuSelection(
+    useMemo(
+      () =>
+        bulkEnabled
+          ? {
+              root: listRef,
+              isSelected: (issueId: string) =>
+                selectedIdsRef.current.has(issueId),
+              toggle: (issueId: string) => toggleSelect(issueId, false),
+            }
+          : null,
+      [bulkEnabled, toggleSelect]
+    )
+  )
+
   // Latest-ref wrappers: the callers hold the selection state, so their
   // inline callbacks get a new identity on every selection change — routing
   // the calls through refs keeps the row props stable.
@@ -651,7 +639,7 @@ export function IssueList({
     if (!bulkEnabled) return
     const overlayOpen = () =>
       document.querySelector(
-        `[data-state="open"][role="menu"], [data-state="open"][role="listbox"], [data-state="open"][role="dialog"]`
+        `[data-state="open"][role="menu"], [data-state="open"][role="listbox"], [data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"]`
       ) !== null
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
@@ -902,10 +890,9 @@ export function IssueList({
                     key={issue.id}
                     issue={issue}
                     issueLabels={issueLabelMap.get(issue.id) ?? NO_LABELS}
-                    labels={labels}
                     users={users}
                     userMap={userMap}
-                    teamBoards={teamBoards}
+                    menuFrom={menuFrom}
                     rowGridClass={rowGridClass}
                     today={today}
                     isSolo={isSolo}

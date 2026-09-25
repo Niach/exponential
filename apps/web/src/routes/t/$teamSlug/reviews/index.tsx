@@ -43,6 +43,7 @@ import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
+import { issueMenuProps } from "@/components/issue-context-menu/attr"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes
@@ -390,6 +391,8 @@ function ReviewsPage() {
                         }}
                         onClick={() => openReview(issue.identifier)}
                         data-testid={`review-row-${issue.identifier}`}
+                      
+                        {...issueMenuProps(issue.id)}
                       >
                         <TreeGuides guide={guides[rowIndex]} />
                         {/* A batch PR wears the batch glyph; the overlay on it

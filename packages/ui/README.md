@@ -130,7 +130,9 @@ Duplication that looks removable and is not:
   side/bottom panel primitive.
 - **`dropdown-menu` vs `context-menu`** — again different Radix roots (one is
   pointer-anchored, the other trigger-anchored). They share what they actually
-  share: `MENU_SURFACE_CLASS`.
+  share: `MENU_SURFACE_CLASS` and, since EXP-1074, the whole row recipe
+  (`MENU_ITEM_CLASS` and friends in `menu-surface.ts`, on the `--menu-*`
+  geometry vars that `tokens.json` `menu` defines per density).
 - **the `SEGMENTED_*` class constants in `tabs.tsx`** — already the single
   source `GlassTabsRow` reuses; they are constants, not a second component.
 - **`hover-card`** — one importer today (the issue preview), and the preview
