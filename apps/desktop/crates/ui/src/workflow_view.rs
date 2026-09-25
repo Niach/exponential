@@ -5,7 +5,7 @@
 //! the ONE primary button, an overflow with Stop / Delete, one caption line),
 //! the node strip (`All` first, then the chips in DAG order off
 //! `domain::workflow_view::workflow_node_strip`), the work face toggle
-//! (`crate::work_header::face_toggle`), and a body that is selection × face:
+//! (Issue · Runs · Changes · Results, the work toggle's capsule), and a body that is selection × face:
 //!
 //! - All × Issue: the workflow's issues, sub-issues under their compound
 //!   node, and the decisions log folded away.
@@ -55,13 +55,14 @@ use domain::workflow_view::{
     PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, RESUME_WORKFLOW_LABEL, SKIP_NODE_CONFIRM,
     SKIP_NODE_LABEL, START_WORKFLOW_LABEL, DISMISS_NODE_CONFIRM, DISMISS_NODE_LABEL, NO_CHANGES_LABEL, ALL_NODES_LABEL, DECISIONS_LABEL, PICK_DEVICE_LABEL,
     REVIEW_FINAL_PR_LABEL, RUNS_ON_LABEL, STOP_WORKFLOW_LABEL, workflow_overflow_menu,
+    NO_RESULTS_LABEL, NO_RUNS_LABEL, PICK_DEVICE_BLOCKER,
     WorkflowOverflowItem,
 };
 
 use crate::icons::registry;
 use crate::navigation::{nav_for_window, ChatSeed, Navigation, Screen};
 use crate::queries;
-use crate::work_header::{face_toggle, Face, FaceToggle, RunEntry};
+use crate::work_header::Face;
 
 /// The page column's cap — the work column the embedded views read at.
 const WORKFLOW_COLUMN_W: f32 = 1024.;
@@ -102,6 +103,39 @@ fn strip_step(key: &str, modifiers: &Modifiers) -> Option<i64> {
     step_for_key(key)
 }
 
+/// The page-level step: j/k only (←/→ scroll or move carets elsewhere).
+fn page_step(key: &str, modifiers: &Modifiers) -> Option<i64> {
+    if !matches!(key, "j" | "k") {
+        return None;
+    }
+    strip_step(key, modifiers)
+}
+
+/// The key contexts that own a plain letter: text entry (inputs, the
+/// editors, the composers), the terminal, and an open menu or dialog.
+const FIELD_KEY_CONTEXTS: [&str; 13] = [
+    "Input",
+    "MarkdownEditor",
+    "WysiwygMarkdownEditor",
+    "MentionInput",
+    "SteerComposer",
+    "SteerInlineAnswer",
+    "EmojiPicker",
+    "Terminal",
+    "NativeDialog",
+    "PopupMenu",
+    "Dialog",
+    "List",
+    "Select",
+];
+
+/// Does the focused element's context stack hold a field that types j/k?
+fn keys_belong_to_a_field(stack: &[gpui::KeyContext]) -> bool {
+    stack
+        .iter()
+        .any(|context| FIELD_KEY_CONTEXTS.iter().any(|name| context.contains(name)))
+}
+
 /// The strip's step for a key, `None` for every other key.
 fn step_for_key(key: &str) -> Option<i64> {
     match key {
@@ -134,6 +168,9 @@ pub struct WorkflowView {
     /// The strip's keys (←/→, j/k) — only while the strip holds focus, so
     /// typing in an embedded view never steps.
     strip_focus: FocusHandle,
+    /// The page's own focus: j/k step from anywhere on the page unless a
+    /// field owns the keys ([`keys_belong_to_a_field`]).
+    page_focus: FocusHandle,
     scroll: ScrollHandle,
     /// The ONE node's views, embedded (lazily built, re-pointed).
     issue_view: Option<Entity<crate::issue_detail::IssueDetailView>>,
@@ -195,11 +232,11 @@ impl WorkflowView {
         let mut subscriptions = vec![cx.subscribe_in(
             &name_input,
             window,
-            |this, _, event: &InputEvent, _window, cx| {
+            |this, _, event: &InputEvent, window, cx| {
                 // Saves on blur when changed; Enter commits (the issue title
                 // rule).
                 if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
-                    this.save_name(cx);
+                    this.save_name(window, cx);
                 }
             },
         )];
@@ -235,6 +272,7 @@ impl WorkflowView {
             events_open: false,
             collapsed_runs: HashSet::new(),
             strip_focus: cx.focus_handle(),
+            page_focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             issue_view: None,
             embedded_issue: None,
@@ -266,6 +304,8 @@ impl WorkflowView {
         // previous workflow's name onto this one.
         self.name_seeded = String::new();
         self.sync_name(window, cx);
+        // The page holds the keys on arrival, so j/k step at once.
+        window.focus(&self.page_focus, cx);
         cx.notify();
     }
 
@@ -290,7 +330,7 @@ impl WorkflowView {
             .update(cx, |input, cx| input.set_value(name, window, cx));
     }
 
-    fn save_name(&mut self, cx: &mut gpui::Context<Self>) {
+    fn save_name(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let name = self.name_input.read(cx).value().trim().to_string();
         // A blank name is a mis-edit, not a rename.
         if name.is_empty() || name == self.name_seeded {
@@ -299,7 +339,7 @@ impl WorkflowView {
         self.name_seeded = name.clone();
         let mut input = api::workflows::WorkflowUpdate::new(self.workflow_id.clone());
         input.name = Some(name);
-        spawn_update(input, cx);
+        spawn_update(input, window.window_handle(), cx);
     }
 
     fn drop_run_view(&mut self, cx: &mut gpui::Context<Self>) {
@@ -390,7 +430,9 @@ impl WorkflowView {
     }
 }
 
-/// A node's run: the one the node row names, else its newest run.
+/// A node's run: the one the node row names, else its newest AUTHOR run — a
+/// reviewer (`workflow_role = review`) or a base merge carries the node id
+/// too, but it is never the node's run (its dot, its one-node Run face).
 fn node_run(node: &WorkflowNodeRow, sessions: &[CodingSession]) -> Option<CodingSession> {
     if let Some(id) = node.session_id.as_deref() {
         if let Some(session) = sessions.iter().find(|session| session.id == id) {
@@ -399,7 +441,10 @@ fn node_run(node: &WorkflowNodeRow, sessions: &[CodingSession]) -> Option<Coding
     }
     sessions
         .iter()
-        .filter(|session| session.workflow_node_id.as_deref() == Some(node.id.as_str()))
+        .filter(|session| {
+            session.workflow_node_id.as_deref() == Some(node.id.as_str())
+                && session.workflow_role.as_deref() == Some("author")
+        })
         .max_by(|a, b| a.started_at.cmp(&b.started_at))
         .cloned()
 }
@@ -515,7 +560,15 @@ impl Render for WorkflowView {
         self.selection.prune(&order);
 
         let header = self.render_header(&row, &infos, window, cx);
-        let banner = render_question_banner(&questions, &infos, cx.entity().downgrade(), cx);
+        let me = queries::active_account(cx).map(|account| account.user_id);
+        let banner = render_question_banner(
+            &questions,
+            &infos,
+            &sessions,
+            me.as_deref(),
+            cx.entity().downgrade(),
+            cx,
+        );
         let chip_facts = chip_facts(&strip, &infos);
         let handlers = self.strip_handlers(order.clone(), cx);
         let strip_element = render_strip(&chip_facts, &self.selection, Some(handlers), cx);
@@ -552,31 +605,11 @@ impl Render for WorkflowView {
                 .collect()
         };
         let results = collect_results(&scope_sessions);
-        let run_entries = run_entries(&scope_sessions, &infos);
-        let toggle_spec = FaceToggle {
-            issue: true,
-            run: match single {
-                Some(info) => info.run.as_ref().map(|run| run.id.clone()),
-                None => scope_sessions.first().map(|run| run.id.clone()),
-            },
-            diff: None,
-            // Always there: a node without a PR says so on the face itself.
-            pr_changes: true,
-            results: !results.is_empty(),
-            active: self.face,
-            runs: run_entries,
-            checked_run: self.open_run.clone(),
-        };
-        let items = toggle_spec.items();
-        let face = if items.contains(&self.face) {
-            self.face
-        } else {
-            Face::Issue
-        };
+        let face = self.face;
         let view = cx.entity().downgrade();
-        let on_face: crate::work_header::OnPickFace = Rc::new({
-            let view = view.clone();
-            move |face, _window, cx| {
+        let toggle = page_face_toggle(
+            face,
+            Rc::new(move |face, _window, cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |this, cx| {
                         this.face = face;
@@ -584,28 +617,7 @@ impl Render for WorkflowView {
                         cx.notify();
                     });
                 }
-            }
-        });
-        let on_run: crate::work_header::OnPickRun = Rc::new({
-            let view = view.clone();
-            move |session_id, _window, cx| {
-                if let Some(view) = view.upgrade() {
-                    let session_id = session_id.to_string();
-                    view.update(cx, |this, cx| {
-                        this.face = Face::Run;
-                        this.open_run = Some(session_id);
-                        cx.notify();
-                    });
-                }
-            }
-        });
-        let toggle = face_toggle(
-            FaceToggle {
-                active: face,
-                ..toggle_spec
-            },
-            on_face,
-            on_run,
+            }),
             cx,
         );
 
@@ -622,7 +634,6 @@ impl Render for WorkflowView {
             self.drop_run_view(cx);
         }
 
-        let me = queries::active_account(cx).map(|account| account.user_id);
         let body: AnyElement = match (face, single, shown_run) {
             // EXP-312: a live session is steerable ONLY by its owner — a
             // teammate's run reads as its status row, never the steer view.
@@ -700,6 +711,9 @@ impl Render for WorkflowView {
                 diff.update(cx, |diff, cx| diff.set_issue(issue_id, cx));
                 embedded(diff.into_any_element())
             }
+            (Face::Results, _, _) if results.is_empty() => {
+                self.scrolled(empty_face_line(NO_RESULTS_LABEL, cx))
+            }
             (Face::Results, _, _) => {
                 let groups = domain::session_results::group_session_results(&results);
                 let width = (f32::from(window.viewport_size().width)
@@ -710,12 +724,15 @@ impl Render for WorkflowView {
                 let page = crate::session_results::render(&groups, width.max(200.), &images, cx);
                 self.scrolled(page)
             }
-            (Face::Diff, Some(_), _) => self.scrolled(no_changes_line(cx)),
+            (Face::Diff, Some(_), _) => self.scrolled(empty_face_line(NO_CHANGES_LABEL, cx)),
             (Face::Diff, None, _) => {
                 let final_pr = self.selection.is_all()
                     && (row.final_pr_number.is_some() || row.final_pr_url.is_some());
                 let list = self.render_changes_rows(&row, &scope, final_pr, cx);
                 self.scrolled(list)
+            }
+            (Face::Run, _, None) if scope_sessions.is_empty() => {
+                self.scrolled(empty_face_line(NO_RUNS_LABEL, cx))
             }
             (Face::Run, _, None) => {
                 let tree = self.render_run_tree(&scope_sessions, cx);
@@ -760,9 +777,38 @@ impl Render for WorkflowView {
                     }))
                     .child(strip_element),
             )
-            .children(toggle);
+            .child(toggle);
 
+        // j/k also step from anywhere on the page (the web steps them from
+        // the document) — never while a text field, editor, terminal, menu
+        // or dialog owns the keys; ←/→ stay the strip's.
+        let page_order = order.clone();
         v_flex()
+            .id("workflow-page")
+            .track_focus(&self.page_focus)
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    // A click on the page's chrome takes the keys back; a
+                    // click into an embedded view keeps its own focus.
+                    if !this.page_focus.contains_focused(window, cx) {
+                        window.focus(&this.page_focus, cx);
+                    }
+                }),
+            )
+            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                let keystroke = &event.keystroke;
+                let Some(delta) = page_step(keystroke.key.as_str(), &keystroke.modifiers) else {
+                    return;
+                };
+                if window.has_active_prompt() || keys_belong_to_a_field(&window.context_stack()) {
+                    return;
+                }
+                cx.stop_propagation();
+                this.selection.step(&page_order, delta);
+                this.open_run = None;
+                cx.notify();
+            }))
             .size_full()
             .min_h_0()
             .min_w_0()
@@ -832,8 +878,9 @@ impl WorkflowView {
             }),
             on_menu: Rc::new(|node_id, action, window, cx| {
                 let node_id = node_id.to_string();
+                let handle = window.window_handle();
                 match action {
-                    NodeChipAction::Retry => spawn_resolve(node_id, "retry", cx),
+                    NodeChipAction::Retry => spawn_resolve(node_id, "retry", handle, cx),
                     NodeChipAction::Skip => crate::native_dialog::open_alert(
                         window,
                         cx,
@@ -844,11 +891,11 @@ impl WorkflowView {
                         )
                         .ok_variant(ButtonVariant::Danger)
                         .on_ok(move |_window, cx| {
-                            spawn_resolve(node_id.clone(), "skip", cx);
+                            spawn_resolve(node_id.clone(), "skip", handle, cx);
                             true
                         }),
                     ),
-                    NodeChipAction::Admit => spawn_admit(node_id, true, cx),
+                    NodeChipAction::Admit => spawn_admit(node_id, true, handle, cx),
                     NodeChipAction::Dismiss => crate::native_dialog::open_alert(
                         window,
                         cx,
@@ -859,7 +906,7 @@ impl WorkflowView {
                         )
                         .ok_variant(ButtonVariant::Danger)
                         .on_ok(move |_window, cx| {
-                            spawn_admit(node_id.clone(), false, cx);
+                            spawn_admit(node_id.clone(), false, handle, cx);
                             true
                         }),
                     ),
@@ -1125,7 +1172,7 @@ impl WorkflowView {
             index += 1;
         }
         if scope.is_empty() && !final_pr {
-            return no_changes_line(cx);
+            return empty_face_line(NO_CHANGES_LABEL, cx);
         }
         let view = cx.entity().downgrade();
         for info in scope {
@@ -1297,7 +1344,7 @@ fn strip_waves(infos: &[NodeInfo], questions: &[WorkflowOpenQuestion]) -> Vec<St
             note: info.row.note.clone(),
         })
         .collect();
-    workflow_node_strip(&inputs, &[])
+    workflow_node_strip(&inputs)
 }
 
 fn chip_facts(strip: &[StripWave], infos: &[NodeInfo]) -> Vec<Vec<ChipFacts>> {
@@ -1335,32 +1382,6 @@ fn collect_results(sessions: &[CodingSession]) -> Vec<domain::session_results::S
         .collect()
 }
 
-/// The Run item's menu: one entry per run in scope, named after its node.
-fn run_entries(sessions: &[CodingSession], infos: &[NodeInfo]) -> Vec<RunEntry> {
-    let now = chrono::Utc::now().timestamp();
-    sessions
-        .iter()
-        .map(|session| {
-            let name = session
-                .workflow_node_id
-                .as_deref()
-                .and_then(|id| infos.iter().find(|info| info.row.id == id))
-                .map(|info| workflow_node_title(&info.identifier, info.row.member_ids().len()))
-                .unwrap_or_else(|| crate::work_header::RUN_FACE_LABEL.to_string());
-            let when = crate::run_rows::issue_run_when(session, now);
-            RunEntry {
-                id: session.id.clone(),
-                label: if when.is_empty() {
-                    name
-                } else {
-                    format!("{name} · {when}")
-                },
-                live: queries::is_live_run_status(session),
-            }
-        })
-        .collect()
-}
-
 /// A display state's colour.
 fn display_color(display: WorkflowNodeDisplayState, cx: &App) -> gpui::Hsla {
     let theme = cx.theme();
@@ -1384,10 +1405,6 @@ fn display_glyph(display: WorkflowNodeDisplayState) -> Option<crate::icons::ExpI
         WorkflowNodeDisplayState::Skipped => Some(registry::STATUS_CANCELLED),
     }
 }
-
-/// `domain::workflow_view::workflow_start_blocker`'s device sentence, the
-/// ONE blocker the Pick device primary already answers.
-const PICK_DEVICE_BLOCKER: &str = "Pick the device that runs this workflow first.";
 
 /// The workflow status beside its name, read as the node display state it
 /// looks like (`workflow_status_glyph`, locked ×4): a queued draft keeps the
@@ -1581,10 +1598,14 @@ impl Render for NodeGraphTip {
 }
 
 /// The banner at the top while a run of the workflow waits on a person:
-/// the question, the node that asks, and Answer (the run's own composer).
+/// the question, the node that asks, and Answer (the run's own composer) —
+/// Answer only for the ASKING run's owner (EXP-312: nobody else gets its
+/// composer, so the button would open a status row).
 fn render_question_banner(
     questions: &[WorkflowOpenQuestion],
     infos: &[NodeInfo],
+    sessions: &[CodingSession],
+    me: Option<&str>,
     view: gpui::WeakEntity<WorkflowView>,
     cx: &App,
 ) -> Option<AnyElement> {
@@ -1601,6 +1622,10 @@ fn render_question_banner(
             .map(|info| workflow_node_title(&info.identifier, info.row.member_ids().len()));
         let view = view.clone();
         let question_owned = question.clone();
+        let can_answer = sessions
+            .iter()
+            .find(|session| session.id == question.session_id)
+            .is_some_and(|session| owns_run(session, me));
         column = column.child(
             crate::controls::alert(
                 crate::controls::AlertVariant::Default,
@@ -1619,18 +1644,20 @@ fn render_question_banner(
                     }))
                     .child(div().min_w_0().child(SharedString::from(question.question.clone()))),
             )
-            .child(
-                Button::new(SharedString::from(format!("workflow-answer-{index}")))
-                    .primary()
-                    .small()
-                    .label(ANSWER_LABEL)
-                    .on_click(move |_, _window, cx| {
-                        if let Some(view) = view.upgrade() {
-                            let question = question_owned.clone();
-                            view.update(cx, |this, cx| this.answer(&question, cx));
-                        }
-                    }),
-            ),
+            .when(can_answer, |alert| {
+                alert.child(
+                    Button::new(SharedString::from(format!("workflow-answer-{index}")))
+                        .primary()
+                        .small()
+                        .label(ANSWER_LABEL)
+                        .on_click(move |_, _window, cx| {
+                            if let Some(view) = view.upgrade() {
+                                let question = question_owned.clone();
+                                view.update(cx, |this, cx| this.answer(&question, cx));
+                            }
+                        }),
+                )
+            }),
         );
     }
     Some(column.into_any_element())
@@ -1692,14 +1719,54 @@ fn node_pr_caption(has_pr: bool, number: Option<i64>, state: Option<&str>) -> St
     }
 }
 
-/// One node on the Changes face without a PR.
-fn no_changes_line(cx: &App) -> AnyElement {
+/// A face with nothing in scope: `No changes yet` (one node without a PR),
+/// `No runs yet`, `No results yet`.
+fn empty_face_line(label: &'static str, cx: &App) -> AnyElement {
     div()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(NO_CHANGES_LABEL)
+        .child(label)
         .into_any_element()
 }
+
+/// The page's face toggle: the work toggle's capsule (`controls::segmented`,
+/// as `work_header::face_toggle` draws it) with ALL FOUR faces always —
+/// Issue · Runs · Changes · Results, the web `workflow-detail.tsx` items. A
+/// face with nothing in scope says so on the face itself.
+fn page_face_toggle(
+    active: Face,
+    on_pick: Rc<dyn Fn(Face, &mut Window, &mut App)>,
+    cx: &App,
+) -> AnyElement {
+    let mut control = crate::controls::segmented(cx).w_auto().flex_shrink_0();
+    for (face, id, label) in PAGE_FACES {
+        let is_active = active == face;
+        let on_pick = on_pick.clone();
+        control = control.child(
+            crate::controls::segmented_item(is_active, cx)
+                .id(id)
+                .flex_none()
+                .px_3()
+                .text_sm()
+                .child(label)
+                .when(!is_active, |item| {
+                    item.on_click(move |_, window, cx| on_pick(face, window, cx))
+                }),
+        );
+    }
+    control.into_any_element()
+}
+
+/// The toggle's four faces in web order, byte-identical labels.
+const PAGE_FACES: [(Face, &str, &str); 4] = [
+    (Face::Issue, "tab-face-issue", ISSUE_FACE_LABEL),
+    (Face::Run, "tab-face-run", crate::work_header::RUNS_FACE_LABEL),
+    (Face::Diff, "tab-face-diff", crate::work_header::CHANGES_FACE_LABEL),
+    (Face::Results, "tab-face-results", crate::work_header::RESULTS_FACE_LABEL),
+];
+
+/// The Issue face's name, byte-identical with the web `ISSUE_FACE_LABEL`.
+const ISSUE_FACE_LABEL: &str = "Issue";
 
 /// The header's ONE primary button.
 fn primary_button(
@@ -1726,21 +1793,21 @@ fn primary_button(
             .icon(Icon::from(registry::ACTION_RUN))
             .label(START_WORKFLOW_LABEL)
             .disabled(blocked)
-            .on_click(move |_, _window, cx| spawn_command(Command::Start, id.clone(), cx))
+            .on_click(move |_, window, cx| spawn_command(Command::Start, id.clone(), window.window_handle(), cx))
             .into_any_element(),
         WorkflowPrimaryAction::Pause => Button::new("workflow-primary")
             .primary()
             .small()
             .icon(Icon::from(registry::RUN_PAUSE))
             .label(PAUSE_WORKFLOW_LABEL)
-            .on_click(move |_, _window, cx| spawn_command(Command::Pause, id.clone(), cx))
+            .on_click(move |_, window, cx| spawn_command(Command::Pause, id.clone(), window.window_handle(), cx))
             .into_any_element(),
         WorkflowPrimaryAction::Resume => Button::new("workflow-primary")
             .primary()
             .small()
             .icon(Icon::from(registry::ACTION_RUN))
             .label(RESUME_WORKFLOW_LABEL)
-            .on_click(move |_, _window, cx| spawn_command(Command::Resume, id.clone(), cx))
+            .on_click(move |_, window, cx| spawn_command(Command::Resume, id.clone(), window.window_handle(), cx))
             .into_any_element(),
         WorkflowPrimaryAction::ReviewFinalPr => Button::new("workflow-primary")
             .primary()
@@ -1809,13 +1876,13 @@ fn overflow_menu(row: &WorkflowRow, cx: &App) -> AnyElement {
                                             )))
                                             .checked(picked.as_deref() == Some(device.id.as_str()))
                                             .disabled(device.disabled)
-                                            .on_click(move |_, _window, cx| {
+                                            .on_click(move |_, window, cx| {
                                                 let mut input = api::workflows::WorkflowUpdate::new(
                                                     workflow_id.clone(),
                                                 );
                                                 input.device_id =
                                                     api::Patch::Set(device_id.clone());
-                                                spawn_update(input, cx);
+                                                spawn_update(input, window.window_handle(), cx);
                                             }),
                                     );
                                 }
@@ -1833,6 +1900,7 @@ fn overflow_menu(row: &WorkflowRow, cx: &App) -> AnyElement {
                             )
                             .on_click(move |_, window, cx| {
                                 let id = id.clone();
+                                let handle = window.window_handle();
                                 let title = if name.is_empty() {
                                     STOP_WORKFLOW_LABEL.to_string()
                                 } else {
@@ -1848,7 +1916,7 @@ fn overflow_menu(row: &WorkflowRow, cx: &App) -> AnyElement {
                                     )
                                     .ok_variant(ButtonVariant::Danger)
                                     .on_ok(move |_window, cx| {
-                                        spawn_command(Command::Cancel, id.clone(), cx);
+                                        spawn_command(Command::Cancel, id.clone(), handle, cx);
                                         true
                                     }),
                                 );
@@ -1888,13 +1956,13 @@ fn device_picker(
             &rows,
             picked.clone(),
             trigger,
-            Rc::new(move |values: Vec<String>, _window, cx: &mut App| {
+            Rc::new(move |values: Vec<String>, window: &mut Window, cx: &mut App| {
                 let Some(device_id) = values.into_iter().next() else {
                     return;
                 };
                 let mut input = api::workflows::WorkflowUpdate::new(workflow_id.clone());
                 input.device_id = api::Patch::Set(device_id);
-                spawn_update(input, cx);
+                spawn_update(input, window.window_handle(), cx);
             }),
         )
         .empty_text("No machines")
@@ -2046,23 +2114,44 @@ enum Command {
     Cancel,
 }
 
-fn spawn_command(command: Command, workflow_id: String, cx: &mut App) {
+fn spawn_command(
+    command: Command,
+    workflow_id: String,
+    handle: gpui::AnyWindowHandle,
+    cx: &mut App,
+) {
+    spawn_reported(handle, cx, move |trpc| match command {
+        Command::Start => api::workflows::start(&trpc, &workflow_id),
+        Command::Pause => api::workflows::pause(&trpc, &workflow_id),
+        Command::Resume => api::workflows::resume(&trpc, &workflow_id),
+        Command::Cancel => api::workflows::cancel(&trpc, &workflow_id),
+    });
+}
+
+/// One `workflows.*` call off the main thread; a refusal is the server's
+/// sentence, so it lands as an error notification on the page's window (the
+/// web's toast), never a silent log line.
+fn spawn_reported(
+    handle: gpui::AnyWindowHandle,
+    cx: &mut App,
+    call: impl FnOnce(api::TrpcClient) -> Result<(), api::ApiError> + Send + 'static,
+) {
     let Some(trpc) = queries::trpc_client(cx) else {
         return;
     };
-    cx.background_executor()
-        .spawn(async move {
-            let result = match command {
-                Command::Start => api::workflows::start(&trpc, &workflow_id),
-                Command::Pause => api::workflows::pause(&trpc, &workflow_id),
-                Command::Resume => api::workflows::resume(&trpc, &workflow_id),
-                Command::Cancel => api::workflows::cancel(&trpc, &workflow_id),
-            };
-            if let Err(err) = result {
-                log::warn!("workflows: {workflow_id} command failed: {err}");
-            }
-        })
-        .detach();
+    cx.spawn(async move |cx| {
+        let result = cx.background_executor().spawn(async move { call(trpc) }).await;
+        if let Err(err) = result {
+            log::warn!("workflows: a call failed: {err}");
+            let _ = handle.update(cx, |_, window, cx| {
+                window.push_notification(
+                    Notification::error(SharedString::from(err.user_message())),
+                    cx,
+                );
+            });
+        }
+    })
+    .detach();
 }
 
 /// `workflows.mergeFinalPr`; a refusal is a sentence worth reading, so it
@@ -2098,49 +2187,28 @@ fn spawn_merge_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) 
 }
 
 /// A member's call on a `proposed` node: admit it, or dismiss it.
-fn spawn_admit(node_id: String, admit: bool, cx: &mut App) {
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return;
-    };
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(err) = api::workflows::admit_node(&trpc, &node_id, admit) {
-                log::warn!("workflows: admitNode {node_id} failed: {err}");
-            }
-        })
-        .detach();
+fn spawn_admit(node_id: String, admit: bool, handle: gpui::AnyWindowHandle, cx: &mut App) {
+    spawn_reported(handle, cx, move |trpc| {
+        api::workflows::admit_node(&trpc, &node_id, admit)
+    });
 }
 
 /// Unsticking a failed node: `retry` or `skip`.
-fn spawn_resolve(node_id: String, action: &'static str, cx: &mut App) {
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return;
-    };
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(err) = api::workflows::resolve_node(&trpc, &node_id, action) {
-                log::warn!("workflows: resolveNode {node_id} failed: {err}");
-            }
-        })
-        .detach();
+fn spawn_resolve(
+    node_id: String,
+    action: &'static str,
+    handle: gpui::AnyWindowHandle,
+    cx: &mut App,
+) {
+    spawn_reported(handle, cx, move |trpc| {
+        api::workflows::resolve_node(&trpc, &node_id, action)
+    });
 }
 
-fn spawn_update(input: api::workflows::WorkflowUpdate, cx: &mut App) {
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return;
-    };
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move { api::workflows::update(&trpc, &input).map(|_| ()) })
-            .await;
-        let _ = cx.update(|_| {
-            if let Err(err) = result {
-                log::warn!("workflows: updating the workflow failed: {err}");
-            }
-        });
-    })
-    .detach();
+fn spawn_update(input: api::workflows::WorkflowUpdate, handle: gpui::AnyWindowHandle, cx: &mut App) {
+    spawn_reported(handle, cx, move |trpc| {
+        api::workflows::update(&trpc, &input).map(|_| ())
+    });
 }
 
 fn spawn_delete(workflow_id: String, window: &mut Window, cx: &mut App) {
@@ -2159,7 +2227,15 @@ fn spawn_delete(workflow_id: String, window: &mut Window, cx: &mut App) {
                     crate::navigation::navigate(window, cx, Screen::Workflows);
                 });
             }
-            Err(err) => log::warn!("workflows: deleting the workflow failed: {err}"),
+            Err(err) => {
+                log::warn!("workflows: deleting the workflow failed: {err}");
+                let _ = handle.update(cx, |_, window, cx| {
+                    window.push_notification(
+                        Notification::error(SharedString::from(err.user_message())),
+                        cx,
+                    );
+                });
+            }
         });
     })
     .detach();
@@ -2196,7 +2272,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> AnyElement {
         node("asks", "EXP-1035", "waiting", 1, 2, 0),
         node("failed", "EXP-1036", "failed", 2, 0, 0),
     ];
-    let strip = workflow_node_strip(&inputs, &[]);
+    let strip = workflow_node_strip(&inputs);
     let titles = [
         ("contract", "Workflow contract", IssueStatus::Done),
         ("deck", "Workflow screen (web)", IssueStatus::Backlog),
@@ -2371,6 +2447,24 @@ mod tests {
         assert_eq!(step_for_key("up"), None);
     }
 
+    #[test]
+    fn the_page_steps_j_k_only_and_never_inside_a_field() {
+        assert_eq!(page_step("j", &Modifiers::default()), Some(1));
+        assert_eq!(page_step("k", &Modifiers::default()), Some(-1));
+        assert_eq!(page_step("left", &Modifiers::default()), None);
+        assert_eq!(page_step("right", &Modifiers::default()), None);
+        assert_eq!(page_step("j", &Modifiers::command()), None);
+        let page = [gpui::KeyContext::parse("Shell").unwrap()];
+        assert!(!keys_belong_to_a_field(&page));
+        for field in ["Input", "MarkdownEditor", "SteerComposer", "Terminal", "PopupMenu"] {
+            let stack = [
+                gpui::KeyContext::parse("Shell").unwrap(),
+                gpui::KeyContext::parse(field).unwrap(),
+            ];
+            assert!(keys_belong_to_a_field(&stack), "{field}");
+        }
+    }
+
     fn session(status: &str, agent_busy: Option<bool>) -> CodingSession {
         serde_json::from_value(serde_json::json!({
             "id": "s1",
@@ -2396,21 +2490,30 @@ mod tests {
     }
 
     #[test]
-    fn a_node_run_is_the_named_one_else_the_newest() {
+    fn a_node_run_is_the_named_one_else_the_newest_author_run() {
         let node: WorkflowNodeRow = serde_json::from_value(serde_json::json!({
             "id": "n1",
         }))
         .unwrap();
-        let run = |id: &str, started: &str| -> CodingSession {
+        let run_as = |id: &str, started: &str, role: &str| -> CodingSession {
             serde_json::from_value(serde_json::json!({
                 "id": id,
                 "workflow_node_id": "n1",
+                "workflow_role": role,
                 "started_at": started,
             }))
             .unwrap()
         };
-        let sessions = vec![run("old", "2026-09-01T00:00:00Z"), run("new", "2026-09-02T00:00:00Z")];
+        let run = |id: &str, started: &str| run_as(id, started, "author");
+        let sessions = vec![
+            run("old", "2026-09-01T00:00:00Z"),
+            run("new", "2026-09-02T00:00:00Z"),
+            // The node's reviewer is newer, but never the node's run.
+            run_as("review", "2026-09-03T00:00:00Z", "review"),
+        ];
         assert_eq!(node_run(&node, &sessions).map(|run| run.id), Some("new".to_string()));
+        let reviewer_only = vec![run_as("review", "2026-09-03T00:00:00Z", "review")];
+        assert_eq!(node_run(&node, &reviewer_only), None);
         let named = WorkflowNodeRow {
             session_id: Some("old".to_string()),
             ..node

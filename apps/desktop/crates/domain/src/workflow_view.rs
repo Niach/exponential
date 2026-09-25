@@ -236,6 +236,10 @@ pub struct StartableWorkflow<'a> {
     pub repository_id: Option<&'a str>,
 }
 
+/// Start's blocker while the draft has no runner (the page's `pick_device`
+/// state shows the same sentence).
+pub const PICK_DEVICE_BLOCKER: &str = "Pick the device that runs this workflow first.";
+
 /// Why Start is disabled, or `None` when the draft can start. One reason, the
 /// most fundamental first; the server refuses with the same sentences.
 pub fn workflow_start_blocker(
@@ -255,7 +259,7 @@ pub fn workflow_start_blocker(
         return Some("The workflow's repository is gone.".to_string());
     }
     if workflow.device_id.is_none() {
-        return Some("Pick the device that runs this workflow first.".to_string());
+        return Some(PICK_DEVICE_BLOCKER.to_string());
     }
     None
 }
@@ -467,7 +471,7 @@ pub struct StripWave {
 /// `stacked`; the caption is the node's note while it has one, a `proposed`
 /// node's [`PROPOSED_NODE_NOTE`] (why its menu offers Admit / Dismiss), else
 /// its display label.
-pub fn workflow_node_strip(nodes: &[StripNodeInput], _edges: &[(String, String)]) -> Vec<StripWave> {
+pub fn workflow_node_strip(nodes: &[StripNodeInput]) -> Vec<StripWave> {
     let mut sorted: Vec<&StripNodeInput> = nodes.iter().collect();
     sorted.sort_by(|a, b| {
         a.wave
@@ -655,6 +659,10 @@ pub const RUNS_ON_LABEL: &str = "Runs on";
 pub const REVIEW_FINAL_PR_LABEL: &str = "Review final PR";
 /// A node on the Changes face whose issue has no pull request yet.
 pub const NO_CHANGES_LABEL: &str = "No changes yet";
+/// The Runs face with no run in scope.
+pub const NO_RUNS_LABEL: &str = "No runs yet";
+/// The Results face with no screenshot in scope.
+pub const NO_RESULTS_LABEL: &str = "No results yet";
 /// The Dismiss confirm on a `proposed` node (the Skip confirm's shape).
 pub const DISMISS_NODE_CONFIRM: &str = "The node is removed from the workflow.";
 
@@ -1281,6 +1289,8 @@ mod display_tests {
         review_final_pr: String,
         no_changes: String,
         dismiss_node_confirm: String,
+        no_runs: String,
+        no_results: String,
     }
 
     #[derive(Deserialize)]
@@ -1330,7 +1340,6 @@ mod display_tests {
         #[serde(default)]
         skip: bool,
         nodes: Vec<StripNodeCase>,
-        edges: Vec<(String, String)>,
         strip: Vec<WaveCase>,
     }
 
@@ -1421,7 +1430,7 @@ mod display_tests {
                 })
                 .collect();
             let got: Vec<(i64, Vec<(String, String, &str, String, bool, usize, bool, bool)>)> =
-                workflow_node_strip(&nodes, &case.edges)
+                workflow_node_strip(&nodes)
                     .into_iter()
                     .map(|wave| {
                         (
@@ -1583,5 +1592,7 @@ mod display_tests {
         assert_eq!(REVIEW_FINAL_PR_LABEL, labels.review_final_pr);
         assert_eq!(NO_CHANGES_LABEL, labels.no_changes);
         assert_eq!(DISMISS_NODE_CONFIRM, labels.dismiss_node_confirm);
+        assert_eq!(NO_RUNS_LABEL, labels.no_runs);
+        assert_eq!(NO_RESULTS_LABEL, labels.no_results);
     }
 }
