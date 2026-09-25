@@ -63,6 +63,9 @@ final class AgentsViewModel {
     /// EXP-746: the caller's most recent finished runs, newest first, capped
     /// at `PastRuns.cap`. Empty = the section is absent entirely.
     private(set) var pastRows: [PastRow] = []
+    /// EXP-1061: the Recent sheet's grouping context — the same workflows as
+    /// `sessionTreeContext`, with the stack edges of the PAST rows' issues.
+    private(set) var pastTreeContext = SessionTree.Context()
 
     /// EXP-481: the machines list, composed from the synced `devices` shape
     /// (own rows + the active team's shared servers; online-ness derives from
@@ -712,6 +715,9 @@ final class AgentsViewModel {
                 )
             )
         }
+        pastTreeContext = buildSessionTreeContext(
+            listed: pastRows.map { (issue: $0.issue, batchIssues: $0.batchIssues) }
+        )
     }
 
     /// Candidate issues for the Agent page composer (EXP-156/EXP-825): every
@@ -789,7 +795,9 @@ final class AgentsViewModel {
             }
         // EXP-996: the grouping context off the SAME pass — the rows and the
         // groups they sit under are derived together or not at all.
-        sessionTreeContext = buildSessionTreeContext()
+        sessionTreeContext = buildSessionTreeContext(
+            listed: rows.map { (issue: $0.issue, batchIssues: $0.batchIssues) }
+        )
         // The Recent rows join the same issues and device rows this pass read.
         rebuildPast()
     }
@@ -797,10 +805,12 @@ final class AgentsViewModel {
     /// EXP-996: the tree's grouping context — the ACTIVE team's workflows and
     /// nodes (no team, no groups), plus the stack edges of the issues the
     /// listed rows name (an issue run's own, a batch run's covered set).
-    private func buildSessionTreeContext() -> SessionTree.Context {
+    private func buildSessionTreeContext(
+        listed: [(issue: IssueEntity?, batchIssues: [IssueEntity])]
+    ) -> SessionTree.Context {
         guard let teamId = activeTeamId, !teamId.isEmpty else { return SessionTree.Context() }
         var edges: [String: IssueEntity] = [:]
-        for row in rows {
+        for row in listed {
             if let issue = row.issue { edges[issue.id] = issue }
             for issue in row.batchIssues { edges[issue.id] = issue }
         }

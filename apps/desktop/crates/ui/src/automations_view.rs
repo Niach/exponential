@@ -65,21 +65,30 @@ struct AutomationsDerived {
     team_id: Option<String>,
     /// One per automation, in the server's list order, with its joins done.
     rows: Vec<AutomationRow>,
-    /// The "Recent automated runs" log, newest first, already capped to
-    /// [`RECENT_RUNS_CAP`] and then NESTED (EXP-897: a run a run started sits
-    /// under its parent, the rule every session list shares).
+    /// The "Recent automated runs" log, capped to [`RECENT_RUNS_CAP`] runs and
+    /// then drawn as the session TREE (EXP-1061: the rule every session list
+    /// shares, [`domain::session_tree::session_tree`]).
     /// EXP-874: each run's row facts (a live run draws as a running row, an
     /// ended one as a past row).
     recent_runs: Vec<RecentRun>,
 }
 
-/// One row of the recent-runs log: its facts plus its place in the session
-/// TREE (EXP-818/EXP-897 — nested ×4, 14px per level, folded by its parent).
+/// One row of the recent-runs log: a run or a group row, plus its place in
+/// the session TREE (EXP-818/EXP-897/EXP-1061 — nested ×4, 14px per level,
+/// folded by its node key).
 #[derive(Clone, Debug, PartialEq)]
 struct RecentRun {
-    facts: run_rows::RunListFacts,
+    key: String,
     depth: usize,
     has_children: bool,
+    kind: RecentRunKind,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum RecentRunKind {
+    Run(run_rows::RunListFacts),
+    /// EXP-996: a workflow / stack band — a workflow opens, a stack only folds.
+    Group(run_rows::SessionGroupFacts),
 }
 
 /// One automation row's data: the automation itself plus everything the
@@ -155,23 +164,33 @@ impl AutomationsDerived {
             rows,
             recent_runs: {
                 let now = chrono::Utc::now().timestamp();
-                // EXP-897: the cap is a ROW cap — nest FIRST, so a child run
-                // is never orphaned by a parent that fell off the end, then
-                // take the first `RECENT_RUNS_CAP` rows of the tree.
-                let tree = domain::session_tree::nest_sessions(
-                    runs.clone(),
-                    |session| session.id.as_str(),
-                    |session| session.parent_session_id.as_deref(),
-                    |session| session.started_at.as_deref(),
-                );
-                tree.into_iter()
-                    .take(RECENT_RUNS_CAP)
-                    .map(|row| RecentRun {
-                        facts: run_rows::RunListFacts::derive(&row.session, now, cx),
-                        depth: row.depth,
-                        has_children: row.has_children,
-                    })
-                    .collect()
+                // EXP-1061: the cap is a RUN cap, applied BEFORE the tree (web's
+                // `slice(0, 10)`): a child whose parent fell off it is a
+                // top-level orphan (rule 6). Then the ONE tree every session
+                // list draws — resumes collapsed, children under their parent,
+                // a workflow's or a stack's runs under a group row, top level
+                // newest ACTIVITY first.
+                let mut listed: Vec<&domain::rows::CodingSession> = runs.iter().collect();
+                listed.truncate(RECENT_RUNS_CAP);
+                let inputs = crate::queries::session_tree_inputs(cx, &listed);
+                crate::sessions_section::flatten_session_tree(listed, inputs, |session| {
+                    run_rows::RunListFacts::derive(session, now, cx)
+                })
+                .into_iter()
+                .map(|row| RecentRun {
+                    key: row.key,
+                    depth: row.depth,
+                    has_children: row.has_children,
+                    kind: match row.kind {
+                        crate::sessions_section::SessionTreeRowKind::Run(facts) => {
+                            RecentRunKind::Run(facts)
+                        }
+                        crate::sessions_section::SessionTreeRowKind::Group(facts) => {
+                            RecentRunKind::Group(facts)
+                        }
+                    },
+                })
+                .collect()
             },
         }
     }
@@ -493,11 +512,11 @@ impl AutomationsView {
                     .child("Nothing has fired yet."),
             );
         }
-        // EXP-897: everything under a folded parent leaves the list.
+        // EXP-897: everything under a folded node leaves the list.
         let visible = crate::sessions_section::drop_collapsed(
             runs.iter().collect::<Vec<_>>(),
             &self.collapsed,
-            |row| row.facts.session_id(),
+            |row| row.key.as_str(),
             |row| row.depth,
         );
         // EXP-965: the connector every nested row draws, off the VISIBLE
@@ -506,42 +525,58 @@ impl AutomationsView {
             &visible.iter().map(|row| row.depth).collect::<Vec<_>>(),
         );
         for (index, row) in visible.into_iter().enumerate() {
-            let facts = &row.facts;
-            let open_id = facts.session_id().to_string();
             let fold = crate::sessions_section::fold_for(
-                open_id.clone(),
+                row.key.clone(),
                 row.has_children,
                 &self.collapsed,
                 cx,
             );
-            // EXP-874: the shared run rows — a live automated run is a running
-            // row (its trailing button opens the automation), an ended one a
-            // past row. Every row opens the fullscreen session view.
-            let element = run_rows::render_run_list_row(
-                "run",
-                index,
-                guides.get(index).cloned().unwrap_or_default(),
-                fold,
-                facts.clone(),
-                false,
-                Box::new(move |_, window, cx| {
-                    // EXP-862: the run opens PINNED to this log, so its left
-                    // column lists the other automated runs and its Back
-                    // comes back here (an unattended run has no row on the
-                    // Agent page).
-                    crate::session_screen::open_session_with_origin(
-                        &open_id,
-                        Some(crate::navigation::TabOrigin {
-                            tool: crate::sidebar::ToolWindow::Automations,
-                            board_id: None,
-                            inbox_tab: None,
+            let guides = guides.get(index).cloned().unwrap_or_default();
+            let element = match &row.kind {
+                RecentRunKind::Group(facts) => run_rows::render_group_row(
+                    run_rows::GroupRowSpec {
+                        id_prefix: "run",
+                        index,
+                        guides,
+                        fold,
+                        facts: facts.clone(),
+                        on_open: crate::sessions_section::group_row_open(facts),
+                    },
+                    cx,
+                ),
+                RecentRunKind::Run(facts) => {
+                    let open_id = facts.session_id().to_string();
+                    // EXP-874: the shared run rows — a live automated run is a
+                    // running row (its trailing button opens the automation),
+                    // an ended one a past row. Every row opens the fullscreen
+                    // session view.
+                    run_rows::render_run_list_row(
+                        "run",
+                        index,
+                        guides,
+                        fold,
+                        facts.clone(),
+                        false,
+                        Box::new(move |_, window, cx| {
+                            // EXP-862: the run opens PINNED to this log, so its
+                            // left column lists the other automated runs and
+                            // its Back comes back here (an unattended run has
+                            // no row on the Agent page).
+                            crate::session_screen::open_session_with_origin(
+                                &open_id,
+                                Some(crate::navigation::TabOrigin {
+                                    tool: crate::sidebar::ToolWindow::Automations,
+                                    board_id: None,
+                                    inbox_tab: None,
+                                }),
+                                window,
+                                cx,
+                            );
                         }),
-                        window,
                         cx,
-                    );
-                }),
-                cx,
-            );
+                    )
+                }
+            };
             run_rows_column = run_rows_column.child(element);
         }
         body = body.child(recent.child(run_rows_column));

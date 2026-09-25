@@ -1282,6 +1282,11 @@ impl ReviewEntry {
 /// `pr_base_branch`, so no row ever reports a missing base); a cycle breaks
 /// where it first repeats. Pure — the rule is
 /// [`domain::pr_stack::nest_pr_stacks`], shared ×4.
+///
+/// EXP-1061: deliberately NOT the session tree. The review queue lists pull
+/// requests, not runs — an issue-less PR has no session and a PR outlives the
+/// run that opened it — so its one grouping is the PR stack, the same rule
+/// every client's Reviews uses.
 pub fn nest_review_entries(entries: Vec<ReviewEntry>) -> Vec<ReviewEntry> {
     let nested = domain::pr_stack::nest_pr_stacks(
         entries,
