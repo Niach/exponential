@@ -6,14 +6,18 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         { "id": "a", "issueId": "i-a", "kind": "contract", "state": "blocked", "wave": 0, "lane": 0 },
         { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 },
         { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "ready", "wave": 1, "lane": 1 }
       ],
-      "edges": [["a", "b"], ["a", "c"]],
+      "edges": [
+        ["a", "b"],
+        ["a", "c"]
+      ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -29,14 +33,18 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 0 },
         { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "landed", "wave": 0, "lane": 1 },
         { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
       ],
-      "edges": [["a", "c"], ["b", "c"]],
+      "edges": [
+        ["a", "c"],
+        ["b", "c"]
+      ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -49,7 +57,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -72,7 +81,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
-      { "kind": "startNode", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12" }
+      { "kind": "startNode", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -82,7 +91,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -137,7 +147,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -161,8 +172,14 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": false } },
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
+      },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": false }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -178,7 +195,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -206,7 +224,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -234,7 +253,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -258,7 +278,10 @@
           "attempt": 2
         }
       ],
-      "sessions": { "s-a": { "live": false }, "s-b": { "live": false } },
+      "sessions": {
+        "s-a": { "live": false },
+        "s-b": { "live": false }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -279,7 +302,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -307,7 +331,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -335,7 +360,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -363,7 +389,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 0
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -391,7 +418,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -417,19 +445,75 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "running", "wave": 0, "lane": 0, "attempt": 1, "updatedAtMs": 650000 },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 0, "lane": 1, "attempt": 1, "updatedAtMs": 0 },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "running", "wave": 0, "lane": 2, "attempt": 1 }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "attempt": 1,
+          "updatedAtMs": 650000
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "attempt": 1,
+          "updatedAtMs": 0
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 2,
+          "attempt": 1
+        }
       ],
       "integrationBranchExists": true,
       "nowMs": 700000
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 2, "baseBranch": "exp/wf-abcdef12" }
+      { "kind": "startNode", "nodeId": "b", "attempt": 2, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
+  },
+  {
+    "name": "rule 1 (EXP-1032): a merged PR lands the node even with its session unsynced",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-unsynced",
+          "attempt": 1
+        },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "landed", "wave": 0, "lane": 1 }
+      ],
+      "issues": { "i-a": { "prState": "merged" } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "a" }]
   }
 ]

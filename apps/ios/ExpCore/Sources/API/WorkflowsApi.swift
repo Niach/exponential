@@ -146,26 +146,24 @@ private struct CreateInput: Encodable {
 
 /// A partial `workflows.update`: an OMITTED field keeps what the row has,
 /// while `deviceId` is CLEARABLE — a nested optional, so `.some(nil)` sends an
-/// explicit null ("no runner bound"). `launch` is replaced WHOLE: the server
-/// stores the object it receives, so an omitted key inside it IS unset —
-/// except the three EXP-1002 phase pins (`contractModel`, `integrationModel`,
-/// `riskModel`), which `WorkflowLaunch` always sends explicitly (null = clear).
+/// explicit null ("no runner bound").
+///
+/// EXP-1014/EXP-1033: the phone sends NAME and DEVICE, nothing else. The
+/// workflow screen configures no run any more — binding a runner to a draft
+/// re-seeds the launch from THAT machine's defaults server-side, and every
+/// model is derived from the two the launch carries — so the launch never
+/// rides this patch. `startOn` is gone with it: the server ignores the field
+/// (`contract` is fixed).
 public struct WorkflowPatch: Sendable, Equatable {
     public var name: String?
     public var deviceId: String??
-    public var launch: WorkflowLaunch?
-    public var startOn: String?
 
     public init(
         name: String? = nil,
-        deviceId: String?? = nil,
-        launch: WorkflowLaunch? = nil,
-        startOn: String? = nil
+        deviceId: String?? = nil
     ) {
         self.name = name
         self.deviceId = deviceId
-        self.launch = launch
-        self.startOn = startOn
     }
 }
 
@@ -176,7 +174,7 @@ struct WorkflowUpdateInput: Encodable {
     let patch: WorkflowPatch
 
     enum CodingKeys: String, CodingKey {
-        case id, name, deviceId, launch, startOn
+        case id, name, deviceId
     }
 
     func encode(to encoder: Encoder) throws {
@@ -188,8 +186,6 @@ struct WorkflowUpdateInput: Encodable {
         if let deviceId = patch.deviceId {
             try c.encode(deviceId, forKey: .deviceId)
         }
-        try c.encodeIfPresent(patch.launch, forKey: .launch)
-        try c.encodeIfPresent(patch.startOn, forKey: .startOn)
     }
 }
 
@@ -238,6 +234,11 @@ struct WorkflowNodeUpdateInput: Encodable {
 
 private struct IdInput: Encodable {
     let id: String
+}
+
+/// `workflows.mergeFinalPr` answers `{ merged: true }`.
+private struct MergeFinalPrResult: Decodable {
+    let merged: Bool
 }
 
 private struct ApproveNodeInput: Encodable {
@@ -315,8 +316,9 @@ public final class WorkflowsApi: Sendable {
     }
 
     /// Member-gated `workflows.updateNode` — what the plan declares per node.
-    /// Kind and touches shape the PLAN (draft-only); risk stays
-    /// adjustable.
+    /// Kind and touches shape the PLAN, so the server takes them on a DRAFT
+    /// only; RISK rides at any status (it is the one lever onto the launch's
+    /// strong model, and a running workflow still has nodes to raise).
     public func updateNode(
         accountId: String,
         workflowId: String,
@@ -390,6 +392,22 @@ public final class WorkflowsApi: Sendable {
         try await trpc.mutationVoid(
             accountId: accountId, path: "workflows.cancel", input: IdInput(id: id)
         )
+    }
+
+    /// Member-gated `workflows.mergeFinalPr` — squash-merge the workflow's ONE
+    /// final pull request (integration branch → the default branch), the one
+    /// human review of the whole run. GitHub's acceptance completes the
+    /// workflow in the same call (EXP-1032), so the synced row carries the
+    /// result back; idempotent for an already merged PR, and a refusal (no
+    /// final PR yet, GitHub said no) is the server's own sentence.
+    @discardableResult
+    public func mergeFinalPr(accountId: String, id: String) async throws -> Bool {
+        let result: MergeFinalPrResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "workflows.mergeFinalPr",
+            input: IdInput(id: id)
+        )
+        return result.merged
     }
 
     /// The human gate: `workflows.approveNode` clears a node's open PR for the

@@ -19,24 +19,24 @@ public struct WorkflowLaunch: Sendable, Equatable {
     /// are deprecated (they fold into this one; EXP-1014 removes them). The
     /// phone CARRIES it, never edits it.
     public var strongModel: String?
-    /// EXP-1002: the per-PHASE pins — the model `contract` nodes, `integration`
-    /// nodes and `risk: high` nodes (whatever their kind) run on. Absent =
-    /// `model`. The phone has no picker for them; it CARRIES them, so an edit
-    /// of another field never erases what web or desktop pinned.
+    /// DEPRECATED (EXP-1029) — the EXP-1002 per-PHASE pins. They fold into
+    /// `strongModel` (`normalized` below) and nothing writes them any more;
+    /// they are still DECODED, because old rows carry them and the fold is the
+    /// only thing that still reads what they say.
     public var contractModel: String?
     public var integrationModel: String?
     public var riskModel: String?
-    /// Claude only: the model its subagents run on (EXP-981).
+    /// DEPRECATED (EXP-1029) — claude's subagents run on `model`.
     public var subagentModel: String?
+    /// DEPRECATED (EXP-1029) — a workflow run picks no effort.
     public var effort: String?
     /// An agent profile id on the runner device.
     public var account: String?
     /// How many nodes may run at once (contract `workflowMaxParallelDefault`
     /// when unset).
     public var maxParallel: Int?
-    /// EXP-984: the model agent reviews run on. Absent = the engine picks one;
-    /// a `risk: high` node is ALWAYS reviewed on a model other than its
-    /// author's.
+    /// DEPRECATED (EXP-1029) — every agent review runs on `strongModel`. Still
+    /// decoded: on an old row it is the FIRST candidate the fold takes.
     public var reviewModel: String?
 
     public init(
@@ -113,6 +113,87 @@ public extension WorkflowLaunch {
     /// The stored jsonb string as a value; absent/malformed = every default.
     static func parse(_ json: String?) -> WorkflowLaunch {
         decodeJson(json) ?? WorkflowLaunch()
+    }
+}
+
+// MARK: - The strict launch (EXP-1029)
+
+public extension WorkflowLaunch {
+    /// EXP-1029 — what a workflow run actually starts with: ONE agent and TWO
+    /// models. `model` is the CHEAP one (leaf nodes, and the subagents inside
+    /// every node run), `strongModel` the capable one (contract nodes,
+    /// integration nodes, `risk: high` nodes and every agent review).
+    ///
+    /// The phone CARRIES the stored launch and never edits it; this is only
+    /// what it says about a node.
+    struct Normalized: Sendable, Equatable {
+        public let agent: String
+        public let model: String
+        public let strongModel: String
+        /// An agent profile id on the runner device; nil = its ambient login.
+        public let account: String?
+
+        public init(agent: String, model: String, strongModel: String, account: String? = nil) {
+            self.agent = agent
+            self.model = model
+            self.strongModel = strongModel
+            self.account = account
+        }
+    }
+
+    /// The stored launch (any vintage, or garbage) → the strict one. Mirrors
+    /// web `normalizeWorkflowLaunch` (`lib/workflow-launch.ts`) and Rust
+    /// `coding::workflows::launch`, rule for rule:
+    /// - `agent`: `claude` or `codex`; anything else → `claude`.
+    /// - `model`: the stored one, else that agent's contract default.
+    /// - `strongModel`: the stored one; else the first set of the deprecated
+    ///   pins (`reviewModel`, `riskModel`, `contractModel`, `integrationModel`
+    ///   — an old row's choice), else that agent's default strong model.
+    /// - `subagentModel`, `effort` and `maxParallel` are dropped.
+    var normalized: Normalized {
+        let agent: String = {
+            if let stored = Self.text(self.agent),
+               DomainContract.workflowLaunchAgents.contains(stored) {
+                return stored
+            }
+            return Self.claudeAgent
+        }()
+        let legacyStrong = [reviewModel, riskModel, contractModel, integrationModel]
+            .lazy.compactMap(Self.text).first
+        return Normalized(
+            agent: agent,
+            model: Self.text(model) ?? Self.defaultModel(for: agent),
+            strongModel: Self.text(strongModel)
+                ?? legacyStrong
+                ?? Self.defaultStrongModel(for: agent),
+            account: Self.text(account)
+        )
+    }
+
+    /// The cheap model an agent runs on when the row names none.
+    static func defaultModel(for agent: String) -> String {
+        agent == codexAgent
+            ? DomainContract.workflowLaunchCodexModel
+            : DomainContract.workflowLaunchClaudeModel
+    }
+
+    /// The strong model an agent runs its contract, integration, high-risk and
+    /// review work on when the row names none.
+    static func defaultStrongModel(for agent: String) -> String {
+        agent == codexAgent
+            ? DomainContract.workflowLaunchCodexStrongModel
+            : DomainContract.workflowLaunchClaudeStrongModel
+    }
+
+    internal static let claudeAgent = "claude"
+    internal static let codexAgent = "codex"
+
+    /// A stored string field that carries a value: non-blank, else nil.
+    private static func text(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty
+        else { return nil }
+        return trimmed
     }
 }
 
