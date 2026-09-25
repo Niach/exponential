@@ -55,7 +55,11 @@ data class SheetActionsState(
     val error: String? = null,
 )
 
-/** One pickable board for a `board`-typed action input. */
+/**
+ * One pickable board for a `board`-typed action input. EXP-1030: it carries
+ * the board's GLYPH and COLOUR too — a board is its icon+colour pair wherever
+ * it is picked (EXP-449), and the shared `BoardPicker` draws that pair.
+ */
 data class StartBoardOption(
     val id: String,
     val name: String,

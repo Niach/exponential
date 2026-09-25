@@ -16,6 +16,10 @@ import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.PickerValueRow
+import com.exponential.app.ui.components.picker.BoardPicker
+import com.exponential.app.ui.components.picker.BoardPickerBoard
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -89,20 +93,43 @@ private fun ActionInputField(
             },
             onSelect = onValueChange,
         )
-        "board" -> PickerRow(
-            label = label,
-            value = when {
-                value.isEmpty() && def.required -> "Select"
-                value.isEmpty() -> "None"
-                else -> boards.firstOrNull { it.id == value }?.name ?: value
-            },
-            options = (if (def.required) emptyList() else listOf("")) + boards.map { it.id },
-            selected = value.takeIf { it.isNotEmpty() || !def.required },
-            optionLabel = { id ->
-                if (id.isEmpty()) "None" else boards.firstOrNull { it.id == id }?.name ?: id
-            },
-            onSelect = onValueChange,
-        )
+        // EXP-1030: the shared board picker — a board is its icon+colour pair
+        // wherever it is picked (EXP-449). An optional input keeps its "None"
+        // reset as the first ROW: a cleared pick is a choice, not a missing one.
+        "board" -> {
+            val picked = boards.firstOrNull { it.id == value }
+            BoardPicker(
+                boards = (
+                    if (def.required) {
+                        emptyList()
+                    } else {
+                        listOf(BoardPickerBoard(id = "", name = "None"))
+                    }
+                    ) + boards.map {
+                    BoardPickerBoard(
+                        id = it.id,
+                        name = it.name,
+                        icon = it.icon,
+                        colorHex = it.colorHex,
+                    )
+                },
+                value = value,
+                onChange = onValueChange,
+                title = def.label,
+                trigger = { open ->
+                    PickerValueRow(
+                        label = label,
+                        value = when {
+                            value.isEmpty() && def.required -> "Select"
+                            value.isEmpty() -> "None"
+                            else -> picked?.name ?: value
+                        },
+                        valueIcon = picked?.icon?.let { ExpIcons.byName(it) },
+                        onClick = open,
+                    )
+                },
+            )
+        }
         // EXP-259: the value is the REPRESENTATIVE issue id of an open
         // issue-linked PR (batch PRs dedupe by prUrl, so one row can list
         // several identifiers).

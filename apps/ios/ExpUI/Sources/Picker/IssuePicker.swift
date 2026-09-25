@@ -69,6 +69,11 @@ public struct IssuePicker<Trigger: View>: View {
     public let open: Binding<Bool>?
     public let hideTrigger: Bool
     public let onDismiss: (() -> Void)?
+    /// EXP-1030 — a block under the rows: the composer's batch guards
+    /// (one repository per run, the batch cap), which caption the list.
+    public let footer: (() -> AnyView)?
+    /// EXP-1030 — an accessibility identifier for the presented sheet.
+    public let sheetIdentifier: String?
     private let trigger: () -> Trigger
 
     public init(
@@ -83,6 +88,8 @@ public struct IssuePicker<Trigger: View>: View {
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
+        footer: (() -> AnyView)? = nil,
+        sheetIdentifier: String? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.issues = issues
@@ -96,6 +103,8 @@ public struct IssuePicker<Trigger: View>: View {
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
+        self.footer = footer
+        self.sheetIdentifier = sheetIdentifier
         self.trigger = trigger
     }
 
@@ -131,6 +140,8 @@ public struct IssuePicker<Trigger: View>: View {
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,
+            footer: footer,
+            sheetIdentifier: sheetIdentifier,
             trigger: trigger
         )
     }

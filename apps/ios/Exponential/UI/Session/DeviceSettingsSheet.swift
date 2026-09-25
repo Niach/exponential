@@ -550,9 +550,12 @@ struct DeviceSettingsSheet: View {
         let options = accountOptions(device)
         if !options.isEmpty {
             Section {
-                // EXP-872: the SHARED account picker (brand mark + email over
-                // marked menu rows) — the same control the composer's options
-                // row and the IDE's settings wear.
+                // EXP-872: the SHARED account picker (brand mark + email per
+                // row, the EXP-992 limit bars under each) — the same control
+                // the composer's options row and the IDE's settings wear.
+                // EXP-1030: `AccountPickerMenu` is the trigger + the
+                // lone-login rule over `ExpUI.AccountPicker`, so this row
+                // opens the ONE picker sheet rather than a menu of its own.
                 HStack(spacing: 8) {
                     Text("Default account")
                         .foregroundStyle(.white.opacity(TextOpacity.primary))

@@ -21,6 +21,14 @@ pub(crate) mod session_tree;
 pub(crate) mod device_settings;
 pub(crate) mod workflow_graph;
 
+/// EXP-1030: whether `id`'s file is still the one-line placeholder rather
+/// than a demo. The integration node filled every other entry; `toast` stays
+/// one by decision — EXP-1031 owns that control and fills it with the
+/// control, so nothing here has to guess what it will look like.
+pub(crate) fn is_placeholder(id: &str) -> bool {
+    id == toast::ID
+}
+
 /// One entry: its id (the section index's), its owner, its demo.
 pub(crate) struct Entry {
     pub id: &'static str,

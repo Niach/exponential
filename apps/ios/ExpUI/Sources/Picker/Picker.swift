@@ -308,6 +308,10 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     /// (`renderItem` there); the highlight, the mark and the tap stay the
     /// primitive's.
     public let renderItem: ((PickerItem<Value>) -> AnyView?)?
+    /// EXP-1030 — an accessibility identifier for the SHEET, for a surface
+    /// whose flow is pinned by one (the composer's `#` and ▶ tools). The
+    /// trigger keeps `picker`; only the presented list takes this.
+    public let sheetIdentifier: String?
     private let trigger: () -> Trigger
 
     /// The sheet's presentation while no caller controls it. The primitive
@@ -333,6 +337,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         footer: (() -> AnyView)? = nil,
         renderMark: ((PickerItem<Value>) -> AnyView?)? = nil,
         renderItem: ((PickerItem<Value>) -> AnyView?)? = nil,
+        sheetIdentifier: String? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.items = items
@@ -353,6 +358,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         self.footer = footer
         self.renderMark = renderMark
         self.renderItem = renderItem
+        self.sheetIdentifier = sheetIdentifier
         self.trigger = trigger
     }
 
@@ -401,6 +407,24 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
             // Sheets present outside the host's environment, and the app is
             // dark-forced everywhere else (EXP-687).
             .preferredColorScheme(.dark)
+            .modifier(PickerSheetIdentifier(identifier: sheetIdentifier))
+        }
+    }
+}
+
+/// Names the presented sheet for the UI flows pinned to one, and nothing at
+/// all without an identifier — a modifier rather than an inline `if`, which
+/// would fork the sheet's view identity and re-present it.
+private struct PickerSheetIdentifier: ViewModifier {
+    let identifier: String?
+
+    func body(content: Content) -> some View {
+        if let identifier {
+            content
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(identifier)
+        } else {
+            content
         }
     }
 }

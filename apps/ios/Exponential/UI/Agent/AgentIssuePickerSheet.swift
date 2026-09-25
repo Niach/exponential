@@ -2,55 +2,68 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-825: the composer's issue picker — the Start-coding sheet's Issues
-/// tab as a sheet of its own: a searchable checklist over the team's
-/// eligible issues (`IssueOption`), the rows checked at OPEN pinned first.
-/// The pin order is snapshotted at open and never re-sorts on toggle, so a
-/// tapped row visibly checks in place instead of teleporting into a pinned
-/// group (EXP-241). Checking an issue swaps out an action chip; the
+/// EXP-825: the composer's issue picker — the `#` tool's searchable checklist
+/// over the team's eligible issues (`IssueOption`), the rows checked at OPEN
+/// pinned first. The pin order is snapshotted at open and never re-sorts on
+/// toggle, so a tapped row visibly checks in place instead of teleporting into
+/// a pinned group (EXP-241). Checking an issue swaps out an action chip; the
 /// single-repository and batch-cap guards caption the list.
+///
+/// EXP-1030: it renders through the SHARED `IssuePicker` in multi mode — the
+/// one sheet, the one selection language (a checked row reads by its own
+/// highlight, never a leading circle), rows `IDENT Title` behind the issue's
+/// status glyph. This view is what is left of it: the ranked pool, the pin
+/// snapshot and the guard captions, which ride the picker's footer. It is
+/// HOST-DRIVEN (`open`): the composer's tool button is the trigger, and it
+/// lives in another view tree.
 struct AgentIssuePickerSheet: View {
     let model: AgentComposerModel
+    /// The composer's `#` button drives it.
+    @Binding var isPresented: Bool
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.motion) private var motion
     @State private var searchText = ""
     @State private var pinnedIds: Set<String> = []
 
     var body: some View {
-        GlassSheetChrome(
-            title: "Issues",
-            height: .full,
-            pinnedHeader: {
-                GlassSheetSearchField(placeholder: "Search issues", text: $searchText)
-                    .padding(.horizontal, GlassSheetTokens.headerHPadding)
-                    .padding(.bottom, 8)
+        IssuePicker(
+            issues: rows.map { option in
+                let status = IssueStatus.from(option.status)
+                return IssuePickerIssue(
+                    id: option.id,
+                    identifier: option.identifier ?? "",
+                    title: option.title,
+                    icon: status.iconName,
+                    color: status.color
+                )
             },
-            content: {
-                VStack(alignment: .leading, spacing: 0) {
-                    if rows.isEmpty {
-                        Text(model.issues.isEmpty ? "No eligible issues to code." : "No matching issues.")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .padding(.horizontal, GlassSheetTokens.headerHPadding)
-                            .padding(.vertical, 12)
-                    } else {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, option in
-                            if index > 0 { GlassDivider() }
-                            issueRow(option)
-                        }
-                    }
-                    footer
+            mode: .multi,
+            value: Set(model.effectiveChecked),
+            // The picker reports the WHOLE new set; the model checks one issue
+            // at a time (a pick also swaps out an action), so the difference is
+            // what changed.
+            onChange: { picked in
+                let current = Set(model.effectiveChecked)
+                withAnimation(motion.standard) {
+                    for id in picked.symmetricDifference(current) { model.toggleIssue(id) }
                 }
-                .padding(.horizontal, 8)
             },
-            primaryAction: {
-                GlassSubmitButton("Done") { dismiss() }
-            }
+            // EXP-892: the rows are RANKED here, so the primitive renders them
+            // verbatim and only reports what was typed.
+            query: $searchText,
+            // Why the list is empty, not just that it is: a team with nothing
+            // codeable and a query with no hit are different answers.
+            emptyText: model.issues.isEmpty ? "No eligible issues to code." : "No matching issues.",
+            open: $isPresented,
+            hideTrigger: true,
+            footer: showsGuards ? { AnyView(guards) } : nil,
+            sheetIdentifier: "agent-composer-issues-picker",
+            trigger: { EmptyView() }
         )
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-composer-issues-picker")
-        .onAppear { pinnedIds = Set(model.effectiveChecked) }
+        // The pin order is the snapshot taken when the sheet OPENS.
+        .onChange(of: isPresented) { _, open in
+            if open { pinnedIds = Set(model.effectiveChecked) }
+        }
     }
 
     /// Pinned rows first (the open-time snapshot), then the rest, both ranked
@@ -73,71 +86,29 @@ struct AgentIssuePickerSheet: View {
         return pinned + others
     }
 
-    private func issueRow(_ option: IssueOption) -> some View {
-        let isChecked = model.isChecked(option.id)
-        return Button {
-            withAnimation(motion.standard) {
-                model.toggleIssue(option.id)
-            }
-        } label: {
-            HStack(spacing: 10) {
-                // Selection state must be unmissable (EXP-241): body-size
-                // glyph swap plus a tinted row background.
-                AppIcon(isChecked ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
-                    .foregroundStyle(isChecked ? Color.white : .secondary)
-
-                // Issue-list row anatomy (EXP-173): priority icon, mono
-                // identifier, status icon, title.
-                AppIcon(IssuePriority.from(option.priority).iconName, size: AppIcon.Size.small)
-                    .foregroundStyle(IssuePriority.from(option.priority).color)
-                    .frame(width: 16)
-
-                Text(option.identifier ?? "")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 60, alignment: .leading)
-
-                AppIcon(IssueStatus.from(option.status).iconName, size: AppIcon.Size.small)
-                    .foregroundStyle(IssueStatus.from(option.status).color)
-                    .frame(width: 16)
-
-                Text(option.title)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 8)
-            .background(
-                isChecked ? Color.white.opacity(0.1) : Color.clear,
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+    private var showsGuards: Bool {
+        model.multiRepo || model.overCap || model.costWarning
     }
 
-    @ViewBuilder
-    private var footer: some View {
-        if model.multiRepo || model.overCap || model.costWarning {
-            VStack(alignment: .leading, spacing: 4) {
-                if model.multiRepo {
-                    Text("Pick issues from a single repository per run.")
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                }
-                if model.overCap {
-                    Text("At most \(AgentComposerModel.maxBatchIssues) issues per run. Split the batch.")
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                } else if model.costWarning {
-                    Text("Large batches are token-expensive.")
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
+    /// The batch guards, under the rows — what cannot start, said where the
+    /// picking happens.
+    private var guards: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if model.multiRepo {
+                Text("Pick issues from a single repository per run.")
+                    .foregroundStyle(DesignTokens.Semantic.red)
             }
-            .font(.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 10)
+            if model.overCap {
+                Text("At most \(AgentComposerModel.maxBatchIssues) issues per run. Split the batch.")
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            } else if model.costWarning {
+                Text("Large batches are token-expensive.")
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
         }
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, GlassPickerTokens.rowHPadding)
+        .padding(.vertical, 10)
     }
 }

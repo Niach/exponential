@@ -24,10 +24,18 @@ public struct BoardPickerBoard: Identifiable, Hashable {
 }
 
 public struct BoardPicker<Trigger: View>: View {
+    /// EXP-1030 — the row that clears the pick; it reports the empty string,
+    /// the unset sentinel every board-valued field already stores.
+    nonisolated public static var noneValue: String { "" }
+
     public let boards: [BoardPickerBoard]
     public let value: String?
     public let onChange: (String) -> Void
     public let search: Bool
+    /// EXP-1030 — offer a leading "None" row, for an OPTIONAL board (an
+    /// action's optional `board` input): without it a pick can never be
+    /// taken back.
+    public let allowsNone: Bool
     /// The sheet headline; the default names the picker. A flow that means
     /// something more than "pick a board" — "Move to board", "Escalate to
     /// issue" — says so here, exactly as on Android (`BoardPicker.kt`).
@@ -47,6 +55,7 @@ public struct BoardPicker<Trigger: View>: View {
         value: String?,
         onChange: @escaping (String) -> Void,
         search: Bool = true,
+        allowsNone: Bool = false,
         title: String = "Board",
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
@@ -57,6 +66,7 @@ public struct BoardPicker<Trigger: View>: View {
         self.value = value
         self.onChange = onChange
         self.search = search
+        self.allowsNone = allowsNone
         self.title = title
         self.open = open
         self.hideTrigger = hideTrigger
@@ -64,8 +74,10 @@ public struct BoardPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    nonisolated public static func items(_ boards: [BoardPickerBoard]) -> [PickerItem<String>] {
-        boards.map { board in
+    nonisolated public static func items(
+        _ boards: [BoardPickerBoard], allowsNone: Bool = false
+    ) -> [PickerItem<String>] {
+        let rows = boards.map { board in
             PickerItem(
                 value: board.id,
                 label: board.name,
@@ -73,11 +85,12 @@ public struct BoardPicker<Trigger: View>: View {
                 color: board.colorHex.flatMap { Color(hex: $0) }
             )
         }
+        return allowsNone ? [PickerItem(value: noneValue, label: "None")] + rows : rows
     }
 
     public var body: some View {
         GlassPicker(
-            items: Self.items(boards),
+            items: Self.items(boards, allowsNone: allowsNone),
             mode: .single,
             value: value.map { [$0] } ?? [],
             onChange: { picked in picked.first.map(onChange) },

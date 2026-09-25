@@ -193,21 +193,37 @@ struct WorkflowDetailView: View {
     /// started the pick is history, so the row goes inert rather than bouncing
     /// on submit. Everything else about the run (agent, models) is carried on
     /// the stored launch and is not edited here.
+    ///
+    /// EXP-1030: the SHARED `DevicePicker`; the row is only its trigger, so a
+    /// machine is picked here exactly as it is in the composer and the
+    /// automation editor — its own glyph, its owner under the name. The
+    /// leading row unbinds the runner again while the plan is still a draft.
     @ViewBuilder
     private func runner(_ model: WorkflowDetailModel) -> some View {
-        GlassPickerRow(
-            "Runs on",
-            selection: Binding(
-                get: { model.workflow?.deviceId ?? "" },
-                set: { model.setDevice($0.isEmpty ? nil : $0) }
-            ),
-            options: [""] + model.devices.map(\.deviceId),
-            label: { id in
-                model.devices.first { $0.deviceId == id }
-                    .map(LaunchVocabulary.deviceCaption) ?? "No machine"
-            },
-            enabled: model.isDraft
+        DevicePicker(
+            devices: [DevicePickerDevice(id: "", name: "No machine")]
+                + model.devices.map { device in
+                    DevicePickerDevice(
+                        id: device.deviceId,
+                        name: LaunchVocabulary.deviceName(device),
+                        icon: DeviceIconDisplay.iconName(for: device),
+                        description: device.owner?.name
+                    )
+                },
+            value: model.workflow?.deviceId ?? "",
+            onChange: { model.setDevice($0.isEmpty ? nil : $0) },
+            trigger: {
+                GlassPickerRowLabel(
+                    "Runs on",
+                    value: model.devices.first { $0.deviceId == model.workflow?.deviceId }
+                        .map(LaunchVocabulary.deviceCaption) ?? "No machine",
+                    enabled: model.isDraft
+                )
+            }
         )
+        // Once it has started the pick is history: the row goes inert rather
+        // than bouncing on submit.
+        .disabled(!model.isDraft)
         .font(.caption)
         .accessibilityIdentifier("workflow-runner-row")
     }

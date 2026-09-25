@@ -65,23 +65,25 @@ struct AgentComposerCard: View {
             }
         } tools: {
             // EXP-825 ×4: `#` for issues, ▶ for actions, the image glyph
-            // every other composer wears. Each sheet hangs off ITS button —
-            // stacking presentations on one node is where SwiftUI starts
-            // dropping them.
+            // every other composer wears. EXP-1030: both picks are the SHARED
+            // picker, host-driven — the button opens it and the picker owns
+            // its own sheet, so it hangs off ITS button (stacking
+            // presentations on one node is where SwiftUI starts dropping
+            // them) on a zero-size background node.
             GlassComposerToolButton(AppIcons.editorIssueRef, accessibilityLabel: "Pick issues") {
                 showIssuePicker = true
             }
             .accessibilityIdentifier("agent-composer-issues-button")
-            .sheet(isPresented: $showIssuePicker) {
-                AgentIssuePickerSheet(model: model)
+            .background {
+                AgentIssuePickerSheet(model: model, isPresented: $showIssuePicker)
             }
 
             GlassComposerToolButton(AppIcons.actionRun, accessibilityLabel: "Pick an action") {
                 showActionPicker = true
             }
             .accessibilityIdentifier("agent-composer-actions-button")
-            .sheet(isPresented: $showActionPicker) {
-                AgentActionPickerSheet(model: model)
+            .background {
+                AgentActionPickerSheet(model: model, isPresented: $showActionPicker)
             }
 
             // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
