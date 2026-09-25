@@ -13,3 +13,8 @@ export function workflowFinalPrIdentifier(name: string): string {
 export function workflowReviewKey(workflowId: string): string {
   return `workflow:${workflowId}`
 }
+
+/** EXP-1059: the workflow page's way back from a final PR closed without
+ *  merging (`workflows.openFinalPr`: reopened, or a fresh one). Mirrored as
+ *  `domain::workflow_final_pr::OPEN_FINAL_PR_LABEL`. */
+export const OPEN_FINAL_PR_LABEL = `Open final PR`

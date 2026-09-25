@@ -56,6 +56,7 @@ import { useWorkflowNodeRuns, useWorkflowNodes } from "@/hooks/use-workflows"
 import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
 import { modelForNode, normalizeWorkflowLaunch } from "@/lib/workflow-launch"
 import { workflowCollection } from "@/lib/collections"
+import { OPEN_FINAL_PR_LABEL } from "@/lib/workflow-final-pr-identity"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { cn } from "@/lib/utils"
@@ -185,6 +186,7 @@ export function WorkflowDetail({
   const [cancelOpen, setCancelOpen] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [merging, setMerging] = useState(false)
+  const [openingFinalPr, setOpeningFinalPr] = useState(false)
   const openComposer = useOpenComposer()
 
   // A node that left the graph (a replan folded it into a compound one) must
@@ -260,6 +262,26 @@ export function WorkflowDetail({
       )
     } finally {
       setMerging(false)
+    }
+  }
+
+  // EXP-1059: a final PR closed WITHOUT merging — the member's way back.
+  // `workflows.openFinalPr` reopens it, or opens a fresh one when GitHub
+  // refuses; the synced row swaps the chip back to Merge.
+  const openFinalPr = async () => {
+    setError(null)
+    setOpeningFinalPr(true)
+    try {
+      await trpc.workflows.openFinalPr.mutate(
+        { id: workflow.id },
+        { context: { skipErrorToast: true } }
+      )
+    } catch (caught) {
+      setError(
+        trpcErrorMessage(caught, `The final pull request could not be opened`)
+      )
+    } finally {
+      setOpeningFinalPr(false)
     }
   }
 
@@ -450,6 +472,17 @@ export function WorkflowDetail({
                   onClick={() => setMergeOpen(true)}
                 >
                   {MERGE_FINAL_PR_LABEL}
+                </Button>
+              ) : workflow.finalPrState === `closed` ? (
+                <Button
+                  size="inline"
+                  variant="text"
+                  className="shrink-0 pl-1 font-medium"
+                  disabled={openingFinalPr}
+                  data-testid="workflow-final-pr-open"
+                  onClick={() => void openFinalPr()}
+                >
+                  {OPEN_FINAL_PR_LABEL}
                 </Button>
               ) : undefined,
           }}

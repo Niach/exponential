@@ -82,6 +82,7 @@ const runMutates = vi.hoisted(() => ({
   admitNode: vi.fn().mockResolvedValue({ txId: 1 }),
   updateNode: vi.fn().mockResolvedValue({ txId: 1 }),
   mergeFinalPr: vi.fn().mockResolvedValue({ merged: true }),
+  openFinalPr: vi.fn().mockResolvedValue({ url: `https://github.com/acme/app/pull/42` }),
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
@@ -146,6 +147,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
       approveNode: { mutate: runMutates.approveNode },
       resolveNode: { mutate: runMutates.resolveNode },
       mergeFinalPr: { mutate: runMutates.mergeFinalPr },
+      openFinalPr: { mutate: runMutates.openFinalPr },
     },
   },
 }))
@@ -1275,6 +1277,31 @@ describe(`WorkflowDetail node model, final merge and metrics`, () => {
       `Final pull request#42 · Merged`
     )
     expect(screen.queryByTestId(`workflow-final-pr-merge`)).toBeNull()
+  })
+
+  // EXP-1059: closed without merging — the chip offers the way back, no
+  // confirm (nothing lands), and the synced row swaps it back to Merge.
+  it(`offers Open final PR on a final pull request closed without merging`, async () => {
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+    nodeRows.rows = [node(`n1`, { state: `landed` })]
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    graphState.relations = []
+    mount({
+      ...startable(),
+      status: `running`,
+      finalPrNumber: 42,
+      finalPrState: `closed`,
+      finalPrUrl: `https://github.com/acme/app/pull/42`,
+    })
+    expect(screen.queryByTestId(`workflow-final-pr-merge`)).toBeNull()
+    fireEvent.click(screen.getByTestId(`workflow-final-pr-open`))
+    await vi.waitFor(() =>
+      expect(runMutates.openFinalPr).toHaveBeenCalledWith(
+        { id: `wf` },
+        expect.anything()
+      )
+    )
+    expect(runMutates.mergeFinalPr).not.toHaveBeenCalled()
   })
 
   it(`counts the run's metrics, and none of them on a draft`, () => {

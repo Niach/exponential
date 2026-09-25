@@ -635,7 +635,13 @@ fn snapshot_for(
                 integration_branch_exists: false,
                 in_flight: claimed.clone(),
                 final_pr_in_flight: final_claimed.contains(&workflow.id),
-                final_pr_reopened: engine_state.final_pr_reopened,
+                // EXP-1059: cleared by the read itself once the PR reads open.
+                final_pr_close_handled: workflows::final_pr_close_handled(
+                    &settings_path,
+                    &device_id,
+                    &workflow.id,
+                    workflow.final_pr_state.as_deref() == Some("closed"),
+                ),
                 nudged: engine_state.nudged.clone(),
                 // EXP-983: the git facts are filled on the background pass,
                 // where the clone and the token live.
@@ -1166,15 +1172,19 @@ fn run_pass(
                     }
                     drop(claim);
                 }
-                // EXP-1059: the ONE reopen of a closed final PR. Remembered
-                // whatever the server said — a refusal is the server having
-                // recorded that a person closed it for good.
+                // EXP-1059: this closed episode goes to the server ONCE it
+                // answered (reopened, or recorded as a person's decision);
+                // a transport failure is retried next pass, like OpenFinalPr.
                 Decision::ReopenFinalPr => {
                     let Some(claim) = InFlight::claim(final_pr_in_flight, &workflow_id) else {
                         break 'decision Outcome::Skipped;
                     };
                     let result = api::workflows::reopen_final_pr(&pass.trpc, &workflow_id);
-                    update_state(&pass, &workflow_id, |state| state.final_pr_reopened = true);
+                    if result.is_ok() {
+                        update_state(&pass, &workflow_id, |state| {
+                            state.final_pr_close_handled = true;
+                        });
+                    }
                     drop(claim);
                     match result {
                         Ok(outcome) if outcome.reopened => {

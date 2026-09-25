@@ -1455,6 +1455,47 @@ fn merge_final_pr_button(workflow_id: String, cx: &App) -> gpui::AnyElement {
     .into_any_element()
 }
 
+/// EXP-1059 — the final PR was closed without merging: `Open final PR`
+/// calls the member-callable `workflows.openFinalPr` (reopened, or a fresh
+/// one when GitHub refuses). No confirm — nothing lands. The synced echo
+/// (`final_pr_state` back to `open`) swaps the chip's action to Merge; a
+/// refusal is a notification.
+fn open_final_pr_button(workflow_id: String, cx: &App) -> gpui::AnyElement {
+    crate::controls::text_button(
+        "workflow-final-pr-open",
+        domain::workflow_final_pr::OPEN_FINAL_PR_LABEL,
+        crate::controls::TextButtonVariant::Text,
+        cx,
+    )
+    .on_click(move |_, window, cx| {
+        cx.stop_propagation();
+        spawn_open_final_pr(workflow_id.clone(), window, cx);
+    })
+    .into_any_element()
+}
+
+fn spawn_open_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::workflows::open_final_pr(&trpc, &workflow_id) })
+            .await;
+        let _ = handle.update(cx, |_, window, cx| {
+            if let Err(err) = result {
+                window.push_notification(
+                    Notification::error(SharedString::from(err.user_message())),
+                    cx,
+                );
+            }
+        });
+    })
+    .detach();
+}
+
 /// EXP-982 — the merge train under the graph: every node whose PR is up, in
 /// landing order, each with where it stands. Hidden on a draft.
 fn render_merge_train(nodes: &[domain::rows::WorkflowNodeRow], cx: &App) -> gpui::AnyElement {
@@ -1611,6 +1652,9 @@ struct NodeFacts {
     /// EXP-1032: this is the final-PR chip and its pull request is OPEN —
     /// the workflow id the Merge action on it calls with.
     merge_final_pr: Option<String>,
+    /// EXP-1059: the final-PR chip whose pull request was CLOSED without
+    /// merging — the workflow id `Open final PR` calls `openFinalPr` with.
+    open_final_pr: Option<String>,
     /// The node's coding session, once it has one that synced.
     run: Option<NodeRun>,
 }
@@ -1722,6 +1766,7 @@ impl NodeFacts {
             proposed: node.state_wire() == domain::contract::WF_NODE_STATE_PROPOSED,
             unsynced: issue.is_none(),
             merge_final_pr: None,
+            open_final_pr: None,
             run: NodeRun::derive(node, cx),
         }
     }
@@ -1748,6 +1793,9 @@ impl NodeFacts {
             // EXP-1032: merging it is the run's ONE human review, and the
             // button sits on the chip that IS the pull request.
             merge_final_pr: (row.final_pr_state.as_deref() == Some("open"))
+                .then(|| row.id.clone()),
+            // EXP-1059: closed without merging — the member's way back.
+            open_final_pr: (row.final_pr_state.as_deref() == Some("closed"))
                 .then(|| row.id.clone()),
             run: None,
         }
@@ -1803,6 +1851,7 @@ fn render_node_box(
     let status = facts.and_then(|facts| facts.status.clone());
     let unsynced = facts.is_some_and(|facts| facts.unsynced);
     let merge_final_pr = facts.and_then(|facts| facts.merge_final_pr.clone());
+    let open_final_pr = facts.and_then(|facts| facts.open_final_pr.clone());
     let target = node_id.to_string();
 
     let mut chip = crate::issue_chip::issue_chip(
@@ -1857,6 +1906,11 @@ fn render_node_box(
     // chip carries Merge, which confirms before it lands anything.
     if let Some(workflow_id) = merge_final_pr {
         chip = chip.trailing(merge_final_pr_button(workflow_id, cx));
+    }
+    // EXP-1059 — closed without merging: the chip offers the way back
+    // (`workflows.openFinalPr` reopens it, or opens a fresh one).
+    if let Some(workflow_id) = open_final_pr {
+        chip = chip.trailing(open_final_pr_button(workflow_id, cx));
     }
 
     // The pick: an accent ring OUTSIDE the chip, so its own hairline keeps
@@ -2308,6 +2362,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 proposed: false,
                 unsynced: false,
                 merge_final_pr: None,
+            open_final_pr: None,
                 run: None,
             },
         );
@@ -2327,6 +2382,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 proposed: false,
                 unsynced: false,
                 merge_final_pr: None,
+            open_final_pr: None,
                 run: None,
             },
         );
@@ -2346,6 +2402,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 proposed: false,
                 unsynced: false,
                 merge_final_pr: None,
+            open_final_pr: None,
                 run: Some(NodeRun {
                     session_id: "styleguide".to_string(),
                     live: true,
@@ -2377,6 +2434,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 proposed: false,
                 unsynced: false,
                 merge_final_pr: None,
+            open_final_pr: None,
                 run: None,
             },
         );
@@ -2396,6 +2454,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 proposed: false,
                 unsynced: false,
                 merge_final_pr: None,
+            open_final_pr: None,
                 run: None,
             },
         );
@@ -2416,6 +2475,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> gpui::AnyElement {
                 // EXP-1032: the sample's final pull request is OPEN, so the
                 // entry shows the Merge action that rides on that chip.
                 merge_final_pr: Some("styleguide".to_string()),
+                open_final_pr: None,
                 run: None,
             },
         );

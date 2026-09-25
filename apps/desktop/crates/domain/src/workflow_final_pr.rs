@@ -7,6 +7,11 @@
 
 /// The identifier a workflow's final PR goes by — it reads like the PR's
 /// title (`Workflow: <name>`), the fix-conflicts run's subject.
+/// The workflow page's way back from a final PR closed without merging
+/// (`workflows.openFinalPr`: reopened, or a fresh one). Web
+/// `OPEN_FINAL_PR_LABEL`.
+pub const OPEN_FINAL_PR_LABEL: &str = "Open final PR";
+
 pub fn identifier(name: &str) -> String {
     format!("Workflow: {name}")
 }

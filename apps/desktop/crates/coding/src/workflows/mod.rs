@@ -56,7 +56,8 @@ pub use facts::{
     prune_conflict_cache, NodeGit,
 };
 pub use state::{
-    hold_resume, merge_resuming, read_states, release_resume, write_states, WorkflowState,
+    final_pr_close_handled, hold_resume, merge_resuming, read_states, release_resume, write_states,
+    WorkflowState,
     WORKFLOW_ENGINE_KEY,
 };
 
@@ -326,12 +327,15 @@ pub struct Snapshot {
     pub in_flight: HashSet<String>,
     #[serde(default)]
     pub final_pr_in_flight: bool,
-    /// Host fact (EXP-1059, persisted `WorkflowState::final_pr_reopened`):
-    /// this device already spent the ONE reopen of a closed final PR (or the
-    /// server refused it). A final PR closed again is a person's decision;
-    /// the engine leaves it and a member reopens it from the workflow page.
+    /// Host fact (EXP-1059, persisted `WorkflowState::final_pr_close_handled`):
+    /// the CURRENT closed episode of the final PR was already put to the
+    /// server (`workflows.reopenFinalPr` answered — reopened, or gave up
+    /// because the one reopen was spent). The host clears it once the PR
+    /// reads `open` again, so EVERY close reaches the server and the
+    /// server's `final_pr_reopened` event is the once-gate; this flag only
+    /// keeps one closed episode from being asked every beat.
     #[serde(default)]
-    pub final_pr_reopened: bool,
+    pub final_pr_close_handled: bool,
     /// Host fact: `(session id, resets_at_ms)` pairs already nudged.
     #[serde(default)]
     pub nudged: HashSet<(String, i64)>,
@@ -618,8 +622,9 @@ pub enum Decision {
     /// `workflows.openFinalPr` — integration branch → the default branch.
     OpenFinalPr,
     /// EXP-1059: `workflows.reopenFinalPr` — the final PR was closed without
-    /// merging; reopen it ONCE. Whatever the server answers, the host then
-    /// remembers `final_pr_reopened` so this is never asked twice.
+    /// merging. The server reopens it ONCE and records a later close as a
+    /// person's decision; once it ANSWERED, the host remembers
+    /// `final_pr_close_handled` for this closed episode.
     ReopenFinalPr,
     /// EXP-1059: `workflows.cancelUnshipped` — every node was skipped, so
     /// nothing reached the integration branch and there is no final PR to
@@ -1075,11 +1080,12 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
         } else if snapshot.workflow.final_pr_url.is_none() {
             decisions.push(Decision::OpenFinalPr);
         } else if snapshot.workflow.final_pr_state.as_deref() == Some("closed")
-            && !snapshot.final_pr_reopened
+            && !snapshot.final_pr_close_handled
         {
-            // EXP-1059: closed without merging — reopened ONCE. A second
-            // close is a person's decision: the host remembers the spent
-            // reopen and the workflow waits for a member (`openFinalPr`).
+            // EXP-1059: closed without merging — every close goes to the
+            // server once: the first is reopened, a later one is recorded
+            // as a person's decision (a decision line + a `failed` event)
+            // and the workflow waits for a member (`openFinalPr`).
             decisions.push(Decision::ReopenFinalPr);
         }
     }
@@ -2152,11 +2158,19 @@ mod tests {
         in_flight.final_pr_in_flight = true;
         assert!(evaluate(&in_flight).is_empty());
 
-        // The one reopen was spent (or refused): closed again is a person's
-        // decision — the engine leaves the PR alone and opens no second one.
-        let mut spent = snapshot.clone();
-        spent.final_pr_reopened = true;
-        assert!(evaluate(&spent).is_empty());
+        // This closed episode was put to the server already (reopened, or
+        // recorded as closed for good): nothing is asked again until the PR
+        // reads open once more — the engine opens no second PR either.
+        let mut handled = snapshot.clone();
+        handled.final_pr_close_handled = true;
+        assert!(evaluate(&handled).is_empty());
+
+        // Closed AGAIN after a reopen (the host cleared the flag when the PR
+        // read open): the server is asked once more, and it is the one that
+        // knows the reopen was spent.
+        let mut again = snapshot.clone();
+        again.final_pr_close_handled = false;
+        assert_eq!(evaluate(&again), vec![Decision::ReopenFinalPr]);
 
         // Open or merged: nothing to do either.
         for state in ["open", "merged"] {

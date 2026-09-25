@@ -57,9 +57,10 @@ pub struct WorkflowState {
     pub nudged: HashSet<(String, i64)>,
     /// The cancel sweep already dropped the integration branch.
     pub branch_deleted: bool,
-    /// EXP-1059: the ONE reopen of a closed final PR was spent (or refused)
-    /// — `Snapshot::final_pr_reopened`, so the engine never asks twice.
-    pub final_pr_reopened: bool,
+    /// EXP-1059: the current CLOSED episode of the final PR was put to the
+    /// server (`Snapshot::final_pr_close_handled`); cleared by
+    /// [`final_pr_close_handled`] once the PR reads open again.
+    pub final_pr_close_handled: bool,
     /// EXP-983: `node id → branch → the tip that node was last TOLD to
     /// merge`, so one movement is announced exactly once.
     pub propagated: HashMap<String, HashMap<String, String>>,
@@ -183,6 +184,35 @@ pub fn merge_resuming(
 
 /// Read `device_id`'s whole state map. Missing/corrupt file or key → empty,
 /// which can only re-send a nudge, never skip one.
+/// EXP-1059: the snapshot's `final_pr_close_handled` for one workflow. True
+/// only while the final PR still reads `closed` AND this device already put
+/// that close to the server. A PR back at `open` (the reopen's echo, or a
+/// member's `openFinalPr`) CLEARS the persisted flag, so the next close is
+/// asked again — the server's `final_pr_reopened` event decides whether
+/// that is the one reopen or a person's decision.
+pub fn final_pr_close_handled(
+    settings_path: &Path,
+    device_id: &str,
+    workflow_id: &str,
+    final_pr_closed: bool,
+) -> bool {
+    let mut states = read_states(settings_path, device_id);
+    let Some(state) = states.get_mut(workflow_id) else {
+        return false;
+    };
+    if !state.final_pr_close_handled {
+        return false;
+    }
+    if final_pr_closed {
+        return true;
+    }
+    state.final_pr_close_handled = false;
+    if let Err(err) = write_states(settings_path, device_id, &states) {
+        log::warn!("workflow state write failed: {err}");
+    }
+    false
+}
+
 pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, WorkflowState> {
     let Some(root) = read_root(settings_path) else {
         return HashMap::new();
@@ -211,8 +241,8 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Wor
                         .get("branchDeleted")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
-                    final_pr_reopened: entry
-                        .get("finalPrReopened")
+                    final_pr_close_handled: entry
+                        .get("finalPrCloseHandled")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
                     propagated: read_propagated(entry.get("propagated")),
@@ -360,7 +390,7 @@ pub fn write_states(
             serde_json::json!({
                 "nudged": nudged,
                 "branchDeleted": state.branch_deleted,
-                "finalPrReopened": state.final_pr_reopened,
+                "finalPrCloseHandled": state.final_pr_close_handled,
                 "propagated": state.propagated,
                 "synthetic": state.synthetic,
                 "conflicts": state.conflicts,
@@ -536,6 +566,37 @@ mod tests {
         let mut persisted: HashMap<String, i64> = [("s".to_string(), 42)].into_iter().collect();
         merge_resuming(&mut persisted, &before, HashMap::new());
         assert_eq!(persisted, [("s".to_string(), 42)].into_iter().collect::<HashMap<_, _>>());
+    }
+
+    /// EXP-1059: one closed episode is put to the server once; the flag
+    /// clears itself the moment the PR reads open again, so the NEXT close
+    /// is asked again (the server knows whether the reopen was spent).
+    #[test]
+    fn the_final_pr_close_handled_flag_lives_for_one_closed_episode() {
+        let dir = temp_dir("final-pr-close");
+        let path = dir.0.join("settings.json");
+        // Nothing recorded: not handled, whatever the PR reads.
+        assert!(!final_pr_close_handled(&path, "dev", "wf", true));
+        assert!(!final_pr_close_handled(&path, "dev", "wf", false));
+
+        let mut states = HashMap::new();
+        states.insert(
+            "wf".to_string(),
+            WorkflowState {
+                final_pr_close_handled: true,
+                ..WorkflowState::default()
+            },
+        );
+        write_states(&path, "dev", &states).unwrap();
+        // Still closed: handled, and the flag persists (the JSON key).
+        assert!(final_pr_close_handled(&path, "dev", "wf", true));
+        assert!(final_pr_close_handled(&path, "dev", "wf", true));
+        assert!(read_states(&path, "dev")["wf"].final_pr_close_handled);
+        // Back to open: the read clears the persisted flag …
+        assert!(!final_pr_close_handled(&path, "dev", "wf", false));
+        assert!(!read_states(&path, "dev")["wf"].final_pr_close_handled);
+        // … so a later close is asked again.
+        assert!(!final_pr_close_handled(&path, "dev", "wf", true));
     }
 
     #[test]
