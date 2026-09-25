@@ -2570,6 +2570,29 @@ describe(`steer.startSession — workflow membership (EXP-1082)`, () => {
     })
   })
 
+  it(`carries a membership on an ordinary action start without treating it as a plan`, async () => {
+    queueAction({ name: `Code review` })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `start-prompt`] })
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      prompt: `Look at the diff`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    const body = lastStartBody()
+    expect(body).toMatchObject({
+      actionId: ACTION_ID,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    // The caller's prompt survives: no planner prompt, no workflows read.
+    expect(body.prompt).toBe(`Look at the diff`)
+    expect(h.dbQueue).toEqual([])
+  })
+
   it(`keeps the keys off the wire when absent`, async () => {
     queueOwnDevice()
     await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
