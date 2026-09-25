@@ -7,13 +7,33 @@ use gpui::AnyElement;
 
 use domain::rows::Board;
 
+use crate::icons::board_icon;
+use crate::settings::parse_hex_color;
+
 use super::{OnPickerChange, Picker, PickerItem};
 
-/// The board rows → picker items (icon + colour). Contract stub.
+/// The row that CLEARS an optional board pick — the assignee picker's
+/// `Unassigned` idiom: a real row with a real (empty) value, never a hidden
+/// placeholder.
+pub(crate) const NO_BOARD_VALUE: &str = "";
+
+/// The board rows → picker items: the board's stored glyph (or its
+/// attribute-derived fallback) in the board's own colour, muted when it has
+/// none — the ONE board row, everywhere a board is picked.
 pub(crate) fn board_items(boards: &[Board]) -> Vec<PickerItem<String>> {
     boards
         .iter()
-        .map(|board| PickerItem::new(board.id.clone(), board.name.clone()))
+        .map(|board| {
+            PickerItem::new(board.id.clone(), board.name.clone())
+                .icon(board_icon(board))
+                .color(
+                    board
+                        .color
+                        .as_deref()
+                        .and_then(parse_hex_color)
+                        .unwrap_or_else(|| theme::tokens::MUTED_FOREGROUND.to_hsla()),
+                )
+        })
         .collect()
 }
 
@@ -26,4 +46,25 @@ pub(crate) fn board_picker(
     Picker::single(board_items(boards), value, trigger, on_change)
         .search(true)
         .empty_text("No boards")
+}
+
+/// [`board_picker`] with the clearing row on top — an OPTIONAL board pick
+/// (an action's `board` input). `value: None` picks that row, so "no board"
+/// is a marked row like any other, not an empty selection.
+pub(crate) fn optional_board_picker(
+    boards: &[Board],
+    value: Option<String>,
+    trigger: AnyElement,
+    on_change: OnPickerChange<String>,
+) -> Picker<String> {
+    let mut picker = board_picker(
+        boards,
+        Some(value.unwrap_or_else(|| NO_BOARD_VALUE.to_string())),
+        trigger,
+        on_change,
+    );
+    picker
+        .items
+        .insert(0, PickerItem::new(NO_BOARD_VALUE.to_string(), "None"));
+    picker
 }

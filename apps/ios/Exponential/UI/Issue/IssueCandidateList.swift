@@ -2,25 +2,36 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The searchable list of candidate issues both issue pickers show (EXP-736):
-/// "Duplicate of" and the second stage of "Add relation". Loads once, ranks
-/// with the shared `IssueSearch` engine (EXP-892 — the ONE algorithm every
-/// client runs), and commits immediately on tap — the host owns the sheet
-/// chrome (and its pinned search field), this owns the rows.
-struct IssueCandidateList: View {
-    /// Candidate issues (same team, self excluded), newest first.
+/// The searchable issue picker both linkers show (EXP-736): "Duplicate of" and
+/// the second stage of "Add relation". EXP-1021 made it the SHARED
+/// `IssuePicker` — plain rows on the one sheet, each led by the issue's status
+/// glyph, the filter field pinned at the top — so the linker that was the
+/// reference for every other picker now literally is the same component.
+///
+/// What stays here is the RANKING, which the picker never owns: the pool is
+/// ordered by the ONE search engine (EXP-892 `IssueSearch.rank`) and merged
+/// with the host's debounced `issues.search`, so a query that only matches a
+/// COMMENT still finds its issue. Hits outside the pool are dropped — a picker
+/// never widens past the candidates it was handed.
+struct IssueCandidatePicker: View {
+    /// Candidate issues (same team, self excluded), newest first. nil = still
+    /// loading, which the picker draws as its own "loading" row.
     let candidates: [IssueEntity]?
-    let searchText: String
-    /// The empty-state glyph + copy, so each host keeps its own wording.
-    let emptyIcon: String
-    let emptyHint: String
-    /// EXP-892 — optional server augmentation: a debounced `issues.search` the
-    /// host answers, so a query that only matches a COMMENT still finds its
-    /// issue. Hits outside the picker's own pool are dropped (a picker never
-    /// widens past the candidates it was handed). nil = local-only.
+    /// The sheet headline. It is the ONLY thing naming the link being made —
+    /// "Duplicate of", or which of the six relations the linker's first stage
+    /// picked — so every caller says it (EXP-1021 review r2; Android's
+    /// linkers pass the same).
+    let title: String
+    /// Host-driven, because both entry points are a menu item or a stacked
+    /// sheet rather than a chip the picker could wrap.
+    let open: Binding<Bool>
+    var onDismiss: (() -> Void)?
+    /// EXP-892 — optional server augmentation the host answers. nil =
+    /// local-only.
     var serverSearch: ((String) async -> [SearchIssueHit])?
     let onSelect: (IssueEntity) -> Void
 
+    @State private var searchText = ""
     /// Relevance-ordered hits for `hitsQuery`; merged only while the rendered
     /// query still matches, so a stale response never bleeds into a newer
     /// keystroke's rows.
@@ -31,7 +42,7 @@ struct IssueCandidateList: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var filtered: [IssueEntity] {
+    private var ranked: [IssueEntity] {
         guard let candidates else { return [] }
         let local = IssueSearch.rank(
             candidates,
@@ -52,88 +63,58 @@ struct IssueCandidateList: View {
     }
 
     var body: some View {
-        content
-            // Debounced server augmentation: `.task(id:)` cancels the previous
-            // sleep on every keystroke, so only a settled query round-trips.
-            .task(id: trimmedQuery) {
-                guard let serverSearch else { return }
-                let query = trimmedQuery
-                guard !query.isEmpty else {
-                    hits = []
-                    hitsQuery = ""
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                guard !Task.isCancelled else { return }
-                let found = await serverSearch(query)
-                guard !Task.isCancelled else { return }
-                hits = found
-                hitsQuery = query
+        let rows = ranked
+        IssuePicker(
+            issues: rows.map(IssuePickerIssue.init),
+            // EXP-892: while a query is being typed the best match — the top
+            // row — reads as selected, the same contract the `#` menu keeps.
+            // The picker's own highlight is what draws it (EXP-1021).
+            value: trimmedQuery.isEmpty ? [] : Set(rows.prefix(1).map(\.id)),
+            onChange: { picked in
+                guard let issue = rows.first(where: { picked.contains($0.id) }) else { return }
+                onSelect(issue)
+            },
+            // The caller ranks, so the picker renders the order verbatim and
+            // only reports what was typed.
+            query: $searchText,
+            loading: candidates == nil,
+            title: title,
+            // Both linkers filter a pool, so "nothing left" is always a
+            // SEARCH answer, never "this team has no issues".
+            emptyText: "No matching issues",
+            open: open,
+            hideTrigger: true,
+            onDismiss: onDismiss,
+            trigger: { EmptyView() }
+        )
+        // The picker is HOST-driven and permanently mounted (both entry
+        // points hang it on a `.background`), so nothing unmounts this state
+        // between openings — a query typed into one opening would still be
+        // filtering the next. Cleared on the OPENING edge, not the closing
+        // one: re-filtering while the sheet animates away would flash the
+        // whole pool back in behind it.
+        .onChange(of: open.wrappedValue) { _, isOpen in
+            guard isOpen else { return }
+            searchText = ""
+            hits = []
+            hitsQuery = ""
+        }
+        // Debounced server augmentation: `.task(id:)` cancels the previous
+        // sleep on every keystroke, so only a settled query round-trips.
+        .task(id: trimmedQuery) {
+            guard let serverSearch else { return }
+            let query = trimmedQuery
+            guard !query.isEmpty else {
+                hits = []
+                hitsQuery = ""
+                return
             }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if candidates == nil {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-        } else if filtered.isEmpty {
-            VStack(spacing: 8) {
-                AppIcon(emptyIcon, size: AppIcon.Size.xlarge)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Text("No matching issues")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text(emptyHint)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 32)
-        } else {
-            // A `ScrollView` of rows, not a `List`: the chrome measures its
-            // content, and a List reports an unbounded height (EXP-687).
-            LazyVStack(spacing: 2) {
-                ForEach(Array(filtered.enumerated()), id: \.element.id) { index, issue in
-                    Button {
-                        onSelect(issue)
-                    } label: {
-                        HStack(spacing: 10) {
-                            AppIcon(IssueStatus.from(issue.status).iconName, size: AppIcon.Size.small)
-                                .foregroundStyle(IssueStatus.from(issue.status).color)
-                                .frame(width: 24)
-                            if let identifier = issue.identifier {
-                                Text(identifier)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            }
-                            Text(issue.title)
-                                .font(.subheadline)
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: 44)
-                        // EXP-892: while a query is being typed the best match
-                        // — the top row — reads as selected, the same contract
-                        // the `#` menu keeps.
-                        .background(
-                            index == 0 && !trimmedQuery.isEmpty
-                                ? Color.white.opacity(GlassMenuTokens.activeFillOpacity)
-                                : Color.clear,
-                            in: RoundedRectangle(cornerRadius: GlassMenuTokens.activeFillRadius)
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 16)
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            let found = await serverSearch(query)
+            guard !Task.isCancelled else { return }
+            hits = found
+            hitsQuery = query
         }
     }
 }

@@ -60,26 +60,23 @@ struct SupportThreadView: View {
                 composer(vm)
             }
         }
-        .sheet(isPresented: $escalateOpen) {
+        // EXP-1021: the shared board picker (glyph in the board's colour), so
+        // escalating reads like every other board pick. Opened by the `…`
+        // menu, so the picker is host-driven rather than trigger-wrapped.
+        .background {
             if let vm = viewModel {
-                GlassPickerSheet(
+                BoardPicker(
+                    boards: vm.boards.map(BoardPickerBoard.init),
+                    value: nil,
+                    onChange: { boardId in
+                        Task { await vm.escalate(boardId: boardId) }
+                    },
+                    // The same words as the `…` item that opens it.
                     title: "Escalate to issue",
-                    items: vm.boards,
-                    selectedID: nil as String?,
-                    idFor: { $0.id },
-                    onSelect: { board in
-                        Task { await vm.escalate(boardId: board.id) }
-                    }
-                ) { board in
-                    Label {
-                        Text(board.name)
-                    } icon: {
-                        // Board glyph tinted with the board color — the move-to-board
-                        // picker's idiom (EXP-449).
-                        AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
-                            .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                    }
-                }
+                    open: $escalateOpen,
+                    hideTrigger: true,
+                    trigger: { EmptyView() }
+                )
             }
         }
         .onAppear {

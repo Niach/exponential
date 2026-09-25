@@ -116,6 +116,35 @@ public struct AccountPickerTriggerLabel: View {
     }
 }
 
+/// What a login READS as, brand mark aside: the email, its health badge, and
+/// the EXP-992 bars under both. Shared by the `GlassMenu` row below and by the
+/// shared picker's own row (`AccountPicker`, EXP-1021), so the two surfaces
+/// cannot drift apart.
+struct AccountOptionBody: View {
+    let option: AccountOption
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(option.email)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let badge = option.health.badgeLabel {
+                    Text(badge)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                }
+            }
+            if let limits = option.limits {
+                AccountLimitBars(limits: limits)
+            }
+        }
+    }
+}
+
 /// One login's menu row: the brand mark, the email (+ its health badge), a
 /// check on the current pick, and the inline limits under it.
 struct AccountPickerRow: View {
@@ -139,24 +168,7 @@ struct AccountPickerRow: View {
                         .frame(width: 16, height: 16)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(option.email)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let badge = option.health.badgeLabel {
-                            Text(badge)
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .lineLimit(1)
-                        }
-                    }
-                    if let limits = option.limits {
-                        AccountLimitBars(limits: limits)
-                    }
-                }
+                AccountOptionBody(option: option)
                 Spacer(minLength: 0)
                 if isSelected {
                     AppIcon(AppIcons.uiCheck, size: 14)
@@ -176,9 +188,16 @@ struct AccountPickerRow: View {
     }
 }
 
-/// THE account picker: a `GlassMenu` over every login the machine reports.
-/// A single option is not a choice — it renders as the plain trigger label,
-/// chevron-less, exactly like a lone agent used to.
+/// The MENU form of the account picker: a `GlassMenu` over every login the
+/// machine reports. A single option is not a choice — it renders as the plain
+/// trigger label, chevron-less, exactly like a lone agent used to.
+///
+/// EXP-1021 did NOT retire it. It survives for the three surfaces that node
+/// excluded and still open a menu rather than the shared sheet: the agent
+/// composer (`AgentOptionsRow`), the workflow detail runner row
+/// (`WorkflowDetailView`) and device settings (`DeviceSettingsSheet`). Its
+/// rows share `AccountOptionBody` with the shared `AccountPicker`, so the two
+/// cannot drift meanwhile — and it owes a deletion once those three move over.
 public struct AccountPickerMenu: View {
     let options: [AccountOption]
     let selection: AccountOption?

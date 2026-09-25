@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { boardCollection } from "@/lib/collections"
-import { Combobox, Pill, type PickerOption, BoardGlyph } from "@exp/ui"
+import { BoardPicker as UiBoardPicker, Pill, BoardGlyph } from "@exp/ui"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import type { Board } from "@/db/schema"
 
@@ -25,10 +25,11 @@ interface BoardPickerProps {
 
 // Move-to-board picker for the issue detail view (EXP-57): single-select over
 // the team's boards (same team only; trashed boards never reach the client) on
-// the shared `Combobox` (EXP-941); picking the current board is a no-op. The
-// server renumbers the issue in the target board (EXP-42 → ABC-17) — which is
-// why the pick lands in the shared MoveBoardConfirmDialog first (EXP-426), so
-// the LIST never calls `onSelect`, it only stages a pending board.
+// the shared `BoardPicker` (EXP-1021 — every board row draws its icon and its
+// colour, everywhere); picking the current board is a no-op. The server
+// renumbers the issue in the target board (EXP-42 → ABC-17) — which is why the
+// pick lands in the shared MoveBoardConfirmDialog first (EXP-426), so the LIST
+// never calls `onSelect`, it only stages a pending board.
 export function BoardPicker({
   disabled,
   teamId,
@@ -66,14 +67,10 @@ export function BoardPicker({
     () => new Map(boards.map((board) => [board.id, board])),
     [boards]
   )
-  const options = useMemo<PickerOption[]>(
-    () => boards.map((board) => ({ value: board.id, label: board.name })),
-    [boards]
-  )
   const selectedBoard = boardsById.get(selectedBoardId) ?? null
 
-  const handlePick = (boardId: string | null) => {
-    const board = boardId ? boardsById.get(boardId) : undefined
+  const handlePick = (boardId: string) => {
+    const board = boardsById.get(boardId)
     if (board && board.id !== selectedBoardId) {
       setPendingBoard(board)
     }
@@ -81,8 +78,8 @@ export function BoardPicker({
 
   return (
     <>
-      <Combobox
-        options={options}
+      <UiBoardPicker
+        boards={boards}
         value={selectedBoardId}
         onChange={handlePick}
         disabled={disabled}
@@ -91,20 +88,9 @@ export function BoardPicker({
         hideTrigger={hideTrigger}
         width="sm"
         mobileTitle="Move to board"
-        placeholder="Move to board..."
+        searchPlaceholder="Move to board..."
         emptyText="No boards found."
-        renderOption={(option) => {
-          const board = boardsById.get(option.value)
-          return (
-            <>
-              {board && <BoardGlyph board={board} className="size-3.5" />}
-              <span className="min-w-0 flex-1 truncate text-sm">
-                {option.label}
-              </span>
-            </>
-          )
-        }}
-        renderTrigger={() =>
+        trigger={
           trigger ?? (
             <Pill mode="action" disabled={disabled}>
               <BoardGlyph

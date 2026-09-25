@@ -7,29 +7,34 @@ import SwiftUI
 /// before it fires. The pick is parked by the caller and promoted once this
 /// picker finished dismissing (a sheet cannot present while its sibling is
 /// still animating away). EXP-893: its own file — the Work screen's `…` menu
-/// and the Properties sheet's stacked child both present it.
-struct MoveBoardPickerSheet: View {
+/// and the Properties sheet's stacked child both open it.
+///
+/// EXP-1021: it IS the shared `BoardPicker` now (board glyph in the board's
+/// colour, plain rows, one sheet), host-DRIVEN because both entry points are
+/// a menu item rather than a chip the picker could wrap.
+struct MoveBoardPicker: View {
     let boards: [BoardEntity]
     let selectedId: String
+    let open: Binding<Bool>
+    var onDismiss: (() -> Void)?
     let onSelect: (BoardEntity) -> Void
 
     var body: some View {
-        GlassPickerSheet(
+        BoardPicker(
+            boards: boards.map(BoardPickerBoard.init),
+            value: selectedId,
+            onChange: { picked in
+                guard let board = boards.first(where: { $0.id == picked }) else { return }
+                onSelect(board)
+            },
+            // The same words as the `…` item that opens it: the sheet must
+            // not read as a plain board switch.
             title: "Move to board",
-            items: boards,
-            selectedID: selectedId,
-            idFor: { $0.id },
-            onSelect: onSelect
-        ) { board in
-            Label {
-                Text(board.name)
-            } icon: {
-                // Board glyph tinted with the board color — same idiom as
-                // the board switcher sheet (EXP-449).
-                AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
-                    .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-            }
-        }
+            open: open,
+            hideTrigger: true,
+            onDismiss: onDismiss,
+            trigger: { EmptyView() }
+        )
     }
 }
 

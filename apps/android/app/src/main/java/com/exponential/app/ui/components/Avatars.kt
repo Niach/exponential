@@ -134,8 +134,30 @@ fun UserAvatar(
     size: Dp = 28.dp,
     userId: String? = null,
 ) {
-    val hueId = user?.id ?: userId
-    val url = user?.image?.takeIf { it.isNotBlank() }
+    MemberAvatar(
+        imageUrl = user?.image,
+        nameOrEmail = nameOrEmail,
+        userId = user?.id ?: userId,
+        modifier = modifier,
+        size = size,
+    )
+}
+
+/**
+ * [UserAvatar] for a caller that holds the three fields but not the ROW — the
+ * assignee picker's member list (EXP-1021), whose items are the shared picker
+ * contract's, not Room entities.
+ */
+@Composable
+fun MemberAvatar(
+    imageUrl: String?,
+    nameOrEmail: String?,
+    userId: String?,
+    modifier: Modifier = Modifier,
+    size: Dp = 28.dp,
+) {
+    val hueId = userId
+    val url = imageUrl?.takeIf { it.isNotBlank() }
     if (url != null) {
         // Draw the initials underneath so a still-loading or failed image
         // degrades to initials (parity with iOS/web) instead of a blank

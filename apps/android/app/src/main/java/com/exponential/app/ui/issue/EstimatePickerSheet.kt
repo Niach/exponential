@@ -21,6 +21,15 @@ import com.exponential.app.ui.components.GlassSheetRow
  * "No estimate" row, then the team scale's ladder ([estimatePickerValues] —
  * an off-ladder current value joins it in order) labelled by [estimateLabel]
  * ("M" / "5 points"), the current one checked. Selecting dismisses.
+ *
+ * EXP-1021's ONE recorded exception, pinned by `PickerContractTest`: an
+ * estimate is not one of the ten typed picker subjects — it has no id, no
+ * glyph and no colour, only a number the caller renders as a word — and iOS's
+ * `EstimateSheet` keeps the same [GlassSheetRow] idiom. Sweeping this one onto
+ * the primitive alone would put the two phones back out of step, which is the
+ * thing EXP-1021 exists to stop. The idiom already agrees where it matters:
+ * a [GlassSheetRow] marks a single pick with the SAME trailing check the
+ * picker's single arm draws.
  */
 @Composable
 fun EstimatePickerSheet(

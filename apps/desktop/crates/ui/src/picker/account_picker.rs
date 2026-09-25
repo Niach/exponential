@@ -1,10 +1,12 @@
-//! EXP-1029 contract — the account picker under the shared picker API.
+//! EXP-1029 contract — the account picker, and (EXP-1021) THE one the IDE
+//! draws: the automation editor's "Account" row goes through it.
 //!
-//! `coding_selects::account_picker` (EXP-991: brand mark + login email per
-//! row, the EXP-992 rate-limit preview under the picked login) moves onto
-//! [`Picker`] in EXP-1021, keeping its trigger variants and its preview.
-//! Until then this file declares the typed constructor over the same
-//! options; the rows' preview bars ride as each item's `description`.
+//! The rows are EXP-991's — the agent's brand MARK plus the login's email,
+//! never the profile name — and a dead credential rides as the row's muted
+//! description. `coding_selects::account_picker` keeps the surfaces this
+//! picker is not the shape for (EXP-1019 / EXP-1030 own those): the composer's
+//! inline options line and the settings panes, with EXP-992's usage preview
+//! in their tooltips.
 
 use gpui::AnyElement;
 
@@ -14,8 +16,18 @@ pub(crate) fn account_items(options: &[coding::AccountOption]) -> Vec<PickerItem
     options
         .iter()
         .map(|option| {
-            PickerItem::new(option.account_option_key(), option.email.clone())
-                .keywords(vec![option.email.clone().into(), option.agent.label().into()])
+            // EXP-862: an account row says which agent it is with the
+            // brand MARK, never with the agent's name beside the login.
+            let mut item = PickerItem::new(option.account_option_key(), option.email.clone())
+                .icon(crate::coding_selects::agent_mark(option.agent))
+                .keywords(vec![option.email.clone().into(), option.agent.label().into()]);
+            // EXP-991's health badge: a login the device can no longer spend
+            // still LISTS — picking it is how a machine gets repaired — so it
+            // says so in the row's own muted line.
+            if let Some(badge) = option.health.badge_label() {
+                item = item.description(badge);
+            }
+            item
         })
         .collect()
 }

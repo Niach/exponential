@@ -22,7 +22,7 @@ import com.exponential.app.ui.icons.ExpIcons
  * action list (Mark done / Move to backlog), replacing the old Material 3
  * swipe-to-dismiss row. iOS keeps its native `.swipeActions`; Android uses a
  * long-press → action sheet, the platform-idiomatic list affordance and the
- * same chooser pattern as [IssuePickerSheet] / [LabelPickerSheet].
+ * same chooser pattern as [LabelPickerSheet].
  *
  * A plain tap always opens the issue via [onClick]. When [canMutate] is false
  * the long-press affordance is omitted (read-only row).

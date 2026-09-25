@@ -1,6 +1,10 @@
 import type { ReactNode } from "react"
 
-import { Picker, type PickerItem } from "./picker"
+import {
+  Picker,
+  type PickerItem,
+  type PickerSurfaceProps,
+} from "./picker"
 
 // EXP-1029 contract — the label picker: ALWAYS multi, searchable, each row
 // its colour dot + name; the surface stays open across toggles. The issue
@@ -13,11 +17,19 @@ export interface LabelPickerLabel {
   color?: string | null
 }
 
-export interface LabelPickerProps {
+export interface LabelPickerProps extends PickerSurfaceProps {
+  /** An action row under the list — the "Create label" affordance. */
+  footer?: ReactNode
+  /** REPLACES the search field and the rows — the inline create form. */
+  panel?: ReactNode
+  /** At the cap the unpicked rows go disabled (the automation filter's ten). */
+  max?: number
   labels: readonly LabelPickerLabel[]
   value: readonly string[]
   onChange: (labelIds: string[]) => void
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   /** On by default: a team's label list outgrows a menu quickly. */
   search?: boolean
   disabled?: boolean
@@ -37,6 +49,7 @@ export function LabelPicker({
   labels,
   search = true,
   emptyText = `No labels`,
+  mobileTitle = `Labels`,
   ...props
 }: LabelPickerProps) {
   return (
@@ -45,6 +58,7 @@ export function LabelPicker({
       items={labelPickerItems(labels)}
       search={search}
       emptyText={emptyText}
+      mobileTitle={mobileTitle}
       {...props}
     />
   )

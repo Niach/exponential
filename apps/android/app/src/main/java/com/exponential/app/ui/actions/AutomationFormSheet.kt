@@ -26,8 +26,10 @@ import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.OptionGroup
-import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.PickerValueRow
 import com.exponential.app.ui.components.actionGlyph
+import com.exponential.app.ui.components.picker.ActionPicker
+import com.exponential.app.ui.components.picker.ActionPickerAction
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.agent.AgentLaunchDataViewModel
@@ -56,10 +58,13 @@ fun AutomationFormSheet(
     /** The row being edited; null = create a new automation. */
     editing: AutomationEntity? = null,
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
+    // EXP-1021: the label/status filter rows carry a colour and a resolved
+    // glyph, which the launcher's id+name input options do not.
+    filterViewModel: AutomationFilterOptionsViewModel = hiltViewModel(),
 ) {
     val boardOptions by dataViewModel.boardOptions.collectAsStateWithLifecycle()
-    val labelOptions by dataViewModel.labelOptions.collectAsStateWithLifecycle()
-    val statusOptions by dataViewModel.statusOptions.collectAsStateWithLifecycle()
+    val labelOptions by filterViewModel.labels.collectAsStateWithLifecycle()
+    val statusOptions by filterViewModel.statuses.collectAsStateWithLifecycle()
 
     // Custom actions only — builtins are server-shipped prompts with required
     // inputs and no team row to target (web parity).
@@ -152,17 +157,24 @@ fun AutomationFormSheet(
                 }
             } else {
                 OptionGroup {
-                    PickerRow(
-                        label = "Action",
-                        value = selectedAction?.name ?: "Select",
-                        options = targets.map { it.id },
-                        selected = actionId,
-                        optionLabel = { id -> targets.firstOrNull { it.id == id }?.name ?: id },
-                        // EXP-827: an action IS its curated glyph everywhere
-                        // else it appears — the picker says which one it is the
-                        // same way its row does.
-                        optionIcon = { id -> actionGlyph(targets.firstOrNull { it.id == id }) },
-                        onSelect = { actionId = it },
+                    // EXP-1021: the shared action picker — EXP-827's rule
+                    // (an action IS its curated glyph everywhere it appears)
+                    // now lives in `actionPickerItems`, and the form row is
+                    // just its trigger.
+                    ActionPicker(
+                        actions = targets.map {
+                            ActionPickerAction(id = it.id, name = it.name, icon = it.icon)
+                        },
+                        value = actionId,
+                        onChange = { actionId = it },
+                        trigger = { open ->
+                            PickerValueRow(
+                                label = "Action",
+                                value = selectedAction?.name ?: "Select",
+                                valueIcon = actionGlyph(selectedAction),
+                                onClick = open,
+                            )
+                        },
                     )
                 }
                 if (blockedByInputs) {

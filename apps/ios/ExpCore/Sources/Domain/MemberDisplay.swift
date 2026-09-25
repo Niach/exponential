@@ -30,13 +30,36 @@ public func memberDisplayName(_ user: UserEntity?, id: String?, generic: String 
     return generic
 }
 
+/// Members in DISPLAY-NAME order, the one order a list of people is ever
+/// shown in. Every iOS member pool is a `fetchAll` (unordered by definition),
+/// so the order is decided here — at the source, where Android decides it too
+/// (`UserDao.observeByTeam`'s `ORDER BY u.name, u.email`) — rather than inside
+/// the shared picker, which renders the rows it is handed verbatim on all four
+/// clients. Sorted on the RESOLVED display name, so a row that reads as its
+/// email files under the email. The id breaks ties so the order is stable.
+public func membersByDisplayName(_ users: [UserEntity]) -> [UserEntity] {
+    users.sorted { a, b in
+        let left = memberDisplayName(a, id: a.id)
+        let right = memberDisplayName(b, id: b.id)
+        let order = left.localizedCaseInsensitiveCompare(right)
+        if order != .orderedSame { return order == .orderedAscending }
+        return a.id < b.id
+    }
+}
+
 /// Up-to-two-letter initials for an avatar chip, derived from a user's display
 /// name or email. Ports Android's `initialsFor` (ui/components/Avatars.kt): for
 /// an email the local part before `@` is used; the base splits on spaces and
 /// `._-+`; two-plus parts yield the first letter of the first two, otherwise the
 /// first two characters. Never empty (falls back to "?").
 public func memberInitials(_ user: UserEntity?, id: String?) -> String {
-    let nameOrEmail = memberDisplayName(user, id: id, generic: "")
+    memberInitials(forDisplayName: memberDisplayName(user, id: id, generic: ""))
+}
+
+/// The same rule over a display name that did NOT come from a synced row —
+/// the shared assignee picker (EXP-1021) carries a member's name and email as
+/// fields, never the `users` row itself.
+public func memberInitials(forDisplayName nameOrEmail: String) -> String {
     let base = nameOrEmail.trimmingCharacters(in: .whitespacesAndNewlines)
     if base.isEmpty { return "?" }
     let local = base.contains("@") ? String(base.prefix(while: { $0 != "@" })) : base

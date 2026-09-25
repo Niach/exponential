@@ -1,7 +1,11 @@
 import type { ReactNode } from "react"
 
-import { DEVICE_ICON_OPTIONS } from "../device-icons"
-import { Picker, type PickerItem } from "./picker"
+import { getDeviceIcon } from "../device-icons"
+import {
+  Picker,
+  type PickerItem,
+  type PickerSurfaceProps,
+} from "./picker"
 
 // EXP-1029 contract — the device picker: the machines a run may start on,
 // each by its device glyph (contract `deviceIcon`) + name, offline ones
@@ -11,18 +15,23 @@ import { Picker, type PickerItem } from "./picker"
 export interface DevicePickerDevice {
   id: string
   name: string
-  /** Contract `deviceIcon`; absent = the kind default. */
+  /** Contract `deviceIcon`; absent = the KIND default (`ui-server` for a
+   *  server, `ui-device` otherwise) — a row is never iconless. */
   icon?: string | null
+  /** Contract `deviceKind`, read only for that default. */
+  kind?: string | null
   /** A muted reason under the name (`Offline`, `Update to run workflows`). */
   description?: ReactNode
   disabled?: boolean
 }
 
-export interface DevicePickerProps {
+export interface DevicePickerProps extends PickerSurfaceProps {
   devices: readonly DevicePickerDevice[]
   value: string | null
   onChange: (deviceId: string) => void
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   search?: boolean
   disabled?: boolean
   emptyText?: string
@@ -33,12 +42,25 @@ export function devicePickerItems(devices: readonly DevicePickerDevice[]): Picke
   return devices.map((device) => ({
     value: device.id,
     label: device.name,
-    icon: DEVICE_ICON_OPTIONS.find((option) => option.name === device.icon)?.icon,
+    icon: getDeviceIcon(device),
     description: device.description,
     disabled: device.disabled,
   }))
 }
 
-export function DevicePicker({ devices, emptyText = `No devices`, ...props }: DevicePickerProps) {
-  return <Picker mode="single" items={devicePickerItems(devices)} emptyText={emptyText} {...props} />
+export function DevicePicker({
+  devices,
+  emptyText = `No devices`,
+  mobileTitle = `Device`,
+  ...props
+}: DevicePickerProps) {
+  return (
+    <Picker
+      mode="single"
+      items={devicePickerItems(devices)}
+      emptyText={emptyText}
+      mobileTitle={mobileTitle}
+      {...props}
+    />
+  )
 }

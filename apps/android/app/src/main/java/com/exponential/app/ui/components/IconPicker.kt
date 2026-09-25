@@ -26,14 +26,18 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerActionRow
+import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-575: THE icon picker — one slim 36dp swatch showing the current pick
- * that opens the curated grid ([IconSwatchGrid]) in a [GlassSheet], so the
- * 96-glyph grid never sits inline in a form. Every surface that picks an icon
+ * that opens the curated grid ([IconSwatchGrid]) in a bottom sheet, so the
+ * 96-glyph grid never sits inline in a form. EXP-1021 re-homed it onto the
+ * shared [Picker]: the sheet is the primitive's, the grid is its panel. Every surface that picks an icon
  * (create-board form, Start-coding `icon` inputs, the device-settings sheet)
  * renders this.
  *
@@ -94,40 +98,53 @@ fun IconPicker(
         )
     }
     if (open) {
-        GlassSheet(
+        // EXP-1021: the grid rides the shared picker as its PANEL — the sheet,
+        // its title, its dismiss and the PICK are the primitive's; the grid
+        // reports the name it was tapped on through the panel's `pick` and the
+        // picker reports it on, then closes. There are no ROWS to hand it (the
+        // panel replaces them), so it gets none: resolving all 96 vectors for a
+        // list nothing renders was pure recomposition cost. A GlassSheet never
+        // scrolls its own slot, and the board set is taller than the fitted
+        // sheet's 85 % cap on every phone, so the scroller stays here.
+        Picker(
+            items = emptyList(),
+            mode = PickerMode.Single,
+            value = setOfNotNull(picked),
+            onChange = { next -> next.firstOrNull()?.let(onSelect) },
             title = "Icon",
-            onDismiss = { open = false },
-            headerAction = if (allowsNone && picked != null) {
+            open = true,
+            onOpenChange = { next -> if (!next) open = false },
+            footer = if (allowsNone && picked != null) {
                 {
-                    GlassSheetHeaderAction("No icon") {
-                        onSelect("")
-                        open = false
-                    }
+                    // "No icon" is a RESET, not an option: it clears the pick
+                    // and closes, the way the header action always did — in the
+                    // picker's own footer idiom, not another sheet's row.
+                    PickerActionRow(
+                        label = "No icon",
+                        onClick = {
+                            onSelect("")
+                            open = false
+                        },
+                    )
                 }
             } else {
                 null
             },
-        ) {
-            // A GlassSheet never scrolls its own slot — the caller owns the
-            // scroller. The board set is 96 glyphs (EXP-924 grew it from 60),
-            // which is taller than the fitted sheet's 85 % cap on every phone,
-            // so without this the last rows are simply unreachable.
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-            ) {
-                IconSwatchGrid(
-                    selected = picked,
-                    onSelect = {
-                        onSelect(it)
-                        open = false
-                    },
-                    accentColor = accentColor,
-                    pickable = pickable,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-            }
-        }
+            panel = { pick ->
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp),
+                ) {
+                    IconSwatchGrid(
+                        selected = picked,
+                        onSelect = pick,
+                        accentColor = accentColor,
+                        pickable = pickable,
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
+                }
+            },
+        )
     }
 }

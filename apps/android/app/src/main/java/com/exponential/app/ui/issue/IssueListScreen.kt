@@ -79,9 +79,18 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.TreeGuides
-import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.BlocksBadge
+import com.exponential.app.ui.components.picker.AssigneePicker
+import com.exponential.app.ui.components.picker.LabelPicker
+import com.exponential.app.ui.components.picker.PickerChecked
+import com.exponential.app.ui.components.picker.PriorityPicker
+import com.exponential.app.ui.components.picker.StatusPicker
+import com.exponential.app.ui.components.issuePriorityPickerOptions
+import com.exponential.app.ui.components.pickedPriority
+import com.exponential.app.ui.components.toPickerLabel
+import com.exponential.app.ui.components.toPickerMember
+import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassNotice
 import com.exponential.app.ui.components.GlassPill
@@ -92,11 +101,8 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomNavDefaults
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.components.IssueGraphSheet
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.LoadingState
@@ -579,40 +585,35 @@ fun IssueListScreen(
     // Bulk property sheets (EXP-247) — status/priority/assignee apply then
     // clear the selection; the label sheet stays open across tri-state toggles.
     when (bulkSheet) {
-        BulkSheet.Status -> IssuePickerSheet(
-            title = "Status",
-            // Duplicate is set through the mark-duplicate flow, never picked.
-            items = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
+        // Duplicate is set through the mark-duplicate flow, never picked.
+        BulkSheet.Status -> BulkStatusPicker(
+            statuses = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
             selected = sharedStatus,
-            keyOf = { it.id },
-            labelOf = { it.name },
-            leadingContent = { StatusIcon(it, size = 18.dp) },
             onSelect = {
                 viewModel.bulkUpdateStatus(selectedIds, it)
                 selectedIds = emptySet()
             },
             onDismiss = { bulkSheet = null },
         )
-        BulkSheet.Priority -> IssuePickerSheet(
-            title = "Priority",
-            items = issuePriorityOrder,
-            selected = sharedPriority,
-            labelOf = { it.label },
-            leadingContent = { PriorityIcon(it, size = 18.dp) },
-            onSelect = {
-                viewModel.bulkUpdatePriority(selectedIds, it)
+        BulkSheet.Priority -> PriorityPicker(
+            options = issuePriorityPickerOptions(),
+            value = setOfNotNull(sharedPriority?.wire),
+            onChange = { picked ->
+                pickedPriority(picked)?.let { viewModel.bulkUpdatePriority(selectedIds, it) }
                 selectedIds = emptySet()
             },
-            onDismiss = { bulkSheet = null },
+            open = true,
+            onOpenChange = { open -> if (!open) bulkSheet = null },
         )
-        BulkSheet.Assignee -> AssigneePickerSheet(
-            users = state.teamUsers,
-            selectedUserId = sharedAssigneeId,
-            onSelect = {
-                viewModel.bulkUpdateAssignee(selectedIds, it)
+        BulkSheet.Assignee -> AssigneePicker(
+            members = state.teamUsers.map { it.toPickerMember() },
+            value = setOfNotNull(sharedAssigneeId),
+            onChange = { picked ->
+                viewModel.bulkUpdateAssignee(selectedIds, picked.firstOrNull())
                 selectedIds = emptySet()
             },
-            onDismiss = { bulkSheet = null },
+            open = true,
+            onOpenChange = { open -> if (!open) bulkSheet = null },
         )
         BulkSheet.Labels -> BulkLabelSheet(
             teamLabels = state.labels,
@@ -637,24 +638,20 @@ fun IssueListScreen(
         val editIssue = state.groups.flatMap { it.issues }
             .firstOrNull { it.issue.id == edit.issueId }?.issue
         when (edit.kind) {
-            InlineKind.Status -> IssuePickerSheet(
-                title = "Status",
-                items = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
+            InlineKind.Status -> BulkStatusPicker(
+                statuses = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
                 selected = statusByIssueId[edit.issueId],
-                keyOf = { it.id },
-                labelOf = { it.name },
-                leadingContent = { StatusIcon(it, size = 18.dp) },
                 onSelect = { viewModel.updateStatus(edit.issueId, it) },
                 onDismiss = { inlineEdit = null },
             )
-            InlineKind.Priority -> IssuePickerSheet(
-                title = "Priority",
-                items = issuePriorityOrder,
-                selected = editIssue?.let { IssuePriority.fromWire(it.priority) },
-                labelOf = { it.label },
-                leadingContent = { PriorityIcon(it, size = 18.dp) },
-                onSelect = { viewModel.updatePriority(edit.issueId, it) },
-                onDismiss = { inlineEdit = null },
+            InlineKind.Priority -> PriorityPicker(
+                options = issuePriorityPickerOptions(),
+                value = setOfNotNull(editIssue?.priority?.let { IssuePriority.fromWire(it).wire }),
+                onChange = { picked ->
+                    pickedPriority(picked)?.let { viewModel.updatePriority(edit.issueId, it) }
+                },
+                open = true,
+                onOpenChange = { open -> if (!open) inlineEdit = null },
             )
         }
     }
@@ -1439,10 +1436,16 @@ private fun SelectionBar(
 private val SelectionBarHeight = 52.dp
 
 /**
- * The selection bar's bulk-label sheet (EXP-247): tri-state rows — a check when
- * every selected issue carries the label, a dash when only some do, nothing
- * otherwise. Tapping removes it from all when all have it, else adds it to the
- * ones missing it; the sheet stays open across toggles.
+ * The selection bar's bulk-label sheet (EXP-247): tri-state rows — the FULL
+ * highlight when every selected issue carries the label, the wash alone when
+ * only some do, nothing otherwise. Tapping removes it from all when all have
+ * it, else adds it to the ones missing it; the sheet stays open across
+ * toggles.
+ *
+ * EXP-1021: the shared [LabelPicker]. The dash-and-check column is gone — a
+ * partial row now says so in the same highlight language every other picker
+ * speaks ([PickerChecked.Some]), which is what let this sheet stop being a
+ * fourth variant of the label list.
  */
 @Composable
 private fun BulkLabelSheet(
@@ -1452,76 +1455,43 @@ private fun BulkLabelSheet(
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
-    val filtered = remember(teamLabels, query) {
-        val q = query.trim()
-        if (q.isEmpty()) teamLabels
-        else teamLabels.filter { it.name.contains(q, ignoreCase = true) }
-    }
     val counts = remember(selectedEntries) {
         selectedEntries.flatMap { entry -> entry.labels.map { it.id } }
             .groupingBy { it }
             .eachCount()
     }
     val total = selectedEntries.size
-
-    GlassSheet(title = "Labels", onDismiss = onDismiss) {
-        GlassSheetSearchField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = "Search labels",
-        )
-        Spacer(Modifier.height(4.dp))
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            filtered.forEach { label ->
-                val count = counts[label.id] ?: 0
-                val allHave = total > 0 && count == total
-                val someHave = count in 1 until total
-                GlassSheetRow(
-                    label = label.name,
-                    leading = {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .background(parseColor(label.color), CircleShape),
-                        )
-                    },
-                    trailing = {
-                        when {
-                            allHave -> Icon(
-                                ExpIcons.uiCheck,
-                                contentDescription = "On every selected issue",
-                                modifier = Modifier.size(18.dp),
-                                tint = Color.White,
-                            )
-                            someHave -> Icon(
-                                ExpIcons.uiMinus,
-                                contentDescription = "On some selected issues",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                            else -> {}
-                        }
-                    },
-                    onClick = { onToggle(label.id, allHave) },
-                )
-            }
-            if (filtered.isEmpty()) {
-                Text(
-                    if (query.isBlank()) "No labels yet." else "No matching labels",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-        }
+    // `value` is the labels EVERY selected issue carries, so the picker's own
+    // toggle maths stays right: adding a partial row adds it to the ones
+    // missing it, removing a full one strips it from all.
+    val allHave = remember(teamLabels, counts, total) {
+        teamLabels.filter { total > 0 && counts[it.id] == total }.map { it.id }.toSet()
     }
+
+    LabelPicker(
+        labels = teamLabels.map { label ->
+            val count = counts[label.id] ?: 0
+            label.toPickerLabel().copy(
+                checked = when {
+                    total > 0 && count == total -> PickerChecked.All
+                    count > 0 -> PickerChecked.Some
+                    else -> PickerChecked.None
+                },
+            )
+        },
+        value = allHave,
+        onChange = { next ->
+            // The picker reports the whole new set; this surface writes one
+            // toggle at a time, so the difference IS the tapped label.
+            (next - allHave).forEach { onToggle(it, false) }
+            (allHave - next).forEach { onToggle(it, true) }
+        },
+        query = query,
+        onQueryChange = { query = it },
+        emptyText = if (query.isBlank()) "No labels yet." else "No matching labels",
+        open = true,
+        onOpenChange = { open -> if (!open) onDismiss() },
+    )
 }
 
 /** Transient outcome chip above/instead of the selection bar (EXP-239). */
@@ -1538,5 +1508,28 @@ private fun NoticeChip(
         text,
         onClick = onClick,
         contentColor = if (isError) MaterialTheme.colorScheme.error else null,
+    )
+}
+
+/**
+ * The board list's status picker (EXP-1021): the shared [StatusPicker] over
+ * RESOLVED team rows, so the bulk bar and the long-press inline edit pick the
+ * same way — both hand back the row itself, which is what the mutations take.
+ */
+@Composable
+private fun BulkStatusPicker(
+    statuses: List<ResolvedIssueStatus>,
+    selected: ResolvedIssueStatus?,
+    onSelect: (ResolvedIssueStatus) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    StatusPicker(
+        statuses = statuses.map { it.toPickerRow() },
+        value = setOfNotNull(selected?.id),
+        onChange = { picked ->
+            picked.firstOrNull()?.let { id -> statuses.firstOrNull { it.id == id } }?.let(onSelect)
+        },
+        open = true,
+        onOpenChange = { open -> if (!open) onDismiss() },
     )
 }

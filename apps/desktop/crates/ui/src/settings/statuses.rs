@@ -34,7 +34,6 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -485,7 +484,7 @@ impl StatusesPane {
         status_id: String,
         status_name: String,
         synced_count: usize,
-        candidates: Vec<(String, String)>,
+        candidates: Vec<ResolvedStatus>,
         preselected: String,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -794,19 +793,22 @@ impl StatusesPane {
             // Delete ALWAYS opens the one confirm-and-reassign dialog
             // (EXP-320) — candidates and the Backlog preselect are computed
             // here, where the resolved siblings are at hand.
-            let candidates: Vec<(String, String)> = siblings
+            // EXP-1045: the RESOLVED rows travel, not (id, name) pairs — the
+            // dialog's target picker draws each status by its own glyph and
+            // tint, like every other status surface.
+            let candidates: Vec<ResolvedStatus> = siblings
                 .iter()
                 .filter(|(candidate, resolved)| {
                     candidate.id != status_id
                         && resolved.category != IssueStatusCategory::Duplicate
                 })
-                .map(|(candidate, _)| (candidate.id.clone(), candidate.name.clone()))
+                .map(|(_, resolved)| resolved.clone())
                 .collect();
             let preselected = siblings
                 .iter()
                 .find(|(candidate, _)| candidate.builtin_key.as_deref() == Some("backlog"))
                 .map(|(candidate, _)| candidate.id.clone())
-                .or_else(|| candidates.first().map(|(id, _)| id.clone()));
+                .or_else(|| candidates.first().map(|status| status.group_key.clone()));
             let del_id = status_id.clone();
             let del_name = row.name.clone();
             line = line.child(
@@ -1085,8 +1087,11 @@ impl Render for StatusesPane {
 /// destination picker. Its own entity so the async `referencingCount` fetch
 /// can re-render just this block (the surrounding alert never re-renders).
 struct DeleteStatusContent {
-    /// (id, name) — the duplicate category and the deletee excluded.
-    candidates: Vec<(String, String)>,
+    /// The offered targets — the duplicate category and the deletee
+    /// excluded. Resolved rows, so the picker can draw glyph + tint; every
+    /// one is SYNCED, so its `group_key` IS its row id (what `selected_id`
+    /// holds and what `reassignToId` sends).
+    candidates: Vec<ResolvedStatus>,
     selected_id: String,
     /// Server-authoritative count (trashed-board issues included); `None`
     /// while loading or after a failed fetch — the copy stays hedged then.
@@ -1125,13 +1130,16 @@ impl Render for DeleteStatusContent {
                 )
             }
         };
-        let selected_name: SharedString = self
+        let selected = self
             .candidates
             .iter()
-            .find(|(id, _)| id == &self.selected_id)
-            .map(|(_, name)| SharedString::from(name.clone()))
+            .find(|status| status.group_key == self.selected_id);
+        let selected_name: SharedString = selected
+            .map(|status| SharedString::from(status.name.clone()))
             .unwrap_or_else(|| "Choose status".into());
+        let selected_icon = selected.map(|status| crate::icons::resolved_status_icon(status, cx));
         let candidates = self.candidates.clone();
+        let selected_id = self.selected_id.clone();
         let picker = cx.entity().downgrade();
 
         v_flex()
@@ -1162,32 +1170,37 @@ impl Render for DeleteStatusContent {
                     .gap_2()
                     .items_center()
                     .child(div().text_sm().child("Move issues to"))
-                    .child(
-                        Button::new("status-delete-reassign-target")
+                    // EXP-1045: THE status picker — the target reads by its
+                    // own glyph and tint here too, not by a bare name.
+                    .child(crate::picker::deferred(move |window, cx| {
+                        let trigger = Button::new("status-delete-reassign-target")
                             .outline().cursor_pointer()
                             .web_input_sm()
+                            .when_some(selected_icon, |button, icon| button.icon(icon))
                             .label(selected_name)
-                            .dropdown_menu(move |mut menu, _window, _cx| {
-                                menu = menu.scrollable(true).max_h(gpui::px(240.));
-                                if candidates.is_empty() {
-                                    return menu.item(PopupMenuItem::label("No other status"));
-                                }
-                                for (candidate_id, name) in &candidates {
-                                    let picker = picker.clone();
-                                    let candidate_id = candidate_id.clone();
-                                    menu = menu.item(
-                                        PopupMenuItem::new(SharedString::from(name.clone()))
-                                            .on_click(move |_, _, cx| {
-                                                let _ = picker.update(cx, |state, cx| {
-                                                    state.selected_id = candidate_id.clone();
-                                                    cx.notify();
-                                                });
-                                            }),
-                                    );
-                                }
-                                menu
+                            .into_any_element();
+                        crate::picker::status_picker::status_picker(
+                            &candidates,
+                            crate::picker::PickerMode::Single,
+                            vec![selected_id],
+                            trigger,
+                            std::rc::Rc::new(move |keys: Vec<String>, _window, cx: &mut App| {
+                                let Some(key) = keys.first().cloned() else {
+                                    return;
+                                };
+                                let _ = picker.update(cx, |state, cx| {
+                                    // Every candidate is a synced row, so its
+                                    // `group_key` IS the id `reassignToId`
+                                    // wants.
+                                    state.selected_id = key;
+                                    cx.notify();
+                                });
                             }),
-                    ),
+                        )
+                        .empty_text("No other status")
+                        .id("status-delete-reassign-picker")
+                        .render(window, cx)
+                    })),
             )
     }
 }

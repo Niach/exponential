@@ -58,35 +58,44 @@ vi.mock(`@exp/ui`, async (importOriginal) => ({
       </button>
     </div>
   ),
-  // EXP-958: the status and priority chips are `Combobox`es now — the same
-  // popover every other picker opens, stubbed down to its trigger and one
+  // EXP-1021: the status and priority chips are the TYPED pickers now — the
+  // same surface every other picker opens, stubbed down to its trigger and one
   // "pick the second row" button.
-  Combobox: ({
+  StatusPicker: ({
     onChange,
-    options,
-    renderTrigger,
-    value,
+    statuses,
+    trigger,
   }: {
-    onChange: (value: string | null) => void
-    options: Array<{ label: string; value: string }>
-    renderTrigger?: (state: {
-      selected: Array<{ label: string; value: string }>
-      summary: string
-      open: boolean
-    }) => ReactNode
-    value: string | null
+    onChange: (statusId: string) => void
+    statuses: Array<{ id: string; name: string }>
+    trigger: ReactNode
   }) => (
     <div>
-      {renderTrigger?.({
-        selected: options.filter((option) => option.value === value),
-        summary: ``,
-        open: false,
-      })}
+      {trigger}
       <button
         type="button"
-        onClick={() => onChange(options[1]?.value ?? options[0].value)}
+        onClick={() => onChange(statuses[1]?.id ?? statuses[0]!.id)}
       >
-        Select {options[0].label}
+        Select {statuses[0]!.name}
+      </button>
+    </div>
+  ),
+  PriorityPicker: ({
+    onChange,
+    options,
+    trigger,
+  }: {
+    onChange: (priority: string) => void
+    options: Array<{ label: string; value: string }>
+    trigger: ReactNode
+  }) => (
+    <div>
+      {trigger}
+      <button
+        type="button"
+        onClick={() => onChange(options[1]?.value ?? options[0]!.value)}
+      >
+        Select {options[0]!.label}
       </button>
     </div>
   ),
