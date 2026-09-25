@@ -130,6 +130,8 @@ import {
   PLAN_WORKFLOW_LABEL,
   REVIEW_FINAL_PR_LABEL,
   NO_CHANGES_LABEL,
+  NO_RESULTS_LABEL,
+  NO_RUNS_LABEL,
   DISMISS_NODE_CONFIRM,
   RUNS_ON_LABEL,
   STOP_WORKFLOW_LABEL,
@@ -258,6 +260,19 @@ function isKeyOwningTarget(target: EventTarget | null): boolean {
   )
 }
 
+/** A text field of the page (the name, the embedded description or comment
+ *  editor, the question composer): while one holds focus a chip's hover
+ *  must not open the mini-graph, whose popover would steal the focus. */
+export function isTextFieldTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  return (
+    target.closest(
+      `input, textarea, [contenteditable="true"], .ProseMirror`
+    ) !== null
+  )
+}
+
 /** A keydown the STRIP must leave alone: typing, or inside a menu, a dialog
  *  or a popover (a chip's `…` menu, the mini-graph) — portaled, but their
  *  events still bubble through the React tree to the strip. */
@@ -365,6 +380,9 @@ export function WorkflowDetail({
   // While the name is being edited a chip's hover must not open the
   // mini-graph: the popover takes focus and the blur would save the name.
   const [nameEditing, setNameEditing] = useState(false)
+  // Any text field of the page focused (focusin/focusout on the root, the
+  // React tree's portals included): the same hover gate for every editor.
+  const [textEditing, setTextEditing] = useState(false)
   const runsOnRequested = useRef(false)
   // The runner is frozen once the workflow started: the picker can never
   // write `deviceId` on a running workflow, even if it was open at the flip.
@@ -397,6 +415,21 @@ export function WorkflowDetail({
   const written = useRef(
     `${initialNodeId ?? ``}|${initialFace === `issue` ? `` : initialFace}`
   )
+  // An EXTERNAL navigation (the session tree's workflow row = the bare URL,
+  // a `?node=`/`?face=` link) re-seeds the pick + face. The page's own
+  // write-back lands here too, but its key equals `written`: no loop.
+  useEffect(() => {
+    const searchFace = initialFace === `issue` ? `` : initialFace
+    const key = `${initialNodeId ?? ``}|${searchFace}`
+    if (written.current === key) return
+    written.current = key
+    setSelection(
+      initialNodeId
+        ? { ids: [initialNodeId], anchor: initialNodeId, cursor: initialNodeId }
+        : ALL_SELECTION
+    )
+    setFace(initialFace)
+  }, [initialNodeId, initialFace])
   useEffect(() => {
     const key = `${urlNode ?? ``}|${urlFace ?? ``}`
     if (written.current === key) return
@@ -557,7 +590,12 @@ export function WorkflowDetail({
       : null
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="workflow-detail">
+    <div
+      className="flex h-full min-h-0 flex-col"
+      data-testid="workflow-detail"
+      onFocus={(event) => setTextEditing(isTextFieldTarget(event.target))}
+      onBlur={() => setTextEditing(false)}
+    >
       <div className="flex shrink-0 flex-col gap-3 px-4 pt-4 pb-2">
         {questions.length > 0 && (
           <OpenQuestionsBanner
@@ -730,7 +768,7 @@ export function WorkflowDetail({
           teamId={teamId}
           selection={selection}
           onKeyDown={onStripKeyDown}
-          hoverOpensGraph={!nameEditing}
+          hoverOpensGraph={!nameEditing && !textEditing}
           onSelect={(id, modifiers) =>
             setSelection((current) => selectNode(current, id, order, modifiers))
           }
@@ -797,6 +835,15 @@ export function WorkflowDetail({
                 )}
               </div>
             )}
+            {scopeNodes.length === 0 &&
+              !(picked.length === 0 && workflow.finalPrUrl) && (
+                <p
+                  className="py-3 text-sm text-muted-foreground"
+                  data-testid="workflow-changes-empty"
+                >
+                  {NO_CHANGES_LABEL}
+                </p>
+              )}
             {scopeNodes.map((node) => (
               <NodeChanges
                 key={node.id}
@@ -1535,6 +1582,7 @@ function RunsFace({
           teamSlug={teamSlug}
           activeSessionId={openRunId}
           onOpen={(session) => setOpenRunId(session.id)}
+          emptyNote={NO_RUNS_LABEL}
         />
       </div>
       {openRunId && (
@@ -1657,7 +1705,12 @@ function ResultsFace({ sessions }: { sessions: readonly CodingSession[] }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4">
       {results.length === 0 ? (
-        <p className="py-3 text-sm text-muted-foreground">No results yet.</p>
+        <p
+          className="py-3 text-sm text-muted-foreground"
+          data-testid="workflow-results-empty"
+        >
+          {NO_RESULTS_LABEL}
+        </p>
       ) : (
         <SessionResultsView
           results={results}

@@ -184,26 +184,31 @@ export function ReviewsOpenBadge({
   return <NavDot className="bg-green-500" placement={placement} />
 }
 
-/** EXP-1084: does a workflow run of the team ask the person something
+/** EXP-1084: does one of the person's OWN workflow runs ask them something
  *  (`workflowOpenQuestions`)? Computed ONCE per sidebar (`TeamSidebar`) and
  *  handed to both the rail icon and the expanded row. The live query only
  *  carries workflow runs with a pending question, so the per-workflow fold
  *  stays small. */
 export function useWorkflowsAsking(teamId: string | undefined): boolean {
+  // Only the run's OWNER can answer its question: a teammate's never reds
+  // this person's dot.
+  const { data: authSession } = useSession()
+  const userId = authSession?.user?.id
   const { data: rows } = useLiveQuery(
     (query) =>
-      teamId
+      teamId && userId
         ? query
             .from({ s: codingSessionCollection })
             .where(({ s }) =>
               and(
                 eq(s.teamId, teamId),
+                eq(s.userId, userId),
                 not(isNull(s.workflowId)),
                 not(isNull(s.pendingQuestion))
               )
             )
         : undefined,
-    [teamId]
+    [teamId, userId]
   )
   const sessions = (rows ?? []) as CodingSession[]
   const workflowIds = new Set(

@@ -17,6 +17,9 @@ import {
   PICK_DEVICE_LABEL,
   PLAN_WORKFLOW_LABEL,
   REVIEW_FINAL_PR_LABEL,
+  NO_CHANGES_LABEL,
+  NO_RESULTS_LABEL,
+  NO_RUNS_LABEL,
   RUNS_ON_LABEL,
   STOP_WORKFLOW_LABEL,
   PAUSE_WORKFLOW_LABEL,
@@ -189,7 +192,9 @@ vi.mock(`@/components/issue-blocks-badge`, () => ({
 }))
 vi.mock(`@/components/issue-detail-view`, () => ({
   IssueDetailView: ({ issue }: { issue: { identifier: string } }) => (
-    <div data-testid={`issue-detail-${issue.identifier}`} />
+    <div data-testid={`issue-detail-${issue.identifier}`}>
+      <textarea data-testid={`issue-editor-${issue.identifier}`} />
+    </div>
   ),
 }))
 vi.mock(`@/components/issue-list`, () => ({
@@ -202,11 +207,14 @@ vi.mock(`@/components/session-tree`, () => ({
   SessionTree: ({
     rows,
     onOpen,
+    emptyNote,
   }: {
     rows: { session: { id: string } }[]
     onOpen: (session: { id: string }) => void
+    emptyNote?: string
   }) => (
     <div data-testid="session-tree">
+      {rows.length === 0 && emptyNote}
       {rows.map((row) => (
         <button
           key={row.session.id}
@@ -946,6 +954,83 @@ describe(`WorkflowDetail`, () => {
       name.blur()
     })
     expect(popover.getAttribute(`data-open-on-hover`)).toBe(`true`)
+  })
+
+  it(`a chip's hover opens no mini-graph while an embedded editor is focused`, () => {
+    renderPage({}, { initialNodeId: `a` })
+    const popover = screen.getByTestId(`blocks-popover-i-a`)
+    expect(popover.getAttribute(`data-open-on-hover`)).toBe(`true`)
+    const editor = screen.getByTestId(`issue-editor-EXP-1`)
+    act(() => {
+      editor.focus()
+    })
+    expect(popover.getAttribute(`data-open-on-hover`)).toBe(`false`)
+    fireEvent.mouseEnter(screen.getByTestId(`workflow-node-a`))
+    expect(document.activeElement).toBe(editor)
+    act(() => {
+      editor.blur()
+    })
+    expect(popover.getAttribute(`data-open-on-hover`)).toBe(`true`)
+  })
+
+  it(`All × Changes with no nodes and no final PR reads No changes yet`, () => {
+    state.nodes = []
+    renderPage({ status: `draft` }, { initialFace: `changes` })
+    expect(screen.getByTestId(`workflow-changes-empty`).textContent).toBe(
+      NO_CHANGES_LABEL
+    )
+  })
+
+  it(`a draft's Runs face reads No runs yet`, () => {
+    state.nodes = []
+    state.sessions = []
+    renderPage({ status: `draft` }, { initialFace: `runs` })
+    expect(screen.getByTestId(`session-tree`).textContent).toBe(NO_RUNS_LABEL)
+  })
+
+  it(`Results with nothing published reads No results yet`, () => {
+    renderPage({}, { initialFace: `results` })
+    expect(screen.getByTestId(`workflow-results-empty`).textContent).toBe(
+      NO_RESULTS_LABEL
+    )
+  })
+
+  it(`re-seeds the pick and the face from an external search change`, () => {
+    const view = renderPage({}, { initialNodeId: `b`, initialFace: `runs` })
+    expect(pressed(`b`)).toBe(`true`)
+    expect(screen.getByTestId(`workflow-body-runs`)).toBeTruthy()
+    // The session tree's workflow row: the bare URL = All × Issue.
+    view.rerender(<WorkflowDetail workflow={workflow()} teamSlug="acme" />)
+    expect(pressed(`all`)).toBe(`true`)
+    expect(screen.getByTestId(`workflow-body-issue-list`)).toBeTruthy()
+    expect(navigate).not.toHaveBeenCalled()
+    // A `?node=&face=` link applies.
+    view.rerender(
+      <WorkflowDetail
+        workflow={workflow()}
+        teamSlug="acme"
+        initialNodeId="c"
+        initialFace="changes"
+      />
+    )
+    expect(pressed(`c`)).toBe(`true`)
+    expect(screen.getByTestId(`workflow-body-changes`)).toBeTruthy()
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it(`the page's own write-back does not re-seed or loop`, () => {
+    const view = renderPage()
+    fireEvent.click(screen.getByTestId(`workflow-node-b`))
+    expect(navigate).toHaveBeenCalledTimes(1)
+    // The router echoes the written search back as props.
+    view.rerender(
+      <WorkflowDetail workflow={workflow()} teamSlug="acme" initialNodeId="b" />
+    )
+    expect(pressed(`b`)).toBe(`true`)
+    expect(navigate).toHaveBeenCalledTimes(1)
+    // A pick made after the echo still writes.
+    fireEvent.click(screen.getByTestId(`workflow-node-c`))
+    expect(navigate).toHaveBeenCalledTimes(2)
   })
 
   it(`All × Changes keeps every node's row; one without a PR reads No changes yet`, () => {
