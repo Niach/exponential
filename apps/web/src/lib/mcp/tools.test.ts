@@ -3849,19 +3849,72 @@ describe(`exponential_sessions_start`, () => {
     ])
   })
 
-  it(`forwards explicit workflow membership to the steer start`, async () => {
+  // EXP-1082 §1: only a run that belongs to the workflow (the host) may name
+  // a membership; anyone else's keys are dropped, never refused.
+  it(`forwards explicit workflow membership when the calling run is in that workflow`, async () => {
     caller.steer.startSession.mockResolvedValue({ ok: true })
-    dbRows.current = [{ ...startedRow }]
     const WF = `77777777-7777-4777-8777-777777777777`
-    await tool(`exponential_sessions_start`)({
-      deviceId: `mac-1`,
-      issueId: UUID,
-      workflowId: WF,
-      workflowRole: `review`,
+    const builder = db.select()
+    let call = 0
+    // 1 = the calling run's own membership, 2+ = the poll.
+    db.select.mockImplementation(() => {
+      call += 1
+      dbRows.current = call === 1 ? [{ workflowId: WF }] : [{ ...startedRow }]
+      return builder
     })
+    try {
+      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+        deviceId: `mac-1`,
+        issueId: UUID,
+        workflowId: WF,
+        workflowRole: `review`,
+      })
+    } finally {
+      db.select.mockImplementation(() => builder)
+    }
     expect(caller.steer.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ workflowId: WF, workflowRole: `review` })
     )
+  })
+
+  it(`drops the membership keys when the calling run is not in that workflow`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    const WF = `77777777-7777-4777-8777-777777777777`
+    const builder = db.select()
+    let call = 0
+    db.select.mockImplementation(() => {
+      call += 1
+      dbRows.current = call === 1 ? [{ workflowId: null }] : [{ ...startedRow }]
+      return builder
+    })
+    try {
+      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+        deviceId: `mac-1`,
+        issueId: UUID,
+        workflowId: WF,
+        workflowNodeId: `88888888-8888-4888-8888-888888888888`,
+        workflowRole: `review`,
+      })
+    } finally {
+      db.select.mockImplementation(() => builder)
+    }
+    const sent = caller.steer.startSession.mock.calls.at(-1)![0] as Record<string, unknown>
+    expect(`workflowId` in sent).toBe(false)
+    expect(`workflowNodeId` in sent).toBe(false)
+    expect(`workflowRole` in sent).toBe(false)
+  })
+
+  it(`drops the membership keys from a caller with no run at all`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    dbRows.current = [{ ...startedRow }]
+    await collectTools(USER, null).get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      issueId: UUID,
+      workflowId: `77777777-7777-4777-8777-777777777777`,
+      workflowRole: `review`,
+    })
+    const sent = caller.steer.startSession.mock.calls.at(-1)![0] as Record<string, unknown>
+    expect(`workflowId` in sent).toBe(false)
   })
 
   // EXP-906: the profile rides the start like every other option — an

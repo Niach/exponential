@@ -844,11 +844,18 @@ pub fn collect_if_due(
 }
 
 /// EXP-1082 — the per-profile usage of ONE agent, NOW, in the shape
-/// [`crate::account_rotation`] weighs. STUB: the conversion from
-/// [`collect_if_due`]'s wire payload (window kinds, ISO resets, the
-/// model-scoped weeklies) is not trivial, so this returns empty and probes
-/// nothing. EXP-1005 makes it bypass the poll floors while still respecting
-/// the fan-out cap ([`MAX_USAGE_PROFILES`]).
+/// [`crate::account_rotation`] weighs.
+///
+/// Returns empty and probes nothing. EXP-1005 replaces the body with a
+/// FLOOR-BYPASSING collect of `agent`'s profiles (the [`collect_inner`]
+/// fan-out without the poll floors, still capped at [`MAX_USAGE_PROFILES`]
+/// and never probing a login a live session already reports for), then
+/// converts each `profiles[].usage` row into a
+/// [`crate::account_rotation::ProfileUsage`]: the wire's window keys mapped
+/// onto `session` / `weekly` / the model-scoped weeklies by alias, the ISO
+/// `resetsAt` parsed to unix ms, `signed_in` + `health` from the profile's
+/// account entry. It is not a delegation to [`collect_if_due`] today because
+/// that conversion (key mapping, ISO parsing) is the non-trivial half.
 pub fn collect_now(
     _agent: CodingAgent,
     _data_dir: &Path,

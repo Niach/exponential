@@ -3286,7 +3286,7 @@ impl AutomationHost {
                         attempt,
                         base_branch,
                         model,
-                        workflow_id: _,
+                        workflow_id: member_workflow_id,
                         role,
                         account,
                     } => {
@@ -3294,17 +3294,25 @@ impl AutomationHost {
                         if unbuilt.contains(&base_branch) {
                             break 'decision Outcome::Skipped;
                         }
-                        self.start_workflow_node(
+                        match self.start_workflow_node(
                             &plan,
                             &node_id,
                             attempt,
                             &base_branch,
                             model,
-                            role,
+                            coding::workflows::WorkflowMembership {
+                                workflow_id: member_workflow_id,
+                                node_id: Some(node_id.clone()),
+                                role,
+                            },
                             account,
                             settings,
                             settings_path,
-                        );
+                        ) {
+                            Ok(true) => {}
+                            Ok(false) => break 'decision Outcome::Skipped,
+                            Err(err) => break 'decision Outcome::Failed(err),
+                        }
                     }
                     coding::workflows::Decision::LandNode { node_id } => {
                         self.land_workflow_node(&plan, &node_id, &branch, settings_path);
@@ -3340,18 +3348,15 @@ impl AutomationHost {
                         // EXP-984: a merge-in is counted when it is DELIVERED.
                         if let Some(live) = workflow_session(&self.sessions, &session_id) {
                             live.send_prompt(text);
-                            *metrics
-                                .entry(api::workflows::COUNTER_MERGE_INS.to_string())
-                                .or_default() += 1;
                         } else if let Err(err) =
                             self.resume_workflow_node(&plan, &session_id, text, settings_path)
                         {
                             log::warn!("workflow resume of {session_id} failed: {err}");
-                        } else {
-                            *metrics
-                                .entry(api::workflows::COUNTER_MERGE_INS.to_string())
-                                .or_default() += 1;
+                            break 'decision Outcome::Failed(err.to_string());
                         }
+                        *metrics
+                            .entry(api::workflows::COUNTER_MERGE_INS.to_string())
+                            .or_default() += 1;
                     }
                     // EXP-984: the agent review of one node — the hidden
                     // `Review node` builtin, in a throwaway worktree of its own.
@@ -3359,20 +3364,28 @@ impl AutomationHost {
                         node_id,
                         model,
                         adversarial,
-                        workflow_id: _,
+                        workflow_id: member_workflow_id,
                         role,
                         account,
                     } => {
-                        self.start_workflow_review(
+                        match self.start_workflow_review(
                             &plan,
                             &node_id,
                             model,
                             adversarial,
-                            role,
+                            coding::workflows::WorkflowMembership {
+                                workflow_id: member_workflow_id,
+                                node_id: Some(node_id.clone()),
+                                role,
+                            },
                             account,
                             settings,
                             settings_path,
-                        );
+                        ) {
+                            Ok(true) => {}
+                            Ok(false) => break 'decision Outcome::Skipped,
+                            Err(err) => break 'decision Outcome::Failed(err),
+                        }
                     }
                     // EXP-984: the review asked for changes — its findings go to
                     // the node's AUTHOR verbatim, once per round.
@@ -3408,7 +3421,7 @@ impl AutomationHost {
                                     self.resume_workflow_node(&plan, &session_id, text, settings_path)
                                 {
                                     log::warn!("workflow resume of {session_id} failed: {err}");
-                                    break 'decision Outcome::Skipped;
+                                    break 'decision Outcome::Failed(err.to_string());
                                 }
                             }
                         }
@@ -3433,10 +3446,11 @@ impl AutomationHost {
                         self.report_node(&report);
                     }
                     coding::workflows::Decision::Nudge { session_id, key, text } => {
-                        if let Some(live) = workflow_session(&self.sessions, &session_id) {
-                            live.send_prompt(text);
-                            remember_nudge(settings_path, &self.device_id, &workflow_id, &session_id, &key);
-                        }
+                        let Some(live) = workflow_session(&self.sessions, &session_id) else {
+                            break 'decision Outcome::Skipped;
+                        };
+                        live.send_prompt(text);
+                        remember_nudge(settings_path, &self.device_id, &workflow_id, &session_id, &key);
                     }
                     coding::workflows::Decision::OpenFinalPr => {
                         match api::workflows::open_final_pr(&self.ctx.trpc, &workflow_id) {
@@ -3448,9 +3462,10 @@ impl AutomationHost {
                         }
                     }
                     coding::workflows::Decision::KillSession { session_id } => {
-                        if let Some(live) = workflow_session(&self.sessions, &session_id) {
-                            live.kill();
-                        }
+                        let Some(live) = workflow_session(&self.sessions, &session_id) else {
+                            break 'decision Outcome::Skipped;
+                        };
+                        live.kill();
                     }
                     coding::workflows::Decision::DeleteIntegrationBranch => {
                         if branch_already_deleted(settings_path, &self.device_id, &workflow_id) {
@@ -3579,6 +3594,7 @@ impl AutomationHost {
                 true
             }
             Ok(coding::workflows::BaseOutcome::Conflict { left, right }) => {
+                // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
                 let mut report = api::workflows::NodeReport::new(node_id, "waiting");
                 report.note = api::patch::Patch::Set(one_line_note(
                     &workflow_conflict_note(plan, &left, &right),
@@ -3590,6 +3606,7 @@ impl AutomationHost {
                 // Visible on the node, like a conflict: a `ready` node whose
                 // base never comes up would otherwise sit there without a word.
                 log::warn!("workflow {workflow_id}: base {base_branch} — {err}");
+                // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
                 let mut report = api::workflows::NodeReport::new(node_id, "waiting");
                 report.note = api::patch::Patch::Set(one_line_note(&format!(
                     "Its base {base_branch} could not be built: {err}"
@@ -3618,6 +3635,10 @@ impl AutomationHost {
     /// then launch the node locally: a plain node is an ISSUE run, a
     /// compound one a BATCH over its parent plus its members. Both cut from
     /// the integration branch and carry the `## Workflow` prompt section.
+    ///
+    /// EXP-1082 (the audit outcome): `Ok(true)` = launched, `Ok(false)` = not
+    /// attempted (the node or its `running` report is missing), `Err` = the
+    /// prepare/launch failed (the node is reported `failed` with it).
     #[allow(clippy::too_many_arguments)]
     fn start_workflow_node(
         &self,
@@ -3626,20 +3647,20 @@ impl AutomationHost {
         attempt: i64,
         branch: &str,
         model: Option<String>,
-        role: coding::workflows::WfSessionRole,
+        membership: coding::workflows::WorkflowMembership,
         account: Option<String>,
         settings: &coding::Settings,
         settings_path: &Path,
-    ) {
+    ) -> Result<bool, String> {
         let Some(node) = plan.nodes.get(node_id) else {
-            return;
+            return Ok(false);
         };
         let mut report = api::workflows::NodeReport::new(node_id, "running");
         report.attempt = Some(attempt);
         report.base_branch = api::patch::Patch::Set(branch.to_string());
         report.note = api::patch::Patch::Null;
         if !self.report_node(&report) {
-            return;
+            return Ok(false);
         }
         // EXP-983: the run is cut AT this tip, so it already has it —
         // recording that is what keeps the first beat quiet.
@@ -3676,18 +3697,26 @@ impl AutomationHost {
         }
         // EXP-1082: the row names its workflow, node and role; EXP-1005's
         // rotation may pick the account.
-        apply_workflow_start(&mut options, plan, node_id, role, account);
+        coding::workflows::apply_engine_start(
+            &mut options,
+            membership,
+            account,
+            &[],
+            plan.snapshot.now_ms,
+        );
         match self.prepare_workflow_node(plan, node, run, options, branch) {
             Ok(Some(session_id)) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "running");
                 report.session_id = api::patch::Patch::Set(session_id);
                 self.report_node(&report);
+                Ok(true)
             }
-            Ok(None) => {}
+            Ok(None) => Ok(false),
             Err(err) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "failed");
                 report.note = api::patch::Patch::Set(one_line_note(&err.to_string()));
                 self.report_node(&report);
+                Err(err.to_string())
             }
         }
     }
@@ -3831,6 +3860,10 @@ impl AutomationHost {
     /// in a throwaway worktree cut from the node's pushed branch. A failure
     /// is not a node failure (the node's own work is fine): it only drops
     /// the recorded head, so the next beat tries the review again.
+    ///
+    /// EXP-1082 (the audit outcome): `Ok(true)` = launched, `Ok(false)` = not
+    /// attempted (something has not synced yet), `Err` = the lookup or the
+    /// prepare/launch failed.
     #[allow(clippy::too_many_arguments)]
     fn start_workflow_review(
         &self,
@@ -3838,30 +3871,30 @@ impl AutomationHost {
         node_id: &str,
         model: Option<String>,
         adversarial: bool,
-        role: coding::workflows::WfSessionRole,
+        membership: coding::workflows::WorkflowMembership,
         account: Option<String>,
         settings: &coding::Settings,
         settings_path: &Path,
-    ) {
+    ) -> Result<bool, String> {
         let workflow_id = plan.snapshot.workflow.id.clone();
         let Some(node) = plan.nodes.get(node_id) else {
-            return;
+            return Ok(false);
         };
         let (Some(identifier), Some(node_branch)) = (
             plan.snapshot.identifier.get(node_id).cloned(),
             plan.branch_of.get(node_id).cloned(),
         ) else {
-            return;
+            return Ok(false);
         };
         let repo = match api::repositories::for_issue(&self.ctx.trpc, &node.issue_id) {
             Ok(Some(repo)) => repo,
             Ok(None) => {
                 log::warn!("workflow review of {node_id}: the node has no repository");
-                return;
+                return Ok(false);
             }
             Err(err) => {
                 log::warn!("workflow review of {node_id}: repository — {err}");
-                return;
+                return Err(err.to_string());
             }
         };
         // The head this review runs against is recorded BEFORE the launch:
@@ -3886,7 +3919,13 @@ impl AutomationHost {
             options.model = model;
         }
         // EXP-1082: the reviewer's row names its workflow node.
-        apply_workflow_start(&mut options, plan, node_id, role, account);
+        coding::workflows::apply_engine_start(
+            &mut options,
+            membership,
+            account,
+            &[],
+            plan.snapshot.now_ms,
+        );
         let request = PrepareRequest::Action(coding::ActionLaunchRequest {
             action_id: api::actions::BUILTIN_REVIEW_NODE_ID.to_string(),
             run_id: coding::new_run_id(),
@@ -3950,11 +3989,8 @@ impl AutomationHost {
         })();
         let round_at_launch = node.review_round;
         match started {
-            Ok(session_id) => update_workflow_state(
-                settings_path,
-                &self.device_id,
-                &workflow_id,
-                |state| {
+            Ok(session_id) => {
+                update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
                     state
                         .review_runs
                         .insert(node_id.to_string(), session_id.clone());
@@ -3963,19 +3999,16 @@ impl AutomationHost {
                     state
                         .review_rounds
                         .insert(node_id.to_string(), round_at_launch);
-                },
-            ),
+                });
+                Ok(true)
+            }
             Err(err) => {
                 log::warn!("workflow review of {node_id} — {err}");
                 // It reviewed nothing: let the next beat try again.
-                update_workflow_state(
-                    settings_path,
-                    &self.device_id,
-                    &workflow_id,
-                    |state| {
-                        state.reviewed_head.remove(node_id);
-                    },
-                );
+                update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
+                    state.reviewed_head.remove(node_id);
+                });
+                Err(err.to_string())
             }
         }
     }
@@ -4490,37 +4523,6 @@ again."
 }
 
 /// One line, bounded by the `note` column's 500 chars.
-/// EXP-1082 — stamp an ENGINE start's workflow membership onto its launch,
-/// and give the account-rotation seam its say: the decision's own account,
-/// else [`coding::account_rotation::pick_start_account`]'s pick, else the
-/// workflow's launch account as before. EXP-1005: feed the picker
-/// `agent_usage::collect_now` — the daemon holds no per-profile usage here
-/// yet, so the slice is empty.
-fn apply_workflow_start(
-    options: &mut coding::LaunchOptions,
-    plan: &WorkflowPlan,
-    node_id: &str,
-    role: coding::workflows::WfSessionRole,
-    account: Option<String>,
-) {
-    options.workflow = Some(coding::workflows::WorkflowMembership {
-        workflow_id: plan.snapshot.workflow.id.clone(),
-        node_id: Some(node_id.to_string()),
-        role,
-    });
-    let picked = account.or_else(|| {
-        coding::account_rotation::pick_start_account(
-            &[],
-            options.agent,
-            Some(options.model.as_str()).filter(|model| !model.is_empty()),
-            plan.snapshot.now_ms,
-        )
-    });
-    if let Some(account) = picked {
-        options.account = Some(account);
-    }
-}
-
 fn one_line_note(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(500).collect()
 }

@@ -1793,8 +1793,10 @@ pub enum ServerFrame {
         #[serde(default)]
         subagent_model: Option<String>,
         /// EXP-1082: a WORKFLOW run's membership — the workflow, the node
-        /// and contract `wfSessionRole`. All three or none; absent on every
-        /// other start and on every pre-EXP-1082 sender.
+        /// and contract `wfSessionRole`. The workflow and a known role come
+        /// together or not at all; the node is optional (a `plan` /
+        /// `replan` planner run names none, `WorkflowMembership::from_wire`).
+        /// Absent on every other start and on every pre-EXP-1082 sender.
         #[serde(default)]
         workflow_id: Option<String>,
         #[serde(default)]

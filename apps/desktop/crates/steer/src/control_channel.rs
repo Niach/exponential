@@ -187,8 +187,10 @@ pub struct RemoteStart {
     pub subagent_model: Option<String>,
     /// EXP-1082: the frame's `workflowId` / `workflowNodeId` /
     /// `workflowRole` — a workflow run started through the relay names its
-    /// node, and the launcher stamps it on the row. `None` unless all three
-    /// arrived (and never on a resume, which inherits server-side).
+    /// node, and the launcher stamps it on the row. `None` unless the
+    /// workflow id and a known role arrived; the node may be absent (a
+    /// planner run, `WorkflowMembership::from_wire`). Never on a resume,
+    /// which inherits server-side.
     pub workflow: Option<coding::workflows::WorkflowMembership>,
 }
 
