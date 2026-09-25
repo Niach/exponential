@@ -181,9 +181,10 @@ public extension WorkflowLaunch {
     }
 }
 
-/// `workflows.metrics` — the plan's shape. `cycles` non-empty means the
-/// workflow cannot start; `cycleEdges` names the edges inside them
-/// (`<fromNodeId>\n<toNodeId>`) so the graph can paint them red.
+/// `workflows.metrics` — the plan's shape, and ONLY the shape (EXP-1090: the
+/// run counters are gone; a row of any vintage still decodes, extra keys
+/// ignored). `cycles` non-empty means the workflow cannot start; `cycleEdges`
+/// names the edges inside them (`<fromNodeId>\n<toNodeId>`).
 public struct WorkflowMetrics: Sendable, Equatable {
     public var nodes: Int
     public var edges: Int
@@ -191,11 +192,6 @@ public struct WorkflowMetrics: Sendable, Equatable {
     public var width: Int
     public var cycles: [[String]]
     public var cycleEdges: [String]
-    /// EXP-984: the run's COUNTERS, which accumulate inside the same jsonb next
-    /// to the shape keys — every whole-number key of the object, the shape ones
-    /// included. A value that is not a whole number is left out rather than
-    /// read as 0 (the web rule's `Number.isFinite` guard).
-    public var counters: [String: Int]
 
     public init(
         nodes: Int = 0,
@@ -203,8 +199,7 @@ public struct WorkflowMetrics: Sendable, Equatable {
         depth: Int = 0,
         width: Int = 0,
         cycles: [[String]] = [],
-        cycleEdges: [String] = [],
-        counters: [String: Int] = [:]
+        cycleEdges: [String] = []
     ) {
         self.nodes = nodes
         self.edges = edges
@@ -212,22 +207,12 @@ public struct WorkflowMetrics: Sendable, Equatable {
         self.width = width
         self.cycles = cycles
         self.cycleEdges = cycleEdges
-        self.counters = counters
     }
 }
 
 extension WorkflowMetrics: Decodable {
     enum CodingKeys: String, CodingKey {
         case nodes, edges, depth, width, cycles, cycleEdges
-    }
-
-    /// Any key of the metrics object — the counter set is OPEN, so a newer
-    /// server's counter still arrives.
-    private struct CounterKey: CodingKey {
-        let stringValue: String
-        var intValue: Int? { nil }
-        init?(stringValue: String) { self.stringValue = stringValue }
-        init?(intValue _: Int) { nil }
     }
 
     public init(from decoder: Decoder) throws {
@@ -240,15 +225,6 @@ extension WorkflowMetrics: Decodable {
         width = (try? c.decodeWireInt(forKey: .width)) ?? 0
         cycles = (try? c.decodeIfPresent([[String]].self, forKey: .cycles)) ?? []
         cycleEdges = (try? c.decodeIfPresent([String].self, forKey: .cycleEdges)) ?? []
-        var found: [String: Int] = [:]
-        if let open = try? decoder.container(keyedBy: CounterKey.self) {
-            for key in open.allKeys {
-                if let value = try? open.decode(Int.self, forKey: key) {
-                    found[key.stringValue] = value
-                }
-            }
-        }
-        counters = found
     }
 }
 

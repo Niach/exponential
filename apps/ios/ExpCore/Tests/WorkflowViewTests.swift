@@ -15,15 +15,12 @@ final class WorkflowViewTests: XCTestCase {
         let edges: [EdgeCase]
         // EXP-982 — running a workflow.
         let startBlockers: [StartBlockerCase]
-        let trains: [TrainCase]
-        let trainStepLabels: [String: String]
         let finalPr: [FinalPrCase]
         let rowSubtitles: [RowSubtitleCase]
         // EXP-983 — speculative starts.
         let edgeStyles: [EdgeStyleCase]
-        // EXP-984 — the agent review gate and the run's counters.
+        // EXP-984 — the agent review gate.
         let reviewLines: [ReviewLineCase]
-        let metricRows: [MetricRowCase]
     }
 
     private struct BandCase: Decodable {
@@ -107,27 +104,6 @@ final class WorkflowViewTests: XCTestCase {
         let status: String
         let deviceId: String?
         let repositoryId: String?
-        let startOn: String
-    }
-
-    private struct TrainCase: Decodable {
-        let name: String
-        let nodes: [FixtureTrainNode]
-        let expected: [FixtureTrainEntry]
-    }
-
-    private struct FixtureTrainNode: Decodable {
-        let id: String
-        let kind: String
-        let state: String
-        let wave: Int
-        let lane: Int
-        let approvedAt: String?
-    }
-
-    private struct FixtureTrainEntry: Decodable, Equatable {
-        let id: String
-        let step: String
     }
 
     private struct FinalPrCase: Decodable {
@@ -147,16 +123,6 @@ final class WorkflowViewTests: XCTestCase {
         let review: WorkflowNodeReview
         let approved: Bool
         let line: String
-    }
-
-    private struct MetricRowCase: Decodable {
-        let metrics: WorkflowMetrics
-        let rows: [FixtureMetricRow]
-    }
-
-    private struct FixtureMetricRow: Decodable, Equatable {
-        let label: String
-        let value: String
     }
 
     /// The committed contract fixture, read through `#filePath` because the
@@ -264,11 +230,10 @@ final class WorkflowViewTests: XCTestCase {
 
     // MARK: - Review gate, dynamic graphs, budgets, metrics (EXP-984)
 
-    // The node panel's review line and the detail's Metrics rows, over the same
-    // fixture the other three read: a verdict, its round, and what the oracle
-    // (or its absence) makes of it; then the counters, in order, each row only
-    // when it has something to say.
-    func testReviewAndMetricsFixtureCases() throws {
+    // The node panel's review line, over the same fixture the other three
+    // read: a verdict, its round, and what the oracle (or its absence) makes
+    // of it.
+    func testReviewLineFixtureCases() throws {
         let fixture = try fixture()
 
         XCTAssertFalse(fixture.reviewLines.isEmpty)
@@ -277,16 +242,6 @@ final class WorkflowViewTests: XCTestCase {
                 WorkflowView.reviewLine(testCase.review, nodeApproved: testCase.approved),
                 testCase.line,
                 "\(testCase.review.verdict) round \(testCase.review.round) approved \(testCase.approved)"
-            )
-        }
-
-        XCTAssertFalse(fixture.metricRows.isEmpty)
-        for testCase in fixture.metricRows {
-            XCTAssertEqual(
-                WorkflowView.metricRows(testCase.metrics).map {
-                    FixtureMetricRow(label: $0.label, value: $0.value)
-                },
-                testCase.rows
             )
         }
     }
@@ -300,10 +255,8 @@ final class WorkflowViewTests: XCTestCase {
             WorkflowView.proposedNodeNote,
             "Filed during the run. Admit it into the workflow or dismiss it."
         )
-        XCTAssertEqual(WorkflowView.agentReviewTitle, "Agent review")
         XCTAssertEqual(WorkflowView.nodeModelLabel, "Model")
         XCTAssertEqual(WorkflowView.nodeUnsyncedTitle, "Not synced yet")
-        XCTAssertEqual(WorkflowView.metricsTitle, "Metrics")
     }
 
     // MARK: - The strict launch (EXP-1029)
@@ -390,14 +343,12 @@ final class WorkflowViewTests: XCTestCase {
                 states: ["proposed"], finalPrState: nil, finalPrNumber: nil
             )
         )
-        // They are not in the merge train either — nothing proposed has a PR.
+        // Its chip offers Admit / Dismiss.
         let proposed = makeWorkflowNode(
             id: "a", issueId: "i1", state: DomainContract.wfNodeStateProposed
         )
         XCTAssertTrue(proposed.isProposed)
-        XCTAssertTrue(
-            WorkflowView.mergeTrain([proposed]).isEmpty
-        )
+        XCTAssertEqual(WorkflowView.nodeChipMenu(state: proposed.state), [.admit, .dismiss])
     }
 
     // MARK: - Running a workflow (EXP-982)
@@ -410,36 +361,13 @@ final class WorkflowViewTests: XCTestCase {
             let workflow = WorkflowView.StartableWorkflow(
                 status: testCase.workflow.status,
                 deviceId: testCase.workflow.deviceId,
-                repositoryId: testCase.workflow.repositoryId,
-                startOn: testCase.workflow.startOn
+                repositoryId: testCase.workflow.repositoryId
             )
             XCTAssertEqual(
                 WorkflowView.startBlocker(workflow, metrics: testCase.metrics),
                 testCase.blocker,
                 testCase.workflow.status
             )
-        }
-
-        for testCase in fixture.trains {
-            let actual = WorkflowView.mergeTrain(
-                testCase.nodes.map {
-                    WorkflowView.TrainNode(
-                        id: $0.id, kind: $0.kind, state: $0.state,
-                        wave: $0.wave, lane: $0.lane, approvedAt: $0.approvedAt
-                    )
-                }
-            )
-            XCTAssertEqual(
-                actual.map { FixtureTrainEntry(id: $0.id, step: $0.step.rawValue) },
-                testCase.expected,
-                testCase.name
-            )
-        }
-
-        for (step, label) in fixture.trainStepLabels {
-            let parsed = WorkflowView.TrainStep(rawValue: step)
-            XCTAssertNotNil(parsed, step)
-            XCTAssertEqual(parsed.map(WorkflowView.trainStepLabel), label, step)
         }
 
         for testCase in fixture.finalPr {
@@ -474,10 +402,6 @@ final class WorkflowViewTests: XCTestCase {
             WorkflowView.cancelConfirm,
             "Its live runs end and its branch is deleted. Nothing reached the default branch."
         )
-        XCTAssertEqual(WorkflowView.approveNodeLabel, "Approve and land")
-        XCTAssertEqual(WorkflowView.withdrawApprovalLabel, "Withdraw approval")
-        XCTAssertEqual(WorkflowView.mergeTrainTitle, "Merge train")
-        XCTAssertEqual(WorkflowView.mergeTrainEmpty, "Nothing is waiting to land.")
         XCTAssertEqual(WorkflowView.finalPrTitle, "Final pull request")
         XCTAssertEqual(WorkflowView.mergeFinalPrLabel, "Merge")
         XCTAssertEqual(
@@ -493,18 +417,9 @@ final class WorkflowViewTests: XCTestCase {
         )
     }
 
-    // The two entity overloads the run surfaces actually call.
-    func testTheRunOverloadsReadTheSyncedRows() {
-        let approved = makeWorkflowNode(
-            id: "a", issueId: "i1", approvedAt: "2026-09-19T09:00:00Z"
-        )
-        let waiting = makeWorkflowNode(id: "b", issueId: "i2", lane: 1)
-        let train = WorkflowView.mergeTrain([waiting, approved])
-        XCTAssertEqual(
-            train.map(\.step), [WorkflowView.TrainStep.next, .needsApproval]
-        )
-
-        // EXP-983: every `start_on` starts, so a bound draft has no blocker.
+    // The entity overload the run surfaces actually call: a bound draft has
+    // no blocker.
+    func testTheStartBlockerReadsTheSyncedRow() {
         let workflow = makeWorkflow(status: DomainContract.wfStatusDraft)
         XCTAssertNil(WorkflowView.startBlocker(workflow))
         XCTAssertEqual(
@@ -659,7 +574,7 @@ final class WorkflowViewTests: XCTestCase {
     // EXP-1014/EXP-1033: the wire contract of `workflows.update` as the phone
     // sends it — the NAME and the runner device, nothing else. The workflow
     // screen configures no run any more (binding a device re-seeds the launch
-    // server-side), so neither a launch nor the dead `startOn` ever leaves this
+    // server-side), so neither a launch nor a start rule ever leaves this
     // client; an unset field is omitted, and an unbound runner is the one
     // explicit null.
     func testTheUpdatePayloadCarriesOnlyTheNameAndTheDevice() throws {
@@ -687,10 +602,10 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(Set(try object(WorkflowPatch()).keys), Set(["id"]))
     }
 
-    // EXP-984: the review payload and the open counter set go the same way —
-    // an unknown key is ignored, a missing one defaults, and a payload that
-    // names no verdict is no review at all rather than a blank block.
-    func testTheReviewPayloadAndCountersParseTolerantly() {
+    // EXP-984: the review payload goes the same way — an unknown key is
+    // ignored, a missing one defaults, and a payload that names no verdict is
+    // no review at all rather than a blank block.
+    func testTheReviewPayloadParsesTolerantly() {
         let review = WorkflowNodeReview.parse(
             #"""
             {"verdict":"request_changes","findings":"The oracle is missing.",
@@ -708,15 +623,12 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertNil(WorkflowNodeReview.parse("{}"))
         XCTAssertEqual(WorkflowNodeReview.parse(#"{"verdict":"approve"}"#)?.round, 0)
 
-        // The counters ride the metrics jsonb beside the shape keys; a value
-        // that is not a whole number is left out rather than read as 0.
+        // EXP-1090: an old row's counters beside the shape keys are ignored;
+        // the shape still reads.
         let metrics = WorkflowMetrics.parse(
             #"{"nodes":2,"depth":2,"cycles":[],"landed":"garbage","reviewRounds":6}"#
         )
-        XCTAssertEqual(metrics.counters["reviewRounds"], 6)
-        XCTAssertEqual(metrics.counters["nodes"], 2)
-        XCTAssertNil(metrics.counters["landed"])
-        XCTAssertNil(metrics.counters["cycles"])
+        XCTAssertEqual(metrics, WorkflowMetrics(nodes: 2, depth: 2))
 
         // EXP-984: the launch's review model rides the same tolerant parse.
         XCTAssertEqual(
@@ -763,9 +675,9 @@ private func makeWorkflowRelation(
     )
 }
 
-// EXP-1082 — the workflow contract's display states, locked ×4 against the
-// same fixture. The strip, header, primary action and chip menu cases decode
-// here already and SKIP until EXP-1066 implements them.
+// EXP-1082/EXP-1066 — the workflow page's view model, locked ×4 against the
+// same fixture: display states, the strip, the header caption, the primary
+// action and the chip menu.
 final class WorkflowContractViewTests: XCTestCase {
     private struct Fixture: Decodable {
         let displayStates: [DisplayStateCase]
@@ -812,7 +724,6 @@ final class WorkflowContractViewTests: XCTestCase {
 
     private struct NodeStripCase: Decodable {
         let name: String
-        let skip: Bool?
         let nodes: [StripNode]
         let edges: [[String]]
         let strip: [StripColumn]
@@ -825,7 +736,6 @@ final class WorkflowContractViewTests: XCTestCase {
 
     private struct HeaderCaptionCase: Decodable {
         let name: String
-        let skip: Bool?
         let status: String
         let device: String?
         let nodes: [HeaderNodeCase]
@@ -876,24 +786,74 @@ final class WorkflowContractViewTests: XCTestCase {
     func testNodeStripFixtureCases() throws {
         let fixture = try fixture()
         XCTAssertFalse(fixture.nodeStrips.isEmpty)
-        throw XCTSkip("EXP-1066")
+        for testCase in fixture.nodeStrips {
+            let actual = WorkflowView.nodeStrip(
+                nodes: testCase.nodes.map {
+                    StripNodeInput(
+                        id: $0.id, identifier: $0.identifier, state: $0.state,
+                        wave: $0.wave, lane: $0.lane, members: $0.members,
+                        live: $0.live, needsYou: $0.needsYou, note: $0.note
+                    )
+                },
+                edges: testCase.edges.compactMap { pair in
+                    pair.count == 2 ? (pair[0], pair[1]) : nil
+                }
+            )
+            let expected = testCase.strip.map { column in
+                StripWave(
+                    wave: column.wave,
+                    nodes: column.nodes.map {
+                        NodeChip(
+                            id: $0.id, title: $0.title,
+                            display: WorkflowNodeDisplayState(rawValue: $0.display) ?? .queued,
+                            caption: $0.caption, stacked: $0.stacked, members: $0.members,
+                            live: $0.live, needsYou: $0.needsYou
+                        )
+                    }
+                )
+            }
+            XCTAssertEqual(actual, expected, testCase.name)
+        }
     }
 
     func testHeaderCaptionFixtureCases() throws {
         let fixture = try fixture()
         XCTAssertFalse(fixture.headerCaptions.isEmpty)
-        throw XCTSkip("EXP-1066")
+        for testCase in fixture.headerCaptions {
+            XCTAssertEqual(
+                WorkflowView.headerCaption(
+                    status: testCase.status,
+                    nodes: testCase.nodes.map { HeaderNode(state: $0.state, members: $0.members) },
+                    deviceLabel: testCase.device
+                ),
+                testCase.caption,
+                testCase.name
+            )
+        }
     }
 
     func testPrimaryActionFixtureCases() throws {
         let fixture = try fixture()
         XCTAssertFalse(fixture.primaryActions.isEmpty)
-        throw XCTSkip("EXP-1066")
+        for testCase in fixture.primaryActions {
+            XCTAssertEqual(
+                WorkflowView.primaryAction(status: testCase.status, deviceLabel: testCase.device)?
+                    .rawValue,
+                testCase.action,
+                "\(testCase.status) \(testCase.device ?? "nil")"
+            )
+        }
     }
 
     func testChipMenuFixtureCases() throws {
         let fixture = try fixture()
         XCTAssertFalse(fixture.chipMenus.isEmpty)
-        throw XCTSkip("EXP-1066")
+        for testCase in fixture.chipMenus {
+            XCTAssertEqual(
+                WorkflowView.nodeChipMenu(state: testCase.state).map(\.rawValue),
+                testCase.menu,
+                testCase.state
+            )
+        }
     }
 }

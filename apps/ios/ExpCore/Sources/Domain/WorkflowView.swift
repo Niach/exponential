@@ -271,10 +271,6 @@ public enum WorkflowView {
     public static let cancelLabel = "Cancel workflow"
     public static let cancelConfirm =
         "Its live runs end and its branch is deleted. Nothing reached the default branch."
-    public static let approveNodeLabel = "Approve and land"
-    public static let withdrawApprovalLabel = "Withdraw approval"
-    public static let mergeTrainTitle = "Merge train"
-    public static let mergeTrainEmpty = "Nothing is waiting to land."
     public static let finalPrTitle = "Final pull request"
     /// EXP-1033: the ONE human review of the whole run — squash-merging the
     /// workflow's final pull request from the workflow screen.
@@ -289,13 +285,11 @@ public enum WorkflowView {
         public let status: String
         public let deviceId: String?
         public let repositoryId: String?
-        public let startOn: String
 
-        public init(status: String, deviceId: String?, repositoryId: String?, startOn: String) {
+        public init(status: String, deviceId: String?, repositoryId: String?) {
             self.status = status
             self.deviceId = deviceId
             self.repositoryId = repositoryId
-            self.startOn = startOn
         }
     }
 
@@ -320,99 +314,10 @@ public enum WorkflowView {
             StartableWorkflow(
                 status: workflow.status,
                 deviceId: workflow.deviceId,
-                repositoryId: workflow.repositoryId,
-                startOn: workflow.startOn
+                repositoryId: workflow.repositoryId
             ),
             metrics: workflow.parsedMetrics
         )
-    }
-
-    /// One node as the merge train reads it.
-    public struct TrainNode: Sendable, Equatable {
-        public let id: String
-        public let kind: String
-        public let state: String
-        public let wave: Int
-        public let lane: Int
-        /// `approved_at` — nil until a member approved the node's PR.
-        public let approvedAt: String?
-
-        public init(
-            id: String, kind: String, state: String, wave: Int, lane: Int, approvedAt: String?
-        ) {
-            self.id = id
-            self.kind = kind
-            self.state = state
-            self.wave = wave
-            self.lane = lane
-            self.approvedAt = approvedAt
-        }
-    }
-
-    public enum TrainStep: String, Sendable {
-        case next
-        case queued
-        case needsApproval = "needs-approval"
-        case updating
-    }
-
-    public struct TrainEntry: Sendable, Equatable {
-        public let id: String
-        public let step: TrainStep
-
-        public init(id: String, step: TrainStep) {
-            self.id = id
-            self.step = step
-        }
-    }
-
-    /// The merge train: every node whose PR is up (`in_review`, or `updating`
-    /// while it merges the trunk in), in landing order (wave, then lane). The
-    /// FIRST node that is cleared to land is `next`; cleared ones behind it are
-    /// `queued`; one no review approved yet says so (EXP-1010: the agent review
-    /// is the only gate, a person may approve by hand).
-    public static func mergeTrain(_ nodes: [TrainNode]) -> [TrainEntry] {
-        let waiting = nodes
-            .filter {
-                $0.state == DomainContract.wfNodeStateInReview
-                    || $0.state == DomainContract.wfNodeStateUpdating
-            }
-            .sorted { ($0.wave, $0.lane, $0.id) < ($1.wave, $1.lane, $1.id) }
-        var nextTaken = false
-        return waiting.map { node in
-            if node.state == DomainContract.wfNodeStateUpdating {
-                return TrainEntry(id: node.id, step: .updating)
-            }
-            if node.approvedAt == nil {
-                return TrainEntry(id: node.id, step: .needsApproval)
-            }
-            if nextTaken { return TrainEntry(id: node.id, step: .queued) }
-            nextTaken = true
-            return TrainEntry(id: node.id, step: .next)
-        }
-    }
-
-    /// The synced rows as the rule reads them.
-    public static func mergeTrain(_ nodes: [WorkflowNodeEntity]) -> [TrainEntry] {
-        mergeTrain(
-            nodes.map {
-                TrainNode(
-                    id: $0.id, kind: $0.kind, state: $0.state,
-                    wave: $0.wave, lane: $0.lane, approvedAt: $0.approvedAt
-                )
-            }
-        )
-    }
-
-    private static let trainStepLabels: [TrainStep: String] = [
-        .next: "Landing next",
-        .queued: "Queued",
-        .needsApproval: "Needs approval",
-        .updating: "Merging the trunk in",
-    ]
-
-    public static func trainStepLabel(_ step: TrainStep) -> String {
-        trainStepLabels[step] ?? step.rawValue
     }
 
     /// The final-PR node's caption, or nil while the node is not drawn: it
@@ -493,13 +398,12 @@ public enum WorkflowView {
     /// The node panel's chip line over `after_node_ids`. Byte-identical ×4.
     public static let mergesInFirstLabel = "Merges in first"
 
-    // MARK: - Review gate, dynamic graphs, budgets, metrics (EXP-984)
+    // MARK: - Review gate, dynamic graphs (EXP-984)
 
     public static let admitNodeLabel = "Admit"
     public static let dismissNodeLabel = "Dismiss"
     public static let proposedNodeNote =
         "Filed during the run. Admit it into the workflow or dismiss it."
-    public static let agentReviewTitle = "Agent review"
     /// The node panel's read-only line: what THIS node's run spawns on
     /// (`modelForNode`).
     public static let nodeModelLabel = "Model"
@@ -507,7 +411,6 @@ public enum WorkflowView {
     /// identifier slot shows the first 8 characters of the issue id, the title
     /// this line. Byte-identical ×4.
     public static let nodeUnsyncedTitle = "Not synced yet"
-    public static let metricsTitle = "Metrics"
 
     /// The node panel's one line about the latest agent review:
     /// `Approved · round 1 · checks passed`, `Approved · round 1`,
@@ -524,67 +427,6 @@ public enum WorkflowView {
             parts.append("advisory")
         }
         return parts.joined(separator: " · ")
-    }
-
-    public struct MetricRow: Sendable, Equatable {
-        public let label: String
-        public let value: String
-
-        public init(label: String, value: String) {
-            self.label = label
-            self.value = value
-        }
-    }
-
-    /// The detail's Metrics section for a STARTED workflow, in this order. A
-    /// row appears only when it has something to say, except the critical path,
-    /// which always does.
-    public static func metricRows(_ metrics: WorkflowMetrics) -> [MetricRow] {
-        func count(_ key: String) -> Int { metrics.counters[key] ?? 0 }
-        var rows = [
-            // The shape keys read off the typed fields; every other counter
-            // comes out of the open set beside them.
-            MetricRow(
-                label: "Critical path",
-                value: "\(metrics.depth) waves for \(metrics.nodes) nodes"
-            )
-        ]
-        let landed = count("landed")
-        if landed > 0 { rows.append(MetricRow(label: "Landed", value: "\(landed)")) }
-        let mergeIns = count("mergeIns")
-        let changes = count("contractChanges")
-        if mergeIns > 0 {
-            rows.append(
-                changes > 0
-                    ? MetricRow(
-                        label: "Merge-ins per contract change",
-                        value: String(format: "%.1f", Double(mergeIns) / Double(changes))
-                    )
-                    : MetricRow(label: "Merge-ins", value: "\(mergeIns)")
-            )
-        }
-        let escalations = count("escalations")
-        if escalations > 0 {
-            rows.append(MetricRow(
-                label: "Escalations",
-                value: "\(escalations) (\(count("duplicateEscalations")) duplicate)"
-            ))
-        }
-        let minutes = count("operatorMinutes")
-        if minutes > 0 {
-            rows.append(MetricRow(label: "Operator minutes", value: "\(minutes)"))
-        }
-        let rounds = count("reviewRounds")
-        if rounds > 0 { rows.append(MetricRow(label: "Review rounds", value: "\(rounds)")) }
-        let byOracle = count("defectsByOracle")
-        let byAgent = count("defectsByAgentReview")
-        if byOracle + byAgent > 0 {
-            rows.append(MetricRow(
-                label: "Defects found",
-                value: "\(byOracle) by checks · \(byAgent) by agent review"
-            ))
-        }
-        return rows
     }
 }
 
@@ -702,6 +544,8 @@ public enum WorkflowPrimaryAction: String, Sendable {
 public enum NodeChipAction: String, Sendable {
     case retry
     case skip
+    case admit
+    case dismiss
 }
 
 extension WorkflowView {
@@ -728,26 +572,92 @@ extension WorkflowView {
         }
     }
 
-    /// STUB (EXP-1066 implements): the node strip — waves left to right, lanes
-    /// top to bottom (fixture `nodeStrips`).
-    public static func nodeStrip(nodes: [StripNodeInput], edges: [(String, String)]) -> [StripWave] {
-        []
+    /// The strip IS the graph: waves left to right (only the waves that hold
+    /// a node), lanes top to bottom within a wave, ties by id. The edges are
+    /// the mini-graph popover's business; the strip only orders. A compound
+    /// node is `stacked` (the `IssueChipStack`); the caption is the node's
+    /// note while it has one, else its display label (fixture `nodeStrips`).
+    public static func nodeStrip(nodes: [StripNodeInput], edges _: [(String, String)]) -> [StripWave] {
+        let byWave = Dictionary(grouping: nodes, by: \.wave)
+        return byWave.keys.sorted().map { wave in
+            let chips = (byWave[wave] ?? [])
+                .sorted { ($0.lane, $0.id) < ($1.lane, $1.id) }
+                .map { node in
+                    let display = nodeDisplayState(node.state)
+                    let note = node.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return NodeChip(
+                        id: node.id,
+                        title: nodeTitle(identifier: node.identifier, memberCount: node.members),
+                        display: display,
+                        caption: note.isEmpty ? display.label : note,
+                        stacked: node.members > 0,
+                        members: node.members,
+                        live: node.live,
+                        needsYou: node.needsYou
+                    )
+                }
+            return StripWave(wave: wave, nodes: chips)
+        }
     }
 
-    /// STUB (EXP-1066 implements): the header's one-line caption (fixture
-    /// `headerCaptions`).
+    private static let statusWords: [String: String] = [
+        "draft": "Draft",
+        "done": "Done",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+    ]
+
+    /// The one line under the workflow's name. A draft counts its ISSUES
+    /// (members included): `Draft · 8 issues`. A started workflow names its
+    /// runner and counts NODES: `on MacBook · 5 of 8 done · 2 running` (the
+    /// running tail only while something runs). Over, it counts what happened:
+    /// `Done · 2 done · 1 skipped`. A `proposed` node was never admitted and is
+    /// not counted (fixture `headerCaptions`).
     public static func headerCaption(status: String, nodes: [HeaderNode], deviceLabel: String?) -> String {
-        ""
+        let admitted = nodes.filter { $0.state != DomainContract.wfNodeStateProposed }
+        if status == DomainContract.wfStatusDraft {
+            let issues = admitted.reduce(0) { $0 + 1 + $1.members }
+            return "Draft · \(issues == 1 ? "1 issue" : "\(issues) issues")"
+        }
+        func tally(_ display: WorkflowNodeDisplayState) -> Int {
+            admitted.filter { nodeDisplayState($0.state) == display }.count
+        }
+        let done = tally(.done)
+        if status == DomainContract.wfStatusRunning || status == DomainContract.wfStatusPaused {
+            var parts = ["\(done) of \(admitted.count) done"]
+            let running = tally(.running)
+            if running > 0 { parts.append("\(running) running") }
+            if let deviceLabel { parts.insert("on \(deviceLabel)", at: 0) }
+            return parts.joined(separator: " · ")
+        }
+        let word = statusWords[status] ?? (status.prefix(1).uppercased() + status.dropFirst())
+        var parts = [word, "\(done) done"]
+        let failed = tally(.failed)
+        if failed > 0 { parts.append("\(failed) failed") }
+        let skipped = tally(.skipped)
+        if skipped > 0 { parts.append("\(skipped) skipped") }
+        return parts.joined(separator: " · ")
     }
 
-    /// STUB (EXP-1066 implements): the page's primary button, nil = none
-    /// (fixture `primaryActions`).
+    /// The header's ONE primary button: a draft without a runner picks one, a
+    /// draft starts, running pauses, paused resumes, done reviews the final
+    /// PR. Failed and cancelled offer nothing (fixture `primaryActions`).
     public static func primaryAction(status: String, deviceLabel: String?) -> WorkflowPrimaryAction? {
-        nil
+        switch status {
+        case DomainContract.wfStatusDraft: deviceLabel == nil ? .pickDevice : .start
+        case DomainContract.wfStatusRunning: .pause
+        case DomainContract.wfStatusPaused: .resume
+        case DomainContract.wfStatusDone: .reviewFinalPr
+        default: nil
+        }
     }
 
-    /// STUB (EXP-1066 implements): a node chip's menu (fixture `chipMenus`).
+    /// What a node chip's menu offers: Retry / Skip on a `failed` node, Admit /
+    /// Dismiss on a `proposed` one, nothing else anywhere (fixture
+    /// `chipMenus`).
     public static func nodeChipMenu(state: String) -> [NodeChipAction] {
-        []
+        if state == DomainContract.wfNodeStateFailed { return [.retry, .skip] }
+        if state == DomainContract.wfNodeStateProposed { return [.admit, .dismiss] }
+        return []
     }
 }

@@ -15,6 +15,13 @@ import {
   workflowShapeLine,
   NEEDS_YOU_LABEL,
   nodeChipMenu,
+  workflowOverflowMenu,
+  ALL_NODES_LABEL,
+  DECISIONS_LABEL,
+  STOP_WORKFLOW_LABEL,
+  PICK_DEVICE_LABEL,
+  RUNS_ON_LABEL,
+  REVIEW_FINAL_PR_LABEL,
   workflowHeaderCaption,
   workflowNodeDisplayLabel,
   workflowNodeDisplayState,
@@ -135,5 +142,22 @@ describe(`workflow page view model (EXP-1082)`, () => {
     for (const c of fixture.chipMenus) {
       expect(nodeChipMenu(c.state)).toEqual(c.menu)
     }
+  })
+
+  it(`fills the header's overflow by status`, () => {
+    for (const c of fixture.overflowMenus) {
+      expect(workflowOverflowMenu(c.status), c.status).toEqual(c.menu)
+    }
+  })
+
+  it(`spells the page labels the same everywhere`, () => {
+    expect({
+      allNodes: ALL_NODES_LABEL,
+      decisions: DECISIONS_LABEL,
+      stop: STOP_WORKFLOW_LABEL,
+      pickDevice: PICK_DEVICE_LABEL,
+      runsOn: RUNS_ON_LABEL,
+      reviewFinalPr: REVIEW_FINAL_PR_LABEL,
+    }).toEqual(fixture.pageLabels)
   })
 })

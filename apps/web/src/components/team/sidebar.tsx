@@ -58,6 +58,7 @@ import {
   TeamSidebarRail,
   UserAvatar,
   UserMenuItems,
+  WorkflowsQuestionBadge,
 } from "@/components/team/sidebar-rail"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
@@ -439,6 +440,7 @@ export function TeamSidebar({
                                 <span>{WORKFLOWS_TITLE}</span>
                               </Link>
                             </SidebarMenuButton>
+                            <WorkflowsQuestionBadge teamId={team?.id} placement="row" />
                           </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">

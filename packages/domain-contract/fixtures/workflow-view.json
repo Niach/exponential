@@ -1149,5 +1149,59 @@
       "state": "brand-new",
       "menu": []
     }
-  ]
+  ],
+  "overflowMenus": [
+    {
+      "status": "draft",
+      "menu": [
+        "plan",
+        "runs_on",
+        "delete"
+      ]
+    },
+    {
+      "status": "running",
+      "menu": [
+        "stop"
+      ]
+    },
+    {
+      "status": "paused",
+      "menu": [
+        "stop"
+      ]
+    },
+    {
+      "status": "done",
+      "menu": [
+        "delete"
+      ]
+    },
+    {
+      "status": "failed",
+      "menu": [
+        "delete"
+      ]
+    },
+    {
+      "status": "cancelled",
+      "menu": [
+        "delete"
+      ]
+    },
+    {
+      "status": "something-new",
+      "menu": [
+        "delete"
+      ]
+    }
+  ],
+  "pageLabels": {
+    "allNodes": "All",
+    "decisions": "Decisions",
+    "stop": "Stop",
+    "pickDevice": "Pick device",
+    "runsOn": "Runs on",
+    "reviewFinalPr": "Review final PR"
+  }
 }

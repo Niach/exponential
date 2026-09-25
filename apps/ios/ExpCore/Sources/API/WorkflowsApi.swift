@@ -20,8 +20,6 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
     public let status: String
     public let deviceId: String?
     public let launch: WorkflowLaunch
-    /// contract `wfStartOn`.
-    public let startOn: String
     public let integrationBranch: String
     public let finalPrUrl: String?
     public let finalPrNumber: Int?
@@ -41,7 +39,6 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
         status: String = "draft",
         deviceId: String? = nil,
         launch: WorkflowLaunch = WorkflowLaunch(),
-        startOn: String = "contract",
         integrationBranch: String = "",
         finalPrUrl: String? = nil,
         finalPrNumber: Int? = nil,
@@ -60,7 +57,6 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
         self.status = status
         self.deviceId = deviceId
         self.launch = launch
-        self.startOn = startOn
         self.integrationBranch = integrationBranch
         self.finalPrUrl = finalPrUrl
         self.finalPrNumber = finalPrNumber
@@ -76,7 +72,7 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
 
 extension WorkflowDto: Decodable {
     enum CodingKeys: String, CodingKey {
-        case id, teamId, repositoryId, name, status, deviceId, launch, startOn
+        case id, teamId, repositoryId, name, status, deviceId, launch
         case integrationBranch, finalPrUrl, finalPrNumber, finalPrState, decisions
         case metrics, startedAt, endedAt, createdAt, updatedAt
     }
@@ -92,7 +88,6 @@ extension WorkflowDto: Decodable {
         // The two jsonb columns: objects over tRPC, pre-stringified from
         // fixtures — both go through the tolerant parse.
         launch = WorkflowLaunch.parse(c.decodeWireJsonString(forKey: .launch))
-        startOn = (try? c.decodeIfPresent(String.self, forKey: .startOn)) ?? "contract"
         integrationBranch =
             (try? c.decodeIfPresent(String.self, forKey: .integrationBranch)) ?? ""
         finalPrUrl = try c.decodeIfPresent(String.self, forKey: .finalPrUrl)
@@ -118,7 +113,6 @@ public extension WorkflowDto {
             status: entity.status,
             deviceId: entity.deviceId,
             launch: entity.parsedLaunch,
-            startOn: entity.startOn,
             integrationBranch: entity.integrationBranch,
             finalPrUrl: entity.finalPrUrl,
             finalPrNumber: entity.finalPrNumber,
@@ -152,8 +146,7 @@ private struct CreateInput: Encodable {
 /// workflow screen configures no run any more — binding a runner to a draft
 /// re-seeds the launch from THAT machine's defaults server-side, and every
 /// model is derived from the two the launch carries — so the launch never
-/// rides this patch. `startOn` is gone with it: the server ignores the field
-/// (`contract` is fixed).
+/// rides this patch (EXP-1090: nor any start rule — there is only one).
 public struct WorkflowPatch: Sendable, Equatable {
     public var name: String?
     public var deviceId: String??

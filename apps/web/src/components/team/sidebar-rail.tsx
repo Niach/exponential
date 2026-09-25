@@ -1,4 +1,5 @@
 import type * as React from "react"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   conceptIcon,
@@ -18,7 +19,7 @@ import {
 } from "@exp/ui"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { cn } from "@/lib/utils"
-import type { Board, Team } from "@/db/schema"
+import type { Board, CodingSession, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 import {
@@ -31,6 +32,8 @@ import {
 } from "@/hooks/use-nav-counts"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
+import { workflowOpenQuestions } from "@/lib/workflows/open-questions"
+import { codingSessionCollection } from "@/lib/collections"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
 import { SidebarRunningIcons } from "@/components/team/sidebar-running"
 
@@ -179,6 +182,37 @@ export function ReviewsOpenBadge({
   const count = useReviewsOpenPrCount(boards, teamId)
   if (count === 0) return null
   return <NavDot className="bg-green-500" placement={placement} />
+}
+
+/** EXP-1084: a workflow run of the team asks the person something — the
+ *  Workflows entry's red dot (`workflowOpenQuestions`). */
+export function WorkflowsQuestionBadge({
+  teamId,
+  placement,
+}: {
+  teamId?: string
+  placement: BadgePlacement
+}) {
+  const { data: rows } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ s: codingSessionCollection })
+            .where(({ s }) => eq(s.teamId, teamId))
+        : undefined,
+    [teamId]
+  )
+  const sessions = (rows ?? []) as CodingSession[]
+  const workflowIds = new Set(
+    sessions
+      .map((session) => session.workflowId)
+      .filter((id): id is string => id != null)
+  )
+  const asking = [...workflowIds].some(
+    (workflowId) => workflowOpenQuestions(sessions, workflowId).length > 0
+  )
+  if (!asking) return null
+  return <NavDot className="bg-red-500" placement={placement} />
 }
 
 /** My live runs in the team (`useMyLiveRuns`) — the Agent entry's dot (EXP-880:
@@ -377,6 +411,7 @@ export function TeamSidebarRail({
           link={{ to: `/t/$teamSlug/workflows`, params }}
         >
           <NavWorkflowsIcon className="size-4" />
+          <WorkflowsQuestionBadge teamId={team?.id} placement="icon" />
         </RailItem>
         <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
           <NavReviewsIcon className="size-4" />

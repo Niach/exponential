@@ -503,6 +503,31 @@ export function workflowPrimaryAction(
   return null
 }
 
+/** The picker's first chip. Byte-identical ×4. */
+export const ALL_NODES_LABEL = `All`
+/** The collapsed log under the All × Issue list. */
+export const DECISIONS_LABEL = `Decisions`
+/** The header's overflow. Stop = `workflows.cancel` behind `CANCEL_WORKFLOW_CONFIRM`. */
+export const STOP_WORKFLOW_LABEL = `Stop`
+/** The `pick_device` primary button and a draft's overflow entry that re-picks. */
+export const PICK_DEVICE_LABEL = `Pick device`
+export const RUNS_ON_LABEL = `Runs on`
+/** The `review_final_pr` primary button. */
+export const REVIEW_FINAL_PR_LABEL = `Review final PR`
+
+export type WorkflowOverflowItem = `plan` | `runs_on` | `stop` | `delete`
+
+/**
+ * The header's overflow menu, in order: a draft plans (the planner run — the
+ * page is the only place it starts from), re-picks its runner and deletes;
+ * a started workflow stops; an over one deletes.
+ */
+export function workflowOverflowMenu(status: string): WorkflowOverflowItem[] {
+  if (status === `draft`) return [`plan`, `runs_on`, `delete`]
+  if (status === `running` || status === `paused`) return [`stop`]
+  return [`delete`]
+}
+
 export type NodeChipMenuItem = `retry` | `skip` | `admit` | `dismiss`
 
 /** What a node chip's overflow offers: Retry / Skip on a `failed` node,

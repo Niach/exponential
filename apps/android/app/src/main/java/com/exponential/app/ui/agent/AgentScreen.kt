@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
@@ -61,6 +62,9 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.StackStart
+import com.exponential.app.domain.WorkflowQuestions
+import com.exponential.app.ui.issue.StaticDot
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
@@ -426,15 +430,33 @@ fun AgentScreen(
                     // EXP-981: the team's workflows, one tap away — the
                     // phone's stand-in for web's and the desktop's sidebar
                     // entry after Automations.
+                    // EXP-1069: a red dot while any workflow of the team has an
+                    // open question — the one thing inside a run that waits
+                    // for a person.
+                    val workflowNeedsYou = sessionsState.treeContext.workflows.any { workflow ->
+                        WorkflowQuestions.open(
+                            sessionsState.rows.map { it.session },
+                            workflow.id,
+                        ).isNotEmpty()
+                    }
                     IconButton(
                         onClick = onOpenWorkflows,
                         modifier = Modifier.testTag("agent-workflows-button"),
                     ) {
-                        Icon(
-                            ExpIcons.navWorkflows,
-                            contentDescription = WorkflowView.WORKFLOWS_TITLE,
-                            modifier = Modifier.size(20.dp),
-                        )
+                        Box {
+                            Icon(
+                                ExpIcons.navWorkflows,
+                                contentDescription = WorkflowView.WORKFLOWS_TITLE,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            if (workflowNeedsYou) {
+                                Box(
+                                    Modifier
+                                        .align(Alignment.TopEnd)
+                                        .testTag("agent-workflows-needs-you"),
+                                ) { StaticDot(DesignTokens.Palette.Destructive, 6.dp) }
+                            }
+                        }
                     }
                     IconButton(
                         onClick = { recentOpen = true },

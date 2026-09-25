@@ -2177,9 +2177,6 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
     /// The launch jsonb, stored as stringified JSON and tolerant-parsed lazily
     /// via `WorkflowLaunch.parse` (the `automations.trigger` pattern).
     public let launch: String?
-    /// contract `wfStartOn`. (EXP-1010: the synced `gate` column is a relic
-    /// for older engines; nothing here reads it.)
-    public let startOn: String
     /// `exp/wf-<id8>`, stamped at create.
     public let integrationBranch: String
     /// The ONE final PR integration → default branch.
@@ -2203,7 +2200,6 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
         status: String = "draft",
         deviceId: String? = nil,
         launch: String? = nil,
-        startOn: String = "contract",
         integrationBranch: String = "",
         finalPrUrl: String? = nil,
         finalPrNumber: Int? = nil,
@@ -2222,7 +2218,6 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
         self.status = status
         self.deviceId = deviceId
         self.launch = launch
-        self.startOn = startOn
         self.integrationBranch = integrationBranch
         self.finalPrUrl = finalPrUrl
         self.finalPrNumber = finalPrNumber
@@ -2240,7 +2235,6 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
         case teamId = "team_id"
         case repositoryId = "repository_id"
         case deviceId = "device_id"
-        case startOn = "start_on"
         case integrationBranch = "integration_branch"
         case finalPrUrl = "final_pr_url"
         case finalPrNumber = "final_pr_number"
@@ -2274,7 +2268,6 @@ extension WorkflowEntity: Codable {
         status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "draft"
         deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
         launch = c.decodeWireJsonString(forKey: .launch)
-        startOn = (try? c.decodeIfPresent(String.self, forKey: .startOn)) ?? "contract"
         integrationBranch =
             (try? c.decodeIfPresent(String.self, forKey: .integrationBranch)) ?? ""
         finalPrUrl = try c.decodeIfPresent(String.self, forKey: .finalPrUrl)
