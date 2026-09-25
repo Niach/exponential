@@ -1,45 +1,92 @@
 package com.exponential.app.domain
 
 /**
- * EXP-1087: what the workflow page's chip strip has selected — `All` (null)
- * or ONE node. Pure, so the page's selection rules are testable without a
- * view: tap selects, tapping the selected chip again goes back to All, and
- * stepping walks the strip in DAG order (waves, then lanes) with All at
- * position 0. Mirrors iOS `WorkflowSelection.swift`.
+ * EXP-1084: the workflow page's PICKER model — pure, mirrored ×4 (web
+ * `lib/workflow-selection.ts`, desktop `ui::workflow_view::Selection`, iOS
+ * `WorkflowSelection.swift`) and locked by the contract fixture
+ * `workflow-view.json` `selection`. The strip is the picker: `All` first
+ * (position 0), then every node in DAG order ([order]). An EMPTY [ids] IS All.
+ *
+ * A click picks exactly that node (a click on the already picked chip keeps
+ * it); a toggle adds or removes one node (the last one out = All); extend
+ * picks the DAG-order range from the [anchor] to the node; a step moves ONE
+ * position from the [cursor] (the last clicked or stepped node, else the last
+ * picked one) through All + the nodes, clamped; prune drops nodes that left.
  */
 data class WorkflowSelection(
-    /** The selected node id; null = All. */
-    val nodeId: String? = null,
+    /** The picked nodes, in DAG order. Empty = All. */
+    val ids: List<String> = emptyList(),
+    /** Where an extend range starts: the last plain or toggling click. */
+    val anchor: String? = null,
+    /** The node a step moves from: the last one clicked or stepped to. */
+    val cursor: String? = null,
 ) {
-    val isAll: Boolean get() = nodeId == null
+    val isAll: Boolean get() = ids.isEmpty()
 
-    /** Select one node, or All with null. */
-    fun select(id: String?): WorkflowSelection = WorkflowSelection(id)
+    /** The ONE picked node, or null for All and multi-picks. */
+    val single: String? get() = ids.singleOrNull()
 
-    /** A chip tap: the selected chip goes back to All, any other is selected. */
-    fun toggle(id: String): WorkflowSelection = WorkflowSelection(if (nodeId == id) null else id)
+    /** A plain click on a chip; null = the All chip, an unknown node = All. */
+    fun click(id: String?, order: List<String>): WorkflowSelection {
+        if (id == null || id !in order) return ALL
+        return WorkflowSelection(listOf(id), id, id)
+    }
 
-    /**
-     * The position in the strip, All = 0, the first node = 1. A selected node
-     * that is not in [order] (it left the workflow) reads as All.
-     */
+    /** Add or remove one node, in DAG order; the last one out = All. */
+    fun toggle(id: String, order: List<String>): WorkflowSelection {
+        if (id !in order) return ALL
+        val next = ids.toMutableSet()
+        if (!next.remove(id)) next.add(id)
+        val picked = order.filter { it in next }
+        if (picked.isEmpty()) return ALL
+        return WorkflowSelection(picked, id, id)
+    }
+
+    /** The DAG-order range from the anchor (else the node itself) to [id]. */
+    fun extend(id: String, order: List<String>): WorkflowSelection {
+        if (id !in order) return ALL
+        val from = order.indexOf(anchor?.takeIf { it in order } ?: id)
+        val to = order.indexOf(id)
+        return WorkflowSelection(order.subList(minOf(from, to), maxOf(from, to) + 1).toList(), order[from], id)
+    }
+
+    /** The node a step moves from, or null on All. */
+    private fun stepOrigin(): String? = when {
+        ids.isEmpty() -> null
+        cursor != null && cursor in ids -> cursor
+        else -> ids.last()
+    }
+
+    /** The strip position a step moves from: All = 0, the first node = 1. */
     fun position(order: List<String>): Int {
-        val id = nodeId ?: return 0
-        val index = order.indexOf(id)
+        val origin = stepOrigin() ?: return 0
+        val index = order.indexOf(origin)
         return if (index < 0) 0 else index + 1
     }
 
-    /** Step [delta] chips along the strip, clamped to All … the last node. */
+    /** One position through All + the nodes, clamped; lands on ONE node or All. */
     fun step(delta: Int, order: List<String>): WorkflowSelection {
-        val target = (position(order) + delta).coerceIn(0, order.size)
-        return WorkflowSelection(if (target == 0) null else order[target - 1])
+        val next = (position(order) + delta).coerceIn(0, order.size)
+        if (next == 0) return ALL
+        val id = order[next - 1]
+        return WorkflowSelection(listOf(id), id, id)
     }
 
-    /** A node that left the workflow (dismissed, re-planned away) falls back to All. */
-    fun reconcile(order: List<String>): WorkflowSelection =
-        if (nodeId != null && nodeId !in order) WorkflowSelection() else this
+    /** Drops nodes that left the workflow; none left = All. */
+    fun prune(order: List<String>): WorkflowSelection {
+        val kept = order.filter { it in ids }
+        if (kept.size == ids.size) return this
+        if (kept.isEmpty()) return ALL
+        return WorkflowSelection(
+            ids = kept,
+            anchor = anchor?.takeIf { it in kept } ?: kept.first(),
+            cursor = cursor?.takeIf { it in kept } ?: kept.first(),
+        )
+    }
 
     companion object {
+        val ALL = WorkflowSelection()
+
         /** The strip's chip ids in DAG order — the order `nodeStrip` draws them. */
         fun order(strip: List<StripWave>): List<String> = strip.flatMap { wave -> wave.nodes.map { it.id } }
     }

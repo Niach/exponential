@@ -201,14 +201,6 @@ fun workflowNodeReview(raw: String?): WorkflowNodeReview? {
     )
 }
 
-/** The review line's inputs, in the shared rule's shape. */
-val WorkflowNodeReview.line: WorkflowView.ReviewLine
-    get() = WorkflowView.ReviewLine(
-        verdict = verdict,
-        round = round,
-        oraclePassed = oracle?.passed,
-    )
-
 /** `workflows.metrics`: the plan's shape, as [WorkflowView] reads it. */
 fun workflowMetrics(raw: String?): WorkflowView.Shape {
     val obj = parseObject(raw) ?: return WorkflowView.Shape()
@@ -235,10 +227,6 @@ val WorkflowEntity.shape: WorkflowView.Shape get() = workflowMetrics(metrics)
 
 /** The launch options off the synced row. */
 val WorkflowEntity.launchOptions: WorkflowLaunch get() = workflowLaunch(launch)
-
-/** A node's caption inputs, in the shared rule's shape. */
-val WorkflowNodeEntity.captionNode: WorkflowView.CaptionNode
-    get() = WorkflowView.CaptionNode(kind = kind, state = state, risk = risk)
 
 /**
  * A node as the edge rule sees it (its issue plus a compound's members, and

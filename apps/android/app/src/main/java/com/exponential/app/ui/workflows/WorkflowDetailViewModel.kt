@@ -292,6 +292,15 @@ class WorkflowDetailViewModel @Inject constructor(
         _error.value = null
     }
 
+    /** The header's name field: saves on Done or blur; blank or unchanged = nothing. */
+    fun rename(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || trimmed == workflow.value?.name) return
+        mutate("The workflow could not be renamed") { accountId ->
+            workflowsApi.update(accountId, workflowId, name = trimmed)
+        }
+    }
+
     /** Bind the runner machine (a draft's pick). */
     fun setDevice(deviceId: String) {
         mutate("The runner could not be set") { accountId ->
@@ -380,7 +389,7 @@ internal fun workflowStrip(graph: WorkflowGraph, questions: List<WorkflowOpenQue
  * primary action already IS Pick device.
  */
 internal fun workflowStartNotice(row: WorkflowEntity, deviceLabel: String?): String? {
-    val primary = WorkflowView.primaryAction(row.status, deviceLabel)
+    val primary = WorkflowView.primaryAction(row.status, deviceLabel, row.finalPrState)
     if (primary != WorkflowPrimaryAction.START && primary != WorkflowPrimaryAction.PICK_DEVICE) return null
     // Pick device already says "pick a device": judge the rest as if one were
     // bound, so only the OTHER reasons surface.

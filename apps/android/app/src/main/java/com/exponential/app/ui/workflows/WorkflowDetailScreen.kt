@@ -2,6 +2,9 @@ package com.exponential.app.ui.workflows
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -41,11 +46,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.HiltViewModelFactory
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.HasDefaultViewModelProviderFactory
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.db.CodingSessionEntity
@@ -80,6 +96,7 @@ import com.exponential.app.domain.sessionTree
 import com.exponential.app.domain.switcherMode
 import com.exponential.app.domain.switcherTargets
 import com.exponential.app.domain.visibleSessionTreeRows
+import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.FloatingBarCluster
@@ -148,8 +165,11 @@ fun WorkflowDetailScreen(
     onOpenSession: (sessionId: String) -> Unit,
     /** The standalone Changes route — for a PR the face cannot show. */
     onOpenChanges: (issueId: String) -> Unit,
-    /** `review_final_pr`: the Reviews screen. */
-    onOpenReviews: () -> Unit,
+    /**
+     * Unused since review r2: `review_final_pr` now opens All × Changes on
+     * this page. Kept so the nav host (outside this lane) still compiles.
+     */
+    @Suppress("UNUSED_PARAMETER") onOpenReviews: () -> Unit = {},
     viewModel: WorkflowDetailViewModel = hiltViewModel(),
 ) {
     val workflow by viewModel.workflow.collectAsStateWithLifecycle()
@@ -177,24 +197,26 @@ fun WorkflowDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     val order = remember(strip) { WorkflowSelection.order(strip) }
-    val selection = WorkflowSelection(selectedId).reconcile(order)
+    // The phone picks ONE node or All; the rules are the ×4 picker model.
+    val current = WorkflowSelection(listOfNotNull(selectedId), selectedId, selectedId)
+    val selection = if (order.isEmpty()) current else current.prune(order)
     // A node that left the workflow falls back to All — once the strip exists.
     LaunchedEffect(order) {
-        if (order.isNotEmpty() && selection.nodeId != selectedId) selectedId = selection.nodeId
+        if (order.isNotEmpty() && selection.single != selectedId) selectedId = selection.single
     }
-    val selectNode: (String?) -> Unit = { id ->
-        if (id != selectedId) faceName = null
-        selectedId = id
-    }
+    // The face is the PAGE's: a pick or a step never resets it (EXP-1084).
+    val selectNode: (String?) -> Unit = { id -> selectedId = id }
+    val focusManager = LocalFocusManager.current
+    var nameDraft by remember { mutableStateOf<String?>(null) }
     val nodeOfIssue: (String) -> WorkflowNodeEntity? = { issueId ->
         graph.nodes.firstOrNull { issueId in it.coveredIssueIds }
     }
 
     val row = workflow
     val deviceLabel = device?.let(::deviceOptionLabel) ?: row?.deviceId?.take(8)
-    val primary = row?.let { WorkflowView.primaryAction(it.status, deviceLabel) }
+    val primary = row?.let { WorkflowView.primaryAction(it.status, deviceLabel, it.finalPrState) }
     val finalPrUrl = row?.finalPrUrl?.takeIf { it.isNotBlank() }
-    val selectedNode = selection.nodeId?.let { id -> graph.nodes.firstOrNull { it.id == id } }
+    val selectedNode = selection.single?.let { id -> graph.nodes.firstOrNull { it.id == id } }
     val allFace = WorkFaceKind.entries.firstOrNull { it.name == faceName }
 
     ProvideMarkdownToolbar {
@@ -212,13 +234,31 @@ fun WorkflowDetailScreen(
                                 // (web `workflowStatusGlyph`, iOS `display(status:)`).
                                 row?.let { wf ->
                                     Box(Modifier.testTag("workflow-status-glyph")) {
-                                        DisplayGlyph(workflowDisplay(wf.status), live = false, status = null)
+                                        DisplayGlyph(WorkflowView.statusGlyph(wf.status), live = false, status = null)
                                     }
                                 }
-                                Text(
-                                    row?.name.orEmpty(),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                // The name saves on Done or blur, like every
+                                // other title field.
+                                BasicTextField(
+                                    value = nameDraft ?: row?.name.orEmpty(),
+                                    onValueChange = { nameDraft = it },
+                                    enabled = row != null,
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                    modifier = Modifier
+                                        .weight(1f, fill = false)
+                                        .testTag("workflow-name")
+                                        .onFocusChanged { state ->
+                                            if (!state.isFocused) {
+                                                nameDraft?.let(viewModel::rename)
+                                                nameDraft = null
+                                            }
+                                        },
                                 )
                             }
                         },
@@ -240,7 +280,12 @@ fun WorkflowDetailScreen(
                                             WorkflowPrimaryAction.START -> viewModel.start()
                                             WorkflowPrimaryAction.PAUSE -> viewModel.pause()
                                             WorkflowPrimaryAction.RESUME -> viewModel.resume()
-                                            WorkflowPrimaryAction.REVIEW_FINAL_PR -> onOpenReviews()
+                                            // The final PR row (with Merge) lives on
+                                            // All × Changes, on this page.
+                                            WorkflowPrimaryAction.REVIEW_FINAL_PR -> {
+                                                selectNode(null)
+                                                faceName = WorkFaceKind.Changes.name
+                                            }
                                         }
                                     },
                                 )
@@ -316,8 +361,10 @@ fun WorkflowDetailScreen(
                                 .testTag("workflow-error"),
                         )
                     }
-                    questions.firstOrNull()?.let { question ->
-                        key(question.sessionId) {
+                    // EVERY open question; each one's answer field only on
+                    // the caller's own run (EXP-312).
+                    questions.forEach { question ->
+                        key(question.sessionId, question.askedAt) {
                             QuestionBanner(
                                 question = question,
                                 own = question.sessionId in ownSessionIds,
@@ -340,14 +387,15 @@ fun WorkflowDetailScreen(
                     NodeStrip(
                         strip = strip,
                         graph = graph,
-                        selectedId = selection.nodeId,
+                        selectedId = selection.single,
                         onSelectAll = { selectNode(null) },
-                        onSelect = { id -> selectNode(WorkflowSelection(selectedId).toggle(id).nodeId) },
+                        // A tap picks exactly that node; the picked chip stays.
+                        onSelect = { id -> selectNode(selection.click(id, order).single) },
                         onLongPress = { id -> sheetNodeId = id },
                     )
                     // Stepping: one node selected, the chevrons walk the strip
                     // in its own order; back past the first node is All.
-                    if (selection.nodeId != null && order.isNotEmpty()) {
+                    if (!selection.isAll && order.isNotEmpty()) {
                         val position = selection.position(order)
                         Row(
                             modifier = Modifier
@@ -359,7 +407,7 @@ fun WorkflowDetailScreen(
                             CircleIconButton(
                                 ExpIcons.uiChevronLeft,
                                 "Previous node",
-                                onClick = { selectNode(selection.step(-1, order).nodeId) },
+                                onClick = { selectNode(selection.step(-1, order).single) },
                                 borderless = true,
                                 modifier = Modifier.testTag("workflow-step-previous"),
                             )
@@ -367,7 +415,7 @@ fun WorkflowDetailScreen(
                                 ExpIcons.uiChevronRight,
                                 "Next node",
                                 enabled = position < order.size,
-                                onClick = { selectNode(selection.step(1, order).nodeId) },
+                                onClick = { selectNode(selection.step(1, order).single) },
                                 borderless = true,
                                 modifier = Modifier.testTag("workflow-step-next"),
                             )
@@ -388,9 +436,12 @@ fun WorkflowDetailScreen(
             }
             if (selectedNode != null) {
                 key(selectedNode.id) {
+                    val runId = graph.runsByNodeId[selectedNode.id]?.sessionId
                     NodeFaces(
                         issueId = selectedNode.issueId,
-                        sessionId = graph.runsByNodeId[selectedNode.id]?.sessionId,
+                        sessionId = runId,
+                        ownRun = runId != null && runId in ownSessionIds,
+                        viewModel = viewModel,
                         faceName = faceName,
                         onFace = { faceName = it.name },
                         padding = padding,
@@ -405,6 +456,10 @@ fun WorkflowDetailScreen(
                     viewModel = viewModel,
                     graph = graph,
                     finalPrOpen = finalPrUrl != null && row.finalPrState == DomainContract.prStateOpen,
+                    onOpenNodeChanges = { nodeId ->
+                        selectNode(nodeId)
+                        faceName = WorkFaceKind.Changes.name
+                    },
                     faceName = faceName,
                     onFace = { faceName = it.name },
                     padding = padding,
@@ -507,7 +562,7 @@ private fun PrimaryActionPill(action: WorkflowPrimaryAction, enabled: Boolean, o
     val (label, icon) = when (action) {
         WorkflowPrimaryAction.PICK_DEVICE -> WorkflowView.PICK_DEVICE_LABEL to ExpIcons.uiDevice
         WorkflowPrimaryAction.START -> WorkflowView.START_WORKFLOW_LABEL to ExpIcons.actionRun
-        WorkflowPrimaryAction.PAUSE -> WorkflowView.PAUSE_WORKFLOW_LABEL to ExpIcons.uiStop
+        WorkflowPrimaryAction.PAUSE -> WorkflowView.PAUSE_WORKFLOW_LABEL to ExpIcons.runPause
         WorkflowPrimaryAction.RESUME -> WorkflowView.RESUME_WORKFLOW_LABEL to ExpIcons.actionRun
         WorkflowPrimaryAction.REVIEW_FINAL_PR -> WorkflowView.REVIEW_FINAL_PR_LABEL to ExpIcons.navReviews
     }
@@ -552,7 +607,9 @@ private fun QuestionBanner(question: WorkflowOpenQuestion, own: Boolean, title: 
 /** The owner's answer field — the only thing here that connects to the run. */
 @Composable
 private fun QuestionAnswer(question: WorkflowOpenQuestion) {
+    // Scoped to the banner row: the relay connection goes when the question does.
     val sessionVm = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
+        viewModelStoreOwner = rememberScopedViewModelStoreOwner("question:${question.sessionId}"),
         key = "session:${question.sessionId}",
     ) { factory -> factory.create(question.sessionId) }
     var answer by rememberSaveable(question.sessionId, question.askedAt) { mutableStateOf("") }
@@ -675,14 +732,6 @@ private fun StripChip(
 @Composable
 private fun NodeGlyph(chip: NodeChip, status: com.exponential.app.domain.ResolvedIssueStatus?) {
     DisplayGlyph(chip.display, live = chip.live, status = status)
-}
-
-/** The workflow's status in the chip vocabulary (web `workflowStatusGlyph`). */
-private fun workflowDisplay(status: String): WorkflowNodeDisplayState = when (status) {
-    DomainContract.wfStatusRunning, DomainContract.wfStatusPaused -> WorkflowNodeDisplayState.RUNNING
-    DomainContract.wfStatusDone -> WorkflowNodeDisplayState.DONE
-    DomainContract.wfStatusCancelled -> WorkflowNodeDisplayState.SKIPPED
-    else -> WorkflowNodeDisplayState.QUEUED
 }
 
 /** One display state as a 14dp glyph — the chips' and the header's. */
@@ -815,11 +864,19 @@ private fun faceSwitcherSlot(
     }
 }
 
-/** ONE node: its issue's Work screen faces, in place. */
+/**
+ * ONE node: its issue's Work screen faces, in place. The run's live
+ * connection ([AgentSessionViewModel] = `SteerConnectionStore.acquire`) is
+ * held ONLY while this node is picked, its run is the caller's own (EXP-312)
+ * and the Run or Changes face (the live diff) wants it — scoped to this
+ * composition, so a pick elsewhere or another face releases it.
+ */
 @Composable
 private fun NodeFaces(
     issueId: String,
     sessionId: String?,
+    ownRun: Boolean,
+    viewModel: WorkflowDetailViewModel,
     faceName: String?,
     onFace: (WorkFaceKind) -> Unit,
     padding: PaddingValues,
@@ -836,17 +893,25 @@ private fun NodeFaces(
     val issueState by issueVm.state.collectAsStateWithLifecycle()
     val issue = issueState?.issue
 
-    val sessionVm: AgentSessionViewModel? = sessionId?.let { id ->
-        hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(key = "session:$id") { factory ->
-            factory.create(id)
-        }
+    val wanted = WorkFaceKind.entries.firstOrNull { it.name == faceName } ?: WorkFaceKind.Issue
+    val wantsLive = wanted == WorkFaceKind.Run || wanted == WorkFaceKind.Changes
+    val sessionVm: AgentSessionViewModel? = if (sessionId != null && ownRun && wantsLive) {
+        hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
+            viewModelStoreOwner = rememberScopedViewModelStoreOwner("node-run:$sessionId"),
+            key = "session:$sessionId",
+        ) { factory -> factory.create(sessionId) }
+    } else {
+        null
     }
+    // Results read the SYNCED row, so they need no connection.
+    val sessionRow by viewModel.workflowSessions.collectAsStateWithLifecycle()
     val session by (sessionVm?.session ?: remember { MutableStateFlow(null) }).collectAsStateWithLifecycle()
     val activity by (sessionVm?.activity ?: remember { MutableStateFlow(ActivityFeedState()) })
         .collectAsStateWithLifecycle()
     val parsedDiff = remember(activity.latestDiff) { activity.latestDiff?.let { Diff.parse(it) } }
-    val prOpen = issue != null && issue.prState == DomainContract.prStateOpen && !issue.prUrl.isNullOrBlank()
-    val hasChanges = parsedDiff != null || prOpen
+    // Any PR (open, merged, closed): its files load off `issues.prFiles`.
+    val hasPr = issue != null && !issue.prUrl.isNullOrBlank()
+    val hasChanges = parsedDiff != null || hasPr
     val changesVm: ChangesViewModel? = if (hasChanges && parsedDiff == null) {
         hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:$issueId") { factory ->
             factory.create(issueId)
@@ -865,14 +930,14 @@ private fun NodeFaces(
         }
     }
     val diffStats = remember(files) { files.takeIf { it.isNotEmpty() }?.let { Diff.totals(it) } }
-    val results = remember(session?.results) { groupSessionResults(parseSessionResults(session?.results)) }
+    val runResults = session?.results ?: sessionRow.firstOrNull { it.id == sessionId }?.results
+    val results = remember(runResults) { groupSessionResults(parseSessionResults(runResults)) }
     val faces = availableFaces(
         hasIssue = true,
-        hasRun = sessionId != null,
+        hasRun = sessionId != null && ownRun,
         hasChanges = hasChanges,
         hasResults = results.isNotEmpty(),
     )
-    val wanted = WorkFaceKind.entries.firstOrNull { it.name == faceName } ?: WorkFaceKind.Issue
     val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
     val trailing = faceSwitcherSlot(faces, face, diffStats, onFace)
 
@@ -917,6 +982,8 @@ private fun AllFaces(
     viewModel: WorkflowDetailViewModel,
     graph: WorkflowGraph,
     finalPrOpen: Boolean,
+    /** A node row with a PR on All × Changes: that node's Changes face. */
+    onOpenNodeChanges: (nodeId: String) -> Unit,
     faceName: String?,
     onFace: (WorkFaceKind) -> Unit,
     padding: PaddingValues,
@@ -931,12 +998,14 @@ private fun AllFaces(
     val deviceRows by viewModel.deviceRows.collectAsStateWithLifecycle()
     val workflow by viewModel.workflow.collectAsStateWithLifecycle()
     var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var decisionsOpen by rememberSaveable { mutableStateOf(false) }
     val hasFinalPr = !workflow?.finalPrUrl.isNullOrBlank()
 
+    // Changes exists before the final PR: every node keeps its row there.
     val faces = availableFaces(
         hasIssue = true,
         hasRun = sessions.isNotEmpty(),
-        hasChanges = hasFinalPr,
+        hasChanges = hasFinalPr || graph.nodes.isNotEmpty(),
         hasResults = results.isNotEmpty(),
     )
     val wanted = WorkFaceKind.entries.firstOrNull { it.name == faceName } ?: WorkFaceKind.Issue
@@ -966,6 +1035,17 @@ private fun AllFaces(
                             assignee = null,
                             onClick = { onSelectIssue(issue.id) },
                             resolvedStatus = graph.statusByIssueId[issue.id],
+                        )
+                    }
+                }
+                // The decisions log, collapsed under the issues; empty = hidden.
+                val decisions = workflow?.decisions?.trim().orEmpty()
+                if (decisions.isNotEmpty()) {
+                    item(key = "__decisions__") {
+                        DecisionsSection(
+                            decisions = decisions,
+                            open = decisionsOpen,
+                            onToggle = { decisionsOpen = !decisionsOpen },
                         )
                     }
                 }
@@ -1000,24 +1080,17 @@ private fun AllFaces(
                 }
             }
         }
-        WorkFaceKind.Changes -> ChangesFace(
-            padding = padding,
-            files = emptyList(),
-            prLoad = null,
-            merge = if (finalPrOpen) {
-                ChangesMergeControl(
-                    label = WorkflowView.MERGE_FINAL_PR_LABEL,
-                    fixConflicts = false,
-                    loading = busy,
-                    error = null,
-                    confirmText = WorkflowView.MERGE_FINAL_PR_CONFIRM,
-                    onConfirm = viewModel::mergeFinalPr,
-                    onFixConflicts = {},
-                )
-            } else {
-                null
+        WorkFaceKind.Changes -> AllChangesFace(
+            graph = graph,
+            finalPrCaption = workflow?.let { row ->
+                WorkflowView.finalPrCaption(graph.nodes.map { it.state }, row.finalPrState, row.finalPrNumber)
             },
-            trailingBarSlot = trailing,
+            finalPrOpen = finalPrOpen,
+            busy = busy,
+            onMerge = viewModel::mergeFinalPr,
+            onOpenNodeChanges = onOpenNodeChanges,
+            padding = padding,
+            trailing = trailing,
         )
         WorkFaceKind.Results -> ResultsFace(padding = padding, groups = results, trailingBarSlot = trailing)
     }
@@ -1041,4 +1114,192 @@ private fun FaceList(
         )
         FloatingBarCluster(modifier = Modifier.align(Alignment.BottomCenter), right = trailing)
     }
+}
+
+/** The decisions log under All × Issue: a notice that opens to the text. */
+@Composable
+private fun DecisionsSection(decisions: String, open: Boolean, onToggle: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp).testTag("workflow-decisions"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        GlassNotice(
+            text = WorkflowView.DECISIONS_LABEL,
+            onClick = onToggle,
+            leading = {
+                Icon(
+                    if (open) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (open) {
+            Text(
+                decisions,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.padding(horizontal = 4.dp).testTag("workflow-decisions-text"),
+            )
+        }
+    }
+}
+
+/** A node row with nothing to open on All × Changes. Byte-identical ×4. */
+private const val NO_CHANGES_LABEL = "No changes yet"
+
+/**
+ * All × Changes: the final pull request (Merge in the bar while it is open)
+ * over EVERY node's row — its chip and its PR state; a node with a PR opens
+ * its own Changes face in place, one without reads [NO_CHANGES_LABEL].
+ */
+@Composable
+private fun AllChangesFace(
+    graph: WorkflowGraph,
+    finalPrCaption: String?,
+    finalPrOpen: Boolean,
+    busy: Boolean,
+    onMerge: () -> Unit,
+    onOpenNodeChanges: (String) -> Unit,
+    padding: PaddingValues,
+    trailing: @Composable () -> Unit,
+) {
+    var confirmMerge by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().testTag("workflow-all-changes"),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            finalPrCaption?.let { caption ->
+                item(key = "__final_pr__") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).testTag("workflow-final-pr"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(ExpIcons.prOpen, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Text(
+                            WorkflowView.FINAL_PR_TITLE,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            caption,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    }
+                }
+            }
+            items(graph.nodes, key = { it.id }) { node ->
+                val issue = graph.issuesById[node.issueId]
+                val hasPr = issue != null && !issue.prUrl.isNullOrBlank()
+                val prLabel = if (hasPr) {
+                    val state = when (issue?.prState) {
+                        DomainContract.prStateMerged -> "Merged"
+                        DomainContract.prStateClosed -> "Closed"
+                        else -> "Open"
+                    }
+                    issue?.prNumber?.let { "#$it · $state" } ?: state
+                } else {
+                    NO_CHANGES_LABEL
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (hasPr) Modifier.clickable { onOpenNodeChanges(node.id) } else Modifier)
+                        .padding(vertical = 4.dp)
+                        .testTag("workflow-changes-${node.id}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val status = graph.statusByIssueId[node.issueId]
+                    Box(Modifier.weight(1f, fill = false)) {
+                        IssueChip(
+                            identifier = WorkflowView.nodeTitle(
+                                issue?.identifier ?: node.issueId.take(8),
+                                node.memberIssueIds.size,
+                            ),
+                            title = issue?.title ?: WorkflowView.NODE_UNSYNCED_TITLE,
+                            status = status,
+                            onClick = if (hasPr) {
+                                { onOpenNodeChanges(node.id) }
+                            } else {
+                                null
+                            },
+                            leading = {
+                                DisplayGlyph(WorkflowView.nodeDisplayState(node.state), live = false, status = status)
+                            },
+                        )
+                    }
+                    Text(
+                        prLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier.testTag(if (hasPr) "workflow-changes-pr" else "workflow-changes-empty"),
+                    )
+                }
+            }
+        }
+        FloatingBarCluster(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            centre = if (finalPrOpen) {
+                {
+                    BarSolidPill(
+                        label = WorkflowView.MERGE_FINAL_PR_LABEL,
+                        icon = ExpIcons.prMerged,
+                        loading = busy,
+                        onClick = { confirmMerge = true },
+                        modifier = Modifier.testTag("pr-merge-bar"),
+                    )
+                }
+            } else {
+                null
+            },
+            right = trailing,
+        )
+    }
+    if (confirmMerge) {
+        AlertDialog(
+            onDismissRequest = { confirmMerge = false },
+            title = { Text("Merge pull request?") },
+            text = { Text(WorkflowView.MERGE_FINAL_PR_CONFIRM) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmMerge = false
+                    onMerge()
+                }) { Text(WorkflowView.MERGE_FINAL_PR_LABEL) }
+            },
+            dismissButton = { TextButton(onClick = { confirmMerge = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/**
+ * A [ViewModelStoreOwner] that lives exactly as long as the calling
+ * composition: its view models are cleared on dispose (a pick elsewhere, a
+ * face change, the question closing), not when the whole page leaves. Hilt
+ * view models resolve through the host's factory and creation extras.
+ */
+@Composable
+private fun rememberScopedViewModelStoreOwner(key: String): ViewModelStoreOwner {
+    val parent = checkNotNull(LocalViewModelStoreOwner.current) { "No ViewModelStoreOwner" }
+    val context = LocalContext.current
+    val owner = remember(key, parent) {
+        val host = parent as? HasDefaultViewModelProviderFactory
+        object : ViewModelStoreOwner, HasDefaultViewModelProviderFactory {
+            override val viewModelStore = ViewModelStore()
+            override val defaultViewModelProviderFactory: ViewModelProvider.Factory =
+                HiltViewModelFactory(
+                    context,
+                    host?.defaultViewModelProviderFactory ?: ViewModelProvider.NewInstanceFactory(),
+                )
+            override val defaultViewModelCreationExtras: CreationExtras =
+                host?.defaultViewModelCreationExtras ?: CreationExtras.Empty
+        }
+    }
+    DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
+    return owner
 }

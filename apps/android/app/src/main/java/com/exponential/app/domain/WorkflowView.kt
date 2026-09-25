@@ -74,67 +74,7 @@ object WorkflowView {
         return "These issues block each other in a cycle: $spelled. Remove one relation to start."
     }
 
-    private val STATE_LABELS = mapOf(
-        DomainContract.wfNodeStateProposed to "Proposed",
-        DomainContract.wfNodeStateBlocked to "Blocked",
-        DomainContract.wfNodeStateReady to "Ready",
-        DomainContract.wfNodeStateRunning to "Running",
-        DomainContract.wfNodeStateWaiting to "Waiting",
-        DomainContract.wfNodeStateInReview to "In review",
-        DomainContract.wfNodeStateUpdating to "Updating",
-        DomainContract.wfNodeStateLanded to "Landed",
-        DomainContract.wfNodeStateFailed to "Failed",
-        DomainContract.wfNodeStateSkipped to "Skipped",
-    )
-
-    private val KIND_LABELS = mapOf(
-        DomainContract.wfNodeKindContract to "Contract",
-        DomainContract.wfNodeKindLeaf to "Leaf",
-        DomainContract.wfNodeKindIntegration to "Integration",
-    )
-
-    fun nodeStateLabel(state: String): String = STATE_LABELS[state] ?: state
-
-    fun nodeKindLabel(kind: String): String = KIND_LABELS[kind] ?: kind
-
     fun riskLabel(risk: String): String = risk.replaceFirstChar { it.uppercaseChar() }
-
-    /**
-     * The tone a node's state paints in. `waiting` is the ONLY amber one (and
-     * the only one that pushes): amber means "a person is needed".
-     */
-    enum class Tone(val key: String) {
-        Muted("muted"),
-        Active("active"),
-        Amber("amber"),
-        Success("success"),
-        Danger("danger"),
-    }
-
-    fun nodeTone(state: String): Tone = when (state) {
-        DomainContract.wfNodeStateWaiting -> Tone.Amber
-        DomainContract.wfNodeStateFailed -> Tone.Danger
-        DomainContract.wfNodeStateLanded -> Tone.Success
-        DomainContract.wfNodeStateRunning,
-        DomainContract.wfNodeStateUpdating,
-        DomainContract.wfNodeStateInReview,
-        -> Tone.Active
-        else -> Tone.Muted
-    }
-
-    data class CaptionNode(val kind: String, val state: String, val risk: String)
-
-    /**
-     * The ONE caption under a node: the bare STATE label once the workflow has
-     * started (`Running`, `In review`, `Landed`), nothing at all in a draft.
-     * The kind and the risk are the node sheet's (EXP-1014: no `Leaf`, no
-     * `Contract · high risk` beside the chips — the chip names the issue, the
-     * caption says only what is happening to it).
-     */
-    fun nodeCaption(node: CaptionNode, workflowStatus: String): String {
-        if (workflowStatus == DomainContract.wfStatusDraft) return ""
-        return nodeStateLabel(node.state)
-    }
 
     /**
      * `EXP-14 +3` for a compound node (a parent run as one batch with its
@@ -216,7 +156,6 @@ object WorkflowView {
     const val START_WORKFLOW_LABEL = "Start"
     const val PAUSE_WORKFLOW_LABEL = "Pause"
     const val RESUME_WORKFLOW_LABEL = "Resume"
-    const val CANCEL_WORKFLOW_LABEL = "Cancel workflow"
     const val CANCEL_WORKFLOW_CONFIRM =
         "Its live runs end and its branch is deleted. Nothing reached the default branch."
     const val FINAL_PR_TITLE = "Final pull request"
@@ -228,9 +167,6 @@ object WorkflowView {
     const val MERGE_FINAL_PR_LABEL = "Merge"
     const val MERGE_FINAL_PR_CONFIRM =
         "The workflow's branch is squash-merged into the default branch and the run is done."
-
-    /** The strip over the graph that lists the runs that are up, one tap away. */
-    const val RUNNING_NOW_LABEL = "Running now"
 
     /** The three fields Start is judged on, off the synced workflow row. */
     data class Startable(
@@ -331,10 +267,6 @@ object WorkflowView {
         else -> EdgeStyle.Plain
     }
 
-    /** The node panel's line once a node announced its contract. */
-    const val CONTRACT_PUBLISHED_LABEL = "Contract published"
-    const val MERGES_IN_FIRST_LABEL = "Merges in first"
-
     // ── Review gate, dynamic graphs (EXP-984) ─────────────
 
     const val ADMIT_NODE_LABEL = "Admit"
@@ -343,55 +275,11 @@ object WorkflowView {
         "Filed during the run. Admit it into the workflow or dismiss it."
 
     /**
-     * EXP-1014: the node sheet's read-only line naming what the node's run
-     * spawns on ([modelForNode]). Nothing on a workflow screen CONFIGURES a
-     * model any more — the two the launch carries are picked where the
-     * workflow is created.
-     */
-    const val NODE_MODEL_LABEL = "Model"
-
-    /**
      * EXP-1014: the chip of a node whose issue row has not synced yet — the
      * identifier slot shows the first 8 characters of the issue id, the title
      * this line. Byte-identical ×4.
      */
     const val NODE_UNSYNCED_TITLE = "Not synced yet"
-
-    /**
-     * The three fields [reviewLine] reads off `workflow_nodes.review`.
-     * [oraclePassed] null = the reviewer ran no executable check.
-     */
-    data class ReviewLine(
-        val verdict: String,
-        val round: Int,
-        val oraclePassed: Boolean? = null,
-    )
-
-    /**
-     * The node panel's one line about the latest agent review:
-     * `Approved · round 1 · checks passed`, `Approved · round 1`,
-     * `Changes requested · round 2 · checks failed`,
-     * `Changes requested · round 2`.
-     * [nodeApproved] = the node's `approvedAt` is set. EXP-1010: an approval
-     * with no oracle CLEARS the node, so `advisory` shows only when it did not.
-     */
-    fun reviewLine(review: ReviewLine, nodeApproved: Boolean): String {
-        val verdict = if (review.verdict == DomainContract.wfReviewVerdictApprove) {
-            "Approved"
-        } else {
-            "Changes requested"
-        }
-        val parts = ArrayList<String>(3)
-        parts.add(verdict)
-        parts.add("round ${review.round}")
-        when {
-            review.oraclePassed != null ->
-                parts.add(if (review.oraclePassed) "checks passed" else "checks failed")
-            review.verdict == DomainContract.wfReviewVerdictApprove && !nodeApproved ->
-                parts.add("advisory")
-        }
-        return parts.joinToString(" · ")
-    }
 
     // ── EXP-1082: the workflow contract's display layer ────────────────────
     // The fixture sections `displayStates` / `needsYouLabel` / `nodeStrips` /
@@ -434,7 +322,12 @@ object WorkflowView {
                                 id = node.id,
                                 title = nodeTitle(node.identifier, node.members),
                                 display = display,
-                                caption = node.note?.trim()?.takeIf { it.isNotEmpty() } ?: display.label,
+                                caption = node.note?.trim()?.takeIf { it.isNotEmpty() }
+                                    ?: if (node.state == DomainContract.wfNodeStateProposed) {
+                                        PROPOSED_NODE_NOTE
+                                    } else {
+                                        display.label
+                                    },
                                 stacked = node.members > 0,
                                 members = node.members,
                                 live = node.live,
@@ -486,17 +379,38 @@ object WorkflowView {
 
     /**
      * The header's ONE primary button: a draft without a runner picks one, a
-     * draft starts, running pauses, paused resumes, done reviews the final
-     * PR. Failed and cancelled offer nothing; Stop and Delete live in the
-     * overflow.
+     * draft starts; a started workflow whose final PR is OPEN reviews it (the
+     * one human review), else running pauses and paused resumes; done reviews
+     * the merged final PR. Failed and cancelled offer nothing; Stop and Delete
+     * live in the overflow.
      */
-    fun primaryAction(status: String, deviceLabel: String?): WorkflowPrimaryAction? = when (status) {
+    fun primaryAction(
+        status: String,
+        deviceLabel: String?,
+        finalPrState: String? = null,
+    ): WorkflowPrimaryAction? = when (status) {
         DomainContract.wfStatusDraft ->
             if (deviceLabel != null) WorkflowPrimaryAction.START else WorkflowPrimaryAction.PICK_DEVICE
-        DomainContract.wfStatusRunning -> WorkflowPrimaryAction.PAUSE
-        DomainContract.wfStatusPaused -> WorkflowPrimaryAction.RESUME
+        DomainContract.wfStatusRunning, DomainContract.wfStatusPaused -> when {
+            finalPrState == DomainContract.prStateOpen -> WorkflowPrimaryAction.REVIEW_FINAL_PR
+            status == DomainContract.wfStatusRunning -> WorkflowPrimaryAction.PAUSE
+            else -> WorkflowPrimaryAction.RESUME
+        }
         DomainContract.wfStatusDone -> WorkflowPrimaryAction.REVIEW_FINAL_PR
         else -> null
+    }
+
+    /**
+     * The header's status glyph, as the node display state it reads like:
+     * draft → queued, running/paused → running, done → done, failed →
+     * failed, cancelled → skipped, anything newer → queued. Locked ×4.
+     */
+    fun statusGlyph(status: String): WorkflowNodeDisplayState = when (status) {
+        DomainContract.wfStatusRunning, DomainContract.wfStatusPaused -> WorkflowNodeDisplayState.RUNNING
+        DomainContract.wfStatusDone -> WorkflowNodeDisplayState.DONE
+        "failed" -> WorkflowNodeDisplayState.FAILED
+        DomainContract.wfStatusCancelled -> WorkflowNodeDisplayState.SKIPPED
+        else -> WorkflowNodeDisplayState.QUEUED
     }
 
     // ── EXP-1087: the page's own words + the header overflow ─────────────
