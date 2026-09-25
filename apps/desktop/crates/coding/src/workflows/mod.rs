@@ -134,6 +134,11 @@ pub struct WorkflowFacts {
     pub integration_branch: String,
     #[serde(default)]
     pub final_pr_url: Option<String>,
+    /// EXP-1059: contract `prState` of the final PR (`open`/`closed`/
+    /// `merged`), `None` while there is none. `closed` = someone closed it
+    /// WITHOUT merging: the engine reopens it once (rule 10).
+    #[serde(default)]
+    pub final_pr_state: Option<String>,
     /// Contract `workflow.maxParallelDefault` — how many node runs may be
     /// live at once. Not a launch field any more (EXP-1029): the hosts fill
     /// it from the contract.
@@ -174,6 +179,7 @@ impl Default for WorkflowFacts {
             status: String::new(),
             integration_branch: String::new(),
             final_pr_url: None,
+            final_pr_state: None,
             max_parallel: 0,
             start_on: start_on_landed(),
             launch: launch::WorkflowLaunch::default(),
@@ -320,6 +326,12 @@ pub struct Snapshot {
     pub in_flight: HashSet<String>,
     #[serde(default)]
     pub final_pr_in_flight: bool,
+    /// Host fact (EXP-1059, persisted `WorkflowState::final_pr_reopened`):
+    /// this device already spent the ONE reopen of a closed final PR (or the
+    /// server refused it). A final PR closed again is a person's decision;
+    /// the engine leaves it and a member reopens it from the workflow page.
+    #[serde(default)]
+    pub final_pr_reopened: bool,
     /// Host fact: `(session id, resets_at_ms)` pairs already nudged.
     #[serde(default)]
     pub nudged: HashSet<(String, i64)>,
@@ -605,6 +617,14 @@ pub enum Decision {
     },
     /// `workflows.openFinalPr` — integration branch → the default branch.
     OpenFinalPr,
+    /// EXP-1059: `workflows.reopenFinalPr` — the final PR was closed without
+    /// merging; reopen it ONCE. Whatever the server answers, the host then
+    /// remembers `final_pr_reopened` so this is never asked twice.
+    ReopenFinalPr,
+    /// EXP-1059: `workflows.cancelUnshipped` — every node was skipped, so
+    /// nothing reached the integration branch and there is no final PR to
+    /// open: the workflow ends `cancelled` with the `nothing shipped` note.
+    CancelUnshipped,
     /// Cancelled: end a live run.
     #[serde(rename_all = "camelCase")]
     KillSession { session_id: String },
@@ -1046,12 +1066,22 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     let all_in = !mirrored.is_empty()
         && mirrored.iter().all(|entry| is_final(&entry.state));
     let any_landed = mirrored.iter().any(|entry| entry.state == "landed");
-    if all_in
-        && any_landed
-        && snapshot.workflow.final_pr_url.is_none()
-        && !snapshot.final_pr_in_flight
-    {
-        decisions.push(Decision::OpenFinalPr);
+    if all_in && !snapshot.final_pr_in_flight {
+        if !any_landed {
+            // EXP-1059: every node skipped — nothing shipped, nothing to
+            // review. The server ends the workflow `cancelled` with its
+            // note; the next pass then sweeps the branch like any cancel.
+            decisions.push(Decision::CancelUnshipped);
+        } else if snapshot.workflow.final_pr_url.is_none() {
+            decisions.push(Decision::OpenFinalPr);
+        } else if snapshot.workflow.final_pr_state.as_deref() == Some("closed")
+            && !snapshot.final_pr_reopened
+        {
+            // EXP-1059: closed without merging — reopened ONCE. A second
+            // close is a person's decision: the host remembers the spent
+            // reopen and the workflow waits for a member (`openFinalPr`).
+            decisions.push(Decision::ReopenFinalPr);
+        }
     }
 
     // (11) A synthetic base nothing is building on any more: the branch goes,
@@ -2057,6 +2087,7 @@ mod tests {
                 status: "running".to_string(),
                 integration_branch: "exp/wf-abcdef12".to_string(),
                 final_pr_url: None,
+                final_pr_state: None,
                 max_parallel: 3,
                 start_on: START_ON_LANDED.to_string(),
                 launch: launch::WorkflowLaunch::default(),
@@ -2106,6 +2137,56 @@ mod tests {
         // Both are final, at least one landed: the pass goes straight to the
         // final pull request without touching either row.
         assert_eq!(evaluate(&snapshot), vec![Decision::OpenFinalPr]);
+    }
+
+    /// EXP-1059 (§7): a final PR closed WITHOUT merging is reopened ONCE.
+    #[test]
+    fn a_closed_final_pr_is_reopened_once() {
+        let mut snapshot = running(vec![node("a", "landed", 0, 0), node("b", "skipped", 0, 1)]);
+        snapshot.workflow.final_pr_url = Some("https://gh/pr/9".to_string());
+        snapshot.workflow.final_pr_state = Some("closed".to_string());
+        assert_eq!(evaluate(&snapshot), vec![Decision::ReopenFinalPr]);
+
+        // The host is mid-call: nothing is asked twice in one flight.
+        let mut in_flight = snapshot.clone();
+        in_flight.final_pr_in_flight = true;
+        assert!(evaluate(&in_flight).is_empty());
+
+        // The one reopen was spent (or refused): closed again is a person's
+        // decision — the engine leaves the PR alone and opens no second one.
+        let mut spent = snapshot.clone();
+        spent.final_pr_reopened = true;
+        assert!(evaluate(&spent).is_empty());
+
+        // Open or merged: nothing to do either.
+        for state in ["open", "merged"] {
+            let mut other = snapshot.clone();
+            other.workflow.final_pr_state = Some(state.to_string());
+            assert!(evaluate(&other).is_empty(), "state {state}");
+        }
+    }
+
+    /// EXP-1059 (§7): every node skipped = nothing shipped — the workflow is
+    /// cancelled with a note instead of opening an empty final PR.
+    #[test]
+    fn an_all_skipped_workflow_is_cancelled_with_a_note() {
+        let snapshot = running(vec![node("a", "skipped", 0, 0), node("b", "skipped", 0, 1)]);
+        assert_eq!(evaluate(&snapshot), vec![Decision::CancelUnshipped]);
+
+        // A `proposed` node nobody admitted does not keep it alive.
+        let mut proposed = snapshot.clone();
+        proposed.nodes.push(node("c", "proposed", 1, 0));
+        assert_eq!(evaluate(&proposed), vec![Decision::CancelUnshipped]);
+
+        // Paused: the person's hold — the mirror keeps reading, nothing ends.
+        let mut paused = snapshot.clone();
+        paused.workflow.status = "paused".to_string();
+        assert!(evaluate(&paused).is_empty());
+
+        // Once the server flipped it, the cancel sweep takes over.
+        let mut cancelled = snapshot.clone();
+        cancelled.workflow.status = "cancelled".to_string();
+        assert_eq!(evaluate(&cancelled), vec![Decision::DeleteIntegrationBranch]);
     }
 
     /// EXP-1007: a merge that left the run UP (`endSessionsOnMerge` off,

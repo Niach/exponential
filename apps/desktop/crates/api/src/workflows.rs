@@ -540,6 +540,42 @@ pub fn open_final_pr(trpc: &TrpcClient, id: &str) -> Result<String, ApiError> {
     Ok(response.url)
 }
 
+/// EXP-1059: what `workflows.reopenFinalPr` answered.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReopenFinalPrOutcome {
+    pub reopened: bool,
+    /// Set when NOT reopened: the ONE reopen was spent, or GitHub refused —
+    /// the host remembers `final_pr_reopened` either way.
+    #[serde(default)]
+    pub gave_up: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// ENGINE: `workflows.reopenFinalPr` — the final PR was closed without
+/// merging; the server reopens it ONCE (`final_pr_reopened` event) and
+/// records a second close as a person's decision.
+pub fn reopen_final_pr(trpc: &TrpcClient, id: &str) -> Result<ReopenFinalPrOutcome, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    trpc.mutation("workflows.reopenFinalPr", &Input { id })
+}
+
+/// ENGINE: `workflows.cancelUnshipped` — every node was skipped: the
+/// workflow ends `cancelled` with the `nothing shipped` decision line.
+/// Idempotent; the server refuses while a node is open or landed.
+pub fn cancel_unshipped(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    let _: serde_json::Value = trpc.mutation("workflows.cancelUnshipped", &Input { id })?;
+    Ok(())
+}
+
 /// Hydrate the wire shape from a synced `workflows` row — what the detail's
 /// configuration section edits before it sends a whole-object `launch` back.
 pub fn from_row(row: &domain::rows::WorkflowRow) -> Workflow {

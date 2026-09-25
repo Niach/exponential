@@ -452,6 +452,10 @@ team settings → Repositories.";
                         board_id: Some(board_id),
                         identifier,
                         issue_id,
+                        // EXP-1072: the resolver above reads the synced
+                        // ISSUE; a workflow's final PR resolves through the
+                        // workflows collection (same lane, next commit).
+                        workflow_final_pr: false,
                     }
                 }
                 // EXP-615: the builtin kinds are id-dispatched — chat, the

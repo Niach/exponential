@@ -57,6 +57,9 @@ pub struct WorkflowState {
     pub nudged: HashSet<(String, i64)>,
     /// The cancel sweep already dropped the integration branch.
     pub branch_deleted: bool,
+    /// EXP-1059: the ONE reopen of a closed final PR was spent (or refused)
+    /// — `Snapshot::final_pr_reopened`, so the engine never asks twice.
+    pub final_pr_reopened: bool,
     /// EXP-983: `node id → branch → the tip that node was last TOLD to
     /// merge`, so one movement is announced exactly once.
     pub propagated: HashMap<String, HashMap<String, String>>,
@@ -208,6 +211,10 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Wor
                         .get("branchDeleted")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
+                    final_pr_reopened: entry
+                        .get("finalPrReopened")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                     propagated: read_propagated(entry.get("propagated")),
                     synthetic: read_synthetic(entry.get("synthetic")),
                     conflicts: entry
@@ -353,6 +360,7 @@ pub fn write_states(
             serde_json::json!({
                 "nudged": nudged,
                 "branchDeleted": state.branch_deleted,
+                "finalPrReopened": state.final_pr_reopened,
                 "propagated": state.propagated,
                 "synthetic": state.synthetic,
                 "conflicts": state.conflicts,

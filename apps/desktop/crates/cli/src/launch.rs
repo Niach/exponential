@@ -401,6 +401,7 @@ pub fn resolve_action_request(
                 board_id,
                 identifier,
                 issue_id,
+                workflow_final_pr: false,
             }
         }
         // EXP-615/EXP-981: the builtin kinds are id-dispatched (desktop
