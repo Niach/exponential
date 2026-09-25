@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from "vitest"
 import type { ContextSegment } from "@/lib/context-layout"
 
 // EXP-1051: the usage overlay's context block — the headline and the bar at
-// rest, the LAYOUT legend behind the chevron, and the two legend rows that are
-// links rather than facts (the playbook, the team prompt). The folding itself
-// is `lib/context-layout.ts`'s job and its fixture's; this proves the block
-// draws what that returns and that the two actions work.
+// rest, the LAYOUT legend behind the chevron, and the one legend row that is a
+// link rather than a fact (the team prompt). The folding itself is
+// `lib/context-layout.ts`'s job and its fixture's; this proves the block draws
+// what that returns and that the action works.
 
 vi.mock(`@tanstack/react-router`, () => ({
   Link: ({
@@ -30,16 +30,7 @@ vi.mock(`@/hooks/use-team-data`, () => ({
     teamId === `t1` ? { id: `t1`, slug: `acme` } : null,
 }))
 
-// TipTap does not render under jsdom, and the playbook's BYTES are gated by
-// the generator, not here — the dialog only has to show them.
-vi.mock(`@/components/issue-editor/markdown-editor`, () => ({
-  MarkdownEditor: ({ markdown }: { markdown: string }) => (
-    <div data-testid="playbook-markdown">{markdown}</div>
-  ),
-}))
-
-import { ContextWindowBlock, PLAYBOOK_DIALOG_TITLE } from "@/components/context-window-block"
-import { RUN_PLAYBOOK } from "@/lib/run-playbook.generated"
+import { ContextWindowBlock } from "@/components/context-window-block"
 
 // The contract fixture's first case, as the device would publish it.
 const usage = { contextUsed: 65_000, contextSize: 200_000 } as never
@@ -130,17 +121,13 @@ describe(`ContextWindowBlock`, () => {
     ).toBeNull()
   })
 
-  it(`opens the run playbook from its legend row`, () => {
+  it(`leaves the playbook row a plain row (EXP-1080)`, () => {
     draw()
     fireEvent.click(screen.getByTestId(`context-window-toggle`))
-    expect(screen.queryByTestId(`playbook-markdown`)).toBeNull()
     const row = screen
       .getAllByTestId(`context-legend-row`)
       .find((node) => node.dataset.key === `playbook`)
-    expect(row?.tagName).toBe(`BUTTON`)
-    fireEvent.click(row as HTMLElement)
-    expect(screen.getByText(PLAYBOOK_DIALOG_TITLE)).toBeTruthy()
-    expect(screen.getByTestId(`playbook-markdown`).textContent).toBe(RUN_PLAYBOOK)
+    expect(row?.tagName).toBe(`DIV`)
   })
 
   it(`links the team-prompt row into the team's general settings`, () => {
