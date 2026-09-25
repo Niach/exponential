@@ -126,10 +126,7 @@ final class WorkflowDetailModel {
                     needsYou: asking.contains(node.id),
                     note: node.note
                 )
-            },
-            edges: WorkflowView.edges(
-                nodes: nodes, relations: relations, cycleEdges: workflow?.parsedMetrics.cycleEdges ?? []
-            ).map { ($0.from, $0.to) }
+            }
         )
     }
 
@@ -172,18 +169,19 @@ final class WorkflowDetailModel {
         )
     }
 
-    /// The faces a picked node's Work screen will offer, as far as the
-    /// synced rows tell: the page opens it on its face only when that face
-    /// can show (a missing one falls back like the Work screen's own switch).
-    func faces(for node: WorkflowNodeEntity) -> [WorkFaceKind] {
+    /// The picked node's embedded Work screen (its subject) and the faces it
+    /// will offer, by the SAME run lookup the screen uses: the page opens it
+    /// on its face only when that face can show (a missing one falls back
+    /// like the Work screen's own switch).
+    func work(for node: WorkflowNodeEntity) -> WorkflowNodeWork {
         let issue = issues[node.issueId]
-        let runs = sessions.filter { $0.id == node.sessionId || $0.issueId == node.issueId }
-        let pushed = issue?.prUrl?.isEmpty == false || issue?.branch?.isEmpty == false
-        return WorkFaces.availableFaces(
-            hasIssue: true,
-            hasRun: !runs.isEmpty,
-            hasChanges: pushed,
-            hasResults: runs.contains { !parseSessionResults($0.results).isEmpty }
+        return WorkflowView.nodeWork(
+            issueId: node.issueId,
+            sessionId: node.sessionId,
+            issuePushed: issue?.prUrl?.isEmpty == false || issue?.branch?.isEmpty == false,
+            sessions: sessions,
+            me: deps.auth.userId,
+            now: Date()
         )
     }
 
@@ -346,13 +344,22 @@ final class WorkflowDetailModel {
     // MARK: - Writes
 
     /// Save the edited name (commit or blur); blank or unchanged = nothing.
+    /// A rename never conflicts with a start/pause, so it goes out even while
+    /// another write is in flight (the `busy` guard would drop it silently)
+    /// and never flips `busy` itself.
     func rename(_ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != workflow?.name else { return }
-        run { accountId, id in
-            _ = try await self.deps.workflowsApi.update(
-                accountId: accountId, id: id, patch: WorkflowPatch(name: trimmed)
-            )
+        let accountId = accountId
+        let workflowId = workflowId
+        Task {
+            do {
+                _ = try await self.deps.workflowsApi.update(
+                    accountId: accountId, id: workflowId, patch: WorkflowPatch(name: trimmed)
+                )
+            } catch {
+                self.error = error.userFacingMessage
+            }
         }
     }
 

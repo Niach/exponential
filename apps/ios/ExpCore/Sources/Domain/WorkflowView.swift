@@ -488,8 +488,8 @@ extension WorkflowView {
     /// the mini-graph popover's business; the strip only orders. A compound
     /// node is `stacked` (the `IssueChipStack`); the caption is the node's
     /// note while it has one, a `proposed` node's `proposedNodeNote`, else its
-    /// display label (fixture `nodeStrips`).
-    public static func nodeStrip(nodes: [StripNodeInput], edges _: [(String, String)]) -> [StripWave] {
+    /// display label (fixture `nodeStrips`; nodes only).
+    public static func nodeStrip(nodes: [StripNodeInput]) -> [StripWave] {
         let byWave = Dictionary(grouping: nodes, by: \.wave)
         return byWave.keys.sorted().map { wave in
             let chips = (byWave[wave] ?? [])
@@ -604,6 +604,10 @@ extension WorkflowView {
     public static let reviewFinalPrLabel = "Review final PR"
     /// All × Changes: a node with nothing pushed yet.
     public static let noChangesLabel = "No changes yet"
+    /// The Run(s) face when no run is in scope yet.
+    public static let noRunsLabel = "No runs yet"
+    /// The Results face when no run in scope published a screenshot.
+    public static let noResultsLabel = "No results yet"
     /// The Dismiss confirm's one sentence (a `proposed` node's chip menu).
     public static let dismissNodeConfirm = "The node is removed from the workflow."
 
@@ -615,5 +619,67 @@ extension WorkflowView {
         case DomainContract.wfStatusRunning, DomainContract.wfStatusPaused: [.stop]
         default: [.delete]
         }
+    }
+}
+
+// MARK: - A picked node's embedded Work screen (iOS)
+
+/// What a picked node's embedded Work screen is ABOUT: its issue, or — for a
+/// compound (batch) node whose run is mine and issue-less — that run itself
+/// (an issue subject would look the run up by `issue_id`, which a batch row
+/// does not carry, and show a spinner forever).
+public enum WorkflowNodeSubject: Hashable, Sendable {
+    case issue(id: String)
+    case session(id: String)
+}
+
+public struct WorkflowNodeWork: Equatable, Sendable {
+    public let subject: WorkflowNodeSubject
+    /// The faces that screen can SHOW, by the screen's own run lookup — the
+    /// page offers a face only when this list has it.
+    public let faces: [WorkFaceKind]
+}
+
+public extension WorkflowView {
+    /// The embedded Work screen for a node, and the faces it will offer.
+    /// Mirrors the screen: an issue subject shows `WorkFaces.codingTarget`
+    /// (runs of MINE on the issue), a session subject its own row (no issue
+    /// face for an issue-less run, Changes only once its live diff lands — so
+    /// never promised here). A teammate's run shows on neither: no Run face.
+    static func nodeWork(
+        issueId: String,
+        sessionId: String?,
+        issuePushed: Bool,
+        sessions: [CodingSessionEntity],
+        me: String?,
+        now: Date
+    ) -> WorkflowNodeWork {
+        if let sessionId,
+           let row = sessions.first(where: { $0.id == sessionId }),
+           row.issueId == nil,
+           CodingSessionOwnership.isOwn(row, userId: me)
+        {
+            return WorkflowNodeWork(
+                subject: .session(id: sessionId),
+                faces: WorkFaces.availableFaces(
+                    hasIssue: false,
+                    hasRun: true,
+                    hasChanges: false,
+                    hasResults: !parseSessionResults(row.results).isEmpty
+                )
+            )
+        }
+        let target = WorkFaces.codingTarget(
+            sessions, issueId: issueId, boundId: nil, me: me, now: now
+        )
+        return WorkflowNodeWork(
+            subject: .issue(id: issueId),
+            faces: WorkFaces.availableFaces(
+                hasIssue: true,
+                hasRun: target != nil,
+                hasChanges: issuePushed,
+                hasResults: !parseSessionResults(target?.results).isEmpty
+            )
+        )
     }
 }

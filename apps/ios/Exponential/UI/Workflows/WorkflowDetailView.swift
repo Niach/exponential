@@ -193,16 +193,19 @@ struct WorkflowDetailView: View {
             strip(model)
             stepper(model)
             if let node = model.selectedNode {
-                // One node = that issue's Work screen, in place.
-                // It opens on the page's face and reports a switch back, so
-                // a step keeps the face (a face the node lacks falls back).
+                // One node = its Work screen, in place: the issue's, or a
+                // batch node's own run of mine (an issue subject cannot find
+                // an issue-less run). It opens on the page's face and reports
+                // a switch back, so a step keeps the face (a face the node
+                // lacks falls back).
+                let work = model.work(for: node)
                 WorkScreen(
-                    subject: .issue(id: node.issueId),
-                    initialFace: WorkFaces.fallbackFace(shown: face, available: model.faces(for: node))
-                        ?? .issue,
+                    subject: Self.workSubject(work.subject),
+                    initialFace: WorkFaces.fallbackFace(shown: face, available: work.faces)
+                        ?? work.faces.first ?? .issue,
                     onFaceChange: { face = $0 }
                 )
-                .id(node.id)
+                .id("\(node.id)|\(work.subject)")
             } else {
                 allFace(model)
             }
@@ -212,6 +215,13 @@ struct WorkflowDetailView: View {
             if model.selection.isAll, !faces.contains(face), let next = WorkFaces.fallbackFace(shown: face, available: faces) {
                 face = next
             }
+        }
+    }
+
+    private static func workSubject(_ subject: WorkflowNodeSubject) -> WorkSubject {
+        switch subject {
+        case let .issue(id): .issue(id: id)
+        case let .session(id): .session(id: id)
         }
     }
 
@@ -594,11 +604,12 @@ struct WorkflowDetailView: View {
     private func availableFaces(_ model: WorkflowDetailModel) -> [WorkFaceKind] {
         WorkFaces.availableFaces(
             hasIssue: true,
-            hasRun: !model.sessions.isEmpty,
-            // Every node's changes live here, so the face exists before the
-            // final PR does.
+            // Every node's runs, changes and results live here, so each face
+            // exists before its first row does (`No runs yet` / `No changes
+            // yet` / `No results yet`, like web).
+            hasRun: true,
             hasChanges: true,
-            hasResults: !model.resultGroups.isEmpty
+            hasResults: true
         )
     }
 
@@ -640,7 +651,11 @@ struct WorkflowDetailView: View {
         let shown = availableFaces(model).contains(face) ? face : .issue
         switch shown {
         case .results:
-            SessionResultsFace(groups: model.resultGroups) { switcher(model) }
+            if model.resultGroups.isEmpty {
+                barred(model) { emptyNote(WorkflowView.noResultsLabel, id: "workflow-results-empty") }
+            } else {
+                SessionResultsFace(groups: model.resultGroups) { switcher(model) }
+            }
         case .run:
             barred(model) { runsFace(model) }
         case .changes:
@@ -666,6 +681,16 @@ struct WorkflowDetailView: View {
                     switcher(model)
                 }
             }
+    }
+
+    /// A face with nothing in scope yet: one quiet line.
+    private func emptyNote(_ text: String, id: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 24)
+            .accessibilityIdentifier(id)
     }
 
     /// Every covered issue, nested; a tap picks its node.
@@ -730,6 +755,9 @@ struct WorkflowDetailView: View {
         let guides = TreeGuides.compute(depths: rows.map(\.depth))
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                if rows.isEmpty {
+                    emptyNote(WorkflowView.noRunsLabel, id: "workflow-runs-empty")
+                }
                 ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
                     runRow(entry, model: model)
                         .treeGuides(guides[index])

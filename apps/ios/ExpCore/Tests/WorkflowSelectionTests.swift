@@ -66,8 +66,7 @@ final class WorkflowSelectionTests: XCTestCase {
             StripNodeInput(id: "b", identifier: "EXP-3", state: "running", wave: 1, lane: 1),
             StripNodeInput(id: "a", identifier: "EXP-2", state: "running", wave: 1, lane: 0),
             StripNodeInput(id: "c", identifier: "EXP-1", state: "landed", wave: 0, lane: 0),
-        ],
-        edges: []
+        ]
     )
 
     func testTheOrderIsTheStripsDagOrder() {

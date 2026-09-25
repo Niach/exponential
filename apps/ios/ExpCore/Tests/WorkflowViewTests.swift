@@ -666,7 +666,6 @@ final class WorkflowContractViewTests: XCTestCase {
     private struct NodeStripCase: Decodable {
         let name: String
         let nodes: [StripNode]
-        let edges: [[String]]
         let strip: [StripColumn]
     }
 
@@ -736,9 +735,6 @@ final class WorkflowContractViewTests: XCTestCase {
                         wave: $0.wave, lane: $0.lane, members: $0.members,
                         live: $0.live, needsYou: $0.needsYou, note: $0.note
                     )
-                },
-                edges: testCase.edges.compactMap { pair in
-                    pair.count == 2 ? (pair[0], pair[1]) : nil
                 }
             )
             let expected = testCase.strip.map { column in
@@ -805,8 +801,7 @@ final class WorkflowContractViewTests: XCTestCase {
         let strip = WorkflowView.nodeStrip(
             nodes: [
                 StripNodeInput(id: "p", identifier: "EXP-9", state: "proposed", wave: 0, lane: 0),
-            ],
-            edges: []
+            ]
         )
         XCTAssertEqual(strip.first?.nodes.first?.caption, WorkflowView.proposedNodeNote)
     }
@@ -837,7 +832,7 @@ final class WorkflowContractViewTests: XCTestCase {
 
     func testPageLabelsAreByteLocked() throws {
         let labels = try fixture().pageLabels
-        XCTAssertEqual(labels.count, 8)
+        XCTAssertEqual(labels.count, 10)
         XCTAssertEqual(labels["allNodes"], WorkflowView.allNodesLabel)
         XCTAssertEqual(labels["decisions"], WorkflowView.decisionsLabel)
         XCTAssertEqual(labels["stop"], WorkflowView.stopWorkflowLabel)
@@ -845,6 +840,66 @@ final class WorkflowContractViewTests: XCTestCase {
         XCTAssertEqual(labels["runsOn"], WorkflowView.runsOnLabel)
         XCTAssertEqual(labels["reviewFinalPr"], WorkflowView.reviewFinalPrLabel)
         XCTAssertEqual(labels["noChanges"], WorkflowView.noChangesLabel)
+        XCTAssertEqual(labels["noRuns"], WorkflowView.noRunsLabel)
+        XCTAssertEqual(labels["noResults"], WorkflowView.noResultsLabel)
         XCTAssertEqual(labels["dismissNodeConfirm"], WorkflowView.dismissNodeConfirm)
+    }
+}
+
+// A picked node's embedded Work screen: its subject and the faces it offers
+// come from the SAME lookup the screen runs, so no face is offered that the
+// screen would draw as an endless spinner.
+final class WorkflowNodeWorkTests: XCTestCase {
+    private let now = WireTimestamps.parse("2026-09-15T12:00:00Z")!
+    private let shot = #"[{"topic":"t","label":"ios","attachmentId":"a1","width":10,"height":10}]"#
+
+    private func run(
+        _ id: String, issueId: String?, userId: String = "me", results: String? = nil
+    ) -> CodingSessionEntity {
+        CodingSessionEntity(
+            id: id, issueId: issueId, teamId: "t1", userId: userId,
+            deviceLabel: "mac", status: "running", results: results,
+            startedAt: "2026-09-15T11:00:00Z", endedAt: nil,
+            createdAt: "2026-09-15T11:00:00Z", updatedAt: "2026-09-15T11:59:00Z"
+        )
+    }
+
+    func testABatchNodesOwnIssueLessRunIsTheSubject() {
+        let work = WorkflowView.nodeWork(
+            issueId: "p", sessionId: "batch", issuePushed: true,
+            sessions: [run("batch", issueId: nil, results: shot)], me: "me", now: now
+        )
+        XCTAssertEqual(work.subject, .session(id: "batch"))
+        XCTAssertEqual(work.faces, [.run, .results])
+    }
+
+    func testATeammatesRunOffersNoRunFace() {
+        let batch = WorkflowView.nodeWork(
+            issueId: "p", sessionId: "theirs", issuePushed: false,
+            sessions: [run("theirs", issueId: nil, userId: "them", results: shot)],
+            me: "me", now: now
+        )
+        XCTAssertEqual(batch.subject, .issue(id: "p"))
+        XCTAssertEqual(batch.faces, [.issue])
+        let single = WorkflowView.nodeWork(
+            issueId: "i", sessionId: "theirs", issuePushed: true,
+            sessions: [run("theirs", issueId: "i", userId: "them", results: shot)],
+            me: "me", now: now
+        )
+        XCTAssertEqual(single.subject, .issue(id: "i"))
+        XCTAssertEqual(single.faces, [.issue, .changes])
+    }
+
+    func testASingleIssueNodeUsesTheIssuesCodingTarget() {
+        let work = WorkflowView.nodeWork(
+            issueId: "i", sessionId: "mine", issuePushed: false,
+            sessions: [run("mine", issueId: "i", results: shot)], me: "me", now: now
+        )
+        XCTAssertEqual(work.subject, .issue(id: "i"))
+        XCTAssertEqual(work.faces, [.issue, .run, .results])
+        let noRun = WorkflowView.nodeWork(
+            issueId: "i", sessionId: nil, issuePushed: false, sessions: [], me: "me", now: now
+        )
+        XCTAssertEqual(noRun.faces, [.issue])
     }
 }
