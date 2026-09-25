@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest"
 import { getTableColumns } from "drizzle-orm"
-import { issues, workflowNodes, workflows } from "@exp/db-schema"
+import {
+  codingSessions,
+  issues,
+  workflowEvents,
+  workflowNodes,
+  workflows,
+} from "@exp/db-schema"
 
 import { ISSUE_COLUMNS } from "./issues"
 import { WORKFLOW_COLUMNS } from "./workflows"
 import { WORKFLOW_NODE_COLUMNS } from "./workflow-nodes"
+import { WORKFLOW_EVENT_COLUMNS } from "./workflow-events"
+import { CODING_SESSION_COLUMNS } from "./coding-sessions"
 
 // A proxy's `columns` allowlist is sent to Electric verbatim: a name the table
 // does not have fails the SHAPE, not the column — the client then syncs none
@@ -15,6 +23,9 @@ const lists = {
   issues: [ISSUE_COLUMNS, issues],
   workflows: [WORKFLOW_COLUMNS, workflows],
   workflow_nodes: [WORKFLOW_NODE_COLUMNS, workflowNodes],
+  // EXP-1082: the new membership columns and the event log.
+  workflow_events: [WORKFLOW_EVENT_COLUMNS, workflowEvents],
+  coding_sessions: [CODING_SESSION_COLUMNS, codingSessions],
 } as const
 
 describe(`shape column allowlists`, () => {

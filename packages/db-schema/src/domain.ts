@@ -1241,3 +1241,98 @@ export const workflowReviewOracleSchema = z
 
 /** `WorkflowNodeReview.head`: a git commit sha, abbreviated or full. */
 export const workflowReviewHeadSchema = z.string().regex(/^[0-9a-f]{7,40}$/)
+
+// ── EXP-1082: the workflow contract ─────────────────────────────────────────
+// Session MEMBERSHIP: which workflow and node a coding session belongs to
+// (`coding_sessions.workflow_id` / `workflow_node_id` / `workflow_role`,
+// synced). Stamped ONCE, on the server, by `resolveWorkflowMembership`
+// (`lib/sessions/workflow-membership.ts`) on every start path; the session
+// tree groups by `workflow_id` FIRST (EXP-1068) and never guesses again.
+// `author` = the node's own run (an issue or batch run), `review` = the
+// agent review of that node, `base_merge` = a synthetic-base build,
+// `plan` / `replan` = the planner runs of a draft.
+export const wfSessionRoleValues = [
+  `author`,
+  `review`,
+  `base_merge`,
+  `plan`,
+  `replan`,
+] as const
+export type WfSessionRole = (typeof wfSessionRoleValues)[number]
+export const wfSessionRoleSchema = z.enum(wfSessionRoleValues)
+
+// `workflow_events` (EXP-1082 §3): what the engine did and why, one short
+// line each, trimmed to the newest WORKFLOW_EVENTS_MAX per workflow at every
+// append. Synced (the `workflow-events` shape); rendered by `WorkflowEventList`
+// ×4 (EXP-1064 fills the host sink `workflows::events::event_for`).
+export const wfEventKindValues = [
+  `node_started`,
+  `review_started`,
+  `review_verdict`,
+  `review_no_verdict`,
+  `retrying`,
+  `gave_up`,
+  `following_resume`,
+  `adopting_run`,
+  `account_picked`,
+  `account_switched`,
+  `waiting_reset`,
+  `cleared_at_cap`,
+  `question_asked`,
+  `question_answered`,
+  `landed`,
+  `skipped`,
+  `failed`,
+  `final_pr_opened`,
+  `final_pr_reopened`,
+  `completed`,
+  `cancelled`,
+] as const
+export type WfEventKind = (typeof wfEventKindValues)[number]
+export const wfEventKindSchema = z.enum(wfEventKindValues)
+export const WORKFLOW_EVENTS_MAX = 50
+export const WORKFLOW_EVENT_MESSAGE_MAX = 500
+
+// Node states, KISS (EXP-1082 §4, Danny 2026-09-25): a person sees FIVE
+// states. The stored `wfNodeState` vocabulary stays the engine's INTERNAL
+// one (nothing to migrate; `waiting` is never written again from EXP-1065
+// on — every hold is `running` with a note), and every client renders ONLY
+// these captions, through `workflowNodeDisplayState` ×4 (locked in
+// `fixtures/workflow-view.json` `displayStates`). An open question is a
+// `needs you` BADGE beside the chip, never a state.
+export const wfNodeDisplayStateValues = [
+  `queued`,
+  `running`,
+  `done`,
+  `failed`,
+  `skipped`,
+] as const
+export type WfNodeDisplayState = (typeof wfNodeDisplayStateValues)[number]
+export const WF_NODE_DISPLAY_STATE: Record<WfNodeState, WfNodeDisplayState> = {
+  proposed: `queued`,
+  blocked: `queued`,
+  ready: `queued`,
+  running: `running`,
+  waiting: `running`,
+  in_review: `running`,
+  updating: `running`,
+  landed: `done`,
+  failed: `failed`,
+  skipped: `skipped`,
+}
+
+// EXP-1082 §4: the question a run parked on, as row state. Written by
+// `exponential_sessions_ask_parent({to: 'user'})` — today that path sets
+// `needs_input` + the 160-char `agent_caption`, which every heartbeat and the
+// next turn overwrite and which carries no time; this column is the durable
+// copy (`askedAt` ISO). SCHEMA + SHAPE ONLY in the contract: EXP-1065 writes
+// it from `ask_parent` and clears it when the answer lands; the
+// `workflowOpenQuestions` selector ×4 reads it.
+export interface CodingSessionPendingQuestion {
+  question: string
+  askedAt: string
+}
+export const codingSessionPendingQuestionSchema = z.object({
+  question: z.string().max(4_000),
+  askedAt: z.string().max(64),
+})

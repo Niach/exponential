@@ -47,6 +47,11 @@ interface Contract {
   wfStartOn: Section
   wfRisk: Section
   wfReviewVerdict: Section
+  // EXP-1082: session membership roles, the engine's event log kinds and the
+  // five node states a person sees.
+  wfSessionRole: Section
+  wfEventKind: Section
+  wfNodeDisplayState: Section
   codingSessionStatus: Section
   codingSessionEndedBy: Section
   codingSessionBlocked: { kinds: string[]; windows: string[] }
@@ -113,7 +118,12 @@ interface Contract {
     planWorkflowId: string
     reviewNodeId: string
   }
-  workflow: { maxParallelDefault: number; maxIssues: number; maxReviewRounds: number }
+  workflow: {
+    maxParallelDefault: number
+    maxIssues: number
+    maxReviewRounds: number
+    eventsMax: number
+  }
   // EXP-1029: the two-model workflow launch (cheap `model`, capable
   // `strongModel`) per agent, and a device's agent defaults.
   workflowLaunch: {
@@ -457,6 +467,9 @@ ${swiftStringArray("wfNodeKindValues", contract.wfNodeKind.values)}
 ${swiftStringArray("wfStartOnValues", contract.wfStartOn.values)}
 ${swiftStringArray("wfRiskValues", contract.wfRisk.values)}
 ${swiftStringArray("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
+${swiftStringArray("wfSessionRoleValues", contract.wfSessionRole.values)}
+${swiftStringArray("wfEventKindValues", contract.wfEventKind.values)}
+${swiftStringArray("wfNodeDisplayStateValues", contract.wfNodeDisplayState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${swiftStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -529,6 +542,7 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let builtinPlanWorkflowId: String = "${contract.builtinAction.planWorkflowId}"
     public static let builtinReviewNodeId: String = "${contract.builtinAction.reviewNodeId}"
     public static let workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
+    public static let workflowEventsMax: Int = ${contract.workflow.eventsMax}
     public static let workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
     public static let workflowMaxIssues: Int = ${contract.workflow.maxIssues}
 ${swiftStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
@@ -576,6 +590,9 @@ ${swiftNamedValues("wfNodeKind", contract.wfNodeKind.values)}
 ${swiftNamedValues("wfStartOn", contract.wfStartOn.values)}
 ${swiftNamedValues("wfRisk", contract.wfRisk.values)}
 ${swiftNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
+${swiftNamedValues("wfSessionRole", contract.wfSessionRole.values)}
+${swiftNamedValues("wfEventKind", contract.wfEventKind.values)}
+${swiftNamedValues("wfNodeDisplayState", contract.wfNodeDisplayState.values)}
 ${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${swiftNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
@@ -615,6 +632,9 @@ ${kotlinStringArray("wfNodeKindValues", contract.wfNodeKind.values)}
 ${kotlinStringArray("wfStartOnValues", contract.wfStartOn.values)}
 ${kotlinStringArray("wfRiskValues", contract.wfRisk.values)}
 ${kotlinStringArray("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
+${kotlinStringArray("wfSessionRoleValues", contract.wfSessionRole.values)}
+${kotlinStringArray("wfEventKindValues", contract.wfEventKind.values)}
+${kotlinStringArray("wfNodeDisplayStateValues", contract.wfNodeDisplayState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${kotlinStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -687,6 +707,7 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val builtinPlanWorkflowId: String = "${contract.builtinAction.planWorkflowId}"
     const val builtinReviewNodeId: String = "${contract.builtinAction.reviewNodeId}"
     const val workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
+    const val workflowEventsMax: Int = ${contract.workflow.eventsMax}
     const val workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
     const val workflowMaxIssues: Int = ${contract.workflow.maxIssues}
 ${kotlinStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
@@ -734,6 +755,9 @@ ${kotlinNamedValues("wfNodeKind", contract.wfNodeKind.values)}
 ${kotlinNamedValues("wfStartOn", contract.wfStartOn.values)}
 ${kotlinNamedValues("wfRisk", contract.wfRisk.values)}
 ${kotlinNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
+${kotlinNamedValues("wfSessionRole", contract.wfSessionRole.values)}
+${kotlinNamedValues("wfEventKind", contract.wfEventKind.values)}
+${kotlinNamedValues("wfNodeDisplayState", contract.wfNodeDisplayState.values)}
 ${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${kotlinNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
@@ -775,6 +799,9 @@ ${rustStrSlice("wfNodeKindValues", contract.wfNodeKind.values)}
 ${rustStrSlice("wfStartOnValues", contract.wfStartOn.values)}
 ${rustStrSlice("wfRiskValues", contract.wfRisk.values)}
 ${rustStrSlice("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
+${rustStrSlice("wfSessionRoleValues", contract.wfSessionRole.values)}
+${rustStrSlice("wfEventKindValues", contract.wfEventKind.values)}
+${rustStrSlice("wfNodeDisplayStateValues", contract.wfNodeDisplayState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${rustStrSlice("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -850,6 +877,7 @@ pub const BUILTIN_CHAT_ID: &str = "${contract.builtinAction.chatId}";
 pub const BUILTIN_PLAN_WORKFLOW_ID: &str = "${contract.builtinAction.planWorkflowId}";
 pub const BUILTIN_REVIEW_NODE_ID: &str = "${contract.builtinAction.reviewNodeId}";
 pub const WORKFLOW_MAX_REVIEW_ROUNDS: usize = ${contract.workflow.maxReviewRounds};
+pub const WORKFLOW_EVENTS_MAX: usize = ${contract.workflow.eventsMax};
 pub const WORKFLOW_MAX_PARALLEL_DEFAULT: usize = ${contract.workflow.maxParallelDefault};
 pub const WORKFLOW_MAX_ISSUES: usize = ${contract.workflow.maxIssues};
 ${rustStrSlice("workflowLaunchAgents", contract.workflowLaunch.agents)}
@@ -897,6 +925,9 @@ ${rustNamedValues("wfNodeKind", contract.wfNodeKind.values)}
 ${rustNamedValues("wfStartOn", contract.wfStartOn.values)}
 ${rustNamedValues("wfRisk", contract.wfRisk.values)}
 ${rustNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
+${rustNamedValues("wfSessionRole", contract.wfSessionRole.values)}
+${rustNamedValues("wfEventKind", contract.wfEventKind.values)}
+${rustNamedValues("wfNodeDisplayState", contract.wfNodeDisplayState.values)}
 ${rustNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${rustNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}

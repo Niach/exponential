@@ -11,6 +11,7 @@ import {
   selectAutomationSchema,
   selectSyncedWorkflowSchema,
   selectWorkflowNodeSchema,
+  selectWorkflowEventSchema,
   selectAttachmentSchema,
   selectCodingSessionSchema,
   selectCommentSchema,
@@ -179,6 +180,17 @@ export const workflowNodeCollection = createCollection(
     id: `workflow_nodes`,
     shapeOptions: shapeOptions(`/api/shapes/workflow-nodes`),
     schema: selectWorkflowNodeSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-1082 §3: the engine's event log per workflow (newest 50 kept
+// server-side), rendered by `WorkflowEventList`.
+export const workflowEventCollection = createCollection(
+  electricCollectionOptions({
+    id: `workflow_events`,
+    shapeOptions: shapeOptions(`/api/shapes/workflow-events`),
+    schema: selectWorkflowEventSchema,
     getKey: (item) => item.id,
   })
 )
