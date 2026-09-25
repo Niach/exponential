@@ -39,11 +39,17 @@ enum Root {
 }
 
 fn read_root(path: &Path) -> Root {
-    let Ok(raw) = fs::read_to_string(path) else {
-        return Root::Fresh;
+    // Only a file that is NOT THERE is a fresh install. Any other read error,
+    // and an existing EMPTY file, is a writer caught mid-flight (a truncating
+    // write, EMFILE): re-minting on it replaced the whole settings.json with
+    // a lone new deviceId and orphaned the machine's workflows.
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Root::Fresh,
+        Err(_) => return Root::Unreadable,
     };
     if raw.trim().is_empty() {
-        return Root::Fresh;
+        return Root::Unreadable;
     }
     match serde_json::from_str::<serde_json::Value>(&raw) {
         Ok(value) if value.is_object() => Root::Object(value),
@@ -199,12 +205,14 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_file_mints_once() {
-        // Empty (not corrupt) is a fresh install: mint, persist, stay stable.
+    fn an_empty_file_is_never_overwritten() {
+        // Empty = a writer caught mid-flight, not a fresh install: serve a
+        // temporary id and leave the file for its writer to finish.
         let dir = TempDir::new("device-empty");
-        fs::write(dir.0.join("settings.json"), "").unwrap();
-        let first = device_id(&dir.0);
-        assert_eq!(first, device_id(&dir.0));
+        let path = dir.0.join("settings.json");
+        fs::write(&path, "").unwrap();
+        let _ = device_id(&dir.0);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
     }
 
     #[test]

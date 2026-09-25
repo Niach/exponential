@@ -114,6 +114,9 @@ pub fn write_states(
     if let Some(dir) = settings_path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    // Held across the read AND the write: settings.json has writers in two
+    // processes (EXP-781).
+    let _guard = settings_path.parent().map(api::settings_lock::locked);
     let mut root = read_root(settings_path)
         .unwrap_or_else(|| Value::Object(Default::default()));
     let mut entries = serde_json::Map::new();
@@ -144,7 +147,10 @@ pub fn write_states(
     }
     let mut rendered = serde_json::to_string_pretty(&root).expect("render settings json");
     rendered.push('\n');
-    std::fs::write(settings_path, rendered)
+    // EXP-766: by rename. A truncating write let device_identity read an
+    // EMPTY file mid-write, take it for a fresh install and re-mint the
+    // device id over every other key (workflow 2f353e88 lost its host).
+    api::atomic_file::write_atomic(settings_path, &rendered)
 }
 
 fn read_root(settings_path: &Path) -> Option<Value> {

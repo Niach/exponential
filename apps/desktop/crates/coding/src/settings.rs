@@ -331,6 +331,7 @@ impl Settings {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
+        let _guard = path.parent().map(api::settings_lock::locked);
         let mut root = fs::read_to_string(path)
             .ok()
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())

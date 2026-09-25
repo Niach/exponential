@@ -1528,6 +1528,7 @@ fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<Str
             if SEQ.load(Ordering::SeqCst) != seq {
                 return; // a newer snapshot is queued (or already written)
             }
+            let _settings = path.parent().map(api::settings_lock::locked);
             let mut root = std::fs::read_to_string(&path)
                 .ok()
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
@@ -1559,7 +1560,8 @@ fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<Str
                 let mut rendered =
                     serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string());
                 rendered.push('\n');
-                std::fs::write(&path, rendered)
+                // EXP-766: by rename, never a truncating write.
+                api::atomic_file::write_atomic(&path, &rendered)
             };
             if let Err(err) = write() {
                 log::warn!("[ui] persisting nav state failed: {err}");

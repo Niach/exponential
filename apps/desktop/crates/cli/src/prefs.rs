@@ -14,6 +14,7 @@ fn read_root(data_dir: &Path) -> serde_json::Value {
 }
 
 fn write_key(data_dir: &Path, key: &str, value: serde_json::Value) {
+    let _guard = api::settings_lock::locked(data_dir);
     let mut root = read_root(data_dir);
     if let Some(object) = root.as_object_mut() {
         object.insert(key.to_string(), value);
