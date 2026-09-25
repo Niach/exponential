@@ -551,6 +551,6 @@ export function workflowPrimaryAction(
 }
 
 /** What a node chip's menu offers. STUB. */
-export function nodeChipMenu(_node: { state: string }): (`retry` | `skip`)[] {
+export function nodeChipMenu(_state: string): (`retry` | `skip`)[] {
   return []
 }

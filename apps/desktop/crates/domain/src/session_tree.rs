@@ -1410,72 +1410,190 @@ mod tree_tests {
         assert_eq!(COLLAPSE_GROUP_LABEL, "Collapse these runs");
         assert_eq!(EXPAND_GROUP_LABEL, "Expand these runs");
     }
-}
 
-/// EXP-1082 — the workflow-membership rules EXP-1068 implements. Declared
-/// here (same names as the web twin, snake_cased) so the four clients land
-/// them together; each body states the expectation.
-#[cfg(test)]
-mod workflow_membership_tests {
-    #[test]
-    #[ignore = "EXP-1068"]
-    fn groups_by_workflow_id_before_any_heuristic() {
-        // A run whose row names `workflow_id` folds under that workflow's
-        // group row even when no node/issue heuristic would place it.
-        assert!(true);
-    }
+    /// EXP-1082 — the workflow-membership rules EXP-1068 implements, with
+    /// their real rows (same names as the web twin, snake_cased). Ignored
+    /// until EXP-1068 lands the membership-first grouping; they compile so
+    /// the leaf only has to un-ignore them.
+    mod workflow_membership {
+        use super::*;
 
-    #[test]
-    #[ignore = "EXP-1068"]
-    fn nests_a_review_run_under_its_nodes_author_row() {
-        // `workflow_role = review` on node N nests under N's author run.
-        assert!(true);
-    }
+        impl Run {
+            /// The row's `workflow_id` / `workflow_node_id` / `workflow_role`.
+            fn member(
+                mut self,
+                workflow_id: &'static str,
+                node_id: Option<&'static str>,
+                role: &'static str,
+            ) -> Self {
+                self.workflow_id = Some(workflow_id);
+                self.workflow_node_id = node_id;
+                self.workflow_role = Some(role);
+                self
+            }
+        }
 
-    #[test]
-    #[ignore = "EXP-1068"]
-    fn keeps_a_switched_reviewer_under_its_node() {
-        // A reviewer resumed on another account (a new row, same node) stays
-        // nested under the same node's author row.
-        assert!(true);
-    }
+        /// One workflow `w` named "Checkout rewrite", and NO `workflow_nodes`
+        /// rows unless a case hands its own: membership alone must group.
+        fn membership_tree(runs: Vec<Run>, workflow_nodes: &[WorkflowNodeFacts]) -> Vec<SessionTreeNode<Run>> {
+            let workflows = vec![workflow("w", Some("Checkout rewrite"))];
+            tree(
+                runs,
+                &SessionTreeContext {
+                    workflows: &workflows,
+                    workflow_nodes,
+                    issues: &[],
+                },
+            )
+        }
 
-    #[test]
-    #[ignore = "EXP-1068"]
-    fn lists_a_base_merge_as_a_child_of_the_group() {
-        // `workflow_role = base_merge` sits directly under the group row,
-        // not under any node.
-        assert!(true);
-    }
+        #[test]
+        #[ignore = "EXP-1068"]
+        fn groups_by_workflow_id_before_any_heuristic() {
+            // No `workflow_nodes` row names the run or its issue: the row's
+            // own `workflow_id` is what folds it under the group.
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i9").member("w", Some("n1"), "author").at("2026-09-01T11:00:00Z"),
+                    run("x").on("i-other"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a) x");
+        }
 
-    #[test]
-    #[ignore = "EXP-1068"]
-    fn names_a_plan_only_group_after_the_plan() {
-        // A workflow whose only run is its `plan` run still gets a group row,
-        // named after the workflow the plan belongs to.
-        assert!(true);
-    }
+        #[test]
+        #[ignore = "EXP-1068"]
+        fn nests_a_review_run_under_its_nodes_author_row() {
+            // `review` on node n1 sits as a child of n1's `author` run — no
+            // `parent_session_id` needed. The review row is captioned
+            // `Review r<n>` (its round); `SessionNode` carries no caption yet,
+            // so EXP-1068 adds the field and asserts `Review r1` here.
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("r").member("w", Some("n1"), "review").at("2026-09-01T11:00:00Z"),
+                    run("b").on("i2").member("w", Some("n2"), "author").at("2026-09-01T09:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a(r) b)");
+        }
 
-    #[test]
-    #[ignore = "EXP-1068"]
-    fn keeps_a_foreign_chat_that_resumed_a_workflow_run_inside_the_group() {
-        // A chat that resumed a workflow run (resumed_from_id) inherits the
-        // membership and stays inside the group.
-        assert!(true);
-    }
+        #[test]
+        #[ignore = "EXP-1068"]
+        fn keeps_a_switched_reviewer_under_its_node() {
+            // An account-switch resume of the reviewer (a new row, same
+            // membership) collapses into the same chain under n1's author.
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("r1").member("w", Some("n1"), "review").at("2026-09-01T11:00:00Z"),
+                    run("r2")
+                        .resuming("r1")
+                        .member("w", Some("n1"), "review")
+                        .at("2026-09-01T12:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a(r2))");
+            let SessionTreeNode::Workflow(group) = &nodes[0] else {
+                panic!("a workflow group");
+            };
+            let SessionTreeNode::Session(reviewer) = &group.children[0].children()[0] else {
+                panic!("the reviewer's session node");
+            };
+            assert_eq!(
+                reviewer.chain.iter().map(|run| run.id).collect::<Vec<_>>(),
+                ["r1", "r2"]
+            );
+        }
 
-    #[test]
-    #[ignore = "EXP-1068"]
-    fn groups_a_persons_run_on_a_compound_nodes_sub_issue() {
-        // A person's own run on a sub-issue of a compound node groups under
-        // that workflow.
-        assert!(true);
-    }
+        #[test]
+        #[ignore = "EXP-1068"]
+        fn lists_a_base_merge_as_a_child_of_the_group() {
+            // `base_merge`, `plan` and `replan` name no node: each is a plain
+            // child of the group, never under a node's author run. The
+            // group's children sort newest activity first.
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("m").member("w", None, "base_merge").at("2026-09-01T11:00:00Z"),
+                    run("p").member("w", None, "plan").at("2026-09-01T08:00:00Z"),
+                    run("rp").member("w", None, "replan").at("2026-09-01T12:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(rp m a p)");
+        }
 
-    #[test]
-    #[ignore = "EXP-1068"]
-    fn flags_a_node_with_two_live_author_runs() {
-        // Two LIVE `author` runs on one node are flagged (a double start).
-        assert!(true);
+        #[test]
+        #[ignore = "EXP-1068"]
+        fn names_a_plan_only_group_after_the_plan() {
+            // A draft whose only row is its `plan` run still draws a group,
+            // named after the plan's working name (the workflow row's name).
+            let nodes = membership_tree(vec![run("p").member("w", None, "plan")], &[]);
+            assert_eq!(shape(&nodes), "workflow:w(p)");
+            let SessionTreeNode::Workflow(group) = &nodes[0] else {
+                panic!("a workflow group");
+            };
+            assert_eq!(group.name, "Checkout rewrite");
+        }
+
+        #[test]
+        #[ignore = "EXP-1068"]
+        fn keeps_a_foreign_chat_that_resumed_a_workflow_run_inside_the_group() {
+            // A resume performed from a chat: its row names the chat as its
+            // parent but keeps the workflow membership (EXP-906 inherits it),
+            // so the succession stays in the group, not under the chat.
+            let nodes = membership_tree(
+                vec![
+                    run("c").at("2026-09-01T11:00:00Z"),
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("a2")
+                        .resuming("a")
+                        .under("c")
+                        .on("i1")
+                        .member("w", Some("n1"), "author")
+                        .at("2026-09-01T12:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a2) c");
+        }
+
+        #[test]
+        #[ignore = "EXP-1068"]
+        fn groups_a_persons_run_on_a_compound_nodes_sub_issue() {
+            // Compound node n1 = parent i1 + sub-issue i2; only the parent
+            // has a `workflow_nodes` row. A person's fresh run on i2, stamped
+            // `author` of n1 by the server, joins the node's group.
+            let workflow_nodes = vec![workflow_node("w", "i1")];
+            let nodes = membership_tree(
+                vec![
+                    run("mine").on("i2").member("w", Some("n1"), "author").at("2026-09-01T11:00:00Z"),
+                    run("b").on("i3").member("w", Some("n2"), "author").at("2026-09-01T10:00:00Z"),
+                ],
+                &workflow_nodes,
+            );
+            assert_eq!(shape(&nodes), "workflow:w(mine b)");
+        }
+
+        #[test]
+        #[ignore = "EXP-1068"]
+        fn flags_a_node_with_two_live_author_runs() {
+            // Two live `author` rows on one node (a double start): BOTH are
+            // listed, neither nested under the other. The tree has no
+            // `warning` field yet — EXP-1068 adds the node flag and asserts
+            // it here; the shape below is what must hold either way.
+            let nodes = membership_tree(
+                vec![
+                    run("a1").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("a2").on("i1").member("w", Some("n1"), "author").at("2026-09-01T11:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a2 a1)");
+        }
     }
 }
