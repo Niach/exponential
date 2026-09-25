@@ -406,9 +406,10 @@ export function WorkflowDetail({
                   data-testid={`workflow-running-${node.id}`}
                 >
                   <RunningIndicator state={run.state} working={run.working} />
-                  {issue
-                    ? workflowNodeTitle(issue.identifier, node.memberIssueIds.length)
-                    : node.issueId.slice(0, 8)}
+                  {workflowNodeTitle(
+                    issue?.identifier ?? node.issueId.slice(0, 8),
+                    node.memberIssueIds.length
+                  )}
                 </Link>
               </Button>
             )
