@@ -1356,8 +1356,7 @@ fn status_glyph(status: &str, cx: &App) -> (crate::icons::ExpIcon, gpui::Hsla) {
     match status {
         "draft" => (registry::PR_DRAFT, theme.muted_foreground),
         "running" => (registry::CODING_RUNNING, theme.foreground),
-        // TODO(icons.json): no pause concept in the ONE icon registry yet.
-        "paused" => (registry::CODING_STOP, theme.muted_foreground),
+        "paused" => (registry::RUN_PAUSE, theme.muted_foreground),
         "done" => (registry::STATUS_DONE, theme.success),
         "failed" => (registry::UI_ERROR, theme.danger),
         "cancelled" => (registry::STATUS_CANCELLED, theme.muted_foreground),
@@ -1673,9 +1672,7 @@ fn primary_button(
         WorkflowPrimaryAction::Pause => Button::new("workflow-primary")
             .primary()
             .small()
-            // TODO(icons.json): no pause concept in the ONE icon registry
-            // yet; Pause borrows the Stop glyph until one lands.
-            .icon(Icon::from(registry::CODING_STOP))
+            .icon(Icon::from(registry::RUN_PAUSE))
             .label(PAUSE_WORKFLOW_LABEL)
             .on_click(move |_, _window, cx| spawn_command(Command::Pause, id.clone(), cx))
             .into_any_element(),
