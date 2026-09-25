@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,10 +24,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,6 +41,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import kotlinx.coroutines.launch
 
 /** How tall a [GlassSheet] presents (EXP-687). */
 enum class SheetHeight {
@@ -117,16 +121,35 @@ fun GlassSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
     val full = height == SheetHeight.Full
     val maxFittedHeight = (LocalConfiguration.current.screenHeightDp * GlassSheetDefaults.FittedMaxHeightFraction).dp
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        // EXP-1043: back is OURS, not material3's. Its dismiss-on-back
+        // registers an `OnBackInvokedCallback` straight on the sheet's dialog
+        // WINDOW (API 33+), where it outranks every `BackHandler` inside the
+        // sheet — a nested surface could then never take back for itself (the
+        // sub-shell's open page returned to the card on the emulator only once
+        // this moved). Handled in the content instead, on the dialog's
+        // OnBackPressedDispatcher, where a nested handler wins the way it does
+        // on any other screen. The cost is the system's predictive-back shrink
+        // on the sheet itself; the dismissal is the same animation as before.
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false),
         modifier = if (full) Modifier.statusBarsPadding() else Modifier,
         shape = RoundedCornerShape(topStart = GlassSheetDefaults.CornerRadius, topEnd = GlassSheetDefaults.CornerRadius),
         containerColor = GlassSheetDefaults.ContainerColor,
         dragHandle = { BottomSheetDefaults.DragHandle(color = GlassSheetDefaults.DragHandleColor) },
     ) {
+        // The sheet's own back, the same hide-then-dismiss the swipe takes.
+        // Declared BEFORE the content so a handler the caller nests inside it
+        // (the sub-shell's open page) is the more recent one and goes first.
+        BackHandler {
+            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                if (!sheetState.isVisible) onDismiss()
+            }
+        }
         Column(
             modifier = modifier
                 .fillMaxWidth()

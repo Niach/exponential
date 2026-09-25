@@ -2203,6 +2203,9 @@ fn run_device_command(
         .map(|live| live.branch.clone())
         .collect();
     let (ok, message) = match command.kind.as_str() {
+        // EXP-1020: no client in THIS release queues these two; they stay
+        // for machines on an older build. EXP-1060 retires them once the
+        // version floors pass.
         "worktree_remove" => {
             let repo = command.payload["repoFullName"].as_str().unwrap_or_default();
             let branch = command.payload["branch"].as_str().unwrap_or_default();

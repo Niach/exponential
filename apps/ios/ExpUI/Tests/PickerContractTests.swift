@@ -7,6 +7,10 @@ import ExpUI
 // the stubs already do; the skipped ones are the presentation rules and the
 // typed-picker gate EXP-1021 implements and un-skips (web, IDE and Android
 // carry the same case names).
+// The typed pickers are views, so their `items` statics are main-actor
+// isolated: the cases that call them have to be too, or the target does not
+// build at all.
+@MainActor
 final class PickerContractTests: XCTestCase {
 
     func testARowMatchesOnItsKeywordsElseOnItsLabel() {

@@ -195,6 +195,47 @@ pub(crate) fn machine_account_options(
         .collect()
 }
 
+/// EXP-1020: the account options the DEVICE SETTINGS offer — the machine's
+/// reported logins PLUS one ambient `system` row per editable agent that
+/// reports none.
+///
+/// Not the same question [`machine_account_options`] answers. Starting a run
+/// needs an agent that can actually run on that machine, so the composer and
+/// the automation editor keep the strict list. This row asks "which agent is
+/// this machine's DEFAULT", and a machine signed into claude alone must
+/// still be pointable at codex — with the all-or-nothing fallback it offered
+/// exactly one row, which [`crate::coding_selects::account_picker`] renders
+/// as a plain label (one option is not a choice), so the default could not
+/// be changed at all. That is the complaint EXP-1020 opens with.
+///
+/// Siblings: web `lib/devices/account-options.ts`, iOS
+/// `DeviceSettingsSheet.accountOptions`, Android `deviceAccountOptions`.
+pub(crate) fn device_account_options(
+    accounts: &coding::agent_accounts::AgentAccounts,
+    usage: &coding::agent_usage::AgentUsageMap,
+    settings: &coding::Settings,
+    editable: &[CodingAgent],
+) -> Vec<coding::AccountOption> {
+    let mut options = machine_account_options(accounts, usage, settings, editable);
+    let covered: Vec<CodingAgent> = options.iter().map(|option| option.agent).collect();
+    for agent in editable {
+        if covered.contains(agent) {
+            continue;
+        }
+        options.push(coding::AccountOption {
+            id: coding::SYSTEM_PROFILE.to_string(),
+            agent: *agent,
+            email: agent.label().to_string(),
+            // The reported logins carry the device default among them; an
+            // agent that reports nothing never is one.
+            is_device_default: false,
+            health: coding::Health::Unknown,
+            limits: None,
+        });
+    }
+    options
+}
+
 /// The picker key for an (agent, account) pair — the ambient login carries
 /// `None` on the wire, so it reads back as the `system` profile.
 pub(crate) fn account_key(agent: CodingAgent, account: Option<&str>) -> String {
@@ -643,6 +684,10 @@ impl<V: Render> DefaultsToggle<V> {
 /// row a surface splices in:
 ///
 /// - [`Self::leading`] — between the tabs and Model (the CLI-path row).
+/// - [`Self::subagent`] — EXP-1020, right under Model: claude's subagent
+///   model, the row the device settings had on web and nowhere else.
+/// - [`Self::trailing`] — after the toggles (the "Workflow settings"
+///   sub-shell row the two device surfaces end on).
 ///
 /// EXP-862 dropped the trailing account + usage rows with the device-settings
 /// dialog's account block; the composer's own options row is the only launch
@@ -659,6 +704,8 @@ pub(crate) struct AgentDefaultsGroup<V: Render> {
     effort_disabled: bool,
     toggles: Vec<DefaultsToggle<V>>,
     leading: Vec<Div>,
+    subagent: Option<ChoiceSelect>,
+    trailing: Vec<Div>,
 }
 
 impl<V: Render> AgentDefaultsGroup<V> {
@@ -682,6 +729,8 @@ impl<V: Render> AgentDefaultsGroup<V> {
             effort_disabled: false,
             toggles: Vec::new(),
             leading: Vec::new(),
+            subagent: None,
+            trailing: Vec::new(),
         }
     }
 
@@ -702,6 +751,19 @@ impl<V: Render> AgentDefaultsGroup<V> {
         self
     }
 
+    /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on, directly under
+    /// Model as on web. Callers pass it only where the agent supports one.
+    pub(crate) fn subagent(mut self, select: ChoiceSelect) -> Self {
+        self.subagent = Some(select);
+        self
+    }
+
+    /// Rows after the toggles — the last rows of the card.
+    pub(crate) fn trailing(mut self, rows: Vec<Div>) -> Self {
+        self.trailing = rows;
+        self
+    }
+
     pub(crate) fn render(self, cx: &mut Context<V>) -> Div {
         let Self {
             prefix,
@@ -714,6 +776,8 @@ impl<V: Render> AgentDefaultsGroup<V> {
             effort_disabled,
             toggles,
             leading,
+            subagent,
+            trailing,
         } = self;
         let mut rows: Vec<Div> = vec![agent_tabs_row(prefix, pills, active, on_select, cx)];
         rows.extend(leading);
@@ -723,6 +787,14 @@ impl<V: Render> AgentDefaultsGroup<V> {
             surface::glass_picker_select(Select::new(&model)).into_any_element(),
             cx,
         ));
+        if let Some(subagent) = subagent {
+            rows.push(surface::glass_picker_row(
+                "Subagent model",
+                None,
+                surface::glass_picker_select(Select::new(&subagent)).into_any_element(),
+                cx,
+            ));
+        }
         rows.push(surface::glass_picker_row(
             agent.effort_label(),
             // The hint the two-column layout carried under the Effort select
@@ -739,6 +811,7 @@ impl<V: Render> AgentDefaultsGroup<V> {
         for toggle in toggles {
             rows.push(toggle.row(cx));
         }
+        rows.extend(trailing);
         surface::glass_group_rows(rows)
     }
 }
@@ -1677,6 +1750,54 @@ mod tests {
         // The picker key folds the ambient login back into `system`.
         assert_eq!(account_key(CodingAgent::Claude, None), "claude:system");
         assert_eq!(account_key(CodingAgent::Codex, Some("work")), "codex:work");
+    }
+
+    /// EXP-1020: the DEVICE SETTINGS' list adds an ambient row per agent the
+    /// machine reports no login for — the launch list does not. A machine
+    /// signed into claude alone offered ONE option there, and one option is
+    /// rendered as a plain label, so its default agent could not be changed
+    /// at all (the complaint EXP-1020 opens with).
+    #[test]
+    fn the_device_settings_offer_an_ambient_row_per_login_less_agent() {
+        use coding::agent_accounts::{AgentAccount, AgentAccounts};
+        let settings = coding::Settings::default();
+        let usage = coding::agent_usage::AgentUsageMap::new();
+        let mut accounts = AgentAccounts::new();
+        accounts.insert(
+            "claude".into(),
+            AgentAccount {
+                signed_in: true,
+                email: Some("dev@acme.test".into()),
+                ..Default::default()
+            },
+        );
+        let both = [CodingAgent::Claude, CodingAgent::Codex];
+
+        // The launch list keeps the strict rule: one login, one option.
+        let launch = machine_account_options(&accounts, &usage, &settings, &both);
+        assert_eq!(launch.len(), 1);
+        assert_eq!(launch[0].agent, CodingAgent::Claude);
+
+        // The device settings make it a CHOICE.
+        let device = device_account_options(&accounts, &usage, &settings, &both);
+        assert_eq!(device.len(), 2, "one login still offers the other agent");
+        assert_eq!(
+            device
+                .iter()
+                .map(|option| option.account_option_key())
+                .collect::<Vec<_>>(),
+            vec!["claude:system".to_string(), "codex:system".to_string()],
+        );
+        // The ambient row is never the device default — the reported logins
+        // carry that among them.
+        assert!(!device[1].is_device_default);
+
+        // An agent that DOES report a login is never duplicated.
+        let covered = device_account_options(&accounts, &usage, &settings, &[CodingAgent::Claude]);
+        assert_eq!(covered.len(), 1);
+
+        // Nothing editable at all stays the one empty case.
+        assert!(device_account_options(&AgentAccounts::new(), &usage, &settings, &[]).is_empty());
     }
 
     /// EXP-749: an agent a remote machine has installed but cannot speak ACP
