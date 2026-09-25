@@ -2098,10 +2098,12 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // EXP-792: the server pick, for a resume to re-resolve.
             // EXP-897: plus the stack, so the resume knows its base is a
             // foundation branch rather than the board's own.
+            // EXP-1083: plus the workflow membership, so a resume echoes it.
             extra: {
                 let mut extra =
                     launch_extra(&options.mcp_server_ids, options.account.as_deref());
                 extra.extend(crate::run_registry::stack_extra(stack));
+                extra.extend(crate::run_registry::workflow_extra(options.workflow.as_ref()));
                 extra
             },
         },
@@ -2952,7 +2954,13 @@ fn prepare_action(
             host_pid: None,
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
-            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
+            // EXP-1083: plus the workflow membership (a reviewer, a base
+            // merge, a planner), so a resume echoes it.
+            extra: {
+                let mut extra = launch_extra(&options.mcp_server_ids, options.account.as_deref());
+                extra.extend(crate::run_registry::workflow_extra(options.workflow.as_ref()));
+                extra
+            },
         },
     );
 
@@ -3184,7 +3192,10 @@ fn prepare_resume_run(
     // however the caller spelled it.
     let switching = requested_account.is_some() && resume_account != recorded_account;
     let options = LaunchOptions {
-        workflow: None,
+        // EXP-1083: the recorded membership, so the re-created row's
+        // heartbeat echoes it (the server-side inheritance stamps the row
+        // either way; the echo is what a swept row resurrects with).
+        workflow: record.workflow_membership(),
         agent,
         model: req.model.clone().unwrap_or_else(|| record.model.clone()),
         effort: req.effort.clone().unwrap_or_else(|| record.effort.clone()),
@@ -7389,6 +7400,74 @@ mod tests {
         assert_eq!(fresh.issue_id.as_deref(), Some("issue-1"));
         assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
         assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
+    }
+
+    /// EXP-1083 (EXP-1068's finding): a resume of a WORKFLOW run re-enters
+    /// with the recorded membership — `LaunchOptions::workflow` is rebuilt
+    /// from the record's `extra` keys, the heartbeat scope echoes it and the
+    /// resumed record carries it on for the next resume.
+    #[test]
+    fn prepare_resume_run_carries_the_recorded_workflow_membership() {
+        let dir = temp_dir("resume-issue-workflow");
+        let (base, captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-1","teamId":"ws-1","status":"running"}}}}"#
+                    .to_string(),
+            ),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut record = issue_resume_record(&dir.0, "sess-old", "repo-resume-workflow");
+        let membership = crate::workflows::WorkflowMembership {
+            workflow_id: "wf-1".to_string(),
+            node_id: Some("node-1".to_string()),
+            role: crate::workflows::WfSessionRole::Review,
+        };
+        record
+            .extra
+            .extend(crate::run_registry::workflow_extra(Some(&membership)));
+        assert_eq!(record.workflow_membership(), Some(membership.clone()));
+
+        let prepared = match prepare(
+            &PrepareRequest::ResumeRun(resume_request(record)),
+            &deps,
+        )
+        .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.workflow, Some(membership.clone()));
+        assert_eq!(prepared.heartbeat_scope.workflow_id.as_deref(), Some("wf-1"));
+        assert_eq!(
+            prepared.heartbeat_scope.workflow_node_id.as_deref(),
+            Some("node-1")
+        );
+        assert_eq!(prepared.heartbeat_scope.workflow_role.as_deref(), Some("review"));
+
+        // The start call still relies on the server-side inheritance
+        // (`resolveWorkflowMembership` reads the predecessor); the echo is
+        // the heartbeat's.
+        let requests = captured.lock().unwrap();
+        assert!(
+            requests.iter().any(|r| r.contains(r#""resumedFromId":"sess-old""#)),
+            "{requests:?}"
+        );
+        drop(requests);
+
+        // A resume of the resume finds the same membership.
+        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
+        assert_eq!(fresh.workflow_membership(), Some(membership));
+
+        // A record without the keys (recorded before them) resumes plain.
+        let plain = issue_resume_record(&dir.0, "sess-plain", "repo-resume-workflow");
+        assert_eq!(plain.workflow_membership(), None);
+        assert!(crate::run_registry::workflow_extra(None).is_empty());
     }
 
     /// The issue fallback: the recorded transcript is gone, so the resume
