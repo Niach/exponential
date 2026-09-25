@@ -124,8 +124,8 @@ internal fun workflowEventIcon(kind: String): ImageVector = when (kind) {
     -> ExpIcons.uiWarning
     DomainContract.wfEventKindAccountPicked,
     DomainContract.wfEventKindAccountSwitched,
-    DomainContract.wfEventKindWaitingReset,
     -> ExpIcons.navAccount
+    DomainContract.wfEventKindWaitingReset -> ExpIcons.uiClock
     DomainContract.wfEventKindQuestionAsked,
     DomainContract.wfEventKindQuestionAnswered,
     -> ExpIcons.uiHelp
