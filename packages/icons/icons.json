@@ -184,6 +184,7 @@
     "pr-draft": "circle-dot",
     "pr-stack": "layers",
     "pr-batch": "boxes",
+    "session-tree": "workflow",
 
     "sc-push": "upload",
 

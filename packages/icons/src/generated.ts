@@ -499,6 +499,7 @@ export const SEMANTIC_ICONS = {
   "run-resume": `rotate-ccw`,
   "sc-push": `upload`,
   "session-shell": `terminal`,
+  "session-tree": `workflow`,
   "settings-about": `info`,
   "settings-account": `circle-user`,
   "settings-agents": `bot`,

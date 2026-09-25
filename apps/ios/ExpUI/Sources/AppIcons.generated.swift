@@ -600,6 +600,8 @@ public enum AppIcons {
     public static let scPush: String = "upload"
     /// Concept `session-shell`.
     public static let sessionShell: String = "terminal"
+    /// Concept `session-tree`.
+    public static let sessionTree: String = "workflow"
     /// Concept `settings-about`.
     public static let settingsAbout: String = "info"
     /// Concept `settings-account`.

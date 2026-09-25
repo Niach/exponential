@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { badgeKind, badgeLabel, prGraph } from "./pr-graph"
+import { badgeKind, badgeLabel, badgeShape, prGraph } from "./pr-graph"
 
 // EXP-897 Part 4 — the badge model. Every `it` name here is mirrored by iOS
 // PrGraphTests, Android PrGraphTest and the desktop `pr_graph` tests.
@@ -173,6 +173,32 @@ describe(`prGraph`, () => {
     const graph = prGraph({ issue: lone, issues: [lone], sessions: [] })
     expect(badgeKind(graph)).toBeNull()
     expect(badgeLabel(graph)).toBeNull()
+  })
+
+  // EXP-1079: the desktop's `is_visible` + `badge_glyphs` — a run with a
+  // family earns the pill on the Run face alone, and a PR relation always
+  // wins over it.
+  it(`shapes a runs badge for a run with a family, on the run face only`, () => {
+    const sessions = [session(`child`, `root`), session(`root`)]
+    const family = prGraph({ session: sessions[0], issues: [], sessions })
+    expect(badgeShape(family, `run`)).toBe(`runs`)
+    expect(badgeShape(family, `changes`)).toBeNull()
+    expect(badgeShape(family, `issue`)).toBeNull()
+    const alone = prGraph({
+      session: session(`alone`),
+      issues: [],
+      sessions: [session(`alone`)],
+    })
+    expect(badgeShape(alone, `run`)).toBeNull()
+    const batchA = issue(`bata`, { prUrl: `https://github.com/acme/app/pull/9` })
+    const batchB = issue(`batb`, { prUrl: `https://github.com/acme/app/pull/9` })
+    const batched = prGraph({
+      session: sessions[0],
+      issue: batchA,
+      issues: [batchA, batchB],
+      sessions,
+    })
+    expect(badgeShape(batched, `run`)).toBe(`batch`)
   })
 
   it(`nests the subject run's whole tree, from its root`, () => {

@@ -9,7 +9,7 @@
       "toast"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
-      "composer-dialog", "issue-context-menu", "session-tree", "device-settings"
+      "composer-dialog", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [
       "workflow-graph"
@@ -33,6 +33,7 @@
     "toast": "EXP-1031",
     "composer-dialog": "EXP-1019",
     "session-tree": "EXP-996",
+    "pr-graph-badge": "EXP-1079",
     "device-settings": "EXP-1020",
     "workflow-graph": "EXP-1014"
   }

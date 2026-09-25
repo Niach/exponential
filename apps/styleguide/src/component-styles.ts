@@ -454,6 +454,48 @@ export const componentStyles = `
 }
 .cmp-session-tree-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* -------------------------------------------------------- work header badge */
+/* EXP-1079: the graph badge is a pill; where it STANDS sizes it. Beside the
+   face toggle it wears the toggle's 36px rung with a 16px glyph — the md pill
+   stretched to the toggle (web \`placement="header"\`, IDE \`badge_size\`). */
+.cmp-pill[data-placement="header"] { height: var(--ctl-lg); }
+.cmp-pr-graph { display: grid; gap: 12px; }
+.cmp-pr-graph-cluster { display: flex; align-items: center; gap: 4px; }
+.cmp-pr-graph-stop { color: var(--destructive); }
+.cmp-pr-graph-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ctl-lg);
+  padding: 3px;
+  border-radius: 9999px;
+  background: var(--row);
+  border: 1px solid var(--stroke-section);
+}
+.cmp-pr-graph-segment {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 12px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-70);
+}
+.cmp-pr-graph-segment[data-active] { background: var(--active); color: var(--fg); }
+/* The popover: the badge's overlay, 320 wide, the session tree's rows. */
+.cmp-pr-graph-popover {
+  display: grid;
+  gap: 8px;
+  width: 320px;
+  max-width: 100%;
+  padding: 8px;
+  border-radius: var(--r-lg);
+  background: var(--menu-bg);
+  border: 1px solid var(--stroke);
+}
+.cmp-pr-graph-section { display: grid; gap: 2px; }
+.cmp-pr-graph-caption { padding: 0 4px; font-size: 12px; color: var(--muted-fg); }
+
 /* ------------------------------------------------------------ session bar */
 /* The bottom strip of coding tabs (EXP-769): rich tabs, then the Chat and add
    tools right after the last one. Since EXP-771 it hangs BELOW the card on the

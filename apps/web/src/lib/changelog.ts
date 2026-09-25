@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-25-work-header-badge`,
+    date: `2026-09-25`,
+    title: `The work header badge`,
+    summary: `The stack, batch and runs badge in the work header stands as tall as the controls beside it, the runs badge wears the workflow glyph, and the web shows it too.`,
+    body: `- **One height**: the badge that says what a piece of work is part of (a stacked pull request, a batch, the runs around this one) now stands at the face toggle's height beside Stop, Resume and Merge, on the web and in the desktop app, instead of a small chip next to tall controls.
+- **Runs badge**: on the Run face of a run that started or was started by other runs, the badge wears the workflow glyph instead of the robot, and the web shows it where only the desktop app did.
+- **Styleguide**: the badge and its popover have their own entry, with the glyph per relation and the rung it stands at.`,
+  },
+  {
     id: `2026-09-25-issue-context-menu`,
     date: `2026-09-25`,
     title: `One issue context menu`,

@@ -251,6 +251,27 @@ export function badgeKind<I, S>(graph: PrGraph<I, S>): BadgeKind {
   return null
 }
 
+/** Which face the badge is drawn on — it decides the overlay's sections and,
+ *  on the Run face, whether the session tree alone earns a pill. */
+export type PrGraphFace = `issue` | `run` | `changes`
+
+/** EXP-1079: what the header pill DRAWS — a PR relation (`badgeKind`), or,
+ *  on the Run face of a run that has a family, the session tree alone
+ *  (`runs`: the desktop's `BadgeGlyph::Runs`, the `session-tree` concept).
+ *  `null` = no pill. The desktop twin is `BadgeSpec::is_visible` +
+ *  `badge_glyphs`: there a lone run has an EMPTY tree, here the tree carries
+ *  the subject itself, so "a family" is more than one row. */
+export type BadgeShape = Exclude<BadgeKind, null> | `runs` | null
+
+export function badgeShape<I, S>(
+  graph: PrGraph<I, S>,
+  face: PrGraphFace
+): BadgeShape {
+  const kind = badgeKind(graph)
+  if (kind) return kind
+  return face === `run` && graph.tree.length > 1 ? `runs` : null
+}
+
 /** The pill's own label: the stack position when there is one, else the
  *  batch's size. Byte-identical ×4. */
 export function badgeLabel<I, S>(graph: PrGraph<I, S>): string | null {
