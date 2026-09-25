@@ -749,6 +749,53 @@ pub fn workflow_primary_action(
     }
 }
 
+/// The page's own words, byte-identical ×4 (fixture `pageLabels`).
+pub const ALL_NODES_LABEL: &str = "All";
+pub const DECISIONS_LABEL: &str = "Decisions";
+/// The overflow's ending verb — `workflows.cancel` behind
+/// [`CANCEL_WORKFLOW_CONFIRM`].
+pub const STOP_WORKFLOW_LABEL: &str = "Stop";
+/// The `pick_device` primary button.
+pub const PICK_DEVICE_LABEL: &str = "Pick device";
+/// A draft's overflow entry that re-picks the runner.
+pub const RUNS_ON_LABEL: &str = "Runs on";
+pub const REVIEW_FINAL_PR_LABEL: &str = "Review final PR";
+
+/// One entry of the header's overflow menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowOverflowItem {
+    Plan,
+    RunsOn,
+    Stop,
+    Delete,
+}
+
+impl WorkflowOverflowItem {
+    /// The fixture's wire word.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            WorkflowOverflowItem::Plan => "plan",
+            WorkflowOverflowItem::RunsOn => "runs_on",
+            WorkflowOverflowItem::Stop => "stop",
+            WorkflowOverflowItem::Delete => "delete",
+        }
+    }
+}
+
+/// The header's overflow menu, in order: a draft plans, re-picks its runner
+/// and can be deleted; a running or paused one stops; anything else deletes.
+pub fn workflow_overflow_menu(status: &str) -> Vec<WorkflowOverflowItem> {
+    match status {
+        "draft" => vec![
+            WorkflowOverflowItem::Plan,
+            WorkflowOverflowItem::RunsOn,
+            WorkflowOverflowItem::Delete,
+        ],
+        "running" | "paused" => vec![WorkflowOverflowItem::Stop],
+        _ => vec![WorkflowOverflowItem::Delete],
+    }
+}
+
 /// A node chip's menu entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeChipAction {
@@ -1205,6 +1252,25 @@ mod display_tests {
         header_captions: Vec<HeaderCase>,
         primary_actions: Vec<ActionCase>,
         chip_menus: Vec<MenuCase>,
+        overflow_menus: Vec<MenuStatusCase>,
+        page_labels: PageLabels,
+    }
+
+    #[derive(Deserialize)]
+    struct MenuStatusCase {
+        status: String,
+        menu: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct PageLabels {
+        all_nodes: String,
+        decisions: String,
+        stop: String,
+        pick_device: String,
+        runs_on: String,
+        review_final_pr: String,
     }
 
     #[derive(Deserialize)]
@@ -1435,5 +1501,29 @@ mod display_tests {
                 .collect();
             assert_eq!(got, case.menu, "state {}", case.state);
         }
+    }
+
+    #[test]
+    fn overflow_menus_match_the_fixture() {
+        let cases = fixture().overflow_menus;
+        assert!(!cases.is_empty());
+        for case in cases {
+            let got: Vec<&str> = workflow_overflow_menu(&case.status)
+                .into_iter()
+                .map(WorkflowOverflowItem::as_wire)
+                .collect();
+            assert_eq!(got, case.menu, "status {}", case.status);
+        }
+    }
+
+    #[test]
+    fn page_labels_match_the_fixture() {
+        let labels = fixture().page_labels;
+        assert_eq!(ALL_NODES_LABEL, labels.all_nodes);
+        assert_eq!(DECISIONS_LABEL, labels.decisions);
+        assert_eq!(STOP_WORKFLOW_LABEL, labels.stop);
+        assert_eq!(PICK_DEVICE_LABEL, labels.pick_device);
+        assert_eq!(RUNS_ON_LABEL, labels.runs_on);
+        assert_eq!(REVIEW_FINAL_PR_LABEL, labels.review_final_pr);
     }
 }

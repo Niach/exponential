@@ -50,7 +50,9 @@ use domain::workflow_view::{
     WorkflowPrimaryAction, CANCEL_WORKFLOW_CONFIRM, DELETE_WORKFLOW_LABEL, FINAL_PR_TITLE,
     MERGE_FINAL_PR_CONFIRM, MERGE_FINAL_PR_LABEL, NEEDS_YOU_LABEL, NODE_UNSYNCED_TITLE,
     PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, RESUME_WORKFLOW_LABEL, SKIP_NODE_CONFIRM,
-    SKIP_NODE_LABEL, START_WORKFLOW_LABEL,
+    SKIP_NODE_LABEL, START_WORKFLOW_LABEL, ALL_NODES_LABEL, DECISIONS_LABEL, PICK_DEVICE_LABEL,
+    REVIEW_FINAL_PR_LABEL, RUNS_ON_LABEL, STOP_WORKFLOW_LABEL, workflow_overflow_menu,
+    WorkflowOverflowItem,
 };
 
 use crate::icons::registry;
@@ -63,17 +65,6 @@ const WORKFLOW_COLUMN_W: f32 = 1024.;
 /// A chip's title cap inside the strip: the identifier says which issue, the
 /// title only reminds.
 const STRIP_TITLE_W: f32 = 140.;
-/// The header's picker trigger while no machine runs the draft.
-const PICK_DEVICE_LABEL: &str = "Choose device";
-/// The header's primary button once the workflow is done: the final pull
-/// request waits in Reviews.
-const REVIEW_FINAL_PR_LABEL: &str = "Review";
-/// The overflow's ending verb (Stop ×4) — `workflows.cancel` underneath.
-const STOP_WORKFLOW_LABEL: &str = "Stop";
-/// The `All` chip, first in the strip.
-const ALL_CHIP_LABEL: &str = "All";
-/// The folded decisions log under All × Issue.
-const DECISIONS_TITLE: &str = "Decisions";
 /// The folded audit trail under All × Issue (while it has rows).
 const EVENTS_TITLE: &str = "Activity";
 /// The banner's one button: the run's own composer answers it.
@@ -949,9 +940,6 @@ impl WorkflowView {
             .filter(|_| action != Some(WorkflowPrimaryAction::PickDevice));
         let (glyph, tint) = status_glyph(&status, cx);
         let primary = action.map(|action| primary_button(action, row, blocker.is_some(), cx));
-        // A draft can still change its runner once one is picked.
-        let device = (draft && action == Some(WorkflowPrimaryAction::Start))
-            .then(|| device_control(&row.id, row.device_id.as_deref(), label.clone(), cx));
 
         v_flex()
             .w_full()
@@ -970,7 +958,6 @@ impl WorkflowView {
                             .min_w_0()
                             .child(crate::controls::glass_input(&self.name_input, window, cx)),
                     )
-                    .children(device)
                     .children(primary)
                     .child(overflow_menu(row, cx)),
             )
@@ -1077,7 +1064,7 @@ impl WorkflowView {
                                 "workflow-decisions",
                                 open,
                                 crate::controls::ChevronSide::Leading,
-                                div().text_sm().child(DECISIONS_TITLE),
+                                div().text_sm().child(DECISIONS_LABEL),
                                 cx,
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -1385,7 +1372,7 @@ fn render_strip(
         crate::surface::PillSize::Sm,
         cx,
     )
-    .label(ALL_CHIP_LABEL);
+    .label(ALL_NODES_LABEL);
     if selection.is_all() {
         all = all.border_color(theme.ring);
     }
@@ -1458,21 +1445,22 @@ fn strip_chip(
             on_pick(&id, event.modifiers(), window, cx)
         });
     }
+    // The hover: the chip's caption through the app's own tooltip; a node
+    // with blocks edges adds the mini-graph under that caption.
     let subjects = facts.issue_ids.clone();
-    let title = facts.issue_title.clone();
-    let needs_you = chip_facts.needs_you;
+    let caption = chip_facts.caption.clone();
     let cell = div()
         .id(SharedString::from(format!("workflow-chip-cell-{}", chip_facts.id)))
         .child(chip)
-        .hoverable_tooltip(move |_window, cx| {
-            let subjects = subjects.clone();
-            let title = title.clone();
-            cx.new(|_| NodeGraphTip {
-                subjects,
-                title,
-                needs_you,
-            })
-            .into()
+        .hoverable_tooltip(move |window, cx| {
+            let ids: Vec<&str> = subjects.iter().map(String::as_str).collect();
+            let graph = crate::issue_graph::graph_for(&ids, cx);
+            if graph.nodes.len() > 1 {
+                let caption = caption.clone();
+                cx.new(|_| NodeGraphTip { graph, caption }).into()
+            } else {
+                gpui_component::tooltip::Tooltip::new(caption.clone()).build(window, cx)
+            }
         });
     if let Some(handlers) = handlers {
         if !facts.menu.is_empty() {
@@ -1500,28 +1488,16 @@ fn muted_outline(cx: &App) -> gpui::Hsla {
     cx.theme().muted_foreground
 }
 
-/// The hover card over a chip: the node's blocks mini-graph (frozen EXP-980
-/// drawing), else the issue's full title.
+/// The hover over a chip whose issue has blocks edges: its caption over the
+/// frozen EXP-980 mini-graph.
 struct NodeGraphTip {
-    subjects: Vec<String>,
-    title: String,
-    needs_you: bool,
+    graph: domain::issue_graph::IssueGraph,
+    caption: String,
 }
 
 impl Render for NodeGraphTip {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let subjects: Vec<&str> = self.subjects.iter().map(String::as_str).collect();
-        let graph = crate::issue_graph::graph_for(&subjects, cx);
         let theme = cx.theme();
-        let body = if graph.nodes.len() > 1 {
-            crate::issue_graph::graph_overlay(&graph, crate::issue_graph::VIEW_W, cx)
-        } else {
-            div()
-                .max_w(px(320.))
-                .text_sm()
-                .child(SharedString::from(self.title.clone()))
-                .into_any_element()
-        };
         v_flex()
             .gap_1()
             .p_2()
@@ -1530,15 +1506,12 @@ impl Render for NodeGraphTip {
             .border_color(theme.border)
             .bg(theme.popover)
             .text_color(theme.popover_foreground)
-            .child(body)
-            .when(self.needs_you, |this| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.warning)
-                        .child(NEEDS_YOU_LABEL),
-                )
-            })
+            .child(div().text_xs().child(SharedString::from(self.caption.clone())))
+            .child(crate::issue_graph::graph_overlay(
+                &self.graph,
+                crate::issue_graph::VIEW_W,
+                cx,
+            ))
     }
 }
 
@@ -1715,71 +1688,107 @@ fn primary_button(
     }
 }
 
-/// The overflow: Plan and Delete on a draft, Stop while it runs, Delete once
-/// it is over.
+/// The overflow, exactly `workflow_overflow_menu`: Plan, Runs on and
+/// Delete on a draft; Stop while it runs; Delete once it is over. Runs on
+/// holds THE device picker's rows (`launch_device_rows`: this machine and
+/// the team's shared online runners) as its submenu.
 fn overflow_menu(row: &WorkflowRow, cx: &App) -> AnyElement {
     let status = row.status_wire().to_string();
     let id = row.id.clone();
     let name = row.name.clone().unwrap_or_default();
+    let picked = row.device_id.clone();
     crate::controls::ghost_icon_button("workflow-menu", Icon::from(registry::UI_MORE), cx)
-        .dropdown_menu(move |mut menu, _window, cx| {
-            let live = matches!(status.as_str(), "running" | "paused");
-            if status == domain::contract::WF_STATUS_DRAFT {
+        .dropdown_menu(move |mut menu, window, cx| {
+            for item in workflow_overflow_menu(&status) {
                 let id = id.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(PLAN_WORKFLOW_LABEL)
-                        .icon(Icon::from(registry::ACTION_RUN))
-                        .on_click(move |_, window, cx| {
-                            crate::navigation::navigate_to_chat(
-                                window,
-                                cx,
-                                ChatSeed::plan_workflow(&id),
-                            );
-                        }),
-                );
-            }
-            if live {
-                let id = id.clone();
-                let name = name.clone();
-                menu = menu.item(
-                    crate::controls::danger_menu_item(
-                        STOP_WORKFLOW_LABEL,
-                        Icon::from(registry::CODING_STOP),
-                        cx,
-                    )
-                    .on_click(move |_, window, cx| {
-                        let id = id.clone();
-                        let title = if name.is_empty() {
-                            STOP_WORKFLOW_LABEL.to_string()
-                        } else {
-                            format!("{STOP_WORKFLOW_LABEL} {name}?")
-                        };
-                        crate::native_dialog::open_alert(
+                menu = match item {
+                    WorkflowOverflowItem::Plan => menu.item(
+                        PopupMenuItem::new(PLAN_WORKFLOW_LABEL)
+                            .icon(Icon::from(registry::ACTION_RUN))
+                            .on_click(move |_, window, cx| {
+                                crate::navigation::navigate_to_chat(
+                                    window,
+                                    cx,
+                                    ChatSeed::plan_workflow(&id),
+                                );
+                            }),
+                    ),
+                    WorkflowOverflowItem::RunsOn => {
+                        let picked = picked.clone();
+                        menu.submenu_with_icon(
+                            Some(Icon::from(registry::NAV_DEVICES)),
+                            RUNS_ON_LABEL,
                             window,
                             cx,
-                            crate::native_dialog::AlertSpec::new(
-                                title,
-                                CANCEL_WORKFLOW_CONFIRM,
+                            move |mut sub, _window, cx| {
+                                let devices = queries::launch_devices(cx);
+                                let rows = crate::launch_options::launch_device_rows(&devices, cx);
+                                for device in rows {
+                                    let workflow_id = id.clone();
+                                    let device_id = device.id.clone();
+                                    sub = sub.item(
+                                        PopupMenuItem::new(device.name.clone())
+                                            .icon(Icon::from(crate::icons::device_icon(
+                                                device.icon.as_deref(),
+                                                device.server,
+                                            )))
+                                            .checked(picked.as_deref() == Some(device.id.as_str()))
+                                            .disabled(device.disabled)
+                                            .on_click(move |_, _window, cx| {
+                                                let mut input = api::workflows::WorkflowUpdate::new(
+                                                    workflow_id.clone(),
+                                                );
+                                                input.device_id =
+                                                    api::Patch::Set(device_id.clone());
+                                                spawn_update(input, cx);
+                                            }),
+                                    );
+                                }
+                                sub
+                            },
+                        )
+                    }
+                    WorkflowOverflowItem::Stop => {
+                        let name = name.clone();
+                        menu.item(
+                            crate::controls::danger_menu_item(
                                 STOP_WORKFLOW_LABEL,
+                                Icon::from(registry::CODING_STOP),
+                                cx,
                             )
-                            .ok_variant(ButtonVariant::Danger)
-                            .on_ok(move |_window, cx| {
-                                spawn_command(Command::Cancel, id.clone(), cx);
-                                true
+                            .on_click(move |_, window, cx| {
+                                let id = id.clone();
+                                let title = if name.is_empty() {
+                                    STOP_WORKFLOW_LABEL.to_string()
+                                } else {
+                                    format!("{STOP_WORKFLOW_LABEL} {name}?")
+                                };
+                                crate::native_dialog::open_alert(
+                                    window,
+                                    cx,
+                                    crate::native_dialog::AlertSpec::new(
+                                        title,
+                                        CANCEL_WORKFLOW_CONFIRM,
+                                        STOP_WORKFLOW_LABEL,
+                                    )
+                                    .ok_variant(ButtonVariant::Danger)
+                                    .on_ok(move |_window, cx| {
+                                        spawn_command(Command::Cancel, id.clone(), cx);
+                                        true
+                                    }),
+                                );
                             }),
-                        );
-                    }),
-                );
-            } else {
-                let id = id.clone();
-                menu = menu.item(
-                    crate::controls::danger_menu_item(
-                        DELETE_WORKFLOW_LABEL,
-                        Icon::from(registry::UI_DELETE),
-                        cx,
-                    )
-                    .on_click(move |_, window, cx| prompt_delete(id.clone(), window, cx)),
-                );
+                        )
+                    }
+                    WorkflowOverflowItem::Delete => menu.item(
+                        crate::controls::danger_menu_item(
+                            DELETE_WORKFLOW_LABEL,
+                            Icon::from(registry::UI_DELETE),
+                            cx,
+                        )
+                        .on_click(move |_, window, cx| prompt_delete(id.clone(), window, cx)),
+                    ),
+                };
             }
             menu
         })
@@ -1817,24 +1826,6 @@ fn device_picker(
         .render(window, cx)
     })
     .into_any_element()
-}
-
-/// A draft's runner, changeable until it starts: a quiet trigger beside
-/// Start naming the machine.
-fn device_control(
-    workflow_id: &str,
-    picked: Option<&str>,
-    label: Option<String>,
-    cx: &App,
-) -> AnyElement {
-    let trigger = Button::new("workflow-device")
-        .ghost()
-        .small()
-        .icon(Icon::from(registry::NAV_DEVICES))
-        .label(SharedString::from(label.unwrap_or_else(|| PICK_DEVICE_LABEL.to_string())))
-        .dropdown_caret(true)
-        .into_any_element();
-    device_picker(workflow_id, picked, trigger, cx)
 }
 
 /// The issue chip for one issue, opening it.
