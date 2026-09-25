@@ -160,9 +160,11 @@ internal fun LaunchOptionsSection(
             OptionGroup {
                 // EXP-1021: the shared DevicePicker owns the sheet (each
                 // machine by its own glyph, one selection language); this
-                // surface keeps the form row as its trigger.
+                // surface keeps the form row as its trigger. A binding takes
+                // any automation-capable machine, offline or signed out (the
+                // schedule catches up); only a launch gates on startability.
                 DevicePicker(
-                    devices = devices.map { it.toPickerDevice() },
+                    devices = devices.map { it.toPickerDevice(startGate = !automation) },
                     value = device?.deviceId,
                     onChange = onDeviceChange,
                     title = deviceLabel,

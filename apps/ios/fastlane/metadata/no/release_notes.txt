@@ -1,3 +1,4 @@
-- Kontekstvindu: forbrukspanelet viser en inndelt stolpe over hva som fyller konteksten til en kjøring, med en forklaring til hver del
-- Estimater: slår du på en skala i teaminnstillingene, får issues et estimat blant egenskapene sine, og aktiviteten viser endringer i estimatet
-- Medlemmer: en invitert person står i teamet med én gang med navnet sitt, og «Members»-innstillingene viser hvem som ikke har blitt med ennå
+- Velgere: status, ansvarlig, labels, board og resten åpner det samme søkbare panelet med enkle rader, og velger du flere, vises det som en utheving i stedet for en sirkel
+- Agentkjøringer: listen over kjøringer nøstes, kjøringene til en workflow under én rad som åpner workflowen og en stacks under én rad, og pilen folder begge sammen
+- Workflows: skjermen mister innstillingsblokken, en node sier sin egen tilstand og åpnes i Issue, Run og Changes, og den siste pull requesten merges derfra
+- Maskininnstillinger: panelet er omordnet, og en ny side «Workflow settings» holder modellene en ny workflow starter på

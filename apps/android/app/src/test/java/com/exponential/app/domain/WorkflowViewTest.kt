@@ -216,7 +216,6 @@ class WorkflowViewTest {
                 status = workflow.getValue("status").jsonPrimitive.content,
                 deviceId = workflow.getValue("deviceId").stringOrNull(),
                 repositoryId = workflow.getValue("repositoryId").stringOrNull(),
-                startOn = workflow.getValue("startOn").jsonPrimitive.content,
             )
             val shape = shapeOf(case.getValue("metrics").jsonObject)
             assertEquals(
@@ -224,21 +223,18 @@ class WorkflowViewTest {
                 WorkflowView.startBlocker(startable, shape),
             )
         }
-        // EXP-983: no start mode is refused any more — all three run.
-        DomainContract.wfStartOnValues.forEach { startOn ->
-            assertNull(
-                startOn,
-                WorkflowView.startBlocker(
-                    WorkflowView.Startable(
-                        status = DomainContract.wfStatusDraft,
-                        deviceId = "dev",
-                        repositoryId = "repo",
-                        startOn = startOn,
-                    ),
-                    WorkflowView.Shape(nodes = 3, depth = 2, width = 2),
+        // EXP-983: a start mode is never a blocker — a ready draft starts,
+        // whatever its `start_on`.
+        assertNull(
+            WorkflowView.startBlocker(
+                WorkflowView.Startable(
+                    status = DomainContract.wfStatusDraft,
+                    deviceId = "dev",
+                    repositoryId = "repo",
                 ),
-            )
-        }
+                WorkflowView.Shape(nodes = 3, depth = 2, width = 2),
+            ),
+        )
     }
 
     @Test
@@ -588,10 +584,6 @@ class WorkflowViewTest {
 
     @Test
     fun `the plan labels name every contract value`() {
-        assertEquals(
-            listOf("On contract", "On PR open", "When landed"),
-            DomainContract.wfStartOnValues.map(WorkflowView::startOnLabel),
-        )
         assertEquals(
             listOf("Low", "Medium", "High"),
             DomainContract.wfRiskValues.map(WorkflowView::riskLabel),

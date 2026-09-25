@@ -19,10 +19,12 @@
 //! `ExpUI/Sources/SubShell.swift`, Android `ui/components/SubShell.kt`.
 #![allow(dead_code)]
 
+use std::rc::Rc;
+
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, ClickEvent, Div, ElementId,
-    InteractiveElement as _, IntoElement as _, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    FocusHandle, InteractiveElement as _, IntoElement as _, KeyDownEvent, ParentElement as _,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
 use theme::tokens as t;
@@ -170,7 +172,8 @@ pub(crate) struct SubShellHost {
     card: Div,
     page: Option<SubShellPage>,
     #[allow(clippy::type_complexity)]
-    on_back: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    on_back: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    back_focus: Option<FocusHandle>,
 }
 
 impl SubShellHost {
@@ -179,18 +182,28 @@ impl SubShellHost {
             card,
             page: None,
             on_back: None,
+            back_focus: None,
         }
     }
 
     /// Slides `page` in place of the card. `on_back` pops the owning view's
     /// [`SubShellNav`] one level.
+    ///
+    /// `back_focus` is the owning view's handle for the back control: the
+    /// page owns the keyboard the moment it slides in (the opener focuses
+    /// it, see [`focus_back_on_open`]), so Escape returns ONE level instead
+    /// of reaching the native dialog underneath and closing the whole
+    /// thing (web `sub-shell.tsx` focuses its Back button and pops on
+    /// Escape with `stopPropagation`).
     pub(crate) fn open(
         mut self,
         page: SubShellPage,
+        back_focus: &FocusHandle,
         on_back: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.page = Some(page);
-        self.on_back = Some(Box::new(on_back));
+        self.on_back = Some(Rc::new(on_back));
+        self.back_focus = Some(back_focus.clone());
         self
     }
 
@@ -204,6 +217,7 @@ impl SubShellHost {
             return self.card.into_any_element();
         };
         let on_back = self.on_back;
+        let back_focus = self.back_focus;
         let foreground = cx.theme().foreground;
         v_flex()
             .w_full()
@@ -220,8 +234,19 @@ impl SubShellHost {
                     .text_sm()
                     .text_color(foreground.opacity(0.7))
                     .hover(|style| style.text_color(foreground))
+                    .when_some(back_focus.as_ref(), |row, focus| row.track_focus(focus))
                     .when_some(on_back, |row, on_back| {
+                        let on_escape = on_back.clone();
                         row.on_click(move |event, window, cx| on_back(event, window, cx))
+                            // Escape = Back, and it stops here: the dialog
+                            // hosting the card must not read it as Close.
+                            .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                                if event.keystroke.key != "escape" {
+                                    return;
+                                }
+                                cx.stop_propagation();
+                                on_escape(&ClickEvent::default(), window, cx);
+                            })
                     })
                     .child(crate::controls::back_glyph())
                     .child(div().min_w_0().truncate().child(page.title)),
@@ -229,6 +254,14 @@ impl SubShellHost {
             .child(page.content)
             .into_any_element()
     }
+}
+
+/// Hand the keyboard to the page that just opened: the owning view's
+/// `on_open` listener calls this right after `SubShellNav::open`, with the
+/// same handle it passes [`SubShellHost::open`], so the back control is
+/// focused and Escape pops (the web page's `backRef.current?.focus()`).
+pub(crate) fn focus_back_on_open(back_focus: &FocusHandle, window: &mut Window, cx: &mut App) {
+    back_focus.focus(window, cx);
 }
 
 /// A row entry that slides its child page in place of the whole card.

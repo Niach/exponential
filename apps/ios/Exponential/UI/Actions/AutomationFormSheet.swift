@@ -181,11 +181,10 @@ struct AutomationFormSheet: View {
                 // EXP-1021: the shared `ActionPicker`; the row is only its
                 // trigger. EXP-827 stands — an action is recognised by its
                 // curated icon, and the picker leads every row with it,
-                // exactly as the web dialog draws it.
+                // exactly as the web dialog draws it (the ONE row bridge,
+                // `ActionPickerAction(ActionDto)`, resolves the glyph).
                 ActionPicker(
-                    actions: eligibleActions.map {
-                        ActionPickerAction(id: $0.id, name: $0.name, icon: $0.icon)
-                    },
+                    actions: eligibleActions.map(ActionPickerAction.init),
                     value: actionId,
                     onChange: { actionId = $0 },
                     trigger: {

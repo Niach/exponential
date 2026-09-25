@@ -327,11 +327,14 @@ const ROW_GAP: f32 = 0.;
 /// The flat list row both kinds sit in: `list_hover` under the pointer,
 /// `list_active` while its session is on screen (EXP-811/862). EXP-965: a
 /// NESTED row paints its tree connector in the gutter its indent reserves.
+/// `interactive` = the row opens something: only then does it take the
+/// pointer cursor and the hover fill (a stack's group row only folds).
 fn row_shell(
     id_prefix: &'static str,
     index: usize,
     guides: &domain::tree_guides::Guides,
     active: bool,
+    interactive: bool,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
     let theme = cx.theme();
@@ -348,9 +351,11 @@ fn row_shell(
         .px_3()
         .py_2p5()
         .pl(gpui::px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
-        .cursor_pointer()
         .when(active, |this| this.bg(row_active))
-        .hover(move |style| style.bg(if active { row_active } else { row_hover }))
+        .when(interactive, |this| {
+            this.cursor_pointer()
+                .hover(move |style| style.bg(if active { row_active } else { row_hover }))
+        })
         .children(crate::tree_guides::guide_layer(guides, ROW_PAD, ROW_GAP))
 }
 
@@ -470,7 +475,7 @@ pub(crate) fn render_running_run_row(
                 .map(|label| small_line(label, theme::tokens::YELLOW.to_hsla())),
         );
 
-    let row = row_shell(id_prefix, index, &guides, active, cx)
+    let row = row_shell(id_prefix, index, &guides, active, true, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
         .child(body);
     match kill {
@@ -544,7 +549,7 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                     .child(facts.byline),
             )
         });
-    row_shell(id_prefix, index, &guides, active, cx)
+    row_shell(id_prefix, index, &guides, active, true, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
         .child(body)
         .child(
@@ -581,7 +586,7 @@ pub(crate) fn render_group_row(spec: GroupRowSpec, cx: &App) -> gpui::AnyElement
     } = spec;
     let muted = cx.theme().muted_foreground;
     let icon = facts.icon();
-    let row = row_shell(id_prefix, index, &guides, false, cx)
+    let row = row_shell(id_prefix, index, &guides, false, on_open.is_some(), cx)
         .children(fold.map(|fold| {
             fold_chevron_labelled(
                 id_prefix,
@@ -619,8 +624,9 @@ pub(crate) fn render_group_row(spec: GroupRowSpec, cx: &App) -> gpui::AnyElement
         Some(on_open) => row
             .on_click(move |event, window, cx| on_open(event, window, cx))
             .into_any_element(),
-        // Nothing to open: the row is a fold and a label.
-        None => row.cursor_default().into_any_element(),
+        // Nothing to open: the row is a fold and a label (no pointer, no
+        // hover fill: `row_shell` got `interactive = false`).
+        None => row.into_any_element(),
     }
 }
 

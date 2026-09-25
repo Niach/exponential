@@ -186,10 +186,19 @@ export function TreeFoldToggle({
   return (
     <span
       role="button"
-      tabIndex={-1}
+      tabIndex={0}
       aria-label={label}
-      className="flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+      aria-expanded={expanded}
+      className="flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
       onClick={(event) => {
+        event.stopPropagation()
+        onToggle()
+      }}
+      // A `role="button"` span gets none of a button's keys for free: Enter
+      // and Space fold, and stay off the row underneath (its link, its open).
+      onKeyDown={(event) => {
+        if (event.key !== `Enter` && event.key !== ` `) return
+        event.preventDefault()
         event.stopPropagation()
         onToggle()
       }}

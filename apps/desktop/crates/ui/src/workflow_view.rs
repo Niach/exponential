@@ -24,7 +24,7 @@
 //! viewport.
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
@@ -761,6 +761,11 @@ impl Render for WorkflowView {
                 WORKFLOW_COLUMN_W,
             );
         };
+        // The merge's synced echo: once the final PR is no longer open the
+        // Merge button is gone, and the in-flight guard with it.
+        if row.final_pr_state.as_deref() != Some("open") {
+            MergingFinalPrs::remove(&row.id, cx);
+        }
         let theme = cx.theme();
         let (muted, danger) = (theme.muted_foreground, theme.danger);
         let nodes = self.nodes(cx);
@@ -1378,12 +1383,52 @@ fn cancel_button(id: String, name: String, _cx: &App) -> gpui::AnyElement {
         .into_any_element()
 }
 
+/// The workflows whose final PR merge is IN FLIGHT: from the confirm until
+/// the synced echo repaints the chip (or the call is refused). The Merge
+/// button on one of them is inert, so two quick clicks cannot become two
+/// confirms and two merges.
+#[derive(Default)]
+struct MergingFinalPrs(HashSet<String>);
+
+impl gpui::Global for MergingFinalPrs {}
+
+impl MergingFinalPrs {
+    fn contains(workflow_id: &str, cx: &App) -> bool {
+        cx.try_global::<Self>()
+            .is_some_and(|merging| merging.0.contains(workflow_id))
+    }
+
+    fn insert(workflow_id: &str, cx: &mut App) {
+        cx.default_global::<Self>().0.insert(workflow_id.to_string());
+    }
+
+    fn remove(workflow_id: &str, cx: &mut App) {
+        if let Some(merging) = cx.try_global::<Self>() {
+            if merging.0.contains(workflow_id) {
+                cx.default_global::<Self>().0.remove(workflow_id);
+            }
+        }
+    }
+}
+
 /// EXP-1032 — "Merge", ON the final-PR chip: squash-merging that one pull
 /// request is the whole run's single human review, so the action sits where
 /// the pull request is named. It confirms with the shared sentence first
 /// (the Cancel workflow pattern), and the click never reaches the chip under
-/// it, whose own job is to open the pull request in a browser.
+/// it, whose own job is to open the pull request in a browser. While a
+/// merge is in flight the button is inert (see [`MergingFinalPrs`]).
 fn merge_final_pr_button(workflow_id: String, cx: &App) -> gpui::AnyElement {
+    if MergingFinalPrs::contains(&workflow_id, cx) {
+        return div()
+            .id("workflow-final-pr-merge")
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .opacity(0.5)
+            .cursor_default()
+            .child(MERGE_FINAL_PR_LABEL)
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .into_any_element();
+    }
     crate::controls::text_button(
         "workflow-final-pr-merge",
         MERGE_FINAL_PR_LABEL,
@@ -2094,19 +2139,28 @@ fn spawn_command(command: Command, workflow_id: String, cx: &mut App) {
 /// worth reading, so it lands as an error notification rather than a log
 /// line nobody sees.
 fn spawn_merge_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) {
+    if MergingFinalPrs::contains(&workflow_id, cx) {
+        return; // a second confirm raced the first: one merge is enough
+    }
     let Some(trpc) = queries::trpc_client(cx) else {
         return;
     };
+    MergingFinalPrs::insert(&workflow_id, cx);
+    window.refresh();
     let handle = window.window_handle();
+    let id = workflow_id.clone();
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
             .spawn(async move { api::workflows::merge_final_pr(&trpc, &workflow_id) })
             .await;
         let _ = handle.update(cx, |_, window, cx| {
-            // The synced echo repaints the chip; only a refusal has to say
-            // anything.
+            // The synced echo repaints the chip (and releases the guard,
+            // see `WorkflowView::render`); only a refusal has to say
+            // anything, and it hands the button back at once.
             if let Err(err) = result {
+                MergingFinalPrs::remove(&id, cx);
+                window.refresh();
                 window.push_notification(
                     Notification::error(SharedString::from(err.user_message())),
                     cx,

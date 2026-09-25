@@ -46,17 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-24-release-train",
-    date: "2026-09-24",
-    title: "Release train 2026-09-24",
-    summary: "The usage popover shows what fills a run's context, owners add a team prompt to every run, machines update their agent CLIs remotely, and fixes for invited members and the Linear import.",
-    body: r#"- **Context window**: the usage popover shows a segmented bar of what fills a run's context, with a legend per segment (base, tools, playbook, team prompt, project instructions, task) on every client, and the account switch says why a switch is refused right where the control is.
-- **Team prompt**: owners write a prompt in Settings, General that every run on every member's machine carries in its system prompt, on the web and in the desktop app.
-- **Machines**: the machine settings update the Claude and Codex CLIs remotely and show each login's version, on the web and in the desktop app.
-- **Sidebar**: one look for the sidebar sections on the web and the desktop app, with the What's new card floating above the footer.
-- **Workflows**: the node strip reuses the work face toggle, and the MCP workflows update takes the runner machine so an agent can bind it.
-- **Invited members**: an invite can no longer seat another team's invited member or move their address, an existing member who opens a colleague's invite link is not merged into it, invited members count once against the seats, signing in with Google, Apple or an identity provider claims the invite, and the invite page welcomes the person instead of calling the link used.
-- **Linear import**: cancelling holds against a finishing discovery, attachments stream with a size cap and a timeout, bundle attachments are checked against private addresses, duplicates keep their target, and finished imports drop their snapshot after a week."#,
+    id: "2026-09-25-release-train",
+    date: "2026-09-25",
+    title: "Release train 2026-09-25",
+    summary: "One picker for every property on every client, the composer opens as a dialog, agent runs group by workflow and stack, workflow screens take their models from the machine, and issue lists select in bulk.",
+    body: r#"- **Pickers**: status, assignee, labels, priority, board, issue, action, machine, account and icon all open the same picker on every client: a popover at the control on the web and the desktop app, a searchable sheet of plain rows on phones, with several picks shown as a highlight instead of a circle. Keyboard navigation of the assignee picker works from the first row, and Unassigned is searchable.
+- **Start a run**: on the web and the desktop app the composer opens as a dialog from an issue, a play button or an action, and stays open while a start is pending on the machine; a subjectless chat still opens the Agent page.
+- **Agent runs**: the running list nests a workflow's runs under one row that opens the workflow and a stack's runs under one row, each folded away by its chevron.
+- **Workflows**: the workflow screen drops its settings block; a new workflow takes its model pair from the runner machine's Workflow settings (a model for leaves and subagents, a strong model for the contract, the integration, high-risk nodes and every review), a node reads its own state, and the final pull request merges from the screen. A resumed reviewer stays the node's reviewer, is never spawned twice, and a refused verdict says what to do next.
+- **Issue lists**: rows select in bulk with a floating action bar on the board and beside an issue, and the due-date column collapses when no issue in the list has a due date. Ctrl-click opens the issue on Windows and Linux again.
+- **Machine settings**: the sheet is organised into pages, with a new Workflow settings page, and the API key section says what revoking a device's key does: it disconnects the device's coding runs, the device stays signed in.
+- **Settings**: shorter section copy on the web and in the desktop app."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

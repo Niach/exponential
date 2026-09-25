@@ -84,8 +84,17 @@ export function useOpenComposer(): (
       // where they were, and the dialog's headline says what pressing send
       // will do. Only a subjectless start (the Agent nav entry, a plain
       // chat) still travels to the page, which is where a chat lives.
+      // The caller's ORIGIN rides along (EXP-870: a pinned action's `null`
+      // = context-free); the dialog's run watch hands it to `useOpenSession`
+      // so the run opens where the click said, not where the URL was.
       if (seedHasSubject(seed)) {
-        requestLaunchDialog({ ...seed, issueIds: seed.issueIds ?? [] })
+        requestLaunchDialog({
+          ...seed,
+          issueIds: seed.issueIds ?? [],
+          ...(options && `origin` in options
+            ? { origin: options.origin ?? null }
+            : {}),
+        })
         return
       }
       const screen = screenFromPath(location ?? ``)

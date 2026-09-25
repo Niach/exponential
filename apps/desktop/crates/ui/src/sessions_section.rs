@@ -34,7 +34,7 @@ use gpui::{
 use gpui_component::{scroll::ScrollableElement as _, v_flex};
 
 use crate::coding_flow::{LocalSessionHost, LocalSessions};
-use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen, TabOrigin};
+use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
 use crate::queries;
 use crate::run_rows::{self, PastRunFacts, PastRunSpec, RunRowFold};
 use crate::surface::glass_section_header;
@@ -316,10 +316,6 @@ pub(crate) struct PastSessionsSection {
     /// EXP-827: the parent rows whose sub-sessions are folded away. Per
     /// view, never persisted.
     collapsed: HashSet<String>,
-    /// EXP-923: the LIST this section is, when it renders as the left
-    /// column's panel — a row then opens its run pinned to it, so the column
-    /// keeps showing the rows the click came from.
-    list_origin: Option<TabOrigin>,
     _subscriptions: Vec<Subscription>,
     _tick: Task<()>,
 }
@@ -334,17 +330,9 @@ impl PastSessionsSection {
             nav,
             rows,
             collapsed: HashSet::new(),
-            list_origin: None,
             _subscriptions: subscriptions,
             _tick: tick(cx, |this: &mut Self, cx| this.refresh(cx)),
         }
-    }
-
-    /// EXP-923: pin the list this section renders as (the left column's
-    /// Recent-runs panel). Called by the renderer, which is the only thing
-    /// that knows where the section ended up.
-    pub(crate) fn set_list_origin(&mut self, origin: Option<TabOrigin>) {
-        self.list_origin = origin;
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
@@ -413,9 +401,7 @@ impl Render for PastSessionsSection {
         let guides =
             domain::tree_guides::guides_for(&rows.iter().map(|row| row.depth).collect::<Vec<_>>());
         let mut column = v_flex().min_w_0();
-        let list_origin = self.list_origin.clone();
         for (index, row) in rows.iter().enumerate() {
-            let list_origin = list_origin.clone();
             let fold = fold_for(row.key.clone(), row.has_children, &self.collapsed, cx);
             let guides = guides.get(index).cloned().unwrap_or_default();
             column = column.child(match &row.kind {
@@ -444,10 +430,13 @@ impl Render for PastSessionsSection {
                             facts: facts.clone(),
                             // EXP-773: a plain link. The transcript and Resume
                             // live in the fullscreen session view now.
+                            // EXP-923: no list origin. The Agent page is
+                            // no longer a list, so a row opens its run
+                            // beside the panel with nothing to pin it to.
                             on_open: Box::new(move |_, window, cx| {
                                 crate::session_screen::open_session_with_origin(
                                     &open_id,
-                                    list_origin.clone(),
+                                    None,
                                     window,
                                     cx,
                                 );
@@ -490,12 +479,7 @@ impl RecentRunsNav {
 }
 
 impl Render for RecentRunsNav {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-923: a row opens its run beside THIS panel — the Agent page is
-        // no longer a list, so nothing else would name one.
-        self.past.update(cx, |section, _| {
-            section.set_list_origin(None);
-        });
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         div()
             .id("recent-runs-scroll")
             .size_full()

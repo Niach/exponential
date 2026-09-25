@@ -19,6 +19,7 @@ import {
   wfStartOnSchema,
   type WorkflowLaunch,
   type WorkflowLaunchAgent,
+  type WorkflowLaunchStored,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { normalizeWorkflowLaunch } from "@/lib/workflow-launch"
@@ -86,6 +87,57 @@ function assertLaunch(launch: WorkflowLaunch): void {
 }
 
 /**
+ * compat: `normalizeWorkflowLaunch`, then a folded `strongModel` outside the
+ * agent's vocabulary falls back to the agent's default strong model UNLESS
+ * the client named `strongModel` itself (an explicit bad one still fails
+ * `assertLaunch`). iOS 0.14.42 (`WorkflowDetailView.swift:402`), Android
+ * 0.14.43 (`WorkflowDetailScreen.kt:774`) and desktop 0.14.50
+ * (`workflow_view.rs:940`) offer the CLAUDE list for the review model
+ * whatever the agent and re-send the whole launch on every save, so a codex
+ * workflow arrives as `reviewModel: "opus"`; the base server never validated
+ * `reviewModel`, so refusing the fold would refuse every save from them.
+ * Remove (plain `normalizeWorkflowLaunch`) once CLIENT_MIN_VERSION_IOS >=
+ * 0.14.43, CLIENT_MIN_VERSION_ANDROID >= 0.14.44 and
+ * CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.51.
+ */
+export function normalizeLaunchLenient(raw: unknown): WorkflowLaunch {
+  const launch = normalizeWorkflowLaunch(raw)
+  const sent =
+    raw && typeof raw === `object` && !Array.isArray(raw)
+      ? (raw as WorkflowLaunchStored).strongModel
+      : null
+  if (typeof sent === `string` && sent.trim().length > 0) return launch
+  const models = agentModelValues[launch.agent]
+  if (models && !models.includes(launch.strongModel)) {
+    return { ...launch, strongModel: WORKFLOW_LAUNCH_DEFAULTS[launch.agent].strongModel }
+  }
+  return launch
+}
+
+/**
+ * compat: what `workflows.launch` is WRITTEN as, by EVERY writer (create,
+ * update, the device-bind re-seed, start's heal): the normalized keys plus
+ * the legacy per-phase pins, each `strongModel` (`subagentModel` = `model`).
+ * A desktop/CLI 0.14.49/0.14.50 engine (`workflows/mod.rs` `node_model`,
+ * `review_model`) reads only `riskModel`/`contractModel`/`integrationModel`/
+ * `reviewModel` and falls back to `model`, so a row holding the four keys
+ * alone runs contract, integration and high-risk nodes and EVERY review on
+ * the cheap model. `normalizeWorkflowLaunch` prefers `strongModel` on read,
+ * so a current engine never sees the pins. Remove (store the launch
+ * verbatim) once CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.51.
+ */
+export function storedLaunchFor(launch: WorkflowLaunch): WorkflowLaunchStored {
+  return {
+    ...launch,
+    contractModel: launch.strongModel,
+    integrationModel: launch.strongModel,
+    riskModel: launch.strongModel,
+    reviewModel: launch.strongModel,
+    subagentModel: launch.model,
+  }
+}
+
+/**
  * EXP-1032: a workflow's launch, seeded from the machine BOUND to run it
  * (`update({deviceId})` on a draft — a workflow is created on the contract
  * defaults, with no runner) — the device's default ACCOUNT names the agent it
@@ -140,6 +192,43 @@ async function firstRunnableAgent(
     }
   }
   return null
+}
+
+/**
+ * EXP-1032: the launch a workflow gets when a runner is bound to it (`create`
+ * and `update` with a `deviceId`): agent, account and both models from THAT
+ * machine's agent defaults; the workflow screen has no settings panel, so the
+ * device IS the choice. Ownership and the cap are asserted first, so those
+ * refusals stay `assertDeviceUsable`'s. A machine that advertises an agent it
+ * cannot actually run (or none at all) gets the first one it CAN run, on the
+ * contract pair; the account drops with the agent, a profile id belongs to
+ * the agent it was advertised for. No runnable agent at all leaves the seed
+ * alone: the caller's final assert refuses it, as before.
+ */
+async function seedLaunchFromBoundDevice(
+  deviceId: string,
+  teamId: string,
+  userId: string
+): Promise<WorkflowLaunch> {
+  await assertDeviceUsable(deviceId, teamId, userId, null, WORKFLOW_DEVICE)
+  const seeded = await launchForDevice(deviceId)
+  const canRunSeeded = await assertDeviceUsable(
+    deviceId,
+    teamId,
+    userId,
+    seeded.agent,
+    WORKFLOW_DEVICE
+  ).then(
+    () => true,
+    () => false
+  )
+  const runnable = canRunSeeded
+    ? seeded.agent
+    : await firstRunnableAgent(deviceId, teamId, userId)
+  const stand = workflowLaunchAgentValues.find(
+    (value) => value === runnable && value !== seeded.agent
+  )
+  return stand ? { agent: stand, ...WORKFLOW_LAUNCH_DEFAULTS[stand] } : seeded
 }
 
 const wireColumns = {
@@ -270,6 +359,8 @@ async function loadNode(nodeId: string) {
       sessionId: workflowNodes.sessionId,
       mergedInto: workflowNodes.mergedInto,
       retriedAt: workflowNodes.retriedAt,
+      review: workflowNodes.review,
+      reviewRound: workflowNodes.reviewRound,
     })
     .from(workflowNodes)
     .where(eq(workflowNodes.id, nodeId))
@@ -443,12 +534,14 @@ type Db = typeof import("@/db/connection").db
  * parent (EXP-906: the frame's own reason wins), so the calling row alone
  * does not decide (workflow 3b828f50, EXP-1030 r3). Every row on the chain
  * must be the review builtin and none may be the node's own run. A row is
- * the engine's reviewer when the workflow started it (`started_reason =
- * workflow`) or when it runs on the node's review branch
+ * THIS node's reviewer when it runs on the node's review branch
  * `exp/wf-<id8>-review-<IDENT>-r<n>` (the same evidence the engine's
- * `live_reviews_on_branches` uses); failing both, the walk follows
- * `resumed_from_id` back, bounded and loop-safe (a swept predecessor breaks
- * the chain, the branch does not depend on it).
+ * `live_reviews_on_branches` uses). Every engine-started reviewer carries
+ * its branch, so a row WITH a branch is judged by it alone: `started_reason =
+ * workflow` on another node's branch is another node's reviewer, not a pass.
+ * Only a branch-less row falls back to `started_reason = workflow`; failing
+ * both, the walk follows `resumed_from_id` back, bounded and loop-safe (a
+ * swept predecessor breaks the chain, the branch does not depend on it).
  */
 async function isReviewRunOfNode(
   db: Db,
@@ -479,7 +572,6 @@ async function isReviewRunOfNode(
     ) {
       return false
     }
-    if (row.startedReason === `workflow`) return true
     if (row.branch) {
       if (identifier === undefined) {
         const [issue] = await db
@@ -492,6 +584,8 @@ async function isReviewRunOfNode(
       if (identifier && isWorkflowReviewBranch(workflowId, identifier, row.branch)) {
         return true
       }
+    } else if (row.startedReason === `workflow`) {
+      return true
     }
     cursor = row.resumedFromId ?? null
   }
@@ -567,6 +661,10 @@ export const workflowsRouter = router({
         teamId: z.string().uuid(),
         name: z.string().trim().min(1).max(255).optional(),
         issueIds: z.array(z.string().uuid()).min(1).max(WORKFLOW_MAX_ISSUES),
+        // EXP-1032: the runner MACHINE, bound at creation (the IDE sends its
+        // own): the launch is seeded from it exactly as `update({deviceId})`
+        // would. Omitted = unbound, on the contract defaults.
+        deviceId: z.string().min(1).max(128).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -579,6 +677,24 @@ export const workflowsRouter = router({
         (picked.rows.length > 1
           ? `${first.identifier} +${picked.rows.length - 1}`
           : first.identifier)
+      // EXP-1029: a workflow with no runner is BORN on the contract defaults
+      // (the screen has no settings panel); binding one, here or later
+      // (`update({deviceId})`), re-seeds from that machine.
+      let launch = launchFromDeviceDefaults(null)
+      if (input.deviceId) {
+        launch = await seedLaunchFromBoundDevice(
+          input.deviceId,
+          input.teamId,
+          ctx.session.user.id
+        )
+        await assertDeviceUsable(
+          input.deviceId,
+          input.teamId,
+          ctx.session.user.id,
+          launch.agent,
+          WORKFLOW_DEVICE
+        )
+      }
 
       return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -591,10 +707,8 @@ export const workflowsRouter = router({
             repositoryId: picked.repositoryId,
             creatorId: ctx.session.user.id,
             name,
-            // EXP-1029: a workflow is BORN on the contract defaults — no
-            // runner is bound yet, and the screen has no settings panel.
-            // Binding one (`update({deviceId})`) re-seeds from that machine.
-            launch: launchFromDeviceDefaults(null),
+            ...(input.deviceId && { deviceId: input.deviceId }),
+            launch: storedLaunchFor(launch),
             // EXP-1029: every new workflow starts its dependents on the
             // blockers' CONTRACT. There is no choice any more.
             startOn: `contract`,
@@ -642,55 +756,23 @@ export const workflowsRouter = router({
         assertDraft(existing.status, `Changing how a workflow runs`)
       }
       // EXP-1029: a launch is REPLACED whole by its normalized self — no
-      // phase-pin merge dance. An old client's pins fold into `strongModel`.
+      // phase-pin merge dance. An old client's pins fold into `strongModel`
+      // (a fold outside the agent's vocabulary heals to its default, compat).
       let nextLaunch = input.launch
-        ? normalizeWorkflowLaunch(input.launch)
+        ? normalizeLaunchLenient(input.launch)
         : undefined
       if (nextLaunch) assertLaunch(nextLaunch)
       const deviceId =
         input.deviceId === undefined ? existing.deviceId : input.deviceId
       // EXP-1032: binding a runner to a DRAFT re-seeds agent, account and both
-      // models from THAT machine's agent defaults — the workflow screen has no
-      // settings panel, so the device IS the choice. (Setting `deviceId`
-      // already asserted the draft above.)
+      // models from THAT machine's agent defaults. (Setting `deviceId` already
+      // asserted the draft above.)
       if (input.deviceId && !input.launch) {
-        // Ownership and the cap first: those refusals must stay theirs.
-        await assertDeviceUsable(
+        nextLaunch = await seedLaunchFromBoundDevice(
           input.deviceId,
           existing.teamId,
-          ctx.session.user.id,
-          null,
-          WORKFLOW_DEVICE
+          ctx.session.user.id
         )
-        const seeded = await launchForDevice(input.deviceId)
-        const canRunSeeded = await assertDeviceUsable(
-          input.deviceId,
-          existing.teamId,
-          ctx.session.user.id,
-          seeded.agent,
-          WORKFLOW_DEVICE
-        ).then(
-          () => true,
-          () => false
-        )
-        // The machine advertises an agent it cannot actually run (or none at
-        // all): the first one it CAN run stands in. No runnable agent at all
-        // leaves the seed alone and the assert below refuses, as before.
-        const runnable = canRunSeeded
-          ? seeded.agent
-          : await firstRunnableAgent(
-              input.deviceId,
-              existing.teamId,
-              ctx.session.user.id
-            )
-        const stand = workflowLaunchAgentValues.find(
-          (value) => value === runnable && value !== seeded.agent
-        )
-        // The stand-in agent drops the account too: a profile id belongs to
-        // the agent it was advertised for.
-        nextLaunch = stand
-          ? { agent: stand, ...WORKFLOW_LAUNCH_DEFAULTS[stand] }
-          : seeded
       }
       const launch = nextLaunch ?? normalizeWorkflowLaunch(existing.launch)
       if (deviceId && (input.deviceId !== undefined || input.launch)) {
@@ -728,7 +810,7 @@ export const workflowsRouter = router({
           .set({
             ...(name !== undefined && { name }),
             ...(input.deviceId !== undefined && { deviceId: input.deviceId }),
-            ...(nextLaunch !== undefined && { launch: nextLaunch }),
+            ...(nextLaunch !== undefined && { launch: storedLaunchFor(nextLaunch) }),
             ...(decision !== undefined && {
               decisions: appendDecisionLine(existing.decisions, decision, new Date()),
             }),
@@ -901,11 +983,18 @@ export const workflowsRouter = router({
       assertDraft(existing.status, `Starting`)
       if (!existing.repositoryId) throw bad(`The workflow's repository is gone`)
       if (!existing.deviceId) throw bad(`Pick the device that runs this workflow first`)
+      // compat: a row an old client saved with a claude review pin on a codex
+      // workflow folds to a `strongModel` the engine cannot start on; it is
+      // healed to the agent's default here, and written back so the engine
+      // reads the same (see `normalizeLaunchLenient` for the trigger).
+      const launch = normalizeLaunchLenient(existing.launch)
+      const healed =
+        launch.strongModel !== normalizeWorkflowLaunch(existing.launch).strongModel
       await assertDeviceUsable(
         existing.deviceId,
         existing.teamId,
         ctx.session.user.id,
-        normalizeWorkflowLaunch(existing.launch).agent,
+        launch.agent,
         WORKFLOW_DEVICE
       )
       return ctx.db.transaction(async (tx) => {
@@ -933,7 +1022,12 @@ export const workflowsRouter = router({
           .where(eq(workflowNodes.workflowId, input.id))
         const [workflow] = await tx
           .update(workflows)
-          .set({ status: `running`, startedAt: new Date(), endedAt: null })
+          .set({
+            status: `running`,
+            startedAt: new Date(),
+            endedAt: null,
+            ...(healed && { launch: storedLaunchFor(launch) }),
+          })
           .where(eq(workflows.id, input.id))
           .returning(wireColumns)
         return { txId, workflow: workflow! }
@@ -1116,8 +1210,25 @@ export const workflowsRouter = router({
       if (!(await isReviewRunOfNode(ctx.db, input.sessionId, node, workflow.id))) {
         throw new TRPCError({
           code: `FORBIDDEN`,
-          message: `Only the review run the workflow started for this node may submit its verdict; the node's own run cannot review itself`,
+          message: `Only the review run the workflow started for this node may submit its verdict; the node's own run cannot review itself. Check nodeId against the node named in your prompt. If you are the node's author, do not review. If you are the resumed reviewer and this persists, report it with exponential_report_bug and end.`,
         })
+      }
+      // Idempotent for the head already reviewed: a desktop/CLI 0.14.49/
+      // 0.14.50 host spawns a SECOND reviewer after an account switch and both
+      // pass the gate above (FEED-51), and a reviewer retries after a lost
+      // response. While the stored review names this very head and no round
+      // was claimed since, the verdict on record IS the answer: no round
+      // bumped, nothing overwritten.
+      const stored = node.review
+      if (input.head && stored?.head === input.head && stored.round === node.reviewRound) {
+        return {
+          round: stored.round,
+          ...reviewOutcome({
+            verdict: stored.verdict,
+            oraclePassed: stored.oracle ? stored.oracle.passed : null,
+            round: stored.round,
+          }),
+        }
       }
       const oraclePassed = input.oracle ? input.oracle.passed : null
       return ctx.db.transaction(async (tx) => {
@@ -1239,11 +1350,7 @@ export const workflowsRouter = router({
     .input(
       z.object({
         nodeId: z.string().uuid(),
-        // compat: a desktop/CLI ≤0.14.46 engine can still report the dropped
-        // `paused` (a budget trip between migration 0134 and its shape
-        // refetch); it is written as `failed` below. Delete the `.or` and the
-        // mapping once CLIENT_MIN_VERSION_DESKTOP/CLI ≥ 0.14.47.
-        state: wfNodeStateSchema.or(z.literal(`paused`)),
+        state: wfNodeStateSchema,
         sessionId: z.string().uuid().nullable().optional(),
         baseBranch: z.string().max(255).nullable().optional(),
         attempt: z.number().int().min(0).max(99).optional(),
@@ -1256,16 +1363,13 @@ export const workflowsRouter = router({
       const node = await loadNode(input.nodeId)
       const workflow = await loadWorkflow(node.workflowId)
       await assertEngine(workflow, ctx.session.user.id)
-      // compat: see the input — `paused` no longer exists; `failed` is the
-      // state that offers what it offered (Retry / Skip).
-      const state = input.state === `paused` ? `failed` : input.state
       // A landed node is final and only `landNode` makes one; a skipped one
       // is a person's call the engine never takes back.
       if (
         node.state === `landed` ||
         node.state === `skipped` ||
-        state === `landed` ||
-        state === `skipped`
+        input.state === `landed` ||
+        input.state === `skipped`
       ) {
         return { updated: false }
       }
@@ -1275,15 +1379,10 @@ export const workflowsRouter = router({
       const rows = await ctx.db
         .update(workflowNodes)
         .set({
-          state,
+          state: input.state,
           ...(input.sessionId !== undefined && { sessionId: input.sessionId }),
           ...(input.baseBranch !== undefined && { baseBranch: input.baseBranch }),
           ...(input.attempt !== undefined && { attempt: input.attempt }),
-          // compat: a `paused` node was HELD for a person, and the engine
-          // restarts a `failed` one whose attempt is ≤ 1 — past the free retry.
-          ...(input.state === `paused` && {
-            attempt: sql`GREATEST(${input.attempt ?? workflowNodes.attempt}, 2)`,
-          }),
           ...(input.note !== undefined && { note: input.note }),
           ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })
@@ -1498,6 +1597,12 @@ export const workflowsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const workflow = await loadWorkflow(input.id)
       await assertTeamMember(ctx.session.user.id, workflow.teamId)
+      if (workflow.status === `cancelled`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The workflow was cancelled; its branch is not for merging`,
+        })
+      }
       if (!workflow.finalPrUrl || workflow.finalPrNumber == null) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
@@ -1513,6 +1618,11 @@ export const workflowsRouter = router({
       }
       const { loadRepository, mergeRepositoryPull } = await import(`@/lib/trpc/repositories`)
       const repo = await loadRepository(workflow.repositoryId)
+      // The repository row is looked up by id alone: it has to be THIS
+      // team's, or a member would merge into another team's repository.
+      if (repo.teamId !== workflow.teamId) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Repository not found` })
+      }
       await mergeRepositoryPull({
         repo,
         prNumber: workflow.finalPrNumber,

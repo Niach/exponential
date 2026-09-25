@@ -749,9 +749,10 @@ class SyncManager @Inject constructor(
             },
         )
         return scope.launch {
-            // One-time local repairs (EXP-985) mark the shape for an atomic
-            // refetch BEFORE its first poll. Best-effort: a failed marker
-            // write retries on the next launch and must never stop the sync.
+            // One-time local repairs (ShapeRepairs.kt; the list is empty
+            // until the next one) mark the shape for an atomic refetch BEFORE
+            // its first poll. Best-effort: a failed marker write retries on
+            // the next launch and must never stop the sync.
             runCatching { applyShapeRepairs(offsetDao, shape) }
                 .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             shapeClient.run()

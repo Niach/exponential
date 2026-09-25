@@ -519,6 +519,17 @@ pub fn review_branch_prefix(workflow_id: &str, identifier: &str) -> String {
     format!("exp/wf-{id8}-review-{identifier}-r")
 }
 
+/// The round a review branch of `identifier`'s node carries, `None` for any
+/// other branch (another node, another workflow, a synthetic base, a prefix
+/// with no round).
+pub fn review_branch_round(workflow_id: &str, identifier: &str, branch: &str) -> Option<i64> {
+    let rest = branch.strip_prefix(review_branch_prefix(workflow_id, identifier).as_str())?;
+    if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    rest.parse().ok()
+}
+
 /// The LIVE reviewer run of every node, found by its BRANCH rather than by
 /// the session id the host recorded: `node id → session id`. A resume — a
 /// person's "Switch account", the Resume button — ends the recorded run and
@@ -527,25 +538,30 @@ pub fn review_branch_prefix(workflow_id: &str, identifier: &str) -> String {
 /// head and started a third reviewer beside the resumed one (workflow
 /// 3b828f50: five live reviews of one node). `live_rows` = this team's live
 /// `(session id, branch)` rows OLDEST FIRST; the newest match wins.
-pub fn live_reviews_on_branches(
+///
+/// Only the reviewer of each node's PENDING round counts: a review launches
+/// on `-r<review_round + 1>` and the server moves `review_round` up to that
+/// number when its verdict lands, so a live run on `-r<review_round>` or
+/// lower already submitted and is only lingering. Taking one in as the
+/// current reviewer held the node in `review_in_flight` and, once it exited,
+/// counted its end as a review that never submitted. Such a stray is
+/// ignored, never ended: it is finishing on its own.
+pub fn live_pending_reviews_on_branches(
     workflow_id: &str,
     identifier: &HashMap<String, String>,
+    review_round_of: &HashMap<String, i64>,
     live_rows: impl IntoIterator<Item = (String, String)>,
 ) -> HashMap<String, String> {
-    let prefixes: Vec<(String, String)> = identifier
-        .iter()
-        .map(|(node_id, ident)| (node_id.clone(), review_branch_prefix(workflow_id, ident)))
-        .collect();
     let mut found = HashMap::new();
     for (session_id, branch) in live_rows {
-        let Some((node_id, _)) = prefixes.iter().find(|(_, prefix)| {
-            branch
-                .strip_prefix(prefix.as_str())
-                .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
-        }) else {
-            continue;
-        };
-        found.insert(node_id.clone(), session_id);
+        let matched = identifier.iter().find_map(|(node_id, ident)| {
+            let round = review_branch_round(workflow_id, ident, &branch)?;
+            let pending = review_round_of.get(node_id)? + 1;
+            (round == pending).then_some(node_id)
+        });
+        if let Some(node_id) = matched {
+            found.insert(node_id.clone(), session_id);
+        }
     }
     found
 }
@@ -1663,7 +1679,10 @@ pub enum ReviewRunEnd {
     Followed { node_id: String, session_id: String },
     /// A live run on the node's review branch nobody recorded (a resume
     /// whose predecessor was already settled, a host restart). Recorded at
-    /// the node's current round, so its end is settled like any other.
+    /// the node's current round, so its end is settled like any other; the
+    /// host hands in only the PENDING round's live reviewers
+    /// ([`live_pending_reviews_on_branches`]), an older round's stray is
+    /// never adopted.
     Adopted { node_id: String, session_id: String },
 }
 
@@ -1677,7 +1696,7 @@ pub enum ReviewRunEnd {
 /// has not synced (left alone).
 ///
 /// A reviewer that was RESUMED is not an ended review: `live_on_branch`
-/// ([`live_reviews_on_branches`]) names the live run on every node's review
+/// ([`live_pending_reviews_on_branches`]) names the live run on every node's review
 /// branch, and an ended record with one is re-pointed at it (`Followed`).
 /// Between a person's resume and the successor's sync the record is under a
 /// hold (`state.resuming`, [`RESUME_GRACE_MS`]) and waits. A live reviewer
@@ -2251,10 +2270,10 @@ mod tests {
         }
     }
 
-    /// A live run on a node's review branch is that node's reviewer, whatever
-    /// id the host recorded: the prefix names the workflow and the exact
-    /// issue (`EXP-10` never claims `EXP-103`'s branch), only a round may
-    /// follow it, and the newest live row wins.
+    /// A live run on a node's PENDING review branch is that node's reviewer,
+    /// whatever id the host recorded: the prefix names the workflow and the
+    /// exact issue (`EXP-10` never claims `EXP-103`'s branch), the round
+    /// follows it, and the newest live row wins.
     #[test]
     fn live_reviews_are_found_by_their_branch() {
         let wf = "abcdef12-3456-7890-abcd-ef1234567890";
@@ -2263,15 +2282,16 @@ mod tests {
             ("n103".to_string(), "EXP-103".to_string()),
         ]
         .into();
+        let rounds: HashMap<String, i64> = [("n10".to_string(), 1), ("n103".to_string(), 1)].into();
         let rows = vec![
-            ("s-old".to_string(), review_branch(wf, "EXP-10", 1)),
+            ("s-older".to_string(), review_branch(wf, "EXP-10", 2)),
             ("s-103".to_string(), review_branch(wf, "EXP-103", 2)),
-            ("s-other-wf".to_string(), "exp/wf-00000000-review-EXP-10-r1".to_string()),
+            ("s-other-wf".to_string(), "exp/wf-00000000-review-EXP-10-r2".to_string()),
             ("s-base".to_string(), "exp/wf-abcdef12-base-EXP-10".to_string()),
             ("s-noround".to_string(), "exp/wf-abcdef12-review-EXP-10-r".to_string()),
             ("s-new".to_string(), review_branch(wf, "EXP-10", 2)),
         ];
-        let found = live_reviews_on_branches(wf, &identifier, rows);
+        let found = live_pending_reviews_on_branches(wf, &identifier, &rounds, rows);
         assert_eq!(
             found,
             [
@@ -2280,6 +2300,63 @@ mod tests {
             ]
             .into()
         );
+    }
+
+    /// A reviewer launches on `-r<review_round + 1>` and its verdict moves the
+    /// node up to that round: a live run on the node's current round or lower
+    /// already submitted and only lingers. The pending-round view leaves it
+    /// out, so it is neither adopted nor followed (and never ended).
+    #[test]
+    fn a_live_older_round_reviewer_is_not_adopted() {
+        let wf = "abcdef12-3456-7890-abcd-ef1234567890";
+        let identifier: HashMap<String, String> = [
+            ("n1".to_string(), "EXP-1".to_string()),
+            ("n2".to_string(), "EXP-2".to_string()),
+        ]
+        .into();
+        assert_eq!(review_branch_round(wf, "EXP-1", &review_branch(wf, "EXP-1", 3)), Some(3));
+        assert_eq!(review_branch_round(wf, "EXP-1", &review_branch(wf, "EXP-10", 3)), None);
+        assert_eq!(review_branch_round(wf, "EXP-1", "exp/wf-abcdef12-review-EXP-1-r"), None);
+        // n1 is at round 2: its -r1 and -r2 reviewers already submitted, the
+        // pending one would run on -r3. n2 is at round 0: its -r1 reviewer
+        // IS the pending one.
+        let rounds: HashMap<String, i64> = [("n1".to_string(), 2), ("n2".to_string(), 0)].into();
+        let rows = vec![
+            ("s-n1-old".to_string(), review_branch(wf, "EXP-1", 1)),
+            ("s-n1-landed".to_string(), review_branch(wf, "EXP-1", 2)),
+            ("s-n2-pending".to_string(), review_branch(wf, "EXP-2", 1)),
+        ];
+        let pending = live_pending_reviews_on_branches(wf, &identifier, &rounds, rows.clone());
+        assert_eq!(pending, [("n2".to_string(), "s-n2-pending".to_string())].into());
+        // Settled against the pending view: nothing of n1 is adopted; the
+        // stray stays live and untracked. Once n1's -r3 reviewer is live it
+        // is the one taken in.
+        let mut state = WorkflowState::default();
+        let live = |id: &str| match id {
+            "s-n1-old" | "s-n1-landed" | "s-n2-pending" | "s-n1-next" => Some(true),
+            _ => None,
+        };
+        let outcomes = settle_review_runs(&mut state, &rounds, &pending, live, 0);
+        assert_eq!(
+            outcomes,
+            vec![ReviewRunEnd::Adopted {
+                node_id: "n2".to_string(),
+                session_id: "s-n2-pending".to_string()
+            }]
+        );
+        assert!(!state.review_runs.contains_key("n1"));
+        let mut rows = rows;
+        rows.push(("s-n1-next".to_string(), review_branch(wf, "EXP-1", 3)));
+        let pending = live_pending_reviews_on_branches(wf, &identifier, &rounds, rows);
+        let outcomes = settle_review_runs(&mut state, &rounds, &pending, live, 0);
+        assert_eq!(
+            outcomes,
+            vec![ReviewRunEnd::Adopted {
+                node_id: "n1".to_string(),
+                session_id: "s-n1-next".to_string()
+            }]
+        );
+        assert_eq!(state.review_rounds["n1"], 2);
     }
 
     /// The bug behind workflow 3b828f50's five reviewers of one node: a

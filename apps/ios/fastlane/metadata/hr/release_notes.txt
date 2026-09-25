@@ -1,3 +1,4 @@
-- Kontekstni prozor: prikaz potrošnje pokazuje traku podijeljenu na dijelove onoga što puni kontekst izvođenja, s legendom uz svaki dio
-- Procjene: kad je u postavkama tima uključena ljestvica, issuei dobivaju procjenu među svojim svojstvima, a aktivnost pokazuje promjene procjene
-- Članovi: pozvana osoba odmah stoji u timu sa svojim imenom, a postavke „Members“ pokazuju tko se još nije pridružio
+- Odabiri: status, izvršitelj, oznake, board i ostalo otvaraju isti list s pretragom i običnim redovima, a višestruki odabir se vidi po isticanju, ne po krugu
+- Izvođenja agenta: popis aktivnih izvođenja se ugniježđuje, izvođenja workflowa stoje pod jednim redom koji otvara workflow, ona stacka pod drugim, a strelica sklapa oba
+- Workflowi: zaslon gubi blok postavki, čvor govori svoje stanje i otvara se u Issue, Run i Changes, a završni pull request se spaja odande
+- Postavke stroja: list je preslagan, a nova stranica „Workflow settings“ drži modele s kojima novi workflow kreće

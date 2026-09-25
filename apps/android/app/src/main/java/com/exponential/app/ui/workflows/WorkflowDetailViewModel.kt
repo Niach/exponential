@@ -335,7 +335,6 @@ class WorkflowDetailViewModel @Inject constructor(
                     status = row.status,
                     deviceId = row.deviceId,
                     repositoryId = row.repositoryId,
-                    startOn = row.startOn,
                 ),
                 row.shape,
             )

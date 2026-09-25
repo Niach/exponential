@@ -9,10 +9,13 @@
 //!
 //! EXP-1054: TWO lists. The hidden per-device keys the launcher/CLI mint as
 //! `Device: <hostname>` (§7.2) are **Login sessions** — a signed-in device,
-//! named by its hostname, never by its token, whose action is **Log out**.
-//! Everything else is an **API key** for scripts and MCP clients. THIS
-//! device's own session row gets a badge; logging it out also deletes the
-//! local token-store copy, otherwise `ensure_personal_key` would keep
+//! named by its hostname, never by its token, whose action is **Disconnect**:
+//! the key is ONLY the coding runs' MCP credential
+//! (`api::token_store::SecretKind::PersonalApiKey`), never the device's
+//! sign-in, so revoking it cuts the runs' wiring while the device stays
+//! signed in. Everything else is an **API key** for scripts and MCP clients.
+//! THIS device's own session row gets a badge; disconnecting it also deletes
+//! the local token-store copy, otherwise `ensure_personal_key` would keep
 //! handing the dead key to coding sessions until a confusing 401.
 
 use gpui::{
@@ -247,10 +250,10 @@ impl ApiKeysPane {
     }
 
     /// Per-row revoke confirm + `users.revokePersonalApiKey` → refetch. A
-    /// login-session row reads as "Log out device" (the same mutation: the
-    /// device's session IS its hidden key). When the row is THIS device's
-    /// own, the local token-store copy goes with it so the launcher re-mints
-    /// instead of 401ing.
+    /// login-session row reads as "Disconnect device" (the same mutation on
+    /// the device's hidden key; its sign-in is a separate session token and
+    /// survives). When the row is THIS device's own, the local token-store
+    /// copy goes with it so the launcher re-mints instead of 401ing.
     fn confirm_revoke(
         &mut self,
         row: &PersonalKeyMeta,
@@ -269,10 +272,11 @@ impl ApiKeysPane {
         };
         let (title, description, ok_label) = if device_row {
             (
-                "Log out device",
-                "The desktop app or CLI on this device signs out. Its coding \
-                 sessions and MCP wiring stop until it signs in again.",
-                "Log out",
+                "Disconnect device",
+                "Disconnects this device's coding runs and their MCP wiring. \
+                 The device stays signed in and mints a new key the next time \
+                 it signs in or regenerates.",
+                "Disconnect",
             )
         } else {
             (
@@ -439,7 +443,7 @@ impl ApiKeysPane {
 
     /// One row. An API key: name, key prefix, created, last used, Revoke. A
     /// login session (EXP-1054): hostname (+ "This device" badge), signed
-    /// in, last active, Log out — never its token.
+    /// in, last active, Disconnect — never its token.
     fn render_row(
         &self,
         row: &PersonalKeyMeta,
@@ -542,7 +546,7 @@ impl ApiKeysPane {
                     PillSize::Sm,
                     cx,
                 )
-                    .label(if device_row { "Log out" } else { "Revoke" })
+                    .label(if device_row { "Disconnect" } else { "Revoke" })
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_revoke(&row_for_revoke, this_device, window, cx);

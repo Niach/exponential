@@ -13,10 +13,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EXP-985: upgraded devices hold `issue_drafts` rows the old full-decode
- * REPLACE blanked; the shape is refetched ONCE per account database.
+ * The one-time shape repair machinery (first used by EXP-985 for the blanked
+ * `issue_drafts` rows, retired with the version floor): a listed shape is
+ * refetched ONCE per account database. The list itself ships empty; the cases
+ * drive the mechanism with an inline fixture.
  */
 class ShapeRepairsTest {
+
+    private val fixture = listOf(ShapeRepair(id = "test", shapes = listOf("issue_drafts")))
 
     private class FakeOffsetDao : ElectricOffsetDao {
         val map = mutableMapOf<String, ElectricOffsetEntity>()
@@ -30,8 +34,8 @@ class ShapeRepairsTest {
         ElectricOffsetEntity(shape = shape, handle = "h1", offset = "12_3", isLive = true)
 
     @Test
-    fun `the shipped repair covers exactly the drafts shape`() {
-        assertEquals(listOf("issue_drafts"), SHAPE_REPAIRS.flatMap { it.shapes })
+    fun `no repair ships right now`() {
+        assertTrue(SHAPE_REPAIRS.isEmpty())
     }
 
     @Test
@@ -39,7 +43,7 @@ class ShapeRepairsTest {
         val dao = FakeOffsetDao()
         dao.upsert(live("issue_drafts"))
 
-        applyShapeRepairs(dao, "issue_drafts")
+        applyShapeRepairs(dao, "issue_drafts", fixture)
         val marked = dao.get("issue_drafts")!!
         assertTrue(marked.needsRefetch)
         assertFalse(marked.isLive)
@@ -48,7 +52,7 @@ class ShapeRepairsTest {
 
         // The refetch lands; the next launch must leave the cursor alone.
         dao.upsert(live("issue_drafts"))
-        applyShapeRepairs(dao, "issue_drafts")
+        applyShapeRepairs(dao, "issue_drafts", fixture)
         assertEquals(live("issue_drafts"), dao.get("issue_drafts"))
     }
 
@@ -56,15 +60,15 @@ class ShapeRepairsTest {
     fun `other shapes are never touched`() = runBlocking {
         val dao = FakeOffsetDao()
         dao.upsert(live("issues"))
-        applyShapeRepairs(dao, "issues")
+        applyShapeRepairs(dao, "issues", fixture)
         assertEquals(mapOf("issues" to live("issues")), dao.map)
     }
 
     @Test
     fun `a fresh database records the repair without inventing a cursor`() = runBlocking {
         val dao = FakeOffsetDao()
-        applyShapeRepairs(dao, "issue_drafts")
+        applyShapeRepairs(dao, "issue_drafts", fixture)
         assertNull(dao.get("issue_drafts"))
-        assertNotNull(dao.get(repairMarker("exp985_issue_drafts", "issue_drafts")))
+        assertNotNull(dao.get(repairMarker("test", "issue_drafts")))
     }
 }

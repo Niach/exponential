@@ -1,3 +1,4 @@
-- Konteksti-ikkuna: käyttönäkymä näyttää lohkoihin jaetun palkin siitä, mikä täyttää ajon kontekstin, ja jokaisella lohkolla on oma selitteensä
-- Arviot: kun tiimin asetuksissa on skaala käytössä, issuet saavat arvion ominaisuuksiensa joukkoon, ja aktiivisuus näyttää arvion muutokset
-- Jäsenet: kutsuttu henkilö näkyy tiimissä heti omalla nimellään, ja "Members"-asetukset kertovat, kuka ei ole vielä liittynyt
+- Valitsimet: tila, vastuuhenkilö, labelit, board ja muut avaavat saman haettavan paneelin, jossa on pelkkiä rivejä, ja monivalinta näkyy korostuksena ympyrän sijaan
+- Agenttiajot: käynnissä olevien ajojen lista on sisäkkäinen, workflown ajot yhden rivin alla, joka avaa workflown, ja stackin ajot toisen alla, ja nuoli taittaa molemmat kokoon
+- Workflowt: näytöltä katoaa asetuslohko, solmu kertoo oman tilansa ja avautuu näkymiin Issue, Run ja Changes, ja viimeinen pull request mergetään sieltä
+- Koneen asetukset: paneeli on järjestetty uudelleen, ja uusi sivu "Workflow settings" pitää mallit, joilla uusi workflow käynnistyy

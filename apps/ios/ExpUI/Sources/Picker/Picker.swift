@@ -257,6 +257,18 @@ public enum PickerSelection {
     public static func closesOnPick(_ mode: PickerMode) -> Bool { mode == .single }
 }
 
+/// When the empty line ("No matching issues", "No labels") is drawn on a
+/// miss. Without a footer, always. With one, only when the footer does NOT
+/// stand in for it: the labels sheet's create row is itself the answer to
+/// the miss and replaces the line; the composer's batch guards only caption
+/// the list, so the miss is still said above them. Pure, so the contract
+/// test can name it without a view.
+public enum PickerEmptyLine {
+    public static func shows(hasFooter: Bool, footerReplacesEmpty: Bool) -> Bool {
+        !(hasFooter && footerReplacesEmpty)
+    }
+}
+
 /// THE picker: the caller's trigger, and the bottom sheet it opens.
 public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     public let items: [PickerItem<Value>]
@@ -299,6 +311,12 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     public let panel: (() -> AnyView)?
     /// Rendered UNDER the rows — the labels sheet's "Create new label …" row.
     public let footer: (() -> AnyView)?
+    /// Whether a footer stands IN for the empty line on a miss. The labels
+    /// sheet's create row IS the answer to "no such label", so the line would
+    /// only repeat it (the default). A footer that merely CAPTIONS the list —
+    /// the composer's batch guards — passes `false`, and a query with no hit
+    /// still says so above it. `PickerEmptyLine.shows` is the rule.
+    public let footerReplacesEmpty: Bool
     /// Replaces a row's leading MARK. The selection language stays the
     /// primitive's, so a custom mark can never invent a second "this is
     /// picked" idiom.
@@ -335,6 +353,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         onDismiss: (() -> Void)? = nil,
         panel: (() -> AnyView)? = nil,
         footer: (() -> AnyView)? = nil,
+        footerReplacesEmpty: Bool = true,
         renderMark: ((PickerItem<Value>) -> AnyView?)? = nil,
         renderItem: ((PickerItem<Value>) -> AnyView?)? = nil,
         sheetIdentifier: String? = nil,
@@ -356,6 +375,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         self.onDismiss = onDismiss
         self.panel = panel
         self.footer = footer
+        self.footerReplacesEmpty = footerReplacesEmpty
         self.renderMark = renderMark
         self.renderItem = renderItem
         self.sheetIdentifier = sheetIdentifier
@@ -401,6 +421,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
                 loading: loading,
                 panel: panel,
                 footer: footer,
+                footerReplacesEmpty: footerReplacesEmpty,
                 renderMark: renderMark,
                 renderItem: renderItem
             )
@@ -447,6 +468,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     let loading: Bool
     let panel: (() -> AnyView)?
     let footer: (() -> AnyView)?
+    let footerReplacesEmpty: Bool
     let renderMark: ((PickerItem<Value>) -> AnyView?)?
     let renderItem: ((PickerItem<Value>) -> AnyView?)?
 
@@ -498,10 +520,14 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
             } else if visible.isEmpty {
                 // `emptyText` covers BOTH an empty list and an empty search —
                 // one string, so a picker never says two different things
-                // about having nothing to show. A FOOTER is the answer to the
-                // same miss ("Create new label …"), so the two never share
-                // the sheet: the row you can act on wins.
-                if let emptyText, footer == nil {
+                // about having nothing to show. A footer that IS the answer
+                // to the same miss ("Create new label …") replaces it: the row
+                // you can act on wins. A footer that only captions the list
+                // (the composer's guards) leaves the miss said above it.
+                if let emptyText,
+                   PickerEmptyLine.shows(
+                       hasFooter: footer != nil, footerReplacesEmpty: footerReplacesEmpty
+                   ) {
                     Text(emptyText)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))

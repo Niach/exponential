@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import type { db as database } from "@/db/connection"
 import {
   issues,
@@ -179,6 +179,12 @@ export async function openWorkflowFinalPr(
  * moves every covered issue to the team's PR-merge status — their own PRs
  * merged into the integration branch long ago, which shipped nothing.
  * Returns true when the PR was a workflow's. Never throws.
+ *
+ * The in-app merge (`workflows.mergeFinalPr`) and the GitHub webhook both
+ * call this for the same url within seconds, so the write is an atomic
+ * CLAIM: the UPDATE matches only while the row does not read `merged` yet,
+ * and the covered-issue fan-out runs for the one caller whose UPDATE took
+ * the row. The loser writes nothing (no second `ended_at`, no second loop).
  */
 export async function applyWorkflowFinalPrState(
   db: Db,
@@ -199,14 +205,20 @@ export async function applyWorkflowFinalPrState(
     if (workflow.finalPrState === `merged`) return true
 
     await db.transaction(async (tx) => {
-      await tx
+      const claimed = await tx
         .update(workflows)
         .set({
           finalPrState: state,
           ...(state === `merged` && { status: `done`, endedAt: new Date() }),
         })
-        .where(eq(workflows.id, workflow.id))
-      if (state !== `merged`) return
+        .where(
+          and(
+            eq(workflows.id, workflow.id),
+            sql`${workflows.finalPrState} IS DISTINCT FROM 'merged'`
+          )
+        )
+        .returning({ id: workflows.id })
+      if (claimed.length === 0 || state !== `merged`) return
 
       // Only what LANDED shipped with this PR: a skipped node's work never
       // reached the branch, a proposed one was never part of the workflow.

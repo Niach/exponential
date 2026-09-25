@@ -202,14 +202,7 @@ struct WorkflowDetailView: View {
     private func runner(_ model: WorkflowDetailModel) -> some View {
         DevicePicker(
             devices: [DevicePickerDevice(id: "", name: "No machine")]
-                + model.devices.map { device in
-                    DevicePickerDevice(
-                        id: device.deviceId,
-                        name: LaunchVocabulary.deviceName(device),
-                        icon: DeviceIconDisplay.iconName(for: device),
-                        description: device.owner?.name
-                    )
-                },
+                + model.devices.map(DevicePickerDevice.init),
             value: model.workflow?.deviceId ?? "",
             onChange: { model.setDevice($0.isEmpty ? nil : $0) },
             trigger: {

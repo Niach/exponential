@@ -97,14 +97,6 @@ object WorkflowView {
 
     fun nodeKindLabel(kind: String): String = KIND_LABELS[kind] ?: kind
 
-    /** The start rule's three words (EXP-981). */
-    fun startOnLabel(startOn: String): String = when (startOn) {
-        DomainContract.wfStartOnContract -> "On contract"
-        DomainContract.wfStartOnPrOpen -> "On PR open"
-        DomainContract.wfStartOnLanded -> "When landed"
-        else -> startOn
-    }
-
     fun riskLabel(risk: String): String = risk.replaceFirstChar { it.uppercaseChar() }
 
     /**
@@ -244,12 +236,11 @@ object WorkflowView {
     /** The strip over the graph that lists the runs that are up, one tap away. */
     const val RUNNING_NOW_LABEL = "Running now"
 
-    /** The four fields Start is judged on, off the synced workflow row. */
+    /** The three fields Start is judged on, off the synced workflow row. */
     data class Startable(
         val status: String,
         val deviceId: String?,
         val repositoryId: String?,
-        val startOn: String,
     )
 
     /**

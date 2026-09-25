@@ -1,3 +1,4 @@
-- Janela de contexto: o painel de uso mostra uma barra por segmentos do que enche o contexto de uma execução, com uma legenda em cada segmento
-- Estimativas: com uma escala ligada nas definições da equipa, os issues recebem uma estimativa nas suas propriedades, e a atividade mostra as mudanças de estimativa
-- Membros: uma pessoa convidada aparece na equipa de imediato com o seu nome, e as definições «Members» mostram quem ainda não entrou
+- Seletores: estado, responsável, etiquetas, board e os restantes abrem o mesmo painel com pesquisa e linhas simples, e escolher vários vê-se pelo destaque em vez de um círculo
+- Execuções do agente: a lista de execuções a decorrer fica aninhada, as de um workflow sob uma linha que abre o workflow e as de uma stack sob outra, e a seta fecha ambas
+- Workflows: o ecrã perde o bloco de definições, um nó diz o seu próprio estado e abre em Issue, Run e Changes, e o pull request final é integrado a partir dali
+- Definições da máquina: o painel está reordenado, e uma nova página «Workflow settings» guarda os modelos com que arranca um workflow novo

@@ -20,16 +20,10 @@ struct AgentActionPickerSheet: View {
 
     var body: some View {
         ActionPicker(
-            actions: model.actions.map { action in
-                ActionPickerAction(
-                    id: action.id,
-                    name: action.name,
-                    // EXP-273: the action's own curated glyph (the builtins set
-                    // one too), falling back to the generic action mark.
-                    icon: action.icon ?? AppIcons.actionDefault,
-                    description: action.description
-                )
-            },
+            // EXP-273: the action's own curated glyph (the builtins set one
+            // too), falling back to the generic action mark — resolved by the
+            // ONE row bridge, `ActionPickerAction(ActionDto)`.
+            actions: model.actions.map(ActionPickerAction.init),
             value: model.selectedAction?.id,
             onChange: { id in
                 guard let action = model.actions.first(where: { $0.id == id }) else { return }

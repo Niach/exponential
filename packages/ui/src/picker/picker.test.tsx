@@ -365,3 +365,68 @@ describe(`Picker presentation (EXP-1029 → EXP-1021)`, () => {
     expect(description?.className).toContain(`text-muted-foreground`)
   })
 })
+
+// The single arm's `noneLabel` row (the assignee picker's `Unassigned`). It
+// used to be an item whose value was the empty string, which cmdk reads as NO
+// value: nothing highlighted on open, ↓ landing on it without Enter ever
+// picking it, and the filter dropping it for `Unass`. The primitive's none
+// row is a real cmdk row that reports through `onNone`.
+describe(`Picker noneLabel (single mode)`, () => {
+  const noneRow = () =>
+    document.querySelector(`[data-slot=command-item][data-combobox-none]`)
+
+  it(`highlights the none row on open and Enter picks it through onNone`, () => {
+    setViewport(1280)
+    const onChange = vi.fn()
+    const onNone = vi.fn()
+    render(
+      <Picker
+        mode="single"
+        items={items}
+        noneLabel="Unassigned"
+        onNone={onNone}
+        value={null}
+        onChange={onChange}
+        search
+        trigger={trigger}
+      />
+    )
+    open()
+    const all = rows()
+    expect(all).toHaveLength(4)
+    expect(all[0]).toBe(noneRow())
+    expect(all[0]!.getAttribute(`aria-selected`)).toBe(`true`)
+    // No sentinel anywhere in the row: no `value` attribute to smuggle one.
+    expect(all[0]!.outerHTML).not.toContain(`__`)
+    fireEvent.keyDown(document.activeElement!, { key: `Enter` })
+    expect(onNone).toHaveBeenCalledTimes(1)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it(`keeps the none row under the filter and ↓ walks past it`, () => {
+    setViewport(1280)
+    const onChange = vi.fn()
+    render(
+      <Picker
+        mode="single"
+        items={items}
+        noneLabel="Unassigned"
+        value={`a`}
+        onChange={onChange}
+        search
+        trigger={trigger}
+      />
+    )
+    open()
+    fireEvent.keyDown(document.activeElement!, { key: `ArrowDown` })
+    fireEvent.keyDown(document.activeElement!, { key: `Enter` })
+    expect(onChange).toHaveBeenCalledWith(`a`)
+    open()
+    fireEvent.change(
+      document.querySelector(`[data-slot=command-input]`) as HTMLInputElement,
+      { target: { value: `Unass` } }
+    )
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]).toBe(noneRow())
+  })
+})

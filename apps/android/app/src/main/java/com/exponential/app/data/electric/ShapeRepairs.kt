@@ -16,16 +16,16 @@ import com.exponential.app.data.db.ElectricOffsetEntity
  */
 internal data class ShapeRepair(val id: String, val shapes: List<String>)
 
-internal val SHAPE_REPAIRS = listOf(
-    // EXP-985: builds before the fix decoded a wire `update` (changed columns
-    // + PK only) into a full entity and REPLACEd the row. IssueDraftEntity is
-    // the ONE entity whose every non-PK column has a default — every other
-    // entity requires a non-PK column no update carries, so its decode failed
-    // into the tolerant partial path — so only drafts lost columns (board_id,
-    // and with it the Drafts tab). The fix stops new damage; this refetch
-    // heals the rows already blanked in Room.
-    ShapeRepair(id = "exp985_issue_drafts", shapes = listOf("issue_drafts")),
-)
+/**
+ * Nothing shipped right now. The last entry, EXP-985's `exp985_issue_drafts`
+ * refetch (builds before it REPLACEd a draft row with a partial `update`),
+ * was retired once the `CLIENT_MIN_VERSION_ANDROID` floor passed the fixed
+ * build: every device this build can still talk to has either run the repair
+ * or never held the damage. A repair is added here as
+ * `ShapeRepair(id = "<issue>_<shape>", shapes = listOf(...))` and its marker
+ * outlives the entry, so re-adding a retired id is a no-op on healed devices.
+ */
+internal val SHAPE_REPAIRS = emptyList<ShapeRepair>()
 
 internal fun repairMarker(id: String, shape: String) = "_repair:$id:$shape"
 

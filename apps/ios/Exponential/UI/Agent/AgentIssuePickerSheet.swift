@@ -60,9 +60,18 @@ struct AgentIssuePickerSheet: View {
             sheetIdentifier: "agent-composer-issues-picker",
             trigger: { EmptyView() }
         )
-        // The pin order is the snapshot taken when the sheet OPENS.
+        // The pin order is the snapshot taken when the sheet OPENS. The query
+        // resets on the same edge: the picker is host-driven and permanently
+        // mounted (nothing unmounts this state between openings), so a query
+        // typed into one opening would still be filtering the next — the same
+        // rule the linkers and the labels sheet keep. Cleared on the OPENING
+        // edge, not the closing one: re-ranking while the sheet animates away
+        // would flash the whole pool back in behind it.
         .onChange(of: isPresented) { _, open in
-            if open { pinnedIds = Set(model.effectiveChecked) }
+            if open {
+                pinnedIds = Set(model.effectiveChecked)
+                searchText = ""
+            }
         }
     }
 

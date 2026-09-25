@@ -1,3 +1,4 @@
-- Kontextfenster: die Verbrauchsübersicht zeigt einen unterteilten Balken dessen, was den Kontext eines Laufs füllt, mit einer Legende je Abschnitt
-- Schätzungen: ist in den Team-Einstellungen eine Skala eingeschaltet, bekommen Issues eine Schätzung in ihren Eigenschaften, und die Aktivität zeigt Änderungen der Schätzung
-- Mitglieder: eine eingeladene Person steht sofort mit ihrem Namen im Team, und die Einstellungen unter „Members“ zeigen, wer noch nicht beigetreten ist
+- Auswahllisten: Status, zuständige Person, Labels, Board und der Rest öffnen dieselbe durchsuchbare Liste aus schlichten Zeilen, und eine Mehrfachauswahl zeigt sich als Hervorhebung statt als Kreis
+- Agent-Läufe: die Liste der laufenden Läufe ist verschachtelt, die Läufe eines Workflows stehen unter einer Zeile, die den Workflow öffnet, die eines Stapels unter einer weiteren, beide klappt der Pfeil zu
+- Workflows: der Bildschirm verliert seinen Einstellungsblock, ein Knoten nennt seinen eigenen Zustand und öffnet sich in Issue, Run und Changes, und der finale Pull Request wird von dort gemergt
+- Maschinen-Einstellungen: die Übersicht ist neu geordnet, und eine neue Seite „Workflow settings“ hält die Modelle, mit denen ein neuer Workflow startet

@@ -1,3 +1,4 @@
-- Context window: the usage sheet shows a segmented bar of what fills a run's context, with a legend per segment
-- Estimates: with a scale switched on in the team settings, issues take an estimate from their properties, and the activity shows estimate changes
-- Members: an invited person appears on the team at once with their name, and the Members settings show who has not joined yet
+- Pickers: status, assignee, labels, board and the rest all open the same searchable sheet of plain rows, and picking several shows as a highlight instead of a circle
+- Agent runs: the running list nests, a workflow's runs under one row that opens the workflow and a stack's under one row, each folded away by its chevron
+- Workflows: the screen drops its settings block, a node reads its own state and opens into Issue, Run and Changes, and the workflow's final pull request merges from there
+- Machine settings: the sheet is reordered, and a new Workflow settings page holds the models a new workflow starts on

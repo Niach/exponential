@@ -28,7 +28,7 @@ import {
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import { SessionTreeList } from "@/components/session-tree-list"
+import { SessionTree } from "@/components/session-tree"
 import { useSessionListRows } from "@/hooks/use-agents-data"
 import { sessionIdentity } from "@/lib/session-identity"
 import type { DetailOrigin } from "@/lib/detail-origin"
@@ -446,7 +446,7 @@ export function AutomationsTab({
           ) : (
             /* EXP-897: nested by `parent_session_id` — the cap above is
                applied to the ROWS, before the tree. */
-            <SessionTreeList
+            <SessionTree
               rows={recentRuns}
               onOpen={(session) =>
                 // EXP-862: opened from Automations, so Back returns here

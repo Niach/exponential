@@ -1,19 +1,16 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.data.db.WorkflowEntity
-import com.exponential.app.domain.WorkflowLaunch
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 
 // Mirrors apps/web/src/lib/trpc/workflows.ts (EXP-981). The rows themselves
 // arrive over the `workflows` + `workflow_nodes` shapes (WorkflowEntity /
@@ -103,15 +100,15 @@ internal data class AdmitNodeInput(
  * (`explicitNulls = false`) would drop a null property from a `@Serializable`
  * class outright, which is exactly how [deviceId] clears the runner ([JsonNull]
  * rides as the explicit "unbind"). The same rule the action editor's patch
- * follows.
+ * follows. The phone writes only the name and the runner (EXP-1014): the
+ * launch options are picked where the workflow is CREATED and `startOn` is
+ * fixed to `contract`, so neither has an encoder here.
  */
 internal fun updateWorkflowInput(
     id: String,
     name: String?,
     deviceId: String?,
     clearDevice: Boolean,
-    launch: WorkflowLaunch?,
-    startOn: String?,
 ): JsonObject = buildJsonObject {
     put("id", id)
     name?.let { put("name", it) }
@@ -119,34 +116,6 @@ internal fun updateWorkflowInput(
         clearDevice -> put("deviceId", JsonNull)
         deviceId != null -> put("deviceId", JsonPrimitive(deviceId))
     }
-    launch?.let { options ->
-        putJsonObject("launch") {
-            options.agent.takeIf { it.isNotEmpty() }?.let { put("agent", it) }
-            options.model.takeIf { it.isNotEmpty() }?.let { put("model", it) }
-            // Claude only, and "" is the CLI's own default — the server
-            // refuses an empty string against the closed model vocabulary.
-            options.subagentModel.takeIf { it.isNotEmpty() }?.let { put("subagentModel", it) }
-            options.effort.takeIf { it.isNotEmpty() }?.let { put("effort", it) }
-            options.account.takeIf { it.isNotEmpty() }?.let { put("account", it) }
-            put("maxParallel", options.maxParallel)
-            // EXP-984: "" means "let the engine pick", which is the ABSENT
-            // key — the server validates it against the model vocabulary.
-            options.reviewModel.takeIf { it.isNotEmpty() }?.let { put("reviewModel", it) }
-            // EXP-1002: the phase pins are ALWAYS stated. For these three keys
-            // the router reads absent = "keep the stored pin" (old clients),
-            // null = clear, string = set — so an explicit null is the only
-            // way this client's "no pin" reaches the server.
-            putPhaseModel("contractModel", options.contractModel)
-            putPhaseModel("integrationModel", options.integrationModel)
-            putPhaseModel("riskModel", options.riskModel)
-        }
-    }
-    startOn?.let { put("startOn", it) }
-}
-
-private fun JsonObjectBuilder.putPhaseModel(key: String, value: String?) {
-    val pin = value?.takeIf { it.isNotEmpty() }
-    put(key, if (pin == null) JsonNull else JsonPrimitive(pin))
 }
 
 /**
@@ -202,11 +171,10 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
      * alone. Electric echoes the written row back, so a success needs no local
      * write.
      *
-     * EXP-1014: the phone writes only [name] and the runner. [launch] and
-     * [startOn] stay on the signature because the wire contract still carries
-     * them (an older client, web, the desktop) — a workflow screen configures
-     * nothing: its two models are picked where the workflow is created and
-     * `startOn` is fixed to `contract`.
+     * EXP-1014: the phone writes only [name] and the runner — a workflow
+     * screen configures nothing: its two models are picked where the workflow
+     * is created and `startOn` is fixed to `contract`. The router's `launch` /
+     * `startOn` keys stay other clients' business.
      */
     suspend fun update(
         accountId: String,
@@ -214,8 +182,6 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
         name: String? = null,
         deviceId: String? = null,
         clearDevice: Boolean = false,
-        launch: WorkflowLaunch? = null,
-        startOn: String? = null,
     ): WorkflowDto = trpc.mutation(
         accountId,
         path = "workflows.update",
@@ -224,8 +190,6 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
             name = name,
             deviceId = deviceId,
             clearDevice = clearDevice,
-            launch = launch,
-            startOn = startOn,
         ),
         inputSerializer = JsonObject.serializer(),
         outputSerializer = WorkflowMutationResult.serializer(),

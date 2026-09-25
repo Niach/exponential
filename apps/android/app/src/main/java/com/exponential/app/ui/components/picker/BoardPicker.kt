@@ -12,7 +12,11 @@ import com.exponential.app.ui.parseColor
 data class BoardPickerBoard(
     val id: String,
     val name: String,
-    /** Contract `boardIcon`; null = the default glyph. */
+    /**
+     * Contract `boardIcon`, RESOLVED by the adapter (`toPickerBoard` via
+     * `boardIconName`, fallback included); null = no glyph, which only a
+     * non-board row such as an optional input's "None" reset carries.
+     */
     val icon: String? = null,
     /** The board's hex colour; null = the foreground. */
     val colorHex: String? = null,
@@ -23,9 +27,9 @@ fun boardPickerItems(boards: List<BoardPickerBoard>): List<PickerItem<String>> =
         PickerItem(
             value = board.id,
             label = board.name,
-            // The board glyph rule (`boardIcon`): a known registry name, else
-            // the plain kanban board — a board row is never an anonymous dot.
-            icon = board.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.`square-kanban`,
+            // A board row's glyph arrives resolved (`BoardIconUi` owns the
+            // fallback rule); this only looks the name up in the registry.
+            icon = board.icon?.let { ExpIcons.byName(it) },
             color = board.colorHex?.takeIf { it.isNotBlank() }?.let(::parseColor),
         )
     }

@@ -270,27 +270,24 @@ export function BulkActionBar({
   // selection is `"indeterminate"`); `value` stays the honest membership array
   // the toggle arithmetic runs on, so `onChange` reports exactly one changed
   // id — the row that was picked.
-  const labelMenuRows = useMemo(
-    () =>
-      pickerMenuRows(
-        labelPickerItems(labels).map((item) => {
-          const state = labelState(
-            labels.find((label) => label.id === item.value)!
-          )
-          return {
-            ...item,
-            checked:
-              state === `all`
-                ? true
-                : state === `some`
-                  ? (`indeterminate` as const)
-                  : false,
-          }
-        })
-      ),
+  const labelMenuRows = useMemo(() => {
+    const labelsById = new Map(labels.map((label) => [label.id, label]))
+    return pickerMenuRows(
+      labelPickerItems(labels).map((item) => {
+        const state = labelState(labelsById.get(item.value)!)
+        return {
+          ...item,
+          checked:
+            state === `all`
+              ? true
+              : state === `some`
+                ? (`indeterminate` as const)
+                : false,
+        }
+      })
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps -- labelState reads exactly these.
-    [labels, issues, issueLabelMap]
-  )
+  }, [labels, issues, issueLabelMap])
   const selectedLabelIds = useMemo(
     () =>
       labelMenuRows.options

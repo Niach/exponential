@@ -70,6 +70,39 @@ public extension AssigneePickerMember {
     }
 }
 
+public extension DevicePickerDevice {
+    /// A machine row: its own glyph (the owner's pick, else the kind default —
+    /// `DeviceIconDisplay`, EXP-924) and its plain name, with the OWNER of a
+    /// teammate's shared server (EXP-432) as the muted line under it rather
+    /// than folded into the name. A row with no label yet reads as its id.
+    /// Every device picker (the composer's pill, the automation editor's
+    /// "Runs on", the workflow runner row) builds its rows here, so a machine
+    /// cannot wear a glyph on one sheet and none on the next.
+    init(_ device: SteerDevice) {
+        self.init(
+            id: device.deviceId,
+            name: device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel,
+            icon: DeviceIconDisplay.iconName(for: device),
+            description: device.owner?.name
+        )
+    }
+}
+
+public extension ActionPickerAction {
+    /// An action row: its curated glyph resolved ONCE (`ActionIconDisplay` —
+    /// an unset or unknown name falls back to the generic action mark, never
+    /// to a hole), its name, and its description under it. The composer's ▶
+    /// tool and the automation editor build their rows here.
+    init(_ action: ActionDto) {
+        self.init(
+            id: action.id,
+            name: action.name,
+            icon: ActionIconDisplay.iconName(for: action.icon),
+            description: action.description
+        )
+    }
+}
+
 public extension IssuePickerIssue {
     /// An issue row: the STATUS glyph in its colour, then `IDENT Title`,
     /// matched on either half. A row whose identifier has not been stamped

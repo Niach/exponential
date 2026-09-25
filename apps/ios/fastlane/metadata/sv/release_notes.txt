@@ -1,3 +1,4 @@
-- Kontextfönster: förbrukningsrutan visar en indelad stapel över vad som fyller en körnings kontext, med en förklaring till varje del
-- Uppskattningar: slår du på en skala i teaminställningarna får issues en uppskattning bland sina egenskaper, och aktiviteten visar ändringar av uppskattningen
-- Medlemmar: en inbjuden person står i teamet direkt med sitt namn, och "Members"-inställningarna visar vem som inte har gått med ännu
+- Väljare: status, ansvarig, etiketter, board och resten öppnar samma sökbara ruta med enkla rader, och väljer du flera syns det som en markering i stället för en cirkel
+- Agentkörningar: listan över pågående körningar nästlas, ett workflows körningar under en rad som öppnar workflowet och en stacks under en annan, och pilen fäller ihop båda
+- Workflows: skärmen tappar sitt inställningsblock, en nod säger sitt eget tillstånd och öppnas i Issue, Run och Changes, och den sista pull requesten slås ihop därifrån
+- Maskininställningar: rutan är omordnad, och en ny sida "Workflow settings" håller de modeller ett nytt workflow startar på

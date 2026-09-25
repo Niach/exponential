@@ -149,6 +149,17 @@ export type PickerProps<T extends string = string> = PickerPropsBase<T> &
         value: T | null
         /** Fires on a pick and closes the surface. */
         onChange: (value: T) => void
+        /** A FIRST row that clears the pick ("Unassigned", "None"): the
+         *  `Combobox` none row, marked while `value` is null and reporting
+         *  through `onNone` — so no sentinel value ever sits in `items`. An
+         *  empty-string item is what cmdk reads as "no value" (never
+         *  highlighted, never picked by Enter, dropped by the filter), which
+         *  is why the sentinel route is closed here. Its own callback rather
+         *  than a `null` through `onChange`: one signature per arm keeps a
+         *  caller's inline `(value) =>` contextually typed. */
+        noneLabel?: string
+        /** Fires when the none row is picked; the surface closes. */
+        onNone?: () => void
       }
     | {
         mode: `multi`
@@ -255,8 +266,10 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
       : ({
           multiple: false as const,
           value: props.value,
+          noneLabel: props.noneLabel,
           onChange: (next: T | null) => {
-            if (next !== null) props.onChange(next)
+            if (next === null) props.onNone?.()
+            else props.onChange(next)
           },
         } as const)
 

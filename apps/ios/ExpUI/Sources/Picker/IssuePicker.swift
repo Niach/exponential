@@ -141,6 +141,10 @@ public struct IssuePicker<Trigger: View>: View {
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,
             footer: footer,
+            // The issue picker's footer CAPTIONS the list (the batch guards);
+            // it is never the answer to a miss, so a query with no hit still
+            // says "No matching issues" above it.
+            footerReplacesEmpty: false,
             sheetIdentifier: sheetIdentifier,
             trigger: trigger
         )
