@@ -47,8 +47,10 @@ function isEditorAutocompleteInteraction(event: {
 // Escape aimed at an inner editor layer — the @/# autocomplete popup or the
 // toolbar's inline link input — must close only that layer. Radix listens for
 // Escape on document with capture, so it fires BEFORE the editor's own
-// handler can consume the key; swallow it here (the layer's handler still
-// runs and closes it) instead of routing it into the dismiss confirm.
+// handler can consume the key; swallow it here instead of routing it into
+// the dismiss confirm. The link input still closes itself; ProseMirror drops
+// the now-defaultPrevented key, so `MarkdownEditor` closes the autocomplete
+// through its own DOM listener (EXP-966).
 function isEditorInnerLayerEscape(event: {
   target: EventTarget | null
 }): boolean {
