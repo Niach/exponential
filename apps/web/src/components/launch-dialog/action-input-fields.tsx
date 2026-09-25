@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { type ActionInputDef, type BoardIcon } from "@exp/db-schema/domain"
 import {
   Combobox,
@@ -13,8 +13,12 @@ import {
   type PickerOption,
   BoardGlyph,
 } from "@exp/ui"
-import type { Board, Issue } from "@/db/schema"
-import { boardCollection, issueCollection } from "@/lib/collections"
+import type { Board, Issue, SyncedWorkflow } from "@/db/schema"
+import {
+  boardCollection,
+  issueCollection,
+  workflowCollection,
+} from "@/lib/collections"
 import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 
@@ -172,12 +176,33 @@ function PrInputField({
         .where(({ issues }) => eq(issues.prState, `open`)),
     []
   )
+  // EXP-1072: a workflow's open final pull request is a pickable PR too.
+  const { data: workflowRows } = useLiveQuery(
+    (q) =>
+      q
+        .from({ workflows: workflowCollection })
+        .where(({ workflows }) =>
+          and(eq(workflows.teamId, teamId), eq(workflows.finalPrState, `open`))
+        ),
+    [teamId]
+  )
   const pulls = useMemo(() => {
     const teamBoards = new Set(
       ((boardRows ?? []) as Board[]).map((board) => board.id)
     )
-    return buildPrOptions((issueRows ?? []) as Issue[], teamBoards)
-  }, [boardRows, issueRows])
+    return buildPrOptions(
+      (issueRows ?? []) as Issue[],
+      teamBoards,
+      ((workflowRows ?? []) as SyncedWorkflow[]).map((workflow) => ({
+        id: workflow.id,
+        teamId: workflow.teamId,
+        name: workflow.name,
+        finalPrNumber: workflow.finalPrNumber,
+        // The pg enum's inferred type is wider than the wire's four words.
+        finalPrState: (workflow.finalPrState as string | null) ?? null,
+      }))
+    )
+  }, [boardRows, issueRows, workflowRows])
   const options = useMemo<PickerOption[]>(
     () =>
       pulls.map((pull) => ({ value: pull.issueId, label: pull.label })),

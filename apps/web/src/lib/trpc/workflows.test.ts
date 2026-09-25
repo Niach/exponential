@@ -33,6 +33,16 @@ const h = vi.hoisted(() => ({
   // EXP-1032 — the completion path.
   openWorkflowFinalPr: vi.fn(async (..._args: unknown[]) => ({ url: `https://gh/pr/9` })),
   applyWorkflowFinalPrState: vi.fn(async (..._args: unknown[]) => true),
+  // EXP-1059 — the final PR's lifecycle helpers.
+  reopenWorkflowFinalPr: vi.fn(
+    async (
+      ..._args: unknown[]
+    ): Promise<
+      | { reopened: true; url: string }
+      | { reopened: false; reason: string; gaveUp: boolean }
+    > => ({ reopened: true, url: `https://gh/pr/9` })
+  ),
+  recordWorkflowEventInTx: vi.fn(async (..._args: unknown[]) => {}),
   loadRepository: vi.fn(async (..._args: unknown[]) => ({
     id: `repo-1`,
     // = TEAM below: `mergeFinalPr` refuses another team's repository.
@@ -65,6 +75,9 @@ vi.mock(`@/lib/workflow-final-pr`, () => ({
   retargetReleasedDependents: h.retargetReleasedDependents,
   openWorkflowFinalPr: h.openWorkflowFinalPr,
   applyWorkflowFinalPrState: h.applyWorkflowFinalPrState,
+  reopenWorkflowFinalPr: h.reopenWorkflowFinalPr,
+  recordWorkflowEventInTx: h.recordWorkflowEventInTx,
+  NOTHING_SHIPPED_DECISION: `nothing shipped: every node was skipped`,
 }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepository: h.loadRepository,
@@ -179,6 +192,7 @@ beforeEach(() => {
   h.loadWorkflowEdges.mockResolvedValue({ nodes: [], edges: [] })
   h.openWorkflowFinalPr.mockResolvedValue({ url: `https://gh/pr/9` })
   h.applyWorkflowFinalPrState.mockResolvedValue(true)
+  h.reopenWorkflowFinalPr.mockResolvedValue({ reopened: true, url: `https://gh/pr/9` })
   h.mergeRepositoryPull.mockResolvedValue({ merged: true as const })
 })
 
@@ -1492,17 +1506,143 @@ describe(`node states (EXP-1082 §4)`, () => {
   })
 })
 
-// EXP-1082 §7 — the final PR (EXP-1072 / EXP-1065 implement these).
+// EXP-1082 §7 — the final PR (EXP-1072 / EXP-1059 implement these; the body
+// is EXP-1065's). The GitHub half (`reopenWorkflowFinalPr`, the event rows)
+// is locked in workflow-final-pr.test.ts; these prove the router's gates
+// and what each path asks of it.
 describe(`final PR (EXP-1082 §7)`, () => {
-  it.skip(`a closed final PR is reopened once`, () => {
-    // A final PR closed unmerged is reopened ONCE (`final_pr_reopened`),
-    // a second close leaves it closed.
+  const closed = (over: Record<string, unknown> = {}) =>
+    workflow({
+      status: `running`,
+      deviceId: `dev-1`,
+      decisions: ``,
+      finalPrUrl: `https://gh/pr/9`,
+      finalPrNumber: 9,
+      finalPrState: `closed`,
+      ...over,
+    })
+
+  it(`a closed final PR is reopened once`, async () => {
+    // The engine's beat: the ONE reopen — a `final_pr_reopened` event, the PR
+    // back to open.
+    selectQueue.push([closed()], [{ id: `device-row` }])
+    expect(await caller.reopenFinalPr({ id: WF })).toEqual({
+      reopened: true,
+      url: `https://gh/pr/9`,
+    })
+    expect(h.reopenWorkflowFinalPr).toHaveBeenCalledWith(fakeDb, WF, `user-1`, { once: true })
+
+    // Closed AGAIN: the reopen was spent. The helper says so (`gaveUp`) and
+    // the engine remembers; the PR stays closed.
+    h.reopenWorkflowFinalPr.mockResolvedValueOnce({
+      reopened: false,
+      reason: `The final pull request #9 was closed again after one reopen`,
+      gaveUp: true,
+    })
+    selectQueue.push([closed()], [{ id: `device-row` }])
+    expect(await caller.reopenFinalPr({ id: WF })).toMatchObject({ reopened: false, gaveUp: true })
+
+    // Only the runner may ask: a member without the device is refused.
+    selectQueue.push([closed()], [])
+    const error = await rejection(caller.reopenFinalPr({ id: WF }))
+    expect(error?.code).toBe(`FORBIDDEN`)
   })
-  it.skip(`an all-skipped workflow is cancelled with a note`, () => {
+
+  it(`a member opens a closed final PR again from the workflow page: reopened, else a fresh one`, async () => {
+    // GitHub reopens it: the same PR comes back, nothing new is created.
+    selectQueue.push([closed()])
+    expect(await caller.openFinalPr({ id: WF })).toEqual({ url: `https://gh/pr/9` })
+    expect(h.reopenWorkflowFinalPr).toHaveBeenCalledWith(fakeDb, WF, `user-1`, { once: false })
+    expect(h.openWorkflowFinalPr).not.toHaveBeenCalled()
+
+    // GitHub refuses (head branch gone): a NEW final PR from the branch.
+    h.reopenWorkflowFinalPr.mockResolvedValueOnce({
+      reopened: false,
+      reason: `Validation Failed`,
+      gaveUp: true,
+    })
+    selectQueue.push([closed()])
+    expect(await caller.openFinalPr({ id: WF })).toEqual({ url: `https://gh/pr/9` })
+    expect(h.openWorkflowFinalPr).toHaveBeenCalledWith(fakeDb, WF, `user-1`)
+
+    // An OPEN final PR is simply answered — no reopen, no new PR.
+    h.openWorkflowFinalPr.mockClear()
+    h.reopenWorkflowFinalPr.mockClear()
+    selectQueue.push([closed({ finalPrState: `open` })])
+    expect(await caller.openFinalPr({ id: WF })).toEqual({ url: `https://gh/pr/9` })
+    expect(h.reopenWorkflowFinalPr).not.toHaveBeenCalled()
+    expect(h.openWorkflowFinalPr).not.toHaveBeenCalled()
+  })
+
+  it(`an all-skipped workflow is cancelled with a note`, async () => {
     // Every node skipped = nothing to ship: status `cancelled` + a decision line.
+    selectQueue.push(
+      [workflow({ status: `running`, deviceId: `dev-1`, decisions: `` })],
+      [{ id: `device-row` }],
+      [
+        { id: `node-1`, state: `skipped` },
+        { id: `node-2`, state: `skipped` },
+        // A proposed node was never admitted: it does not count.
+        { id: `node-3`, state: `proposed` },
+      ]
+    )
+    expect(await caller.cancelUnshipped({ id: WF })).toMatchObject({ cancelled: true })
+    const update = written.find((w) => w.op === `update`)!.values as Record<string, unknown>
+    expect(update.status).toBe(`cancelled`)
+    expect(update.endedAt).toBeInstanceOf(Date)
+    expect(update.decisions).toMatch(/^\d{4}-\d{2}-\d{2}: nothing shipped: every node was skipped$/)
+    expect(h.recordWorkflowEventInTx).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({ workflowId: WF, kind: `cancelled` })
+    )
+
+    // One landed node = something shipped: the final PR path, never this.
+    written.length = 0
+    h.recordWorkflowEventInTx.mockClear()
+    selectQueue.push(
+      [workflow({ status: `running`, deviceId: `dev-1`, decisions: `` })],
+      [{ id: `device-row` }],
+      [
+        { id: `node-1`, state: `skipped` },
+        { id: `node-2`, state: `landed` },
+      ]
+    )
+    const error = await rejection(caller.cancelUnshipped({ id: WF }))
+    expect(error?.code).toBe(`PRECONDITION_FAILED`)
+    expect(written).toEqual([])
+    expect(h.recordWorkflowEventInTx).not.toHaveBeenCalled()
+
+    // Idempotent: a cancelled workflow answers without writing.
+    selectQueue.push(
+      [workflow({ status: `cancelled`, deviceId: `dev-1` })],
+      [{ id: `device-row` }]
+    )
+    expect(await caller.cancelUnshipped({ id: WF })).toEqual({ cancelled: true })
+    expect(written).toEqual([])
   })
-  it.skip(`final merge flips member issues through the PR-merge helper`, () => {
-    // mergeFinalPr → every member issue moves via the team's PR-merge target.
+
+  it(`final merge flips member issues through the PR-merge helper`, async () => {
+    // mergeFinalPr → GitHub's acceptance → `applyWorkflowFinalPrState(merged)`,
+    // whose covered-issue fan-out is `applyPrLifecycleStatusInTx` — the very
+    // status writer the linked-PR merge path (`applyPrMergeState`) uses —
+    // locked in workflow-final-pr.test.ts (`moves only the issues of landed
+    // nodes on merge`). No second status codepath exists.
+    selectQueue.push([
+      workflow({
+        status: `running`,
+        deviceId: `dev-1`,
+        finalPrUrl: `https://gh/pr/9`,
+        finalPrNumber: 9,
+        finalPrState: `open`,
+      }),
+    ])
+    expect(await caller.mergeFinalPr({ id: WF })).toEqual({ merged: true })
+    expect(h.mergeRepositoryPull).toHaveBeenCalledWith(
+      expect.objectContaining({ prNumber: 9, prUrl: `https://gh/pr/9` })
+    )
+    expect(h.applyWorkflowFinalPrState).toHaveBeenCalledWith(fakeDb, `https://gh/pr/9`, `merged`)
+    // The router writes no issue status itself.
+    expect(written.filter((w) => w.op === `update`)).toEqual([])
   })
   it.skip(`the final PR body carries findings, decisions and results`, () => {
     // openFinalPr's body lists each node's review findings, the decisions

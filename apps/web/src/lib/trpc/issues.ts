@@ -2413,14 +2413,29 @@ export const issuesRouter = router({
   // to the default branch right here — deterministically, before the agent
   // spawns. Idempotent: once retargeted, a re-run classifies `default` and
   // no-ops.
+  // EXP-1072: `issueId` may also be a WORKFLOW id — its final pull request
+  // is a linked PR everywhere a PR is shown, the fix-conflicts run included;
+  // the workflow path resolves in `prepareWorkflowFinalPrConflictFix`.
   prepareConflictFix: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { teamId, boardId } = await assertIssueAccess(
-        ctx.session.user.id,
-        input.issueId,
-        `write`
-      )
+      let access: { teamId: string; boardId: string }
+      try {
+        access = await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
+      } catch (err) {
+        if (err instanceof TRPCError && err.code === `NOT_FOUND`) {
+          const { prepareWorkflowFinalPrConflictFix } = await import(
+            `@/lib/workflow-final-pr`
+          )
+          return prepareWorkflowFinalPrConflictFix(
+            ctx.db,
+            input.issueId,
+            ctx.session.user.id
+          )
+        }
+        throw err
+      }
+      const { teamId, boardId } = access
 
       const [row] = await ctx.db
         .select({

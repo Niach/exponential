@@ -10,6 +10,7 @@ import {
   boards,
   repositories,
   users,
+  workflows,
 } from "@/db/schema"
 import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
 import {
@@ -726,8 +727,18 @@ export const repositoriesRouter = router({
             isNotNull(codingSessions.prUrl)
           )
         )
+      // EXP-1072: and a workflow's FINAL pull request — it is the
+      // workflow's own PR (Reviews' "Workflows" group), never an external one.
+      const workflowRows = await ctx.db
+        .select({ prUrl: workflows.finalPrUrl })
+        .from(workflows)
+        .where(
+          and(eq(workflows.teamId, input.teamId), isNotNull(workflows.finalPrUrl))
+        )
       const linkedUrls = new Set(
-        [...linkedRows, ...sessionRows].map((row) => row.prUrl).filter(Boolean)
+        [...linkedRows, ...sessionRows, ...workflowRows]
+          .map((row) => row.prUrl)
+          .filter(Boolean)
       )
 
       const results = await Promise.all(
