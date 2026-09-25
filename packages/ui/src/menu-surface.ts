@@ -25,8 +25,11 @@ const MENU_ROW_BASE = `flex min-h-(--menu-item-height) cursor-default items-cent
 
 export const MENU_ITEM_CLASS = `relative ${MENU_ROW_BASE} data-[disabled]:pointer-events-none data-[disabled]:opacity-50`
 
-/** A submenu's label never wraps: the value beside it truncates instead. */
-export const MENU_SUB_TRIGGER_CLASS = `${MENU_ROW_BASE} whitespace-nowrap data-[state=open]:bg-glass-active data-[variant=destructive]:data-[state=open]:bg-destructive/10 data-[variant=destructive]:data-[state=open]:text-destructive`
+/** A submenu's label never wraps: the value beside it truncates instead.
+ *  The value (a `MENU_VALUE_CLASS` span) and the chevron both push right;
+ *  with a value present the chevron gives up its auto margin, so every value
+ *  ends flush against the chevron column instead of floating mid-row. */
+export const MENU_SUB_TRIGGER_CLASS = `${MENU_ROW_BASE} whitespace-nowrap data-[state=open]:bg-glass-active data-[variant=destructive]:data-[state=open]:bg-destructive/10 data-[variant=destructive]:data-[state=open]:text-destructive [&>span+svg:last-child]:ml-0`
 
 /** The checkbox / radio rows: the indicator sits in the `pl-8` inset. */
 export const MENU_CHECK_ITEM_CLASS = `relative flex min-h-(--menu-item-height) cursor-default items-center gap-(--menu-item-gap) rounded-sm py-1 pr-(--menu-item-padding-x) pl-8 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--menu-icon-size)`
