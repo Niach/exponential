@@ -61,6 +61,12 @@ const ISSUE_CHIP_GAP: f32 = 4.0;
 /// half again the height of a chip whose own content is 14px. Same glyph,
 /// same ghost hover, a box that fits.
 const ISSUE_CHIP_REMOVE_SIZE: f32 = 16.0;
+/// EXP-1014 — the STACKED variant's step: each ghost sits this far up and to
+/// the right of the one in front of it, so a compound node reads as a deck of
+/// chips at a glance.
+pub(crate) const ISSUE_CHIP_STACK_STEP: f32 = 3.0;
+/// How many ghosts peek out behind the front chip.
+const ISSUE_CHIP_STACK_GHOSTS: usize = 2;
 
 /// The vendored editor crate carries its OWN copy of the geometry (it is a
 /// standalone crate with a host-supplied theme, so it cannot import ours).
@@ -98,6 +104,23 @@ pub(crate) struct IssueChip {
     /// Take the row's leftover width and truncate the title into it, instead
     /// of the default "never shrink, the parent wraps me" a chip row wants.
     flexible: bool,
+    /// EXP-1014: something else in the glyph slot — the workflow graph puts
+    /// its node's state glyph (or a live run's dot) where the status normally
+    /// leads.
+    slot: Option<gpui::AnyElement>,
+    /// EXP-1014: a trailing right-aligned word INSIDE the chip (the workflow
+    /// graph's node caption). A chip that carries one spans its row.
+    note: Option<(SharedString, gpui::Hsla)>,
+    /// EXP-1032: one element AFTER the note, still inside the chip — the
+    /// workflow graph's final-PR chip carries its Merge action there.
+    trailing: Option<gpui::AnyElement>,
+    /// EXP-1014: a DECK of chips — two ghosts peeking out behind this one
+    /// (the workflow graph's compound node: a parent run with its
+    /// sub-issues).
+    stacked: bool,
+    /// EXP-1014: the hairline, overridden — red inside a cycle, dashed for a
+    /// node that is only proposed.
+    outline: Option<(gpui::Hsla, bool)>,
     on_click: Option<ChipHandler>,
     on_remove: Option<(ElementId, ChipHandler)>,
 }
@@ -116,6 +139,11 @@ pub(crate) fn issue_chip(
         status: None,
         max_title_width: None,
         flexible: false,
+        slot: None,
+        note: None,
+        trailing: None,
+        stacked: false,
+        outline: None,
         on_click: None,
         on_remove: None,
     }
@@ -142,6 +170,43 @@ impl IssueChip {
     /// content and letting the parent wrap it (a composer chip row).
     pub(crate) fn flexible(mut self) -> Self {
         self.flexible = true;
+        self
+    }
+
+    /// EXP-1014 — put something else in the LEADING slot, where the status
+    /// glyph sits: the workflow graph's node state glyph, or the live dot of
+    /// the run that is up on it. Sized by the caller, capped by the slot.
+    pub(crate) fn slot(mut self, slot: impl IntoElement) -> Self {
+        self.slot = Some(slot.into_any_element());
+        self
+    }
+
+    /// EXP-1014 — a trailing note INSIDE the chip, right-aligned in its own
+    /// colour (the workflow graph's node caption). A chip with a note takes
+    /// its row's full width, so the note lands on the right edge.
+    pub(crate) fn note(mut self, note: impl Into<SharedString>, color: gpui::Hsla) -> Self {
+        self.note = Some((note.into(), color));
+        self
+    }
+
+    /// EXP-1032 — one element after the note and still INSIDE the chip: the
+    /// workflow graph's final-PR chip hangs its Merge action there, where the
+    /// pull request it merges is named. Like a note, it spans the chip's row.
+    pub(crate) fn trailing(mut self, trailing: impl IntoElement) -> Self {
+        self.trailing = Some(trailing.into_any_element());
+        self
+    }
+
+    /// EXP-1014 — draw this chip as a DECK: two ghost outlines stepping up
+    /// and to the right behind it (a compound workflow node).
+    pub(crate) fn stacked(mut self) -> Self {
+        self.stacked = true;
+        self
+    }
+
+    /// EXP-1014 — override the hairline: a colour, and whether it dashes.
+    pub(crate) fn outline(mut self, color: gpui::Hsla, dashed: bool) -> Self {
+        self.outline = Some((color, dashed));
         self
     }
 
@@ -184,6 +249,26 @@ impl RenderOnce for IssueChip {
             None => Icon::new(registry::NAV_ISSUES).text_color(token),
         }
         .with_size(px(ISSUE_CHIP_ICON_MAX));
+        // EXP-1014: the slot is the glyph's box, whatever fills it — a state
+        // glyph and a live dot have to land where the status circle does.
+        let lead = div()
+            .flex_shrink_0()
+            .size(px(ISSUE_CHIP_ICON_MAX))
+            .flex()
+            .items_center()
+            .justify_center()
+            .map(|slot| match self.slot {
+                Some(custom) => slot.child(custom),
+                None => slot.child(glyph),
+            });
+        let (outline, dashed) = match self.outline {
+            Some((color, dashed)) => (color, dashed),
+            None => (border, false),
+        };
+        // A chip that carries a trailing note (or a trailing action) spans
+        // its row: the note is right-aligned INSIDE the chip, which only
+        // means anything once the chip has a right edge of its own.
+        let spans = self.note.is_some() || self.trailing.is_some();
 
         let mut chip = h_flex()
             .id(self.id)
@@ -194,16 +279,18 @@ impl RenderOnce for IssueChip {
                     chip.flex_shrink_0()
                 }
             })
+            .when(spans, |chip| chip.w_full())
             .items_center()
             .gap(px(ISSUE_CHIP_GAP))
             .px(px(ISSUE_CHIP_PAD_X))
             .py(px(ISSUE_CHIP_PAD_Y))
             .rounded(px(ISSUE_CHIP_RADIUS))
             .border_1()
-            .border_color(border)
+            .when(dashed, |chip| chip.border_dashed())
+            .border_color(outline)
             .bg(background)
             .text_xs()
-            .child(div().flex_shrink_0().child(glyph));
+            .child(lead);
         if !self.identifier.is_empty() {
             chip = chip.child(
                 div()
@@ -223,10 +310,25 @@ impl RenderOnce for IssueChip {
             if let Some(width) = self.max_title_width {
                 title = title.max_w(width);
             }
-            if self.flexible {
+            if self.flexible || spans {
                 title = title.flex_1();
             }
             chip = chip.child(title);
+        } else if spans {
+            // Nothing to push the note over (the workflow graph's final-PR
+            // chip names no issue): the gap takes the row instead.
+            chip = chip.child(div().flex_1().min_w_0());
+        }
+        if let Some((note, color)) = self.note {
+            chip = chip.child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(color)
+                    .child(note),
+            );
+        }
+        if let Some(trailing) = self.trailing {
+            chip = chip.child(div().flex_shrink_0().child(trailing));
         }
         if let Some((remove_id, handler)) = self.on_remove {
             chip = chip.child(
@@ -242,12 +344,34 @@ impl RenderOnce for IssueChip {
         if let Some(handler) = self.on_click {
             chip = chip.on_click(move |event, window, cx| handler(event, window, cx));
         }
-        chip.when(clickable, |chip| {
+        let chip = chip.when(clickable, |chip| {
             // The only hover the painted chips could not have: the border
             // brightens to the focus ring, nothing moves.
             chip.cursor_pointer()
                 .hover(|style| style.border_color(ring))
-        })
+        });
+        if !self.stacked {
+            return chip.into_any_element();
+        }
+        // The DECK: the ghosts are the same rounded rect stepped up and to
+        // the right, painted BEFORE the chip so it sits on top of them.
+        let mut deck = div().relative().min_w_0().when(spans, |deck| deck.w_full());
+        for step in (1..=ISSUE_CHIP_STACK_GHOSTS).rev() {
+            let step = ISSUE_CHIP_STACK_STEP * step as f32;
+            deck = deck.child(
+                div()
+                    .absolute()
+                    .left(px(step))
+                    .right(px(-step))
+                    .top(px(-step))
+                    .bottom(px(step))
+                    .rounded(px(ISSUE_CHIP_RADIUS))
+                    .border_1()
+                    .border_color(border)
+                    .bg(background),
+            );
+        }
+        deck.child(chip).into_any_element()
     }
 }
 

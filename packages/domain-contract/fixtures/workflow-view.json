@@ -73,7 +73,7 @@
         "risk": "high"
       },
       "workflowStatus": "draft",
-      "caption": "Contract · high risk",
+      "caption": "",
       "tone": "muted"
     },
     {
@@ -83,7 +83,7 @@
         "risk": "medium"
       },
       "workflowStatus": "draft",
-      "caption": "Leaf",
+      "caption": "",
       "tone": "muted"
     },
     {
@@ -103,7 +103,7 @@
         "risk": "high"
       },
       "workflowStatus": "running",
-      "caption": "Contract · Running",
+      "caption": "Running",
       "tone": "active"
     },
     {
@@ -113,7 +113,7 @@
         "risk": "medium"
       },
       "workflowStatus": "paused",
-      "caption": "Integration · Waiting",
+      "caption": "Waiting",
       "tone": "amber"
     },
     {

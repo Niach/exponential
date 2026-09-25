@@ -16,7 +16,7 @@ const claude: WorkflowLaunch = {
   strongModel: `fable`,
 }
 
-describe.skip(`normalizeWorkflowLaunch (EXP-1029)`, () => {
+describe(`normalizeWorkflowLaunch (EXP-1029)`, () => {
   it(`reads the new shape verbatim`, () => {
     expect(
       normalizeWorkflowLaunch({
@@ -89,7 +89,7 @@ describe.skip(`normalizeWorkflowLaunch (EXP-1029)`, () => {
   })
 })
 
-describe.skip(`modelForNode (EXP-1029)`, () => {
+describe(`modelForNode (EXP-1029)`, () => {
   it(`runs a leaf on the cheap model`, () => {
     expect(modelForNode(claude, `leaf`, `low`)).toBe(`opus`)
     expect(modelForNode(claude, `leaf`, `medium`)).toBe(`opus`)
@@ -105,7 +105,7 @@ describe.skip(`modelForNode (EXP-1029)`, () => {
   })
 })
 
-describe.skip(`reviewModelFor (EXP-1029)`, () => {
+describe(`reviewModelFor (EXP-1029)`, () => {
   it(`reviews every node on the strong model`, () => {
     expect(reviewModelFor(claude)).toBe(`fable`)
     expect(

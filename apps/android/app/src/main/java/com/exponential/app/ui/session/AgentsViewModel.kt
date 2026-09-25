@@ -21,6 +21,8 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.WorkflowEntity
+import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
@@ -35,6 +37,7 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
+import com.exponential.app.domain.SessionTreeContext
 import com.exponential.app.domain.isLiveRun
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
@@ -115,6 +118,10 @@ data class AgentsState(
     // loading. Decides whether a row tap opens the live viewer directly or
     // falls back to the issue detail, and whether the devices section shows.
     val steerEnabled: Boolean? = null,
+    // EXP-1050: what the session TREE groups those rows by (EXP-996) — the
+    // team's workflows and their nodes, plus the issues the stack edges sit
+    // on. Empty until the shapes land, which simply means no group rows yet.
+    val treeContext: SessionTreeContext = SessionTreeContext(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -337,6 +344,23 @@ class AgentsViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
     ) { sessions, issues, boards -> Triple(sessions, issues, boards) }
 
+    // EXP-1050: the session tree's grouping sources — a run belongs to the
+    // workflow whose NODE names it (by session, issue or covered batch issue),
+    // and the group row's name is the workflow row's. Team-scoped, like the
+    // Workflows screen's own list; the issues ride along above.
+    private val workflowRowsAndNodes = combine(dbFlow, selection.selectedId) { db, teamId ->
+        db to teamId
+    }.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
+            flowOf(emptyList<WorkflowEntity>() to emptyList<WorkflowNodeEntity>())
+        } else {
+            combine(
+                db.workflowDao().observeByTeam(teamId),
+                db.workflowNodeDao().observeByTeam(teamId),
+            ) { workflows, nodes -> workflows to nodes }
+        }
+    }
+
     // Bundled to keep the combine below inside the typed overloads.
     private val steerEnabledAndDevices = combine(
         _steerEnabled,
@@ -352,19 +376,27 @@ class AgentsViewModel @Inject constructor(
         // cadence — a minute tick could lag the paused flip by two-thirds of
         // the window.
         DeviceLiveness.ticker(),
-        auth.userId,
-        selection.selectedId,
-    ) { (sessions, issues, boards), (steerEnabled, devices, polledAt), now, userId, teamId ->
-        AgentsState(
-            rows = agentRows(
-                sessions, issues, boards, userId, teamId, now, devices,
-                // The stamp rides elapsedRealtime, not the wall clock `now`.
-                devicesFresh = DeviceFreshness.isTrustworthy(
-                    polledAt,
-                    SystemClock.elapsedRealtime(),
-                ),
+        // Paired: the typed `combine` overloads stop at five flows, and
+        // EXP-1050 needed a sixth source.
+        combine(auth.userId, selection.selectedId) { userId, teamId -> userId to teamId },
+        workflowRowsAndNodes,
+    ) { (sessions, issues, boards), (steerEnabled, devices, polledAt), now, (userId, teamId), (workflows, workflowNodes) ->
+        val rows = agentRows(
+            sessions, issues, boards, userId, teamId, now, devices,
+            // The stamp rides elapsedRealtime, not the wall clock `now`.
+            devicesFresh = DeviceFreshness.isTrustworthy(
+                polledAt,
+                SystemClock.elapsedRealtime(),
             ),
+        )
+        AgentsState(
+            rows = rows,
             steerEnabled = steerEnabled,
+            treeContext = SessionTreeContext(
+                workflows = workflows,
+                workflowNodes = workflowNodes,
+                issues = sessionTreeIssues(rows),
+            ),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
 
@@ -539,6 +571,22 @@ class AgentsViewModel @Inject constructor(
             _merging.value = _merging.value - key
         }
     }
+}
+
+/**
+ * EXP-1050: the stack edges the session tree reads — the LISTED rows' OWN
+ * issues (web `useSessionTreeContext`, iOS `sessionTreeContext`), never the
+ * whole synced pool: a stack only becomes a group when two of its runs are
+ * listed, so scoping keeps the group's root an issue the reader can see
+ * instead of a lower member nothing on screen belongs to.
+ */
+private fun sessionTreeIssues(rows: List<AgentRow>): List<IssueEntity> {
+    val byId = LinkedHashMap<String, IssueEntity>()
+    for (row in rows) {
+        row.issue?.let { byId[it.id] = it }
+        for (issue in row.batchIssues) byId[issue.id] = issue
+    }
+    return byId.values.toList()
 }
 
 /**

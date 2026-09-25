@@ -97,6 +97,15 @@ export function descendantIds<T extends TreeSession>(
  * any ancestor) is collapsed is skipped. Keyed on the flattened depths, so it
  * needs nothing but `nestSessions`' output.
  *
+ * EXP-996: NO web caller left — every folding session list draws the node tree
+ * (`lib/sessions/session-tree.ts` `visibleSessionTreeRows`) now. It stays
+ * because this is a ×4 rule and its desktop twin is still live in three
+ * surfaces the tree has not reached (`sessions_section::drop_collapsed`:
+ * Automations, Reviews, the sidebar's other nav lists). EXP-1061 migrates
+ * those; the whole flat helper goes on all four clients with them. Deleting
+ * only the web copy first would leave a rule that says "mirrored ×4" with one
+ * leg missing.
+ *
  * EXP-897 promoted this to the ×4 rule with the nesting itself (every session
  * list on every client folds a parent's subtree now — desktop
  * `domain::session_tree::visible_rows`, iOS/Android `SessionTree.visibleRows`)

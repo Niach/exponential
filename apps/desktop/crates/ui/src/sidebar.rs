@@ -812,8 +812,9 @@ pub struct RailView {
     /// leaves the window any more; it folds its labels away instead).
     /// Re-derived at the top of every render from the window's occupant.
     compact: bool,
-    /// EXP-923: the parents of the Running section whose sub-runs are folded
-    /// away (the session lists' `collapsed`). Per window, never persisted.
+    /// EXP-923/EXP-996: the folded rows of the Running section, by
+    /// [`domain::session_tree::session_tree_node_key`] — a parent run's id, or
+    /// `workflow:`/`stack:` for a group row. Per window, never persisted.
     collapsed_runs: HashSet<String>,
     /// EXP-923: the Running rows carry a liveness that expires with
     /// `last_seen_at` and produces no collection delta — the session lists'
@@ -862,6 +863,10 @@ impl RailView {
             // The Running section (EXP-923) and the pinned session rows are
             // live reads over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            // EXP-996: the Running section's GROUP rows — which workflow a run
+            // is a node of, and the name that group row wears.
+            cx.observe(&collections.workflows, |_, _, cx| cx.notify()),
+            cx.observe(&collections.workflow_nodes, |_, _, cx| cx.notify()),
             // The pinned session rows' dots read the runs THIS process hosts
             // (and their paused edge the devices rows below).
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
@@ -1085,10 +1090,20 @@ impl RailView {
     /// rule nor the label).
     fn render_running_section(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         let rows = crate::sessions_section::rail_running_rows(cx);
+        // EXP-996: the icon column draws no structure — 14px of indent inside a
+        // 32px square would only clip the mark, and a group row there would be
+        // a square with no work behind it. The runs stay, flat.
+        let rows: Vec<_> = if self.compact {
+            rows.into_iter()
+                .filter(|row| row.run().is_some())
+                .collect()
+        } else {
+            rows
+        };
         let rows = crate::sessions_section::drop_collapsed(
             rows,
             &self.collapsed_runs,
-            |row| row.session_id.as_str(),
+            |row| row.key.as_str(),
             |row| row.depth,
         );
         if rows.is_empty() {
@@ -1103,22 +1118,21 @@ impl RailView {
             .iter()
             .enumerate()
             .map(|(index, row)| {
+                let guides = guides.get(index).cloned().unwrap_or_default();
+                let Some(run) = row.run() else {
+                    // EXP-996: a workflow / stack band, not a session.
+                    return self.rail_group_row(index, row, guides, cx);
+                };
                 // EXP-870: the row stays current across the Issue | Run
                 // toggle — both faces are the same piece of work.
                 let active = match &screen {
-                    Some(Screen::Session { session_id }) => session_id == &row.session_id,
+                    Some(Screen::Session { session_id }) => session_id == &run.session_id,
                     Some(Screen::IssueDetail { issue_id }) => {
-                        row.issue_id.as_deref() == Some(issue_id.as_str())
+                        run.issue_id.as_deref() == Some(issue_id.as_str())
                     }
                     _ => false,
                 };
-                self.rail_running_row(
-                    index,
-                    row,
-                    guides.get(index).cloned().unwrap_or_default(),
-                    active,
-                    cx,
-                )
+                self.rail_running_row(index, row, run, guides, active, cx)
             })
             .collect();
         let rule = self.section_rule(cx);
@@ -1136,27 +1150,154 @@ impl RailView {
         )
     }
 
+    /// EXP-923/EXP-996 — the fold chevron a rail row with nested rows wears: a
+    /// parent run and a GROUP row alike, keyed by the tree's node key so both
+    /// live in one collapsed set.
+    fn rail_run_fold(
+        &self,
+        index: usize,
+        key: &str,
+        has_children: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        if !has_children {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        let collapsed = self.collapsed_runs.contains(key);
+        let fold_id = key.to_string();
+        Some(
+            div()
+                .id(("rail-running-fold", index))
+                .flex_shrink_0()
+                .cursor_pointer()
+                .child(
+                    Icon::from(if collapsed {
+                        registry::UI_CHEVRON_RIGHT
+                    } else {
+                        registry::UI_CHEVRON_DOWN
+                    })
+                    .xsmall()
+                    .text_color(muted),
+                )
+                .on_click(cx.listener(move |this: &mut Self, _, _window, cx| {
+                    // The row itself opens the subject — folding must not.
+                    cx.stop_propagation();
+                    if !this.collapsed_runs.insert(fold_id.clone()) {
+                        this.collapsed_runs.remove(&fold_id);
+                    }
+                    cx.notify();
+                }))
+                .into_any_element(),
+        )
+    }
+
+    /// EXP-996 — ONE group row of the rail's Running tree: the workflow whose
+    /// node runs sit under it, or the PR stack they form. Not a session: no
+    /// agent mark, no attention badge, no device glyph, no Stop — the concept
+    /// icon, the name, the member count and the fold. A workflow row OPENS its
+    /// workflow; a stack has no screen of its own and only folds.
+    ///
+    /// It draws the same FACTS as [`run_rows::render_group_row`] but not that
+    /// row: the rail's chrome is its own ([`crate::surface::flat_row_compact`],
+    /// pad 8 and [`RUNNING_ROW_GAP`] against the list's pad 12 and gap 0), and
+    /// a rail row opens its detail with [`navigation::navigate_from_rail`], so
+    /// sharing the renderer would mean threading all of that through it.
+    fn rail_group_row(
+        &self,
+        index: usize,
+        row: &crate::sessions_section::SessionTreeRow<crate::sessions_section::RailRunRow>,
+        guides: domain::tree_guides::Guides,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let crate::sessions_section::SessionTreeRowKind::Group(facts) = &row.kind else {
+            return div().into_any_element();
+        };
+        let muted = cx.theme().muted_foreground;
+        let fold = self.rail_run_fold(index, &row.key, row.has_children, cx);
+        let open = match &facts.kind {
+            crate::run_rows::SessionGroupKind::Workflow { workflow_id } => {
+                Some(workflow_id.clone())
+            }
+            crate::run_rows::SessionGroupKind::Stack => None,
+        };
+        crate::surface::flat_row_compact()
+            .id(("rail-running-group", index))
+            .w_full()
+            .flex_shrink_0()
+            .relative()
+            .pl(px(8. + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
+            .when(open.is_some(), |this| this.cursor_pointer())
+            .when(open.is_some(), |this| {
+                this.hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+            })
+            .children(crate::tree_guides::guide_layer(
+                &guides,
+                8.,
+                RUNNING_ROW_GAP,
+            ))
+            .children(fold)
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .child(Icon::from(facts.icon()).xsmall().text_color(muted)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(facts.label.clone()),
+            )
+            // A group IS its children, so how many there are is what the reader
+            // is deciding to fold away — the ×4 trailing cell.
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(facts.members.to_string()),
+            )
+            .when_some(open, |this, workflow_id| {
+                this.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    // EXP-851: a rail row opens its detail with no list beside
+                    // it, so the rail stays up.
+                    crate::navigation::navigate_from_rail(
+                        window,
+                        cx,
+                        Screen::Workflow {
+                            workflow_id: workflow_id.clone(),
+                        },
+                    );
+                }))
+            })
+            .into_any_element()
+    }
+
     /// ONE Running row ([`Self::render_running_section`]) in the rail's
     /// current shape — the labelled row, or the icon column's 32px mark.
     fn rail_running_row(
         &self,
         index: usize,
-        row: &crate::sessions_section::RailRunRow,
+        row: &crate::sessions_section::SessionTreeRow<crate::sessions_section::RailRunRow>,
+        run: &crate::sessions_section::RailRunRow,
         guides: domain::tree_guides::Guides,
         active: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
-        let session_id = row.session_id.clone();
-        let issue_id = row.issue_id.clone();
+        let session_id = run.session_id.clone();
+        let issue_id = run.issue_id.clone();
         // EXP-923: the lead is the agent's brand mark, with the attention
         // badge on its corner — the compact column's badge rule, on a glyph.
-        let mark = crate::coding_selects::agent_mark(row.agent).with_size(px(16.));
+        let mark = crate::coding_selects::agent_mark(run.agent).with_size(px(16.));
         let lead = div()
             .relative()
             .flex_shrink_0()
             .child(mark)
-            .when(row.attention, |this| {
+            .when(run.attention, |this| {
                 this.child(
                     div()
                         .absolute()
@@ -1174,9 +1315,9 @@ impl RailView {
             .into_any_element();
         // The compact square has no room for two texts: the tooltip is the
         // whole label the expanded row splits into identifier + title.
-        let label: SharedString = match &row.identifier {
-            Some(identifier) => format!("{identifier} {}", row.title).into(),
-            None => row.title.clone(),
+        let label: SharedString = match &run.identifier {
+            Some(identifier) => format!("{identifier} {}", run.title).into(),
+            None => run.title.clone(),
         };
         let open = {
             let session_id = session_id.clone();
@@ -1206,45 +1347,21 @@ impl RailView {
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| open(window, cx)))
             .into_any_element();
         }
-        let fold = row.has_children.then(|| {
-            let collapsed = self.collapsed_runs.contains(&row.session_id);
-            let fold_id = row.session_id.clone();
-            div()
-                .id(("rail-running-fold", index))
-                .flex_shrink_0()
-                .cursor_pointer()
-                .child(
-                    Icon::from(if collapsed {
-                        registry::UI_CHEVRON_RIGHT
-                    } else {
-                        registry::UI_CHEVRON_DOWN
-                    })
-                    .xsmall()
-                    .text_color(muted),
-                )
-                .on_click(cx.listener(move |this: &mut Self, _, _window, cx| {
-                    // The row itself opens the run — folding must not.
-                    cx.stop_propagation();
-                    if !this.collapsed_runs.insert(fold_id.clone()) {
-                        this.collapsed_runs.remove(&fold_id);
-                    }
-                    cx.notify();
-                }))
-        });
-        let device_label = row.device_label.clone();
+        let fold = self.rail_run_fold(index, &row.key, row.has_children, cx);
+        let device_label = run.device_label.clone();
         let device = div()
             .id(("rail-running-device", index))
             .flex_shrink_0()
-            .child(Icon::from(row.device_icon.clone()).xsmall().text_color(muted))
+            .child(Icon::from(run.device_icon.clone()).xsmall().text_color(muted))
             .when_some(device_label, |this, label| {
                 this.tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
                 })
             });
-        let kill = (!row.paused).then(|| {
+        let kill = (!run.paused).then(|| {
             (
-                row.local.clone(),
-                row.device_label.clone().map(|label| label.to_string()),
+                run.local.clone(),
+                run.device_label.clone().map(|label| label.to_string()),
                 session_id.clone(),
             )
         });
@@ -1267,7 +1384,7 @@ impl RailView {
             ))
             .children(fold)
             .child(lead)
-            .children(row.identifier.clone().map(|identifier| {
+            .children(run.identifier.clone().map(|identifier| {
                 div()
                     .flex_shrink_0()
                     .text_xs()
@@ -1275,7 +1392,7 @@ impl RailView {
                     .font_family(theme::terminal::FONT_FAMILY)
                     .child(identifier)
             }))
-            .child(div().flex_1().min_w_0().truncate().child(row.title.clone()))
+            .child(div().flex_1().min_w_0().truncate().child(run.title.clone()))
             .child(device)
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| open(window, cx)));
         // EXP-874: the kill rides the row's right-click menu, not a trailing

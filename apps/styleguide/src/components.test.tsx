@@ -83,13 +83,13 @@ const HTML_DEMOS = COMPONENTS.filter((spec) => !isIsland(spec))
 const ENTRY_DEMOS = ENTRIES.filter(
   (entry) => entry.placeholder !== true && entry.render !== undefined
 )
-/** The registered entries that draw a REAL `@exp/ui` island (EXP-1021's
- *  pickers, EXP-1020's sub-shell and device settings). The page renders these
- *  beside `COMPONENTS`, so every page-wide island count is the SUM — counting
- *  only `COMPONENTS` was right exactly while `entries/` was still a list of
- *  placeholders nobody had spliced in. */
-const ENTRY_ISLANDS = ENTRIES.filter((entry) => entry.island !== undefined)
-const PAGE_ISLAND_COUNT = ISLANDS.length + ENTRY_ISLANDS.length
+/** The FILLED registered entries that are islands (EXP-1014's workflow graph,
+ *  EXP-1020's device settings + sub-shell): the page carries one shadow root
+ *  for each of them beside the component islands. */
+const ENTRY_ISLANDS = ENTRIES.filter(
+  (entry) => entry.placeholder !== true && entry.island !== undefined
+)
+const PAGE_ISLANDS = ISLANDS.length + ENTRY_ISLANDS.length
 
 /**
  * The words the summary line uses for the four sections — spelled out here
@@ -140,23 +140,13 @@ function demoMarkup(spec: ComponentSpec): string {
   return isIsland(spec) ? renderIsland(spec.island()) : spec.render()
 }
 
-/** The spec with that id — the demos are asserted through their markup.
- *  Looks in `COMPONENTS` first, then the registered `ENTRIES`: since the
- *  sections page splices those in, an entry's island is on the page exactly
- *  like a component's and has to be assertable the same way. */
+/** The spec with that id — the demos are asserted through their markup. */
 function spec(id: string): { blurb: string; markup: string } {
   const found = COMPONENTS.find((entry) => entry.id === id)
-  if (found !== undefined) {
-    return { blurb: found.blurb, markup: demoMarkup(found) }
-  }
-  const entry = ENTRIES.find((candidate) => candidate.id === id)
-  expect(entry === undefined ? `${id} is missing` : id).toBe(id)
+  expect(found === undefined ? `${id} is missing` : id).toBe(id)
   return {
-    blurb: entry?.blurb ?? ``,
-    markup:
-      entry?.island !== undefined
-        ? renderIsland(entry.island())
-        : (entry?.render?.() ?? ``),
+    blurb: found?.blurb ?? ``,
+    markup: found === undefined ? `` : demoMarkup(found),
   }
 }
 
@@ -269,7 +259,7 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`every island renders markup, inside a shadow root, on the app's face`, () => {
-    for (const entry of [...ISLANDS, ...ENTRY_ISLANDS]) {
+    for (const entry of ISLANDS) {
       const markup = renderIsland(entry.island())
       expect(markup.startsWith(`<div data-ui-island><template shadowrootmode="open">`)).toBe(true)
       expect(markup).toContain(`<div class="${ISLAND_ROOT_CLASS}">`)
@@ -284,19 +274,19 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`the page carries one shadow root per island, the CSS once, the script once`, () => {
-    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(PAGE_ISLAND_COUNT)
-    expect(occurrences(html, `<div data-ui-island>`)).toBe(PAGE_ISLAND_COUNT)
+    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(PAGE_ISLANDS)
+    expect(occurrences(html, `<div data-ui-island>`)).toBe(PAGE_ISLANDS)
     expect(occurrences(html, `<template id="ui-css">`)).toBe(1)
     expect(occurrences(html, ISLAND_CLIENT_SCRIPT)).toBe(1)
     // Both are gated on the stylesheet: no CSS, no islands worth adopting.
     const bare = renderHtml(EMPTY, COMPONENTS)
     expect(bare).not.toContain(`<template id="ui-css">`)
     expect(bare).not.toContain(ISLAND_CLIENT_SCRIPT)
-    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(PAGE_ISLAND_COUNT)
+    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(PAGE_ISLANDS)
   })
 
   test(`every island sits in the same .cmp-demo canvas the HTML demos use`, () => {
-    for (const entry of [...ISLANDS, ...ENTRY_ISLANDS]) {
+    for (const entry of ISLANDS) {
       expect(html).toContain(`<div class="cmp-demo"><div data-ui-island>`)
       expect(html).toContain(`id="view-${entry.id}"`)
     }

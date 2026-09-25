@@ -18,6 +18,9 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.NormalizedWorkflowLaunch
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.WorkflowLaunch
 import com.exponential.app.domain.WorkflowView
@@ -25,12 +28,11 @@ import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.edgeNode
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.metricCounters
+import com.exponential.app.domain.normalizedLaunch
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.trainNode
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
-import com.exponential.app.ui.components.DEFAULT_AGENT
-import com.exponential.app.ui.components.supportsSubagentModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -76,6 +79,13 @@ data class WorkflowGraph(
     val issuesById: Map<String, IssueEntity> = emptyMap(),
     /** `node id → its run`, for every node whose session row has synced. */
     val runsByNodeId: Map<String, WorkflowNodeRun> = emptyMap(),
+    /**
+     * EXP-1035: every covered issue resolved against the team's statuses — a
+     * node chip whose state says nothing worth a glyph (a draft, or `blocked`
+     * / `ready` / `proposed` / `skipped`) wears the ISSUE's own status glyph,
+     * so it reads exactly like the same issue anywhere else in the app.
+     */
+    val statusByIssueId: Map<String, ResolvedIssueStatus> = emptyMap(),
 ) {
     /** The runs that are UP, in the graph's own (wave, lane) order. */
     val liveRuns: List<Pair<WorkflowNodeEntity, WorkflowNodeRun>>
@@ -132,6 +142,26 @@ class WorkflowDetailViewModel @Inject constructor(
     // node's run can be a batch session, which is scoped to no single issue.
     private val sessions: StateFlow<List<CodingSessionEntity>> =
         dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-1035: the workflow team's statuses, in the app's canonical order —
+     * what a node chip's glyph falls back to once its state has nothing of its
+     * own to say. Scoped to the WORKFLOW's team: a builtin anchor resolves
+     * against that team's rows, never another one's.
+     */
+    private val teamStatuses: StateFlow<List<ResolvedIssueStatus>> =
+        combine(dbFlow, workflow.map { it?.teamId }.distinctUntilChanged()) { db, teamId ->
+            db to teamId
+        }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId.isNullOrEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    db.issueStatusDao().observeByTeam(teamId)
+                        .map { IssueStatusResolver.teamStatuses(it) }
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val graph: StateFlow<WorkflowGraph> = combine(
@@ -193,7 +223,15 @@ class WorkflowDetailViewModel @Inject constructor(
             issuesById = issuesById,
             runsByNodeId = runs,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowGraph())
+    }
+        .combine(teamStatuses) { graph, statuses ->
+            graph.copy(
+                statusByIssueId = graph.issuesById.mapValues { (_, issue) ->
+                    IssueStatusResolver.resolve(issue, statuses)
+                },
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowGraph())
 
     /**
      * The machines the workflow can be bound to: every synced device — the
@@ -214,10 +252,19 @@ class WorkflowDetailViewModel @Inject constructor(
         row?.deviceId?.let { id -> rows.firstOrNull { it.deviceId == id } }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** The stored launch options, defaulted — what the pickers render. */
-    val launch: StateFlow<WorkflowLaunch> = workflow
-        .map { it?.launchOptions ?: WorkflowLaunch() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowLaunch())
+    /**
+     * EXP-1029: the workflow's launch as a RUN reads it — the agent and the
+     * two models, folded out of whatever vintage the row stores. Nothing on
+     * this screen edits it (EXP-1014): the phone carries the stored launch and
+     * the node sheet names the model each node runs on.
+     */
+    val launch: StateFlow<NormalizedWorkflowLaunch> = workflow
+        .map { normalizedLaunch(it?.launchOptions ?: WorkflowLaunch()) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            normalizedLaunch(WorkflowLaunch()),
+        )
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
@@ -251,31 +298,6 @@ class WorkflowDetailViewModel @Inject constructor(
                 deviceId = deviceId.takeIf { it.isNotEmpty() },
                 clearDevice = deviceId.isEmpty(),
             )
-        }
-    }
-
-    /**
-     * Any one launch option, written as the WHOLE `launch` object (the router
-     * replaces it, so a patch of one field has to carry the rest). Switching
-     * the agent clears the options that do not belong to it — the server
-     * validates model/effort per agent and refuses a subagent model on
-     * anything but claude.
-     */
-    fun setLaunch(update: (WorkflowLaunch) -> WorkflowLaunch) {
-        val next = update(launch.value).let { options ->
-            // A stored agent of "" means "the runner's own default", which is
-            // claude on the server's side of the validation.
-            val agent = options.agent.ifEmpty { DEFAULT_AGENT }
-            if (supportsSubagentModel(agent)) options else options.copy(subagentModel = "")
-        }
-        mutate("How the workflow runs could not be saved") { accountId ->
-            workflowsApi.update(accountId, workflowId, launch = next)
-        }
-    }
-
-    fun setStartOn(startOn: String) {
-        mutate("The start rule could not be saved") { accountId ->
-            workflowsApi.update(accountId, workflowId, startOn = startOn)
         }
     }
 
@@ -377,6 +399,18 @@ class WorkflowDetailViewModel @Inject constructor(
     fun cancel() {
         mutate("The workflow could not be cancelled") { accountId ->
             workflowsApi.cancel(accountId, workflowId)
+        }
+    }
+
+    /**
+     * EXP-1033: the ONE human review of the whole run — squash-merge the
+     * workflow's final pull request. The synced row carries the result back
+     * (`#42 · Merged`, the workflow's own completion), so nothing is echoed
+     * into local state; a refusal lands in [error] like every other mutation.
+     */
+    fun mergeFinalPr() {
+        mutate("The final pull request could not be merged") { accountId ->
+            workflowsApi.mergeFinalPr(accountId, workflowId)
         }
     }
 

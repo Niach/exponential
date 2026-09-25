@@ -133,22 +133,15 @@ object WorkflowView {
     data class CaptionNode(val kind: String, val state: String, val risk: String)
 
     /**
-     * The ONE caption under a node. A draft has no states worth reading yet, so
-     * it names the plan (`Contract`, `Leaf · high risk`); a started workflow
-     * names the state, prefixed by the kind only for the two special nodes
-     * (`Contract · Running`, `In review`).
+     * The ONE caption under a node: the bare STATE label once the workflow has
+     * started (`Running`, `In review`, `Landed`), nothing at all in a draft.
+     * The kind and the risk are the node sheet's (EXP-1014: no `Leaf`, no
+     * `Contract · high risk` beside the chips — the chip names the issue, the
+     * caption says only what is happening to it).
      */
     fun nodeCaption(node: CaptionNode, workflowStatus: String): String {
-        if (workflowStatus == DomainContract.wfStatusDraft) {
-            val kind = nodeKindLabel(node.kind)
-            return if (node.risk == DomainContract.wfRiskHigh) "$kind · high risk" else kind
-        }
-        val state = nodeStateLabel(node.state)
-        return if (node.kind == DomainContract.wfNodeKindLeaf) {
-            state
-        } else {
-            "${nodeKindLabel(node.kind)} · $state"
-        }
+        if (workflowStatus == DomainContract.wfStatusDraft) return ""
+        return nodeStateLabel(node.state)
     }
 
     /**
@@ -239,6 +232,14 @@ object WorkflowView {
     const val MERGE_TRAIN_TITLE = "Merge train"
     const val MERGE_TRAIN_EMPTY = "Nothing is waiting to land."
     const val FINAL_PR_TITLE = "Final pull request"
+
+    /**
+     * EXP-1033: the ONE human review of the whole run — squash-merging the
+     * workflow's final pull request from the workflow screen.
+     */
+    const val MERGE_FINAL_PR_LABEL = "Merge"
+    const val MERGE_FINAL_PR_CONFIRM =
+        "The workflow's branch is squash-merged into the default branch and the run is done."
 
     /** The strip over the graph that lists the runs that are up, one tap away. */
     const val RUNNING_NOW_LABEL = "Running now"
@@ -402,6 +403,7 @@ object WorkflowView {
 
     /** The node panel's line once a node announced its contract. */
     const val CONTRACT_PUBLISHED_LABEL = "Contract published"
+    const val MERGES_IN_FIRST_LABEL = "Merges in first"
 
     // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
 
@@ -410,17 +412,22 @@ object WorkflowView {
     const val PROPOSED_NODE_NOTE =
         "Filed during the run. Admit it into the workflow or dismiss it."
     const val AGENT_REVIEW_TITLE = "Agent review"
-    const val REVIEW_MODEL_LABEL = "Review model"
     const val METRICS_TITLE = "Metrics"
 
-    // ── Per-phase models (EXP-1002) ─────────────────────────────────
+    /**
+     * EXP-1014: the node sheet's read-only line naming what the node's run
+     * spawns on ([modelForNode]). Nothing on a workflow screen CONFIGURES a
+     * model any more — the two the launch carries are picked where the
+     * workflow is created.
+     */
+    const val NODE_MODEL_LABEL = "Model"
 
-    /** What a `contract` / `integration` node runs on, and the blank pick
-     * both rows carry: the workflow's own Model, never the CLI's default. */
-    const val CONTRACT_MODEL_LABEL = "Contract model"
-    const val INTEGRATION_MODEL_LABEL = "Integration model"
-    const val RISK_MODEL_LABEL = "High-risk model"
-    const val SAME_AS_MODEL_LABEL = "Same as Model"
+    /**
+     * EXP-1014: the chip of a node whose issue row has not synced yet — the
+     * identifier slot shows the first 8 characters of the issue id, the title
+     * this line. Byte-identical ×4.
+     */
+    const val NODE_UNSYNCED_TITLE = "Not synced yet"
 
     /**
      * The three fields [reviewLine] reads off `workflow_nodes.review`.

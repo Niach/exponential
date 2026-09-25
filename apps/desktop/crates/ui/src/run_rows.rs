@@ -97,6 +97,61 @@ pub(crate) struct PastRunFacts {
     pub(crate) byline: SharedString,
 }
 
+/// EXP-996 — what a GROUP row of a session tree groups. A group row is NOT a
+/// session: no state dot, no device glyph, no kill — it carries the concept
+/// icon, the name and the fold, and nothing else.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum SessionGroupKind {
+    /// The workflow whose node runs sit under it — the row OPENS it.
+    Workflow { workflow_id: String },
+    /// A PR stack (EXP-897), linear and lowest first. It has no screen of its
+    /// own, so the row only folds.
+    Stack,
+}
+
+/// One group row's facts, derived off a [`domain::session_tree`] group node.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SessionGroupFacts {
+    /// The workflow's name, or [`domain::session_tree::STACK_GROUP_LABEL`] —
+    /// both ×4 copy owned by `domain`.
+    pub(crate) label: SharedString,
+    /// How many runs the group holds: the trailing cell every client draws.
+    pub(crate) members: usize,
+    pub(crate) kind: SessionGroupKind,
+}
+
+impl SessionGroupFacts {
+    /// The group's CONCEPT icon (EXP-273: never a raw glyph).
+    pub(crate) fn icon(&self) -> crate::icons::ExpIcon {
+        match self.kind {
+            SessionGroupKind::Workflow { .. } => registry::NAV_WORKFLOWS,
+            SessionGroupKind::Stack => registry::PR_STACK,
+        }
+    }
+
+    /// The facts of a group node — `None` for a session node, which draws as a
+    /// run row instead.
+    pub(crate) fn from_node<T>(
+        node: &domain::session_tree::SessionTreeNode<T>,
+    ) -> Option<Self> {
+        match node {
+            domain::session_tree::SessionTreeNode::Session(_) => None,
+            domain::session_tree::SessionTreeNode::Workflow(group) => Some(Self {
+                label: SharedString::from(group.name.clone()),
+                members: group.children.len(),
+                kind: SessionGroupKind::Workflow {
+                    workflow_id: group.workflow_id.clone(),
+                },
+            }),
+            domain::session_tree::SessionTreeNode::Stack(group) => Some(Self {
+                label: SharedString::from(domain::session_tree::STACK_GROUP_LABEL),
+                members: group.children.len(),
+                kind: SessionGroupKind::Stack,
+            }),
+        }
+    }
+}
+
 /// A LIVE run's row facts. `local_caption` and `local_busy` are the engine's
 /// own caption and turn signal for a run this process hosts
 /// (`session_agent_caption` / `session_agent_busy` precedence).
@@ -300,6 +355,26 @@ fn row_shell(
 }
 
 fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: Hsla) -> impl IntoElement {
+    fold_chevron_labelled(
+        id_prefix,
+        index,
+        fold,
+        muted,
+        domain::pr_stack::EXPAND_CHILD_RUNS,
+        domain::pr_stack::COLLAPSE_CHILD_RUNS,
+    )
+}
+
+/// The same chevron under a caller's own pair of labels — EXP-996: a GROUP row
+/// folds SIBLINGS, not child runs, so it names them differently.
+fn fold_chevron_labelled(
+    id_prefix: &'static str,
+    index: usize,
+    fold: RunRowFold,
+    muted: Hsla,
+    expand: &'static str,
+    collapse: &'static str,
+) -> impl IntoElement {
     let RunRowFold { collapsed, on_toggle } = fold;
     div()
         .id((SharedString::from(format!("{id_prefix}-fold")), index))
@@ -307,12 +382,8 @@ fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: 
         .cursor_pointer()
         // EXP-897: the fold's accessible label, byte-identical ×4.
         .tooltip(move |window, cx| {
-            gpui_component::tooltip::Tooltip::new(if collapsed {
-                domain::pr_stack::EXPAND_CHILD_RUNS
-            } else {
-                domain::pr_stack::COLLAPSE_CHILD_RUNS
-            })
-            .build(window, cx)
+            gpui_component::tooltip::Tooltip::new(if collapsed { expand } else { collapse })
+                .build(window, cx)
         })
         .child(
             Icon::from(if collapsed {
@@ -482,6 +553,75 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                 .child(Icon::from(registry::UI_CHEVRON_RIGHT).xsmall().text_color(muted)),
         )
         .into_any_element()
+}
+
+/// EXP-996 — one GROUP row of a session tree ([`render_group_row`]).
+pub(crate) struct GroupRowSpec {
+    pub(crate) id_prefix: &'static str,
+    pub(crate) index: usize,
+    pub(crate) guides: domain::tree_guides::Guides,
+    pub(crate) fold: Option<RunRowFold>,
+    pub(crate) facts: SessionGroupFacts,
+    /// `Some` = the row opens its subject (a workflow). A stack has no screen,
+    /// so its row only folds.
+    pub(crate) on_open: Option<RunRowAction>,
+}
+
+/// EXP-996 — the GROUP row every nested session list draws over its runs: the
+/// concept icon, the group's name, the same fold chevron a parent run wears.
+/// Toned like a band rather than a row, because it is structure, not work.
+pub(crate) fn render_group_row(spec: GroupRowSpec, cx: &App) -> gpui::AnyElement {
+    let GroupRowSpec {
+        id_prefix,
+        index,
+        guides,
+        fold,
+        facts,
+        on_open,
+    } = spec;
+    let muted = cx.theme().muted_foreground;
+    let icon = facts.icon();
+    let row = row_shell(id_prefix, index, &guides, false, cx)
+        .children(fold.map(|fold| {
+            fold_chevron_labelled(
+                id_prefix,
+                index,
+                fold,
+                muted,
+                domain::session_tree::EXPAND_GROUP_LABEL,
+                domain::session_tree::COLLAPSE_GROUP_LABEL,
+            )
+        }))
+        .child(
+            div()
+                .flex_shrink_0()
+                .child(Icon::from(icon).xsmall().text_color(muted)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_xs()
+                .text_color(muted)
+                .child(facts.label),
+        )
+        // A group IS its children, so how many there are is what the reader is
+        // deciding to fold away — the ×4 trailing cell.
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(muted)
+                .child(facts.members.to_string()),
+        );
+    match on_open {
+        Some(on_open) => row
+            .on_click(move |event, window, cx| on_open(event, window, cx))
+            .into_any_element(),
+        // Nothing to open: the row is a fold and a label.
+        None => row.cursor_default().into_any_element(),
+    }
 }
 
 /// A row of a mixed list (the Automations logs): live runs draw as running
