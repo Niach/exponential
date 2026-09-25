@@ -187,48 +187,17 @@ struct AgentSessionsList: View {
 
     // MARK: - Workflow marks (EXP-1068)
 
-    /// A REVIEW chain's title: `Review r2 · approved` off its node's synced
-    /// `review_round` + latest `review`. Nil on every other row.
+    /// The shared rule (`RunningSessionRowMarks.reviewTitle`), fed this
+    /// list's synced node row.
     private func reviewTitle(_ node: SessionTree.SessionNode?) -> String? {
-        guard let node, node.session.workflowRole == DomainContract.wfSessionRoleReview else {
-            return nil
-        }
-        let nodeRow = vm.sessionTreeContext.workflowNode(id: node.session.workflowNodeId)
-        let latest = WorkflowNodeReview.parse(nodeRow?.review)
-        let verdict = SessionTree.reviewRoundVerdict(
-            round: node.reviewRound,
-            nodeReviewRound: nodeRow?.reviewRound,
-            latestRound: latest?.round,
-            latestVerdict: latest?.verdict
-        )
-        return SessionTree.reviewRowCaption(
-            round: node.reviewRound,
-            verdict: verdict,
-            live: SessionTree.sessionRowIsLive(status: node.session.status)
+        let nodeRow = vm.sessionTreeContext.workflowNode(id: node?.session.workflowNodeId)
+        return RunningSessionRowMarks.reviewTitle(
+            node, nodeReviewRound: nodeRow?.reviewRound, review: nodeRow?.review
         )
     }
 
-    /// The run's account label when it is NOT the host machine's default for
-    /// that agent (`launch_defaults.defaultAccount` when the agent is the
-    /// machine's default agent, else its ambient `system` login). A host this
-    /// phone has not synced shows any non-ambient account.
     private func nonDefaultAccount(_ session: CodingSessionEntity) -> String? {
-        guard let account = session.agentAccount, !account.isEmpty else { return nil }
-        let device = session.deviceId.flatMap { id in
-            vm.devices?.first { $0.deviceId == id }
-        }
-        let system = AgentAccountsRows.systemProfileId
-        let defaults = device?.launchDefaults
-        let fallback = defaults?.defaultAccount.flatMap { $0.isEmpty ? nil : $0 } ?? system
-        let machineDefault = (session.agent != nil && defaults?.defaultAgent == session.agent)
-            ? fallback : system
-        guard account != machineDefault else { return nil }
-        let profile = session.agent.flatMap { agent in
-            device?.agentAccounts?[agent]?.profiles?.first { $0.id == account }
-        }
-        let label = profile?.label ?? profile?.email
-        if let label, !label.isEmpty { return label }
-        return account == system ? "Default" : account
+        RunningSessionRowMarks.nonDefaultAccount(session, devices: vm.devices)
     }
 
     /// Every listed row is the caller's own (EXP-312: live sessions are
