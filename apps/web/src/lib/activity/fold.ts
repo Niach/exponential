@@ -19,8 +19,9 @@
 //
 // "Field" derives from the event type: `status_changed` → status,
 // `assignee_changed` → assignee, `priority_changed` → priority,
-// `board_moved` → board, `label_added`/`label_removed` → that ONE label
-// (`payload.labelId`; an add and a remove of the same label cancel),
+// `estimate_changed` → estimate, `board_moved` → board,
+// `label_added`/`label_removed` → that ONE label (`payload.labelId`; an add
+// and a remove of the same label cancel),
 // `relation_added`/`relation_removed` → that one relation
 // (`payload.type` + `payload.relatedIssueId`).
 import type { IssueEvent } from "@/db/schema"
@@ -66,6 +67,8 @@ export function foldFieldKey(event: ActivityEvent): string | null {
       return `assignee`
     case `priority_changed`:
       return `priority`
+    case `estimate_changed`:
+      return `estimate`
     case `board_moved`:
       return `board`
     case `label_added`:
@@ -100,6 +103,7 @@ function beforeOf(event: ActivityEvent): string {
       return String(payload.fromStatusId ?? payload.from ?? ``)
     case `assignee_changed`:
     case `priority_changed`:
+    case `estimate_changed`:
       return String(payload.from ?? ``)
     case `board_moved`:
       return String(payload.fromBoardId ?? ``)
@@ -121,6 +125,7 @@ function afterOf(event: ActivityEvent): string {
       return String(payload.toStatusId ?? payload.to ?? ``)
     case `assignee_changed`:
     case `priority_changed`:
+    case `estimate_changed`:
       return String(payload.to ?? ``)
     case `board_moved`:
       return String(payload.toBoardId ?? ``)

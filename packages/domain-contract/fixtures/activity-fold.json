@@ -289,6 +289,28 @@
     ]
   },
   {
+    "name": "an estimate set and cleared by one actor cancels",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "estimate_changed", "payload": { "from": null, "to": 3 }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "estimate_changed", "payload": { "from": 3, "to": null }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": []
+  },
+  {
+    "name": "estimate changes fold to first → last and never into priority",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "estimate_changed", "payload": { "from": 1, "to": 3 }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "estimate_changed", "payload": { "from": 3, "to": 5 }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "type": "estimate_changed", "payload": { "from": 1, "to": 5 }, "createdAt": "2026-09-19T10:02:00Z" }
+    ]
+  },
+  {
     "name": "legacy status payloads compare on the enum",
     "events": [
       { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "from": "backlog", "to": "in_progress" }, "createdAt": "2026-09-19T10:00:00Z" },
