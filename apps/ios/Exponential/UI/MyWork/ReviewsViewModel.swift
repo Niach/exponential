@@ -60,6 +60,19 @@ struct RunReviewEntry: Identifiable {
     var branch: String? { session.branch }
 }
 
+/// EXP-1072: a workflow's ONE final pull request (integration branch → the
+/// default branch). The workflow row carries its url/number/state, so it is
+/// the workflow's OWN PR here — never an "external" one — and merges through
+/// `workflows.mergeFinalPr`, which completes the workflow and its issues.
+/// Mirrors web `WorkflowReviewEntry` (use-reviews-data.ts).
+struct WorkflowReviewEntry: Identifiable {
+    let workflow: WorkflowEntity
+    var id: String { WorkflowFinalPr.reviewKey(workflowId: workflow.id) }
+    var prUrl: String? { workflow.finalPrUrl }
+    var prNumber: Int? { workflow.finalPrNumber }
+    var branch: String { workflow.integrationBranch }
+}
+
 /// One board's review entries — Reviews groups by board like the other
 /// cross-board lists group by status.
 struct ReviewGroup: Identifiable {
@@ -85,6 +98,8 @@ final class ReviewsViewModel {
     /// EXP-734: issue-less runs whose OWN pull request is open — the chore PRs
     /// no board group can ever show.
     var runSessions: [CodingSessionEntity] = []
+    /// EXP-1072: workflows whose ONE final pull request is open.
+    var workflows: [WorkflowEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
@@ -92,6 +107,7 @@ final class ReviewsViewModel {
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var sessionTask: Task<Void, Never>?
+    private var workflowTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager) {
         self.accountId = accountId
@@ -144,6 +160,20 @@ final class ReviewsViewModel {
                 }
             } catch {}
         }
+
+        // EXP-1072: a workflow's final PR lives on the workflow row itself.
+        let workflowObservation = ValueObservation.tracking { db in
+            try WorkflowEntity
+                .filter(Column("final_pr_state") == DomainContract.prStateOpen)
+                .fetchAll(db)
+        }
+        workflowTask = Task { [weak self] in
+            do {
+                for try await workflows in workflowObservation.values(in: pool) {
+                    self?.workflows = workflows
+                }
+            } catch {}
+        }
     }
 
     func stopObserving() {
@@ -153,6 +183,8 @@ final class ReviewsViewModel {
         boardTask = nil
         sessionTask?.cancel()
         sessionTask = nil
+        workflowTask?.cancel()
+        workflowTask = nil
     }
 
     /// Review entries grouped by board, scoped to `teamId`. Entries
@@ -261,6 +293,23 @@ final class ReviewsViewModel {
                     title: PastRuns.chatSubject($0) ?? $0.actionName ?? PastRuns.chatRunName
                 )
             }
+    }
+
+    /// EXP-1072: the team's workflows whose final pull request is open, newest
+    /// workflow first (web `workflowEntries` parity).
+    func workflowEntries(teamId: String?) -> [WorkflowReviewEntry] {
+        guard let teamId else { return [] }
+        return workflows
+            .filter {
+                $0.teamId == teamId &&
+                    $0.finalPrState == DomainContract.prStateOpen &&
+                    !($0.finalPrUrl ?? "").isEmpty
+            }
+            .sorted {
+                if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
+                return $0.id > $1.id
+            }
+            .map { WorkflowReviewEntry(workflow: $0) }
     }
 
     /// Newest-first by `startedAt`, id as the deterministic tie-break — the
