@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   flattenSessionTree,
   sessionTree,
+  sessionTreeNodeKey,
+  visibleSessionTreeRows,
   type SessionNode,
   type SessionTreeNode,
   type SessionTreeRow,
@@ -53,7 +55,7 @@ describe(`flattenSessionTree (EXP-1029 contract)`, () => {
   })
 })
 
-describe.skip(`sessionTree (EXP-1029 → EXP-996)`, () => {
+describe(`sessionTree (EXP-1029 → EXP-996)`, () => {
   it(`lists unrelated sessions at top level, newest activity first`, () => {
     const a = row(`a`, at(`2026-09-01T10:00:00Z`))
     const b = row(`b`, at(`2026-09-01T11:00:00Z`))
@@ -126,6 +128,31 @@ describe.skip(`sessionTree (EXP-1029 → EXP-996)`, () => {
     ])
   })
 
+  it(`keeps an issue-less run beside a stack group`, () => {
+    const chat = row(`chat`, at(`2026-09-01T09:00:00Z`))
+    const low = row(`s-low`, { issueId: `i-low` })
+    const top = row(`s-top`, { issueId: `i-top`, ...at(`2026-09-01T11:00:00Z`) })
+    expect(
+      ids(
+        sessionTree([chat, low, top], {
+          issues: [
+            { id: `i-low`, identifier: `APP-1`, branch: `exp/APP-1`, prBaseBranch: null },
+            { id: `i-top`, identifier: `APP-2`, branch: `exp/APP-2`, prBaseBranch: `exp/APP-1` },
+          ],
+        })
+      )
+    ).toEqual([
+      {
+        stack: `i-low`,
+        children: [
+          { id: `s-low`, children: [] },
+          { id: `s-top`, children: [] },
+        ],
+      },
+      { id: `chat`, children: [] },
+    ])
+  })
+
   it(`sorts groups by their last activity among the top-level nodes`, () => {
     const lone = row(`lone`, at(`2026-09-01T11:30:00Z`))
     const n1 = row(`n1`, { issueId: `i1`, ...at(`2026-09-01T10:00:00Z`) })
@@ -153,5 +180,61 @@ describe.skip(`sessionTree (EXP-1029 → EXP-996)`, () => {
     expect(ids(sessionTree([c2, parent, c1]))).toEqual([
       { id: `p`, children: [{ id: `c1`, children: [] }, { id: `c2`, children: [] }] },
     ])
+  })
+})
+
+// EXP-996: the flattening every client paints the EXP-965 connector over.
+// Mirrored ×4 (desktop `visible_session_tree_rows`, iOS/Android
+// `SessionTree.visibleRows`) with these same case names.
+describe(`visibleSessionTreeRows (EXP-996)`, () => {
+  const workflowTree = () => {
+    const parent = row(`p`, { issueId: `i1`, ...at(`2026-09-01T11:00:00Z`) })
+    const child = row(`c`, { parentSessionId: `p`, ...at(`2026-09-01T10:30:00Z`) })
+    const other = row(`n2`, { issueId: `i2`, ...at(`2026-09-01T10:00:00Z`) })
+    return sessionTree([parent, child, other], {
+      workflows: [{ id: `w`, name: `W`, status: `running` }],
+      workflowNodes: [
+        { workflowId: `w`, issueId: `i1` },
+        { workflowId: `w`, issueId: `i2` },
+      ],
+    })
+  }
+
+  it(`flattens groups and children with their depths`, () => {
+    expect(
+      visibleSessionTreeRows(workflowTree()).map((flat) => [flat.key, flat.depth])
+    ).toEqual([
+      [`workflow:w`, 0],
+      [`p`, 1],
+      [`c`, 2],
+      [`n2`, 1],
+    ])
+  })
+
+  it(`hides everything under a collapsed node`, () => {
+    const rows = visibleSessionTreeRows(workflowTree(), new Set([`p`]))
+    expect(rows.map((flat) => flat.key)).toEqual([`workflow:w`, `p`, `n2`])
+    expect(rows.find((flat) => flat.key === `p`)!.hasChildren).toBe(true)
+  })
+
+  it(`folds a whole group away`, () => {
+    expect(
+      visibleSessionTreeRows(workflowTree(), new Set([`workflow:w`])).map(
+        (flat) => flat.key
+      )
+    ).toEqual([`workflow:w`])
+  })
+
+  it(`keys a session by its id and a group by its kind`, () => {
+    const tree = workflowTree()
+    expect(sessionTreeNodeKey(tree[0]!)).toBe(`workflow:w`)
+    expect(
+      sessionTreeNodeKey({
+        kind: `stack`,
+        rootIssueId: `i-low`,
+        children: [],
+        lastActivityAt: 0,
+      })
+    ).toBe(`stack:i-low`)
   })
 })

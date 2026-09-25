@@ -55,6 +55,23 @@ export function useWorkflow(
   return ((rows ?? []) as SyncedWorkflow[])[0] ?? null
 }
 
+/** EXP-996: EVERY node of the team's workflows, for the session tree's
+ *  workflow grouping — which workflow a listed run belongs to is a join the
+ *  session rows cannot answer alone. Unordered on purpose: the group row's
+ *  children sort by activity, not by the graph's layout. */
+export function useTeamWorkflowNodes(teamId: string | undefined): WorkflowNode[] {
+  const { data: rows } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ n: workflowNodeCollection })
+            .where(({ n }) => eq(n.teamId, teamId))
+        : undefined,
+    [teamId]
+  )
+  return (rows ?? []) as WorkflowNode[]
+}
+
 /** One workflow's nodes in the server's reading order (wave, then lane). */
 export function useWorkflowNodes(
   workflowId: string | undefined

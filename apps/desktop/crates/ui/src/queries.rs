@@ -593,6 +593,89 @@ pub fn team_workflows(cx: &App, team_id: &str) -> (Vec<domain::rows::WorkflowRow
     (out, collection.is_ready())
 }
 
+/// EXP-996 — the [`domain::session_tree::session_tree`] CONTEXT: what the
+/// `coding_sessions` rows alone cannot say. Read ONCE, up front and owned,
+/// because the tree borrows it while the row build still holds the collection
+/// guards it joins.
+///
+/// Not team-scoped, like the rail's Running list itself (EXP-923): a live run
+/// of mine on another team's board still groups under its workflow.
+#[derive(Default)]
+pub(crate) struct SessionTreeInputs {
+    workflows: Vec<domain::session_tree::WorkflowFacts>,
+    workflow_nodes: Vec<domain::session_tree::WorkflowNodeFacts>,
+    /// The stack edges' input: the LISTED rows' own issues (plus the issues a
+    /// batch row covers), never the whole synced pool. ×4 with web
+    /// `useSessionTreeContext`, iOS `sessionTreeContext` and Android
+    /// `treeContext` — a wider pool lets `stack_chain` walk down to an issue
+    /// with no run on screen, which moves `root_issue_id` and with it the
+    /// collapse key `stack:<id>`, so the same stack would fold differently
+    /// here than on the other three clients.
+    issues: Vec<domain::rows::Issue>,
+}
+
+impl SessionTreeInputs {
+    pub(crate) fn context(&self) -> domain::session_tree::SessionTreeContext<'_> {
+        domain::session_tree::SessionTreeContext {
+            workflows: &self.workflows,
+            workflow_nodes: &self.workflow_nodes,
+            issues: &self.issues,
+        }
+    }
+}
+
+/// EXP-996 — every input the session tree's GROUPING needs (the workflow a run
+/// is a node of, the stack its pull request sits in). Empty before the shapes
+/// land, which is exactly "no groups yet", never a wrong group.
+///
+/// `sessions` are the rows about to be listed: the stack edges are scoped to
+/// THEIR issues, so the group a reader sees is made of runs the reader can
+/// see (the ×4 rule, see [`SessionTreeInputs::issues`]).
+pub(crate) fn session_tree_inputs(
+    cx: &App,
+    sessions: &[&domain::rows::CodingSession],
+) -> SessionTreeInputs {
+    let Some(store) = Store::try_global(cx) else {
+        return SessionTreeInputs::default();
+    };
+    let collections = store.collections();
+    let listed: std::collections::HashSet<String> = sessions
+        .iter()
+        .flat_map(|session| {
+            session
+                .issue_id
+                .iter()
+                .cloned()
+                .chain(domain::batch_run::parse_batch_issue_ids(
+                    session.batch_issue_ids.as_ref(),
+                ))
+        })
+        .collect();
+    SessionTreeInputs {
+        // Projected down to the group rows' facts, never cloned whole: the
+        // rail re-derives this on every paint.
+        workflows: collections
+            .workflows
+            .read(cx)
+            .iter()
+            .map(domain::session_tree::WorkflowFacts::from_row)
+            .collect(),
+        workflow_nodes: collections
+            .workflow_nodes
+            .read(cx)
+            .iter()
+            .filter_map(domain::session_tree::WorkflowNodeFacts::from_row)
+            .collect(),
+        issues: collections
+            .issues
+            .read(cx)
+            .iter()
+            .filter(|issue| listed.contains(&issue.id))
+            .cloned()
+            .collect(),
+    }
+}
+
 /// EXP-981: one workflow's nodes in the SERVER's layout order (wave, then
 /// lane) — no client lays a graph out.
 pub fn workflow_nodes(cx: &App, workflow_id: &str) -> Vec<domain::rows::WorkflowNodeRow> {

@@ -561,6 +561,9 @@ private fun AuthenticatedNav(
                 onOpenWorkflows = {
                     navController.navigate("workflows") { launchSingleTop = true }
                 },
+                // EXP-1050: a WORKFLOW group row in the sessions list opens ITS
+                // workflow, not the list.
+                onOpenWorkflow = openWorkflow,
             )
         }
         composable("workflows") {
