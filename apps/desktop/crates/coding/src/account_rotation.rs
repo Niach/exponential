@@ -6,9 +6,15 @@
 //! reset. Two PURE pickers decide that from plain data — the per-profile
 //! usage [`crate::agent_usage::collect_now`] reads — and the hosts
 //! (`ui::workflow_host`, the CLI daemon) call [`pick_start_account`] before
-//! every ENGINE start. Both return `None` today, which keeps every launch on
-//! the account it already had. The device opt-out is
-//! `Settings.auto_rotate_accounts` (default on, claude-only).
+//! every ENGINE start, through `workflows::apply_engine_start`. Both return
+//! `None` today, which keeps every launch on the account it already had. The
+//! device opt-out is `Settings.auto_rotate_accounts` (default on,
+//! claude-only).
+//!
+//! A START pick only: a resume (merge-upstream, review findings, a refused
+//! land, a conflict relaunch) keeps its RECORDED account (EXP-906) and never
+//! calls [`pick_start_account`]; rotating a run that hit a wall is the
+//! mid-run switch ([`pick_rotation_target`], EXP-1005), not a start pick.
 
 use std::collections::BTreeMap;
 

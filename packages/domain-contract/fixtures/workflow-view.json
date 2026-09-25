@@ -1173,42 +1173,50 @@
     {
       "status": "draft",
       "device": null,
-      "action": "pick_device"
+      "action": "pick_device",
+      "skip": true
     },
     {
       "status": "draft",
       "device": "MacBook",
-      "action": "start"
+      "action": "start",
+      "skip": true
     },
     {
       "status": "running",
       "device": "MacBook",
-      "action": "pause"
+      "action": "pause",
+      "skip": true
     },
     {
       "status": "paused",
       "device": "MacBook",
-      "action": "resume"
+      "action": "resume",
+      "skip": true
     },
     {
       "status": "done",
       "device": "MacBook",
-      "action": "review_final_pr"
+      "action": "review_final_pr",
+      "skip": true
     },
     {
       "status": "failed",
       "device": "MacBook",
-      "action": null
+      "action": null,
+      "skip": true
     },
     {
       "status": "cancelled",
       "device": "MacBook",
-      "action": null
+      "action": null,
+      "skip": true
     },
     {
       "status": "something-new",
       "device": "MacBook",
-      "action": null
+      "action": null,
+      "skip": true
     }
   ],
   "chipMenus": [
@@ -1217,27 +1225,33 @@
       "menu": [
         "retry",
         "skip"
-      ]
+      ],
+      "skip": true
     },
     {
       "state": "blocked",
-      "menu": []
+      "menu": [],
+      "skip": true
     },
     {
       "state": "running",
-      "menu": []
+      "menu": [],
+      "skip": true
     },
     {
       "state": "waiting",
-      "menu": []
+      "menu": [],
+      "skip": true
     },
     {
       "state": "landed",
-      "menu": []
+      "menu": [],
+      "skip": true
     },
     {
       "state": "skipped",
-      "menu": []
+      "menu": [],
+      "skip": true
     }
   ]
 }
