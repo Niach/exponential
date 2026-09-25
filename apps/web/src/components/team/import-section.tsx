@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { toast } from "sonner"
 import type { Team } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import {
   useTeamBoards,
   useTeamLabels,
@@ -25,6 +25,12 @@ import {
 } from "@/lib/import/bundle"
 import { plannedInviteEmails } from "@/lib/import/plan"
 import {
+  groupPreviewStatuses,
+  visibleBoardKeys,
+  visiblePreviewLabels,
+  visiblePreviewUsers,
+} from "@/lib/import/preview-view"
+import {
   Alert,
   AlertDescription,
   AlertTitle,
@@ -32,12 +38,13 @@ import {
   Checkbox,
   ColorPicker,
   GlassGroup,
-  GlassRow,
   GlassSectionHeader,
   Input,
   Label,
+  ListRow,
   Pill,
   Progress,
+  SETTINGS_LIST_CLASS,
   SegmentedControl,
   Select,
   SelectContent,
@@ -45,6 +52,8 @@ import {
   SelectTrigger,
   SelectValue,
   STATUS_COLORS,
+  StatusGlyph,
+  categoryStatusIcon,
   conceptIcon,
 } from "@exp/ui"
 
@@ -52,7 +61,10 @@ type ImportJob = Awaited<ReturnType<typeof trpc.imports.get.query>>
 
 const POLL_MS = 1_500
 
-type MemberChoice = `invite` | `member` | `skip`
+// EXP-1076: the three ways a source person reaches the roster. `skip` is
+// gone — an unmatched person becomes a PLACEHOLDER member (seated now, no
+// mail, no seat) so their issues and comments carry their own name.
+type MemberChoice = `member` | `placeholder` | `invite`
 
 // The Members step's seat count on the cloud: free seats minus the invites
 // planned so far; below zero it names what is missing and offers seats.
@@ -85,6 +97,7 @@ const PHASE_LABELS: Record<string, string> = {
   labels: `Creating labels`,
   issues: `Importing issues`,
   links: `Linking duplicates and relations`,
+  archiving: `Archiving`,
   done: `Done`,
 }
 
@@ -123,6 +136,27 @@ function formatBytes(bytes: number) {
 }
 
 const DownloadIcon = conceptIcon(`settings-import`)
+const DeleteIcon = conceptIcon(`ui-delete`)
+
+/** The wizard's ONE summary line: a muted `a · b · c` under a section band,
+ *  the same shape the preview, the dry run and the finished card all read as
+ *  (EXP-1076 — no tile grids, no card in a card). */
+function SummaryLine({ parts }: { parts: string[] }) {
+  return (
+    <p className="px-3 text-xs text-muted-foreground">{parts.join(` · `)}</p>
+  )
+}
+
+function WarningList({ warnings }: { warnings: readonly string[] }) {
+  if (warnings.length === 0) return null
+  return (
+    <ul className="mt-1 space-y-1 px-3 text-xs text-muted-foreground">
+      {warnings.map((warning) => (
+        <li key={warning}>• {warning}</li>
+      ))}
+    </ul>
+  )
+}
 
 /**
  * EXP-630 tracker-import wizard (web-only, owner-only, like Billing). One
@@ -164,6 +198,12 @@ export function TeamImportSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team.id])
 
+  const leave = useCallback(() => {
+    setActiveJobId(null)
+    setJob(null)
+    void refreshList()
+  }, [refreshList])
+
   const refreshJob = useCallback(async () => {
     if (!activeJobId) {
       setJob(null)
@@ -172,9 +212,16 @@ export function TeamImportSection({
     try {
       setJob(await trpc.imports.get.query({ jobId: activeJobId }))
     } catch (err) {
+      // EXP-1076: discarding a draft DELETES the row, so the poll that was
+      // already in flight 404s. That is the discard landing, not a failure —
+      // fall back to the list instead of painting an error.
+      if (trpcErrorCode(err) === `NOT_FOUND`) {
+        leave()
+        return
+      }
       setLoadError(trpcErrorMessage(err, `Could not load the import`))
     }
-  }, [activeJobId])
+  }, [activeJobId, leave])
 
   useEffect(() => {
     void refreshJob()
@@ -192,22 +239,9 @@ export function TeamImportSection({
     return () => clearInterval(timer)
   }, [moving, refreshJob])
 
-  const leave = useCallback(() => {
-    setActiveJobId(null)
-    setJob(null)
-    void refreshList()
-  }, [refreshList])
-
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">Import</h2>
-        <p className="text-sm text-muted-foreground">
-          Bring another tracker's history into this team. Issues keep their
-          identifiers, dates, priorities, assignees and comments; images are
-          rehosted here.
-        </p>
-      </div>
+      <h2 className="text-lg font-semibold">Import</h2>
 
       {loadError && (
         <Alert variant="destructive">
@@ -225,6 +259,7 @@ export function TeamImportSection({
             setActiveJobId(id)
             void refreshList()
           }}
+          onCleared={refreshList}
         />
       ) : job.status === `previewing` ? (
         <PreviewingStep job={job} onCancelled={leave} />
@@ -254,14 +289,34 @@ function ConnectStep({
   jobs,
   onOpen,
   onStarted,
+  onCleared,
 }: {
   team: Team
   jobs: ImportJob[]
   onOpen: (jobId: string) => void
   onStarted: (jobId: string) => void
+  onCleared: () => Promise<void> | void
 }) {
   const [apiKey, setApiKey] = useState(``)
   const [busy, setBusy] = useState(false)
+  const [clearing, setClearing] = useState(false)
+
+  const clear = async () => {
+    setClearing(true)
+    try {
+      await trpc.imports.clearHistory.mutate(
+        { teamId: team.id },
+        { context: { skipErrorToast: true } }
+      )
+      await onCleared()
+    } catch (err) {
+      toast.error(`Could not clear the history`, {
+        description: trpcErrorMessage(err, ``),
+      })
+    } finally {
+      setClearing(false)
+    }
+  }
 
   const connect = async () => {
     if (!apiKey.trim()) return
@@ -290,10 +345,7 @@ function ConnectStep({
         <GlassGroup>
           <div className="space-y-3 p-4">
             <p className="text-sm text-muted-foreground">
-              Paste a personal API key from Linear (Settings → Security &amp;
-              access → Personal API keys). It is used to read the workspace
-              and download its files, kept only while the import runs, and
-              wiped after.
+              Personal API key from Linear → Settings → Security &amp; access.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
@@ -316,11 +368,26 @@ function ConnectStep({
       </section>
 
       {jobs.length > 0 && (
-        <section className="space-y-3">
-          <GlassSectionHeader label="Recent imports" count={jobs.length} />
-          <GlassGroup>
+        <section className="group">
+          <GlassSectionHeader
+            label="Recent imports"
+            count={jobs.length}
+            trailing={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Clear import history"
+                className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+                disabled={clearing}
+                onClick={() => void clear()}
+              >
+                <DeleteIcon />
+              </Button>
+            }
+          />
+          <div className={SETTINGS_LIST_CLASS}>
             {jobs.map((row) => (
-              <GlassRow key={row.id} className="justify-between">
+              <ListRow key={row.id} className="justify-between px-3 py-2">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">
                     {row.preview?.workspace.name ?? row.source} ·{` `}
@@ -332,12 +399,12 @@ function ConnectStep({
                     {row.error ? ` · ${row.error}` : ``}
                   </div>
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => onOpen(row.id)}>
+                <Pill mode="action" onClick={() => onOpen(row.id)}>
                   {IMPORT_TERMINAL_STATUSES.has(row.status) ? `View` : `Open`}
-                </Button>
-              </GlassRow>
+                </Pill>
+              </ListRow>
             ))}
-          </GlassGroup>
+          </div>
         </section>
       )}
     </div>
@@ -388,8 +455,7 @@ function PreviewingStep({ job, onCancelled }: { job: ImportJob; onCancelled: () 
         <div className="text-sm font-medium">Reading your Linear workspace…</div>
         <p className="text-sm text-muted-foreground">
           Fetching teams, statuses, labels, members, issues and comments.
-          {done > 0 ? ` ${done.toLocaleString()} so far.` : ``} This page updates by
-          itself.
+          {done > 0 ? ` ${done.toLocaleString()} so far.` : ``}
         </p>
         <Progress value={null} />
         <div className="flex justify-end">
@@ -464,6 +530,12 @@ function MapStep({
     () => users.map((row) => ({ userId: row.id, email: row.email, name: row.name })),
     [users]
   )
+  // The source team behind a preview key — the hint of a status several teams
+  // share names them all (EXP-1076).
+  const teamNameByKey = useMemo(
+    () => new Map((preview?.teams ?? []).map((row) => [row.key, row.name])),
+    [preview]
+  )
   const planJson = useMemo(() => JSON.stringify(plan), [plan])
   const checked = dryRun !== null && checkedPlanRef.current === planJson
 
@@ -485,12 +557,23 @@ function MapStep({
     setPlan((current) => (current ? { ...current, ...patch } : current))
   const setBoard = (key: string, entry: BoardPlan) =>
     update({ boards: { ...plan.boards, [key]: entry } })
-  const setStatus = (key: string, entry: StatusPlan) =>
-    update({ statuses: { ...plan.statuses, [key]: entry } })
+  // EXP-1076: one decision per GROUP — Linear gives every team its own
+  // "Todo", Exponential one per team, so the same entry lands on every key the
+  // collapsed row stands for, in ONE update.
+  const setStatusGroup = (keys: readonly string[], entry: StatusPlan) => {
+    const patch: Record<string, StatusPlan> = {}
+    for (const key of keys) patch[key] = entry
+    update({ statuses: { ...plan.statuses, ...patch } })
+  }
   const setLabel = (key: string, entry: LabelPlan) =>
     update({ labels: { ...plan.labels, [key]: entry } })
+  // Functional on purpose: several member rows can settle in the same tick
+  // (a stored plan's legacy `self` entries migrating), and a patch built from
+  // a stale `plan.users` would drop its neighbours.
   const setUser = (key: string, entry: UserPlan) =>
-    update({ users: { ...plan.users, [key]: entry } })
+    setPlan((current) =>
+      current ? { ...current, users: { ...current.users, [key]: entry } } : current
+    )
 
   const check = async () => {
     setChecking(true)
@@ -553,6 +636,14 @@ function MapStep({
     }
   }
 
+  // EXP-1076: only what the plan's non-skipped boards actually carry is worth
+  // mapping — a skipped Linear team must not make the operator map its
+  // statuses, labels and people.
+  const visible = visibleBoardKeys(preview, plan)
+  const statusGroups = groupPreviewStatuses(preview.statuses, visible, teamNameByKey)
+  const visibleLabels = visiblePreviewLabels(preview.labels, visible)
+  const visibleUsers = visiblePreviewUsers(preview.users, visible)
+
   const builtinOptions = statuses.options.filter((option) => option.builtinKey)
   const customOptions = statuses.options.filter((option) => !option.builtinKey && !option.id.startsWith(`builtin:`))
 
@@ -561,19 +652,16 @@ function MapStep({
       {job.status === `failed` && (
         <Alert variant="destructive">
           <AlertTitle>The last run failed</AlertTitle>
-          <AlertDescription>
-            {job.error ?? `Unknown error`}. Check the plan and start again: what
-            was already imported is kept and skipped.
-          </AlertDescription>
+          <AlertDescription>{job.error ?? `Unknown error`}</AlertDescription>
         </Alert>
       )}
 
       <PreviewSummary preview={preview} />
 
-      <section className="space-y-3">
+      <section>
         <GlassSectionHeader label="Boards" count={boardTargets.length} />
-        <GlassGroup>
-          {preview.supportsProjectRouting && (
+        {preview.supportsProjectRouting && (
+          <GlassGroup className="mb-3">
             <div className="space-y-2 p-4">
               <Label className="text-xs text-muted-foreground">Route issues by</Label>
               <SegmentedControl
@@ -587,17 +675,22 @@ function MapStep({
               />
               <p className="text-xs text-muted-foreground">
                 {plan.routing === `team`
-                  ? `One board per Linear team; a project becomes a label.`
-                  : `One board per project; issues without a project land on their team's board.`}
+                  ? `A project becomes a label.`
+                  : `Projectless issues land on their team's board.`}
               </p>
             </div>
-          )}
+          </GlassGroup>
+        )}
+        <div className={SETTINGS_LIST_CLASS}>
           {boardTargets.map((target) => {
             const entry: BoardPlan = plan.boards[target.key] ?? { mode: `skip` }
             const value =
               entry.mode === `existing` ? `existing:${entry.boardId}` : entry.mode
             return (
-              <div key={target.key} className="space-y-2 p-4">
+              <ListRow
+                key={target.key}
+                className="flex-col items-stretch gap-2 px-3 py-2"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{target.name}</div>
@@ -685,21 +778,23 @@ function MapStep({
                     Keep the original issue numbers
                   </label>
                 )}
-              </div>
+              </ListRow>
             )
           })}
-        </GlassGroup>
+        </div>
       </section>
 
-      <section className="space-y-3">
-        <GlassSectionHeader label="Statuses" count={preview.statuses.length} />
-        <GlassGroup>
-          {preview.statuses.map((status) => {
-            const entry: StatusPlan = plan.statuses[status.key] ?? {
+      <section>
+        <GlassSectionHeader label="Statuses" count={statusGroups.length} />
+        <div className={SETTINGS_LIST_CLASS}>
+          {statusGroups.map((group) => {
+            // The group speaks with one voice: the first key carries the
+            // decision, every key receives it.
+            const entry: StatusPlan = plan.statuses[group.keys[0]] ?? {
               mode: `create`,
-              name: status.name,
-              color: status.color,
-              category: status.category,
+              name: group.name,
+              color: group.color,
+              category: group.category,
             }
             const value =
               entry.mode === `builtin`
@@ -707,20 +802,24 @@ function MapStep({
                 : entry.mode === `existing`
                   ? `existing:${entry.statusId}`
                   : `create`
-            const teamName = preview.teams.find((team) => team.key === status.teamKey)?.name
             return (
-              <div key={status.key} className="space-y-2 p-4">
+              <ListRow
+                key={group.id}
+                className="flex-col items-stretch gap-2 px-3 py-2"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="size-3 shrink-0 rounded-full"
-                      style={{ backgroundColor: status.color }}
+                    <StatusGlyph
+                      icon={categoryStatusIcon(group.category, 0, 1)}
+                      colorHex={group.color}
+                      className="size-4 shrink-0"
                     />
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{status.name}</div>
+                      <div className="truncate text-sm font-medium">{group.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {CATEGORY_LABELS[status.category]} · {status.issueCount.toLocaleString()} issues
-                        {teamName ? ` · ${teamName}` : ``}
+                        {CATEGORY_LABELS[group.category]} ·{` `}
+                        {group.issueCount.toLocaleString()} issues
+                        {group.teamNames.length > 0 ? ` · ${group.teamNames.join(`, `)}` : ``}
                       </div>
                     </div>
                   </div>
@@ -728,14 +827,14 @@ function MapStep({
                     value={value}
                     onValueChange={(next) => {
                       if (next === `create`) {
-                        setStatus(status.key, {
+                        setStatusGroup(group.keys, {
                           mode: `create`,
-                          name: status.name,
-                          color: status.color,
-                          category: status.category,
+                          name: group.name,
+                          color: group.color,
+                          category: group.category,
                         })
                       } else if (next.startsWith(`builtin:`)) {
-                        setStatus(status.key, {
+                        setStatusGroup(group.keys, {
                           mode: `builtin`,
                           builtinKey: next.replace(`builtin:`, ``) as StatusPlan extends {
                             builtinKey: infer K
@@ -744,7 +843,7 @@ function MapStep({
                             : never,
                         })
                       } else {
-                        setStatus(status.key, {
+                        setStatusGroup(group.keys, {
                           mode: `existing`,
                           statusId: next.replace(`existing:`, ``),
                         })
@@ -765,7 +864,7 @@ function MapStep({
                           {option.name}
                         </SelectItem>
                       ))}
-                      {status.category !== `duplicate` && (
+                      {group.category !== `duplicate` && (
                         <SelectItem value="create">Create as new status</SelectItem>
                       )}
                     </SelectContent>
@@ -776,34 +875,34 @@ function MapStep({
                     <ColorPicker
                       value={entry.color}
                       colors={STATUS_COLORS}
-                      onChange={(color) => setStatus(status.key, { ...entry, color })}
+                      onChange={(color) => setStatusGroup(group.keys, { ...entry, color })}
                     />
                     <Input
                       aria-label="Status name"
                       value={entry.name}
                       onChange={(event) =>
-                        setStatus(status.key, { ...entry, name: event.target.value })
+                        setStatusGroup(group.keys, { ...entry, name: event.target.value })
                       }
                     />
                   </div>
                 )}
-              </div>
+              </ListRow>
             )
           })}
-        </GlassGroup>
+        </div>
       </section>
 
-      <section className="space-y-3">
-        <GlassSectionHeader label="Labels" count={preview.labels.length} />
-        <GlassGroup>
-          {preview.labels.map((label) => {
+      <section>
+        <GlassSectionHeader label="Labels" count={visibleLabels.length} />
+        <div className={SETTINGS_LIST_CLASS}>
+          {visibleLabels.map((label) => {
             const entry: LabelPlan = plan.labels[label.key] ?? { mode: `create` }
             const value = entry.mode === `existing` ? `existing:${entry.labelId}` : entry.mode
             return (
-              <GlassRow key={label.key} className="justify-between">
+              <ListRow key={label.key} className="justify-between px-3 py-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <span
-                    className="size-3 shrink-0 rounded-full"
+                    className="h-4 w-4 shrink-0 rounded-full ring-1 ring-border"
                     style={{ backgroundColor: label.color }}
                   />
                   <div className="min-w-0">
@@ -833,16 +932,16 @@ function MapStep({
                     <SelectItem value="skip">Skip</SelectItem>
                   </SelectContent>
                 </Select>
-              </GlassRow>
+              </ListRow>
             )
           })}
-        </GlassGroup>
+        </div>
       </section>
 
-      <section className="space-y-3">
+      <section>
         <GlassSectionHeader
           label="Members"
-          count={preview.users.length}
+          count={visibleUsers.length}
           trailing={
             seatsLeft !== undefined && seatsLeft !== null ? (
               <SeatCapsule
@@ -852,82 +951,21 @@ function MapStep({
             ) : undefined
           }
         />
-        <GlassGroup>
-          {preview.users.map((user) => {
-            const entry: UserPlan = plan.users[user.key] ?? { mode: `self` }
-            const choice: MemberChoice = entry.mode === `self` ? `skip` : entry.mode
-            const matched = users.find(
-              (row) => user.email && row.email.toLowerCase() === user.email.toLowerCase()
-            )
-            return (
-              <GlassRow key={user.key} className="flex-col items-stretch gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{user.name}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {user.email ?? `no email`} · {user.issueCount.toLocaleString()} assigned ·{` `}
-                    {user.commentCount.toLocaleString()} comments
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-col items-stretch gap-2 md:items-end">
-                  <SegmentedControl<MemberChoice>
-                    value={choice}
-                    onValueChange={(next) => {
-                      if (next === `skip`) setUser(user.key, { mode: `self` })
-                      else if (next === `member`)
-                        setUser(user.key, { mode: `member`, userId: matched?.id ?? userId })
-                      else setUser(user.key, { mode: `invite`, name: user.name, email: user.email ?? `` })
-                    }}
-                    options={[
-                      ...(user.email ? [{ value: `invite` as const, label: `Invite` }] : []),
-                      { value: `member` as const, label: `Member` },
-                      { value: `skip` as const, label: `Skip` },
-                    ]}
-                  />
-                  {entry.mode === `member` && (
-                    <Select
-                      value={entry.userId}
-                      onValueChange={(next) => setUser(user.key, { mode: `member`, userId: next })}
-                    >
-                      <SelectTrigger className="md:w-64">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {users.map((row) => (
-                          <SelectItem key={row.id} value={row.id}>
-                            {row.id === userId ? `${row.name} (you)` : `${row.name} · ${row.email}`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {entry.mode === `invite` && (
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <Input
-                        value={entry.name}
-                        onChange={(e) => setUser(user.key, { ...entry, name: e.target.value })}
-                        placeholder="Name"
-                        aria-label={`Name for ${user.name}`}
-                        className="sm:w-40"
-                      />
-                      <Input
-                        type="email"
-                        value={entry.email}
-                        onChange={(e) => setUser(user.key, { ...entry, email: e.target.value })}
-                        placeholder="teammate@example.com"
-                        aria-label={`Email for ${user.name}`}
-                        className="sm:w-64"
-                      />
-                    </div>
-                  )}
-                </div>
-              </GlassRow>
-            )
-          })}
-        </GlassGroup>
-        <div className="text-xs text-muted-foreground">
-          Invites go out when the import starts. Skipped people's issues stay unassigned; their
-          comments are posted by you with a note.
+        <div className={SETTINGS_LIST_CLASS}>
+          {visibleUsers.map((user) => (
+            <MemberRow
+              key={user.key}
+              user={user}
+              entry={plan.users[user.key]}
+              roster={users}
+              importerId={userId}
+              onChange={(next) => setUser(user.key, next)}
+            />
+          ))}
         </div>
+        <p className="mt-2 px-3 text-xs text-muted-foreground">
+          Placeholders join the roster now; invite them later from Members.
+        </p>
         <UpgradeDialog
           open={upgradeOpen}
           onOpenChange={setUpgradeOpen}
@@ -950,8 +988,7 @@ function MapStep({
             <span>
               Import activity history
               <span className="block text-xs text-muted-foreground">
-                Status, assignee, priority and label changes appear in each issue's
-                timeline ({preview.counts.events.toLocaleString()} events).
+                {preview.counts.events.toLocaleString()} timeline events.
               </span>
             </span>
           </label>
@@ -964,9 +1001,8 @@ function MapStep({
               <span>
                 Import archived issues
                 <span className="block text-xs text-muted-foreground">
-                  {archivedIssueCount.toLocaleString()} archived issues go to a
-                  separate board per team, which is archived once the import is
-                  through. Restore it any time under Archived boards.
+                  {archivedIssueCount.toLocaleString()} issues, on a board
+                  archived after the import.
                 </span>
               </span>
             </label>
@@ -993,17 +1029,154 @@ function MapStep({
   )
 }
 
-function PreviewSummary({ preview }: { preview: ImportPreview }) {
-  const stats = [
-    [`Issues`, preview.counts.issues],
-    [`Comments`, preview.counts.comments],
-    [`Files`, preview.counts.assets],
-    [`Statuses`, preview.statuses.length],
-    [`Labels`, preview.labels.length],
-    [`Members`, preview.users.length],
-  ] as const
+/**
+ * ONE source person, mapped. EXP-1076: the default for anyone the roster does
+ * not already know is a PLACEHOLDER — seated with their own name, no mail, no
+ * seat — and nobody is ever silently attributed to the importer: picking
+ * "Member" without an address match leaves the roster Select unanswered and
+ * writes nothing until it is.
+ */
+function MemberRow({
+  user,
+  entry,
+  roster,
+  importerId,
+  onChange,
+}: {
+  user: ImportPreview[`users`][number]
+  entry: UserPlan | undefined
+  roster: readonly { id: string; name: string; email: string }[]
+  importerId: string
+  onChange: (entry: UserPlan) => void
+}) {
+  const email = user.email?.trim() ?? ``
+  const matched = useMemo(
+    () =>
+      email
+        ? roster.find((row) => row.email.toLowerCase() === email.toLowerCase())
+        : undefined,
+    [roster, email]
+  )
+  const [picking, setPicking] = useState(false)
+
+  // A plan stored before EXP-1076 can still say `self`. With an address that
+  // IS a placeholder now, so migrate it rather than showing one thing and
+  // saving another; with no address there is nothing to seat.
+  const legacySelf = entry?.mode === `self`
+  useEffect(() => {
+    if (legacySelf && email) onChange({ mode: `placeholder`, name: user.name, email })
+  }, [legacySelf, email, user.name, onChange])
+
+  const effective: UserPlan =
+    entry ??
+    (matched
+      ? { mode: `member`, userId: matched.id }
+      : { mode: `placeholder`, name: user.name, email })
+  const named =
+    effective.mode === `placeholder` || effective.mode === `invite` ? effective : null
+  const choice: MemberChoice = picking
+    ? `member`
+    : effective.mode === `self`
+      ? `placeholder`
+      : effective.mode
+
+  const setNamed = (patch: { name?: string; email?: string }) => {
+    const name = patch.name ?? named?.name ?? user.name
+    const address = patch.email ?? named?.email ?? email
+    onChange(
+      effective.mode === `invite`
+        ? { mode: `invite`, name, email: address }
+        : { mode: `placeholder`, name, email: address }
+    )
+  }
+
   return (
-    <section className="space-y-3">
+    <ListRow className="flex-col items-stretch gap-3 px-3 py-2 md:flex-row md:items-center md:justify-between">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">{user.name}</div>
+        <div className="truncate text-xs text-muted-foreground">
+          {user.email ?? `no email`} · {user.issueCount.toLocaleString()} assigned ·{` `}
+          {user.commentCount.toLocaleString()} comments
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-col items-stretch gap-2 md:items-end">
+        {effective.mode === `self` ? (
+          <span className="text-xs text-muted-foreground">Attributed to you</span>
+        ) : (
+          <SegmentedControl<MemberChoice>
+            value={choice}
+            onValueChange={(next) => {
+              if (next === `member`) {
+                if (matched) {
+                  setPicking(false)
+                  onChange({ mode: `member`, userId: matched.id })
+                } else {
+                  setPicking(true)
+                }
+                return
+              }
+              setPicking(false)
+              if (next === `placeholder`)
+                onChange({ mode: `placeholder`, name: user.name, email })
+              else onChange({ mode: `invite`, name: user.name, email })
+            }}
+            options={[
+              { value: `member` as const, label: `Member` },
+              { value: `placeholder` as const, label: `Placeholder` },
+              ...(email ? [{ value: `invite` as const, label: `Invite` }] : []),
+            ]}
+          />
+        )}
+        {choice === `member` && (
+          <Select
+            // An unanswered pick keeps the trigger on its placeholder: the
+            // empty value matches no item, so nothing is chosen for anyone.
+            value={effective.mode === `member` ? effective.userId : ``}
+            onValueChange={(next) => {
+              setPicking(false)
+              onChange({ mode: `member`, userId: next })
+            }}
+          >
+            <SelectTrigger className="md:w-64">
+              <SelectValue placeholder="Pick a member" />
+            </SelectTrigger>
+            <SelectContent>
+              {roster.map((row) => (
+                <SelectItem key={row.id} value={row.id}>
+                  {row.id === importerId ? `${row.name} (you)` : `${row.name} · ${row.email}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {named && (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={named.name}
+              onChange={(e) => setNamed({ name: e.target.value })}
+              placeholder="Name"
+              aria-label={`Name for ${user.name}`}
+              className="sm:w-40"
+            />
+            <Input
+              type="email"
+              value={named.email}
+              onChange={(e) => setNamed({ email: e.target.value })}
+              placeholder="teammate@example.com"
+              aria-label={`Email for ${user.name}`}
+              className="sm:w-64"
+            />
+          </div>
+        )}
+      </div>
+    </ListRow>
+  )
+}
+
+function PreviewSummary({ preview }: { preview: ImportPreview }) {
+  const counts = preview.counts
+  return (
+    <section>
       <GlassSectionHeader
         label={preview.workspace.name}
         trailing={
@@ -1019,28 +1192,15 @@ function PreviewSummary({ preview }: { preview: ImportPreview }) {
           ) : undefined
         }
       />
-      <GlassGroup>
-        <div className="grid grid-cols-3 gap-3 p-4 sm:grid-cols-6">
-          {stats.map(([label, value]) => (
-            <div key={label}>
-              <div className="text-lg font-semibold tabular-nums">{value.toLocaleString()}</div>
-              <div className="text-xs text-muted-foreground">{label}</div>
-            </div>
-          ))}
-        </div>
-        {preview.counts.assetBytes > 0 && (
-          <div className="px-4 pb-3 text-xs text-muted-foreground">
-            About {formatBytes(preview.counts.assetBytes)} of files will be rehosted.
-          </div>
-        )}
-        {preview.warnings.length > 0 && (
-          <ul className="space-y-1 px-4 pb-4 text-xs text-muted-foreground">
-            {preview.warnings.map((warning) => (
-              <li key={warning}>• {warning}</li>
-            ))}
-          </ul>
-        )}
-      </GlassGroup>
+      <SummaryLine
+        parts={[
+          `${counts.issues.toLocaleString()} issues`,
+          `${counts.comments.toLocaleString()} comments`,
+          `${counts.assets.toLocaleString()} files`,
+          ...(counts.assetBytes > 0 ? [formatBytes(counts.assetBytes)] : []),
+        ]}
+      />
+      <WarningList warnings={preview.warnings} />
     </section>
   )
 }
@@ -1125,8 +1285,7 @@ function RunningStep({ job, onCancelled }: { job: ImportJob; onCancelled: () => 
         </div>
         <Progress value={progress?.phase === `issues` ? percent : null} />
         <p className="text-xs text-muted-foreground">
-          You can leave this page; the import continues on the server and this
-          page updates by itself.
+          You can leave this page; the import continues on the server.
         </p>
         {progress && progress.warnings.length > 0 && (
           <ul className="space-y-1 text-xs text-muted-foreground">
@@ -1161,48 +1320,32 @@ function FinishedStep({
   return (
     <div className="space-y-6">
       {job.status === `completed` && counts ? (
-        <section className="space-y-3">
+        <section>
           <GlassSectionHeader label="Import completed" trailing={<Pill className="text-green-500">Done</Pill>} />
-          <GlassGroup>
-            <div className="grid grid-cols-3 gap-3 p-4 sm:grid-cols-6">
-              {(
-                [
-                  [`Issues`, counts.issues],
-                  [`Comments`, counts.comments],
-                  [`Files`, counts.attachments],
-                  [`Boards`, counts.boards],
-                  [`Statuses`, counts.statuses],
-                  [`Labels`, counts.labels],
-                ] as const
-              ).map(([label, value]) => (
-                <div key={label}>
-                  <div className="text-lg font-semibold tabular-nums">{value.toLocaleString()}</div>
-                  <div className="text-xs text-muted-foreground">{label}</div>
-                </div>
-              ))}
-            </div>
-            {(counts.relations > 0 || counts.events > 0 || counts.invites > 0) && (
-              <div className="px-4 pb-3 text-xs text-muted-foreground">
-                {counts.relations.toLocaleString()} relations · {counts.events.toLocaleString()} history
-                events · {counts.invites} invites
-              </div>
-            )}
-            {warnings.length > 0 && (
-              <ul className="space-y-1 px-4 pb-4 text-xs text-muted-foreground">
-                {warnings.map((warning) => (
-                  <li key={warning}>• {warning}</li>
-                ))}
-              </ul>
-            )}
-          </GlassGroup>
+          <SummaryLine
+            parts={[
+              `${counts.issues.toLocaleString()} issues`,
+              `${counts.comments.toLocaleString()} comments`,
+              `${counts.attachments.toLocaleString()} files`,
+              `${counts.boards} boards`,
+              `${counts.statuses} statuses`,
+              `${counts.labels} labels`,
+              ...(counts.members > 0 ? [`${counts.members} placeholders`] : []),
+              ...(counts.invites > 0 ? [`${counts.invites} invites`] : []),
+              ...(counts.relations > 0
+                ? [`${counts.relations.toLocaleString()} relations`]
+                : []),
+              ...(counts.events > 0
+                ? [`${counts.events.toLocaleString()} history events`]
+                : []),
+            ]}
+          />
+          <WarningList warnings={warnings} />
         </section>
       ) : job.status === `cancelled` ? (
         <Alert>
           <AlertTitle>Import cancelled</AlertTitle>
-          <AlertDescription>
-            Anything imported before the stop is kept. Connect again to resume:
-            the same issues are never imported twice.
-          </AlertDescription>
+          <AlertDescription>Imported issues are kept.</AlertDescription>
         </Alert>
       ) : (
         <Alert variant="destructive">

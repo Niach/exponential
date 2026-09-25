@@ -169,9 +169,19 @@ impl ArchivedBoardsPane {
     fn row(&self, board: &ArchivedBoard, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let pending = self.pending.as_deref() == Some(board.id.as_str());
         let board_for_click = board.clone();
-        // EXP-698: one row of an inset-grouped stack; `glass_group_rows` owns
-        // the hairlines.
-        crate::surface::glass_row_shell()
+        // EXP-1076: an archived board is an ENTITY, so its list is the
+        // hairline LADDER, not the inset-grouped block a FORM's fields wear:
+        // `list_row` + `flat_row` at the settings row rhythm, a hairline
+        // between rows and no box around them (the web `SETTINGS_LIST_CLASS`
+        // twin).
+        crate::surface::flat_row()
+            .flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2()
             .child(board_icon_name_glyph(board.icon.as_deref().unwrap_or_default()))
             .child(div().flex_1().min_w_0().text_sm().child(board.name.clone()))
             .child(
@@ -255,8 +265,11 @@ impl Render for ArchivedBoardsPane {
             }
             Load::Ready(Ok(rows)) => {
                 let rows = rows.clone();
-                body = body.child(crate::surface::glass_group_rows(
-                    rows.iter().map(|board| self.row(board, cx)).collect(),
+                // EXP-1076: the gapless ladder under the band.
+                body = body.child(v_flex().w_full().min_w_0().children(
+                    rows.iter().enumerate().map(|(index, board)| {
+                        crate::surface::list_row(self.row(board, cx), index)
+                    }),
                 ));
             }
         }

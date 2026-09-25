@@ -213,8 +213,17 @@ impl DoctorPanel {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let (icon, color) = Self::severity_glyph(severity, cx);
-        let mut row = h_flex()
+        // EXP-1076: the doctor's tools are an entity LIST, so its rows ride
+        // the ladder's rhythm (`list_row` + `flat_row`, the web
+        // `SETTINGS_LIST_CLASS` twin) instead of floating bare in the
+        // section.
+        let mut row = crate::surface::flat_row()
+            .flex()
+            .w_full()
+            .min_w_0()
             .gap_2()
+            .px_3()
+            .py_2()
             .items_center()
             .child(Icon::new(icon).small().text_color(color))
             .child(Self::tool_name(check))
@@ -254,8 +263,14 @@ impl DoctorPanel {
             RowSeverity::Ok | RowSeverity::Muted => cx.theme().muted_foreground,
             RowSeverity::Danger => cx.theme().danger,
         };
-        h_flex()
+        // EXP-1076: one rung of the doctor's hairline ladder.
+        crate::surface::flat_row()
+            .flex()
+            .w_full()
+            .min_w_0()
             .gap_2()
+            .px_3()
+            .py_2()
             .items_center()
             .child(Icon::new(icon).small().text_color(color))
             .child(Self::tool_name(check))
@@ -345,25 +360,61 @@ impl Render for DoctorPanel {
                 );
             }
             Some(report) => {
+                // EXP-1076: ONE gapless ladder under the band. A failing
+                // tool's guidance rides INSIDE its own rung, so the hairline
+                // always falls between two tools and never between a row and
+                // the hint that belongs to it.
+                let mut rungs: Vec<gpui::AnyElement> = Vec::new();
                 for agent in CodingAgent::ALL {
                     let check = report.check_for(agent).clone();
                     let severity = row_severity(&check, report);
                     // EXP-862: signed out is ONE line (glyph + name + Login).
                     if check.signed_out() {
-                        body = body.child(Self::signed_out_row(&check, severity, cx));
+                        rungs.push(Self::signed_out_row(&check, severity, cx).into_any_element());
                         continue;
                     }
-                    body = body.child(Self::tool_row(&check, severity, cx));
+                    let mut rung = v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .child(Self::tool_row(&check, severity, cx));
                     if severity != RowSeverity::Ok {
-                        body = body.child(self.guidance(&check, window, cx));
+                        rung = rung.child(
+                            // The row's own `px_3` does not reach the
+                            // guidance, so the block carries it here; its
+                            // `pl_7` then indents under the row's detail.
+                            div()
+                                .w_full()
+                                .px_3()
+                                .pb_2()
+                                .child(self.guidance(&check, window, cx)),
+                        );
                     }
+                    rungs.push(rung.into_any_element());
                 }
                 let git = report.git.clone();
                 let severity = row_severity(&git, report);
-                body = body.child(Self::tool_row(&git, severity, cx));
+                let mut rung = v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .child(Self::tool_row(&git, severity, cx));
                 if severity != RowSeverity::Ok {
-                    body = body.child(self.guidance(&git, window, cx));
+                    rung = rung.child(
+                        div()
+                            .w_full()
+                            .px_3()
+                            .pb_2()
+                            .child(self.guidance(&git, window, cx)),
+                    );
                 }
+                rungs.push(rung.into_any_element());
+                body = body.child(
+                    v_flex().w_full().min_w_0().children(
+                        rungs
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, rung)| crate::surface::list_row(rung, index)),
+                    ),
+                );
             }
         }
         body.child(

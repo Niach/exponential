@@ -825,11 +825,11 @@ impl IssueHeader {
         cluster
     }
 
-    /// EXP-897 §4 — the stack / batch badge: a small pill carrying the
-    /// `pr-stack` / `pr-batch` concepts and `2 of 3`, whose popover lists this
-    /// face's sections (blockers + batch on the Issue face, the run tree on
-    /// the Run face, the PR stack on Changes). Absent when there is nothing
-    /// around this issue at all.
+    /// EXP-897 §4 — the stack / batch badge: a header-rung pill (EXP-1079)
+    /// carrying the `pr-stack` / `pr-batch` / `session-tree` concepts and
+    /// `2 of 3`, whose popover lists this face's sections (blockers + batch
+    /// on the Issue face, the run tree on the Run face, the PR stack on
+    /// Changes). Absent when there is nothing around this issue at all.
     fn pr_graph_badge(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         let session = self.badge_session.as_deref().and_then(|session_id| {
             sync::Store::try_global(cx)?

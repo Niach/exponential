@@ -117,21 +117,24 @@ describe(`buildDefaultPlan`, () => {
     expect(plan.labels[`label:lb-ios`]).toEqual({ mode: `create` })
   })
 
-  it(`auto-matches members by case-insensitive email, invites the rest while seats last, skips bots`, () => {
+  it(`auto-matches members by email and seats everyone else as a placeholder`, () => {
     expect(plan.users[`user:${U_HANNES}`]).toEqual({ mode: `member`, userId: `member-hannes` })
-    // dennis@ (Linear) vs danny@ (Exponential): no match, so an invite —
-    // the manual override in the wizard is the feature.
+    // dennis@ (Linear) vs danny@ (Exponential): no match, so a placeholder
+    // member (EXP-1076) — the manual override in the wizard is the feature.
     expect(plan.users[`user:${U_DENNIS}`]).toEqual({
-      mode: `invite`,
+      mode: `placeholder`,
       name: `dennis`,
       email: `dennis@straehhuber.com`,
     })
-    // Deactivated / bot accounts are never invited by default.
-    expect(plan.users[`user:${U_BOT}`]).toEqual({ mode: `self` })
-    // No free seat → skipped instead of invited.
+    // `invite` is never a default any more, and seats never demote anyone:
+    // a placeholder costs none.
+    expect(Object.values(plan.users).some((entry) => entry.mode === `invite`)).toBe(false)
     expect(
       buildDefaultPlan(previewFixture(), teamStateFixture({ seatsLeft: 0 })).users[`user:${U_DENNIS}`]
-    ).toEqual({ mode: `self` })
+    ).toEqual({ mode: `placeholder`, name: `dennis`, email: `dennis@straehhuber.com` })
+    // Linear's integration account never reaches the preview, so no decision
+    // is asked for it at all.
+    expect(plan.users[`user:${U_BOT}`]).toBeUndefined()
     expect(plan.routing).toBe(`team`)
     expect(plan.importHistory).toBe(true)
   })
@@ -168,8 +171,44 @@ describe(`evaluatePlan`, () => {
       events: 5,
       skippedIssues: 0,
     })
-    expect(result.warnings.join(`\n`)).toMatch(/attributed to you/)
+    // Everyone the source names is seated, so only the author-less comment
+    // carries an attribution line — and the bot is never mentioned.
+    expect(result.counts.members).toBe(1)
+    expect(result.warnings.join(`\n`)).toMatch(/1 comment\(s\) will carry an attribution line/)
+    expect(result.warnings.join(`\n`)).not.toMatch(/Content by/)
+    expect(result.warnings.join(`\n`)).not.toMatch(/Linear/)
     expect(result.warnings.join(`\n`)).toMatch(/Archived issues go to "Methode 5 Archive", archived after the import/)
+  })
+
+  it(`counts and blocks only the people a non-skipped issue still references`, () => {
+    // Dennis only assigned/created/commented on MET issues: skipping that
+    // team (and its archive) leaves nobody to seat.
+    const skipped: ImportPlan = {
+      ...plan,
+      boards: {
+        ...plan.boards,
+        [`team:${T_MET}`]: { mode: `skip` },
+        [`archive:${T_MET}`]: { mode: `skip` },
+      },
+    }
+    expect(evaluatePlan(bundle, skipped, state).counts.members).toBe(0)
+    const broken: ImportPlan = {
+      ...skipped,
+      users: { ...skipped.users, [`user:${U_DENNIS}`]: { mode: `placeholder`, name: `D`, email: `nope` } },
+    }
+    expect(evaluatePlan(bundle, broken, state).blockers).toEqual([])
+    // The same bad entry on a board that IS imported does block.
+    expect(
+      evaluatePlan(bundle, { ...plan, users: broken.users }, state).blockers.join(`\n`)
+    ).toMatch(/needs a valid email address to join the team as a placeholder/)
+  })
+
+  it(`never blocks on the source's address-less accounts`, () => {
+    // The Linear bot created MET-2 and has no plan entry at all.
+    expect(bundle.users.find((user) => user.key === `user:${U_BOT}`)?.email).toBeNull()
+    const result = evaluatePlan(bundle, plan, state)
+    expect(result.blockers).toEqual([])
+    expect(result.warnings.join(`\n`)).not.toMatch(/Linear/)
   })
 
   it(`says when estimates switch the team's scale on, and when they stay hidden`, () => {

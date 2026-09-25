@@ -1,11 +1,11 @@
 //! EXP-746/EXP-923 — MY agent runs, as two lists.
 //!
-//! **Running** (the user's live sessions, here and on every other machine)
-//! moved OUT of a rendered section and into the RAIL (EXP-923): a live run is
-//! navigation now, not a document, so it lives in the sidebar beside the
-//! boards and never opens a top tab. What is left here is its data half,
-//! [`rail_running_rows`] — the one projection (remote ∪ local, nested) the
-//! rail draws.
+//! **Running** (the ACTIVE TEAM's live sessions of mine, here and on every
+//! other machine — EXP-1075) moved OUT of a rendered section and into the RAIL
+//! (EXP-923): a live run is navigation now, not a document, so it lives in the
+//! sidebar beside the boards and never opens a top tab. What is left here is
+//! its data half, [`rail_running_rows`] — the one projection (remote ∪ local,
+//! nested) the rail draws.
 //!
 //! **Recent** is the ×4 section (web/iOS/Android have their own): own,
 //! person-started, ENDED rows in the active team, newest end first
@@ -126,16 +126,23 @@ impl<T> SessionTreeRow<T> {
 /// children under their parent, workflow and stack runs under group rows,
 /// top level newest activity first.
 ///
-/// Not team-scoped, deliberately: "my live sessions" is one list, the way the
-/// dock's strip always read it — a run on another team's board is still a run
-/// of yours that is going right now.
+/// EXP-1075 — TEAM-SCOPED: one team's board, one team's runs. The rail shows
+/// the ACTIVE team's live runs only; the other teams stay visible through the
+/// team switcher's dot ([`queries::own_live_runs_by_team`], byte-equal with
+/// what this draws after the switch). A row whose `team_id` did not decode is
+/// never shown — the column is NOT NULL server-side, so `None` is a gap, not a
+/// wildcard ([`queries::own_ended_runs`]'s rule).
 fn live_run_tree<T>(
+    nav: &Entity<Navigation>,
     cx: &mut App,
     build: impl Fn(&domain::rows::CodingSession, Option<&LocalSessionHost>, i64, &App) -> T,
 ) -> Vec<SessionTreeRow<T>> {
     // Everything that needs `&mut App` first — the collection reads below
     // borrow it immutably for the rest of the function.
     let Some(me) = queries::active_account(cx).map(|account| account.user_id) else {
+        return Vec::new();
+    };
+    let Some(team_id) = crate::navigation::active_team_id(nav, cx) else {
         return Vec::new();
     };
     let own_device_id = queries::own_device_id(cx);
@@ -169,6 +176,9 @@ fn live_run_tree<T>(
     let sessions = collections.coding_sessions.read(cx);
     let mut rows: Vec<&domain::rows::CodingSession> = if relay {
         queries::remote_session_rows(sessions.iter(), &me, &own_device_id, &local_ids, now)
+            .into_iter()
+            .filter(|session| session.team_id.as_deref() == Some(team_id.as_str()))
+            .collect()
     } else {
         Vec::new()
     };
@@ -177,7 +187,8 @@ fn live_run_tree<T>(
         sessions
             .iter()
             .filter(|session| local_ids.contains(&session.id))
-            .filter(|session| queries::coding_session_is_live(session, now)),
+            .filter(|session| queries::coding_session_is_live(session, now))
+            .filter(|session| session.team_id.as_deref() == Some(team_id.as_str())),
     );
     if rows.is_empty() {
         return Vec::new();
@@ -230,8 +241,11 @@ fn flatten_session_tree<T>(
 /// EXP-923 — the rail's Running rows. Derived per paint like the rail's other
 /// live reads (its observers already cover sessions, devices and the local
 /// host set; [`tick`] covers the clock).
-pub(crate) fn rail_running_rows(cx: &mut App) -> Vec<SessionTreeRow<RailRunRow>> {
-    live_run_tree(cx, |session, host, now, cx| {
+pub(crate) fn rail_running_rows(
+    nav: &Entity<Navigation>,
+    cx: &mut App,
+) -> Vec<SessionTreeRow<RailRunRow>> {
+    live_run_tree(nav, cx, |session, host, now, cx| {
         let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
         let issue = collections.as_ref().and_then(|collections| {
             session

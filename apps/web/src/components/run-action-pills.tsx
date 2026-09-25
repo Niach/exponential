@@ -31,22 +31,24 @@ export const MERGE_PR_LABEL = contract.diffUi.mergePr
 //              (`SEGMENTED_LIST`, h-9) and the 36px GitHub circle: the `md`
 //              Pill stretched to the toggle's own height.
 //
-// Nothing else may hand these pills a height.
+// Nothing else may hand these pills a height. EXP-1079: the work header's
+// graph badge (`pr-graph-badge.tsx`) stands in the same cluster, so it reads
+// the SAME recipe — exported for it, never restated.
 export type RunPillPlacement = `tray` | `header`
 
-const PLACEMENT_SIZE: Record<RunPillPlacement, `sm` | `md`> = {
+export const PLACEMENT_SIZE: Record<RunPillPlacement, `sm` | `md`> = {
   tray: `sm`,
   header: `md`,
 }
 /** The face toggle's height — `SEGMENTED_LIST` is `h-9`. */
 const HEADER_PILL_CLASS = `h-9`
 /** `md` pills draw 16px glyphs, `sm` ones 12px. */
-const PLACEMENT_GLYPH: Record<RunPillPlacement, string> = {
+export const PLACEMENT_GLYPH: Record<RunPillPlacement, string> = {
   tray: `size-3`,
   header: `size-4`,
 }
 
-function placementClass(placement: RunPillPlacement): string | undefined {
+export function placementClass(placement: RunPillPlacement): string | undefined {
   return placement === `header` ? HEADER_PILL_CLASS : undefined
 }
 

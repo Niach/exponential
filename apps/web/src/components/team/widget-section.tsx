@@ -22,8 +22,9 @@ import {
 import {
   Pill,
   Button,
-  GlassRow,
   GlassSectionHeader,
+  ListRow,
+  SETTINGS_LIST_CLASS,
   Dialog,
   DialogBody,
   DialogContent,
@@ -142,25 +143,25 @@ export function TeamWidgetSection({ team }: { team: Team }) {
           reporter email and page context attached.
         </p>
         <div className="space-y-4">
-          <div className="space-y-2">
+          <div className={SETTINGS_LIST_CLASS}>
             {loading ? (
-              <GlassRow className="gap-2 px-3 py-2 text-sm text-muted-foreground">
+              <ListRow className="gap-2 px-3 py-2 text-sm text-muted-foreground">
                 <LoaderCircle className="h-4 w-4 animate-spin" />
                 Loading widgets
-              </GlassRow>
+              </ListRow>
             ) : error ? (
               <div className="rounded-md border border-destructive/50 px-3 py-2 text-sm text-destructive">
                 {error}
               </div>
             ) : widgets.length === 0 ? (
-              <GlassRow className="px-3 py-2 text-sm text-muted-foreground">
+              <ListRow className="px-3 py-2 text-sm text-muted-foreground">
                 No widgets yet. Create one to get an embed snippet.
-              </GlassRow>
+              </ListRow>
             ) : (
               widgets.map((widget) => (
-                <GlassRow
+                <ListRow
                   key={widget.id}
-                  className="flex-col items-stretch gap-3 overflow-hidden px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex-col items-stretch gap-3 overflow-hidden px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -231,7 +232,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       <Trash2 />
                     </Button>
                   </div>
-                </GlassRow>
+                </ListRow>
               ))
             )}
           </div>

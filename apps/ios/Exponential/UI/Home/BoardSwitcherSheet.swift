@@ -11,6 +11,13 @@ import SwiftUI
 struct BoardSwitcherSheet: View {
     let boardLoader: MultiAccountBoardLoader?
     let currentBoard: CurrentBoardRef?
+    /// EXP-1075: the caller's own LIVE runs per team (TeamState), passed IN
+    /// rather than read from the environment — a sheet is presented off the
+    /// host node and one explicit value beats depending on that propagation.
+    /// The team headers wear a dot for the teams that have some; the ACTIVE
+    /// team's runs already light the Agents tab, so it never does.
+    var liveRunsByTeam: [String: CodingSessionOwnership.TeamLiveRuns] = [:]
+    var activeTeamId: String?
     let onSelect: (_ accountId: String, _ boardId: String) -> Void
     /// EXP-698 r5 (Android parity): creating a board and creating a team are
     /// both reachable FROM the switcher — the two things a switcher with
@@ -97,6 +104,7 @@ struct BoardSwitcherSheet: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.85))
                 Spacer()
+                liveRunsDot(teamId: block.team.id)
             }
             .padding(.horizontal, 4)
 
@@ -117,6 +125,20 @@ struct BoardSwitcherSheet: View {
                     action: onCreateBoard
                 )
             }
+        }
+    }
+
+    /// Amber when a live run of the caller's in THIS team wants them, else
+    /// green — the Agents tab dot's tone rule (`CodingSessionDisplayState`).
+    /// A dot, never a count: the switcher answers "where", the Agents surface
+    /// answers "how many".
+    @ViewBuilder
+    private func liveRunsDot(teamId: String) -> some View {
+        if teamId != activeTeamId, let runs = liveRunsByTeam[teamId], runs.count > 0 {
+            Circle()
+                .fill(SessionStateDot.color(runs.needsInput ? .needsInput : .running))
+                .frame(width: 6, height: 6)
+                .accessibilityLabel("Live runs")
         }
     }
 

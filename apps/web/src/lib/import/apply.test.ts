@@ -27,7 +27,17 @@ class MemoryPorts implements ApplyPorts {
     members: [{ userId: `member-hannes`, email: `hannes.robier@youspi.com`, name: `Hannes` }],
   }
   map = new Map<string, Map<string, string>>()
-  created = { boards: [] as string[], statuses: [] as string[], labels: [] as string[], invites: [] as string[] }
+  created = {
+    boards: [] as string[],
+    statuses: [] as string[],
+    labels: [] as string[],
+    members: [] as string[],
+    invites: [] as string[],
+  }
+  // EXP-1076: addresses `createPlaceholder` must answer with `null` — an
+  // Exponential account outside this team.
+  foreignAccounts = new Set<string>()
+  membersChanged = 0
   archived: string[] = []
   batches: PlannedIssueWrite[][] = []
   links: PlannedLink[] = []
@@ -72,6 +82,19 @@ class MemoryPorts implements ApplyPorts {
     this.created.labels.push(input.name)
     this.state = { ...this.state, labels: [...this.state.labels, { id, name: input.name }] }
     return { id }
+  }
+  async createPlaceholder(input: { email: string; name: string }) {
+    this.created.members.push(input.email)
+    if (this.foreignAccounts.has(input.email.trim().toLowerCase())) return { memberUserId: null }
+    const memberUserId = `placeholder-${input.email}`
+    this.state = {
+      ...this.state,
+      members: [...this.state.members, { userId: memberUserId, email: input.email, name: input.name }],
+    }
+    return { memberUserId }
+  }
+  async onMembersChanged() {
+    this.membersChanged += 1
   }
   async createInvite(input: { email: string; name: string }) {
     this.created.invites.push(input.email)
@@ -168,6 +191,7 @@ describe(`applyBundle`, () => {
       boards: [`MAIN`],
       statuses: [`Doing`],
       labels: [`Brand new`],
+      members: [],
       invites: [],
     })
     expect(result.counts).toMatchObject({
@@ -227,6 +251,74 @@ describe(`applyBundle`, () => {
     expect(tenWrite.comments[0]!.body).toMatch(/^\*Imported from Test Tracker/)
   })
 
+  it(`seats a planned placeholder once, attributes their content to it, and reuses it on a re-run`, async () => {
+    const ports = new MemoryPorts()
+    const seated = plan({
+      users: {
+        "u-h": { mode: `member`, userId: `member-hannes` },
+        "u-x": { mode: `placeholder`, name: `Stranger`, email: `Stranger@example.com` },
+      },
+    })
+    const result = await applyBundle(bundleFixture(), seated, ports, options)
+    expect(ports.created.members).toEqual([`Stranger@example.com`])
+    expect(ports.created.invites).toEqual([])
+    expect(result.counts.members).toBe(1)
+    expect(ports.membersChanged).toBe(1)
+    const tenWrite = ports.batches[0]![1]!
+    expect(tenWrite.issue.creatorId).toBe(`placeholder-Stranger@example.com`)
+    expect(tenWrite.comments[0]!.authorId).toBe(`placeholder-Stranger@example.com`)
+    expect(tenWrite.comments[0]!.body).not.toMatch(/^\*Imported from/)
+    expect(ports.map.get(`user`)?.get(`u-x`)).toBe(`placeholder-Stranger@example.com`)
+    // Second run: the placeholder is on the roster → nobody is seated again.
+    const again = await applyBundle(bundleFixture(), seated, ports, options)
+    expect(ports.created.members).toEqual([`Stranger@example.com`])
+    expect(again.counts.members).toBe(0)
+    expect(ports.membersChanged).toBe(1)
+  })
+
+  it(`falls back to the importer when the address belongs to an account outside the team`, async () => {
+    const ports = new MemoryPorts()
+    ports.foreignAccounts.add(`stranger@example.com`)
+    const result = await applyBundle(
+      bundleFixture(),
+      plan({
+        users: {
+          "u-h": { mode: `member`, userId: `member-hannes` },
+          "u-x": { mode: `placeholder`, name: `Stranger`, email: `Stranger@example.com` },
+        },
+      }),
+      ports,
+      options
+    )
+    expect(result.counts.members).toBe(0)
+    const tenWrite = ports.batches[0]![1]!
+    expect(tenWrite.issue.creatorId).toBeNull()
+    expect(tenWrite.comments[0]!.authorId).toBe(IMPORTER)
+    expect(tenWrite.comments[0]!.body).toMatch(/^\*Imported from Test Tracker/)
+    expect(result.warnings.join(`\n`)).toMatch(
+      /Stranger already has an Exponential account outside this team; their content is attributed to you\. Invite them from Settings → Members to reconnect it\./
+    )
+  })
+
+  it(`never seats someone whose only content sits on a skipped board`, async () => {
+    const ports = new MemoryPorts()
+    await applyBundle(
+      bundleFixture(),
+      plan({
+        boards: { "b-main": { mode: `skip` } },
+        users: {
+          "u-h": { mode: `placeholder`, name: `Hannes`, email: `hannes@example.com` },
+          "u-x": { mode: `invite`, name: `Stranger`, email: `Stranger@example.com` },
+        },
+      }),
+      ports,
+      options
+    )
+    expect(ports.created.members).toEqual([])
+    expect(ports.created.invites).toEqual([])
+    expect(ports.membersChanged).toBe(0)
+  })
+
   it(`invites a planned person once, attributes their content to the placeholder, and reuses it on a re-run`, async () => {
     const ports = new MemoryPorts()
     const invited = plan({
@@ -256,6 +348,7 @@ describe(`applyBundle`, () => {
       boards: [`MAIN`],
       statuses: [`Doing`],
       labels: [`Brand new`],
+      members: [],
       invites: [],
     })
     expect(result.counts).toMatchObject({ boards: 0, statuses: 0, labels: 0, issues: 0 })
@@ -385,7 +478,7 @@ describe(`applyBundle`, () => {
       labels: [...ports.state.labels, { id: `label-old`, name: `brand NEW` }],
     }
     await applyBundle(bundleFixture(), plan(), ports, options)
-    expect(ports.created).toEqual({ boards: [], statuses: [], labels: [], invites: [] })
+    expect(ports.created).toEqual({ boards: [], statuses: [], labels: [], members: [], invites: [] })
     expect(ports.batches[0]![0]!.issue.boardId).toBe(`board-old`)
     expect(ports.batches[0]![0]!.issue.statusId).toBe(`status-old`)
   })

@@ -602,6 +602,8 @@ pub const RUN_RESUME: ExpIcon = ExpIcon::RotateCcw;
 pub const SC_PUSH: ExpIcon = ExpIcon::Upload;
 /// Registry concept `session-shell` -> Lucide `terminal`.
 pub const SESSION_SHELL: ExpIcon = ExpIcon::Terminal;
+/// Registry concept `session-tree` -> Lucide `workflow`.
+pub const SESSION_TREE: ExpIcon = ExpIcon::Workflow;
 /// Registry concept `settings-about` -> Lucide `info`.
 pub const SETTINGS_ABOUT: ExpIcon = ExpIcon::Info;
 /// Registry concept `settings-account` -> Lucide `circle-user`.

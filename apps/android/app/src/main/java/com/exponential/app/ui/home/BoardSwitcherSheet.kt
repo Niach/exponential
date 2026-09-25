@@ -1,7 +1,9 @@
 package com.exponential.app.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Icon
@@ -20,14 +23,18 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.ServerBoardGroup
+import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.data.db.TeamBlock
 import com.exponential.app.ui.components.BoardRow
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -46,6 +53,14 @@ fun BoardSwitcherSheet(
     groups: List<ServerBoardGroup>,
     /** The board the Issues tab is showing — its row takes the active paint. */
     currentBoardId: String?,
+    /**
+     * EXP-1075: my LIVE runs per team (AppViewModel.liveRunsByTeam). Every
+     * session surface on the phone is selected-team scoped, so this sheet is
+     * where a run in ANOTHER team becomes findable: its team wears a dot.
+     */
+    liveRunsByTeam: Map<String, TeamLiveRuns> = emptyMap(),
+    /** The team the app is on — its runs light the Agents tab, so no dot. */
+    selectedTeamId: String? = null,
     onSelect: (accountId: String, boardId: String) -> Unit,
     onCreateBoard: (teamId: String) -> Unit,
     onCreateTeam: () -> Unit,
@@ -84,6 +99,8 @@ fun BoardSwitcherSheet(
                         group = group,
                         showServerHeader = groups.size > 1,
                         currentBoardId = currentBoardId,
+                        liveRunsByTeam = liveRunsByTeam,
+                        selectedTeamId = selectedTeamId,
                         onSelect = onSelect,
                         onCreateBoard = onCreateBoard,
                     )
@@ -107,6 +124,8 @@ private fun ServerSection(
     group: ServerBoardGroup,
     showServerHeader: Boolean,
     currentBoardId: String?,
+    liveRunsByTeam: Map<String, TeamLiveRuns>,
+    selectedTeamId: String?,
     onSelect: (accountId: String, boardId: String) -> Unit,
     onCreateBoard: (teamId: String) -> Unit,
 ) {
@@ -139,6 +158,8 @@ private fun ServerSection(
                 accountId = group.accountId,
                 block = block,
                 currentBoardId = currentBoardId,
+                liveRunsByTeam = liveRunsByTeam,
+                selectedTeamId = selectedTeamId,
                 onSelect = onSelect,
                 onCreateBoard = onCreateBoard,
             )
@@ -151,6 +172,8 @@ private fun TeamBlockView(
     accountId: String,
     block: TeamBlock,
     currentBoardId: String?,
+    liveRunsByTeam: Map<String, TeamLiveRuns>,
+    selectedTeamId: String?,
     onSelect: (accountId: String, boardId: String) -> Unit,
     onCreateBoard: (teamId: String) -> Unit,
 ) {
@@ -169,6 +192,23 @@ private fun TeamBlockView(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
+            // EXP-1075: my live runs over THERE. A dot, never a count — the
+            // same rule as the switcher control's, resolved per team here so
+            // the sheet answers "which team" the control only hints at. The
+            // selected team never wears one: its runs light the Agents tab.
+            val live = liveRunsByTeam[block.team.id]
+            if (live != null && live.count > 0 && block.team.id != selectedTeamId) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(
+                            if (live.needsInput) DesignTokens.Semantic.Yellow
+                            else DesignTokens.Semantic.Green,
+                            CircleShape,
+                        )
+                        .semantics { contentDescription = "Live runs" },
+                )
+            }
         }
         block.boards.forEach { board ->
             key(board.id) {

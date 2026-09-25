@@ -65,6 +65,7 @@ import {
   getTeamUsage,
   assertCanInviteMember,
   countPendingInvites,
+  countTeamMembers,
   getInviteCapacity,
   resolveInviteCapacity,
   assertCanCreateWidget,
@@ -74,7 +75,7 @@ import {
   type PlanTier,
 } from "./billing"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "./plan-limit-error"
-import { teamInvites } from "@/db/schema"
+import { teamInvites, users } from "@/db/schema"
 
 const TEAM_ID = `prod_team_monthly`
 const TEAM_YEARLY_ID = `prod_team_yearly`
@@ -455,6 +456,23 @@ describe(`countPendingInvites — placeholder invites are not pending seats (EXP
     expect(where).toContain(teamInvites.placeholderUserId)
     expect(where).toContain(teamInvites.acceptedAt)
     expect(where).toContain(teamInvites.expiresAt)
+  })
+})
+
+// EXP-1076: the Linear import seats people nobody invited (sent_at NULL, the
+// row already lapsed). They are attributable from day one but cost no seat
+// until an owner actually sends the first link.
+describe(`countTeamMembers — an uninvited placeholder holds no seat (EXP-1076)`, () => {
+  it(`charges a real account, or a placeholder with a live SENT invite`, async () => {
+    selectResults.push([{ count: 2 }])
+    await expect(countTeamMembers(WS)).resolves.toBe(2)
+    const where = flattenSqlChunks(whereClauses.at(-1))
+    // The seat test: not a placeholder, OR invited (unaccepted, sent, live).
+    expect(where).toContain(users.placeholderAt)
+    expect(where).toContain(teamInvites.sentAt)
+    expect(where).toContain(teamInvites.acceptedAt)
+    expect(where).toContain(teamInvites.expiresAt)
+    expect(where).toContain(teamInvites.placeholderUserId)
   })
 })
 

@@ -461,6 +461,7 @@ describe(`shape column + trash contracts`, () => {
       `email`,
       `placeholder_user_id`,
       `accepted_at`,
+      `sent_at`,
       `expires_at`,
       `created_at`,
       `updated_at`,

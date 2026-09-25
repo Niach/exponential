@@ -33,6 +33,10 @@ export const Route = createFileRoute(`/api/shapes/team-invites`)({
           // lists badge that row "invited, not joined" while unaccepted.
           `placeholder_user_id`,
           `accepted_at`,
+          // EXP-1076: NULL = a roster row nobody was ever invited (the Linear
+          // import) — member lists read "Not invited" and offer a first send,
+          // never "Invite expired".
+          `sent_at`,
           `expires_at`,
           `created_at`,
           `updated_at`,

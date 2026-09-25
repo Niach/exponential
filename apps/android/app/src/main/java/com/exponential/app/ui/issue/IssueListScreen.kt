@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,6 +49,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
@@ -116,6 +119,9 @@ import com.exponential.app.ui.gettingstarted.GettingStartedCards
 import com.exponential.app.ui.gettingstarted.GettingStartedEntryKey
 import com.exponential.app.ui.gettingstarted.GettingStartedState
 import com.exponential.app.ui.gettingstarted.GettingStartedViewModel
+import com.exponential.app.domain.OtherTeamsLive
+import com.exponential.app.domain.TeamLiveRuns
+import com.exponential.app.domain.otherTeamsLive
 import com.exponential.app.ui.home.BoardSwitcherSheet
 import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.icons.ExpIcons
@@ -163,6 +169,13 @@ fun IssueListScreen(
     onOpenDevices: () -> Unit = {},
     onOpenActions: () -> Unit = {},
     onNewIssue: () -> Unit = {},
+    // EXP-1075: my LIVE runs grouped by team (AppViewModel.liveRunsByTeam) and
+    // the team the app is on. Every session surface here is selected-team
+    // scoped, so a run in another team is invisible until you switch — the
+    // board switcher wears a dot for it (and the sheet marks WHICH team).
+    // Root mount only; a pushed board has no switcher.
+    liveRunsByTeam: Map<String, TeamLiveRuns> = emptyMap(),
+    selectedTeamId: String? = null,
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -335,6 +348,7 @@ fun IssueListScreen(
                         BoardSwitcherControl(
                             board = state.board,
                             enabled = hasAnyBoard,
+                            otherTeamsLive = otherTeamsLive(liveRunsByTeam, selectedTeamId),
                             onClick = { showSwitcher = true },
                         )
                         Spacer(Modifier.weight(1f))
@@ -660,6 +674,8 @@ fun IssueListScreen(
         BoardSwitcherSheet(
             groups = homeState?.boardTree ?: emptyList(),
             currentBoardId = state.board?.id,
+            liveRunsByTeam = liveRunsByTeam,
+            selectedTeamId = selectedTeamId,
             onSelect = { accountId, pickedBoardId ->
                 homeViewModel.selectBoard(accountId, pickedBoardId)
                 showSwitcher = false
@@ -930,6 +946,8 @@ private fun IssueListContent(
 private fun BoardSwitcherControl(
     board: BoardEntity?,
     enabled: Boolean,
+    // EXP-1075: my live runs in teams this screen is NOT showing.
+    otherTeamsLive: OtherTeamsLive = OtherTeamsLive(any = false, needsInput = false),
     onClick: () -> Unit,
 ) {
     // EXP-698: the control stays ENABLED-looking with nowhere to switch to —
@@ -943,14 +961,37 @@ private fun BoardSwitcherControl(
         maxLines = 1,
         leading = board?.let { { BoardIcon(it) } },
         trailing = {
-            Icon(
-                ExpIcons.uiSelector,
-                contentDescription = "Switch board",
-                modifier = Modifier.size(GlassPillDefaults.MdGlyphSize),
-                tint = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-                ),
-            )
+            Box {
+                Icon(
+                    ExpIcons.uiSelector,
+                    contentDescription = "Switch board",
+                    modifier = Modifier.size(GlassPillDefaults.MdGlyphSize),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                    ),
+                )
+                // EXP-1075: a DOT, never a count — the number belongs to the
+                // list you reach by switching. Amber while one of those runs
+                // waits on you, green while they just run: the bottom bar's
+                // agent-dot palette, so the two read as the same signal.
+                if (otherTeamsLive.any) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 2.dp, y = (-2).dp)
+                            .size(6.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                            .background(
+                                if (otherTeamsLive.needsInput) DesignTokens.Semantic.Yellow
+                                else DesignTokens.Semantic.Green,
+                                CircleShape,
+                            )
+                            .semantics {
+                                contentDescription = "Live runs in another team"
+                            },
+                    )
+                }
+            }
         },
     )
 }

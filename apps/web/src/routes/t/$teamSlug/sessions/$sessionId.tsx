@@ -435,12 +435,15 @@ function OwnSessionPage({
         prFiles={prFiles}
         prUrl={prUrl}
         graphBadge={
+          /* EXP-1079: the ONE node feeds the phone's bar (a chip) and the
+             md+ work header (the toggle's rung, beside Stop / Resume). */
           <PrGraphBadge
             teamId={team.id}
             teamSlug={teamSlug}
             face={face === `diff` ? `changes` : `run`}
             issue={issue}
             session={session}
+            placement={isMobile ? `chip` : `header`}
           />
         }
         renderMobileHeader={renderMobileHeader}

@@ -124,6 +124,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`device-settings`]: `Surfaces`,
   toast: `Feedback`,
   [`session-tree`]: `Lists & rows`,
+  [`pr-graph-badge`]: `Buttons & chips`,
   [`workflow-graph`]: `Surfaces`,
 }
 

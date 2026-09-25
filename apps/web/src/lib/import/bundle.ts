@@ -278,6 +278,10 @@ export const importPreviewSchema = z.object({
       })
     )
     .default([]),
+  // EXP-1076: the `*ByBoard` maps are the wizard's RELEVANCE maps — which
+  // board keys a status / label / user actually appears on, so skipping a
+  // team hides everything that only lived there. Optional throughout: a
+  // preview stored by an older build must still parse.
   statuses: z.array(
     z.object({
       key: keySchema,
@@ -286,6 +290,7 @@ export const importPreviewSchema = z.object({
       category: issueStatusCategorySchema,
       color: hexColorSchema,
       issueCount: z.number().int().nonnegative(),
+      issueCountByBoard: z.record(keySchema, z.number().int().nonnegative()).optional(),
     })
   ),
   labels: z.array(
@@ -294,6 +299,7 @@ export const importPreviewSchema = z.object({
       name: z.string(),
       color: hexColorSchema,
       issueCount: z.number().int().nonnegative(),
+      issueCountByBoard: z.record(keySchema, z.number().int().nonnegative()).optional(),
     })
   ),
   users: z.array(
@@ -304,6 +310,11 @@ export const importPreviewSchema = z.object({
       active: z.boolean(),
       issueCount: z.number().int().nonnegative(),
       commentCount: z.number().int().nonnegative(),
+      // Issues on that board the user is ASSIGNED TO **or** CREATED — a
+      // relevance map, wider than the displayed `issueCount` (assignee-only
+      // on purpose: it is the number the wizard shows).
+      issueCountByBoard: z.record(keySchema, z.number().int().nonnegative()).optional(),
+      commentCountByBoard: z.record(keySchema, z.number().int().nonnegative()).optional(),
     })
   ),
   counts: z.object({
@@ -365,14 +376,23 @@ export const labelPlanSchema = z.discriminatedUnion(`mode`, [
   z.object({ mode: z.literal(`skip`) }),
 ])
 
-// EXP-630: a source user maps to a team member — an existing one, or the
-// PLACEHOLDER member the wizard's inline invite created for them (they are on
-// the roster at once; their attributions carry over when they join) — or its
-// content is attributed to the importer.
+// EXP-630/EXP-1076: a source user maps to a team member — an existing one, a
+// PLACEHOLDER member seated for them, or an INVITED one — or its content is
+// attributed to the importer.
 export const userPlanSchema = z.discriminatedUnion(`mode`, [
   z.object({ mode: z.literal(`member`), userId: z.string().min(1) }),
-  // Invited when the import starts: a placeholder member with this name
-  // and address (editable in the wizard), claimed when the person signs in.
+  // EXP-1076, the default for anyone the roster does not know: a placeholder
+  // member created when the import starts, so their issues and comments carry
+  // their name from day one. NO mail goes out and NO seat is spent — the
+  // person is claimed when they sign in through this address, or an owner
+  // sends them a real invite from Settings → Members later.
+  z.object({
+    mode: z.literal(`placeholder`),
+    name: z.string().trim().max(180),
+    email: z.string().trim().max(255),
+  }),
+  // The mailing, seat-gated option the wizard still offers: the invite goes
+  // out when the import starts and the person joins by accepting it.
   z.object({
     mode: z.literal(`invite`),
     name: z.string().trim().max(180),
@@ -432,6 +452,9 @@ export const importCountsSchema = z.object({
   boards: z.number().int().nonnegative(),
   statuses: z.number().int().nonnegative(),
   labels: z.number().int().nonnegative(),
+  // Placeholder members seated by this run (EXP-1076); `invites` stays the
+  // count of invitations actually mailed.
+  members: z.number().int().nonnegative().default(0),
   invites: z.number().int().nonnegative(),
   issues: z.number().int().nonnegative(),
   comments: z.number().int().nonnegative(),
@@ -447,6 +470,7 @@ export function emptyImportCounts(): ImportCounts {
     boards: 0,
     statuses: 0,
     labels: 0,
+    members: 0,
     invites: 0,
     issues: 0,
     comments: 0,
@@ -464,6 +488,9 @@ export const dryRunResultSchema = z.object({
     boardsToCreate: z.number().int().nonnegative(),
     statusesToCreate: z.number().int().nonnegative(),
     labelsToCreate: z.number().int().nonnegative(),
+    // Placeholder members this plan would seat (EXP-1076); default keeps a
+    // dry run stored by the previous build parsing.
+    members: z.number().int().nonnegative().default(0),
     invites: z.number().int().nonnegative(),
     issues: z.number().int().nonnegative(),
     alreadyImported: z.number().int().nonnegative(),

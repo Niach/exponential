@@ -6,8 +6,10 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 // EXP-630: what the Members list reads off the synced invites — a member is
-// "invited, not joined" while an invite bound to it is unaccepted. Mirrors
-// web's placeholder-status.test.ts case for case.
+// "invited, not joined" while an invite bound to it is unaccepted. EXP-1076:
+// an imported roster row nobody was ever sent a link for reads "Not invited",
+// never "Invite expired". Mirrors web's placeholder-status.test.ts case for
+// case.
 class PlaceholderStatusTest {
 
     private val nowMs = instant("2026-09-24T10:00:00Z")
@@ -21,11 +23,13 @@ class PlaceholderStatusTest {
         placeholderUserId: String?,
         acceptedAt: String? = null,
         expiresAt: String,
+        sentAt: String? = "2026-09-17 10:00:00+00",
     ) = TeamInviteEntity(
         id = id,
         teamId = "team-1",
         role = "member",
         placeholderUserId = placeholderUserId,
+        sentAt = sentAt,
         acceptedAt = acceptedAt,
         expiresAt = expiresAt,
         createdAt = "2026-09-17 10:00:00+00",
@@ -59,8 +63,39 @@ class PlaceholderStatusTest {
         assertEquals(PlaceholderStatus.PENDING, placeholderStatuses(rows.reversed(), nowMs)["p"])
     }
 
+    // EXP-1076: the import stamps expires_at = created_at, so the row is
+    // "expired" by date from the moment it exists — the label must not say so.
+    // An empty string reads the same as null.
     @Test
-    fun labelsBothStates() {
+    fun readsANeverSentRowAsUnsentWhateverItsExpirySays() {
+        val statuses = placeholderStatuses(
+            listOf(
+                invite("i1", "p-import", expiresAt = earlier, sentAt = null),
+                invite("i2", "p-future", expiresAt = later, sentAt = null),
+                invite("i3", "p-empty", expiresAt = later, sentAt = ""),
+            ),
+            nowMs,
+        )
+        assertEquals(PlaceholderStatus.UNSENT, statuses["p-import"])
+        assertEquals(PlaceholderStatus.UNSENT, statuses["p-future"])
+        assertEquals(PlaceholderStatus.UNSENT, statuses["p-empty"])
+    }
+
+    @Test
+    fun ranksPendingOverExpiredOverUnsentInEitherOrder() {
+        val unsent = invite("i-u", "p", expiresAt = earlier, sentAt = null)
+        val expired = invite("i-e", "p", expiresAt = earlier)
+        val pending = invite("i-p", "p", expiresAt = later)
+        assertEquals(PlaceholderStatus.EXPIRED, placeholderStatuses(listOf(unsent, expired), nowMs)["p"])
+        assertEquals(PlaceholderStatus.EXPIRED, placeholderStatuses(listOf(expired, unsent), nowMs)["p"])
+        assertEquals(PlaceholderStatus.PENDING, placeholderStatuses(listOf(unsent, pending), nowMs)["p"])
+        assertEquals(PlaceholderStatus.PENDING, placeholderStatuses(listOf(pending, unsent), nowMs)["p"])
+        assertEquals(PlaceholderStatus.PENDING, placeholderStatuses(listOf(pending, expired, unsent), nowMs)["p"])
+    }
+
+    @Test
+    fun labelsAllThreeStates() {
+        assertEquals("Not invited", PlaceholderStatus.UNSENT.label)
         assertEquals("Invited", PlaceholderStatus.PENDING.label)
         assertEquals("Invite expired", PlaceholderStatus.EXPIRED.label)
     }

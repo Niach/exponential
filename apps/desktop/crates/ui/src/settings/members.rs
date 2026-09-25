@@ -17,8 +17,11 @@
 //! control is [`super::invite_form::InviteForm`] — the web's shared form, Name
 //! beside the address — and a member row that has not joined yet wears a muted
 //! "Invited" / "Invite expired" pill (the [`domain::placeholder_status`] rule
-//! over the synced invites) with "Resend invite" in its overflow menu. The
-//! pending list is what is left: unaccepted AND unexpired links.
+//! over the synced invites) with "Resend invite" in its overflow menu. EXP-1076:
+//! a row the Linear import seated without ever mailing (`sent_at` NULL) wears
+//! "Not invited" and the menu says "Send invite" — the same re-invite call
+//! underneath. The pending list is what is left: unaccepted AND unexpired
+//! links.
 //!
 //! Reads are live: members/users/invites come from the synced collections
 //! (the web reads the same shapes); role/remove/revoke are §4.1 un-gated
@@ -294,10 +297,9 @@ impl MembersPane {
             );
         }
 
-        // EXP-721: a member is an OBJECT, not a field of a form — so every
-        // team-settings entity list wears the gapped `glass_row_card` ladder
-        // (the labels list's idiom, now the rule on all four clients) instead
-        // of fusing into one inset-grouped block.
+        // EXP-1076: a member is an OBJECT, not a field of a form — so this
+        // list is the hairline LADDER every settings entity list wears:
+        // `list_row` + `flat_row`, the web `SETTINGS_LIST_CLASS` twin.
         crate::surface::flat_row()
             .flex()
             .w_full()
@@ -330,9 +332,12 @@ impl MembersPane {
                     i_am_owner,
                     // EXP-630: a placeholder member gets "Resend invite" —
                     // the dialog needs the team plus the row's own prefill.
-                    placeholder.map(|_| ResendContext {
+                    // EXP-1076: the status picks the verb ("Send invite" for
+                    // a row nobody was ever invited).
+                    placeholder.map(|status| ResendContext {
                         team_id: team_id.to_string(),
                         display_name: name.clone(),
+                        status,
                         target: ResendTarget {
                             user_id: member.user_id.clone(),
                             name: row
@@ -360,12 +365,15 @@ struct ResendContext {
     team_id: String,
     /// The row's resolved label — it leads the dialog's description.
     display_name: String,
+    /// Which invite state the row is in — "Send invite" (never invited) or
+    /// "Resend invite", in the menu AND the dialog it opens.
+    status: PlaceholderStatus,
     target: ResendTarget,
 }
 
-/// Web `DropdownMenu` per member row: Resend invite (owner, not self, still
-/// invited), role changes (owner, not self), then Leave team (self) / Remove
-/// member (owner).
+/// Web `DropdownMenu` per member row: Resend invite / Send invite (owner, not
+/// self, still a placeholder), role changes (owner, not self), then Leave team
+/// (self) / Remove member (owner).
 fn member_actions_menu(
     member_id: String,
     name: &str,
@@ -389,7 +397,7 @@ fn member_actions_menu(
                 // unfinished about this row.
                 if let Some(resend) = resend.clone().filter(|_| i_am_owner && !is_self) {
                     menu = menu.item(
-                        PopupMenuItem::new("Resend invite")
+                        PopupMenuItem::new(resend.status.invite_verb())
                             .icon(Icon::new(registry::UI_MAIL))
                             .on_click(move |_, window, cx| {
                                 let resend = resend.clone();
@@ -398,6 +406,7 @@ fn member_actions_menu(
                                     cx,
                                     resend.team_id,
                                     resend.display_name,
+                                    resend.status,
                                     resend.target,
                                 );
                             }),
@@ -676,9 +685,9 @@ impl Render for MembersPane {
                                 .text_color(cx.theme().muted_foreground)
                                 .child(expires),
                         );
-                    // EXP-721: a pending invite is an entity too — the same
-                    // gapped row card the member rows above it wear, instead
-                    // of the hand-rolled bordered box.
+                    // EXP-1076: a pending invite is an entity too — the same
+                    // hairline ladder rung (`list_row` + `flat_row`, the web
+                    // `SETTINGS_LIST_CLASS` twin) the member rows wear.
                     pending_rows = pending_rows.child(crate::surface::list_row(
                         crate::surface::flat_row()
                             .flex()

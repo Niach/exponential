@@ -35,7 +35,19 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Workflows**: the workflow screen drops its settings block; a new workflow takes its model pair from the runner machine's Workflow settings (a model for leaves and subagents, a strong model for the contract, the integration, high-risk nodes and every review), a node reads its own state, and the final pull request merges from the screen. A resumed reviewer stays the node's reviewer, is never spawned twice, and a refused verdict says what to do next.
 - **Issue lists**: rows select in bulk with a floating action bar on the board and beside an issue, and the due-date column collapses when no issue in the list has a due date. Ctrl-click opens the issue on Windows and Linux again.
 - **Machine settings**: the sheet is organised into pages, with a new Workflow settings page, and the API key section says what revoking a device's key does: it disconnects the device's coding runs, the device stays signed in.
+- **Work header**: the stack, batch and runs badge stands as tall as the controls beside it, the runs badge wears the workflow glyph, and the web shows it too.
+- **Teams**: the running list follows the active team, and the team switcher wears a dot when another team has one of your live runs (amber when it needs input).
+- **Settings lists and members**: every settings list on the web and in the desktop app follows one rule, the Linear import wizard is shorter and groups statuses across teams, and a roster member nobody has invited yet reads "Not invited" with a first Send invite, on every client.
 - **Settings**: shorter section copy on the web and in the desktop app.`,
+  },
+  {
+    id: `2026-09-25-work-header-badge`,
+    date: `2026-09-25`,
+    title: `The work header badge`,
+    summary: `The stack, batch and runs badge in the work header stands as tall as the controls beside it, the runs badge wears the workflow glyph, and the web shows it too.`,
+    body: `- **One height**: the badge that says what a piece of work is part of (a stacked pull request, a batch, the runs around this one) now stands at the face toggle's height beside Stop, Resume and Merge, on the web and in the desktop app, instead of a small chip next to tall controls.
+- **Runs badge**: on the Run face of a run that started or was started by other runs, the badge wears the workflow glyph instead of the robot, and the web shows it where only the desktop app did.
+- **Styleguide**: the badge and its popover have their own entry, with the glyph per relation and the rung it stands at.`,
   },
   {
     id: `2026-09-25-issue-context-menu`,

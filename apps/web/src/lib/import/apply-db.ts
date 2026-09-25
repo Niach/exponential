@@ -23,6 +23,8 @@ import {
   issueEvents,
   issueLabels,
   issues,
+  teamMembers,
+  users,
 } from "@/db/schema"
 import { boardIconValues, type BoardIcon } from "@/lib/domain"
 import { router, type Context } from "@/lib/trpc"
@@ -32,6 +34,12 @@ import { labelsRouter } from "@/lib/trpc/labels"
 import { teamsRouter } from "@/lib/trpc/teams"
 import { teamInvitesRouter } from "@/lib/trpc/team-invites"
 import { assertWithinStorageLimit } from "@/lib/billing"
+import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
+import {
+  createPlaceholderMember,
+  createUnsentPlaceholderInvite,
+  resolvePlaceholderIdentity,
+} from "@/lib/placeholder-members"
 import { deleteObject, uploadObject } from "@/lib/storage"
 import {
   buildAttachmentStorageKey,
@@ -244,6 +252,48 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
       return { id: label.id }
     },
 
+    // EXP-1076: the import's own placeholder port — NOT the invite router,
+    // because nothing is mailed and no seat is spent: the people an import
+    // found never asked to join. One transaction: an address that already
+    // belongs to an account is never re-created (only its owner may add it to
+    // a team — `null` sends the content to the importer), everyone else gets
+    // the roster row plus the unsent invite binding `teamInvites.create`
+    // turns into a real link later.
+    async createPlaceholder(input) {
+      const identity = resolvePlaceholderIdentity({ email: input.email, name: input.name })
+      return db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(sql`lower(${users.email}) = ${identity.email}`)
+          .limit(1)
+        if (existing) {
+          const [member] = await tx
+            .select({ userId: teamMembers.userId })
+            .from(teamMembers)
+            .where(
+              and(eq(teamMembers.teamId, job.teamId), eq(teamMembers.userId, existing.id))
+            )
+            .limit(1)
+          return { memberUserId: member ? existing.id : null }
+        }
+        const { userId } = await createPlaceholderMember(tx, {
+          teamId: job.teamId,
+          role: `member`,
+          identity,
+        })
+        await createUnsentPlaceholderInvite(tx, {
+          teamId: job.teamId,
+          placeholderUserId: userId,
+          invitedById: importer.id,
+          role: `member`,
+          email: identity.email,
+        })
+        return { memberUserId: userId }
+      })
+    },
+
+    // The seat-gated, mailing option the wizard still offers.
     async createInvite(input) {
       const { memberUserId } = await caller.teamInvites.create({
         teamId: job.teamId,
@@ -251,6 +301,13 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
         name: input.name,
       })
       return { memberUserId }
+    },
+
+    // The roster changed under the membership caches (10 s TTL): clear them
+    // once the user phase committed, so the issue writes and every shape that
+    // follows see the new members at once.
+    async onMembersChanged() {
+      invalidateMembershipCaches()
     },
 
     // EXP-500 archive (idempotent in the router): the archived-issues board

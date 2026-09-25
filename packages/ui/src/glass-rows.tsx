@@ -75,7 +75,8 @@ function GlassSectionHeader({
     </>
   )
   const bandClassName = cn(
-    `mb-1 flex w-full items-center gap-1.5 rounded-md bg-glass-section px-3 py-1.5`,
+    // EXP-1076: `group` so a `trailing` control can hover-reveal off the band.
+    `group mb-1 flex w-full items-center gap-1.5 rounded-md bg-glass-section px-3 py-1.5`,
     foldable &&
       `cursor-pointer text-left transition-colors duration-fast outline-none hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`,
     className
@@ -112,6 +113,13 @@ const LIST_ROW_INTERACTIVE = `cursor-pointer transition-colors duration-fast out
 // of side padding, 8px between the glyph and the text. The twin of
 // `SidebarMenuButton density="compact"`, which is exactly as tall.
 const LIST_ROW_COMPACT = `h-7 gap-2 px-2 py-0 text-sm`
+
+/** EXP-1076: THE settings ladder — the desktop `surface::list_row` twin. An
+ *  entity LIST in settings is a `GlassSectionHeader` band over gapless
+ *  `ListRow`s with ONE hairline between each pair and no outer box; form
+ *  FIELDS are `GlassGroup`. Gapped self-bordered `GlassRow` cards are legacy
+ *  in settings. */
+export const SETTINGS_LIST_CLASS = `flex flex-col divide-y divide-glass-stroke`
 
 function ListRow({
   interactive = false,

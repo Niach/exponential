@@ -24,6 +24,9 @@ import { useFeedbackWidgetAvailable } from "@/components/feedback-button"
 import { ChangelogSheet } from "@/components/whats-new"
 import { BoardSwitcherSheet } from "@/components/team/board-switcher-sheet"
 import { RecentRunsList } from "@/components/team/recent-runs-nav"
+import { TeamLiveDot } from "@/components/team/sidebar-rail"
+import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
+import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 import {
   resolveBoardTarget,
@@ -76,6 +79,12 @@ export function TeamMobileTopbar({
   // over what is RUNNING; the history is one tap away, never in the way.
   const [recentOpen, setRecentOpen] = useState(false)
   const feedbackAvailable = useFeedbackWidgetAvailable()
+  // EXP-1075: the phone's team picker is this button — it carries the same
+  // "a run of mine is live in another team" dot as the sidebar's.
+  const otherLive = otherTeamsLive(
+    useTeamLiveRuns(session?.user?.id),
+    team?.id
+  )
 
   // EXP-851: the Agent page joined the titled surfaces — it is a LIST screen
   // (composer over Running/Recent), not a detail, so it wears this bar like the
@@ -124,7 +133,17 @@ export function TeamMobileTopbar({
             <BoardGlyph board={boardTarget} className="size-3.5" />
           )}
           <span className="truncate">{switcherLabel}</span>
-          <NavTeamSwitcherIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          {/* EXP-1075: my live runs in the teams this screen is not showing. */}
+          <span className="relative flex shrink-0 items-center">
+            <NavTeamSwitcherIcon className="size-3.5 text-muted-foreground" />
+            <TeamLiveDot
+              live={otherLive.any ? otherLive : undefined}
+              placement="corner"
+              className="ring-background"
+              title="Runs in other teams"
+              data-testid="mobile-team-switcher-live-dot"
+            />
+          </span>
         </button>
       )}
 

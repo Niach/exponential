@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   claimPlaceholder,
   createPlaceholderMember,
+  createUnsentPlaceholderInvite,
   mergePlaceholderIntoUser,
   placeholderNameFromEmail,
   providerProfileFromClaims,
@@ -82,6 +83,38 @@ describe(`createPlaceholderMember`, () => {
       emailVerified: true,
     })
     expect(inserts[0]!.values.placeholderAt).toBeInstanceOf(Date)
+  })
+})
+
+describe(`createUnsentPlaceholderInvite`, () => {
+  it(`writes a link nobody was sent: sent_at null, already expired`, async () => {
+    // EXP-1076: the import seats people it never invited. The row exists so
+    // Members can badge "Not invited" and offer "Send invite"; every
+    // expiry-based reader must already read it as dead.
+    const now = new Date(`2026-01-01T00:00:00.000Z`)
+    const { tx, inserts } = fakeTx()
+    const { inviteId } = await createUnsentPlaceholderInvite(tx, {
+      teamId: `team-1`,
+      placeholderUserId: `ph-1`,
+      invitedById: `owner-1`,
+      email: `  Bob@Example.com `,
+      role: `member`,
+      now,
+    })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.table).toBe(teamInvites)
+    expect(inserts[0]!.values).toMatchObject({
+      id: inviteId,
+      teamId: `team-1`,
+      invitedById: `owner-1`,
+      role: `member`,
+      email: `bob@example.com`,
+      placeholderUserId: `ph-1`,
+      sentAt: null,
+    })
+    expect(inserts[0]!.values.expiresAt).toBe(now)
+    // Still a real random token — the binding is a row, not a credential.
+    expect(inserts[0]!.values.token).toMatch(/^[0-9a-f]{64}$/)
   })
 })
 

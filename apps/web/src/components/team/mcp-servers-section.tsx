@@ -29,10 +29,10 @@ import {
   type PickerOption,
   GlassGroup,
   GlassInputRow,
-  GlassRow,
   GlassSectionHeader,
   GlassToggleRow,
   ListRow,
+  SETTINGS_LIST_CLASS,
   Dialog,
   DialogBody,
   DialogCancel,
@@ -307,13 +307,15 @@ export function TeamMcpServersSection({
       {servers === null ? (
         <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
       ) : servers.length === 0 ? (
-        <GlassRow className="text-sm text-muted-foreground">
-          {isOwner
-            ? `No MCP servers yet. Add one to offer it on the Agent page.`
-            : `No MCP servers yet. The team owner can add one.`}
-        </GlassRow>
+        <div className={SETTINGS_LIST_CLASS}>
+          <ListRow className="px-3 py-2 text-sm text-muted-foreground">
+            {isOwner
+              ? `No MCP servers yet. Add one to offer it on the Agent page.`
+              : `No MCP servers yet. The team owner can add one.`}
+          </ListRow>
+        </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className={SETTINGS_LIST_CLASS}>
           {servers.map((server) => (
             <ServerRow
               key={server.id}
@@ -400,9 +402,13 @@ function BuiltinToolsGroup() {
         onToggle={() => setExpanded((open) => !open)}
       />
       {expanded && (
-        <div className="flex flex-col">
+        <div className={SETTINGS_LIST_CLASS}>
           {tools.map((tool) => (
-            <ListRow key={tool.name} className="gap-2 py-2" title={tool.name}>
+            <ListRow
+              key={tool.name}
+              className="gap-2 px-3 py-2"
+              title={tool.name}
+            >
               <ExponentialLogo
                 variant="light"
                 size={12}
@@ -446,7 +452,7 @@ function ServerRow({
   const auth = server.auth as McpAuth
   const transport = server.transport as McpTransport
   return (
-    <GlassRow className="flex-col items-stretch gap-2">
+    <ListRow className="flex-col items-stretch gap-2 px-3 py-2">
       <div className="flex items-center gap-3">
         <McpIcon className="size-4 shrink-0 text-foreground/70" />
         <div className="min-w-0 flex-1">
@@ -500,7 +506,7 @@ function ServerRow({
           onSignIn={onSignIn}
         />
       )}
-    </GlassRow>
+    </ListRow>
   )
 }
 

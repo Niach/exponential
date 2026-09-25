@@ -1,10 +1,15 @@
 //! EXP-897 §4 — the ONE stack/batch badge and its overlay.
 //!
 //! Every face of a top tab (Issue · Run · Changes) shares one work header, so
-//! it shares ONE badge: a small glass pill carrying the stack glyph, the batch
-//! glyph or both, plus `2 of 3` when the pull request is stacked. Clicking it
-//! opens a popover whose SECTION depends on the face that is up, built from
-//! the same row primitives and the same copy so the three read as one thing:
+//! it shares ONE badge: a glass pill carrying the stack glyph, the batch
+//! glyph or both, plus `2 of 3` when the pull request is stacked — or, on the
+//! Run face of a run with no pull-request relation at all, the `session-tree`
+//! glyph alone (EXP-1079). It stands BESIDE the face toggle, so it wears the
+//! toggle's rung like every other header action ([`badge_size`], EXP-926):
+//! the 24px chip it used to be read as a stray next to a 36px Stop. Clicking
+//! it opens a popover whose SECTION depends on the face that is up, built
+//! from the same row primitives and the same copy so the three read as one
+//! thing:
 //!
 //! * **Issue** — "Blocked by" (EXP-980: the transitive `blocks` GRAPH around
 //!   this issue, `crate::issue_graph`, where a flat chip list used to sit)
@@ -175,6 +180,15 @@ pub(crate) fn session_spec(session: &CodingSession, face: BadgeFace, cx: &App) -
 // The badge
 // ---------------------------------------------------------------------------
 
+/// EXP-1079 — the rung the header badge wears: it stands beside the face
+/// toggle, so it is a header action and takes the header action's size
+/// (`work_header::header_action_size`, EXP-926) — never a size of its own.
+/// The Reviews list's [`batch_glyph`] and the overlay's rows stay chips: they
+/// sit in lists, not beside the toggle.
+pub(crate) fn badge_size() -> PillSize {
+    crate::work_header::header_action_size(false)
+}
+
 /// The header pill: the glyph(s) and, when the pull request is stacked, its
 /// position. `None` when there is nothing to show on this face.
 pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyElement> {
@@ -183,6 +197,7 @@ pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyEl
     }
     let kind = pr_graph::badge_kind(&spec.graph);
     let muted = cx.theme().muted_foreground;
+    let size = badge_size();
     let glyphs: Vec<ExpIcon> = badge_glyphs(kind, &spec)
         .into_iter()
         .map(glyph_icon)
@@ -198,10 +213,10 @@ pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyEl
                 .map(|batch| format!("{} issues", batch.issues.len()))
         });
     let tooltip = badge_tooltip(&spec, kind);
-    let mut pill = glass_pill_button(id, PillSize::Sm, cx)
+    let mut pill = glass_pill_button(id, size, cx)
         .icon(
             Icon::new(glyphs[0].clone())
-                .with_size(px(PillSize::Sm.glyph()))
+                .with_size(px(size.glyph()))
                 .text_color(muted),
         )
         .tooltip(tooltip);
@@ -209,7 +224,7 @@ pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyEl
     for glyph in glyphs.iter().skip(1) {
         pill = pill.child(
             Icon::new(glyph.clone())
-                .with_size(px(PillSize::Sm.glyph()))
+                .with_size(px(size.glyph()))
                 .text_color(muted)
                 .into_any_element(),
         );
@@ -228,11 +243,13 @@ pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyEl
 }
 
 /// The glyph(s) the pill wears — never a raw lucide import, always the
-/// `pr-stack` / `pr-batch` CONCEPTS (EXP-273).
+/// `pr-stack` / `pr-batch` / `session-tree` CONCEPTS (EXP-273).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BadgeGlyph {
     Stack,
     Batch,
+    /// EXP-1079: the run's session tree — the `session-tree` concept (the
+    /// workflow glyph the tree's group rows wear), not the agent's robot.
     Runs,
 }
 
@@ -254,7 +271,7 @@ fn glyph_icon(glyph: BadgeGlyph) -> ExpIcon {
     match glyph {
         BadgeGlyph::Stack => registry::PR_STACK,
         BadgeGlyph::Batch => registry::PR_BATCH,
-        BadgeGlyph::Runs => registry::UI_AGENT_SOURCE,
+        BadgeGlyph::Runs => registry::SESSION_TREE,
     }
 }
 
@@ -646,6 +663,7 @@ pub(crate) fn batch_glyph(id: SharedString, issues: Vec<Issue>, cx: &App) -> Any
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_component::IconNamed as _;
 
     fn issue(identifier: &str, head: Option<&str>, base: Option<&str>) -> Issue {
         serde_json::from_value(serde_json::json!({
@@ -708,5 +726,32 @@ mod tests {
             ),
             vec![BadgeGlyph::Stack, BadgeGlyph::Batch]
         );
+    }
+
+    /// EXP-1079 — a run with no pull-request relation still has a family:
+    /// the Run face wears the `session-tree` concept for it, never the
+    /// agent's robot (`ui-agent-source`), which said "an agent" where the
+    /// popover says "the runs around this one".
+    #[test]
+    fn the_run_face_wears_the_session_tree_concept_without_a_pr_relation() {
+        let lone = [issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
+        assert_eq!(
+            badge_glyphs(None, &spec(BadgeFace::Run, &lone)),
+            vec![BadgeGlyph::Runs]
+        );
+        let path = |icon: ExpIcon| icon.path().to_string();
+        assert_eq!(path(glyph_icon(BadgeGlyph::Runs)), path(registry::SESSION_TREE));
+        assert_ne!(path(glyph_icon(BadgeGlyph::Runs)), path(registry::UI_AGENT_SOURCE));
+    }
+
+    /// EXP-1079 — the badge stands beside the face toggle, so it wears the
+    /// header action's rung (EXP-926): the toggle's own 36px, with the 16px
+    /// glyph that rung draws — not the 24px chip that read as a stray next to
+    /// Stop.
+    #[test]
+    fn the_badge_wears_the_header_action_rung() {
+        assert_eq!(badge_size(), crate::work_header::header_action_size(false));
+        assert_eq!(badge_size().height(), theme::tokens::size::CONTROL_LG);
+        assert_eq!(badge_size().glyph(), 16.);
     }
 }

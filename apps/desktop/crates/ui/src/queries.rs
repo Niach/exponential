@@ -7,7 +7,7 @@
 //! no SQL at render time. Grouping/sorting semantics live in `domain::board`
 //! (the verbatim `board-view.ts` port); this module only joins collections.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -2093,6 +2093,117 @@ pub(crate) fn own_ended_runs<'a>(
     out
 }
 
+/// EXP-1075 — how many of the caller's own LIVE runs each team has, and
+/// whether any of them wants a person.
+///
+/// The rail's Running section lists only the ACTIVE team's runs now (one
+/// team's board, one team's runs), so this is how the other teams stay
+/// visible: the team switcher wears a dot for them. It is therefore
+/// deliberately BYTE-EQUAL with what [`crate::sessions_section::rail_running_rows`]
+/// would draw after switching to that team — the same remote ∪ local union,
+/// the same relay gate, the same liveness rule — only folded by `team_id`
+/// instead of nested into a tree.
+///
+/// A row whose `team_id` is `None` is never counted: the column is NOT NULL
+/// server-side, so `None` is a decode gap, never "any team"
+/// ([`own_ended_runs`]'s rule).
+///
+/// `pr_state` resolves the PR state the attention rule reads (the run's
+/// issue first, then the run's own column — EXP-734), because a merged PR
+/// demotes `needs_input` ([`coding_session_display`]). Pure (unit-tested);
+/// [`own_live_runs_by_team_now`] is the `cx` wrapper.
+pub(crate) fn own_live_runs_by_team<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession> + Clone,
+    me: &str,
+    own_device_id: &str,
+    local_session_ids: &HashSet<String>,
+    remote_enabled: bool,
+    now_epoch: i64,
+    pr_state: impl Fn(&domain::rows::CodingSession) -> Option<String>,
+) -> BTreeMap<String, TeamLiveRuns> {
+    // The remote half needs a relay to be reachable at all (the rail's own
+    // gate); the LOCAL half needs none.
+    let mut rows: Vec<&domain::rows::CodingSession> = if remote_enabled {
+        remote_session_rows(
+            sessions.clone(),
+            me,
+            own_device_id,
+            local_session_ids,
+            now_epoch,
+        )
+    } else {
+        Vec::new()
+    };
+    rows.extend(
+        sessions
+            .filter(|session| local_session_ids.contains(&session.id))
+            .filter(|session| coding_session_is_live(session, now_epoch)),
+    );
+    let mut by_team: BTreeMap<String, TeamLiveRuns> = BTreeMap::new();
+    for row in rows {
+        let Some(team_id) = row.team_id.as_deref() else {
+            continue;
+        };
+        let entry = by_team.entry(team_id.to_string()).or_default();
+        entry.count += 1;
+        entry.needs_input |= coding_session_display(row, pr_state(row).as_deref())
+            == CodingSessionDisplay::NeedsInput;
+    }
+    by_team
+}
+
+/// EXP-1075 — one team's live-run tally: how many of my runs are going there,
+/// and whether any of them is parked on a question (which is what turns the
+/// switcher's dot amber).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TeamLiveRuns {
+    pub(crate) count: usize,
+    pub(crate) needs_input: bool,
+}
+
+/// [`own_live_runs_by_team`] over the live app state — the same preamble the
+/// rail's tree derives from (account, own device, relay switch, the sessions
+/// THIS process hosts). Anything missing yields an empty map: no account, no
+/// store, nothing to tally.
+pub(crate) fn own_live_runs_by_team_now(cx: &mut App) -> BTreeMap<String, TeamLiveRuns> {
+    let Some(me) = active_account(cx).map(|account| account.user_id) else {
+        return BTreeMap::new();
+    };
+    let own_device_id = own_device_id(cx);
+    let remote_enabled = remote_start_enabled(cx);
+    let local_sessions = crate::coding_flow::LocalSessions::global_ref(cx);
+    let Some(store) = Store::try_global(cx) else {
+        return BTreeMap::new();
+    };
+    let collections = store.collections().clone();
+    let now = chrono::Utc::now().timestamp();
+    let local_ids: HashSet<String> = local_sessions
+        .as_ref()
+        .map(|sessions| sessions.read(cx).session_ids().into_iter().collect())
+        .unwrap_or_default();
+    let issues = collections.issues.read(cx);
+    let sessions = collections.coding_sessions.read(cx);
+    // The collection's `iter()` is opaque (not `Clone`); the union below
+    // walks the rows twice, so materialise the references once.
+    let rows: Vec<&domain::rows::CodingSession> = sessions.iter().collect();
+    own_live_runs_by_team(
+        rows.iter().copied(),
+        &me,
+        &own_device_id,
+        &local_ids,
+        remote_enabled,
+        now,
+        |session| {
+            session
+                .issue_id
+                .as_deref()
+                .and_then(|id| issues.get(id))
+                .and_then(|issue| issue.pr_state.clone())
+                .or_else(|| session.pr_state.clone())
+        },
+    )
+}
+
 /// A run that is alive by STATUS — running or in review. Staleness is not
 /// consulted (that is [`coding_session_is_live`]): a run whose machine went
 /// quiet is still one of the issue's runs, it only sorts by its heartbeat.
@@ -4142,6 +4253,183 @@ mod tests {
         let picked = own_ended_runs(rows.iter(), "me", "t-1");
         let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
         assert_eq!(ids, vec!["here"]);
+    }
+
+    // ── EXP-1075: the team switcher's live-run dot ────────────────────────
+
+    /// A LIVE run, as the switcher's tally sees it: heartbeat-dated inside the
+    /// stale window (`NOW`), owned, on a machine and a team.
+    fn live_row(
+        id: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        team_id: Option<&str>,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": id,
+            "issue_id": "issue-1",
+            "user_id": user_id,
+            "device_id": device_id,
+            "team_id": team_id,
+            "status": "running",
+            "started_at": "2026-07-17T11:00:00Z",
+            "updated_at": "2026-07-17T11:59:00Z",
+        }))
+        .unwrap()
+    }
+
+    /// No PR anywhere — the plain case every tally below uses.
+    fn no_pr(_: &domain::rows::CodingSession) -> Option<String> {
+        None
+    }
+
+    /// The tally folds by `team_id`: each team gets its own count, and a team
+    /// with no live run of mine is absent rather than zero.
+    #[test]
+    fn live_runs_group_by_their_team() {
+        let rows = vec![
+            live_row("a", "me", Some("laptop"), Some("t-1")),
+            live_row("b", "me", Some("laptop"), Some("t-1")),
+            live_row("c", "me", Some("server"), Some("t-2")),
+        ];
+        let by_team = own_live_runs_by_team(
+            rows.iter(),
+            "me",
+            "this-ide",
+            &HashSet::new(),
+            true,
+            NOW,
+            no_pr,
+        );
+        assert_eq!(by_team.get("t-1").map(|runs| runs.count), Some(2));
+        assert_eq!(by_team.get("t-2").map(|runs| runs.count), Some(1));
+        assert_eq!(by_team.get("t-3"), None);
+    }
+
+    /// A row whose `team_id` did not decode belongs to no team's dot — the
+    /// `own_ended_runs` rule, because the column is NOT NULL server-side.
+    #[test]
+    fn a_live_run_without_a_team_is_never_counted() {
+        let rows = vec![live_row("teamless", "me", Some("laptop"), None)];
+        let by_team = own_live_runs_by_team(
+            rows.iter(),
+            "me",
+            "this-ide",
+            &HashSet::new(),
+            true,
+            NOW,
+            no_pr,
+        );
+        assert!(by_team.is_empty());
+    }
+
+    /// `needs_input` lifts the dot of ITS team only — the amber never bleeds
+    /// into a team whose runs are all quiet.
+    #[test]
+    fn needs_input_lifts_only_its_own_teams_badge() {
+        let mut asking = live_row("asking", "me", Some("laptop"), Some("t-1"));
+        asking.needs_input = Some(true);
+        let rows = vec![asking, live_row("quiet", "me", Some("server"), Some("t-2"))];
+        let by_team = own_live_runs_by_team(
+            rows.iter(),
+            "me",
+            "this-ide",
+            &HashSet::new(),
+            true,
+            NOW,
+            no_pr,
+        );
+        assert!(by_team["t-1"].needs_input);
+        assert!(!by_team["t-2"].needs_input);
+    }
+
+    /// Without a relay a run on ANOTHER machine cannot be opened at all (the
+    /// rail's own gate), so it raises no dot either.
+    #[test]
+    fn the_relay_switch_hides_other_machines_live_runs() {
+        let rows = vec![live_row("remote", "me", Some("laptop"), Some("t-1"))];
+        assert!(own_live_runs_by_team(
+            rows.iter(),
+            "me",
+            "this-ide",
+            &HashSet::new(),
+            false,
+            NOW,
+            no_pr,
+        )
+        .is_empty());
+    }
+
+    /// A run THIS process hosts needs no relay — it is reachable in-process,
+    /// so it counts with the switch off.
+    #[test]
+    fn a_locally_hosted_run_counts_without_the_relay() {
+        let rows = vec![live_row("here", "me", Some("this-ide"), Some("t-1"))];
+        let local: HashSet<String> = ["here".to_string()].into_iter().collect();
+        let by_team =
+            own_live_runs_by_team(rows.iter(), "me", "this-ide", &local, false, NOW, no_pr);
+        assert_eq!(by_team.get("t-1").map(|runs| runs.count), Some(1));
+    }
+
+    /// Ended and stale rows are absent everywhere else; they raise no dot
+    /// either, on either half of the union.
+    #[test]
+    fn an_ended_or_stale_run_never_counts() {
+        let mut ended = live_row("ended", "me", Some("this-ide"), Some("t-1"));
+        ended.status = Some("ended".to_string());
+        let mut stale = live_row("stale", "me", Some("laptop"), Some("t-1"));
+        // 3h old — past the 2h contract window.
+        stale.updated_at = Some("2026-07-17T09:00:00Z".to_string());
+        let local: HashSet<String> = ["ended".to_string()].into_iter().collect();
+        assert!(
+            own_live_runs_by_team(
+                vec![ended, stale].iter(),
+                "me",
+                "this-ide",
+                &local,
+                true,
+                NOW,
+                no_pr,
+            )
+            .is_empty()
+        );
+    }
+
+    /// A live session is owner-only (EXP-312): a teammate's run is not mine to
+    /// be told about.
+    #[test]
+    fn another_persons_run_never_counts() {
+        let rows = vec![live_row("theirs", "someone", Some("laptop"), Some("t-1"))];
+        assert!(own_live_runs_by_team(
+            rows.iter(),
+            "me",
+            "this-ide",
+            &HashSet::new(),
+            true,
+            NOW,
+            no_pr,
+        )
+        .is_empty());
+    }
+
+    /// `coding_session_display`'s merge rule rides along: a merged PR demotes
+    /// `needs_input`, so the run still counts but the dot stays green.
+    #[test]
+    fn a_merged_pr_state_demotes_needs_input() {
+        let mut asking = live_row("asking", "me", Some("laptop"), Some("t-1"));
+        asking.needs_input = Some(true);
+        let rows = vec![asking];
+        let by_team = own_live_runs_by_team(
+            rows.iter(),
+            "me",
+            "this-ide",
+            &HashSet::new(),
+            true,
+            NOW,
+            |_| Some(domain::contract::PR_STATE_MERGED.to_string()),
+        );
+        assert_eq!(by_team["t-1"].count, 1);
+        assert!(!by_team["t-1"].needs_input);
     }
 
     /// EXP-862 — the ONE dot mapping, as a table. Four surfaces used to derive

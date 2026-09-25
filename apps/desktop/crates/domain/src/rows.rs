@@ -439,6 +439,13 @@ pub struct TeamInvite {
     pub placeholder_user_id: Option<String>,
     #[serde(default)]
     pub accepted_at: Option<String>,
+    /// EXP-1076: when the invite LINK was issued. `None` = a roster row nobody
+    /// was ever invited (the Linear import seats its placeholders without a
+    /// mail); the badge reads "Not invited" and the menu offers a FIRST send.
+    /// Such rows are also stamped `expires_at = created_at`, so expiry alone
+    /// would misread them as lapsed.
+    #[serde(default)]
+    pub sent_at: Option<String>,
     #[serde(default)]
     pub expires_at: Option<String>,
     #[serde(default)]

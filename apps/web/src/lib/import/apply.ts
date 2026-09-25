@@ -18,7 +18,7 @@ import {
   type ImportPlan,
   type ImportProgress,
 } from "@/lib/import/bundle"
-import { IMPORT_BATCH_ASSET_FLUSH_BYTES } from "@/lib/import/limits"
+import { IMPORT_BATCH_ASSET_FLUSH_BYTES, IMPORT_MAX_PLACEHOLDERS } from "@/lib/import/limits"
 import { referencedKeys } from "@/lib/import/plan"
 import {
   planIssueWrite,
@@ -74,9 +74,19 @@ export interface ApplyPorts {
     category: IssueStatusCategory
   }): Promise<{ id: string; name: string }>
   createLabel(input: { name: string; color: string }): Promise<{ id: string }>
-  // Email invite = a placeholder member at once (EXP-630); null when the
-  // address belongs to an account that must accept the link first.
+  // EXP-1076: seat a placeholder member for an imported person — no mail, no
+  // seat. Null = the address belongs to an Exponential account outside this
+  // team, which only its owner may add: their content falls back to the
+  // importer.
+  createPlaceholder(input: { email: string; name: string }): Promise<{ memberUserId: string | null }>
+  // The seat-gated, MAILING option: an invited placeholder member (EXP-630);
+  // null when the address belongs to an account that must accept the link
+  // first.
   createInvite(input: { email: string; name: string }): Promise<{ memberUserId: string | null }>
+  // Called once after the user phase when it seated anybody — the membership
+  // caches must forget this team before the issue writes reference the new
+  // rows.
+  onMembersChanged?(): Promise<void>
   // Idempotent: an already archived board is left alone.
   archiveBoard(boardId: string): Promise<void>
   // Switches the team's estimate scale on (only ever called when it is off).
@@ -171,10 +181,36 @@ export async function applyBundle(
   let state = await ports.loadTeamState()
 
   // --- users --------------------------------------------------------------
+  // Only the people a still-to-import issue references are seated: a skipped
+  // board's members are nobody's business, and a re-run adds no one twice
+  // (EXP-1076). The board set is the plan's, pre-resolution — good enough to
+  // decide whose content is coming.
+  const mappedIssues = await ports.loadMapped(`issue`)
+  const pendingIssues = bundle.issues.filter((issue) => !mappedIssues.has(issue.key))
+  const plannedBoardKeys = new Set(
+    pendingIssues
+      .filter((issue) => {
+        const entry = plan.boards[issue.boardKey]
+        return entry !== undefined && entry.mode !== `skip`
+      })
+      .map((issue) => issue.boardKey)
+  )
+  const referenced = referencedKeys(
+    { ...bundle, issues: pendingIssues },
+    new Set(
+      bundle.boards
+        .filter((board) => !plannedBoardKeys.has(board.key))
+        .map((board) => board.key)
+    ),
+    plan.importHistory
+  )
   await report(`users`, 0, bundle.users.length)
   const users = new Map<string, ResolvedUser>()
   const mappedUsers = await ports.loadMapped(`user`)
-  const invitedThisRun = new Map<string, string>()
+  const seatedThisRun = new Map<string, string>()
+  let placeholdersCreated = 0
+  let placeholderCapWarned = false
+  let seatedAnyone = false
   for (const user of bundle.users) {
     const entry = plan.users[user.key]
     const resolved: ResolvedUser = {
@@ -190,43 +226,76 @@ export async function applyBundle(
           `${user.name} was mapped to a member who left the team; their content is attributed to you.`
         )
       }
-    } else if (entry?.mode === `invite`) {
-      // Already on the roster (a member, or a placeholder from an earlier
-      // run) → that member; otherwise invite now and remember the result.
+    } else if (
+      (entry?.mode === `placeholder` || entry?.mode === `invite`) &&
+      referenced.userKeys.has(user.key)
+    ) {
+      // The same idempotency ladder for both: already on the roster (a
+      // member, or a placeholder an earlier run seated) → that member; an
+      // entity-map row from an earlier run → its user; seated already in
+      // THIS run → that one; otherwise create.
       const email = norm(entry.email)
+      const name = entry.name.trim() || user.name
       const member = state.members.find((row) => norm(row.email) === email)
       const mapped = mappedUsers.get(user.key)
       if (member) {
         resolved.userId = member.userId
       } else if (mapped && state.members.some((row) => row.userId === mapped)) {
         resolved.userId = mapped
-      } else if (invitedThisRun.has(email)) {
-        resolved.userId = invitedThisRun.get(email)!
+      } else if (seatedThisRun.has(email)) {
+        resolved.userId = seatedThisRun.get(email)!
+      } else if (entry.mode === `placeholder` && placeholdersCreated >= IMPORT_MAX_PLACEHOLDERS) {
+        if (!placeholderCapWarned) {
+          placeholderCapWarned = true
+          warn(
+            `More than ${IMPORT_MAX_PLACEHOLDERS} people were found in this source; the rest are attributed to you. Invite them from Settings → Members.`
+          )
+        }
       } else {
         try {
-          const { memberUserId } = await ports.createInvite({
-            email: entry.email.trim(),
-            name: entry.name.trim() || user.name,
-          })
-          counts.invites += 1
+          const { memberUserId } =
+            entry.mode === `placeholder`
+              ? await ports.createPlaceholder({ email: entry.email.trim(), name })
+              : await ports.createInvite({ email: entry.email.trim(), name })
+          // Null = nothing joined the roster, so no cache needs clearing.
+          if (memberUserId) seatedAnyone = true
+          // A null id created nothing (the address belongs to an account
+          // outside the team), so neither count moves.
+          if (entry.mode === `placeholder`) {
+            if (memberUserId) {
+              counts.members += 1
+              placeholdersCreated += 1
+            }
+          } else {
+            counts.invites += 1
+          }
           if (memberUserId) {
             resolved.userId = memberUserId
-            invitedThisRun.set(email, memberUserId)
+            seatedThisRun.set(email, memberUserId)
             await ports.recordMap([
               { kind: `user`, externalId: user.key, externalRef: email, localId: memberUserId },
             ])
+          } else if (entry.mode === `placeholder`) {
+            warn(
+              `${name} already has an Exponential account outside this team; their content is attributed to you. Invite them from Settings → Members to reconnect it.`
+            )
           } else {
             warn(
               `${user.name} already has an account and was invited; their content is attributed to you until they accept.`
             )
           }
         } catch (err) {
-          warn(`Could not invite ${entry.email}: ${errorMessage(err)}. Their content is attributed to you.`)
+          warn(
+            entry.mode === `placeholder`
+              ? `Could not add ${entry.email} to the team: ${errorMessage(err)}. Their content is attributed to you.`
+              : `Could not invite ${entry.email}: ${errorMessage(err)}. Their content is attributed to you.`
+          )
         }
       }
     }
     users.set(user.key, resolved)
   }
+  if (seatedAnyone) await ports.onMembersChanged?.()
 
   // --- boards -------------------------------------------------------------
   // Only boards a still-to-import issue lands on get resolved (a re-run over
@@ -235,7 +304,6 @@ export async function applyBundle(
   await report(`boards`, 0, bundle.boards.length)
   const boards = new Map<string, { boardId: string; numbering: `preserve` | `allocate` }>()
   const mappedBoards = await ports.loadMapped(`board`)
-  const mappedIssues = await ports.loadMapped(`issue`)
   const neededBoardKeys = new Set(
     bundle.issues
       .filter((issue) => !mappedIssues.has(issue.key))

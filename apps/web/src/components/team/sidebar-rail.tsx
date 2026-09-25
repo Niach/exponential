@@ -83,6 +83,42 @@ function NavDot({
   )
 }
 
+/** EXP-1075: live runs of MINE in ANOTHER team — the team picker's dot
+ * (`lib/sessions/team-live-runs.ts` decides where it hangs). Same tones as
+ * `AgentRunningBadge`: amber while one of those runs waits on the person,
+ * green otherwise. A dot, never a count — the picker only says "look over
+ * there"; the team you are in counts its runs in the Running section.
+ * `corner` hangs it off an icon (the switcher chevron), `trailing` sits at
+ * the right edge of a team row. */
+export function TeamLiveDot({
+  live,
+  placement,
+  className,
+  ...rest
+}: {
+  /** Absent = nothing of mine is live there, and the dot does not render. */
+  live: { needsInput: boolean } | undefined | null
+  placement: `corner` | `trailing`
+} & React.ComponentProps<`span`>) {
+  if (!live) return null
+  return (
+    <span
+      className={cn(
+        // Hit-testable on purpose (unlike `NavDot`): the `title` is the only
+        // thing that says WHY the dot is there, and a click still bubbles to
+        // the row or trigger underneath.
+        `size-2 shrink-0 rounded-full`,
+        live.needsInput ? `bg-yellow-400` : `bg-green-500`,
+        placement === `corner`
+          ? `absolute -right-0.5 -top-0.5 ring-2 ring-sidebar`
+          : `ml-auto`,
+        className
+      )}
+      {...rest}
+    />
+  )
+}
+
 /** Unread notifications from the per-user shape. */
 export function InboxUnreadBadge({ placement }: { placement: BadgePlacement }) {
   const unread = useUnreadNotificationCount()

@@ -482,15 +482,18 @@ final class SyncApplyTests: XCTestCase {
     // EXP-630: an emailed invite rides the team-invites shape carrying the
     // placeholder member it created; a pre-EXP-630 server omits the key (and a
     // link invite sends an explicit null), both of which decode as nil.
+    // EXP-1076: `sent_at` rides too — set on every issued link, null on an
+    // import seat nobody was ever invited.
     func testTeamInviteInsertPersistsPlaceholderUserId() async throws {
         let json = """
             {"id":"inv-1","team_id":"ws1","role":"member","email":"new@example.com",
              "placeholder_user_id":"u-placeholder","expires_at":"2026-10-01 10:00:00+00",
-             "accepted_at":null,
+             "accepted_at":null,"sent_at":"2026-09-24 09:00:00+00",
              "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
             """
         let invite = try JSONDecoder().decode(TeamInviteEntity.self, from: Data(json.utf8))
         XCTAssertEqual(invite.placeholderUserId, "u-placeholder")
+        XCTAssertEqual(invite.sentAt, "2026-09-24 09:00:00+00")
         // The bearer token is excluded by the shape's columns allowlist.
         XCTAssertNil(invite.token)
         let message = ShapeMessage<TeamInviteEntity>.insert(
@@ -501,6 +504,7 @@ final class SyncApplyTests: XCTestCase {
         )
         let stored = try await pool.read { try TeamInviteEntity.fetchOne($0, key: "inv-1") }
         XCTAssertEqual(stored?.placeholderUserId, "u-placeholder")
+        XCTAssertEqual(stored?.sentAt, "2026-09-24 09:00:00+00")
 
         // The claim lands as a partial update: accepted, binding cleared.
         let claimed = ShapeMessage<TeamInviteEntity>.partialUpdate(
@@ -521,9 +525,28 @@ final class SyncApplyTests: XCTestCase {
              "expires_at":"2026-10-01 10:00:00+00","accepted_at":null,
              "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
             """
-        XCTAssertNil(
-            try JSONDecoder().decode(TeamInviteEntity.self, from: Data(older.utf8)).placeholderUserId
+        let olderInvite = try JSONDecoder().decode(TeamInviteEntity.self, from: Data(older.utf8))
+        XCTAssertNil(olderInvite.placeholderUserId)
+        XCTAssertNil(olderInvite.sentAt)
+
+        // EXP-1076: an import seat — bound to a placeholder, never mailed.
+        let unsent = """
+            {"id":"inv-3","team_id":"ws1","role":"member","email":"found@example.com",
+             "placeholder_user_id":"u-import","expires_at":"2026-09-24 09:00:00+00",
+             "accepted_at":null,"sent_at":null,
+             "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
+            """
+        let unsentInvite = try JSONDecoder().decode(TeamInviteEntity.self, from: Data(unsent.utf8))
+        XCTAssertNil(unsentInvite.sentAt)
+        try await applyBatch(
+            messages: [ShapeMessage<TeamInviteEntity>.insert(
+                key: #""public"."team_invites"/"inv-3""#, value: unsentInvite
+            )],
+            name: "team-invites", table: "team_invites", pool: pool
         )
+        let storedUnsent = try await pool.read { try TeamInviteEntity.fetchOne($0, key: "inv-3") }
+        XCTAssertEqual(storedUnsent?.placeholderUserId, "u-import")
+        XCTAssertNil(storedUnsent?.sentAt)
     }
 
     // EXP-778: a pins row off the wire — `sort_order` arrives as Postgres

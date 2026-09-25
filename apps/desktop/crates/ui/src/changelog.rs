@@ -56,12 +56,56 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Workflows**: the workflow screen drops its settings block; a new workflow takes its model pair from the runner machine's Workflow settings (a model for leaves and subagents, a strong model for the contract, the integration, high-risk nodes and every review), a node reads its own state, and the final pull request merges from the screen. A resumed reviewer stays the node's reviewer, is never spawned twice, and a refused verdict says what to do next.
 - **Issue lists**: rows select in bulk with a floating action bar on the board and beside an issue, and the due-date column collapses when no issue in the list has a due date. Ctrl-click opens the issue on Windows and Linux again.
 - **Machine settings**: the sheet is organised into pages, with a new Workflow settings page, and the API key section says what revoking a device's key does: it disconnects the device's coding runs, the device stays signed in.
+- **Work header**: the stack, batch and runs badge stands as tall as the controls beside it, the runs badge wears the workflow glyph, and the web shows it too.
+- **Teams**: the running list follows the active team, and the team switcher wears a dot when another team has one of your live runs (amber when it needs input).
+- **Settings lists and members**: every settings list on the web and in the desktop app follows one rule, the Linear import wizard is shorter and groups statuses across teams, and a roster member nobody has invited yet reads "Not invited" with a first Send invite, on every client.
 - **Settings**: shorter section copy on the web and in the desktop app."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
 const PREVIOUS: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-25-work-header-badge",
+    date: "2026-09-25",
+    title: "The work header badge",
+    summary: "The stack, batch and runs badge in the work header stands as tall as the controls beside it, the runs badge wears the workflow glyph, and the web shows it too.",
+    body: r#"- **One height**: the badge that says what a piece of work is part of (a stacked pull request, a batch, the runs around this one) now stands at the face toggle's height beside Stop, Resume and Merge, on the web and in the desktop app, instead of a small chip next to tall controls.
+- **Runs badge**: on the Run face of a run that started or was started by other runs, the badge wears the workflow glyph instead of the robot, and the web shows it where only the desktop app did.
+- **Styleguide**: the badge and its popover have their own entry, with the glyph per relation and the rung it stands at."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_1: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-25-issue-context-menu",
+    date: "2026-09-25",
+    title: "One issue context menu",
+    summary: "The issue context menu opens from every list, the sidebar and issue chips, no longer closes on its own, takes the estimate, and every web menu is tighter.",
+    body: r#"- **Everywhere**: a right-click (or a long-press on a phone) opens the issue menu on a board row, the sidebar list beside an issue, a reviews row and any issue chip, with the same items in the same order.
+- **Stays open**: the menu no longer fires the item under the cursor when the right button is released a few pixels into it, which is what made it open and close in one go.
+- **Estimate**: the menu sets the estimate on the team's scale, beside status, assignee, priority, labels and due date.
+- **Menu density**: menus on the web at desktop widths use tighter rows, matching the desktop app's rhythm at the web's text size; phones keep their touch-sized rows. The values are shared design tokens, shown in the styleguide with the issue context menu as its own entry."#,
+};
+
+/// The head before that, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-24-release-train",
+    date: "2026-09-24",
+    title: "Release train 2026-09-24",
+    summary: "The usage popover shows what fills a run's context, owners add a team prompt to every run, machines update their agent CLIs remotely, and fixes for invited members and the Linear import.",
+    body: r#"- **Context window**: the usage popover shows a segmented bar of what fills a run's context, with a legend per segment (base, tools, playbook, team prompt, project instructions, task) on every client, and the account switch says why a switch is refused right where the control is.
+- **Team prompt**: owners write a prompt in Settings, General that every run on every member's machine carries in its system prompt, on the web and in the desktop app.
+- **Machines**: the machine settings update the Claude and Codex CLIs remotely and show each login's version, on the web and in the desktop app.
+- **Sidebar**: one look for the sidebar sections on the web and the desktop app, with the What's new card floating above the footer.
+- **Workflows**: the node strip reuses the work face toggle, and the MCP workflows update takes the runner machine so an agent can bind it.
+- **Invited members**: an invite can no longer seat another team's invited member or move their address, an existing member who opens a colleague's invite link is not merged into it, invited members count once against the seats, signing in with Google, Apple or an identity provider claims the invite, and the invite page welcomes the person instead of calling the link used.
+- **Linear import**: cancelling holds against a finishing discovery, attachments stream with a size cap and a timeout, bundle attachments are checked against private addresses, duplicates keep their target, and finished imports drop their snapshot after a week."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
     id: "2026-09-23-linear-import",
     date: "2026-09-23",
     title: "Import from Linear",
@@ -78,7 +122,7 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_1: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
     id: "2026-09-23-release-train",
     date: "2026-09-23",
     title: "Release train 2026-09-23",
@@ -91,7 +135,7 @@ const PREVIOUS_1: ChangelogEntry = ChangelogEntry {
 };
 
 #[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
     id: "2026-09-22-release-train",
     date: "2026-09-22",
     title: "Release train 2026-09-22",
@@ -108,7 +152,7 @@ const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-release-train",
     date: "2026-09-19",
     title: "Release train 2026-09-19",
@@ -122,7 +166,7 @@ const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_7: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-release-train",
     date: "2026-09-18",
     title: "Release train 2026-09-18",
@@ -138,7 +182,7 @@ const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_8: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-device-icons",
     date: "2026-09-18",
     title: "Device icons and 36 more board icons",
@@ -150,7 +194,7 @@ const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_9: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-component-foundation",
     date: "2026-09-18",
     title: "One picker, one search field, one date picker",
@@ -165,7 +209,7 @@ const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_7: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_10: ChangelogEntry = ChangelogEntry {
     id: "2026-09-17-release-train",
     date: "2026-09-17",
     title: "Release train 2026-09-17",
@@ -182,7 +226,7 @@ const PREVIOUS_7: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_8: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_11: ChangelogEntry = ChangelogEntry {
     id: "2026-09-tab-shell-polish",
     date: "2026-09-17",
     title: "Tabs keep their state, chats get their names",
@@ -194,7 +238,7 @@ const PREVIOUS_8: ChangelogEntry = ChangelogEntry {
 
 /// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS_9: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_12: ChangelogEntry = ChangelogEntry {
     id: "2026-09-diff-ui-one-design",
     date: "2026-09-17",
     title: "One diff design, everywhere",

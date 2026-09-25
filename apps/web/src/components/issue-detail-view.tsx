@@ -743,12 +743,14 @@ export function IssueDetailView({
         title={titleField}
         trailing={
           <>
-            {/* EXP-897: what this issue is part of — its stack, its batch. */}
+            {/* EXP-897: what this issue is part of — its stack, its batch.
+                EXP-1079: beside the toggle it wears the toggle's rung. */}
             <PrGraphBadge
               teamId={issue.teamId}
               teamSlug={teamSlug}
               face="issue"
               issue={issue}
+              placement="header"
             />
             {faceToggle}
             {/* EXP-949: no GitHub here — the way out to the PR belongs to the
