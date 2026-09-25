@@ -716,7 +716,6 @@ pub const SHAPES: [ShapeSpec; 25] = [
             "device_id",
             "launch",
             "gate",
-            "start_on",
             "integration_branch",
             "final_pr_url",
             "final_pr_number",
@@ -1241,7 +1240,8 @@ mod tests {
             assert!(spec.columns.contains(&column), "workflows needs {column}");
         }
         assert!(spec.columns.contains(&"gate"));
-        assert!(spec.columns.contains(&"start_on"));
+        // EXP-1090: `start_on` is gone for good.
+        assert!(!spec.columns.contains(&"start_on"));
         assert!(!spec.columns.contains(&"creator_id"), "server-only");
     }
 

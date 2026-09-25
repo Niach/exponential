@@ -192,10 +192,8 @@ describe(`workflows.create`, () => {
     // is BORN with no runner, so the contract defaults stand — binding a
     // device is what re-seeds them. compat: the legacy pins ride beside the
     // two models for the 0.14.49/0.14.50 engines (`stored`).
-    expect(written[0]!.values).toMatchObject({
-      launch: stored(claudeDefaults),
-      startOn: `contract`,
-    })
+    expect(written[0]!.values).toMatchObject({ launch: stored(claudeDefaults) })
+    expect(written[0]!.values).not.toHaveProperty(`startOn`)
     expect(
       Object.keys((written[0]!.values as { launch: object }).launch).sort()
     ).toEqual([
@@ -300,68 +298,26 @@ describe(`workflows.update`, () => {
     expect(error?.code).toBe(`PRECONDITION_FAILED`)
   })
 
-  // EXP-1029: `startOn` is fixed to `contract`; an old client still sends it.
-  it(`ignores startOn at any status, writing nothing`, async () => {
+  // EXP-1066/1090: `startOn` and `launch` are no inputs; an old client still
+  // sends them and they are stripped, nothing written.
+  it(`ignores startOn and launch at any status, writing nothing`, async () => {
     for (const status of [`draft`, `running`]) {
       const row = workflow({ status })
       selectQueue.push([row], [row])
-      const result = await caller.update({ id: WF, startOn: `landed` })
+      const result = await caller.update({
+        id: WF,
+        startOn: `landed`,
+        launch: { model: `gpt-nope` },
+      } as never)
       expect(result.workflow).toEqual(row)
     }
     expect(fakeDb.update).not.toHaveBeenCalled()
     expect(written).toEqual([])
   })
 
-  it(`validates the NORMALIZED launch against the agent's vocabulary`, async () => {
-    selectQueue.push([workflow()])
-    const model = await rejection(caller.update({ id: WF, launch: { model: `gpt-nope` } }))
-    expect(model?.message).toBe(`Unknown claude model`)
-
-    selectQueue.push([workflow()])
-    const strong = await rejection(
-      caller.update({ id: WF, launch: { agent: `codex`, strongModel: `opus` } })
-    )
-    expect(strong?.message).toBe(`Unknown codex model`)
-
-  })
-
-  // compat: iOS 0.14.42, Android 0.14.43 and desktop 0.14.50 offer the CLAUDE
-  // list for the review model whatever the agent and re-send the whole launch
-  // on every save; the base server never validated `reviewModel`. A folded
-  // pin outside the agent's vocabulary heals to the agent's default strong
-  // model; an explicit `strongModel` is still held to the vocabulary.
-  it(`heals a deprecated pin outside the vocabulary instead of refusing the save`, async () => {
-    selectQueue.push([workflow()])
-    await caller.update({ id: WF, launch: { riskModel: `nope` } })
-    expect(written[0]!.values).toEqual({ launch: stored(claudeDefaults) })
-
-    written.length = 0
-    selectQueue.push([workflow()])
-    await caller.update({
-      id: WF,
-      launch: { agent: `codex`, model: `gpt-5.6-sol`, reviewModel: `opus` },
-    })
-    expect(written[0]!.values).toEqual({ launch: stored(codexDefaults) })
-
-    // A pin INSIDE the vocabulary still folds in as before.
-    written.length = 0
-    selectQueue.push([workflow()])
-    await caller.update({ id: WF, launch: { agent: `codex`, reviewModel: `gpt-5.6-terra` } })
-    expect(written[0]!.values).toEqual({
-      launch: stored({ ...codexDefaults, strongModel: `gpt-5.6-terra` }),
-    })
-
-    // The heal never covers an explicit strongModel.
-    selectQueue.push([workflow()])
-    const explicit = await rejection(
-      caller.update({ id: WF, launch: { agent: `codex`, strongModel: `opus`, reviewModel: `opus` } })
-    )
-    expect(explicit?.message).toBe(`Unknown codex model`)
-  })
-
   it(`checks a runner against the workflows capability`, async () => {
     selectQueue.push([workflow()])
-    await caller.update({ id: WF, deviceId: `dev-1`, launch: { agent: `claude` } })
+    await caller.update({ id: WF, deviceId: `dev-1` })
     expect(h.assertDeviceUsable).toHaveBeenCalledWith(
       `dev-1`,
       TEAM,
@@ -384,43 +340,6 @@ describe(`workflows.update`, () => {
     }
     expect(fakeDb.update).not.toHaveBeenCalled()
     expect(written).toEqual([])
-  })
-
-  // EXP-1029: a launch is stored as the NORMALIZED one, whatever vintage the
-  // client that sent it is: the deprecated pins fold into `strongModel`, and
-  // (compat) are written back OUT of it for the 0.14.49/0.14.50 engines, so a
-  // pin never survives on its own.
-  describe(`the stored launch is the NORMALIZED one`, () => {
-    it(`folds an old client's phase pins into strongModel and re-derives the rest from it`, async () => {
-      selectQueue.push([workflow()])
-      await caller.update({
-        id: WF,
-        launch: {
-          agent: `claude`,
-          model: `sonnet`,
-          // `riskModel` outranks the phase pins in the fold.
-          riskModel: `fable`,
-          contractModel: `opus`,
-          integrationModel: `opus`,
-          subagentModel: `fable`,
-          effort: `high`,
-          maxParallel: 5,
-        },
-      })
-      expect(written[0]!.values).toEqual({
-        launch: stored({ agent: `claude`, model: `sonnet`, strongModel: `fable` }),
-      })
-    })
-
-    it(`never carries a stored pin forward: the launch is replaced WHOLE`, async () => {
-      selectQueue.push([
-        workflow({ launch: { agent: `claude`, model: `opus`, riskModel: `sonnet` } }),
-      ])
-      await caller.update({ id: WF, launch: { agent: `claude`, model: `sonnet` } })
-      expect(written[0]!.values).toEqual({
-        launch: stored({ agent: `claude`, model: `sonnet`, strongModel: `fable` }),
-      })
-    })
   })
 
   // EXP-1032: binding the runner IS the launch choice — the workflow screen
@@ -484,16 +403,6 @@ describe(`workflows.update`, () => {
       const error = await rejection(caller.update({ id: WF, deviceId: `dev-none` }))
       expect(error?.message).toBe(`claude is not available on that device`)
       expect(fakeDb.transaction).not.toHaveBeenCalled()
-      h.assertDeviceUsable.mockReset()
-    })
-
-    it(`never re-seeds when the caller sent a launch of their own`, async () => {
-      h.assertDeviceUsable.mockImplementation(codexOnly)
-      selectQueue.push([workflow({ launch: claudeLaunch })])
-      const error = await rejection(
-        caller.update({ id: WF, deviceId: `dev-codex`, launch: { agent: `claude` } })
-      )
-      expect(error?.message).toBe(`claude is not available on that device`)
       h.assertDeviceUsable.mockReset()
     })
   })
@@ -578,7 +487,7 @@ describe(`workflows.delete`, () => {
 
 // EXP-982 — running a workflow.
 describe(`workflows.start`, () => {
-  const ready = { deviceId: `dev-1`, startOn: `landed`, decisions: `` }
+  const ready = { deviceId: `dev-1`, decisions: `` }
 
   it(`refuses a workflow with no runner or a cycle`, async () => {
     selectQueue.push([workflow({ ...ready, deviceId: null })])
@@ -713,23 +622,6 @@ describe(`the engine's write path`, () => {
     expect(error?.code).toBe(`FORBIDDEN`)
     expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
     expect(fakeDb.update).not.toHaveBeenCalled()
-  })
-
-  // Zod 4's `record` over an enum key is exhaustive; the daemon sends one or
-  // two counters per call.
-  it(`reportMetrics accepts a partial set of counters`, async () => {
-    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
-    expect(await caller.reportMetrics({ id: WF, deltas: { mergeIns: 1 } })).toEqual({ ok: true })
-    expect(written).toHaveLength(1)
-    expect(written[0]!.op).toBe(`update`)
-  })
-
-  it(`reportMetrics still refuses an unknown counter`, async () => {
-    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
-    const error = await rejection(
-      caller.reportMetrics({ id: WF, deltas: { nodes: 1 } as never })
-    )
-    expect(error?.code).toBe(`BAD_REQUEST`)
   })
 
   // EXP-983: a speculative dependent's PR can be up before its blocker landed.
@@ -917,6 +809,8 @@ describe(`the engine's write path`, () => {
       review: null,
       reviewRound: 0,
       mergedInto: null,
+      // EXP-1066: the old attempt's contract announcement releases nobody.
+      checkpointAt: null,
       retriedAt: expect.any(Date),
     })
     expect(h.retargetReleasedDependents).not.toHaveBeenCalled()

@@ -5266,6 +5266,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `pause`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "pause",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M15 3H18A1 1 0 0 1 19 4V20A1 1 0 0 1 18 21H15A1 1 0 0 1 14 20V4A1 1 0 0 1 15 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6 3H9A1 1 0 0 1 10 4V20A1 1 0 0 1 9 21H6A1 1 0 0 1 5 20V4A1 1 0 0 1 6 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `pen-tool`: ImageVector by lazy {
         ImageVector.Builder(
             name = "pen-tool",
@@ -7919,6 +7944,7 @@ public object ExpIcons {
         "panel-left-close" -> `panel-left-close`
         "panel-left-open" -> `panel-left-open`
         "paperclip" -> `paperclip`
+        "pause" -> `pause`
         "pen-tool" -> `pen-tool`
         "pencil" -> `pencil`
         "phone" -> `phone`
@@ -8209,6 +8235,8 @@ public object ExpIcons {
     public val relationSection: ImageVector get() = `link-2`
     /** Concept `relation-sub-issue`. */
     public val relationSubIssue: ImageVector get() = `corner-down-right`
+    /** Concept `run-pause`. */
+    public val runPause: ImageVector get() = `pause`
     /** Concept `run-resume`. */
     public val runResume: ImageVector get() = `rotate-ccw`
     /** Concept `sc-push`. */

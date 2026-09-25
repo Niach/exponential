@@ -6,24 +6,30 @@ import {
   workflowEdges,
   workflowEdgeStyle,
   workflowFinalPrCaption,
-  workflowMergeTrain,
-  workflowMetricRows,
-  workflowReviewLine,
   workflowRowSubtitle,
   workflowStartBlocker,
-  workflowTrainStepLabel,
-  type TrainStep,
-  workflowNodeCaption,
   workflowNodeTitle,
-  workflowNodeTone,
   workflowShapeLine,
   NEEDS_YOU_LABEL,
   nodeChipMenu,
+  workflowOverflowMenu,
+  ALL_NODES_LABEL,
+  DECISIONS_LABEL,
+  STOP_WORKFLOW_LABEL,
+  PICK_DEVICE_LABEL,
+  RUNS_ON_LABEL,
+  REVIEW_FINAL_PR_LABEL,
+  NO_CHANGES_LABEL,
+  NO_RUNS_LABEL,
+  NO_RESULTS_LABEL,
+  DISMISS_NODE_CONFIRM,
   workflowHeaderCaption,
   workflowNodeDisplayLabel,
   workflowNodeDisplayState,
   workflowNodeStrip,
   workflowPrimaryAction,
+  workflowStatusGlyph,
+  PROPOSED_NODE_NOTE,
   type WorkflowPrimaryAction,
 } from "./workflow-view"
 
@@ -42,13 +48,6 @@ describe(`workflow view (contract fixture)`, () => {
     }
   })
 
-  it(`captions a node by the plan in a draft and by the state once started`, () => {
-    for (const c of fixture.captions) {
-      expect(workflowNodeCaption(c.node, c.workflowStatus)).toBe(c.caption)
-      expect(workflowNodeTone(c.node.state)).toBe(c.tone)
-    }
-  })
-
   it(`titles a compound node with its member count`, () => {
     for (const c of fixture.titles) {
       expect(workflowNodeTitle(c.identifier, c.members)).toBe(c.title)
@@ -64,18 +63,6 @@ describe(`workflow view (contract fixture)`, () => {
   it(`says why a draft cannot start, one reason at a time`, () => {
     for (const c of fixture.startBlockers) {
       expect(workflowStartBlocker(c.workflow, c.metrics)).toBe(c.blocker)
-    }
-  })
-
-  for (const c of fixture.trains) {
-    it(c.name, () => {
-      expect(workflowMergeTrain(c.nodes)).toEqual(c.expected)
-    })
-  }
-
-  it(`labels every train step`, () => {
-    for (const [step, label] of Object.entries(fixture.trainStepLabels)) {
-      expect(workflowTrainStepLabel(step as TrainStep)).toBe(label)
     }
   })
 
@@ -102,16 +89,6 @@ describe(`workflow view (contract fixture)`, () => {
       expect(workflowEdgeStyle(c.edge, c.fromState, c.toState)).toBe(c.style)
     }
   })
-
-  it(`says the latest agent review in one line`, () => {
-    for (const c of fixture.reviewLines) expect(workflowReviewLine(c.review, c.approved)).toBe(c.line)
-  })
-
-  it(`lists the metrics that have something to say`, () => {
-    for (const c of fixture.metricRows) {
-      expect(workflowMetricRows(c.metrics as Record<string, unknown>)).toEqual(c.rows)
-    }
-  })
 })
 
 // EXP-1082 §4: five display states, locked ×4.
@@ -128,34 +105,60 @@ describe(`workflow node display states (EXP-1082)`, () => {
   })
 })
 
-// EXP-1082 §5: the page view model, DECLARED — un-skipped when it lands.
-describe(`workflow page view model (EXP-1082, declared)`, () => {
-  it.skip(`lays the node strip out by wave and lane`, () => {
+// EXP-1082 §5 / EXP-1066: the page view model, locked ×4.
+describe(`workflow page view model (EXP-1082)`, () => {
+  it(`lays the node strip out by wave and lane`, () => {
     for (const c of fixture.nodeStrips) {
-      expect(
-        workflowNodeStrip(c.nodes, c.edges as [string, string][]),
-        c.name
-      ).toEqual(c.strip)
+      expect(workflowNodeStrip(c.nodes), c.name).toEqual(c.strip)
     }
   })
 
-  it.skip(`captions the header`, () => {
+  it(`captions the header`, () => {
     for (const c of fixture.headerCaptions) {
       expect(workflowHeaderCaption(c.status, c.nodes, c.device), c.name).toBe(c.caption)
     }
   })
 
-  it.skip(`picks the one primary action`, () => {
+  it(`picks the one primary action`, () => {
     for (const c of fixture.primaryActions) {
-      expect(workflowPrimaryAction(c.status, c.device)).toBe(
+      expect(workflowPrimaryAction(c.status, c.device, c.finalPrState), c.action ?? `null`).toBe(
         c.action as WorkflowPrimaryAction | null
       )
     }
   })
 
-  it.skip(`offers retry and skip on a failed chip only`, () => {
+  it(`reads the header status as a node display state`, () => {
+    for (const c of fixture.statusGlyphs) expect(workflowStatusGlyph(c.status)).toBe(c.display)
+  })
+
+  it(`tells why a proposed chip offers admit and dismiss`, () => {
+    expect(PROPOSED_NODE_NOTE).toBe(fixture.proposedNodeNote)
+  })
+
+  it(`offers retry and skip on a failed chip only`, () => {
     for (const c of fixture.chipMenus) {
       expect(nodeChipMenu(c.state)).toEqual(c.menu)
     }
+  })
+
+  it(`fills the header's overflow by status`, () => {
+    for (const c of fixture.overflowMenus) {
+      expect(workflowOverflowMenu(c.status), c.status).toEqual(c.menu)
+    }
+  })
+
+  it(`spells the page labels the same everywhere`, () => {
+    expect({
+      allNodes: ALL_NODES_LABEL,
+      decisions: DECISIONS_LABEL,
+      stop: STOP_WORKFLOW_LABEL,
+      pickDevice: PICK_DEVICE_LABEL,
+      runsOn: RUNS_ON_LABEL,
+      reviewFinalPr: REVIEW_FINAL_PR_LABEL,
+      noChanges: NO_CHANGES_LABEL,
+      noRuns: NO_RUNS_LABEL,
+      noResults: NO_RESULTS_LABEL,
+      dismissNodeConfirm: DISMISS_NODE_CONFIRM,
+    }).toEqual(fixture.pageLabels)
   })
 })

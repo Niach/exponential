@@ -2431,8 +2431,6 @@ export const workflows = pgTable(
     // review. The column stays pinned to `agent` (and synced) only because
     // engines older than that release still read it; drop it with them.
     gate: varchar({ length: 16 }).notNull().default(`agent`),
-    // contract `wfStartOn`.
-    startOn: varchar(`start_on`, { length: 16 }).notNull().default(`contract`),
     // `exp/wf-<id8>`, stamped at create.
     integrationBranch: varchar(`integration_branch`, { length: 255 }).notNull(),
     // The ONE final PR integration → default branch.
@@ -2504,8 +2502,8 @@ export const workflowNodes = pgTable(
     retriedAt: timestamp(`retried_at`, { withTimezone: true }),
     // EXP-983: the node announced its CONTRACT (its first push: the types,
     // stubs and tests its dependents build against) with
-    // `exponential_workflows_checkpoint`. Under `start_on: contract` its
-    // dependents start as soon as every blocker has one.
+    // `exponential_workflows_checkpoint`. Its dependents start as soon as
+    // every blocker has one.
     checkpointAt: timestamp(`checkpoint_at`, { withTimezone: true }),
     // Engine-written SERIALIZATION edges: nodes this one must merge in first
     // because their work collided with its own (`git merge-tree`). Drawn

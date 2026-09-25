@@ -17,7 +17,7 @@ import kotlinx.serialization.json.putJsonArray
 // WorkflowNodeEntity) — this API carries only the mutations: create the draft,
 // rename it or change how it runs, add/drop issues, set a node's plan, replan,
 // delete — and, from EXP-982, RUNNING one: start/pause/resume/cancel plus the
-// two node verdicts a person gives (approve, retry/skip). Any team MEMBER may
+// node verdict a person gives (retry/skip). Any team MEMBER may
 // call them (a workflow is work, not a team setting), and every refusal is a
 // human sentence the caller shows verbatim. The engine-only procedures
 // (`reportNode`/`landNode`/`openFinalPr`) belong to the runner DEVICE and are
@@ -70,13 +70,6 @@ internal data class WorkflowIdInput(@SerialName("id") val id: String)
 @Serializable
 internal data class WorkflowMergeResult(@SerialName("merged") val merged: Boolean = false)
 
-/** `workflows.approveNode` — the gate, taken back with `approved = false`. */
-@Serializable
-internal data class ApproveNodeInput(
-    @SerialName("nodeId") val nodeId: String,
-    @SerialName("approved") val approved: Boolean,
-)
-
 /** `workflows.resolveNode` — `retry` or `skip`, nothing else. */
 @Serializable
 internal data class ResolveNodeInput(
@@ -100,9 +93,8 @@ internal data class AdmitNodeInput(
  * (`explicitNulls = false`) would drop a null property from a `@Serializable`
  * class outright, which is exactly how [deviceId] clears the runner ([JsonNull]
  * rides as the explicit "unbind"). The same rule the action editor's patch
- * follows. The phone writes only the name and the runner (EXP-1014): the
- * launch options are picked where the workflow is CREATED and `startOn` is
- * fixed to `contract`, so neither has an encoder here.
+ * follows. The router takes `{id, name?, deviceId?, decision?}` (EXP-1066);
+ * the phone writes the name and the runner.
  */
 internal fun updateWorkflowInput(
     id: String,
@@ -172,9 +164,8 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
      * write.
      *
      * EXP-1014: the phone writes only [name] and the runner — a workflow
-     * screen configures nothing: its two models are picked where the workflow
-     * is created and `startOn` is fixed to `contract`. The router's `launch` /
-     * `startOn` keys stay other clients' business.
+     * screen configures nothing: its models are picked where the workflow is
+     * created.
      */
     suspend fun update(
         accountId: String,
@@ -318,16 +309,6 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
         inputSerializer = WorkflowIdInput.serializer(),
         outputSerializer = WorkflowMergeResult.serializer(),
     ).merged
-
-    /** `workflows.approveNode` — clear a node's PR for the merge train. */
-    suspend fun approveNode(accountId: String, nodeId: String, approved: Boolean = true) {
-        trpc.mutationUnit(
-            accountId,
-            path = "workflows.approveNode",
-            input = ApproveNodeInput(nodeId = nodeId, approved = approved),
-            inputSerializer = ApproveNodeInput.serializer(),
-        )
-    }
 
     /**
      * `workflows.resolveNode` — a person unsticks a failed node: [NODE_RETRY]

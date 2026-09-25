@@ -1,14 +1,12 @@
-//! EXP-1014 — the `workflow-graph` entry (4 Views): ONE fixed sample of the
-//! workflow screen's graph, drawn by the screen's own code
+//! EXP-1014 → EXP-1085 — the `workflow-graph` entry (4 Views): ONE fixed
+//! sample of the workflow page's top, drawn by the page's own code
 //! (`crate::workflow_view::styleguide_sample_graph`) rather than by a copy
 //! of it, so the entry cannot drift from the surface it documents.
 //!
-//! The sample: a landed CONTRACT node, three leaves after it (a compound one
-//! drawn as a deck of chips, one with a live run, one landed), an
-//! INTEGRATION node they all block, and the final pull request after the
-//! last wave — its chip carrying the Merge action, since that pull request
-//! is open (EXP-1032). The running node is the picked one — the accent ring
-//! outside its chip.
+//! The sample: the header caption line and the node strip — `All`, then a
+//! landed contract node, three nodes in the next wave (a compound one drawn
+//! as a deck, one with its agent mid-turn, one that needs you) and a failed
+//! one after them. The running node is the picked one.
 
 use gpui::{div, App, Div, ParentElement as _, Window};
 

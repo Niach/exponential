@@ -2216,6 +2216,10 @@ impl Render for RailView {
                     || !queries::review_runs(cx, &id).is_empty()
             })
             .unwrap_or(false);
+        // EXP-1085: a workflow of the team waits on a person.
+        let workflows_badge = active_team_id(&self.nav, cx)
+            .filter(|id| crate::workflow_view::team_has_open_question(id, cx))
+            .map(|_| RailBadge::Dot(theme::tokens::RED.to_hsla()));
         // Inbox badge (EXP-699): any unread renderable notification — the
         // primary-tinted dot the mobile tab bars show.
         let inbox_badge = queries::inbox_unread(cx)
@@ -2463,7 +2467,7 @@ impl Render for RailView {
                             Icon::from(icons::registry::NAV_WORKFLOWS),
                             domain::workflow_view::WORKFLOWS_TITLE,
                             Screen::Workflows,
-                            None,
+                            workflows_badge.clone(),
                             cx,
                         ))
                         .child(self.rail_screen_entry(
@@ -2601,7 +2605,7 @@ impl Render for RailView {
                         Icon::from(icons::registry::NAV_WORKFLOWS),
                         domain::workflow_view::WORKFLOWS_TITLE,
                         Screen::Workflows,
-                        None,
+                        workflows_badge.clone(),
                         cx,
                     ))
                     // EXP-706: Reviews is a full-page screen like the three

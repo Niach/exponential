@@ -1142,9 +1142,6 @@ pub struct WorkflowRow {
     /// which fills what is absent from the agent's contract defaults.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub launch: Option<serde_json::Value>,
-    /// contract `wfStartOn` — raw wire word.
-    #[serde(default)]
-    pub start_on: Option<String>,
     /// `exp/wf-<id8>`, stamped at create.
     #[serde(default)]
     pub integration_branch: Option<String>,
@@ -1179,8 +1176,8 @@ impl WorkflowRow {
         self.status.as_deref().unwrap_or("draft")
     }
 
-    /// The metrics counters the list row and the header render. A missing or
-    /// unparseable payload reads as an EMPTY shape (`0 nodes · depth 0 ·
+    /// The plan's layout facts the list row and the header render. A missing
+    /// or unparseable payload reads as an EMPTY shape (`0 nodes · depth 0 ·
     /// width 0`), never a dropped row.
     pub fn shape(&self) -> crate::workflow_view::WorkflowShape {
         let Some(metrics) = self.metrics.as_ref() else {
@@ -1277,7 +1274,7 @@ pub struct WorkflowNodeRow {
     #[serde(default)]
     pub approved_at: Option<String>,
     /// EXP-983: when the node's run announced its CONTRACT
-    /// (`exponential_workflows_checkpoint`). Under `start_on: contract` its
+    /// (`exponential_workflows_checkpoint`); its
     /// dependents may start from that moment.
     #[serde(default)]
     pub checkpoint_at: Option<String>,

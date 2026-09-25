@@ -7,7 +7,7 @@
 //! action). `daemon install|uninstall|status` manage a systemd user unit
 //! (Linux) / launchd agent (macOS).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -3236,10 +3236,6 @@ impl AutomationHost {
         // A base this pass could NOT put up. Nothing may be cut from it: the
         // node waits for the next beat rather than starting on a wrong base.
         let mut unbuilt: HashSet<String> = HashSet::new();
-        // EXP-984: the counters only this device can see, batched into ONE
-        // report at the end of the pass.
-        let mut metrics: BTreeMap<String, u32> = BTreeMap::new();
-        self.tally_workflow_contract_changes(&plan, settings_path, &mut metrics);
         let sink = TrpcEventSink::new(Arc::clone(&self.ctx.trpc));
         for decision in coding::workflows::evaluate(&plan.snapshot) {
             // EXP-1082: what the host did with it, for the audit trail.
@@ -3354,9 +3350,6 @@ impl AutomationHost {
                             log::warn!("workflow resume of {session_id} failed: {err}");
                             break 'decision Outcome::Failed(err.to_string());
                         }
-                        *metrics
-                            .entry(api::workflows::COUNTER_MERGE_INS.to_string())
-                            .or_default() += 1;
                     }
                     // EXP-984: the agent review of one node — the hidden
                     // `Review node` builtin, in a throwaway worktree of its own.
@@ -3528,14 +3521,6 @@ impl AutomationHost {
                 sink.record(event);
             }
         }
-        // EXP-984: one metrics report per beat, never one per decision.
-        if !metrics.is_empty() {
-            if let Err(err) =
-                api::workflows::report_metrics(&self.ctx.trpc, &workflow_id, &metrics)
-            {
-                log::warn!("workflow {workflow_id}: reportMetrics — {err}");
-            }
-        }
     }
 
     /// The engine's clone of the workflow's repository, with a JIT token on
@@ -3678,7 +3663,6 @@ impl AutomationHost {
             workflow_id: plan.snapshot.workflow.id.clone(),
             name: plan.name.clone(),
             decisions: plan.decisions.clone(),
-            start_on: plan.snapshot.workflow.start_on.clone(),
             blockers: workflow_blocker_identifiers(&plan.snapshot, node_id),
         };
         // EXP-1029: the node's kind and risk pick the model (the decision
@@ -3812,48 +3796,6 @@ impl AutomationHost {
             false,
         )?;
         Ok(Some(session_id))
-    }
-
-    /// EXP-984 — the `contractChanges` counter: a node that ALREADY
-    /// announced its contract moved its branch again, which is what every
-    /// dependent then has to merge in. The first tip seen after a checkpoint
-    /// IS the checkpoint, so it is recorded and not counted.
-    fn tally_workflow_contract_changes(
-        &self,
-        plan: &WorkflowPlan,
-        settings_path: &Path,
-        metrics: &mut BTreeMap<String, u32>,
-    ) {
-        let workflow_id = plan.snapshot.workflow.id.clone();
-        let mut seen =
-            workflow_state(settings_path, &self.device_id, &workflow_id).checkpoint_tips;
-        let mut changed = 0_u32;
-        let mut dirty = false;
-        for node in &plan.snapshot.nodes {
-            if !plan.checkpointed.contains(&node.id) {
-                continue;
-            }
-            let Some(sha) = plan.snapshot.pr_head.get(&node.id) else {
-                continue;
-            };
-            match seen.get(&node.id) {
-                Some(previous) if previous == sha => continue,
-                Some(_) => changed += 1,
-                None => {}
-            }
-            seen.insert(node.id.clone(), sha.clone());
-            dirty = true;
-        }
-        if changed > 0 {
-            *metrics
-                .entry(api::workflows::COUNTER_CONTRACT_CHANGES.to_string())
-                .or_default() += changed;
-        }
-        if dirty {
-            update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
-                state.checkpoint_tips = seen.clone()
-            });
-        }
     }
 
     /// EXP-984 — start ONE agent review: the hidden `Review node` builtin,
@@ -4156,10 +4098,8 @@ struct WorkflowPlan {
     candidates: Vec<(String, String)>,
     branch_of: HashMap<String, String>,
     /// EXP-984: `node id → its latest review` (the findings the author is
-    /// handed verbatim) and the nodes that announced a contract (the
-    /// `contractChanges` metric).
+    /// handed verbatim).
     review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
-    checkpointed: HashSet<String>,
     /// EXP-984: `reviewer session id → live` off the synced rows, for every
     /// reviewer run this device recorded (a row that has not synced is
     /// absent) — what settles a review that ended without a verdict.
@@ -4204,9 +4144,8 @@ fn workflow_plan(
     // branches + globs feed the collision pre-filter.
     let mut identifier: HashMap<String, String> = HashMap::new();
     let mut git_nodes: Vec<coding::workflows::NodeGit> = Vec::new();
-    // EXP-984: the latest verdicts and the nodes that announced a contract.
+    // EXP-984: the latest verdicts.
     let mut review_of: HashMap<String, domain::rows::WorkflowNodeReview> = HashMap::new();
-    let mut checkpointed: HashSet<String> = HashSet::new();
     // The workflow's team — a batch launch's subject.
     let team_id = workflow.team_id.clone().unwrap_or_default();
     for row in node_rows {
@@ -4221,9 +4160,6 @@ fn workflow_plan(
         let members = row.member_ids();
         if let Some(review) = row.review_facts() {
             review_of.insert(row.id.clone(), review);
-        }
-        if row.checkpoint_at.is_some() {
-            checkpointed.insert(row.id.clone());
         }
         // A plain node's head is its issue's branch; a COMPOUND one runs as
         // a batch, whose branch only the session row knows.
@@ -4342,10 +4278,6 @@ fn workflow_plan(
                 final_pr_url: workflow.final_pr_url.clone(),
                 // EXP-1029: not a launch field any more.
                 max_parallel: domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT,
-                start_on: workflow
-                    .start_on
-                    .clone()
-                    .unwrap_or_else(|| coding::workflows::START_ON_LANDED.to_string()),
                 launch: launch.clone(),
             },
             nodes,
@@ -4379,7 +4311,6 @@ fn workflow_plan(
         candidates,
         branch_of,
         review_of,
-        checkpointed,
         review_session_live: review_session_liveness(&engine_state, session_rows),
         review_live_on_branch,
         name: workflow.name.clone().unwrap_or_default(),

@@ -300,6 +300,7 @@ public enum AppIcons {
         "panel-left-close",
         "panel-left-open",
         "paperclip",
+        "pause",
         "pen-tool",
         "pencil",
         "phone",
@@ -594,6 +595,8 @@ public enum AppIcons {
     public static let relationSection: String = "link-2"
     /// Concept `relation-sub-issue`.
     public static let relationSubIssue: String = "corner-down-right"
+    /// Concept `run-pause`.
+    public static let runPause: String = "pause"
     /// Concept `run-resume`.
     public static let runResume: String = "rotate-ccw"
     /// Concept `sc-push`.

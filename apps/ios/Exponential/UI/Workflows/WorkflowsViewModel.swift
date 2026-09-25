@@ -18,6 +18,8 @@ final class WorkflowsViewModel {
     }
 
     private(set) var workflows: [WorkflowEntity] = []
+    /// EXP-1086: the workflows with an open question — the row's red dot.
+    private(set) var asking: Set<String> = []
     /// True until the first emission — an empty list means "none", not
     /// "still loading".
     private(set) var isLoading = true
@@ -58,12 +60,16 @@ final class WorkflowsViewModel {
             isLoading = false
             return
         }
-        let observation = ValueObservation.tracking { db in
-            try WorkflowEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        let observation = ValueObservation.tracking { db -> ([WorkflowEntity], [CodingSessionEntity]) in
+            let rows = try WorkflowEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            let sessions = try CodingSessionEntity
+                .filter(rows.map(\.id).contains(Column("workflow_id")))
+                .fetchAll(db)
+            return (rows, sessions)
         }
         observationTask = Task { [weak self] in
             do {
-                for try await rows in observation.values(in: pool) {
+                for try await (rows, sessions) in observation.values(in: pool) {
                     guard let self, !Task.isCancelled, self.loadedTeamId == teamId else { return }
                     // Newest first inside a band; the id breaks ties so two
                     // workflows created in the same millisecond keep a stable
@@ -71,6 +77,9 @@ final class WorkflowsViewModel {
                     self.workflows = rows.sorted {
                         ($0.createdAt, $0.id) > ($1.createdAt, $1.id)
                     }
+                    self.asking = Set(rows.map(\.id).filter {
+                        !WorkflowQuestions.open(sessions, workflowId: $0).isEmpty
+                    })
                     self.isLoading = false
                 }
             } catch {

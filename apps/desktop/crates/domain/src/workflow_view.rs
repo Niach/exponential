@@ -5,7 +5,10 @@
 //! (web `apps/web/src/lib/workflow-view.ts`, iOS `WorkflowView.swift`, Android
 //! `WorkflowView.kt`) and locked by the contract fixture
 //! `packages/domain-contract/fixtures/workflow-view.json`. All strings
-//! byte-identical.
+//! byte-identical. The page these words land on (EXP-1084/1085/1086) is a
+//! node STRIP picker (`All`, then the chips in DAG order) over the work FACE
+//! toggle (Issue · Runs · Changes · Results): a selected node's lines below
+//! read on its Issue face, not in a separate node panel.
 
 use std::collections::{HashMap, HashSet};
 
@@ -99,94 +102,6 @@ pub fn workflow_cycle_note(metrics: &WorkflowShape) -> Option<String> {
     Some(format!(
         "These issues block each other in a cycle: {spelled}. Remove one relation to start."
     ))
-}
-
-const STATE_LABELS: [(&str, &str); 10] = [
-    ("proposed", "Proposed"),
-    ("blocked", "Blocked"),
-    ("ready", "Ready"),
-    ("running", "Running"),
-    ("waiting", "Waiting"),
-    ("in_review", "In review"),
-    ("updating", "Updating"),
-    ("landed", "Landed"),
-    ("failed", "Failed"),
-    ("skipped", "Skipped"),
-];
-
-const KIND_LABELS: [(&str, &str); 3] = [
-    ("contract", "Contract"),
-    ("leaf", "Leaf"),
-    ("integration", "Integration"),
-];
-
-/// An unknown state (a newer server) renders its raw wire word.
-pub fn workflow_node_state_label(state: &str) -> String {
-    STATE_LABELS
-        .iter()
-        .find(|(wire, _)| *wire == state)
-        .map_or_else(|| state.to_string(), |(_, label)| (*label).to_string())
-}
-
-pub fn workflow_node_kind_label(kind: &str) -> String {
-    KIND_LABELS
-        .iter()
-        .find(|(wire, _)| *wire == kind)
-        .map_or_else(|| kind.to_string(), |(_, label)| (*label).to_string())
-}
-
-/// The tone a node's state paints in. `waiting` is the ONLY amber one (and
-/// the only one that pushes): amber means "a person is needed".
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkflowNodeTone {
-    Muted,
-    Active,
-    Amber,
-    Success,
-    Danger,
-}
-
-impl WorkflowNodeTone {
-    /// The fixture's wire word for this tone.
-    pub fn as_wire(self) -> &'static str {
-        match self {
-            WorkflowNodeTone::Muted => "muted",
-            WorkflowNodeTone::Active => "active",
-            WorkflowNodeTone::Amber => "amber",
-            WorkflowNodeTone::Success => "success",
-            WorkflowNodeTone::Danger => "danger",
-        }
-    }
-}
-
-pub fn workflow_node_tone(state: &str) -> WorkflowNodeTone {
-    match state {
-        "waiting" => WorkflowNodeTone::Amber,
-        "failed" => WorkflowNodeTone::Danger,
-        "landed" => WorkflowNodeTone::Success,
-        "running" | "updating" | "in_review" => WorkflowNodeTone::Active,
-        _ => WorkflowNodeTone::Muted,
-    }
-}
-
-/// What a caption needs off the node row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CaptionNode<'a> {
-    pub kind: &'a str,
-    pub state: &'a str,
-    pub risk: &'a str,
-}
-
-/// The ONE caption under a node: the bare STATE label once the workflow has
-/// started (`Running`, `In review`, `Landed`), nothing at all in a draft. The
-/// kind and the risk are the node panel's (EXP-1014: no `Leaf`, no
-/// `Contract · high risk` beside the chips — the chip names the issue, the
-/// caption says only what is happening to it).
-pub fn workflow_node_caption(node: CaptionNode<'_>, workflow_status: &str) -> String {
-    if workflow_status == "draft" {
-        return String::new();
-    }
-    workflow_node_state_label(node.state)
 }
 
 /// `EXP-14 +3` for a compound node (a parent run as one batch with its
@@ -299,13 +214,8 @@ pub fn workflow_edges(
 pub const START_WORKFLOW_LABEL: &str = "Start";
 pub const PAUSE_WORKFLOW_LABEL: &str = "Pause";
 pub const RESUME_WORKFLOW_LABEL: &str = "Resume";
-pub const CANCEL_WORKFLOW_LABEL: &str = "Cancel workflow";
 pub const CANCEL_WORKFLOW_CONFIRM: &str =
     "Its live runs end and its branch is deleted. Nothing reached the default branch.";
-pub const APPROVE_NODE_LABEL: &str = "Approve and land";
-pub const WITHDRAW_APPROVAL_LABEL: &str = "Withdraw approval";
-pub const MERGE_TRAIN_TITLE: &str = "Merge train";
-pub const MERGE_TRAIN_EMPTY: &str = "Nothing is waiting to land.";
 pub const FINAL_PR_TITLE: &str = "Final pull request";
 /// EXP-1032 — merging the final pull request is the run's ONE human review,
 /// so the action sits on the chip that IS that pull request, and confirms
@@ -317,8 +227,6 @@ pub const RETRY_NODE_LABEL: &str = "Retry";
 pub const SKIP_NODE_LABEL: &str = "Skip";
 pub const SKIP_NODE_CONFIRM: &str =
     "Its dependents go on without it. The node's work is not part of the final pull request.";
-/// The strip over the graph that lists the runs that are up, one tap away.
-pub const RUNNING_NOW_LABEL: &str = "Running now";
 
 /// What the Start blocker rule reads off the workflow row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -326,8 +234,11 @@ pub struct StartableWorkflow<'a> {
     pub status: &'a str,
     pub device_id: Option<&'a str>,
     pub repository_id: Option<&'a str>,
-    pub start_on: &'a str,
 }
+
+/// Start's blocker while the draft has no runner (the page's `pick_device`
+/// state shows the same sentence).
+pub const PICK_DEVICE_BLOCKER: &str = "Pick the device that runs this workflow first.";
 
 /// Why Start is disabled, or `None` when the draft can start. One reason, the
 /// most fundamental first; the server refuses with the same sentences.
@@ -348,97 +259,9 @@ pub fn workflow_start_blocker(
         return Some("The workflow's repository is gone.".to_string());
     }
     if workflow.device_id.is_none() {
-        return Some("Pick the device that runs this workflow first.".to_string());
+        return Some(PICK_DEVICE_BLOCKER.to_string());
     }
-    // EXP-983: every `start_on` runs now — the mode never blocks a start.
-    let _ = workflow.start_on;
     None
-}
-
-/// What the merge train reads off a node row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TrainNode<'a> {
-    pub id: &'a str,
-    pub kind: &'a str,
-    pub state: &'a str,
-    pub wave: i64,
-    pub lane: i64,
-    /// The `approved_at` stamp; only its presence matters.
-    pub approved: bool,
-}
-
-/// Where one node stands in the merge train.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TrainStep {
-    Next,
-    Queued,
-    NeedsApproval,
-    Updating,
-}
-
-impl TrainStep {
-    /// The fixture's wire word for this step.
-    pub fn as_wire(self) -> &'static str {
-        match self {
-            TrainStep::Next => "next",
-            TrainStep::Queued => "queued",
-            TrainStep::NeedsApproval => "needs-approval",
-            TrainStep::Updating => "updating",
-        }
-    }
-}
-
-pub fn workflow_train_step_label(step: TrainStep) -> &'static str {
-    match step {
-        TrainStep::Next => "Landing next",
-        TrainStep::Queued => "Queued",
-        TrainStep::NeedsApproval => "Needs approval",
-        TrainStep::Updating => "Merging the trunk in",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrainEntry {
-    pub id: String,
-    pub step: TrainStep,
-}
-
-/// The merge train: every node whose PR is up (`in_review`, or `updating`
-/// while it merges the trunk in), in landing order (wave, then lane). The
-/// FIRST node that is cleared to land is `Next`; cleared ones behind it are
-/// `Queued`; one no review approved yet says so (EXP-1010: the agent review
-/// is the only gate, a person may approve by hand).
-pub fn workflow_merge_train(nodes: &[TrainNode<'_>]) -> Vec<TrainEntry> {
-    let mut waiting: Vec<&TrainNode<'_>> = nodes
-        .iter()
-        .filter(|node| node.state == "in_review" || node.state == "updating")
-        .collect();
-    waiting.sort_by(|a, b| {
-        a.wave
-            .cmp(&b.wave)
-            .then_with(|| a.lane.cmp(&b.lane))
-            .then_with(|| a.id.cmp(b.id))
-    });
-    let mut next_taken = false;
-    waiting
-        .into_iter()
-        .map(|node| {
-            let step = if node.state == "updating" {
-                TrainStep::Updating
-            } else if !node.approved {
-                TrainStep::NeedsApproval
-            } else if next_taken {
-                TrainStep::Queued
-            } else {
-                next_taken = true;
-                TrainStep::Next
-            };
-            TrainEntry {
-                id: node.id.to_string(),
-                step,
-            }
-        })
-        .collect()
 }
 
 /// The final-PR node's caption, or `None` while the node is not drawn: it
@@ -531,162 +354,17 @@ pub fn workflow_edge_style(
     WorkflowEdgeStyle::Plain
 }
 
-/// The node panel's line once a node announced its contract.
-pub const CONTRACT_PUBLISHED_LABEL: &str = "Contract published";
-/// The node panel's line over the `after_node_ids` chips.
-pub const MERGES_IN_FIRST_LABEL: &str = "Merges in first";
-
-// ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────────
+// ── Review gate, dynamic graphs (EXP-984) ─────────────────
 
 /// A `proposed` node's two decisions, and the sentence that explains it.
 pub const ADMIT_NODE_LABEL: &str = "Admit";
 pub const DISMISS_NODE_LABEL: &str = "Dismiss";
 pub const PROPOSED_NODE_NOTE: &str =
     "Filed during the run. Admit it into the workflow or dismiss it.";
-/// The node panel's agent-review block and the detail's counters section.
-/// EXP-1014: a workflow configures NOTHING on its screen any more — the
-/// launch is two models (`coding::workflows::launch`), so the per-phase and
-/// review-model launch rows (and their labels) are gone.
-pub const AGENT_REVIEW_TITLE: &str = "Agent review";
-/// The node panel's read-only line: what THIS node's run spawns on
-/// (`model_for_node`).
-pub const NODE_MODEL_LABEL: &str = "Model";
 /// EXP-1014: the chip of a node whose issue row has not synced yet — the
 /// identifier slot shows the first 8 characters of the issue id, the title
 /// this line. Byte-identical ×4.
 pub const NODE_UNSYNCED_TITLE: &str = "Not synced yet";
-pub const METRICS_TITLE: &str = "Metrics";
-
-/// What the review line reads off `workflow_nodes.review`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReviewLine<'a> {
-    /// contract `wfReviewVerdict` — `approve` / `request_changes`.
-    pub verdict: &'a str,
-    pub round: i64,
-    /// `Some(passed)` when the reviewer RAN a check; `None` = opinion only.
-    pub oracle: Option<bool>,
-    /// The node's `approved_at` is set: the verdict cleared it (EXP-1010).
-    pub approved: bool,
-}
-
-/// The node panel's one line about the latest agent review:
-/// `Approved · round 1 · checks passed`, `Approved · round 1`,
-/// `Changes requested · round 2 · checks failed`, `Changes requested · round 3`.
-/// EXP-1010: an approval with no oracle CLEARS the node, so `advisory` shows
-/// only when it did not (`approved` false).
-pub fn workflow_review_line(review: ReviewLine<'_>) -> String {
-    let verdict = if review.verdict == "approve" {
-        "Approved"
-    } else {
-        "Changes requested"
-    };
-    let mut parts = vec![verdict.to_string(), format!("round {}", review.round)];
-    match review.oracle {
-        Some(true) => parts.push("checks passed".to_string()),
-        Some(false) => parts.push("checks failed".to_string()),
-        // An approval that did not clear the node is advisory; a request
-        // for changes needs no such word.
-        None if review.verdict == "approve" && !review.approved => {
-            parts.push("advisory".to_string())
-        }
-        None => {}
-    }
-    parts.join(" · ")
-}
-
-/// One label/value row of the detail's Metrics section.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MetricRow {
-    pub label: String,
-    pub value: String,
-}
-
-/// One counter off `workflows.metrics`. Anything that is not a number (an
-/// older server, a garbled blob) reads as zero rather than dropping the row.
-fn metric_count(metrics: &serde_json::Value, key: &str) -> f64 {
-    metrics
-        .get(key)
-        .and_then(serde_json::Value::as_f64)
-        .filter(|value| value.is_finite())
-        .unwrap_or(0.0)
-}
-
-/// A counter as text, the way the other clients' `${n}` renders it: whole
-/// numbers carry no decimal point.
-fn metric_text(value: f64) -> String {
-    if value.fract() == 0.0 && value.abs() < 1e15 {
-        format!("{}", value as i64)
-    } else {
-        format!("{value}")
-    }
-}
-
-/// The detail's Metrics section for a STARTED workflow, in this order. A row
-/// appears only when it has something to say, except the critical path, which
-/// always does.
-pub fn workflow_metric_rows(metrics: &serde_json::Value) -> Vec<MetricRow> {
-    let row = |label: &str, value: String| MetricRow {
-        label: label.to_string(),
-        value,
-    };
-    let count = |key: &str| metric_count(metrics, key);
-    let mut rows = vec![row(
-        "Critical path",
-        format!(
-            "{} waves for {} nodes",
-            metric_text(count("depth")),
-            metric_text(count("nodes"))
-        ),
-    )];
-    let landed = count("landed");
-    if landed > 0.0 {
-        rows.push(row("Landed", metric_text(landed)));
-    }
-    let merge_ins = count("mergeIns");
-    let changes = count("contractChanges");
-    if merge_ins > 0.0 {
-        rows.push(if changes > 0.0 {
-            row(
-                "Merge-ins per contract change",
-                format!("{:.1}", merge_ins / changes),
-            )
-        } else {
-            row("Merge-ins", metric_text(merge_ins))
-        });
-    }
-    let escalations = count("escalations");
-    if escalations > 0.0 {
-        rows.push(row(
-            "Escalations",
-            format!(
-                "{} ({} duplicate)",
-                metric_text(escalations),
-                metric_text(count("duplicateEscalations"))
-            ),
-        ));
-    }
-    let minutes = count("operatorMinutes");
-    if minutes > 0.0 {
-        rows.push(row("Operator minutes", metric_text(minutes)));
-    }
-    let rounds = count("reviewRounds");
-    if rounds > 0.0 {
-        rows.push(row("Review rounds", metric_text(rounds)));
-    }
-    let by_oracle = count("defectsByOracle");
-    let by_agent = count("defectsByAgentReview");
-    if by_oracle + by_agent > 0.0 {
-        rows.push(row(
-            "Defects found",
-            format!(
-                "{} by checks · {} by agent review",
-                metric_text(by_oracle),
-                metric_text(by_agent)
-            ),
-        ));
-    }
-    rows
-}
 
 /// A list row's secondary text: the shape line, led by the status word for
 /// the two statuses a band alone does not tell apart.
@@ -787,10 +465,55 @@ pub struct StripWave {
     pub nodes: Vec<NodeChip>,
 }
 
-/// The node strip: waves left to right, lanes top to bottom. STUB — the
-/// fixture's `nodeStrips` cases are `skip: true` until it lands.
-pub fn workflow_node_strip(_nodes: &[StripNodeInput], _edges: &[(String, String)]) -> Vec<StripWave> {
-    Vec::new()
+/// The node strip IS the graph: waves left to right (only the waves that hold
+/// a node), lanes top to bottom within a wave, ties by id. The edges are the
+/// mini-graph popover's business; the strip only orders. A compound node is
+/// `stacked`; the caption is the node's note while it has one, a `proposed`
+/// node's [`PROPOSED_NODE_NOTE`] (why its menu offers Admit / Dismiss), else
+/// its display label.
+pub fn workflow_node_strip(nodes: &[StripNodeInput]) -> Vec<StripWave> {
+    let mut sorted: Vec<&StripNodeInput> = nodes.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.wave
+            .cmp(&b.wave)
+            .then_with(|| a.lane.cmp(&b.lane))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let mut waves: Vec<StripWave> = Vec::new();
+    for node in sorted {
+        let display = workflow_node_display_state(&node.state);
+        let caption = node
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                if node.state == "proposed" {
+                    PROPOSED_NODE_NOTE.to_string()
+                } else {
+                    display.label().to_string()
+                }
+            });
+        let chip = NodeChip {
+            id: node.id.clone(),
+            title: workflow_node_title(&node.identifier, node.members),
+            display,
+            caption,
+            stacked: node.members > 0,
+            members: node.members,
+            live: node.live,
+            needs_you: node.needs_you,
+        };
+        match waves.last_mut() {
+            Some(last) if last.wave == node.wave => last.nodes.push(chip),
+            _ => waves.push(StripWave {
+                wave: node.wave,
+                nodes: vec![chip],
+            }),
+        }
+    }
+    waves
 }
 
 /// One node as the header caption counts it.
@@ -800,14 +523,68 @@ pub struct HeaderNode {
     pub members: usize,
 }
 
-/// The workflow header's caption (`on MacBook · 5 of 8 done · 2 running`).
-/// STUB — the fixture's `headerCaptions` cases are `skip: true`.
+/// The one line under the workflow's name. A draft counts its ISSUES
+/// (members included): `Draft · 8 issues`. A started workflow names its
+/// runner and counts NODES: `on MacBook · 5 of 8 done · 2 running` (the
+/// running tail only while something runs). Over, it counts what happened:
+/// `Done · 2 done · 1 skipped`. A `proposed` node was never admitted and is
+/// not counted.
 pub fn workflow_header_caption(
-    _status: &str,
-    _nodes: &[HeaderNode],
-    _device_label: Option<&str>,
+    status: &str,
+    nodes: &[HeaderNode],
+    device_label: Option<&str>,
 ) -> String {
-    String::new()
+    let admitted: Vec<&HeaderNode> = nodes.iter().filter(|node| node.state != "proposed").collect();
+    if status == "draft" {
+        let issues: usize = admitted.iter().map(|node| 1 + node.members).sum();
+        return if issues == 1 {
+            "Draft · 1 issue".to_string()
+        } else {
+            format!("Draft · {issues} issues")
+        };
+    }
+    let tally = |display: WorkflowNodeDisplayState| {
+        admitted
+            .iter()
+            .filter(|node| workflow_node_display_state(&node.state) == display)
+            .count()
+    };
+    let done = tally(WorkflowNodeDisplayState::Done);
+    if status == "running" || status == "paused" {
+        let mut parts = Vec::new();
+        if let Some(device) = device_label {
+            parts.push(format!("on {device}"));
+        }
+        parts.push(format!("{done} of {} done", admitted.len()));
+        let running = tally(WorkflowNodeDisplayState::Running);
+        if running > 0 {
+            parts.push(format!("{running} running"));
+        }
+        return parts.join(" · ");
+    }
+    let word = match status {
+        "draft" => "Draft".to_string(),
+        "done" => "Done".to_string(),
+        "failed" => "Failed".to_string(),
+        "cancelled" => "Cancelled".to_string(),
+        other => {
+            let mut chars = other.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        }
+    };
+    let mut parts = vec![word, format!("{done} done")];
+    let failed = tally(WorkflowNodeDisplayState::Failed);
+    if failed > 0 {
+        parts.push(format!("{failed} failed"));
+    }
+    let skipped = tally(WorkflowNodeDisplayState::Skipped);
+    if skipped > 0 {
+        parts.push(format!("{skipped} skipped"));
+    }
+    parts.join(" · ")
 }
 
 /// The workflow header's ONE primary action.
@@ -833,12 +610,95 @@ impl WorkflowPrimaryAction {
     }
 }
 
-/// The header's primary action for a status. STUB (fixture `primaryActions`).
+/// The header's ONE primary button: a draft without a runner picks one, a
+/// draft starts; a running or paused workflow whose final PR is OPEN reviews
+/// it (the ONE human review — the workflow is `done` only once it merged),
+/// else running pauses and paused resumes; done reviews the merged final PR.
+/// Failed and cancelled offer nothing; Stop and Delete live in the overflow.
 pub fn workflow_primary_action(
-    _status: &str,
-    _device_label: Option<&str>,
+    status: &str,
+    device_label: Option<&str>,
+    final_pr_state: Option<&str>,
 ) -> Option<WorkflowPrimaryAction> {
-    None
+    match status {
+        "draft" if device_label.is_some() => Some(WorkflowPrimaryAction::Start),
+        "draft" => Some(WorkflowPrimaryAction::PickDevice),
+        "running" | "paused" if final_pr_state == Some("open") => {
+            Some(WorkflowPrimaryAction::ReviewFinalPr)
+        }
+        "running" => Some(WorkflowPrimaryAction::Pause),
+        "paused" => Some(WorkflowPrimaryAction::Resume),
+        "done" => Some(WorkflowPrimaryAction::ReviewFinalPr),
+        _ => None,
+    }
+}
+
+/// The header's status glyph, as the node display state it reads like:
+/// draft → queued, running/paused → running, done → done, failed → failed,
+/// cancelled → skipped, anything newer → queued. Locked ×4.
+pub fn workflow_status_glyph(status: &str) -> WorkflowNodeDisplayState {
+    match status {
+        "running" | "paused" => WorkflowNodeDisplayState::Running,
+        "done" => WorkflowNodeDisplayState::Done,
+        "failed" => WorkflowNodeDisplayState::Failed,
+        "cancelled" => WorkflowNodeDisplayState::Skipped,
+        _ => WorkflowNodeDisplayState::Queued,
+    }
+}
+
+/// The page's own words, byte-identical ×4 (fixture `pageLabels`).
+pub const ALL_NODES_LABEL: &str = "All";
+pub const DECISIONS_LABEL: &str = "Decisions";
+/// The overflow's ending verb — `workflows.cancel` behind
+/// [`CANCEL_WORKFLOW_CONFIRM`].
+pub const STOP_WORKFLOW_LABEL: &str = "Stop";
+/// The `pick_device` primary button.
+pub const PICK_DEVICE_LABEL: &str = "Pick device";
+/// A draft's overflow entry that re-picks the runner.
+pub const RUNS_ON_LABEL: &str = "Runs on";
+pub const REVIEW_FINAL_PR_LABEL: &str = "Review final PR";
+/// A node on the Changes face whose issue has no pull request yet.
+pub const NO_CHANGES_LABEL: &str = "No changes yet";
+/// The Runs face with no run in scope.
+pub const NO_RUNS_LABEL: &str = "No runs yet";
+/// The Results face with no screenshot in scope.
+pub const NO_RESULTS_LABEL: &str = "No results yet";
+/// The Dismiss confirm on a `proposed` node (the Skip confirm's shape).
+pub const DISMISS_NODE_CONFIRM: &str = "The node is removed from the workflow.";
+
+/// One entry of the header's overflow menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowOverflowItem {
+    Plan,
+    RunsOn,
+    Stop,
+    Delete,
+}
+
+impl WorkflowOverflowItem {
+    /// The fixture's wire word.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            WorkflowOverflowItem::Plan => "plan",
+            WorkflowOverflowItem::RunsOn => "runs_on",
+            WorkflowOverflowItem::Stop => "stop",
+            WorkflowOverflowItem::Delete => "delete",
+        }
+    }
+}
+
+/// The header's overflow menu, in order: a draft plans, re-picks its runner
+/// and can be deleted; a running or paused one stops; anything else deletes.
+pub fn workflow_overflow_menu(status: &str) -> Vec<WorkflowOverflowItem> {
+    match status {
+        "draft" => vec![
+            WorkflowOverflowItem::Plan,
+            WorkflowOverflowItem::RunsOn,
+            WorkflowOverflowItem::Delete,
+        ],
+        "running" | "paused" => vec![WorkflowOverflowItem::Stop],
+        _ => vec![WorkflowOverflowItem::Delete],
+    }
 }
 
 /// A node chip's menu entries.
@@ -846,6 +706,8 @@ pub fn workflow_primary_action(
 pub enum NodeChipAction {
     Retry,
     Skip,
+    Admit,
+    Dismiss,
 }
 
 impl NodeChipAction {
@@ -854,13 +716,195 @@ impl NodeChipAction {
         match self {
             NodeChipAction::Retry => "retry",
             NodeChipAction::Skip => "skip",
+            NodeChipAction::Admit => "admit",
+            NodeChipAction::Dismiss => "dismiss",
+        }
+    }
+
+    /// The menu entry's label.
+    pub fn label(self) -> &'static str {
+        match self {
+            NodeChipAction::Retry => RETRY_NODE_LABEL,
+            NodeChipAction::Skip => SKIP_NODE_LABEL,
+            NodeChipAction::Admit => ADMIT_NODE_LABEL,
+            NodeChipAction::Dismiss => DISMISS_NODE_LABEL,
         }
     }
 }
 
-/// A node chip's menu. STUB (fixture `chipMenus`).
-pub fn node_chip_menu(_state: &str) -> Vec<NodeChipAction> {
-    Vec::new()
+/// What a node chip's menu offers: Retry / Skip on a `failed` node, Admit /
+/// Dismiss on a `proposed` one (a follow-up filed mid-run), nothing else.
+pub fn node_chip_menu(state: &str) -> Vec<NodeChipAction> {
+    match state {
+        "failed" => vec![NodeChipAction::Retry, NodeChipAction::Skip],
+        "proposed" => vec![NodeChipAction::Admit, NodeChipAction::Dismiss],
+        _ => Vec::new(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1084 — the page's PICKER model (fixture `selection`, mirrored ×4: web
+// `lib/workflow-selection.ts`, iOS/Android `WorkflowSelection`)
+// ---------------------------------------------------------------------------
+
+/// What the node strip has picked. The strip is `All` (position 0) then every
+/// node in DAG order; an EMPTY `ids` IS `All`.
+///
+/// The rules: a click picks exactly that node (a click on the picked chip
+/// keeps it; `All` or an unknown node = `All`); cmd/ctrl-click toggles one
+/// node in or out, in DAG order (the last one out = `All`); shift-click picks
+/// the DAG range from the anchor (the last plain or toggling click) to the
+/// node, the anchor staying; a step moves ONE position from the cursor (the
+/// last clicked or stepped node, else the last picked one) through `All` +
+/// the nodes, clamped, landing on one node or `All`; pruning drops nodes that
+/// left, keeping anchor/cursor when they stay, else the first picked.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkflowSelection {
+    /// The picked nodes, in DAG order. Empty = `All`.
+    pub ids: Vec<String>,
+    /// Where a shift-click range starts: the last plain or toggling click.
+    pub anchor: Option<String>,
+    /// The node the keyboard steps from: the last one clicked or stepped to.
+    pub cursor: Option<String>,
+}
+
+impl WorkflowSelection {
+    pub fn is_all(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.ids.iter().any(|picked| picked == id)
+    }
+
+    /// The picked ids, in the order given (the strip's DAG order).
+    pub fn picked_in<'a>(&self, order: &'a [String]) -> Vec<&'a String> {
+        order.iter().filter(|id| self.contains(id)).collect()
+    }
+
+    /// The one picked node, when exactly one is.
+    pub fn single(&self) -> Option<&str> {
+        (self.ids.len() == 1).then(|| self.ids[0].as_str())
+    }
+
+    /// Back to `All`.
+    pub fn select_all(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Exactly one node, anchored and cursored on it.
+    pub fn only(id: &str) -> Self {
+        Self {
+            ids: vec![id.to_string()],
+            anchor: Some(id.to_string()),
+            cursor: Some(id.to_string()),
+        }
+    }
+
+    /// A plain click. `None` = the `All` chip.
+    pub fn click(&mut self, order: &[String], id: Option<&str>) {
+        *self = match id {
+            Some(id) if order.iter().any(|node| node == id) => Self::only(id),
+            _ => Self::default(),
+        };
+    }
+
+    /// Cmd/ctrl-click: one node in or out, in DAG order; the last one out
+    /// is `All`.
+    pub fn toggle(&mut self, order: &[String], id: &str) {
+        if !order.iter().any(|node| node == id) {
+            self.select_all();
+            return;
+        }
+        let mut picked: Vec<String> = self.ids.clone();
+        if let Some(index) = picked.iter().position(|node| node == id) {
+            picked.remove(index);
+        } else {
+            picked.push(id.to_string());
+        }
+        let ids: Vec<String> = order
+            .iter()
+            .filter(|node| picked.contains(node))
+            .cloned()
+            .collect();
+        *self = if ids.is_empty() {
+            Self::default()
+        } else {
+            Self {
+                ids,
+                anchor: Some(id.to_string()),
+                cursor: Some(id.to_string()),
+            }
+        };
+    }
+
+    /// Shift-click: the DAG range from the anchor to `id`; the anchor stays.
+    /// Without an anchor it anchors on the node.
+    pub fn extend(&mut self, order: &[String], id: &str) {
+        let Some(to) = order.iter().position(|node| node == id) else {
+            self.select_all();
+            return;
+        };
+        let (anchor, from) = match self
+            .anchor
+            .as_deref()
+            .and_then(|anchor| order.iter().position(|node| node == anchor).map(|at| (anchor, at)))
+        {
+            Some((anchor, at)) => (anchor.to_string(), at),
+            None => (id.to_string(), to),
+        };
+        let (low, high) = (from.min(to), from.max(to));
+        *self = Self {
+            ids: order[low..=high].to_vec(),
+            anchor: Some(anchor),
+            cursor: Some(id.to_string()),
+        };
+    }
+
+    /// ←/→ (and k/j): ONE step from the cursor over `All` + the DAG order,
+    /// clamped at both ends, landing on exactly one node or `All`.
+    pub fn step(&mut self, order: &[String], delta: i64) {
+        let cursor = if self.ids.is_empty() {
+            None
+        } else {
+            match self.cursor.as_deref() {
+                Some(cursor) if self.contains(cursor) => Some(cursor),
+                _ => self.ids.last().map(String::as_str),
+            }
+        };
+        let position = cursor
+            .and_then(|cursor| order.iter().position(|node| node == cursor))
+            .map_or(0, |index| index as i64 + 1);
+        let next = (position + delta).clamp(0, order.len() as i64) as usize;
+        *self = if next == 0 {
+            Self::default()
+        } else {
+            Self::only(&order[next - 1])
+        };
+    }
+
+    /// Drops the nodes that left the workflow (a replan folded them away).
+    pub fn prune(&mut self, order: &[String]) {
+        let ids: Vec<String> = order
+            .iter()
+            .filter(|node| self.contains(node))
+            .cloned()
+            .collect();
+        if ids.len() == self.ids.len() {
+            return;
+        }
+        if ids.is_empty() {
+            self.select_all();
+            return;
+        }
+        let keep = |held: &Option<String>| match held {
+            Some(id) if ids.contains(id) => Some(id.clone()),
+            _ => Some(ids[0].clone()),
+        };
+        let anchor = keep(&self.anchor);
+        let cursor = keep(&self.cursor);
+        *self = Self { ids, anchor, cursor };
+    }
 }
 
 #[cfg(test)]
@@ -896,23 +940,6 @@ mod tests {
         metrics: FixtureMetrics,
         line: String,
         cycle_note: Option<String>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureCaptionNode {
-        kind: String,
-        state: String,
-        risk: String,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureCaption {
-        node: FixtureCaptionNode,
-        workflow_status: String,
-        caption: String,
-        tone: String,
     }
 
     #[derive(Deserialize)]
@@ -969,7 +996,6 @@ mod tests {
         status: String,
         device_id: Option<String>,
         repository_id: Option<String>,
-        start_on: String,
     }
 
     #[derive(Deserialize)]
@@ -978,32 +1004,6 @@ mod tests {
         workflow: FixtureStartWorkflow,
         metrics: FixtureMetrics,
         blocker: Option<String>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureTrainNode {
-        id: String,
-        kind: String,
-        state: String,
-        wave: i64,
-        lane: i64,
-        approved_at: Option<String>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureTrainEntry {
-        id: String,
-        step: String,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureTrainCase {
-        name: String,
-        nodes: Vec<FixtureTrainNode>,
-        expected: Vec<FixtureTrainEntry>,
     }
 
     #[derive(Deserialize)]
@@ -1041,59 +1041,16 @@ mod tests {
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
-    struct FixtureOracle {
-        passed: bool,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureReview {
-        verdict: String,
-        round: i64,
-        oracle: Option<FixtureOracle>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureReviewLine {
-        review: FixtureReview,
-        approved: bool,
-        line: String,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureMetricRow {
-        label: String,
-        value: String,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct FixtureMetricRows {
-        /// The raw `workflows.metrics` blob — counters and garbage alike.
-        metrics: serde_json::Value,
-        rows: Vec<FixtureMetricRow>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
     struct Fixture {
         bands: Vec<FixtureBand>,
         shape_lines: Vec<FixtureShapeLine>,
-        captions: Vec<FixtureCaption>,
         titles: Vec<FixtureTitle>,
         edges: Vec<FixtureEdgeCase>,
         start_blockers: Vec<FixtureStartBlocker>,
-        trains: Vec<FixtureTrainCase>,
-        train_step_labels: HashMap<String, String>,
         final_pr: Vec<FixtureFinalPr>,
         row_subtitles: Vec<FixtureRowSubtitle>,
         /// EXP-983.
         edge_styles: Vec<FixtureEdgeStyle>,
-        /// EXP-984.
-        review_lines: Vec<FixtureReviewLine>,
-        metric_rows: Vec<FixtureMetricRows>,
     }
 
     impl FixtureMetrics {
@@ -1128,19 +1085,6 @@ mod tests {
             let metrics = case.metrics.shape();
             assert_eq!(workflow_shape_line(&metrics), case.line);
             assert_eq!(workflow_cycle_note(&metrics), case.cycle_note);
-        }
-
-        for case in &fixture.captions {
-            let node = CaptionNode {
-                kind: &case.node.kind,
-                state: &case.node.state,
-                risk: &case.node.risk,
-            };
-            assert_eq!(
-                workflow_node_caption(node, &case.workflow_status),
-                case.caption
-            );
-            assert_eq!(workflow_node_tone(&case.node.state).as_wire(), case.tone);
         }
 
         for case in &fixture.titles {
@@ -1190,52 +1134,12 @@ mod tests {
                 status: &case.workflow.status,
                 device_id: case.workflow.device_id.as_deref(),
                 repository_id: case.workflow.repository_id.as_deref(),
-                start_on: &case.workflow.start_on,
             };
             assert_eq!(
                 workflow_start_blocker(workflow, &case.metrics.shape()),
                 case.blocker,
                 "startBlockers[{index}]"
             );
-        }
-
-        for case in &fixture.trains {
-            let nodes: Vec<TrainNode<'_>> = case
-                .nodes
-                .iter()
-                .map(|node| TrainNode {
-                    id: &node.id,
-                    kind: &node.kind,
-                    state: &node.state,
-                    wave: node.wave,
-                    lane: node.lane,
-                    approved: node.approved_at.is_some(),
-                })
-                .collect();
-            let got = workflow_merge_train(&nodes);
-            let want: Vec<(&str, &str)> = case
-                .expected
-                .iter()
-                .map(|entry| (entry.id.as_str(), entry.step.as_str()))
-                .collect();
-            let seen: Vec<(&str, &str)> = got
-                .iter()
-                .map(|entry| (entry.id.as_str(), entry.step.as_wire()))
-                .collect();
-            assert_eq!(seen, want, "case: {}", case.name);
-        }
-
-        for (step, label) in &fixture.train_step_labels {
-            let parsed = [
-                TrainStep::Next,
-                TrainStep::Queued,
-                TrainStep::NeedsApproval,
-                TrainStep::Updating,
-            ]
-            .into_iter()
-            .find(|candidate| candidate.as_wire() == step)
-            .unwrap_or_else(|| panic!("unknown train step: {step}"));
-            assert_eq!(workflow_train_step_label(parsed), label);
         }
 
         for (index, case) in fixture.final_pr.iter().enumerate() {
@@ -1275,67 +1179,6 @@ mod tests {
             );
         }
 
-        // ── EXP-984 ──────────────────────────────────────────────────────
-        for (index, case) in fixture.review_lines.iter().enumerate() {
-            assert_eq!(
-                workflow_review_line(ReviewLine {
-                    verdict: &case.review.verdict,
-                    round: case.review.round,
-                    oracle: case.review.oracle.as_ref().map(|oracle| oracle.passed),
-                    approved: case.approved,
-                }),
-                case.line,
-                "reviewLines[{index}]"
-            );
-        }
-
-        for (index, case) in fixture.metric_rows.iter().enumerate() {
-            let want: Vec<MetricRow> = case
-                .rows
-                .iter()
-                .map(|row| MetricRow {
-                    label: row.label.clone(),
-                    value: row.value.clone(),
-                })
-                .collect();
-            assert_eq!(
-                workflow_metric_rows(&case.metrics),
-                want,
-                "metricRows[{index}]"
-            );
-        }
-    }
-
-    /// The train is strict order only among CLEARED nodes: a node waiting for
-    /// a person never blocks a cleared one behind it.
-    #[test]
-    fn an_unapproved_node_never_holds_the_one_behind_it() {
-        let nodes = [
-            TrainNode {
-                id: "c",
-                kind: "contract",
-                state: "in_review",
-                wave: 0,
-                lane: 0,
-                approved: false,
-            },
-            TrainNode {
-                id: "l",
-                kind: "leaf",
-                state: "in_review",
-                wave: 1,
-                lane: 0,
-                approved: true,
-            },
-        ];
-        let train = workflow_merge_train(&nodes);
-        assert_eq!(
-            train
-                .iter()
-                .map(|entry| (entry.id.as_str(), entry.step))
-                .collect::<Vec<_>>(),
-            vec![("c", TrainStep::NeedsApproval), ("l", TrainStep::Next)]
-        );
     }
 
     /// The bands render in the fixture's order under their own titles.
@@ -1349,8 +1192,8 @@ mod tests {
 
     /// The strings the ×4 clients say WORD FOR WORD (web
     /// `lib/workflow-view.ts`, iOS `WorkflowView.swift`, Android
-    /// `WorkflowView.kt`): the final-PR merge pair and the node panel's two
-    /// EXP-1014 lines. A drift here is a drift in the product's voice.
+    /// `WorkflowView.kt`): the final-PR merge pair and the unsynced chip's
+    /// EXP-1014 title. A drift here is a drift in the product's voice.
     #[test]
     fn the_shared_labels_are_byte_identical() {
         assert_eq!(MERGE_FINAL_PR_LABEL, "Merge");
@@ -1358,39 +1201,9 @@ mod tests {
             MERGE_FINAL_PR_CONFIRM,
             "The workflow's branch is squash-merged into the default branch and the run is done."
         );
-        assert_eq!(NODE_MODEL_LABEL, "Model");
         assert_eq!(NODE_UNSYNCED_TITLE, "Not synced yet");
     }
 
-    /// An unknown state/kind (a newer server) renders its raw wire word
-    /// rather than an empty caption.
-    #[test]
-    fn unknown_states_and_kinds_render_their_wire_word() {
-        assert_eq!(workflow_node_state_label("brand-new"), "brand-new");
-        assert_eq!(workflow_node_kind_label("brand-new"), "brand-new");
-        assert_eq!(workflow_node_tone("brand-new"), WorkflowNodeTone::Muted);
-    }
-
-    /// EXP-1014 — the caption is the STATE and nothing else: a draft node
-    /// carries none at all, and neither kind nor risk ever prefixes one.
-    #[test]
-    fn a_caption_never_names_the_kind_or_the_risk() {
-        let node = |kind: &'static str, state: &'static str, risk: &'static str| CaptionNode {
-            kind,
-            state,
-            risk,
-        };
-        assert_eq!(workflow_node_caption(node("contract", "blocked", "high"), "draft"), "");
-        assert_eq!(workflow_node_caption(node("leaf", "ready", "low"), "draft"), "");
-        assert_eq!(
-            workflow_node_caption(node("contract", "running", "high"), "running"),
-            "Running"
-        );
-        assert_eq!(
-            workflow_node_caption(node("integration", "in_review", "medium"), "paused"),
-            "In review"
-        );
-    }
 }
 
 /// EXP-1082 — the display vocabulary, replayed off the contract fixture.
@@ -1411,6 +1224,73 @@ mod display_tests {
         header_captions: Vec<HeaderCase>,
         primary_actions: Vec<ActionCase>,
         chip_menus: Vec<MenuCase>,
+        overflow_menus: Vec<MenuStatusCase>,
+        page_labels: PageLabels,
+        status_glyphs: Vec<GlyphCase>,
+        proposed_node_note: String,
+        selection: Vec<SelectionCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct GlyphCase {
+        status: String,
+        display: String,
+    }
+
+    #[derive(Deserialize)]
+    struct SelectionState {
+        ids: Vec<String>,
+        anchor: Option<String>,
+        cursor: Option<String>,
+    }
+
+    impl SelectionState {
+        fn model(&self) -> WorkflowSelection {
+            WorkflowSelection {
+                ids: self.ids.clone(),
+                anchor: self.anchor.clone(),
+                cursor: self.cursor.clone(),
+            }
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct SelectionOp {
+        kind: String,
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        delta: Option<i64>,
+    }
+
+    #[derive(Deserialize)]
+    struct SelectionCase {
+        name: String,
+        order: Vec<String>,
+        current: SelectionState,
+        op: SelectionOp,
+        expected: SelectionState,
+    }
+
+    #[derive(Deserialize)]
+    struct MenuStatusCase {
+        status: String,
+        menu: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct PageLabels {
+        all_nodes: String,
+        decisions: String,
+        stop: String,
+        pick_device: String,
+        runs_on: String,
+        review_final_pr: String,
+        no_changes: String,
+        dismiss_node_confirm: String,
+        no_runs: String,
+        no_results: String,
     }
 
     #[derive(Deserialize)]
@@ -1460,7 +1340,6 @@ mod display_tests {
         #[serde(default)]
         skip: bool,
         nodes: Vec<StripNodeCase>,
-        edges: Vec<(String, String)>,
         strip: Vec<WaveCase>,
     }
 
@@ -1482,10 +1361,13 @@ mod display_tests {
     }
 
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct ActionCase {
         status: String,
         device: Option<String>,
         action: Option<String>,
+        #[serde(default)]
+        final_pr_state: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -1530,7 +1412,6 @@ mod display_tests {
     }
 
     #[test]
-    #[ignore = "EXP-1082 declares the strip; a later issue implements it"]
     fn node_strips_match_the_fixture() {
         for case in fixture().node_strips.into_iter().filter(|case| !case.skip) {
             let nodes: Vec<StripNodeInput> = case
@@ -1549,7 +1430,7 @@ mod display_tests {
                 })
                 .collect();
             let got: Vec<(i64, Vec<(String, String, &str, String, bool, usize, bool, bool)>)> =
-                workflow_node_strip(&nodes, &case.edges)
+                workflow_node_strip(&nodes)
                     .into_iter()
                     .map(|wave| {
                         (
@@ -1601,7 +1482,6 @@ mod display_tests {
     }
 
     #[test]
-    #[ignore = "EXP-1082 declares the header caption; a later issue implements it"]
     fn header_captions_match_the_fixture() {
         for case in fixture().header_captions.into_iter().filter(|case| !case.skip) {
             let nodes: Vec<HeaderNode> = case
@@ -1622,13 +1502,31 @@ mod display_tests {
     }
 
     #[test]
-    #[ignore = "EXP-1082 declares the primary action; a later issue implements it"]
     fn primary_actions_match_the_fixture() {
         for case in fixture().primary_actions {
             assert_eq!(
-                workflow_primary_action(&case.status, case.device.as_deref())
-                    .map(WorkflowPrimaryAction::as_wire),
+                workflow_primary_action(
+                    &case.status,
+                    case.device.as_deref(),
+                    case.final_pr_state.as_deref()
+                )
+                .map(WorkflowPrimaryAction::as_wire),
                 case.action.as_deref(),
+                "status {} finalPrState {:?}",
+                case.status,
+                case.final_pr_state
+            );
+        }
+    }
+
+    #[test]
+    fn status_glyphs_match_the_fixture() {
+        let cases = fixture().status_glyphs;
+        assert!(!cases.is_empty());
+        for case in cases {
+            assert_eq!(
+                workflow_status_glyph(&case.status).as_wire(),
+                case.display,
                 "status {}",
                 case.status
             );
@@ -1636,7 +1534,30 @@ mod display_tests {
     }
 
     #[test]
-    #[ignore = "EXP-1082 declares the chip menu; a later issue implements it"]
+    fn proposed_node_note_matches_the_fixture() {
+        assert_eq!(PROPOSED_NODE_NOTE, fixture().proposed_node_note);
+    }
+
+    #[test]
+    fn selection_matches_the_fixture() {
+        let cases = fixture().selection;
+        assert!(!cases.is_empty());
+        for case in cases {
+            let mut model = case.current.model();
+            let id = case.op.id.as_deref();
+            match case.op.kind.as_str() {
+                "click" => model.click(&case.order, id),
+                "toggle" => model.toggle(&case.order, id.expect("toggle id")),
+                "extend" => model.extend(&case.order, id.expect("extend id")),
+                "step" => model.step(&case.order, case.op.delta.expect("step delta")),
+                "prune" => model.prune(&case.order),
+                other => panic!("unknown selection op {other}"),
+            }
+            assert_eq!(model, case.expected.model(), "case: {}", case.name);
+        }
+    }
+
+    #[test]
     fn chip_menus_match_the_fixture() {
         for case in fixture().chip_menus {
             let got: Vec<&str> = node_chip_menu(&case.state)
@@ -1645,5 +1566,33 @@ mod display_tests {
                 .collect();
             assert_eq!(got, case.menu, "state {}", case.state);
         }
+    }
+
+    #[test]
+    fn overflow_menus_match_the_fixture() {
+        let cases = fixture().overflow_menus;
+        assert!(!cases.is_empty());
+        for case in cases {
+            let got: Vec<&str> = workflow_overflow_menu(&case.status)
+                .into_iter()
+                .map(WorkflowOverflowItem::as_wire)
+                .collect();
+            assert_eq!(got, case.menu, "status {}", case.status);
+        }
+    }
+
+    #[test]
+    fn page_labels_match_the_fixture() {
+        let labels = fixture().page_labels;
+        assert_eq!(ALL_NODES_LABEL, labels.all_nodes);
+        assert_eq!(DECISIONS_LABEL, labels.decisions);
+        assert_eq!(STOP_WORKFLOW_LABEL, labels.stop);
+        assert_eq!(PICK_DEVICE_LABEL, labels.pick_device);
+        assert_eq!(RUNS_ON_LABEL, labels.runs_on);
+        assert_eq!(REVIEW_FINAL_PR_LABEL, labels.review_final_pr);
+        assert_eq!(NO_CHANGES_LABEL, labels.no_changes);
+        assert_eq!(DISMISS_NODE_CONFIRM, labels.dismiss_node_confirm);
+        assert_eq!(NO_RUNS_LABEL, labels.no_runs);
+        assert_eq!(NO_RESULTS_LABEL, labels.no_results);
     }
 }

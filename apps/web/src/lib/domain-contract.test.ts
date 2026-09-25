@@ -25,7 +25,6 @@ import {
   wfRiskValues,
   wfSessionRoleValues,
   WORKFLOW_EVENTS_MAX,
-  wfStartOnValues,
   wfStatusValues,
   WORKFLOW_MAX_ISSUES,
   WORKFLOW_MAX_PARALLEL_DEFAULT,
@@ -190,7 +189,6 @@ describe(`domain-contract parity`, () => {
     expect([...wfStatusValues]).toEqual([...contract.wfStatus.values])
     expect([...wfNodeStateValues]).toEqual([...contract.wfNodeState.values])
     expect([...wfNodeKindValues]).toEqual([...contract.wfNodeKind.values])
-    expect([...wfStartOnValues]).toEqual([...contract.wfStartOn.values])
     expect([...wfRiskValues]).toEqual([...contract.wfRisk.values])
     // EXP-1082: session membership roles, the event log and the display states.
     expect([...wfSessionRoleValues]).toEqual([...contract.wfSessionRole.values])
