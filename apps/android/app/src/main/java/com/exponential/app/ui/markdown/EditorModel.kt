@@ -197,6 +197,8 @@ class EditorModel {
             return
         }
 
+        if (applyThematicBreakRule(idx, row, newText, diff)) return
+
         val remapped = MarkRemap.remap(diff, newText, row.marks)
         val finalMarks = applyPendingMarks(rowId, row.text, newText, caret, remapped)
         val newParas = ParaRemap.remap(diff, row.text, newText, row.paragraphs)
@@ -207,6 +209,83 @@ class EditorModel {
         selection = rowId to (caret..caret)
         if (structural) renumberOrdered()
         notifyEdit()
+    }
+
+    /**
+     * EXP-1018, the two thematic-break rewrites (web's TipTap input rule,
+     * desktop's separator block):
+     * - typing the third `-` of a lone `---` on a plain line (`—` + `-` too,
+     *   smart punctuation) turns that line into a break at once and moves the
+     *   caret to the line below, appending one when the break ends the run;
+     * - a deletion that touches a break line (a glyph char, or the newline
+     *   joining it to a neighbour) removes the whole line, so a half glyph or
+     *   a neighbour's text never merges into it.
+     * Returns true when it consumed the edit.
+     */
+    private fun applyThematicBreakRule(
+        idx: Int,
+        row: EditorRow.TextRun,
+        newText: String,
+        diff: TextDiff,
+    ): Boolean {
+        val old = row.text
+        if (diff.isPureInsertion && diff.insertedLen == 1 && newText[diff.removedStart] == '-') {
+            val index = ParaRemap.paraIndexAt(old, diff.removedStart)
+            val (start, end) = ParaRemap.paragraphBounds(old, index)
+            val attrs = row.paragraphs.getOrNull(index) ?: ParagraphAttrs.PLAIN
+            val typed = old.substring(start, end)
+            if (end == diff.removedStart && attrs.kind == BlockKind.Paragraph &&
+                (typed == "--" || typed == "\u2014")
+            ) {
+                val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH
+                val last = end == old.length
+                val inserted = if (last) "$glyph\n" else glyph
+                val text = old.replaceRange(start, end, inserted)
+                val synthetic = TextDiff(start, end, inserted.length)
+                val paras = ParaRemap.remap(synthetic, old, text, row.paragraphs).toMutableList()
+                paras[index] = ParagraphAttrs(kind = BlockKind.ThematicBreak)
+                replaceRow(idx, row.copy(
+                    text = text,
+                    paragraphs = paras,
+                    marks = MarkRemap.remap(synthetic, text, row.marks),
+                ))
+                bump(row.id)
+                desiredSelection = row.id to start + glyph.length + 1
+                renumberOrdered()
+                notifyEdit()
+                return true
+            }
+        }
+        if (diff.insertedLen != 0 || diff.removedLen == 0) return false
+        val breakIndex = row.paragraphs.indices.firstOrNull { i ->
+            if (row.paragraphs[i].kind != BlockKind.ThematicBreak) return@firstOrNull false
+            val (start, end) = ParaRemap.paragraphBounds(old, i)
+            diff.removedStart <= end && diff.removedEnd >= start
+        } ?: return false
+        val (start, end) = ParaRemap.paragraphBounds(old, breakIndex)
+        val atomStart: Int
+        val atomEnd: Int
+        if (end < old.length) {
+            atomStart = start
+            atomEnd = end + 1
+        } else {
+            atomStart = (start - 1).coerceAtLeast(0)
+            atomEnd = end
+        }
+        val removeStart = minOf(atomStart, diff.removedStart)
+        val removeEnd = maxOf(atomEnd, diff.removedEnd)
+        val text = old.removeRange(removeStart, removeEnd)
+        val synthetic = TextDiff(removeStart, removeEnd, 0)
+        replaceRow(idx, row.copy(
+            text = text,
+            paragraphs = ParaRemap.remap(synthetic, old, text, row.paragraphs),
+            marks = MarkRemap.remap(synthetic, text, row.marks),
+        ))
+        bump(row.id)
+        desiredSelection = row.id to removeStart
+        renumberOrdered()
+        notifyEdit()
+        return true
     }
 
     /**

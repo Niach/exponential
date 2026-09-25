@@ -529,6 +529,54 @@ public enum MarkdownFormatOps {
         return out
     }
 
+    // MARK: - Thematic break shortcut (EXP-1018)
+
+    /// The paragraph content a keystroke turns into a thematic break: typing
+    /// the third `-` of a lone `---` on a plain paragraph (web's TipTap input
+    /// rule). iOS smart punctuation folds `--` into `—`, so `—` + `-` counts
+    /// too. Returns the content range (without its newline) or `nil`.
+    public static func thematicBreakShortcutRange(
+        in text: NSAttributedString,
+        replacing range: NSRange,
+        with replacement: String
+    ) -> NSRange? {
+        guard replacement == "-", range.length == 0, range.location <= text.length else { return nil }
+        let ns = text.string as NSString
+        let para = ns.safeParagraphRange(at: range.location)
+        var end = NSMaxRange(para)
+        while end > para.location, ns.character(at: end - 1) == 0x0A || ns.character(at: end - 1) == 0x0D {
+            end -= 1
+        }
+        guard end == range.location else { return nil }
+        let content = NSRange(location: para.location, length: end - para.location)
+        let typed = ns.substring(with: content)
+        guard typed == "--" || typed == "\u{2014}" else { return nil }
+        let attrs = text.attributes(at: content.location, effectiveRange: nil)
+        guard !lineFormatKeys.contains(where: { attrs[$0] != nil }),
+              !isCodeRun(attrs),
+              attrs[.markdownThematicBreak] == nil else { return nil }
+        return content
+    }
+
+    /// Replaces `content` (from `thematicBreakShortcutRange`) with a thematic
+    /// break and returns the caret location: the start of the next line, a
+    /// fresh body line appended when the break ends the text.
+    public static func applyThematicBreak(
+        to text: NSMutableAttributedString,
+        content: NSRange
+    ) -> Int {
+        let glyph = NSAttributedString(
+            string: MarkdownStyle.thematicBreakGlyph, attributes: MarkdownStyle.thematicBreakAttributes)
+        text.replaceCharacters(in: content, with: glyph)
+        let after = content.location + glyph.length
+        let ns = text.string as NSString
+        if after < ns.length, ns.character(at: after) == 0x0A {
+            return after + 1
+        }
+        text.insert(NSAttributedString(string: "\n", attributes: MarkdownStyle.baseAttributes), at: after)
+        return after + 1
+    }
+
     private static func fontRemovingBold(_ font: PlatformFont) -> PlatformFont {
         fontRemoving(.traitBold, from: font)
     }

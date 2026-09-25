@@ -197,6 +197,21 @@ public enum MarkdownConversion {
                 }
             }
 
+            // EXP-1018: the drawn rule is a `---` line. Text typed onto the
+            // same line after it (the glyph run's attributes stick to the caret)
+            // becomes the paragraph below instead of corrupting the break.
+            if attrs[.markdownThematicBreak] as? Bool == true,
+               paraStr.string.hasPrefix(MarkdownStyle.thematicBreakGlyph) {
+                markdown += "---"
+                let glyphLength = (MarkdownStyle.thematicBreakGlyph as NSString).length
+                let rest = paraStr.attributedSubstring(
+                    from: NSRange(location: glyphLength, length: paraStr.length - glyphLength))
+                let restMarkdown = extractInlineMarkdown(from: rest, isHeading: false)
+                    .trimmingCharacters(in: .whitespaces)
+                if !restMarkdown.isEmpty { markdown += "\n\n" + restMarkdown }
+                continue
+            }
+
             if let headingLevel = attrs[.markdownHeadingLevel] as? Int, headingLevel > 0 {
                 markdown += String(repeating: "#", count: headingLevel) + " "
                 markdown += extractInlineMarkdown(from: paraStr, isHeading: true)
@@ -720,7 +735,8 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         appendBlockSeparatorToCollector(collector: collector, context: &context)
         var attrs = context.makeAttributes()
         attrs[.foregroundColor] = PlatformColor.white.withAlphaComponent(0.3)
-        collector.currentText.append(NSAttributedString(string: "───", attributes: attrs))
+        attrs[.markdownThematicBreak] = true
+        collector.currentText.append(NSAttributedString(string: MarkdownStyle.thematicBreakGlyph, attributes: attrs))
         context.needsBlockSeparator = true
 
     case CMARK_NODE_HTML_BLOCK:
