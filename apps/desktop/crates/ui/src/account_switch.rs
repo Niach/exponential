@@ -305,7 +305,16 @@ impl SwitchContext {
     /// and nothing to switch), or the row has not synced its device yet.
     pub(crate) fn resolve(&self, cx: &App) -> Option<Vec<SwitchTarget>> {
         let device_id = self.device_id.as_deref()?;
-        let rows = crate::usage_bar::device_profile_rows(cx);
+        let mut rows = crate::usage_bar::device_profile_rows(cx);
+        if self.local {
+            // A run hosted HERE switches through this process's own launcher:
+            // the synced row's `last_seen_at` says nothing about it, and a
+            // stalled heartbeat must not wall off the one way out of a
+            // rate-limited run.
+            for row in rows.iter_mut().filter(|row| row.device_id == device_id) {
+                row.online = true;
+            }
+        }
         let targets = switch_targets(
             &rows,
             device_id,
