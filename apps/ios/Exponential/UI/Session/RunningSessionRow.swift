@@ -24,6 +24,9 @@ struct RunningSessionRow<Footer: View>: View {
     var expandable: Bool = false
     var expanded: Bool = true
     var onToggle: (() -> Void)?
+    /// EXP-1068: the workflow marks (needs-you dot, duplicate warning, a
+    /// non-default account). Empty on every other surface.
+    var marks = RunningSessionRowMarks()
     @ViewBuilder let footer: () -> Footer
 
     var body: some View {
@@ -80,14 +83,29 @@ struct RunningSessionRow<Footer: View>: View {
         let paused = device.isPaused(state)
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                SessionRowTitle(
-                    identifier: identifier,
-                    title: title,
-                    state: state,
-                    paused: paused,
-                    // EXP-848: the dot pulses on the device-written turn flag.
-                    busy: session.agentBusy
-                )
+                HStack(spacing: 6) {
+                    // EXP-1068: an open question to a person — red, beside
+                    // the state dot (the amber needs-input state stays).
+                    if marks.needsYou {
+                        Circle()
+                            .fill(DesignTokens.Semantic.red)
+                            .frame(width: 7, height: 7)
+                            .accessibilityLabel("Needs you")
+                    }
+                    SessionRowTitle(
+                        identifier: identifier,
+                        title: title,
+                        state: state,
+                        paused: paused,
+                        // EXP-848: the dot pulses on the device-written turn flag.
+                        busy: session.agentBusy
+                    )
+                    if marks.duplicateLive {
+                        AppIcon(AppIcons.uiWarning, size: 12)
+                            .foregroundStyle(DesignTokens.Semantic.yellow)
+                            .accessibilityLabel("Two live runs on this node")
+                    }
+                }
                 // EXP-850 §8: the device-written caption, only on a live row.
                 if state != .done, let caption = session.agentCaption, !caption.isEmpty {
                     Text(caption)
@@ -101,7 +119,7 @@ struct RunningSessionRow<Footer: View>: View {
                     paused: paused,
                     device: device.displayLabel,
                     started: relativeWireDate(session.startedAt)
-                ))
+                ) + (marks.account.map { " · account \($0)" } ?? ""))
                 .font(.caption)
                 .foregroundStyle(sessionStatusLineColor(state: state, paused: paused))
                 .lineLimit(1)
@@ -126,7 +144,8 @@ extension RunningSessionRow where Footer == EmptyView {
         open: RunningSessionRowOpen,
         expandable: Bool = false,
         expanded: Bool = true,
-        onToggle: (() -> Void)? = nil
+        onToggle: (() -> Void)? = nil,
+        marks: RunningSessionRowMarks = RunningSessionRowMarks()
     ) {
         self.init(
             session: session,
@@ -138,9 +157,20 @@ extension RunningSessionRow where Footer == EmptyView {
             expandable: expandable,
             expanded: expanded,
             onToggle: onToggle,
+            marks: marks,
             footer: { EmptyView() }
         )
     }
+}
+
+/// EXP-1068: what a workflow member's row adds to the plain run row.
+struct RunningSessionRowMarks {
+    /// The run holds an open question to a person (`pendingQuestion`).
+    var needsYou = false
+    /// Two live author (or review) runs on this node.
+    var duplicateLive = false
+    /// The account label, only when it is not the machine's default.
+    var account: String?
 }
 
 /// Where a `RunningSessionRow`'s primary tap goes.

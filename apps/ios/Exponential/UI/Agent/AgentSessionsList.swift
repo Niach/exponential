@@ -86,12 +86,14 @@ struct AgentSessionsList: View {
             if let row = rows[node.session.id] {
                 sessionRow(
                     row,
+                    node: node,
                     expandable: entry.hasChildren,
                     expanded: expanded,
                     onToggle: onToggle
                 )
             }
         case let .workflow(group):
+            // EXP-1068: the workflow's status dot + `3 running · 5 of 8 done`.
             SessionGroupRow(
                 glyph: AppIcons.navWorkflows,
                 title: group.name,
@@ -99,7 +101,13 @@ struct AgentSessionsList: View {
                 open: .route(.workflow(accountId: accountId, id: group.workflowId)),
                 key: entry.key,
                 expanded: expanded,
-                onToggle: onToggle
+                onToggle: onToggle,
+                status: group.status,
+                caption: SessionTree.workflowGroupCaption(
+                    liveRuns: group.liveRuns,
+                    nodesDone: group.nodesDone,
+                    nodesTotal: group.nodesTotal
+                )
             )
         case let .stack(group):
             // A stack is not a place you can go — its members are its only
@@ -142,6 +150,7 @@ struct AgentSessionsList: View {
     @ViewBuilder
     private func sessionRow(
         _ row: AgentsViewModel.Row,
+        node: SessionTree.SessionNode? = nil,
         expandable: Bool = false,
         expanded: Bool = true,
         onToggle: (() -> Void)? = nil
@@ -158,7 +167,7 @@ struct AgentSessionsList: View {
             identifier: sessionRowIdentifier(
                 issue: row.issue, session: row.session, batchIssues: row.batchIssues
             ),
-            title: sessionRowTitle(
+            title: reviewTitle(node) ?? sessionRowTitle(
                 issue: row.issue, session: row.session, batchIssues: row.batchIssues
             ),
             state: state,
@@ -166,9 +175,60 @@ struct AgentSessionsList: View {
             open: sessionRowOpen(row),
             expandable: expandable,
             expanded: expanded,
-            onToggle: onToggle
+            onToggle: onToggle,
+            marks: RunningSessionRowMarks(
+                needsYou: !(row.session.pendingQuestion ?? "").isEmpty,
+                duplicateLive: node?.duplicateLive == true,
+                account: nonDefaultAccount(row.session)
+            )
         )
         .accessibilityIdentifier("agent-session-row")
+    }
+
+    // MARK: - Workflow marks (EXP-1068)
+
+    /// A REVIEW chain's title: `Review r2 · approved` off its node's synced
+    /// `review_round` + latest `review`. Nil on every other row.
+    private func reviewTitle(_ node: SessionTree.SessionNode?) -> String? {
+        guard let node, node.session.workflowRole == DomainContract.wfSessionRoleReview else {
+            return nil
+        }
+        let nodeRow = vm.sessionTreeContext.workflowNode(id: node.session.workflowNodeId)
+        let latest = WorkflowNodeReview.parse(nodeRow?.review)
+        let verdict = SessionTree.reviewRoundVerdict(
+            round: node.reviewRound,
+            nodeReviewRound: nodeRow?.reviewRound,
+            latestRound: latest?.round,
+            latestVerdict: latest?.verdict
+        )
+        return SessionTree.reviewRowCaption(
+            round: node.reviewRound,
+            verdict: verdict,
+            live: SessionTree.sessionRowIsLive(status: node.session.status)
+        )
+    }
+
+    /// The run's account label when it is NOT the host machine's default for
+    /// that agent (`launch_defaults.defaultAccount` when the agent is the
+    /// machine's default agent, else its ambient `system` login). A host this
+    /// phone has not synced shows any non-ambient account.
+    private func nonDefaultAccount(_ session: CodingSessionEntity) -> String? {
+        guard let account = session.agentAccount, !account.isEmpty else { return nil }
+        let device = session.deviceId.flatMap { id in
+            vm.devices?.first { $0.deviceId == id }
+        }
+        let system = AgentAccountsRows.systemProfileId
+        let defaults = device?.launchDefaults
+        let fallback = defaults?.defaultAccount.flatMap { $0.isEmpty ? nil : $0 } ?? system
+        let machineDefault = (session.agent != nil && defaults?.defaultAgent == session.agent)
+            ? fallback : system
+        guard account != machineDefault else { return nil }
+        let profile = session.agent.flatMap { agent in
+            device?.agentAccounts?[agent]?.profiles?.first { $0.id == account }
+        }
+        let label = profile?.label ?? profile?.email
+        if let label, !label.isEmpty { return label }
+        return account == system ? "Default" : account
     }
 
     /// Every listed row is the caller's own (EXP-312: live sessions are
