@@ -241,6 +241,96 @@ object IssueGraph {
         )
     }
 
+    /**
+     * EXP-1057: THE mini-graph's geometry, identical ×4 and locked by
+     * `domain-contract/fixtures/issue-graph-geometry.json` (web
+     * `lib/issue-graph.ts` `ISSUE_GRAPH_GEOMETRY`, desktop
+     * `domain::issue_graph::geometry`, iOS `IssueGraph.Geometry`). Units = dp.
+     * The grid sits [INSET] inside its scroll box so the rings never clip.
+     */
+    object Geometry {
+        const val NODE_WIDTH = 176f
+        const val NODE_HEIGHT = 28f
+        const val WAVE_GAP = 40f
+        const val LANE_GAP = 8f
+        const val INSET = 4f
+        const val MAX_VIEW_WIDTH = 520f
+        const val MAX_VIEW_HEIGHT = 320f
+        const val EDGE_STROKE = 1.25f
+        const val RING_WIDTH = 1f
+        const val NODE_RADIUS = 6f
+        const val RAIL_GUTTER = 8f
+        const val RAIL_NODE_WIDTH = 24f
+        const val RAIL_DOT = 10f
+        const val RAIL_DOT_RING = 2f
+
+        data class Point(val x: Float, val y: Float)
+
+        data class Size(
+            val width: Float,
+            val height: Float,
+            val viewWidth: Float,
+            val viewHeight: Float,
+        )
+
+        data class Curve(
+            val start: Point,
+            val control1: Point,
+            val control2: Point,
+            val end: Point,
+        )
+
+        /** A node box's top-left inside the grid. */
+        fun origin(wave: Int, lane: Int): Point = Point(
+            x = INSET + wave * (NODE_WIDTH + WAVE_GAP),
+            y = INSET + lane * (NODE_HEIGHT + LANE_GAP),
+        )
+
+        /**
+         * The grid's natural size for [waves] × [lanes] (insets included) and
+         * the viewport it shows before scrolling.
+         */
+        fun size(waves: Int, lanes: Int): Size {
+            if (waves <= 0 || lanes <= 0) return Size(0f, 0f, 0f, 0f)
+            val width = 2 * INSET + waves * (NODE_WIDTH + WAVE_GAP) - WAVE_GAP
+            val height = 2 * INSET + lanes * (NODE_HEIGHT + LANE_GAP) - LANE_GAP
+            return Size(
+                width = width,
+                height = height,
+                viewWidth = minOf(width, MAX_VIEW_WIDTH),
+                viewHeight = minOf(height, MAX_VIEW_HEIGHT),
+            )
+        }
+
+        /** The grid size of a laid-out [graph]. */
+        fun size(graph: Graph): Size = size(
+            waves = (graph.nodes.maxOfOrNull { it.wave } ?: -1) + 1,
+            lanes = (graph.nodes.maxOfOrNull { it.lane } ?: -1) + 1,
+        )
+
+        /** One edge as a cubic: blocker's right-middle → blocked box's left-middle. */
+        fun edge(from: Node, to: Node): Curve =
+            edge(from.wave, from.lane, to.wave, to.lane)
+
+        fun edge(fromWave: Int, fromLane: Int, toWave: Int, toLane: Int): Curve {
+            val a = origin(fromWave, fromLane)
+            val b = origin(toWave, toLane)
+            val start = Point(a.x + NODE_WIDTH, a.y + NODE_HEIGHT / 2)
+            val end = Point(b.x, b.y + NODE_HEIGHT / 2)
+            val bend = if (end.x > start.x) {
+                (end.x - start.x) / 2
+            } else {
+                maxOf(WAVE_GAP / 2, kotlin.math.abs(end.x - start.x) / 2)
+            }
+            return Curve(
+                start = start,
+                control1 = Point(start.x + bend, start.y),
+                control2 = Point(end.x - bend, end.y),
+                end = end,
+            )
+        }
+    }
+
     /** The anchor statuses that mean an issue is out of everybody's way. */
     private fun isClosed(issue: IssueEntity): Boolean =
         when (IssueStatus.fromWire(issue.status)) {

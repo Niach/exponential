@@ -1,18 +1,12 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -25,25 +19,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.domain.IssueGraph
-import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.flatRow
 
 // EXP-980: ONE view of the `blocks` graph ([IssueGraph]) per client, used in
 // three places — the list row's badge overlay, the Work screen's stack/batch
-// overlay on its Issue face, and the blocked-start dialog. A phone draws the
-// graph as a LIST grouped by wave (the desktop and web draw the real grid):
-// section `Wave 1`, `Wave 2`, … over rows of status glyph + issue chip, each
-// with the chips of its own direct blockers underneath. Cycle edges are red,
-// subjects are highlighted, and the two notes under the graph are the shared
-// strings.
+// overlay on its Issue face, and the blocked-start dialog. EXP-1057: every
+// one of them draws the grid ([IssueGraphPopover]), identical ×4.
 
 /**
  * The list row's blocks badge: `⊘ 2` for open blockers (destructive), `⃠ 1`
@@ -104,12 +91,10 @@ private fun BadgeSide(
 }
 
 /**
- * The graph itself: one section per wave, the nodes of that wave as rows, and
- * under each row the chips of its direct blockers INSIDE the graph. Red = an
- * edge on a cycle; a subject row is highlighted. [onOpenIssue] is the same
- * navigation the stack overlay's chips take.
+ * The graph itself. EXP-1057: phones draw the SAME grid the web and desktop
+ * draw — [IssueGraphPopover] — so this is only the name the list badge, the
+ * Work screen's overlay and the blocked-start dialog already call.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun IssueGraphList(
     graph: IssueGraph.Graph,
@@ -117,98 +102,12 @@ fun IssueGraphList(
     onOpenIssue: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (graph.isEmpty) return
-    // Every blocker of a node that is drawn here, with its cycle flag.
-    val incoming = remember(graph) { graph.edges.groupBy { it.to } }
-    // The nodes are already ordered by (wave, lane), so grouping keeps it.
-    val waves = remember(graph) { graph.nodes.groupBy { it.wave } }
-    Column(modifier = modifier.fillMaxWidth().testTag("issue-graph")) {
-        waves.forEach { (wave, nodes) ->
-            SectionHeader("Wave ${wave + 1}")
-            nodes.forEach { node ->
-                val issue = issuesById[node.id] ?: return@forEach
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // EXP-818: an overlay row is a LIST row.
-                        .flatRow()
-                        .then(
-                            if (node.subject) {
-                                Modifier.border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                                    RoundedCornerShape(GlassTokens.RowRadius),
-                                )
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .clickable { onOpenIssue(issue.id) }
-                        .padding(
-                            horizontal = GlassTokens.RowPaddingH,
-                            vertical = GlassTokens.RowPaddingV,
-                        ),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusIcon(IssueStatus.fromWire(issue.status), size = 14.dp)
-                        Spacer(Modifier.width(8.dp))
-                        // The chip names the issue; the title rides beside it
-                        // so a node still reads as a sentence, not a code.
-                        IssueChip(
-                            identifier = issue.identifier,
-                            title = null,
-                            status = null,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            issue.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    val blockers = incoming[node.id].orEmpty()
-                    if (blockers.isNotEmpty()) {
-                        Text(
-                            "Blocked by",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            blockers.forEach { edge ->
-                                val blocker = issuesById[edge.from] ?: return@forEach
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (edge.cycle) {
-                                        Icon(
-                                            ExpIcons.relationBlockedBy,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(12.dp),
-                                            tint = MaterialTheme.colorScheme.error,
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                    }
-                                    IssueChip(
-                                        identifier = blocker.identifier,
-                                        title = blocker.title,
-                                        status = null,
-                                        onClick = { onOpenIssue(blocker.id) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (graph.hasCycle) GraphNote(IssueGraph.CYCLE_NOTE)
-        if (graph.truncated) GraphNote(IssueGraph.TRUNCATED_NOTE)
-    }
+    IssueGraphPopover(
+        graph = graph,
+        issuesById = issuesById,
+        onOpenIssue = onOpenIssue,
+        modifier = modifier,
+    )
 }
 
 @Composable
