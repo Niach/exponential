@@ -13,7 +13,7 @@ import {
   workflowReviewOracleSchema,
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
-import { authedProcedure, generateTxId } from "@/lib/trpc"
+import { authedProcedure } from "@/lib/trpc"
 import { workflowNodes } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
 import {
@@ -27,35 +27,19 @@ import {
 
 export const workflowReviewProcedures = {
 
-  /** A member clears a node's open PR for the merge train by hand (the agent
-   *  review normally does; this is the way out when it did not converge).
-   *  `approved: false` takes it back while the node has not landed. */
+  /** EXP-1065: a person no longer gates any node — the agent review clears
+   *  it, or the review cap does. The procedure stays REGISTERED only because
+   *  clients built before this rule still show an Approve button (the
+   *  integration node deletes it with them); it refuses every call. */
   approveNode: authedProcedure
     .input(z.object({ nodeId: z.string().uuid(), approved: z.boolean().default(true) }))
     .mutation(async ({ ctx, input }) => {
       const node = await loadNode(input.nodeId)
       const workflow = await loadWorkflow(node.workflowId)
       await assertTeamMember(ctx.session.user.id, workflow.teamId)
-      if (node.state === `landed`) throw bad(`That node already landed`)
-      return ctx.db.transaction(async (tx) => {
-        const txId = await generateTxId(tx)
-        await tx
-          .update(workflowNodes)
-          .set({
-            approvedAt: input.approved ? new Date() : null,
-            // A person approves the pull request as it IS. The engine reads
-            // an approval as stale while the stored review names a head the
-            // PR has moved past (`approval_is_stale`), which after a
-            // request_changes round is always the case once the author
-            // pushed its fixes: the reviewer's head goes, the verdict and
-            // findings stay on record.
-            ...(input.approved && {
-              review: sql`CASE WHEN ${workflowNodes.review} IS NULL THEN NULL ELSE ${workflowNodes.review} - 'head' END`,
-            }),
-          })
-          .where(eq(workflowNodes.id, input.nodeId))
-        return { txId }
-      })
+      throw bad(
+        `Nobody approves a node by hand any more: the agent review clears it, or the review cap lands it with its findings carried to the final pull request`
+      )
     }),
 
 
@@ -116,7 +100,7 @@ export const workflowReviewProcedures = {
       return ctx.db.transaction(async (tx) => {
         // The round is claimed IN the update (concurrent verdicts cannot share
         // one), and only a node that is under review or being updated moves:
-        // a paused or waiting node keeps what a person decided.
+        // a landed, skipped or failed node keeps what it is.
         const [claimed] = await tx
           .update(workflowNodes)
           .set({ reviewRound: sql`${workflowNodes.reviewRound} + 1` })
@@ -131,7 +115,7 @@ export const workflowReviewProcedures = {
         const round = claimed.round
         if (round > WORKFLOW_MAX_REVIEW_ROUNDS) {
           throw bad(
-            `Review rounds are used up after ${WORKFLOW_MAX_REVIEW_ROUNDS}; a person decides this node now`
+            `Review rounds are used up after ${WORKFLOW_MAX_REVIEW_ROUNDS}; the node lands once its author is done and its findings are carried to the final pull request`
           )
         }
         const outcome = reviewOutcome({
@@ -155,8 +139,8 @@ export const workflowReviewProcedures = {
             state: outcome.state,
             note: outcome.note,
             // A verdict at a newer head supersedes any earlier approval: an
-            // approve stamps it, a request_changes withdraws it (a person can
-            // approve again after reading the findings).
+            // approve stamps it, a request_changes withdraws it (the next
+            // round's approve, or the cap, clears the node again).
             approvedAt: outcome.approve ? new Date() : null,
           })
           .where(eq(workflowNodes.id, input.nodeId))

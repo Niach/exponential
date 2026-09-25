@@ -598,20 +598,16 @@ describe(`the engine's write path`, () => {
     expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
   })
 
-  it(`a person's approval drops the reviewer's head so the engine never reads it as stale`, async () => {
-    selectQueue.push([node({ approvedAt: null })], [workflow()], [{ since: new Date() }])
-    await caller.approveNode({ nodeId: NODE, approved: true } as never)
-    const write = written.find((w) => w.op === `update`)
-    expect(write?.values).toMatchObject({ approvedAt: expect.any(Date) })
-    expect(typeof (write?.values as { review: unknown }).review).toBe(`object`)
-    expect((write?.values as { review: unknown }).review).not.toBeNull()
-  })
-
-  it(`withdrawing an approval leaves the review alone`, async () => {
-    selectQueue.push([node()], [workflow()])
-    await caller.approveNode({ nodeId: NODE, approved: false } as never)
-    const write = written.find((w) => w.op === `update`)
-    expect(write?.values).toEqual({ approvedAt: null })
+  // EXP-1065: nobody approves a node by hand; the procedure only stays
+  // registered for clients that still show the button.
+  it(`refuses a person's approval and writes nothing`, async () => {
+    for (const approved of [true, false]) {
+      selectQueue.push([node({ approvedAt: null })], [workflow()])
+      const error = await rejection(caller.approveNode({ nodeId: NODE, approved } as never))
+      expect(error?.code).toBe(`BAD_REQUEST`)
+      expect(error?.message).toContain(`Nobody approves a node by hand`)
+    }
+    expect(written).toEqual([])
   })
 
   it(`holds an unapproved node at the gate, server-side`, async () => {
@@ -622,7 +618,7 @@ describe(`the engine's write path`, () => {
     )
     expect(await caller.landNode({ nodeId: NODE })).toEqual({
       merged: false,
-      reason: `Waiting for a person to approve`,
+      reason: `Waiting for the agent review to clear it`,
       retargeted: [],
     })
   })
@@ -779,7 +775,7 @@ describe(`the engine's write path`, () => {
       [{ id: `device-row` }],
       [{ prState: `merged`, prMergedAt: new Date(`2026-09-01T10:00:00Z`) }]
     )
-    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for a person to approve`)
+    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for the agent review to clear it`)
     expect(written).toEqual([])
   })
 
@@ -1216,19 +1212,36 @@ describe(`reviewOutcome`, () => {
     expect(reviewOutcome({ verdict: `approve`, oraclePassed: null, round: 1 }).approve).toBe(true)
   })
 
-  it(`keeps an approval its own checks contradict advisory`, () => {
+  it(`sends an approval its own checks contradict back to the author`, () => {
     const outcome = reviewOutcome({ verdict: `approve`, oraclePassed: false, round: 1 })
     expect(outcome.approve).toBe(false)
-    expect(outcome.note).toContain(`needs a person`)
+    expect(outcome.state).toBe(`updating`)
+    expect(outcome.note).toContain(`back to the author`)
   })
 
-  it(`bounces to the author up to the round cap, then waits for a person`, () => {
+  // EXP-1065: the cap is a bound on bouncing, never a hand-off to a person.
+  it(`bounces to the author up to the round cap, then lands with the findings carried`, () => {
     expect(
-      reviewOutcome({ verdict: `request_changes`, oraclePassed: false, round: 2 }).state
-    ).toBe(`updating`)
+      reviewOutcome({ verdict: `request_changes`, oraclePassed: false, round: 2 })
+    ).toMatchObject({ state: `updating`, note: `Changes requested by the agent review (round 2 of 3)` })
     expect(
       reviewOutcome({ verdict: `request_changes`, oraclePassed: null, round: 3 })
-    ).toMatchObject({ state: `waiting`, note: `Review did not converge after 3 rounds` })
+    ).toMatchObject({
+      approve: false,
+      state: `updating`,
+      note: `Review round 3 of 3: findings go to the author once more, then it lands with them carried`,
+    })
+    expect(reviewOutcome({ verdict: `approve`, oraclePassed: false, round: 3 })).toMatchObject({
+      approve: false,
+      state: `updating`,
+    })
+    for (const verdict of [`approve`, `request_changes`] as const) {
+      for (const round of [1, 2, 3, 4]) {
+        for (const oraclePassed of [true, false, null]) {
+          expect(reviewOutcome({ verdict, oraclePassed, round }).state).not.toBe(`waiting`)
+        }
+      }
+    }
   })
 })
 
@@ -1385,18 +1398,97 @@ describe(`workflows.appendEvent`, () => {
   })
 })
 
-// EXP-1082 §4 — node states + questions (EXP-1065 implements these).
+// EXP-1082 §4 / EXP-1065 — node states + questions: the review cap clears a
+// node without anyone's approval and CARRIES what it left open; an open
+// question is a badge, never a state.
 describe(`node states (EXP-1082 §4)`, () => {
-  it.skip(`a node at the review cap lands after the author's last push and carries its findings`, () => {
-    // After WORKFLOW_MAX_REVIEW_ROUNDS a node LANDS (no `waiting`) once the
-    // author's last push is on its branch, the findings on the node's note.
+  const NODE = `55555555-5555-4555-8555-555555555555`
+  const capped = (review: Record<string, unknown>) => ({
+    id: NODE,
+    workflowId: WF,
+    issueId: A,
+    kind: `leaf`,
+    state: `in_review`,
+    approvedAt: null,
+    sessionId: `66666666-6666-4666-8666-666666666666`,
+    reviewRound: 3,
+    review: { round: 3, findings: ``, oracle: null, model: null, at: ``, ...review },
   })
-  it.skip(`a failed oracle at the cap lands and carries the failure`, () => {
-    // A FAILED oracle at the cap still lands; the note names the failure.
+  const land = async (node: Record<string, unknown>) => {
+    selectQueue.push(
+      [node],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ prState: `open` }],
+      // the landed write's decisions-log update
+      [{ identifier: `APP-6` }],
+      [{ decisions: `2026-09-19: ship the API first` }]
+    )
+    return caller.landNode({ nodeId: NODE })
+  }
+  const decisionsWritten = () =>
+    written
+      .filter((w) => w.op === `update`)
+      .map((w) => (w.values as { decisions?: string }).decisions)
+      .find((d) => typeof d === `string`)
+
+  it(`a node at the review cap lands after the author's last push and carries its findings`, async () => {
+    expect(
+      await land(capped({ verdict: `request_changes`, findings: `src/a.ts:4 off by one\nsrc/b.ts: no test` }))
+    ).toEqual({ merged: true, reason: null, retargeted: [] })
+    expect(h.mergePr).toHaveBeenCalledWith({ issueId: A, endSessions: true })
+    expect(written[0]!.values).toEqual({ state: `landed`, note: null })
+    expect(decisionsWritten()).toBe(
+      `2026-09-19: ship the API first\n${new Date().toISOString().slice(0, 10)}: Unresolved review findings (APP-6, round 3): src/a.ts:4 off by one src/b.ts: no test`
+    )
+    expect(written).toContainEqual({
+      op: `insert`,
+      values: expect.objectContaining({ kind: `cleared_at_cap`, nodeId: NODE, workflowId: WF }),
+    })
   })
-  it.skip(`an open question never changes the node state, only the badge`, () => {
-    // `pending_question` set on a node's run leaves `workflow_nodes.state`
-    // untouched; only the `needs you` badge appears.
+
+  it(`a failed oracle at the cap lands and carries the failure`, async () => {
+    expect(
+      await land(
+        capped({ verdict: `approve`, findings: `flaky`, oracle: { command: `bun test`, passed: false } })
+      )
+    ).toMatchObject({ merged: true })
+    expect(decisionsWritten()).toContain(
+      `Unresolved review findings (APP-6, round 3): flaky Checks failed: bun test`
+    )
+  })
+
+  it(`a node below the cap, or one whose checks passed, still waits for its review`, async () => {
+    expect(
+      (await land(capped({ verdict: `request_changes`, round: 2 }))).reason
+    ).toBe(`Waiting for the agent review to clear it`)
+    expect(h.mergePr).not.toHaveBeenCalled()
+  })
+
+  it(`an open question never changes the node state, only the badge`, async () => {
+    const { workflowOpenQuestions } = await vi.importActual<
+      typeof import("@/lib/workflows/open-questions")
+    >(`@/lib/workflows/open-questions`)
+    const askedAt = `2026-09-25T10:00:00Z`
+    // The badge comes off the run's own row …
+    expect(
+      workflowOpenQuestions(
+        [
+          {
+            id: `run-1`,
+            workflowId: WF,
+            workflowNodeId: NODE,
+            pendingQuestion: { question: `Proposal: keep the enum?`, askedAt },
+            status: `running`,
+          },
+        ],
+        WF
+      )
+    ).toEqual([{ nodeId: NODE, sessionId: `run-1`, question: `Proposal: keep the enum?`, askedAt }])
+    // … and nothing the server writes to a node ever reads `waiting`.
+    expect(reviewOutcome({ verdict: `request_changes`, oraclePassed: null, round: 3 }).state).toBe(
+      `updating`
+    )
   })
 })
 
@@ -1538,8 +1630,26 @@ describe(`final PR (EXP-1082 §7)`, () => {
     // The router writes no issue status itself.
     expect(written.filter((w) => w.op === `update`)).toEqual([])
   })
-  it.skip(`the final PR body carries findings, decisions and results`, () => {
-    // openFinalPr's body lists each node's review findings, the decisions
-    // log and the run results.
+  it(`the final PR body carries findings, decisions and results`, async () => {
+    const { finalPrBody } = await vi.importActual<typeof import("@/lib/workflow-final-pr")>(
+      `@/lib/workflow-final-pr`
+    )
+    const body = finalPrBody({
+      name: `Login rework`,
+      nodes: [{ identifier: `APP-6`, title: `Leaf`, prUrl: null, kind: `leaf` }],
+      audit: [],
+      decisions: `2026-09-25: Unresolved review findings (APP-6, round 3): src/a.ts:4 off by one`,
+      findings: [
+        { identifier: `APP-6`, round: 3, findings: `src/a.ts:4 off by one`, oracleCommand: `bun test` },
+      ],
+      results: [
+        { identifier: `APP-6`, topic: `login`, label: `web`, url: `https://app.test/api/attachments/a1` },
+      ],
+    })
+    expect(body).toContain(`## Unresolved review findings\n`)
+    expect(body).toContain(`- [ ] #APP-6 (review round 3)\n  src/a.ts:4 off by one\n  Checks failed: bun test`)
+    expect(body).toContain(`## Decisions\n2026-09-25: Unresolved review findings`)
+    expect(body).toContain(`## Results\n`)
+    expect(body).toContain(`### APP-6 · login\n- [web](https://app.test/api/attachments/a1)`)
   })
 })

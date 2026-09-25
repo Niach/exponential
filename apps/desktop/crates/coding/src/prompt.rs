@@ -322,6 +322,16 @@ any conflict, run the tests you touched, and push."
 /// paraphrased on the way.
 pub fn review_findings_prompt(round: i64, findings: &str) -> String {
     let max = domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS;
+    if round >= max as i64 {
+        // EXP-1065: the LAST round. Nobody waits for a person after it: the
+        // node lands once this run is done, and whatever stays open is
+        // carried to the final pull request's review.
+        return format!(
+            "The agent review requested changes (round {round} of {max}, the last one). Address \
+every point you can, push, then end the run: after this round the node lands and any unresolved \
+finding is carried to the final pull request's review.\n\nFindings:\n{findings}"
+        );
+    }
     format!(
         "The agent review requested changes (round {round} of {max}). Address every point, push, \
 then end the run again.\n\nFindings:\n{findings}"
@@ -575,6 +585,11 @@ origin/exp/EXP-1, resolve any conflict, run the tests you touched, and push."
             "The agent review requested changes (round 2 of 3). Address every point, push, then \
 end the run again.\n\nFindings:\nsrc/a.rs:4 off by one\nsrc/b.rs:9 no test"
         );
+        // EXP-1065: the last round says the node lands after it.
+        let last = review_findings_prompt(3, "src/a.rs:4 off by one");
+        assert!(last.starts_with("The agent review requested changes (round 3 of 3, the last one)."));
+        assert!(last.contains("the node lands"));
+        assert!(last.ends_with("Findings:\nsrc/a.rs:4 off by one"));
     }
 
     /// The section is appended, never woven in: without a workflow every

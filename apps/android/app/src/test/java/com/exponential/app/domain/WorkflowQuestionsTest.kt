@@ -2,10 +2,9 @@ package com.exponential.app.domain
 
 import com.exponential.app.data.db.CodingSessionEntity
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Test
 
-/** EXP-1082: the open-question selector (EXP-1065 implements it). */
+/** EXP-1082 / EXP-1065: the open-question selector, the same table ×4. */
 class WorkflowQuestionsTest {
 
     private fun run(
@@ -28,7 +27,6 @@ class WorkflowQuestionsTest {
         pendingQuestion = question?.let { """{"question":"$it","askedAt":"2026-09-25T10:00:00Z"}""" },
     )
 
-    @Ignore("EXP-1065")
     @Test
     fun `lists the open question of each live run of the workflow`() {
         val sessions = listOf(
@@ -41,5 +39,21 @@ class WorkflowQuestionsTest {
             listOf(WorkflowOpenQuestion("n1", "s1", "Which API?", "2026-09-25T10:00:00Z")),
             WorkflowQuestions.open(sessions, "wf-1"),
         )
+    }
+
+    @Test
+    fun `skips node-less and blank questions and orders by askedAt`() {
+        val stamped = { id: String, node: String?, question: String, at: String ->
+            run(id, "wf-1", node, status = "in_review").copy(
+                pendingQuestion = """{"question":"$question","askedAt":"$at"}""",
+            )
+        }
+        val sessions = listOf(
+            stamped("b", "node-b", "Later?", "2026-09-25T11:00:00Z"),
+            stamped("plan", null, "Runner device?", "2026-09-25T09:00:00Z"),
+            stamped("a", "node-a", "Earlier?", "2026-09-25T10:00:00Z"),
+            stamped("blank", "node-c", "   ", "2026-09-25T09:30:00Z"),
+        )
+        assertEquals(listOf("a", "b"), WorkflowQuestions.open(sessions, "wf-1").map { it.sessionId })
     }
 }

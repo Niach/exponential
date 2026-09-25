@@ -154,9 +154,46 @@ describe(`finalPrBody`, () => {
   })
 
   it(`leaves the optional sections out when empty`, () => {
-    const body = finalPrBody({ name: `X`, nodes: [], audit: [], decisions: `` })
+    const body = finalPrBody({ name: `X`, nodes: [], audit: [], decisions: ``, findings: [], results: [] })
     expect(body).not.toContain(`## Audit`)
     expect(body).not.toContain(`## Decisions`)
+    expect(body).not.toContain(`## Unresolved`)
+    expect(body).not.toContain(`## Results`)
+  })
+
+  // EXP-1065: the final PR is the ONE human sign-off, so it carries what the
+  // run left for that person.
+  it(`carries the unresolved findings checklist and the results by topic`, () => {
+    const body = finalPrBody({
+      name: `Login rework`,
+      nodes: [{ identifier: `APP-6`, title: `Leaf`, prUrl: null, kind: `leaf` }],
+      audit: [],
+      decisions: ``,
+      findings: [
+        {
+          identifier: `APP-6`,
+          round: 3,
+          findings: `src/a.ts:4 off by one\n\nsrc/b.ts:9 no test`,
+          oracleCommand: `bun test`,
+        },
+        { identifier: `APP-7`, round: 3, findings: ``, oracleCommand: null },
+      ],
+      results: [
+        { identifier: `APP-6`, topic: `login`, label: `web`, url: `https://app.test/api/attachments/a1` },
+        { identifier: `APP-6`, topic: `login`, label: `ios`, url: `https://app.test/api/attachments/a2` },
+        { identifier: null, topic: `overview`, label: `web`, url: `https://app.test/api/attachments/a3` },
+      ],
+    })
+    expect(body).toContain(
+      `## Unresolved review findings\nThese nodes landed at the review cap with findings their author did not settle. Check each before merging:\n- [ ] #APP-6 (review round 3)\n  src/a.ts:4 off by one\n\n  src/b.ts:9 no test\n  Checks failed: bun test\n- [ ] #APP-7 (review round 3)\n  (the reviewer wrote no findings)`
+    )
+    expect(body).toContain(
+      `## Results\nScreenshots the runs published (they open in Exponential for a signed-in member):\n\n### APP-6 · login\n- [web](https://app.test/api/attachments/a1)\n- [ios](https://app.test/api/attachments/a2)\n\n### overview\n- [web](https://app.test/api/attachments/a3)`
+    )
+    // Never an image embed: GitHub's proxy cannot read a member-only attachment.
+    expect(body).not.toContain(`![`)
+    // Sections in reading order: findings before the audit, results last.
+    expect(body.indexOf(`## Unresolved`)).toBeLessThan(body.indexOf(`## Results`))
   })
 })
 

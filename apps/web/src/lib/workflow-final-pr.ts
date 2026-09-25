@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
 import type { db as database } from "@/db/connection"
 import {
+  codingSessions,
   issues,
   repositories,
   workflowEvents,
@@ -9,10 +10,14 @@ import {
   workflows,
 } from "@/db/schema"
 import {
+  codingSessionResultSchema,
   WORKFLOW_EVENT_MESSAGE_MAX,
   WORKFLOW_EVENTS_MAX,
   type WfEventKind,
+  type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
+import { carriedReviewAtCap } from "@/lib/trpc/workflows/shared"
+import { appBaseUrl } from "@/lib/notification-email-policy"
 import {
   createPullRequest,
   getPullRequest,
@@ -33,7 +38,10 @@ import { resolveRepoDefaultBranchCached } from "@/lib/integrations/github-app"
 // the repository's default branch. It carries the whole diff for a person to
 // review; the node PRs were each merged into the integration branch by the
 // merge train. Summaries are claims, not evidence, so the body also names a
-// few RANDOM nodes to audit by hand.
+// few RANDOM nodes to audit by hand. EXP-1065: this PR is the ONE human
+// sign-off of the whole run (no node ever waits for a person), so its body
+// also carries what the run left for that person: the review findings the
+// cap carried, the decisions log and every run's screenshot results.
 
 type Db = typeof database
 
@@ -54,14 +62,34 @@ export function pickAuditNodes<T>(nodes: readonly T[], seed: string, count: numb
   return out
 }
 
+/** EXP-1065: the findings a node landed WITH at the review cap. */
+export interface FinalPrCarriedFindings {
+  identifier: string
+  round: number
+  findings: string
+  /** The reviewer's failed check, when its oracle failed. */
+  oracleCommand: string | null
+}
+
+/** EXP-1065: one screenshot a run of the workflow published. */
+export interface FinalPrResult {
+  /** The node's issue, when the run belonged to one. */
+  identifier: string | null
+  topic: string
+  label: string
+  url: string
+}
+
 export function finalPrBody(args: {
   name: string
   nodes: Array<{ identifier: string; title: string; prUrl: string | null; kind: string }>
   audit: Array<{ identifier: string; prUrl: string | null }>
   decisions: string
+  findings?: FinalPrCarriedFindings[]
+  results?: FinalPrResult[]
 }): string {
   const lines = [
-    `The final pull request of the workflow **${args.name}**: every node below was reviewed and squash-merged into this branch by the merge train. This PR carries the whole diff.`,
+    `The final pull request of the workflow **${args.name}**: every node below was reviewed and squash-merged into this branch by the merge train. This PR carries the whole diff and is the one place a person reviews it.`,
     ``,
     `## Nodes`,
     ...args.nodes.map(
@@ -69,6 +97,20 @@ export function finalPrBody(args: {
         `- #${node.identifier}${node.kind === `leaf` ? `` : ` (${node.kind})`}${node.prUrl ? `: ${node.prUrl}` : ``}`
     ),
   ]
+  const findings = args.findings ?? []
+  if (findings.length > 0) {
+    lines.push(
+      ``,
+      `## Unresolved review findings`,
+      `These nodes landed at the review cap with findings their author did not settle. Check each before merging:`
+    )
+    for (const entry of findings) {
+      lines.push(`- [ ] #${entry.identifier} (review round ${entry.round})`)
+      const text = entry.findings.trim() || `(the reviewer wrote no findings)`
+      for (const line of text.split(/\r?\n/)) lines.push(`  ${line}`.trimEnd())
+      if (entry.oracleCommand) lines.push(`  Checks failed: ${entry.oracleCommand}`)
+    }
+  }
   if (args.audit.length > 0) {
     lines.push(
       ``,
@@ -82,7 +124,67 @@ export function finalPrBody(args: {
   if (args.decisions.trim()) {
     lines.push(``, `## Decisions`, args.decisions.trim())
   }
+  const results = args.results ?? []
+  if (results.length > 0) {
+    // Attachment reads need membership, so GitHub's image proxy would show
+    // every picture broken: plain links, opened as a signed-in member.
+    lines.push(
+      ``,
+      `## Results`,
+      `Screenshots the runs published (they open in Exponential for a signed-in member):`
+    )
+    const topics = new Map<string, FinalPrResult[]>()
+    for (const result of results) {
+      const key = `${result.identifier ?? ``}\u0000${result.topic}`
+      topics.set(key, [...(topics.get(key) ?? []), result])
+    }
+    for (const group of topics.values()) {
+      const first = group[0]!
+      lines.push(
+        ``,
+        `### ${first.identifier ? `${first.identifier} · ` : ``}${first.topic}`,
+        ...group.map((result) => `- [${result.label}](${result.url})`)
+      )
+    }
+  }
   return lines.join(`\n`)
+}
+
+/** The screenshots every run of the workflow published (`coding_sessions.
+ *  results`, `exponential_sessions_results`), as the final PR shows them —
+ *  one plain link per picture, the app serving the attachment to a member. */
+export async function loadWorkflowResults(
+  db: Db,
+  workflowId: string,
+  identifierOfNode: ReadonlyMap<string, string>
+): Promise<FinalPrResult[]> {
+  const rows = await db
+    .select({
+      nodeId: codingSessions.workflowNodeId,
+      results: codingSessions.results,
+      startedAt: codingSessions.startedAt,
+    })
+    .from(codingSessions)
+    .where(eq(codingSessions.workflowId, workflowId))
+    .orderBy(asc(codingSessions.startedAt))
+  const base = appBaseUrl()
+  const out: FinalPrResult[] = []
+  for (const row of rows) {
+    if (!Array.isArray(row.results)) continue
+    for (const raw of row.results) {
+      const parsed = codingSessionResultSchema.safeParse(raw)
+      if (!parsed.success || !parsed.data.topic || !parsed.data.label || !parsed.data.attachmentId) {
+        continue
+      }
+      out.push({
+        identifier: (row.nodeId && identifierOfNode.get(row.nodeId)) || null,
+        topic: parsed.data.topic,
+        label: parsed.data.label,
+        url: `${base}/api/attachments/${parsed.data.attachmentId}`,
+      })
+    }
+  }
+  return out
 }
 
 type Executor = Pick<Db, `select` | `insert` | `update` | `delete`>
@@ -429,11 +531,16 @@ export async function openWorkflowFinalPr(
   }
   const nodes = await db
     .select({
+      id: workflowNodes.id,
       state: workflowNodes.state,
       kind: workflowNodes.kind,
       identifier: issues.identifier,
       title: issues.title,
       prUrl: issues.prUrl,
+      // EXP-1065: what a node landed with at the review cap.
+      reviewRound: workflowNodes.reviewRound,
+      review: workflowNodes.review,
+      approvedAt: workflowNodes.approvedAt,
     })
     .from(workflowNodes)
     .innerJoin(issues, eq(issues.id, workflowNodes.issueId))
@@ -480,6 +587,27 @@ export async function openWorkflowFinalPr(
   }
 
   const landed = nodes.filter((node) => node.state === `landed`)
+  const findings: FinalPrCarriedFindings[] = []
+  for (const node of landed) {
+    const carried = carriedReviewAtCap({
+      reviewRound: node.reviewRound ?? 0,
+      review: (node.review as WorkflowNodeReview | null) ?? null,
+      approvedAt: node.approvedAt ?? null,
+    })
+    if (!carried) continue
+    findings.push({
+      identifier: node.identifier,
+      round: carried.round,
+      findings: carried.findings,
+      oracleCommand:
+        carried.oracle && carried.oracle.passed === false ? carried.oracle.command : null,
+    })
+  }
+  const results = await loadWorkflowResults(
+    db,
+    workflow.id,
+    new Map(nodes.map((node) => [node.id, node.identifier]))
+  )
   const created = await createPullRequest({
     repo: repo.fullName,
     head: workflow.integrationBranch,
@@ -490,6 +618,8 @@ export async function openWorkflowFinalPr(
       nodes: landed,
       audit: pickAuditNodes(landed, workflow.id, FINAL_PR_AUDIT_COUNT),
       decisions: workflow.decisions,
+      findings,
+      results,
     }),
     token,
   })

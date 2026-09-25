@@ -552,11 +552,15 @@ fn snapshot_for(
                     verdict: review.verdict,
                     round: review.round,
                     head: review.head,
+                    oracle: Some(workflows::OracleFacts {
+                        passed: review.oracle_passed,
+                    }),
                 }),
                 updated_at_ms: node
                     .updated_at
                     .as_deref()
                     .and_then(workflows::parse_wire_timestamp_ms),
+                note: node.note.clone(),
             });
         }
         if nodes.is_empty() {
@@ -1402,20 +1406,28 @@ fn build_base(
             true
         }
         Ok(workflows::BaseOutcome::Conflict { left, right }) => {
-            // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
-            let mut report = api::workflows::NodeReport::new(node_id, "waiting");
-            report.note = api::patch::Patch::Set(one_line(&conflicting_blockers_note(
-                pass, &left, &right,
-            )));
-            report_node(&pass.trpc, &report);
+            // EXP-1065/EXP-1071: the engine's mirror carries the conflict
+            // note on the node's OWN state (never `waiting`); writing it
+            // here too was the beat-to-beat flap.
+            log::info!(
+                "[workflows] {workflow_id}: base {base_branch} waits — {}",
+                conflicting_blockers_note(pass, &left, &right)
+            );
             false
         }
         Err(err) => {
             // Visible on the node, like a conflict: a `ready` node whose
             // base never comes up would otherwise sit there without a word.
+            // The node keeps its state; only the note says what happened.
             log::warn!("[workflows] {workflow_id}: base {base_branch} — {err}");
-            // EXP-1082 §4 / EXP-1065: the last writer of `waiting` — EXP-1065 turns this into running + note (a person never sees waiting).
-            let mut report = api::workflows::NodeReport::new(node_id, "waiting");
+            let state = pass
+                .snapshot
+                .nodes
+                .iter()
+                .find(|node| node.id == node_id)
+                .map(|node| node.state.clone())
+                .unwrap_or_else(|| "blocked".to_string());
+            let mut report = api::workflows::NodeReport::new(node_id, &state);
             report.note = api::patch::Patch::Set(one_line(&format!(
                 "Its base {base_branch} could not be built: {err}"
             )));

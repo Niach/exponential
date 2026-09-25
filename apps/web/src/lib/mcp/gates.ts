@@ -22,13 +22,14 @@
 // automation's. A caller with no run of its own (a human's MCP client) has
 // nothing to publish on, so the tool never registers for it.
 //
-// EXP-700: the third gate is askParent — only a run another run started
-// (`started_reason` = 'agent') can ask its starter a question, so the tool
-// registers for nobody else. It deliberately does NOT require the parent
-// linkage: the parent stamps `parent_session_id` only after its
-// sessions_start poll returns, and a child whose initialize/tools-list beats
-// that stamp would otherwise lose the tool for its whole run. Same hygiene
-// rule as the others: the handler re-checks linkage and parent liveness.
+// EXP-700 / EXP-1089: the third gate is askParent. It used to open only for
+// a run another run started; since EXP-1089 EVERY run of the caller's gets
+// the tool (tools are lazy-loaded, an unused one costs nothing): `to: 'user'`
+// asks the person who owns the run (a workflow's creator inside a workflow)
+// from any run, and the planner run of a workflow clears its questions with
+// the person before the graph exists. `parent`/`root` still need a starter,
+// which the handler checks (the parent stamps `parent_session_id` only after
+// its sessions_start poll returns, so linkage is never part of the gate).
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions, teams } from "@/db/schema"
@@ -38,10 +39,10 @@ import type { McpAccess } from "./scope"
 export interface McpToolGates {
   helpdesk: boolean
   sessionsEnd: boolean
-  /** EXP-700: the caller's run was started BY another run (`started_reason`
-   * = 'agent') — it may ask its starter a question via
-   * `exponential_sessions_ask_parent`. The parent linkage is NOT part of the
-   * gate (it is stamped after the row exists); the handler checks it. */
+  /** EXP-700 / EXP-1089: the caller runs INSIDE a coding session of its own
+   * (owner or host, any `started_reason`) — it may ask a question via
+   * `exponential_sessions_ask_parent`: its starter, or the person (`to:
+   * 'user'`). Who may be asked is the handler's check, not the gate's. */
   askParent: boolean
   /** EXP-879: the caller runs INSIDE a coding session of its own (owner or
    * host, any `started_reason`) — it may publish screenshots of its work with
@@ -91,9 +92,9 @@ export async function resolveMcpToolGates(
 /** One indexed lookup for all three session-header gates: the header's run
  * must exist and belong to the caller (owner or host — the same pair
  * `endSessionByAgent` accepts). `sessionsEnd` needs it started unattended;
- * `askParent` (EXP-700) needs it started by another run; `sessionResults`
- * (EXP-879) needs nothing more — any run of the caller's may publish
- * screenshots of its own work, attended or not. */
+ * `askParent` (EXP-1089) and `sessionResults` (EXP-879) need nothing more —
+ * any run of the caller's may ask a question or publish screenshots of its
+ * own work, attended or not. */
 async function resolveSessionGates(
   userId: string,
   sessionId: string | null
@@ -121,10 +122,7 @@ async function resolveSessionGates(
   if (row.userId !== userId && row.hostUserId !== userId) return closed
   return {
     sessionsEnd: row.startedReason !== null,
-    // EXP-982: a workflow node has no parent RUN, but it may ask: the
-    // question goes to a person and must carry a proposal.
-    askParent:
-      row.startedReason === `agent` || row.startedReason === `workflow`,
+    askParent: true,
     sessionResults: true,
   }
 }

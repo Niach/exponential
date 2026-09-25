@@ -170,12 +170,13 @@ describe(`resolveMcpToolGates — sessionsEnd (EXP-679)`, () => {
   })
 })
 
-// EXP-700: askParent opens only for a run another run started — same single
-// lookup, keyed on started_reason='agent' alone. The parent linkage is
-// deliberately NOT part of the gate: the parent stamps parent_session_id only
-// after its sessions_start poll returns, so a child whose tools/list wins that
-// race would otherwise never see the tool.
-describe(`resolveMcpToolGates — askParent (EXP-700)`, () => {
+// EXP-700 / EXP-1089: askParent opens for EVERY run of the caller's (the
+// handler decides who may be asked: `to: 'user'` from any run, a starter only
+// where there is one). The parent linkage is deliberately NOT part of the
+// gate: the parent stamps parent_session_id only after its sessions_start
+// poll returns, so a child whose tools/list wins that race would otherwise
+// never see the tool.
+describe(`resolveMcpToolGates — askParent (EXP-700, EXP-1089)`, () => {
   const RUN = `44444444-4444-4444-4444-444444444444`
   const PARENT = `55555555-5555-4555-8555-555555555555`
 
@@ -198,7 +199,7 @@ describe(`resolveMcpToolGates — askParent (EXP-700)`, () => {
     expect(gates).toMatchObject({ sessionsEnd: true, askParent: true })
   })
 
-  it(`is off for an automation-started run (no parent to ask)`, async () => {
+  it(`is on for an automation-started run (it may ask the person)`, async () => {
     h.dbRows.current = [
       {
         userId: `u`,
@@ -208,7 +209,22 @@ describe(`resolveMcpToolGates — askParent (EXP-700)`, () => {
       },
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: true, askParent: false })
+    expect(gates).toMatchObject({ sessionsEnd: true, askParent: true })
+  })
+
+  it(`is on for the caller's own person-started run, without the close-out`, async () => {
+    // EXP-1089: a workflow's planner run pressed from the page is one of
+    // these — it clears its questions with the person before the graph exists.
+    h.dbRows.current = [
+      {
+        userId: `u`,
+        hostUserId: null,
+        startedReason: null,
+        parentSessionId: null,
+      },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates).toMatchObject({ sessionsEnd: false, askParent: true })
   })
 
   it(`is on for an agent-started run whose parent is not stamped YET`, async () => {

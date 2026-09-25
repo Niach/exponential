@@ -26,7 +26,10 @@ import {
   mergeBelongsToAttempt,
   mergedNodeOutcome,
   appendDecisionLine,
+  carriedReviewAtCap,
+  carriedFindingsLine,
 } from "./shared"
+import { recordWorkflowEvent } from "@/lib/workflows/record-event"
 
 export const workflowNodeProcedures = {
 
@@ -217,8 +220,12 @@ export const workflowNodeProcedures = {
 
   /** ENGINE: the merge train's one step — squash-merge this node's PR into
    *  the integration branch. The approval is enforced HERE, not trusted from the
-   *  device. A refusal by GitHub (a conflict with what landed before it) is
-   *  an answer, not an error: the engine has the node merge the trunk in. */
+   *  device: the agent review's approval, or (EXP-1065) the review cap — the
+   *  cap's worth of verdicts still asking for changes lands the node and
+   *  CARRIES the findings into the decisions log and the final pull request,
+   *  never to a person. A refusal by GitHub (a conflict with what landed
+   *  before it) is an answer, not an error: the engine has the node merge the
+   *  trunk in. */
   landNode: authedProcedure
     .input(z.object({ nodeId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -249,9 +256,12 @@ export const workflowNodeProcedures = {
           retriedAt: node.retriedAt,
         })
       const waiting = (reason: string) => ({ merged: false, reason, retargeted: [] as string[] })
-      if (!merged && !node.approvedAt) {
+      // EXP-1065: the cap clears a node without an approval; its findings
+      // ride along below.
+      const carried = carriedReviewAtCap(node)
+      if (!merged && !node.approvedAt && !carried) {
         // The literal is matched by shipped engines (`LandOutcome::is_waiting`).
-        return waiting(`Waiting for a person to approve`)
+        return waiting(`Waiting for the agent review to clear it`)
       }
       const graph = await loadWorkflowEdges(ctx.db, workflow.id)
       if (merged) {
@@ -329,7 +339,8 @@ export const workflowNodeProcedures = {
       }
       // EXP-1010: the state guard IS the claim. A concurrent `skip` stays a
       // skip, and two landings of one node count once.
-      const outside = merged && !node.approvedAt
+      const outside = merged && !node.approvedAt && !carried
+      let identifier: string | null = null
       const landed = await ctx.db.transaction(async (tx) => {
         const rows = await tx
           .update(workflowNodes)
@@ -343,26 +354,39 @@ export const workflowNodeProcedures = {
           .returning({ id: workflowNodes.id })
         if (rows.length === 0) return false
         let decisions: string | undefined
-        if (outside) {
+        if (outside || carried) {
           const [ident] = await tx
             .select({ identifier: issues.identifier })
             .from(issues)
             .where(eq(issues.id, node.issueId))
             .limit(1)
+          identifier = ident?.identifier ?? null
           const [log] = await tx
             .select({ decisions: workflows.decisions })
             .from(workflows)
             .where(eq(workflows.id, workflow.id))
             .limit(1)
-          const where =
-            node.mergedInto && node.mergedInto !== workflow.integrationBranch
-              ? ` into ${node.mergedInto}`
-              : ``
-          decisions = appendDecisionLine(
-            log?.decisions ?? ``,
-            `${ident?.identifier ?? `A node`} was merged outside the train${where}, before a review approved it.`,
-            new Date()
-          )
+          decisions = log?.decisions ?? ``
+          if (outside) {
+            const where =
+              node.mergedInto && node.mergedInto !== workflow.integrationBranch
+                ? ` into ${node.mergedInto}`
+                : ``
+            decisions = appendDecisionLine(
+              decisions,
+              `${identifier ?? `A node`} was merged outside the train${where}, before a review approved it.`,
+              new Date()
+            )
+          }
+          if (carried) {
+            // EXP-1065: what the last review still asked for, kept where
+            // every node prompt and the final pull request read it.
+            decisions = appendDecisionLine(
+              decisions,
+              carriedFindingsLine(identifier ?? `A node`, carried),
+              new Date()
+            )
+          }
         }
         if (decisions !== undefined) {
           await tx
@@ -373,6 +397,16 @@ export const workflowNodeProcedures = {
         return true
       })
       if (!landed) return { merged: true, reason: null, retargeted: [] as string[] }
+      if (carried) {
+        await recordWorkflowEvent(ctx.db, {
+          workflowId: workflow.id,
+          teamId: workflow.teamId,
+          nodeId: node.id,
+          sessionId: node.sessionId,
+          kind: `cleared_at_cap`,
+          message: `${identifier ?? `A node`} landed at the review cap with unresolved findings`,
+        })
+      }
       // EXP-983: dependents whose last unlanded blocker this was move their
       // PR onto the integration branch; the engine has them merge it in.
       const { retargetReleasedDependents } = await import(`@/lib/workflow-final-pr`)

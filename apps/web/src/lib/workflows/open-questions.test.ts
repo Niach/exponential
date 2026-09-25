@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { workflowOpenQuestions } from "./open-questions"
 
-// EXP-1082 §4 — declared; EXP-1065 implements the selector and un-skips.
+// EXP-1082 §4 / EXP-1065 — the selector, mirrored ×4.
 describe(`workflowOpenQuestions`, () => {
-  it.skip(`lists the open question of each live run of the workflow`, () => {
+  it(`lists the open question of each live run of the workflow`, () => {
     const askedAt = `2026-09-25T10:00:00Z`
     expect(
       workflowOpenQuestions(
@@ -42,5 +42,43 @@ describe(`workflowOpenQuestions`, () => {
         `wf-1`
       )
     ).toEqual([{ nodeId: `node-1`, sessionId: `run-1`, question: `Which schema?`, askedAt }])
+  })
+
+  it(`leaves out a planner run (no node) and a blank question, and orders by askedAt`, () => {
+    expect(
+      workflowOpenQuestions(
+        [
+          {
+            id: `run-b`,
+            workflowId: `wf-1`,
+            workflowNodeId: `node-b`,
+            pendingQuestion: { question: `Later?`, askedAt: `2026-09-25T11:00:00Z` },
+            status: `in_review`,
+          },
+          {
+            id: `run-a`,
+            workflowId: `wf-1`,
+            workflowNodeId: `node-a`,
+            pendingQuestion: { question: `Earlier?`, askedAt: `2026-09-25T10:00:00Z` },
+            status: `running`,
+          },
+          {
+            id: `plan`,
+            workflowId: `wf-1`,
+            workflowNodeId: null,
+            pendingQuestion: { question: `Runner device?`, askedAt: `2026-09-25T09:00:00Z` },
+            status: `running`,
+          },
+          {
+            id: `blank`,
+            workflowId: `wf-1`,
+            workflowNodeId: `node-c`,
+            pendingQuestion: { question: `   `, askedAt: `2026-09-25T09:30:00Z` },
+            status: `running`,
+          },
+        ],
+        `wf-1`
+      ).map((q) => q.sessionId)
+    ).toEqual([`run-a`, `run-b`])
   })
 })
