@@ -279,6 +279,34 @@ async function resolveStartMembership(
         workflowNodeId: input.workflowNodeId ?? null,
         workflowRole: input.workflowRole ?? null,
       }
+    } else if (
+      !input.workflowNodeId &&
+      (input.workflowRole === `plan` || input.workflowRole === `replan`)
+    ) {
+      // A PLANNER run: a person plans a DRAFT from whichever machine the
+      // composer picked, before or beside the runner (`workflows.device_id`
+      // is chosen by the person and may still be NULL), so the runner gate
+      // above cannot apply. A node-less `plan`/`replan` role brands
+      // nothing — it only lets the session tree name the plan-only group —
+      // so any draft of the team takes it.
+      const [draft] = await db
+        .select({ id: workflows.id })
+        .from(workflows)
+        .where(
+          and(
+            eq(workflows.id, input.workflowId),
+            eq(workflows.teamId, teamId),
+            eq(workflows.status, `draft`)
+          )
+        )
+        .limit(1)
+      if (draft) {
+        explicit = {
+          workflowId: input.workflowId,
+          workflowNodeId: null,
+          workflowRole: input.workflowRole,
+        }
+      }
     }
   }
   const needsNodes =
@@ -1060,6 +1088,14 @@ export const codingSessionsRouter = router({
           // EXP-909: echoed so a resurrected row keeps naming the LOGIN it
           // spends (the usage readout would otherwise fall back to a guess).
           agentAccount: z.string().min(1).max(64).optional(),
+          // EXP-1068: the workflow membership, echoed like `agentAccount` so
+          // a swept workflow run resurrects INSIDE its group. Honoured only
+          // through the same runner-device gate `start` uses
+          // (`resolveStartMembership`); anyone else's keys are ignored and
+          // the re-created row falls back to the issue match (EXP-1062).
+          workflowId: z.string().uuid().optional(),
+          workflowNodeId: z.string().uuid().optional(),
+          workflowRole: z.enum(wfSessionRoleValues).optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
@@ -1119,11 +1155,23 @@ export const codingSessionsRouter = router({
               ctx.session.user.id,
               input
             )
+            // EXP-1068: the membership a resurrected row keeps (or joins).
+            const membership = await resolveStartMembership(
+              ctx.db,
+              ctx.session.user.id,
+              input,
+              issueCtx.teamId,
+              [input.issueId],
+              null
+            )
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               issueId: input.issueId,
               teamId: issueCtx.teamId,
               boardId: issueCtx.boardId,
+              workflowId: membership.workflowId,
+              workflowNodeId: membership.workflowNodeId,
+              workflowRole: membership.workflowRole,
               // EXP-679: an agent-started issue run echoes its reason so a
               // swept row resurrects unattended (schedule/event never reach
               // an issue subject — same rule as `start`).
@@ -1181,10 +1229,32 @@ export const codingSessionsRouter = router({
               actionId =
                 action && action.teamId === input.teamId ? action.id : null
             }
+            // EXP-876: only a batch echo carries these (an action scope
+            // names itself off its snapshot), and they are re-scoped to
+            // the team exactly like the start path.
+            const batchIssueIds = input.actionId
+              ? null
+              : await resolveBatchIssueIds(
+                  ctx.db,
+                  input.teamId!,
+                  input.batchIssueIds
+                )
+            // EXP-1068: the membership a resurrected row keeps (or joins).
+            const membership = await resolveStartMembership(
+              ctx.db,
+              ctx.session.user.id,
+              input,
+              input.teamId!,
+              batchIssueIds ?? [],
+              null
+            )
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               teamId: input.teamId!,
               actionId,
+              workflowId: membership.workflowId,
+              workflowNodeId: membership.workflowNodeId,
+              workflowRole: membership.workflowRole,
               actionName: builtin
                 ? builtinActionName(input.actionId!)
                 : input.actionId
@@ -1214,16 +1284,7 @@ export const codingSessionsRouter = router({
               agent: input.agent ?? null,
               agentAccount: input.agentAccount ?? null,
               branch: input.branch ?? null,
-              // EXP-876: only a batch echo carries these (an action scope
-              // names itself off its snapshot), and they are re-scoped to
-              // the team exactly like the start path.
-              batchIssueIds: input.actionId
-                ? null
-                : await resolveBatchIssueIds(
-                    ctx.db,
-                    input.teamId!,
-                    input.batchIssueIds
-                  ),
+              batchIssueIds,
               // EXP-701: acked from the start, like the issue branch above.
               ackedAt: new Date(),
               // Batch/action rows have no issue to re-derive review state

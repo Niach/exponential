@@ -26,6 +26,12 @@ pub enum Outcome {
     Skipped,
     /// Tried and failed; the sentence the host logged.
     Failed(String),
+    /// Handed to a LAUNCH SITE that records the real outcome later (the
+    /// desktop host queues `StartNode` / `StartReview` orders for its
+    /// foreground). The pass never hands this to the sink — one decision,
+    /// ONE audit line, on both hosts — and [`event_for`] answers `None` to
+    /// it whatever EXP-1064 maps.
+    Queued,
 }
 
 /// Where a host records its audit lines.
@@ -71,7 +77,9 @@ fn with_account(message: &str, account: Option<&String>) -> String {
 /// (kinds = contract `wfEventKind`).
 pub fn event_for(workflow_id: &str, decision: &Decision, outcome: &Outcome) -> Option<WorkflowEvent> {
     match (decision, outcome) {
-        (_, Outcome::Skipped) => None,
+        // A queued order is recorded ONCE, at its launch site (`Outcome::Queued`
+        // never reaches the sink either way); a skip changed nothing.
+        (_, Outcome::Skipped | Outcome::Queued) => None,
         (
             Decision::StartNode {
                 node_id,
@@ -154,16 +162,6 @@ pub fn launch_event_for(decision: &Decision, outcome: &Outcome) -> Option<Workfl
             event_for(workflow_id, decision, outcome)
         }
         _ => None,
-    }
-}
-
-/// The desktop pass's line: a start/review `Done` there only means the order
-/// was QUEUED — its launch records the real outcome ([`launch_event_for`]),
-/// so the pass writes none (else every start would be logged twice).
-pub fn queued_event_for(workflow_id: &str, decision: &Decision, outcome: &Outcome) -> Option<WorkflowEvent> {
-    match (decision, outcome) {
-        (Decision::StartNode { .. } | Decision::StartReview { .. }, Outcome::Done) => None,
-        _ => event_for(workflow_id, decision, outcome),
     }
 }
 
@@ -388,14 +386,16 @@ mod tests {
 
     #[test]
     fn a_queued_start_writes_no_line() {
-        assert_eq!(queued_event_for("w", &start(1, None), &Outcome::Done), None);
-        assert_eq!(queued_event_for("w", &review(None), &Outcome::Done), None);
+        // The desktop pass hands a start/review order to its launch site as
+        // `Queued`; the launch records the real outcome, the pass nothing.
+        assert_eq!(event_for("w", &start(1, None), &Outcome::Queued), None);
+        assert_eq!(event_for("w", &review(None), &Outcome::Queued), None);
         assert_eq!(
-            line(queued_event_for("w", &start(1, None), &Outcome::Failed("x".to_string()))),
+            line(event_for("w", &start(1, None), &Outcome::Failed("x".to_string()))),
             at("n1", "failed", "Start failed: x")
         );
         assert_eq!(
-            line(queued_event_for("w", &Decision::LandNode { node_id: "n1".to_string() }, &Outcome::Done)),
+            line(event_for("w", &Decision::LandNode { node_id: "n1".to_string() }, &Outcome::Done)),
             at("n1", "landed", "Landed into the integration branch")
         );
     }
@@ -432,5 +432,21 @@ mod tests {
         for (end, expected) in cases {
             assert_eq!(line(event_for_review_end("w", &end)), expected, "{end:?}");
         }
+    }
+
+    /// The invariant EXP-1064 relies on: a queued order is recorded ONCE, at
+    /// its launch site, never again by the pass that queued it.
+    #[test]
+    fn a_queued_outcome_is_never_an_event() {
+        let start = Decision::StartNode {
+            node_id: "n".to_string(),
+            attempt: 1,
+            base_branch: "exp/wf-abcdef12".to_string(),
+            model: None,
+            workflow_id: "wf".to_string(),
+            role: super::super::WfSessionRole::Author,
+            account: None,
+        };
+        assert_eq!(event_for("wf", &start, &Outcome::Queued), None);
     }
 }

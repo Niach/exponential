@@ -359,6 +359,22 @@ fn workflow_start(
     membership.map(|m| m.wire()).unwrap_or_default()
 }
 
+/// EXP-1068 — the same membership as OWNED strings for the heartbeat scope
+/// (`workflow_id`, `workflow_node_id`, `workflow_role`), all `None` outside
+/// a workflow so the ping's wire stays byte-identical.
+fn workflow_echo(
+    membership: Option<&crate::workflows::WorkflowMembership>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    match membership {
+        Some(m) => (
+            Some(m.workflow_id.clone()),
+            m.node_id.clone(),
+            Some(m.role.as_str().to_string()),
+        ),
+        None => (None, None, None),
+    }
+}
+
 /// EXP-982: a run the workflow engine started for one node. Unattended like
 /// `agent` (it reports through `exponential_sessions_end`), but it has NO
 /// parent run — its questions go to the person who started the workflow.
@@ -2076,6 +2092,10 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 batch_issue_ids: Vec::new(),
                 agent: agent.wire_id().map(str::to_string),
                 agent_account: Some(agent_account.clone()),
+                // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+                workflow_id: workflow_echo(issue_req.options.workflow.as_ref()).0,
+                workflow_node_id: workflow_echo(issue_req.options.workflow.as_ref()).1,
+                workflow_role: workflow_echo(issue_req.options.workflow.as_ref()).2,
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -2102,6 +2122,10 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                     .collect(),
                 agent: agent.wire_id().map(str::to_string),
                 agent_account: Some(agent_account.clone()),
+                // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+                workflow_id: workflow_echo(batch_req.options.workflow.as_ref()).0,
+                workflow_node_id: workflow_echo(batch_req.options.workflow.as_ref()).1,
+                workflow_role: workflow_echo(batch_req.options.workflow.as_ref()).2,
             }
         }
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -2895,6 +2919,10 @@ fn prepare_action(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+            workflow_id: workflow_echo(req.options.workflow.as_ref()).0,
+            workflow_node_id: workflow_echo(req.options.workflow.as_ref()).1,
+            workflow_role: workflow_echo(req.options.workflow.as_ref()).2,
         },
         acp: AcpLaunch {
             prompt: rendered.clone(),
@@ -3615,6 +3643,10 @@ fn prepare_resume_run(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+            workflow_id: workflow_echo(options.workflow.as_ref()).0,
+            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
+            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
         RunKind::Batch => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3634,6 +3666,10 @@ fn prepare_resume_run(
                 .collect(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+            workflow_id: workflow_echo(options.workflow.as_ref()).0,
+            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
+            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
         _ => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3648,6 +3684,10 @@ fn prepare_resume_run(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+            workflow_id: workflow_echo(options.workflow.as_ref()).0,
+            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
+            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
     };
     let issue_identifier = match record.kind {
