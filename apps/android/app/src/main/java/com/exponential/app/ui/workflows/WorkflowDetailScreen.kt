@@ -893,7 +893,7 @@ private fun WorkflowNodeSheet(
             // collided, so this node merges theirs in before it pushes.
             if (node.afterNodeIds.isNotEmpty()) {
                 Text(
-                    "Merges in first",
+                    WorkflowView.MERGES_IN_FIRST_LABEL,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier

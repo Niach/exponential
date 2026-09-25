@@ -403,6 +403,7 @@ object WorkflowView {
 
     /** The node panel's line once a node announced its contract. */
     const val CONTRACT_PUBLISHED_LABEL = "Contract published"
+    const val MERGES_IN_FIRST_LABEL = "Merges in first"
 
     // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
 

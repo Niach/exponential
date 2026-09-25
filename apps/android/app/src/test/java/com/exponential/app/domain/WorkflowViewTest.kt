@@ -184,6 +184,7 @@ class WorkflowViewTest {
     @Test
     fun `the contract line is the shared sentence`() {
         assertEquals("Contract published", WorkflowView.CONTRACT_PUBLISHED_LABEL)
+        assertEquals("Merges in first", WorkflowView.MERGES_IN_FIRST_LABEL)
     }
 
     @Test
