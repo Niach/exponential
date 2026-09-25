@@ -118,6 +118,8 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
         // EXP-982: and the workflow engine beside it — a started workflow
         // only moves while its runner device is up.
         crate::workflow_host::start_workflow_host(account, cx);
+            // EXP-1005: walled runs rotate to another account between turns.
+            crate::account_rotation_host::start_account_rotation_host(cx);
             // EXP-229: end the coding_sessions rows a crash / forced logout
             // stranded `running` — this is the single choke point every
             // sign-in path (warm start, dev inject, OAuth, login form) runs

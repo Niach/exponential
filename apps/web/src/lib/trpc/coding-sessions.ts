@@ -1652,7 +1652,11 @@ export const codingSessionsRouter = router({
     .input(
       z.object({
         id: z.string().uuid(),
-        blocked: codingSessionBlockedSchema.nullable(),
+        // EXP-1005: `handled` = a WRITE-TIME flag (the device rotates or
+        // waits the wall out itself), never stored on the row.
+        blocked: codingSessionBlockedSchema
+          .extend({ handled: z.boolean().nullish() })
+          .nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1714,8 +1718,12 @@ export const codingSessionsRouter = router({
       // never awaited into the result's meaning; the helper never throws.
       if (didUpdate && blocked && !wasBlocked) {
         await notifyParentOfChildBlocked(ctx.db, input.id, blocked)
-        // EXP-980: and EVERY run tells its owner (inbox row + push).
-        await notifySessionBlocked(input.id, blocked)
+        // EXP-980: and EVERY run tells its owner (inbox row + push) —
+        // unless the device handles the wall itself (EXP-1005: it rotates
+        // accounts or waits the reset out), then the owner hears nothing.
+        if (input.blocked?.handled !== true) {
+          await notifySessionBlocked(input.id, blocked)
+        }
       }
 
       return { updated: didUpdate, wasBlocked }

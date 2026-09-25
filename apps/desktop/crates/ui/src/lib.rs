@@ -148,6 +148,8 @@ mod tree_guides;
 mod workflow_card;
 mod workflow_events;
 mod workflow_host;
+// EXP-1005: the account-rotation wall beat.
+mod account_rotation_host;
 mod workflow_view;
 mod workflows_view;
 pub mod steer_wiring;

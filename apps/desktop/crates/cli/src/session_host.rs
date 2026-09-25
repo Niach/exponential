@@ -34,6 +34,10 @@ pub struct LaunchEnv<'a> {
     /// The `expu_` personal key — the activity redactor's exact-match
     /// secret (codex carries it env-only; REV2-17).
     pub personal_key: Option<String>,
+    /// EXP-1005: `true` only under the daemon, which runs the account-
+    /// rotation beat; a foreground `exponential code`/`run` reports its
+    /// walls unhandled so the owner is told.
+    pub rotation_host: bool,
 }
 
 pub struct RunningSession {
@@ -136,6 +140,18 @@ impl RunningSession {
 
     pub fn kill(&self) {
         self.session.kill("ended");
+    }
+
+    /// EXP-1005: the agent's usage wall as the engine last saw it (`None` =
+    /// not blocked, or the wall's reset already passed) — what the daemon's
+    /// rotation beat reads together with [`Self::is_idle`].
+    pub fn blocked(&self) -> Option<steer::SessionBlocked> {
+        self.session.blocked()
+    }
+
+    /// EXP-1005: the agent this run is on, in the rotation's vocabulary.
+    pub fn coding_agent(&self) -> CodingAgent {
+        self.session.agent()
     }
 
     /// EXP-746: one whole message from the local attach — a fresh prompt
@@ -277,6 +293,7 @@ pub fn launch(
             personal_key: env.personal_key.clone(),
             issue_id,
             foreign_host,
+            rotation_host: env.rotation_host,
             // A runtime-less host never gets here, so the room is always on.
             publish: true,
             kill,

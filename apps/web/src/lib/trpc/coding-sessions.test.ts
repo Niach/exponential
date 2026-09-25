@@ -51,6 +51,13 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
 // the helper is internally best-effort, so the router just calls it.
 vi.mock(`@/lib/steer-child-messages`, () => ({
   notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
+  notifyParentOfChildBlocked: vi.fn(async () => ({ delivered: false })),
+}))
+
+// EXP-980/1005: a wall tells the run's owner unless the device handles it.
+vi.mock(`@/lib/integrations/notifications`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/notifications")>()),
+  notifySessionBlocked: vi.fn(async () => {}),
 }))
 
 // EXP-1051: `contextBudget` lazily imports the MCP measurement (the tool table
@@ -66,7 +73,11 @@ vi.mock(`@/lib/mcp/context-budget`, () => ({
 
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { codingSessions, sessionAttachments, workflowNodes } from "@/db/schema"
-import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
+import {
+  notifyParentOfChildBlocked,
+  notifyParentOfChildEnd,
+} from "@/lib/steer-child-messages"
+import { notifySessionBlocked } from "@/lib/integrations/notifications"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const TEAM_ID = `22222222-2222-4222-8222-222222222222`
@@ -201,6 +212,8 @@ beforeEach(() => {
     teamId: `ws-issue`,
   })
   vi.mocked(notifyParentOfChildEnd).mockClear()
+  vi.mocked(notifyParentOfChildBlocked).mockClear()
+  vi.mocked(notifySessionBlocked).mockClear()
   h.applySessionPrState.mockClear()
   h.loadRepositoryByFullName.mockClear()
   h.mergeRepositoryPull.mockClear()
@@ -1403,6 +1416,71 @@ describe(`codingSessions.setAgentBusy — turn state (EXP-848)`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
     expect(updates).toHaveLength(0)
+  })
+})
+
+// EXP-1005: `handled` = the device rotates accounts or waits the wall out
+// itself — a WRITE-TIME flag that silences the owner's notification but never
+// the parent nudge, and never lands on the stored row.
+describe(`codingSessions.setBlocked — handled walls (EXP-1005)`, () => {
+  const wall = {
+    kind: `rate_limit`,
+    agent: `claude`,
+    window: `five_hour`,
+    resetsAt: `2026-09-25T18:00:00Z`,
+    since: `2026-09-25T13:00:00Z`,
+  }
+  const canonical = { blocked: wall }
+
+  it(`handled: true skips the owner notification but still nudges the parent`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running`, blocked: null }])
+
+    const result = await caller.setBlocked({
+      id: SESSION_ID,
+      blocked: { ...wall, handled: true },
+    })
+
+    expect(result).toEqual({ updated: true, wasBlocked: false })
+    expect(notifyParentOfChildBlocked).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(notifyParentOfChildBlocked).mock.calls[0]![2]).toEqual(wall)
+    expect(notifySessionBlocked).not.toHaveBeenCalled()
+  })
+
+  it(`a wall without handled notifies the owner`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running`, blocked: null }])
+
+    await caller.setBlocked({ id: SESSION_ID, blocked: wall })
+
+    expect(notifyParentOfChildBlocked).toHaveBeenCalledTimes(1)
+    expect(notifySessionBlocked).toHaveBeenCalledWith(SESSION_ID, wall)
+
+    // `handled: false` (and an older device's absent key) read the same.
+    vi.mocked(notifySessionBlocked).mockClear()
+    selectResults.push([{ userId: `actor`, status: `running`, blocked: null }])
+    await caller.setBlocked({
+      id: SESSION_ID,
+      blocked: { ...wall, handled: false },
+    })
+    expect(notifySessionBlocked).toHaveBeenCalledTimes(1)
+  })
+
+  it(`handled is never stored on the row`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running`, blocked: null }])
+
+    await caller.setBlocked({
+      id: SESSION_ID,
+      blocked: { ...wall, handled: true },
+    })
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toEqual(canonical)
+    expect(Object.keys(updates[0]!.values.blocked as object).sort()).toEqual([
+      `agent`,
+      `kind`,
+      `resetsAt`,
+      `since`,
+      `window`,
+    ])
   })
 })
 

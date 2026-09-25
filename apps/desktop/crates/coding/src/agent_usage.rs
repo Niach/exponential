@@ -840,30 +840,125 @@ pub fn collect_if_due(
     report: &DoctorReport,
     now: u64,
 ) -> AgentStatusPayload {
-    collect_inner(data_dir, settings, report, now, None)
+    collect_inner(data_dir, settings, report, now, Forced::None)
 }
 
-/// EXP-1082 — the per-profile usage of ONE agent, NOW, in the shape
-/// [`crate::account_rotation`] weighs.
+/// EXP-1005 — the per-profile usage of ONE agent, NOW, in the shape
+/// [`crate::account_rotation`] weighs: a FORCED collection for every
+/// monitored profile of `agent`, past the poll schedule and the shared TTL
+/// ([`usage_cache::force_due`] — the 429 floor, the EXP-817 reset pin and a
+/// keychain refusal survive, each for its own reason), then the cache read
+/// back as [`profile_usage_snapshot`]. The fan-out cap
+/// ([`MAX_USAGE_PROFILES`]) still applies: [`monitored_profiles`] is the one
+/// place it is enforced, and the forced set is exactly that list.
 ///
-/// Returns empty and probes nothing. EXP-1005 replaces the body with a
-/// FLOOR-BYPASSING collect of `agent`'s profiles (the [`collect_inner`]
-/// fan-out without the poll floors, still capped at [`MAX_USAGE_PROFILES`]
-/// and never probing a login a live session already reports for), then
-/// converts each `profiles[].usage` row into a
-/// [`crate::account_rotation::ProfileUsage`]: the wire's window keys mapped
-/// onto `session` / `weekly` / the model-scoped weeklies by alias, the ISO
-/// `resetsAt` parsed to unix ms, `signed_in` + `health` from the profile's
-/// account entry. It is not a delegation to [`collect_if_due`] today because
-/// that conversion (key mapping, ISO parsing) is the non-trivial half.
+/// Blocking (one GET per profile). Called ONLY at a wall — the one moment a
+/// burst against an endpoint that tolerates ~20/hour is worth it, because
+/// the decision it feeds must not run off cached numbers.
 pub fn collect_now(
-    _agent: CodingAgent,
-    _data_dir: &Path,
-    _settings: &Settings,
-    _report: &DoctorReport,
-    _now: u64,
+    agent: CodingAgent,
+    data_dir: &Path,
+    settings: &Settings,
+    report: &DoctorReport,
+    now: u64,
 ) -> Vec<crate::account_rotation::ProfileUsage> {
-    Vec::new()
+    {
+        let mut cache = usage_cache::load(data_dir);
+        for profile in monitored_profiles(data_dir, agent) {
+            let cache_id = usage_cache::entry_key(agent.id(), &profile.id);
+            let mut entry = cache.get(&cache_id).cloned().unwrap_or_default();
+            // A login inside its 429 floor keeps its numbers: the endpoint
+            // asked for that, and the pick simply weighs what it holds.
+            if usage_cache::force_due(&mut entry, now).is_ok() {
+                cache.insert(cache_id, entry);
+            }
+        }
+        usage_cache::save(data_dir, &cache);
+    }
+    let _ = collect_inner(data_dir, settings, report, now, Forced::Agent(agent));
+    profile_usage_snapshot(agent, data_dir)
+}
+
+/// EXP-1005 — `agent`'s profiles with the usage the cache HOLDS, no probe:
+/// what the start-time pick reads (the cache is fresh enough to avoid an
+/// obviously walled login, and a launch must not wait on a fetch). The
+/// active login first, so a tie in the picker keeps it.
+///
+/// Sign-in and health come off the cache too: `health: ok` is stamped only
+/// by a successful probe of a signed-in login, and a login never probed reads
+/// `unknown` — which the pickers skip, so it is never chosen blind.
+pub fn profile_usage_snapshot(
+    agent: CodingAgent,
+    data_dir: &Path,
+) -> Vec<crate::account_rotation::ProfileUsage> {
+    use crate::account_rotation::{ProfileUsage, UsageWindows, Window};
+    let cache = usage_cache::load(data_dir);
+    monitored_profiles(data_dir, agent)
+        .into_iter()
+        .map(|profile| {
+            let entry = cache.get(&usage_cache::entry_key(agent.id(), &profile.id));
+            let account = entry.and_then(|entry| entry.account.as_ref());
+            let health = entry
+                .and_then(|entry| entry.health.as_deref())
+                .map(crate::agent_accounts::Health::parse)
+                .unwrap_or(crate::agent_accounts::Health::Unknown);
+            let signed_in = account.map(|account| account.signed_in).unwrap_or(
+                health == crate::agent_accounts::Health::Ok,
+            );
+            let mut windows = UsageWindows::default();
+            if let Some(usage) = entry.and_then(|entry| entry.usage.as_ref()) {
+                for window in &usage.windows {
+                    let parsed = Window {
+                        percent: window.percent,
+                        resets_at: window
+                            .resets_at
+                            .as_deref()
+                            .and_then(crate::agent_accounts::unix_millis_from_iso),
+                    };
+                    match window.key.as_str() {
+                        "session" => windows.session = Some(parsed),
+                        "weekly" => windows.weekly = Some(parsed),
+                        key => {
+                            if let Some(alias) = key.strip_prefix("model:") {
+                                windows.model.insert(alias.to_string(), parsed);
+                            }
+                        }
+                    }
+                }
+            }
+            let label = account
+                .and_then(|account| account.email.clone())
+                .map(|email| email.trim().to_string())
+                .filter(|email| !email.is_empty())
+                .unwrap_or_else(|| {
+                    if profile.is_system() {
+                        crate::agent_profiles::SYSTEM_LABEL.to_string()
+                    } else {
+                        profile.label.clone()
+                    }
+                });
+            ProfileUsage {
+                profile_id: profile.id,
+                agent,
+                signed_in,
+                health,
+                windows,
+                label,
+            }
+        })
+        .collect()
+}
+
+/// Which logins a pass puts past the stagger (and, for a forced refresh,
+/// past the poll schedule).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Forced<'a> {
+    /// A beat: nothing forced.
+    None,
+    /// ONE login (`agent_usage_refresh`, a popover glance).
+    Profile(CodingAgent, &'a str),
+    /// EVERY monitored login of the agent (EXP-1005: a wall's rotation).
+    Agent(CodingAgent),
 }
 
 /// [`collect_if_due`], plus the ONE login a forced refresh
@@ -873,7 +968,7 @@ fn collect_inner(
     settings: &Settings,
     report: &DoctorReport,
     now: u64,
-    forced: Option<(CodingAgent, &str)>,
+    forced: Forced<'_>,
 ) -> AgentStatusPayload {
     let stamp = iso_from_unix_secs(now as i64).unwrap_or_else(now_iso);
     // EXP-792 (EXP-747 B3): the heartbeat's account map carries this
@@ -1164,7 +1259,7 @@ pub fn force_collect(
         settings,
         report,
         now,
-        Some((agent, &profile)),
+        Forced::Profile(agent, &profile),
     ))
 }
 
@@ -1193,7 +1288,7 @@ pub fn refresh_on_demand(
     let due = usage_cache::load(data_dir)
         .get(&cache_id)
         .is_none_or(|entry| usage_cache::poll_due(entry, now));
-    due.then(|| collect_inner(data_dir, settings, report, now, Some((agent, &profile))))
+    due.then(|| collect_inner(data_dir, settings, report, now, Forced::Profile(agent, &profile)))
 }
 
 /// EXP-849 — "use this account here": make `profile` this machine's DEFAULT
@@ -1375,7 +1470,7 @@ fn usage_targets(
     eligible: &BTreeMap<String, bool>,
     cache: &usage_cache::UsageCache,
     now: u64,
-    forced: Option<(CodingAgent, &str)>,
+    forced: Forced<'_>,
 ) -> Vec<UsageTarget> {
     let mut targets: Vec<UsageTarget> = Vec::new();
     // (index into `targets`, whether a window of its RESET since the numbers
@@ -1447,10 +1542,20 @@ fn usage_targets(
             targets[*index].may_poll = true;
         }
     }
-    if let Some((agent, profile)) = forced {
-        for target in targets.iter_mut() {
-            if target.agent == agent && target.profile == profile {
-                target.may_poll = true;
+    match forced {
+        Forced::None => {}
+        Forced::Profile(agent, profile) => {
+            for target in targets.iter_mut() {
+                if target.agent == agent && target.profile == profile {
+                    target.may_poll = true;
+                }
+            }
+        }
+        Forced::Agent(agent) => {
+            for target in targets.iter_mut() {
+                if target.agent == agent {
+                    target.may_poll = true;
+                }
             }
         }
     }
@@ -3268,7 +3373,7 @@ mod tests {
             &eligible,
             &usage_cache::load(&dir),
             now,
-            None,
+            Forced::None,
         );
         let target = targets
             .iter()
@@ -3648,7 +3753,7 @@ mod tests {
         cache.insert(usage_cache::entry_key("codex", &ids[0]), stale);
         cache.insert(usage_cache::entry_key("codex", &ids[1]), reset.clone());
 
-        let polled: Vec<String> = usage_targets(&dir, &report, &eligible, &cache, now, None)
+        let polled: Vec<String> = usage_targets(&dir, &report, &eligible, &cache, now, Forced::None)
             .into_iter()
             .filter(|target| target.may_poll && !target.active)
             .map(|target| target.profile)
@@ -3674,7 +3779,7 @@ mod tests {
         not_due.earliest_reset_secs = Some(now + 600);
         not_due.next_poll_at_secs = 0;
         open.insert(usage_cache::entry_key("codex", &ids[1]), not_due);
-        let polled: Vec<String> = usage_targets(&dir, &report, &eligible, &open, now, None)
+        let polled: Vec<String> = usage_targets(&dir, &report, &eligible, &open, now, Forced::None)
             .into_iter()
             .filter(|target| target.may_poll && !target.active)
             .map(|target| target.profile)
@@ -3720,7 +3825,7 @@ mod tests {
         // one.
         let now = 1_800_000_000;
         let empty = usage_cache::UsageCache::default();
-        let targets = usage_targets(&dir, &report, &eligible, &empty, now, None);
+        let targets = usage_targets(&dir, &report, &eligible, &empty, now, Forced::None);
         assert_eq!(
             targets.len(),
             MAX_USAGE_PROFILES,
@@ -3759,7 +3864,7 @@ mod tests {
             );
         }
         let oldest = planned.last().unwrap().clone();
-        let targets = usage_targets(&dir, &report, &eligible, &cache, now, None);
+        let targets = usage_targets(&dir, &report, &eligible, &cache, now, Forced::None);
         let polled: Vec<&str> = targets
             .iter()
             .filter(|target| target.may_poll && !target.active)
@@ -3784,7 +3889,7 @@ mod tests {
                 },
             );
         }
-        let targets = usage_targets(&dir, &report, &eligible, &hot, now, None);
+        let targets = usage_targets(&dir, &report, &eligible, &hot, now, Forced::None);
         assert!(
             !targets.iter().any(|target| target.may_poll && !target.active),
             "a secondary probed a second ago spaces the next one out"
@@ -3809,7 +3914,7 @@ mod tests {
                 },
             );
         }
-        let targets = usage_targets(&dir, &report, &eligible, &live_frames, now, None);
+        let targets = usage_targets(&dir, &report, &eligible, &live_frames, now, Forced::None);
         let polled: Vec<&str> = targets
             .iter()
             .filter(|target| target.may_poll && !target.active)
@@ -3830,7 +3935,7 @@ mod tests {
             &eligible,
             &hot,
             now,
-            Some((CodingAgent::Codex, &forced)),
+            Forced::Profile(CodingAgent::Codex, &forced),
         );
         assert!(
             targets
@@ -3843,7 +3948,7 @@ mod tests {
         // A login that cannot answer for usage (signed out, or an API-key
         // claude) is not a target at all — no probe is ever spent on it.
         eligible.insert(usage_cache::entry_key("codex", &ids[0]), false);
-        let targets = usage_targets(&dir, &report, &eligible, &empty, now, None);
+        let targets = usage_targets(&dir, &report, &eligible, &empty, now, Forced::None);
         assert!(!targets.iter().any(|target| target.profile == ids[0]));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -4642,5 +4747,112 @@ mod tests {
     fn stored_claude_credentials(dir: &std::path::Path) -> Value {
         serde_json::from_str(&std::fs::read_to_string(dir.join(".credentials.json")).unwrap())
             .unwrap()
+    }
+
+    /// EXP-1005 — the cache read back in the picker's shape: keys map to the
+    /// three window kinds, ISO resets become unix ms, health and identity
+    /// ride along, and a login never probed reads `unknown` (never picked).
+    #[test]
+    fn the_profile_snapshot_maps_the_cache_into_the_pickers_shape() {
+        let dir = usage_dir("snapshot-shape");
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let now = 1_800_000_000;
+        let mut cache = usage_cache::load(&dir);
+        let mut entry = cached(
+            vec![
+                session_window(42),
+                UsageWindow {
+                    key: "weekly".to_string(),
+                    label: "Week".to_string(),
+                    percent: 7,
+                    resets_at: None,
+                },
+                UsageWindow {
+                    key: "model:fable".to_string(),
+                    label: "Fable".to_string(),
+                    percent: 100,
+                    resets_at: Some("2099-09-06T14:00:00.000Z".to_string()),
+                },
+                UsageWindow {
+                    key: "credits".to_string(),
+                    label: "Credits".to_string(),
+                    percent: 1,
+                    resets_at: None,
+                },
+            ],
+            now,
+        );
+        entry.health = Some("ok".to_string());
+        entry.account = Some(crate::agent_accounts::AgentAccount {
+            signed_in: true,
+            email: Some("work@example.com".to_string()),
+            ..Default::default()
+        });
+        cache.insert(usage_cache::entry_key("codex", &work.id), entry);
+        usage_cache::save(&dir, &cache);
+
+        let profiles = profile_usage_snapshot(CodingAgent::Codex, &dir);
+        // The ACTIVE login first (ties in the picker keep it).
+        assert_eq!(profiles[0].profile_id, crate::agent_profiles::SYSTEM_PROFILE);
+        assert_eq!(profiles[0].health, crate::agent_accounts::Health::Unknown);
+        assert!(!profiles[0].signed_in, "never probed: never picked");
+        assert_eq!(profiles[0].label, crate::agent_profiles::SYSTEM_LABEL);
+        let row = &profiles[1];
+        assert_eq!(row.profile_id, work.id);
+        assert_eq!(row.health, crate::agent_accounts::Health::Ok);
+        assert!(row.signed_in);
+        assert_eq!(row.label, "work@example.com");
+        assert_eq!(row.windows.session.as_ref().map(|w| w.percent), Some(42));
+        assert!(row.windows.session.as_ref().unwrap().resets_at.is_some());
+        assert_eq!(row.windows.weekly.as_ref().map(|w| (w.percent, w.resets_at)), Some((7, None)));
+        assert_eq!(row.windows.model.get("fable").map(|w| w.percent), Some(100));
+        assert_eq!(row.windows.model.len(), 1, "credits is not a model window");
+    }
+
+    /// EXP-1005 — a wall's forced collection re-reads EVERY monitored login
+    /// of the agent in one pass, past the schedule and the shared TTL that
+    /// hold a beat back (the stagger too), and never a login inside its 429
+    /// floor.
+    #[test]
+    fn collect_now_re_reads_every_profile_of_the_agent_past_the_floors() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("collect-now");
+        let settings = Settings {
+            codex_path: "/usr/bin/true".to_string(),
+            ..Settings::default()
+        };
+        let report = codex_named_report();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
+        let now = 1_800_000_000;
+        let mut cache = usage_cache::load(&dir);
+        for id in [crate::agent_profiles::SYSTEM_PROFILE, work.id.as_str(), home.id.as_str()] {
+            cache.insert(
+                usage_cache::entry_key("codex", id),
+                cached(vec![session_window(7)], now),
+            );
+        }
+        // The 429 floor is the endpoint's own instruction: it stands.
+        let mut limited = cached(vec![session_window(9)], now);
+        limited.rate_limited_until_secs = Some(now + 100);
+        cache.insert(usage_cache::entry_key("codex", &home.id), limited);
+        usage_cache::save(&dir, &cache);
+
+        let profiles = collect_now(CodingAgent::Codex, &dir, &settings, &report, now);
+        assert_eq!(profiles.len(), 3, "every monitored login is reported");
+        let cache = usage_cache::load(&dir);
+        for id in [crate::agent_profiles::SYSTEM_PROFILE, work.id.as_str()] {
+            let entry = cache.get(&usage_cache::entry_key("codex", id)).unwrap();
+            assert!(
+                entry.usage.as_ref().is_some_and(|usage| usage.stale),
+                "{id}: the probe ran (and failed against /usr/bin/true, so it dimmed)"
+            );
+        }
+        let held = cache.get(&usage_cache::entry_key("codex", &home.id)).unwrap();
+        assert!(
+            held.usage.as_ref().is_some_and(|usage| !usage.stale),
+            "a login inside its 429 floor keeps its numbers"
+        );
     }
 }

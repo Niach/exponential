@@ -390,8 +390,9 @@ fn snapshot_for(
         return None;
     }
     let auth = crate::session::AuthContext::global(cx);
-    let device_id = steer::persistent_device_id(&auth.data_dir);
-    let settings_path = coding::Settings::default_path(&auth.data_dir);
+    let data_dir = auth.data_dir.clone();
+    let device_id = steer::persistent_device_id(&data_dir);
+    let settings_path = coding::Settings::default_path(&data_dir);
     let trpc = Arc::new(queries::trpc_client(cx)?);
     let collections = sync::Store::try_global(cx)?.collections().clone();
     let hub = CodingHub::global(cx);
@@ -963,8 +964,6 @@ fn run_pass(
                             role,
                         },
                         account,
-                        &[],
-                        snapshot.now_ms,
                     );
                     // EXP-1082: `Done` here = the order was QUEUED. The launch
                     // itself runs on the foreground, and `launch_node` records
@@ -1304,8 +1303,6 @@ fn review_order(
             role,
         },
         account,
-        &[],
-        snapshot.now_ms,
     );
     Some(ReviewOrder {
         workflow_id: snapshot.workflow.id.clone(),
@@ -1327,6 +1324,30 @@ fn review_order(
         in_flight: Some(Arc::new(claim)),
         audit,
     })
+}
+
+/// EXP-1005 — `coding::prepare` moved an engine start off its launch
+/// account (`PreparedLaunch::account_pick`): say so in the workflow's event
+/// trail (`account_picked`), beside the launcher's own log line.
+fn note_account_pick(
+    trpc: &Arc<api::TrpcClient>,
+    workflow_id: &str,
+    node_id: &str,
+    pick: coding::account_rotation::StartPick,
+) {
+    log::info!(
+        "[workflows] {workflow_id} node {node_id}: {} ({} → {})",
+        pick.message,
+        pick.from,
+        pick.to
+    );
+    TrpcEventSink::new(Arc::clone(trpc)).record(api::workflows::WorkflowEvent {
+        workflow_id: workflow_id.to_string(),
+        node_id: Some(node_id.to_string()),
+        session_id: None,
+        kind: "account_picked".to_string(),
+        message: pick.message,
+    });
 }
 
 fn ensure_branch(
@@ -1818,6 +1839,9 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
+                if let Some(pick) = ready.account_pick.clone() {
+                    note_account_pick(&trpc, &workflow_id, &node_id, pick);
+                }
                 let subject = match subject {
                     SessionSubject::Issue(id) => SessionSubject::Issue(id),
                     other => other,
@@ -1962,6 +1986,11 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
         let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
+                if let Some(pick) = ready.account_pick.clone() {
+                    if let Some(trpc) = crate::queries::trpc_client(cx) {
+                        note_account_pick(&Arc::new(trpc), &workflow_id, &node_id, pick);
+                    }
+                }
                 let subject = SessionSubject::Action(session_id.clone());
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
