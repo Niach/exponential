@@ -65,88 +65,6 @@
       "cycleNote": "These issues block each other in a cycle: EXP-2, EXP-3; EXP-7. Remove one relation to start."
     }
   ],
-  "captions": [
-    {
-      "node": {
-        "kind": "contract",
-        "state": "blocked",
-        "risk": "high"
-      },
-      "workflowStatus": "draft",
-      "caption": "",
-      "tone": "muted"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "blocked",
-        "risk": "medium"
-      },
-      "workflowStatus": "draft",
-      "caption": "",
-      "tone": "muted"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "in_review",
-        "risk": "low"
-      },
-      "workflowStatus": "running",
-      "caption": "In review",
-      "tone": "active"
-    },
-    {
-      "node": {
-        "kind": "contract",
-        "state": "running",
-        "risk": "high"
-      },
-      "workflowStatus": "running",
-      "caption": "Running",
-      "tone": "active"
-    },
-    {
-      "node": {
-        "kind": "integration",
-        "state": "waiting",
-        "risk": "medium"
-      },
-      "workflowStatus": "paused",
-      "caption": "Waiting",
-      "tone": "amber"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "landed",
-        "risk": "medium"
-      },
-      "workflowStatus": "done",
-      "caption": "Landed",
-      "tone": "success"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "failed",
-        "risk": "medium"
-      },
-      "workflowStatus": "running",
-      "caption": "Failed",
-      "tone": "danger"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "brand-new",
-        "risk": "medium"
-      },
-      "workflowStatus": "running",
-      "caption": "brand-new",
-      "tone": "muted"
-    }
-  ],
   "titles": [
     {
       "identifier": "EXP-14",
@@ -574,57 +492,6 @@
       "style": "plain"
     }
   ],
-  "reviewLines": [
-    {
-      "review": {
-        "verdict": "approve",
-        "round": 1,
-        "oracle": {
-          "passed": true
-        }
-      },
-      "approved": true,
-      "line": "Approved · round 1 · checks passed"
-    },
-    {
-      "review": {
-        "verdict": "approve",
-        "round": 1,
-        "oracle": null
-      },
-      "approved": true,
-      "line": "Approved · round 1"
-    },
-    {
-      "review": {
-        "verdict": "approve",
-        "round": 1,
-        "oracle": null
-      },
-      "approved": false,
-      "line": "Approved · round 1 · advisory"
-    },
-    {
-      "review": {
-        "verdict": "request_changes",
-        "round": 2,
-        "oracle": {
-          "passed": false
-        }
-      },
-      "approved": false,
-      "line": "Changes requested · round 2 · checks failed"
-    },
-    {
-      "review": {
-        "verdict": "request_changes",
-        "round": 3,
-        "oracle": null
-      },
-      "approved": false,
-      "line": "Changes requested · round 3"
-    }
-  ],
   "displayStates": [
     {
       "state": "proposed",
@@ -887,7 +754,7 @@
               "id": "p",
               "title": "EXP-9",
               "display": "queued",
-              "caption": "Queued",
+              "caption": "Filed during the run. Admit it into the workflow or dismiss it.",
               "stacked": false,
               "members": 0,
               "live": false,
@@ -1072,42 +939,80 @@
     {
       "status": "draft",
       "device": null,
-      "action": "pick_device"
+      "action": "pick_device",
+      "finalPrState": null
     },
     {
       "status": "draft",
       "device": "MacBook",
-      "action": "start"
+      "action": "start",
+      "finalPrState": null
     },
     {
       "status": "running",
       "device": "MacBook",
-      "action": "pause"
+      "action": "pause",
+      "finalPrState": null
     },
     {
       "status": "paused",
       "device": "MacBook",
-      "action": "resume"
+      "action": "resume",
+      "finalPrState": null
     },
     {
       "status": "done",
       "device": "MacBook",
-      "action": "review_final_pr"
+      "action": "review_final_pr",
+      "finalPrState": null
     },
     {
       "status": "failed",
       "device": "MacBook",
-      "action": null
+      "action": null,
+      "finalPrState": null
     },
     {
       "status": "cancelled",
       "device": "MacBook",
-      "action": null
+      "action": null,
+      "finalPrState": null
     },
     {
       "status": "something-new",
       "device": "MacBook",
-      "action": null
+      "action": null,
+      "finalPrState": null
+    },
+    {
+      "status": "running",
+      "device": "MacBook",
+      "finalPrState": "open",
+      "action": "review_final_pr"
+    },
+    {
+      "status": "paused",
+      "device": "MacBook",
+      "finalPrState": "open",
+      "action": "review_final_pr"
+    },
+    {
+      "status": "running",
+      "device": "MacBook",
+      "finalPrState": "merged",
+      "action": "pause"
+    },
+    {
+      "status": "running",
+      "device": "MacBook",
+      "finalPrState": "closed",
+      "action": "pause"
+    },
+    {
+      "status": "draft",
+      "device": null,
+      "finalPrState": "open",
+      "action": "pick_device"
     }
   ],
   "chipMenus": [
@@ -1203,5 +1108,481 @@
     "pickDevice": "Pick device",
     "runsOn": "Runs on",
     "reviewFinalPr": "Review final PR"
-  }
+  },
+  "statusGlyphs": [
+    {
+      "status": "draft",
+      "display": "queued"
+    },
+    {
+      "status": "running",
+      "display": "running"
+    },
+    {
+      "status": "paused",
+      "display": "running"
+    },
+    {
+      "status": "done",
+      "display": "done"
+    },
+    {
+      "status": "failed",
+      "display": "failed"
+    },
+    {
+      "status": "cancelled",
+      "display": "skipped"
+    },
+    {
+      "status": "something-new",
+      "display": "queued"
+    }
+  ],
+  "proposedNodeNote": "Filed during the run. Admit it into the workflow or dismiss it.",
+  "selection": [
+    {
+      "name": "a click picks exactly that node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "click",
+        "id": "a"
+      },
+      "expected": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      }
+    },
+    {
+      "name": "a click on the picked chip keeps it",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      },
+      "op": {
+        "kind": "click",
+        "id": "a"
+      },
+      "expected": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      }
+    },
+    {
+      "name": "a click on All clears the pick",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "a",
+          "b"
+        ],
+        "anchor": "a",
+        "cursor": "b"
+      },
+      "op": {
+        "kind": "click",
+        "id": null
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "a click on an unknown node is All",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      },
+      "op": {
+        "kind": "click",
+        "id": "ghost"
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "toggle adds a node, in DAG order",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      },
+      "op": {
+        "kind": "toggle",
+        "id": "c"
+      },
+      "expected": {
+        "ids": [
+          "c",
+          "b"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      }
+    },
+    {
+      "name": "toggle removes a picked node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c",
+          "b"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      },
+      "op": {
+        "kind": "toggle",
+        "id": "b"
+      },
+      "expected": {
+        "ids": [
+          "c"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      }
+    },
+    {
+      "name": "toggling the last node out is All",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      },
+      "op": {
+        "kind": "toggle",
+        "id": "c"
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "extend picks the range from the anchor, either direction",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      },
+      "op": {
+        "kind": "extend",
+        "id": "c"
+      },
+      "expected": {
+        "ids": [
+          "c",
+          "a",
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "c"
+      }
+    },
+    {
+      "name": "extend without an anchor anchors on the node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "extend",
+        "id": "b"
+      },
+      "expected": {
+        "ids": [
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      }
+    },
+    {
+      "name": "a step from All lands on the first node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "step",
+        "delta": 1
+      },
+      "expected": {
+        "ids": [
+          "c"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      }
+    },
+    {
+      "name": "a step back from the first node is All",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      },
+      "op": {
+        "kind": "step",
+        "delta": -1
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "a step moves from the cursor, not the anchor",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c",
+          "a",
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "c"
+      },
+      "op": {
+        "kind": "step",
+        "delta": 1
+      },
+      "expected": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      }
+    },
+    {
+      "name": "a step without a cursor moves from the last picked node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c",
+          "a"
+        ],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "step",
+        "delta": 1
+      },
+      "expected": {
+        "ids": [
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      }
+    },
+    {
+      "name": "a step is clamped at the last node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "d"
+        ],
+        "anchor": "d",
+        "cursor": "d"
+      },
+      "op": {
+        "kind": "step",
+        "delta": 1
+      },
+      "expected": {
+        "ids": [
+          "d"
+        ],
+        "anchor": "d",
+        "cursor": "d"
+      }
+    },
+    {
+      "name": "a step back from All stays on All",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "step",
+        "delta": -1
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "prune drops nodes that left, keeping anchor and cursor when they stay",
+      "order": [
+        "c",
+        "b"
+      ],
+      "current": {
+        "ids": [
+          "c",
+          "a",
+          "b"
+        ],
+        "anchor": "a",
+        "cursor": "b"
+      },
+      "op": {
+        "kind": "prune"
+      },
+      "expected": {
+        "ids": [
+          "c",
+          "b"
+        ],
+        "anchor": "c",
+        "cursor": "b"
+      }
+    },
+    {
+      "name": "prune to nothing is All",
+      "order": [
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      },
+      "op": {
+        "kind": "prune"
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    }
+  ]
 }

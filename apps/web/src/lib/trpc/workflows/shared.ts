@@ -344,6 +344,7 @@ export async function loadNode(nodeId: string) {
       retriedAt: workflowNodes.retriedAt,
       review: workflowNodes.review,
       reviewRound: workflowNodes.reviewRound,
+      attempt: workflowNodes.attempt,
     })
     .from(workflowNodes)
     .where(eq(workflowNodes.id, nodeId))

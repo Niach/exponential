@@ -6,12 +6,9 @@ import {
   workflowEdges,
   workflowEdgeStyle,
   workflowFinalPrCaption,
-  workflowReviewLine,
   workflowRowSubtitle,
   workflowStartBlocker,
-  workflowNodeCaption,
   workflowNodeTitle,
-  workflowNodeTone,
   workflowShapeLine,
   NEEDS_YOU_LABEL,
   nodeChipMenu,
@@ -27,6 +24,8 @@ import {
   workflowNodeDisplayState,
   workflowNodeStrip,
   workflowPrimaryAction,
+  workflowStatusGlyph,
+  PROPOSED_NODE_NOTE,
   type WorkflowPrimaryAction,
 } from "./workflow-view"
 
@@ -42,13 +41,6 @@ describe(`workflow view (contract fixture)`, () => {
     for (const c of fixture.shapeLines) {
       expect(workflowShapeLine(c.metrics)).toBe(c.line)
       expect(workflowCycleNote(c.metrics)).toBe(c.cycleNote)
-    }
-  })
-
-  it(`captions a node by the plan in a draft and by the state once started`, () => {
-    for (const c of fixture.captions) {
-      expect(workflowNodeCaption(c.node, c.workflowStatus)).toBe(c.caption)
-      expect(workflowNodeTone(c.node.state)).toBe(c.tone)
     }
   })
 
@@ -93,10 +85,6 @@ describe(`workflow view (contract fixture)`, () => {
       expect(workflowEdgeStyle(c.edge, c.fromState, c.toState)).toBe(c.style)
     }
   })
-
-  it(`says the latest agent review in one line`, () => {
-    for (const c of fixture.reviewLines) expect(workflowReviewLine(c.review, c.approved)).toBe(c.line)
-  })
 })
 
 // EXP-1082 §4: five display states, locked ×4.
@@ -132,10 +120,18 @@ describe(`workflow page view model (EXP-1082)`, () => {
 
   it(`picks the one primary action`, () => {
     for (const c of fixture.primaryActions) {
-      expect(workflowPrimaryAction(c.status, c.device)).toBe(
+      expect(workflowPrimaryAction(c.status, c.device, c.finalPrState), c.action ?? `null`).toBe(
         c.action as WorkflowPrimaryAction | null
       )
     }
+  })
+
+  it(`reads the header status as a node display state`, () => {
+    for (const c of fixture.statusGlyphs) expect(workflowStatusGlyph(c.status)).toBe(c.display)
+  })
+
+  it(`tells why a proposed chip offers admit and dismiss`, () => {
+    expect(PROPOSED_NODE_NOTE).toBe(fixture.proposedNodeNote)
   })
 
   it(`offers retry and skip on a failed chip only`, () => {

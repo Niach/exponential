@@ -25,7 +25,6 @@ import {
   wfRiskValues,
   wfSessionRoleValues,
   WORKFLOW_EVENTS_MAX,
-
   wfStatusValues,
   WORKFLOW_MAX_ISSUES,
   WORKFLOW_MAX_PARALLEL_DEFAULT,

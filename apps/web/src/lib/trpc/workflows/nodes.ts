@@ -116,9 +116,9 @@ export const workflowNodeProcedures = {
                   // EXP-1010: a PR that merged before now is the old
                   // attempt's; it lands nothing.
                   mergedInto: null,
-                  // EXP-1066: the one start rule reads a checkpoint in any
-                  // state; the old attempt's announcement must not release
-                  // dependents onto a branch the new attempt replaces.
+                  // EXP-1066: the old attempt's announcement must not
+                  // release dependents before the new attempt announces
+                  // its own (the branch is reused, its head is not final).
                   checkpointAt: null,
                   retriedAt: new Date(),
                 }
@@ -197,6 +197,10 @@ export const workflowNodeProcedures = {
           ...(input.sessionId !== undefined && { sessionId: input.sessionId }),
           ...(input.baseBranch !== undefined && { baseBranch: input.baseBranch }),
           ...(input.attempt !== undefined && { attempt: input.attempt }),
+          // EXP-1066: a fresh attempt (the engine's own retry) announces
+          // its own contract; the old announcement releases nobody.
+          ...(input.attempt !== undefined &&
+            input.attempt !== node.attempt && { checkpointAt: null }),
           ...(input.note !== undefined && { note: input.note }),
           ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })

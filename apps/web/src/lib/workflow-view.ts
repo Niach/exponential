@@ -63,70 +63,16 @@ export function workflowCycleNote(metrics: WorkflowShape): string | null {
   return `These issues block each other in a cycle: ${spelled}. Remove one relation to start.`
 }
 
-const STATE_LABELS: Record<string, string> = {
-  proposed: `Proposed`,
-  blocked: `Blocked`,
-  ready: `Ready`,
-  running: `Running`,
-  waiting: `Waiting`,
-  in_review: `In review`,
-  updating: `Updating`,
-  landed: `Landed`,
-  failed: `Failed`,
-  skipped: `Skipped`,
-}
-
-const KIND_LABELS: Record<string, string> = {
-  contract: `Contract`,
-  leaf: `Leaf`,
-  integration: `Integration`,
-}
-
-export function workflowNodeStateLabel(state: string): string {
-  return STATE_LABELS[state] ?? state
-}
-
-export function workflowNodeKindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind
-}
-
-/** The tone a node's state paints in. `waiting` is the ONLY amber one (and
- *  the only one that pushes): amber means "a person is needed". */
-export type WorkflowNodeTone = `muted` | `active` | `amber` | `success` | `danger`
-
-export function workflowNodeTone(state: string): WorkflowNodeTone {
-  if (state === `waiting`) return `amber`
-  if (state === `failed`) return `danger`
-  if (state === `landed`) return `success`
-  if (state === `running` || state === `updating` || state === `in_review`) {
-    return `active`
-  }
-  return `muted`
-}
-
-export interface CaptionNode {
-  kind: string
-  state: string
-  risk: string
-}
-
-/**
- * The ONE caption under a node: the bare STATE label once the workflow has
- * started (`Running`, `In review`, `Landed`), nothing at all in a draft. The
- * kind and the risk are the node panel's (EXP-1014: no `Leaf`, no
- * `Contract · high risk` under the chips — the chip names the issue, the
- * caption says only what is happening to it).
- */
-export function workflowNodeCaption(node: CaptionNode, workflowStatus: string): string {
-  if (workflowStatus === `draft`) return ``
-  return workflowNodeStateLabel(node.state)
-}
-
 /** `EXP-14 +3` for a compound node (a parent run as one batch with its
  *  sub-issues), the bare identifier otherwise. */
 export function workflowNodeTitle(identifier: string, memberCount: number): string {
   return memberCount > 0 ? `${identifier} +${memberCount}` : identifier
 }
+
+/** EXP-1014: the chip of a node whose issue row has not synced yet — the
+ *  identifier slot shows the first 8 characters of the issue id, the title
+ *  this line. Byte-identical ×4. */
+export const NODE_UNSYNCED_TITLE = `Not synced yet`
 
 export interface EdgeNode {
   id: string
@@ -202,15 +148,12 @@ export function workflowEdges(
 export const START_WORKFLOW_LABEL = `Start`
 export const PAUSE_WORKFLOW_LABEL = `Pause`
 export const RESUME_WORKFLOW_LABEL = `Resume`
-export const CANCEL_WORKFLOW_LABEL = `Cancel workflow`
 export const CANCEL_WORKFLOW_CONFIRM = `Its live runs end and its branch is deleted. Nothing reached the default branch.`
 export const FINAL_PR_TITLE = `Final pull request`
 /** EXP-1033: the ONE human review of the whole run — squash-merging the
  *  workflow's final pull request from the workflow screen. */
 export const MERGE_FINAL_PR_LABEL = `Merge`
 export const MERGE_FINAL_PR_CONFIRM = `The workflow's branch is squash-merged into the default branch and the run is done.`
-/** The strip over the graph that lists the runs that are up, one tap away. */
-export const RUNNING_NOW_LABEL = `Running now`
 
 export interface StartableWorkflow {
   status: string
@@ -296,50 +239,6 @@ export function workflowEdgeStyle(
   return `plain`
 }
 
-/** The node panel's line once a node announced its contract. */
-export const CONTRACT_PUBLISHED_LABEL = `Contract published`
-
-/** The node panel's chip line over `after_node_ids`. Byte-identical ×4. */
-export const MERGES_IN_FIRST_LABEL = `Merges in first`
-
-
-// ── Review gate, dynamic graphs, metrics (EXP-984) ─────────────────────────
-
-
-// EXP-1033: the workflow screen configures NOTHING any more — the per-phase
-// model pins of EXP-1002, the review model and the gate are gone with the
-// settings block (`workflow-launch.ts` derives every model from the two the
-// launch carries), so their labels went with them.
-
-/** The node panel's read-only line: what THIS node's run spawns on
- *  (`modelForNode`). */
-export const NODE_MODEL_LABEL = `Model`
-/** EXP-1014: the chip of a node whose issue row has not synced yet — the
- *  identifier slot shows the first 8 characters of the issue id, the title
- *  this line. Byte-identical ×4. */
-export const NODE_UNSYNCED_TITLE = `Not synced yet`
-
-export interface ReviewLine {
-  verdict: string
-  round: number
-  oracle: { passed: boolean } | null
-}
-
-/**
- * The node panel's one line about the latest agent review:
- * `Approved · round 1 · checks passed`, `Approved · round 1`,
- * `Changes requested · round 2 · checks failed`, `Changes requested · round 2`.
- * `approved` = the node's `approvedAt` is set. EXP-1010: an approval with no
- * oracle CLEARS the node, so `advisory` shows only when it did not.
- */
-export function workflowReviewLine(review: ReviewLine, approved: boolean): string {
-  const verdict = review.verdict === `approve` ? `Approved` : `Changes requested`
-  const parts = [verdict, `round ${review.round}`]
-  if (review.oracle) parts.push(review.oracle.passed ? `checks passed` : `checks failed`)
-  else if (review.verdict === `approve` && !approved) parts.push(`advisory`)
-  return parts.join(` · `)
-}
-
 // ── EXP-1082 §4: five display states + the `needs you` badge ───────────────
 // A person sees FIVE node states (`wfNodeDisplayState`); the stored
 // `wfNodeState` stays the engine's internal vocabulary. An unknown state (a
@@ -405,7 +304,8 @@ export interface NodeChip {
  * node), lanes top to bottom within a wave, ties by id. The edges are the
  * mini-graph popover's business; the strip only orders. A compound node is
  * `stacked` (the `IssueChipStack`); the caption is the node's note while it
- * has one, else its display label.
+ * has one, a `proposed` node's `PROPOSED_NODE_NOTE` (why its menu offers
+ * Admit / Dismiss), else its display label.
  */
 export function workflowNodeStrip(
   nodes: readonly StripNodeInput[],
@@ -427,7 +327,9 @@ export function workflowNodeStrip(
           id: node.id,
           title: workflowNodeTitle(node.identifier, node.members),
           display: workflowNodeDisplayState(node.state),
-          caption: node.note?.trim() || workflowNodeDisplayLabel(node.state),
+          caption:
+            node.note?.trim() ||
+            (node.state === `proposed` ? PROPOSED_NODE_NOTE : workflowNodeDisplayLabel(node.state)),
           stacked: node.members > 0,
           members: node.members,
           live: node.live,
@@ -489,18 +391,34 @@ export type WorkflowPrimaryAction =
 /**
  * The header's ONE primary button: a draft without a runner picks one (the
  * existing DevicePicker over own + team-shared online runners), a draft
- * starts, running pauses, paused resumes, done reviews the final PR. Failed
- * and cancelled offer nothing; Stop and Delete live in the overflow.
+ * starts; a started workflow whose final PR is OPEN reviews it (the one
+ * human review — the workflow is `done` only once it merged), else running
+ * pauses and paused resumes; done reviews the merged final PR. Failed and
+ * cancelled offer nothing; Stop and Delete live in the overflow.
  */
 export function workflowPrimaryAction(
   status: string,
-  deviceLabel: string | null
+  deviceLabel: string | null,
+  finalPrState: string | null = null
 ): WorkflowPrimaryAction | null {
   if (status === `draft`) return deviceLabel ? `start` : `pick_device`
-  if (status === `running`) return `pause`
-  if (status === `paused`) return `resume`
+  if (status === `running` || status === `paused`) {
+    if (finalPrState === `open`) return `review_final_pr`
+    return status === `running` ? `pause` : `resume`
+  }
   if (status === `done`) return `review_final_pr`
   return null
+}
+
+/** The header's status glyph, as the node display state it reads like:
+ *  draft → queued, running/paused → running, done → done, failed → failed,
+ *  cancelled → skipped, anything newer → queued. Locked ×4. */
+export function workflowStatusGlyph(status: string): WfNodeDisplayState {
+  if (status === `running` || status === `paused`) return `running`
+  if (status === `done`) return `done`
+  if (status === `failed`) return `failed`
+  if (status === `cancelled`) return `skipped`
+  return `queued`
 }
 
 /** The picker's first chip. Byte-identical ×4. */

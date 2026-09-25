@@ -489,7 +489,11 @@ export function WorkflowDetail({
     )
   }
 
-  const primary = workflowPrimaryAction(workflow.status, workflow.deviceId)
+  const primary = workflowPrimaryAction(
+    workflow.status,
+    workflow.deviceId,
+    typeof workflow.finalPrState === `string` ? workflow.finalPrState : null
+  )
   const cycleNote = workflowCycleNote(workflow.metrics)
   const startBlocker =
     workflow.status === `draft` && primary === `start`

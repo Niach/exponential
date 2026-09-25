@@ -2087,7 +2087,7 @@ fn build_batch_start(
 }
 
 /// A node whose run never reached the agent: the state says so, in one
-/// sentence, so the node panel can offer Retry or Skip.
+/// sentence, so the chip's menu can offer Retry or Skip.
 fn fail_node(trpc: &Arc<api::TrpcClient>, node_id: &str, reason: &str) {
     let mut report = api::workflows::NodeReport::new(node_id, "failed");
     report.note = api::patch::Patch::Set(one_line(reason));
