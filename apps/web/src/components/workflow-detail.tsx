@@ -962,50 +962,44 @@ export function WorkflowNodePanel({
       {review && (
         <AgentReviewBlock review={review} nodeApproved={Boolean(node.approvedAt)} />
       )}
-      {/* Kind and risk are the PLAN, so they are picks while the workflow is
-          a draft and plain readings after — the server refuses them anyway
-          once the engine has been cutting branches off them (`updateNode`).
-          EXP-1033: the third row is derived, never picked — `modelForNode`
-          says which of the launch's two models THIS node's run spawns on. */}
+      {/* Kind is the PLAN: a pick while the workflow is a draft and a plain
+          reading after — the server refuses it once the engine has been
+          cutting branches off it (`updateNode` asserts the draft for kind and
+          touches only). Risk stays a pick at any status, ×4 (IDE, Android and
+          the server agree): after the plan it is the one per-node lever over
+          which of the launch's two models the run spawns on (`modelForNode`).
+          EXP-1033: the third row is derived, never picked. */}
       <GlassGroup>
         {draft ? (
-          <>
-            <Combobox
-              triggerVariant="row"
-              searchable={false}
-              mobileTitle="Kind"
-              value={node.kind}
-              options={wfNodeKindValues.map((value) => ({
-                value: value as string,
-                label: workflowNodeKindLabel(value),
-              }))}
-              onChange={(value) => {
-                if (value !== null) void updateNode({ kind: value as WfNodeKind })
-              }}
-            />
-            <Combobox
-              triggerVariant="row"
-              searchable={false}
-              mobileTitle="Risk"
-              value={node.risk}
-              options={wfRiskValues.map((value) => ({
-                value: value as string,
-                label: RISK_LABELS[value] ?? value,
-              }))}
-              onChange={(value) => {
-                if (value !== null) void updateNode({ risk: value as WfRisk })
-              }}
-            />
-          </>
+          <Combobox
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle="Kind"
+            value={node.kind}
+            options={wfNodeKindValues.map((value) => ({
+              value: value as string,
+              label: workflowNodeKindLabel(value),
+            }))}
+            onChange={(value) => {
+              if (value !== null) void updateNode({ kind: value as WfNodeKind })
+            }}
+          />
         ) : (
-          <>
-            <NodeReadingRow label="Kind" value={workflowNodeKindLabel(node.kind)} />
-            <NodeReadingRow
-              label="Risk"
-              value={RISK_LABELS[node.risk] ?? node.risk}
-            />
-          </>
+          <NodeReadingRow label="Kind" value={workflowNodeKindLabel(node.kind)} />
         )}
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="Risk"
+          value={node.risk}
+          options={wfRiskValues.map((value) => ({
+            value: value as string,
+            label: RISK_LABELS[value] ?? value,
+          }))}
+          onChange={(value) => {
+            if (value !== null) void updateNode({ risk: value as WfRisk })
+          }}
+        />
         <NodeReadingRow label={NODE_MODEL_LABEL} value={modelLabel(nodeModel)} />
       </GlassGroup>
       {/* EXP-1024: the node's `touches` globs are the planner's bookkeeping

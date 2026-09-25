@@ -584,11 +584,12 @@ struct WorkflowNodeSheet: View {
         }
     }
 
-    /// What the plan declares about the node, and what that costs: kind and
-    /// risk (draft-only — they shape the run, and between them they decide
-    /// which of the workflow's two models it spawns on), then that model,
-    /// read-only. EXP-1029: the launch is set where a workflow is planned; a
-    /// node only says which half of it applies.
+    /// What the plan declares about the node, and what that costs: kind
+    /// (draft-only — it shapes the run), risk (adjustable at any status, ×4
+    /// with the server: after the plan it is the one per-node lever over
+    /// which of the workflow's two models the run spawns on), then that
+    /// model, read-only. EXP-1029: the launch is set where a workflow is
+    /// planned; a node only says which half of it applies.
     @ViewBuilder
     private var planRows: some View {
         // EXP-994: one grouped card, hairline-separated rows.
@@ -616,7 +617,8 @@ struct WorkflowNodeSheet: View {
                 ),
                 options: DomainContract.wfRiskValues,
                 label: { $0.prefix(1).uppercased() + $0.dropFirst() },
-                enabled: enabled
+                // Risk stays adjustable after the draft (server parity).
+                enabled: true
             )
             .padding(.horizontal, 12)
             .padding(.vertical, 12)

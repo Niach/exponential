@@ -22,7 +22,6 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.stableDeviceOrder
-import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.components.toPickerBoard
 import dagger.hilt.android.lifecycle.HiltViewModel

@@ -1102,13 +1102,13 @@ describe(`WorkflowDetail node model, final merge and metrics`, () => {
     expect(
       screen.getByTestId(`workflow-node-row-${NODE_MODEL_LABEL}`).textContent
     ).toBe(`${NODE_MODEL_LABEL}Sonnet`)
-    // Kind and risk are plain readings once the run owns them.
+    // Kind is a plain reading once the run owns it; risk STAYS a pick at any
+    // status (server parity, ×4): it is the per-node lever over the model.
     expect(screen.getByTestId(`workflow-node-row-Kind`).textContent).toBe(
       `KindLeaf`
     )
-    expect(screen.getByTestId(`workflow-node-row-Risk`).textContent).toBe(
-      `RiskLow`
-    )
+    expect(screen.queryByTestId(`workflow-node-row-Risk`)).toBeNull()
+    expect(screen.getByRole(`button`, { name: /Risk/ }).textContent).toContain(`Low`)
     leaf.unmount()
 
     nodeRows.rows = [node(`n1`, { kind: `leaf`, risk: `high` })]
