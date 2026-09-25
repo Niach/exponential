@@ -379,10 +379,9 @@ export function linearPreview(snapshot: LinearSnapshot): ImportPreview {
       `${orphanSubIssues} sub-issue(s) have a parent outside this workspace export; they are imported as top-level issues.`
     )
   }
-  const bots = snapshot.users.filter(isLinearBotUser)
-  if (bots.length > 0) {
-    warnings.push(`Content by Linear's own integration account is attributed to you.`)
-  }
+  const botKeys = new Set(
+    snapshot.users.filter(isLinearBotUser).map((user) => userKey(user.id))
+  )
   const teamByProject = new Map<string, string | null>()
   for (const project of snapshot.projects) {
     teamByProject.set(project.id, project.teamIds[0] ?? null)
@@ -396,6 +395,10 @@ export function linearPreview(snapshot: LinearSnapshot): ImportPreview {
     // Project-only labels are a routing artefact, not workspace labels: keep
     // the preview to Linear's own labels.
     labels: base.labels.filter((label) => !label.key.startsWith(`project:`)),
+    // EXP-1076: Linear's own integration account is nobody to map — it stays
+    // in the BUNDLE (its comments keep their "originally by Linear" line) but
+    // never reaches the wizard's people list.
+    users: base.users.filter((user) => !botKeys.has(user.key)),
     statuses: base.statuses.map((status) => ({
       ...status,
       teamKey: teamBoardKey(

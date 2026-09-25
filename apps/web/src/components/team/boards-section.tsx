@@ -7,7 +7,8 @@ import {
   Pill,
   Button,
   GlassGroup,
-  GlassRow,
+  ListRow,
+  SETTINGS_LIST_CLASS,
   GlassSectionHeader,
   Dialog,
   DialogCancel,
@@ -309,15 +310,18 @@ export function BoardsEmptyState({ team }: { team: Team }) {
   return (
     <div>
       <GlassSectionHeader label="Boards" />
-      <GlassRow className="flex-col items-start gap-3 px-3 py-3">
-        <span className="text-sm text-muted-foreground">
-          No boards in this team yet.
-        </span>
-        <Pill mode="action" onClick={() => setCreateOpen(true)}>
-          <Plus />
-          New board
-        </Pill>
-      </GlassRow>
+      {/* EXP-1076: an empty state is a SINGLE flat row of the same ladder. */}
+      <div className={SETTINGS_LIST_CLASS}>
+        <ListRow className="flex-col items-start gap-3 px-3 py-2">
+          <span className="text-sm text-muted-foreground">
+            No boards in this team yet.
+          </span>
+          <Pill mode="action" onClick={() => setCreateOpen(true)}>
+            <Plus />
+            New board
+          </Pill>
+        </ListRow>
+      </div>
       <CreateBoardDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -390,14 +394,14 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
         leading={<Archive className="size-3.5 text-foreground/50" />}
         label="Archived boards"
       />
-      {!archived || archived.length === 0 ? (
-        <GlassRow className="px-3 py-2 text-sm text-muted-foreground">
-          No archived boards.
-        </GlassRow>
-      ) : (
-        <div className="space-y-2">
-          {archived.map((board) => (
-            <GlassRow key={board.id} className="px-3 py-2.5">
+      <div className={SETTINGS_LIST_CLASS}>
+        {!archived || archived.length === 0 ? (
+          <ListRow className="px-3 py-2 text-sm text-muted-foreground">
+            No archived boards.
+          </ListRow>
+        ) : (
+          archived.map((board) => (
+            <ListRow key={board.id} className="px-3 py-2">
               <BoardGlyph board={board} />
               <span className="min-w-0 flex-1 truncate text-sm font-medium">
                 {board.name}
@@ -415,10 +419,10 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
               >
                 {restoringId === board.id ? `Unarchiving…` : `Unarchive`}
               </Pill>
-            </GlassRow>
-          ))}
-        </div>
-      )}
+            </ListRow>
+          ))
+        )}
+      </div>
     </div>
   )
 }
@@ -485,9 +489,9 @@ function PendingDeletionCard({ teamId }: { teamId: string }) {
         Deleted boards are kept for 48 hours, then permanently removed with all
         their issues.
       </p>
-      <div className="space-y-2">
+      <div className={SETTINGS_LIST_CLASS}>
         {trashed.map((board) => (
-          <GlassRow key={board.id} className="px-3 py-2.5">
+          <ListRow key={board.id} className="px-3 py-2">
             <BoardGlyph board={board} />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
               {board.name}
@@ -505,7 +509,7 @@ function PendingDeletionCard({ teamId }: { teamId: string }) {
             >
               {restoringId === board.id ? `Restoring…` : `Restore`}
             </Pill>
-          </GlassRow>
+          </ListRow>
         ))}
       </div>
     </div>

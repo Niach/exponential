@@ -21,8 +21,9 @@ import {
   ImagePreviewDialog,
   Pill,
   Button,
-  GlassRow,
   GlassSectionHeader,
+  ListRow,
+  SETTINGS_LIST_CLASS,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -229,7 +230,7 @@ export function TeamStorageSection({
           // thresholds are CONTAINER queries on the list: the settings column
           // is ~450px at the `md` viewport (sidebar), so viewport breakpoints
           // overflowed the ladder exactly where the tab strip turns into it.
-          <ul className="@container flex flex-col gap-2">
+          <ul className={`@container ${SETTINGS_LIST_CLASS}`}>
             {rows.map((row) => {
               const Icon = getAttachmentIcon(row.contentType)
               // EXP-878: draft-owned rows carry no issue.
@@ -252,10 +253,10 @@ export function TeamStorageSection({
                 row.isImage || row.isVideo || row.isAudio || isMarkdown
 
               return (
-                <GlassRow
+                <ListRow
                   key={row.id}
                   asChild
-                  className="min-w-0 gap-2 px-2 py-1.5"
+                  className="min-w-0 gap-2 px-3 py-2"
                 >
                   <li>
                     <Icon className="size-4 shrink-0 text-muted-foreground" />
@@ -335,7 +336,7 @@ export function TeamStorageSection({
                       <Trash2 />
                     </Button>
                   </li>
-                </GlassRow>
+                </ListRow>
               )
             })}
           </ul>

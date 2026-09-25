@@ -22,5 +22,11 @@ export const IMPORT_BATCH_ASSET_FLUSH_BYTES = 200 * 1024 * 1024
 // hostile or runaway script from parking an unbounded snapshot in
 // `import_jobs.payload`. Generous: a Linear workspace with 50k issues is a
 // big one.
+// EXP-1076: placeholder members ONE import run may seat. They cost no seat
+// and no mail, but a workspace with thousands of former colleagues should not
+// grow the roster past what a member list can show; the rest of the people
+// found are attributed to the importer with one warning.
+export const IMPORT_MAX_PLACEHOLDERS = 250
+
 export const IMPORT_MAX_BUNDLE_ISSUES = 50_000
 export const IMPORT_MAX_BUNDLE_COMMENTS = 500_000

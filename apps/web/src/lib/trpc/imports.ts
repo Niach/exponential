@@ -9,7 +9,7 @@
 // cancels the job (a `failed` job keeps it so a resume can still download
 // files), and swept after 24 h regardless.
 import { z } from "zod"
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure } from "@/lib/trpc"
 import { importJobs } from "@/db/schema"
@@ -21,6 +21,7 @@ import {
   importPlanSchema,
   importPreviewSchema,
   importProgressSchema,
+  IMPORT_TERMINAL_STATUSES,
   type DryRunResult,
   type ImportJobStatus,
 } from "@/lib/import/bundle"
@@ -202,7 +203,14 @@ export const importsRouter = router({
       const rows = await ctx.db
         .select(jobSelection)
         .from(importJobs)
-        .where(eq(importJobs.teamId, input.teamId))
+        .where(
+          and(
+            eq(importJobs.teamId, input.teamId),
+            // EXP-1076: a cleared card is gone from Recent imports; its
+            // import_entity_map rows (the re-import idempotency key) stay.
+            isNull(importJobs.dismissedAt)
+          )
+        )
         .orderBy(desc(importJobs.createdAt))
         .limit(input.limit)
       return rows.map(shapeJob)
@@ -268,10 +276,29 @@ export const importsRouter = router({
   // the cancel stick: every worker write is fenced on `status IN
   // (previewing, running) AND claim_token = <its token>`, so neither a
   // finishing discovery nor a failure can write over `cancelled`.
+  //
+  // EXP-1076: backing out BEFORE the import started leaves no trace at all.
+  // A `draft`/`previewing` job has written nothing outside its own row, so it
+  // is DELETED rather than parked as a cancelled card (import_entity_map
+  // cascades, and in those states it is empty). The delete is fenced on the
+  // same two statuses, so a job that reached `ready`/`running` between the
+  // read and the write falls through to the UPDATE below instead. The worker
+  // tolerates a row that vanished under it: its writes are fenced UPDATEs
+  // that simply match 0 rows, and the resulting `ImportAborted` is swallowed.
   cancel: authedProcedure
     .input(z.object({ jobId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const job = await loadJobForOwner(ctx.session.user.id, input.jobId)
+      const [discarded] = await ctx.db
+        .delete(importJobs)
+        .where(
+          and(
+            eq(importJobs.id, job.id),
+            inArray(importJobs.status, [`draft`, `previewing`])
+          )
+        )
+        .returning({ id: importJobs.id })
+      if (discarded) return { ok: true, discarded: true }
       const [row] = await ctx.db
         .update(importJobs)
         .set({ status: `cancelled`, credential: null, claimToken: null, finishedAt: new Date() })
@@ -283,7 +310,30 @@ export const importsRouter = router({
         )
         .returning({ id: importJobs.id })
       if (!row) throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `The import already finished` })
-      return { ok: true }
+      return { ok: true, discarded: false }
+    }),
+
+  // EXP-1076: clear the Recent imports list. Only FINISHED jobs (a live one
+  // would reappear the moment it writes) and only the card: `dismissed_at`
+  // hides the row from `list` and stays out of `jobSelection`, while
+  // import_entity_map is untouched — a re-import must still recognise what
+  // this job already created.
+  clearHistory: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertOwner(ctx.session.user.id, input.teamId)
+      const rows = await ctx.db
+        .update(importJobs)
+        .set({ dismissedAt: new Date() })
+        .where(
+          and(
+            eq(importJobs.teamId, input.teamId),
+            inArray(importJobs.status, [...IMPORT_TERMINAL_STATUSES]),
+            isNull(importJobs.dismissedAt)
+          )
+        )
+        .returning({ id: importJobs.id })
+      return { cleared: rows.length }
     }),
 })
 

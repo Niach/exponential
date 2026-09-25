@@ -97,9 +97,13 @@ export function signupCohortSources(db: Context[`db`]) {
       .where(isNotNull(issues.creatorId))
       .groupBy(issues.creatorId)
       .as(`i`),
+    // EXP-1076: only links that were actually ISSUED count as an invite —
+    // the Linear import writes a roster row per person it found with
+    // `sent_at` NULL, and those were never an act of inviting anybody.
     invitesByUser: db
       .select({ userId: teamInvites.invitedById, invites: n(`invites`) })
       .from(teamInvites)
+      .where(isNotNull(teamInvites.sentAt))
       .groupBy(teamInvites.invitedById)
       .as(`inv`),
     devicesByUser: db

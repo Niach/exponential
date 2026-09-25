@@ -1,5 +1,16 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, gt, gte, inArray, isNull, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   teamMembers,
@@ -8,6 +19,7 @@ import {
   sessionAttachments,
   creem_subscriptions,
   teamInvites,
+  users,
   widgetConfigs,
   widgetSubmissions,
 } from "@/db/schema"
@@ -392,9 +404,9 @@ export type InviteCapacity = { remaining: number | null }
 
 // Pending = unaccepted AND unexpired. Expired rows are dead weight the accept
 // path rejects anyway, so they must not hold a seat. EXP-630: an invite bound
-// to a placeholder member is excluded too — that person already sits on the
-// roster as a team_members row (countTeamMembers), so counting the invite as
-// well would charge the seat twice.
+// to a placeholder member is excluded too — the seat for an INVITED
+// placeholder is charged by countTeamMembers below (which counts exactly
+// those), so counting the invite as well would charge it twice.
 export async function countPendingInvites(teamId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -412,11 +424,35 @@ export async function countPendingInvites(teamId: string): Promise<number> {
 
 // Lean member count: this runs on every members/invites shape change on the
 // natives, so it must not drag getTeamUsage's storage sums along.
+//
+// EXP-1076: a seat is charged for a real account, or for a placeholder the
+// team actually ASKED to join — an invite of its own that is unaccepted, was
+// sent, and has not lapsed. The Linear import seats everyone it found so
+// attributions land from day one; nobody invited those people, so they cost
+// nothing until an owner sends the first link (which is itself seat-gated in
+// trpc/team-invites.ts). Uninvited placeholder → 0, live sent invite → 1,
+// expired → 0, claimed account → 1. The join adds no selected column, so
+// every caller's row shape is unchanged.
 export async function countTeamMembers(teamId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(teamMembers)
-    .where(eq(teamMembers.teamId, teamId))
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .where(
+      and(
+        eq(teamMembers.teamId, teamId),
+        or(
+          isNull(users.placeholderAt),
+          sql`exists (select 1 from ${teamInvites} where ${and(
+            eq(teamInvites.placeholderUserId, teamMembers.userId),
+            eq(teamInvites.teamId, teamMembers.teamId),
+            isNull(teamInvites.acceptedAt),
+            isNotNull(teamInvites.sentAt),
+            gt(teamInvites.expiresAt, sql`now()`)
+          )})`
+        )
+      )
+    )
   return row?.count ?? 0
 }
 

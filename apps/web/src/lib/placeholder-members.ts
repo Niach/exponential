@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto"
+import { randomBytes, randomUUID } from "crypto"
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm"
 import {
   attachments,
@@ -111,6 +111,52 @@ export async function createPlaceholderMember(
 }
 
 /**
+ * EXP-1076: the roster row WITHOUT an invitation. The Linear import seats
+ * everyone it found so issues and comments are attributed from day one, but
+ * nobody asked those people to join — so its placeholder port writes an
+ * invite row whose link was never issued: `sent_at` NULL (Members renders
+ * "Not invited" with a "Send invite" action) and `expires_at = now`, so every
+ * expiry-based reader (accept, the seat counts in lib/billing.ts, pending
+ * lists on all four clients) already treats the token as dead. The token is
+ * still random and unique — the row is a placeholder binding, not a
+ * credential anybody holds.
+ *
+ * Called only by the import's placeholder port
+ * (apps/web/src/lib/import/apply-db.ts), which imports it with EXACTLY this
+ * signature — `email` is taken as input rather than looked up so the caller's
+ * existing `users` read is not repeated. `teamInvites.create` mints the real
+ * link later (stamping `sentAt`, seat-gated as a first send).
+ */
+export async function createUnsentPlaceholderInvite(
+  tx: DbOrTx,
+  input: {
+    teamId: string
+    placeholderUserId: string
+    invitedById: string
+    email: string
+    role: `owner` | `member`
+    now?: Date
+  }
+): Promise<{ inviteId: string }> {
+  const now = input.now ?? new Date()
+  const inviteId = randomUUID()
+  await tx.insert(teamInvites).values({
+    id: inviteId,
+    teamId: input.teamId,
+    invitedById: input.invitedById,
+    role: input.role,
+    token: randomBytes(32).toString(`hex`),
+    email: normalizeInviteEmail(input.email),
+    placeholderUserId: input.placeholderUserId,
+    sentAt: null,
+    expiresAt: now,
+    createdAt: now,
+    updatedAt: now,
+  })
+  return { inviteId }
+}
+
+/**
  * Path (a): the placeholder row became a real account. Clears the flag and
  * marks every pending invite bound to it accepted, so member lists stop
  * badging the row even when the person never opened the invite page (they
@@ -118,6 +164,11 @@ export async function createPlaceholderMember(
  * so the claim is onboarding evidence too (lib/auth/onboarding.ts): stamp
  * `onboardingCompletedAt` (where null) so the first-run create-or-join
  * wizard never shows. Idempotent.
+ *
+ * Accepted edge (EXP-1076): a person who signs in through the placeholder's
+ * mailbox WITHOUT ever having been invited (the import seats them, `sent_at`
+ * NULL) lands here too and becomes a seated member with no seat gate — seat
+ * gates block new INVITES, never members already on the roster.
  */
 export async function claimPlaceholder(
   tx: DbOrTx,

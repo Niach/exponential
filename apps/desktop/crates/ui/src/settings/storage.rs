@@ -393,12 +393,21 @@ impl StoragePane {
                 .into_any_element(),
         };
 
-        // EXP-698: one row of an inset-grouped stack; `glass_group_rows` owns
-        // the hairlines. The cells are a fixed GRID — every column but the
+        // EXP-1076: an attachment is an ENTITY, so the list is the hairline
+        // LADDER (`list_row` + `flat_row`, the web `SETTINGS_LIST_CLASS`
+        // twin) rather than the inset-grouped block a form's fields wear.
+        // The cells stay a fixed GRID inside the row — every column but the
         // filename carries a definite width, so size/issue/author/date/status
         // stack in straight columns instead of each row laying its own cells
         // out around its own content (which is what made the table zig-zag).
-        crate::surface::glass_row_shell()
+        crate::surface::flat_row()
+            .flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2()
             .child(
                 h_flex()
                     .flex_1()
@@ -617,14 +626,19 @@ impl Render for StoragePane {
                             })
                             .collect()
                     };
+                    // EXP-1076: the gapless ladder under the band.
                     let list: Vec<gpui::Div> = rows
                         .iter()
                         .zip(joins.into_iter())
-                        .map(|(row, (identifier, uploader))| {
-                            self.render_row(row, identifier, uploader, cx)
+                        .enumerate()
+                        .map(|(index, (row, (identifier, uploader)))| {
+                            crate::surface::list_row(
+                                self.render_row(row, identifier, uploader, cx),
+                                index,
+                            )
                         })
                         .collect();
-                    body = body.child(crate::surface::glass_group_rows(list));
+                    body = body.child(v_flex().w_full().min_w_0().children(list));
                 }
             }
         }

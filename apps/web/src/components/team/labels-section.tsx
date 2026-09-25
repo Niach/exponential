@@ -7,7 +7,8 @@ import type { Label as LabelType } from "@/db/schema"
 import {
   Button,
   Pill,
-  GlassRow,
+  ListRow,
+  SETTINGS_LIST_CLASS,
   GlassSectionHeader,
   Input,
   ColorPicker,
@@ -86,7 +87,7 @@ function LabelRow({
   }
 
   return (
-    <GlassRow className="flex-col items-stretch gap-0 px-3 py-2">
+    <ListRow className="flex-col items-stretch gap-0 px-3 py-2">
       <div className="flex items-center gap-3">
         {/* EXP-941: the shared picker, wearing this row's 16px dot as its
             trigger — the popover and the swatch grid inside it are the ONE
@@ -167,7 +168,7 @@ function LabelRow({
         )}
       </div>
       {error && <p className="text-xs text-destructive mt-1 px-1">{error}</p>}
-    </GlassRow>
+    </ListRow>
   )
 }
 
@@ -240,7 +241,10 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
           )
         }
       />
-      <div className="space-y-2">
+      {/* EXP-1076: ONE settings ladder — the rows and the inline create form
+          are flat rows of the SAME divided list under the band, never a card
+          stack with a card below it. */}
+      <div className={SETTINGS_LIST_CLASS}>
         {labelList.map((label) => (
           <LabelRow
             key={label.id}
@@ -250,67 +254,68 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
           />
         ))}
         {labelList.length === 0 && !creating && (
-          <p className="text-sm text-muted-foreground py-2">No labels yet.</p>
+          <p className="text-sm text-muted-foreground px-3 py-2">
+            No labels yet.
+          </p>
+        )}
+        {creating && (
+          <ListRow className="flex-col items-stretch gap-3 px-3 py-2">
+            <Input
+              value={newName}
+              onChange={(e) => {
+                setNewName(e.target.value)
+                setCreateError(null)
+              }}
+              placeholder="Label name"
+              autoFocus
+              className="h-8 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === `Enter`) {
+                  e.preventDefault()
+                  handleCreate()
+                }
+                if (e.key === `Escape`) {
+                  setCreating(false)
+                  resetForm()
+                }
+              }}
+            />
+            {(newNameIsDuplicate || createError) && (
+              <p className="text-xs text-destructive">
+                {newNameIsDuplicate
+                  ? `A label with this name already exists.`
+                  : createError}
+              </p>
+            )}
+            <div>
+              <span className="text-xs text-muted-foreground mb-1.5 block">
+                Color
+              </span>
+              <ColorSwatchGrid value={newColor} onChange={setNewColor} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="xs"
+                variant="default"
+                disabled={!newName.trim() || submitting || newNameIsDuplicate}
+                onClick={handleCreate}
+              >
+                {submitting ? `Creating...` : `Create label`}
+              </Button>
+              <Pill
+                mode="action"
+                disabled={submitting}
+                onClick={() => {
+                  setCreating(false)
+                  resetForm()
+                }}
+              >
+                Cancel
+              </Pill>
+            </div>
+          </ListRow>
         )}
       </div>
-
-      {creating && (
-        <GlassRow className="mt-3 flex-col items-stretch gap-3">
-          <Input
-            value={newName}
-            onChange={(e) => {
-              setNewName(e.target.value)
-              setCreateError(null)
-            }}
-            placeholder="Label name"
-            autoFocus
-            className="h-8 text-sm"
-            onKeyDown={(e) => {
-              if (e.key === `Enter`) {
-                e.preventDefault()
-                handleCreate()
-              }
-              if (e.key === `Escape`) {
-                setCreating(false)
-                resetForm()
-              }
-            }}
-          />
-          {(newNameIsDuplicate || createError) && (
-            <p className="text-xs text-destructive">
-              {newNameIsDuplicate
-                ? `A label with this name already exists.`
-                : createError}
-            </p>
-          )}
-          <div>
-            <span className="text-xs text-muted-foreground mb-1.5 block">
-              Color
-            </span>
-            <ColorSwatchGrid value={newColor} onChange={setNewColor} />
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              size="xs"
-              variant="default"
-              disabled={!newName.trim() || submitting || newNameIsDuplicate}
-              onClick={handleCreate}
-            >
-              {submitting ? `Creating...` : `Create label`}
-            </Button>
-            <Pill
-              mode="action"
-              disabled={submitting}
-              onClick={() => {
-                setCreating(false)
-                resetForm()
-              }}
-            >
-              Cancel
-            </Pill>
-          </div>
-        </GlassRow>
-      )}
     </div>
   )
 }

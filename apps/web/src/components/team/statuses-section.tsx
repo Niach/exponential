@@ -30,7 +30,8 @@ import {
   hexWithAlpha,
   Pill,
   Button,
-  GlassRow,
+  ListRow,
+  SETTINGS_LIST_CLASS,
   GlassSectionHeader,
   Dialog,
   DialogBody,
@@ -192,7 +193,7 @@ function StatusRow({
   }
 
   return (
-    <GlassRow className="flex-col items-stretch gap-0 px-3 py-2">
+    <ListRow className="flex-col items-stretch gap-0 px-3 py-2">
       <div className="flex items-center gap-3">
         {isBuiltin ? (
           <StatusTile option={option} />
@@ -302,7 +303,7 @@ function StatusRow({
         </DropdownMenu>
       </div>
       {error && <p className="mt-1 px-1 text-xs text-destructive">{error}</p>}
-    </GlassRow>
+    </ListRow>
   )
 }
 
@@ -505,7 +506,7 @@ function CreateStatusForm({
   }
 
   return (
-    <GlassRow className="mt-2 flex-col items-stretch gap-3">
+    <ListRow className="flex-col items-stretch gap-3 px-3 py-2">
       <Input
         value={name}
         onChange={(e) => {
@@ -547,7 +548,7 @@ function CreateStatusForm({
           Cancel
         </Pill>
       </div>
-    </GlassRow>
+    </ListRow>
   )
 }
 
@@ -644,12 +645,15 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
                   }
                 />
 
-                {rows.length === 0 && (
-                  <p className="py-1 text-xs text-muted-foreground">
-                    No statuses yet.
-                  </p>
-                )}
-                <div className="space-y-2">
+                {/* EXP-1076: ONE settings ladder — the category's rows and
+                    its inline create form are flat rows of the SAME divided
+                    list under the band, never a stack of cards. */}
+                <div className={SETTINGS_LIST_CLASS}>
+                  {rows.length === 0 && (
+                    <p className="px-3 py-1 text-xs text-muted-foreground">
+                      No statuses yet.
+                    </p>
+                  )}
                   {rows.map((option, index) => (
                     <StatusRow
                       // Re-mount on rename/recolor so the inline editor's
@@ -665,15 +669,14 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
                       onRequestDelete={requestDelete}
                     />
                   ))}
+                  {creatingIn === category && (
+                    <CreateStatusForm
+                      teamId={teamId}
+                      category={category}
+                      onDone={() => setCreatingIn(null)}
+                    />
+                  )}
                 </div>
-
-                {creatingIn === category && (
-                  <CreateStatusForm
-                    teamId={teamId}
-                    category={category}
-                    onDone={() => setCreatingIn(null)}
-                  />
-                )}
               </div>
             )
           })}

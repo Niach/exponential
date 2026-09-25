@@ -896,7 +896,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `row`,
     title: `Glass row`,
     kind: `Lists & rows`,
-    blurb: `The GAPPED card item: radius 10, row fill, its own hairline border, padding 12. EXP-818 keeps it for the few real cards (a transcript's tool output, a diff); every LIST wears the flat list row below.`,
+    blurb: `The GAPPED card item: radius 10, row fill, its own hairline border, padding 12. EXP-818/1076 keep it for REAL CARDS only (a transcript's tool output, a diff) — never a settings list: the settings ladder is a \`GlassSectionHeader\` band over \`SETTINGS_LIST_CLASS\` + the flat list row below.`,
     status: {
       web: ok(`GlassRow`, WEB_GLASS_ROWS),
       desktop: ok(`surface::glass_row_card`, DESKTOP_SURFACE),

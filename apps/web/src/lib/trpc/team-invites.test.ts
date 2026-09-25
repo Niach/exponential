@@ -427,6 +427,8 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
     insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
     selectQueue.push([{ id: `ph-old`, placeholderAt: new Date() }])
     selectQueue.push([{ id: `member-row` }])
+    // EXP-1076: it already holds a live SENT link, so this is a plain resend.
+    selectQueue.push([{ id: `live-invite` }])
     selectQueue.push([{ name: `Acme` }])
 
     const result = await caller().create({ teamId: WS, email: `old@example.com` })
@@ -472,6 +474,8 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
     selectQueue.push([{ id: `ph-1`, email: `wrong@example.com`, placeholderAt: new Date() }])
     selectQueue.push([])
     selectQueue.push([])
+    // EXP-1076: a live sent link — the resend is not seat-gated.
+    selectQueue.push([{ id: `live-invite` }])
     selectQueue.push([{ name: `Acme` }])
 
     const result = await caller().create({
@@ -498,6 +502,7 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
   it(`resends at the SAME address without the membership-elsewhere check`, async () => {
     insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
     selectQueue.push([{ id: `ph-1`, email: `same@example.com`, placeholderAt: new Date() }])
+    selectQueue.push([{ id: `live-invite` }])
     selectQueue.push([{ name: `Acme` }])
 
     const result = await caller().create({
@@ -579,6 +584,98 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
     await expect(
       caller().create({ teamId: WS, placeholderUserId: `ph-1`, email: `b@example.com` })
     ).rejects.toThrow(/belongs to another account/)
+  })
+})
+
+describe(`teamInvites.create — sending the link (EXP-1076)`, () => {
+  it(`stamps sent_at on a plain link invite and on an email one`, async () => {
+    // `create` IS the act of issuing the link; only the import's roster rows
+    // stay unsent (lib/placeholder-members.createUnsentPlaceholderInvite).
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    await caller().create({ teamId: WS })
+    expect(inserts[0]!.table).toBe(teamInvites)
+    expect(inserts[0]!.values.sentAt).toBeInstanceOf(Date)
+
+    inserts.length = 0
+    insertReturningQueue.push([
+      { id: INVITE_ID, teamId: WS, email: `new@example.com` },
+    ])
+    selectQueue.push([])
+    selectQueue.push([{ name: `Acme` }])
+    await caller().create({ teamId: WS, email: `new@example.com` })
+    expect(inserts[0]!.values.sentAt).toBeInstanceOf(Date)
+  })
+
+  it(`seat-gates the FIRST send to an imported, never-invited member`, async () => {
+    // The import seated them without inviting anybody (sent_at NULL, the row
+    // already lapsed) — asking them to join takes a seat for the first time.
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    selectQueue.push([
+      { id: `ph-1`, email: `import@example.com`, placeholderAt: new Date() },
+    ])
+    selectQueue.push([]) // no live sent link
+    selectQueue.push([{ name: `Acme` }])
+
+    await caller().create({
+      teamId: WS,
+      placeholderUserId: `ph-1`,
+      email: `import@example.com`,
+    })
+
+    expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
+    // The gate is read BEFORE the supersede delete — that would erase the
+    // very evidence (the live sent row) it decides on.
+    expect(inserts[0]!.values.sentAt).toBeInstanceOf(Date)
+  })
+
+  it(`refuses that first send on a full team`, async () => {
+    assertCanInviteMember.mockRejectedValueOnce(new Error(`No seats left`))
+    selectQueue.push([
+      { id: `ph-1`, email: `import@example.com`, placeholderAt: new Date() },
+    ])
+    selectQueue.push([]) // no live sent link
+
+    await expect(
+      caller().create({
+        teamId: WS,
+        placeholderUserId: `ph-1`,
+        email: `import@example.com`,
+      })
+    ).rejects.toThrow(/No seats left/)
+    expect(inserts).toHaveLength(0)
+    expect(deletes).toHaveLength(0)
+    expect(updates.filter((row) => row.table === users)).toHaveLength(0)
+  })
+
+  it(`never gates a resend of a link that is still live`, async () => {
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    selectQueue.push([
+      { id: `ph-1`, email: `same@example.com`, placeholderAt: new Date() },
+    ])
+    selectQueue.push([{ id: `live-invite` }])
+    selectQueue.push([{ name: `Acme` }])
+
+    await caller().create({
+      teamId: WS,
+      placeholderUserId: `ph-1`,
+      email: `same@example.com`,
+    })
+
+    expect(assertCanInviteMember).not.toHaveBeenCalled()
+  })
+
+  it(`gates a resend once the previous link has expired`, async () => {
+    // hasLiveSentInvite filters on expires_at > now, so a lapsed link reads
+    // as no link at all: the seat is charged again.
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    selectQueue.push([{ id: `ph-old`, placeholderAt: new Date() }])
+    selectQueue.push([{ id: `member-row` }])
+    selectQueue.push([]) // the expired row does not match
+    selectQueue.push([{ name: `Acme` }])
+
+    await caller().create({ teamId: WS, email: `old@example.com` })
+
+    expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
   })
 })
 

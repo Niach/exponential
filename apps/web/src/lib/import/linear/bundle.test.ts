@@ -7,6 +7,7 @@ import {
   T_MET,
   T_SOV,
   U_BOT,
+  U_DENNIS,
   UPLOAD_URL,
   UPLOAD_URL_2,
 } from "@/lib/import/fixtures"
@@ -218,10 +219,32 @@ describe(`linearPreview`, () => {
     })
   })
 
+  it(`keys the per-board relevance maps by board key (EXP-1076)`, () => {
+    // Done holds one live MET issue and the archived one.
+    expect(preview.statuses.find((status) => status.key === `state:st-done`)?.issueCountByBoard).toEqual({
+      [`team:${T_MET}`]: 1,
+      [`archive:${T_MET}`]: 1,
+    })
+    expect(preview.labels.find((label) => label.key === `label:lb-ios`)?.issueCountByBoard).toEqual({
+      [`team:${T_MET}`]: 1,
+    })
+    const dennis = preview.users.find((user) => user.key === `user:${U_DENNIS}`)!
+    // Assigned MET-3 plus created MET-1 and the archived MET-4.
+    expect(dennis.issueCountByBoard).toEqual({ [`team:${T_MET}`]: 2, [`archive:${T_MET}`]: 1 })
+    expect(dennis.commentCountByBoard).toEqual({ [`team:${T_MET}`]: 1 })
+  })
+
+  it(`leaves Linear's own integration account out of the people to map`, () => {
+    // It stays in the BUNDLE: its comments keep the "originally by" line.
+    expect(preview.users.map((user) => user.key)).not.toContain(`user:${U_BOT}`)
+    expect(toLinearBundle(linearSnapshotFixture(), { routing: `team` }).users.map((user) => user.key)).toContain(
+      `user:${U_BOT}`
+    )
+  })
+
   it(`warns about what is dropped, and estimates and sub-issues are not`, () => {
     expect(preview.warnings.join(`\n`)).not.toMatch(/estimate/)
     expect(preview.warnings.join(`\n`)).not.toMatch(/sub-issue/)
-    expect(preview.warnings.join(`\n`)).toMatch(/integration account/)
     const snapshot = linearSnapshotFixture()
     snapshot.issues[2]!.parentId = `is-gone`
     expect(linearPreview(snapshot).warnings.join(`\n`)).toMatch(/1 sub-issue\(s\) have a parent outside/)
