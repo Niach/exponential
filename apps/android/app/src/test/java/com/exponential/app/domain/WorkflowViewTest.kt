@@ -10,7 +10,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -224,8 +223,7 @@ class WorkflowViewTest {
                 WorkflowView.startBlocker(startable, shape),
             )
         }
-        // EXP-983: a start mode is never a blocker — a ready draft starts,
-        // whatever its `start_on`.
+        // EXP-1066: one start rule — a ready draft with a runner starts.
         assertNull(
             WorkflowView.startBlocker(
                 WorkflowView.Startable(
@@ -236,50 +234,6 @@ class WorkflowViewTest {
                 WorkflowView.Shape(nodes = 3, depth = 2, width = 2),
             ),
         )
-    }
-
-    @Test
-    fun `the merge train orders and labels every waiting node`() {
-        val cases = fixture.getValue("trains").jsonArray
-        assertTrue(cases.size >= 2)
-        cases.forEach { element ->
-            val case = element.jsonObject
-            val name = case.getValue("name").jsonPrimitive.content
-            val nodes = case.getValue("nodes").jsonArray.map { node ->
-                val obj = node.jsonObject
-                WorkflowView.TrainNode(
-                    id = obj.getValue("id").jsonPrimitive.content,
-                    kind = obj.getValue("kind").jsonPrimitive.content,
-                    state = obj.getValue("state").jsonPrimitive.content,
-                    wave = obj.getValue("wave").jsonPrimitive.int,
-                    lane = obj.getValue("lane").jsonPrimitive.int,
-                    approvedAt = obj.getValue("approvedAt").stringOrNull(),
-                )
-            }
-            val expected = case.getValue("expected").jsonArray.map { entry ->
-                val obj = entry.jsonObject
-                obj.getValue("id").jsonPrimitive.content to
-                    obj.getValue("step").jsonPrimitive.content
-            }
-            assertEquals(
-                name,
-                expected,
-                WorkflowView.mergeTrain(nodes).map { it.id to it.step.key },
-            )
-        }
-    }
-
-    @Test
-    fun `each train step wears the fixture's word`() {
-        val labels = fixture.getValue("trainStepLabels").jsonObject
-        assertEquals(labels.size, WorkflowView.TrainStep.entries.size)
-        WorkflowView.TrainStep.entries.forEach { step ->
-            assertEquals(
-                step.key,
-                labels.getValue(step.key).jsonPrimitive.content,
-                WorkflowView.trainStepLabel(step),
-            )
-        }
     }
 
     @Test
@@ -332,10 +286,6 @@ class WorkflowViewTest {
             "Its live runs end and its branch is deleted. Nothing reached the default branch.",
             WorkflowView.CANCEL_WORKFLOW_CONFIRM,
         )
-        assertEquals("Approve and land", WorkflowView.APPROVE_NODE_LABEL)
-        assertEquals("Withdraw approval", WorkflowView.WITHDRAW_APPROVAL_LABEL)
-        assertEquals("Merge train", WorkflowView.MERGE_TRAIN_TITLE)
-        assertEquals("Nothing is waiting to land.", WorkflowView.MERGE_TRAIN_EMPTY)
         assertEquals("Final pull request", WorkflowView.FINAL_PR_TITLE)
         // EXP-1033: merging that pull request is the run's ONE human review.
         assertEquals("Merge", WorkflowView.MERGE_FINAL_PR_LABEL)
@@ -354,7 +304,7 @@ class WorkflowViewTest {
         )
     }
 
-    // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
+    // ── Review gate, dynamic graphs (EXP-984) ─────────────
 
     @Test
     fun `every agent review reads as the fixture's one line`() {
@@ -381,37 +331,13 @@ class WorkflowViewTest {
     }
 
     @Test
-    fun `the metrics section is the fixture's rows, in its order`() {
-        val cases = fixture.getValue("metricRows").jsonArray
-        assertTrue(cases.size >= 3)
-        cases.forEach { element ->
-            val case = element.jsonObject
-            // Through the tolerant jsonb read the synced row takes: a counter
-            // a newer server wrote as something other than a number simply
-            // does not count.
-            val counters = workflowMetricCounters(case.getValue("metrics").toString())
-            val expected = case.getValue("rows").jsonArray.map { row ->
-                val obj = row.jsonObject
-                obj.getValue("label").jsonPrimitive.content to
-                    obj.getValue("value").jsonPrimitive.content
-            }
-            assertEquals(
-                expected,
-                WorkflowView.metricRows(counters).map { it.label to it.value },
-            )
-        }
-    }
-
-    @Test
-    fun `the review, proposal, budget and metrics words are the shared ones`() {
+    fun `the review and proposal words are the shared ones`() {
         assertEquals("Admit", WorkflowView.ADMIT_NODE_LABEL)
         assertEquals("Dismiss", WorkflowView.DISMISS_NODE_LABEL)
         assertEquals(
             "Filed during the run. Admit it into the workflow or dismiss it.",
             WorkflowView.PROPOSED_NODE_NOTE,
         )
-        assertEquals("Agent review", WorkflowView.AGENT_REVIEW_TITLE)
-        assertEquals("Metrics", WorkflowView.METRICS_TITLE)
         // EXP-1014: the per-phase model pickers are gone; the node sheet only
         // NAMES the model its run spawns on.
         assertEquals("Model", WorkflowView.NODE_MODEL_LABEL)
@@ -616,7 +542,6 @@ class WorkflowViewTest {
         assertEquals(fixture.getValue("needsYouLabel").jsonPrimitive.content, WorkflowView.NEEDS_YOU_LABEL)
     }
 
-    @Ignore("EXP-1066")
     @Test
     fun `the node strip lays waves out as the fixture draws them`() {
         fixture.getValue("nodeStrips").jsonArray.forEach { element ->
@@ -663,7 +588,6 @@ class WorkflowViewTest {
         }
     }
 
-    @Ignore("EXP-1066")
     @Test
     fun `the header caption is byte exact`() {
         fixture.getValue("headerCaptions").jsonArray.forEach { element ->
@@ -684,7 +608,6 @@ class WorkflowViewTest {
         }
     }
 
-    @Ignore("EXP-1066")
     @Test
     fun `the primary action follows status and runner`() {
         fixture.getValue("primaryActions").jsonArray.forEach { element ->
@@ -698,7 +621,6 @@ class WorkflowViewTest {
         }
     }
 
-    @Ignore("EXP-1066")
     @Test
     fun `a node chip menu offers only what its state allows`() {
         fixture.getValue("chipMenus").jsonArray.forEach { element ->

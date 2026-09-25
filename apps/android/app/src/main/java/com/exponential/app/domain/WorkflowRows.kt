@@ -230,24 +230,8 @@ fun workflowMetrics(raw: String?): WorkflowView.Shape {
     )
 }
 
-/**
- * EXP-984: every NUMERIC key of `workflows.metrics` — the run's counters live
- * in the same jsonb as the shape keys, so the Metrics section reads them all
- * at once ([WorkflowView.metricRows]). Anything that is not a number (a list,
- * a word a newer server wrote) is simply absent, which counts as zero.
- */
-fun workflowMetricCounters(raw: String?): Map<String, Int> {
-    val obj = parseObject(raw) ?: return emptyMap()
-    val counters = LinkedHashMap<String, Int>()
-    for (key in obj.keys) obj.int(key)?.let { counters[key] = it }
-    return counters
-}
-
 /** The workflow's shape line + cycle note source, off its synced row. */
 val WorkflowEntity.shape: WorkflowView.Shape get() = workflowMetrics(metrics)
-
-/** The run's counters off the synced row, as the Metrics section reads them. */
-val WorkflowEntity.metricCounters: Map<String, Int> get() = workflowMetricCounters(metrics)
 
 /** The launch options off the synced row. */
 val WorkflowEntity.launchOptions: WorkflowLaunch get() = workflowLaunch(launch)
@@ -255,17 +239,6 @@ val WorkflowEntity.launchOptions: WorkflowLaunch get() = workflowLaunch(launch)
 /** A node's caption inputs, in the shared rule's shape. */
 val WorkflowNodeEntity.captionNode: WorkflowView.CaptionNode
     get() = WorkflowView.CaptionNode(kind = kind, state = state, risk = risk)
-
-/** A node as the merge train sees it (EXP-982): its landing order + gate stamp. */
-val WorkflowNodeEntity.trainNode: WorkflowView.TrainNode
-    get() = WorkflowView.TrainNode(
-        id = id,
-        kind = kind,
-        state = state,
-        wave = wave ?: 0,
-        lane = lane ?: 0,
-        approvedAt = approvedAt,
-    )
 
 /**
  * A node as the edge rule sees it (its issue plus a compound's members, and

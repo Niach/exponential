@@ -219,10 +219,6 @@ object WorkflowView {
     const val CANCEL_WORKFLOW_LABEL = "Cancel workflow"
     const val CANCEL_WORKFLOW_CONFIRM =
         "Its live runs end and its branch is deleted. Nothing reached the default branch."
-    const val APPROVE_NODE_LABEL = "Approve and land"
-    const val WITHDRAW_APPROVAL_LABEL = "Withdraw approval"
-    const val MERGE_TRAIN_TITLE = "Merge train"
-    const val MERGE_TRAIN_EMPTY = "Nothing is waiting to land."
     const val FINAL_PR_TITLE = "Final pull request"
 
     /**
@@ -253,64 +249,7 @@ object WorkflowView {
         cycleNote(metrics)?.let { return it }
         if (workflow.repositoryId.isNullOrEmpty()) return "The workflow's repository is gone."
         if (workflow.deviceId.isNullOrEmpty()) return "Pick the device that runs this workflow first."
-        // EXP-983: every `start_on` runs now — speculative starts included.
         return null
-    }
-
-    /** A node as the merge train reads it. [approvedAt] null = not approved. */
-    data class TrainNode(
-        val id: String,
-        val kind: String,
-        val state: String,
-        val wave: Int,
-        val lane: Int,
-        val approvedAt: String?,
-    )
-
-    enum class TrainStep(val key: String) {
-        Next("next"),
-        Queued("queued"),
-        NeedsApproval("needs-approval"),
-        Updating("updating"),
-    }
-
-    data class TrainEntry(val id: String, val step: TrainStep)
-
-    /**
-     * The merge train: every node whose PR is up (`in_review`, or `updating`
-     * while it merges the trunk in), in landing order (wave, then lane). The
-     * FIRST node that is cleared to land is `next`; cleared ones behind it are
-     * `queued`; one no review approved yet says so (EXP-1010: the agent review
-     * is the only gate, a person may approve by hand).
-     */
-    fun mergeTrain(nodes: List<TrainNode>): List<TrainEntry> {
-        val waiting = nodes
-            .filter {
-                it.state == DomainContract.wfNodeStateInReview ||
-                    it.state == DomainContract.wfNodeStateUpdating
-            }
-            .sortedWith(compareBy({ it.wave }, { it.lane }, { it.id }))
-        var nextTaken = false
-        return waiting.map { node ->
-            when {
-                node.state == DomainContract.wfNodeStateUpdating ->
-                    TrainEntry(node.id, TrainStep.Updating)
-                node.approvedAt.isNullOrEmpty() ->
-                    TrainEntry(node.id, TrainStep.NeedsApproval)
-                nextTaken -> TrainEntry(node.id, TrainStep.Queued)
-                else -> {
-                    nextTaken = true
-                    TrainEntry(node.id, TrainStep.Next)
-                }
-            }
-        }
-    }
-
-    fun trainStepLabel(step: TrainStep): String = when (step) {
-        TrainStep.Next -> "Landing next"
-        TrainStep.Queued -> "Queued"
-        TrainStep.NeedsApproval -> "Needs approval"
-        TrainStep.Updating -> "Merging the trunk in"
     }
 
     /**
@@ -396,14 +335,12 @@ object WorkflowView {
     const val CONTRACT_PUBLISHED_LABEL = "Contract published"
     const val MERGES_IN_FIRST_LABEL = "Merges in first"
 
-    // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
+    // ── Review gate, dynamic graphs (EXP-984) ─────────────
 
     const val ADMIT_NODE_LABEL = "Admit"
     const val DISMISS_NODE_LABEL = "Dismiss"
     const val PROPOSED_NODE_NOTE =
         "Filed during the run. Admit it into the workflow or dismiss it."
-    const val AGENT_REVIEW_TITLE = "Agent review"
-    const val METRICS_TITLE = "Metrics"
 
     /**
      * EXP-1014: the node sheet's read-only line naming what the node's run
@@ -456,75 +393,10 @@ object WorkflowView {
         return parts.joinToString(" · ")
     }
 
-    data class MetricRow(val label: String, val value: String)
-
-    /**
-     * The detail's Metrics section for a STARTED workflow, in this order. A row
-     * appears only when it has something to say, except the critical path,
-     * which always does. [counters] = the numeric keys of `workflows.metrics`
-     * ([workflowMetricCounters]); anything the jsonb does not carry as a
-     * number simply counts as zero.
-     */
-    fun metricRows(counters: Map<String, Int>): List<MetricRow> {
-        fun count(key: String): Int = counters[key] ?: 0
-        val rows = ArrayList<MetricRow>()
-        rows.add(
-            MetricRow(
-                label = "Critical path",
-                value = "${count("depth")} waves for ${count("nodes")} nodes",
-            ),
-        )
-        val landed = count("landed")
-        if (landed > 0) rows.add(MetricRow("Landed", "$landed"))
-        val mergeIns = count("mergeIns")
-        val changes = count("contractChanges")
-        if (mergeIns > 0) {
-            rows.add(
-                if (changes > 0) {
-                    MetricRow(
-                        label = "Merge-ins per contract change",
-                        value = ratio(mergeIns, changes),
-                    )
-                } else {
-                    MetricRow("Merge-ins", "$mergeIns")
-                },
-            )
-        }
-        val escalations = count("escalations")
-        if (escalations > 0) {
-            rows.add(
-                MetricRow(
-                    label = "Escalations",
-                    value = "$escalations (${count("duplicateEscalations")} duplicate)",
-                ),
-            )
-        }
-        val minutes = count("operatorMinutes")
-        if (minutes > 0) rows.add(MetricRow("Operator minutes", "$minutes"))
-        val rounds = count("reviewRounds")
-        if (rounds > 0) rows.add(MetricRow("Review rounds", "$rounds"))
-        val byOracle = count("defectsByOracle")
-        val byAgent = count("defectsByAgentReview")
-        if (byOracle + byAgent > 0) {
-            rows.add(
-                MetricRow(
-                    label = "Defects found",
-                    value = "$byOracle by checks · $byAgent by agent review",
-                ),
-            )
-        }
-        return rows
-    }
-
-    /** One decimal, dot-separated in every locale (web's `toFixed(1)`). */
-    private fun ratio(numerator: Int, denominator: Int): String =
-        String.format(java.util.Locale.US, "%.1f", numerator.toDouble() / denominator)
-
     // ── EXP-1082: the workflow contract's display layer ────────────────────
-    // The fixture sections `displayStates` / `needsYouLabel` (implemented)
-    // and `nodeStrips` / `headerCaptions` / `primaryActions` / `chipMenus`
-    // (STUBS until EXP-1066 — they return the empty value, their tests are
-    // ignored). Byte-identical ×4 with web `lib/workflow-view.ts`.
+    // The fixture sections `displayStates` / `needsYouLabel` / `nodeStrips` /
+    // `headerCaptions` / `primaryActions` / `chipMenus`. Byte-identical ×4
+    // with web `lib/workflow-view.ts`.
 
     /** The chip suffix a node whose run waits on a person wears. */
     const val NEEDS_YOU_LABEL = "needs you"
@@ -540,21 +412,102 @@ object WorkflowView {
         else -> WorkflowNodeDisplayState.QUEUED
     }
 
-    /** STUB (EXP-1066): the node strip — one column per wave, lanes in order. */
+    /**
+     * The strip IS the graph: waves left to right (only the waves that hold a
+     * node), lanes top to bottom within a wave, ties by id. The edges are the
+     * mini-graph popover's business; the strip only orders. A compound node is
+     * `stacked`; the caption is the node's note while it has one, else its
+     * display label.
+     */
     @Suppress("UNUSED_PARAMETER")
-    fun nodeStrip(nodes: List<StripNodeInput>, edges: List<Pair<String, String>>): List<StripWave> = emptyList()
+    fun nodeStrip(nodes: List<StripNodeInput>, edges: List<Pair<String, String>>): List<StripWave> =
+        nodes.groupBy { it.wave }
+            .toSortedMap()
+            .map { (wave, members) ->
+                StripWave(
+                    wave = wave,
+                    nodes = members
+                        .sortedWith(compareBy<StripNodeInput>({ it.lane }, { it.id }))
+                        .map { node ->
+                            val display = nodeDisplayState(node.state)
+                            NodeChip(
+                                id = node.id,
+                                title = nodeTitle(node.identifier, node.members),
+                                display = display,
+                                caption = node.note?.trim()?.takeIf { it.isNotEmpty() } ?: display.label,
+                                stacked = node.members > 0,
+                                members = node.members,
+                                live = node.live,
+                                needsYou = node.needsYou,
+                            )
+                        },
+                )
+            }
 
-    /** STUB (EXP-1066): the workflow header's one-line caption. */
-    @Suppress("UNUSED_PARAMETER")
-    fun headerCaption(status: String, nodes: List<HeaderNode>, deviceLabel: String?): String = ""
+    private val STATUS_WORDS = mapOf(
+        "draft" to "Draft",
+        "done" to "Done",
+        "failed" to "Failed",
+        "cancelled" to "Cancelled",
+    )
 
-    /** STUB (EXP-1066): the header's ONE primary action for a status. */
-    @Suppress("UNUSED_PARAMETER")
-    fun primaryAction(status: String, deviceLabel: String?): WorkflowPrimaryAction? = null
+    /**
+     * The one line under the workflow's name. A draft counts its ISSUES
+     * (members included): `Draft · 8 issues`. A started workflow names its
+     * runner and counts NODES: `on MacBook · 5 of 8 done · 2 running` (the
+     * running tail only while something runs). Over, it counts what happened:
+     * `Done · 2 done · 1 skipped`. A `proposed` node is never counted.
+     */
+    fun headerCaption(status: String, nodes: List<HeaderNode>, deviceLabel: String?): String {
+        val admitted = nodes.filter { it.state != DomainContract.wfNodeStateProposed }
+        if (status == DomainContract.wfStatusDraft) {
+            val issues = admitted.sumOf { 1 + it.members }
+            return "Draft · ${if (issues == 1) "1 issue" else "$issues issues"}"
+        }
+        fun tally(display: WorkflowNodeDisplayState) =
+            admitted.count { nodeDisplayState(it.state) == display }
+        val done = tally(WorkflowNodeDisplayState.DONE)
+        if (status == DomainContract.wfStatusRunning || status == DomainContract.wfStatusPaused) {
+            val parts = ArrayList<String>()
+            if (deviceLabel != null) parts.add("on $deviceLabel")
+            parts.add("$done of ${admitted.size} done")
+            val running = tally(WorkflowNodeDisplayState.RUNNING)
+            if (running > 0) parts.add("$running running")
+            return parts.joinToString(" · ")
+        }
+        val word = STATUS_WORDS[status] ?: status.replaceFirstChar { it.uppercaseChar() }
+        val parts = arrayListOf(word, "$done done")
+        val failed = tally(WorkflowNodeDisplayState.FAILED)
+        if (failed > 0) parts.add("$failed failed")
+        val skipped = tally(WorkflowNodeDisplayState.SKIPPED)
+        if (skipped > 0) parts.add("$skipped skipped")
+        return parts.joinToString(" · ")
+    }
 
-    /** STUB (EXP-1066): a node chip's menu by internal state. */
-    @Suppress("UNUSED_PARAMETER")
-    fun nodeChipMenu(state: String): List<NodeChipAction> = emptyList()
+    /**
+     * The header's ONE primary button: a draft without a runner picks one, a
+     * draft starts, running pauses, paused resumes, done reviews the final
+     * PR. Failed and cancelled offer nothing; Stop and Delete live in the
+     * overflow.
+     */
+    fun primaryAction(status: String, deviceLabel: String?): WorkflowPrimaryAction? = when (status) {
+        DomainContract.wfStatusDraft ->
+            if (deviceLabel != null) WorkflowPrimaryAction.START else WorkflowPrimaryAction.PICK_DEVICE
+        DomainContract.wfStatusRunning -> WorkflowPrimaryAction.PAUSE
+        DomainContract.wfStatusPaused -> WorkflowPrimaryAction.RESUME
+        DomainContract.wfStatusDone -> WorkflowPrimaryAction.REVIEW_FINAL_PR
+        else -> null
+    }
+
+    /**
+     * What a node chip's overflow offers: Retry / Skip on a `failed` node,
+     * Admit / Dismiss on a `proposed` one, nothing else anywhere.
+     */
+    fun nodeChipMenu(state: String): List<NodeChipAction> = when (state) {
+        DomainContract.wfNodeStateFailed -> listOf(NodeChipAction.RETRY, NodeChipAction.SKIP)
+        DomainContract.wfNodeStateProposed -> listOf(NodeChipAction.ADMIT, NodeChipAction.DISMISS)
+        else -> emptyList()
+    }
 }
 
 /** EXP-1082: contract `wfNodeDisplayState` — `wire` = the value, `label` the caption. */
@@ -608,4 +561,6 @@ enum class WorkflowPrimaryAction(val wire: String) {
 enum class NodeChipAction(val wire: String) {
     RETRY("retry"),
     SKIP("skip"),
+    ADMIT("admit"),
+    DISMISS("dismiss"),
 }

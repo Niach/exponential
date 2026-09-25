@@ -1,23 +1,24 @@
 package com.exponential.app.ui.workflows
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -25,428 +26,390 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.WorkflowsApi
-import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
-import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.IssueStatus
-import com.exponential.app.domain.NormalizedWorkflowLaunch
+import com.exponential.app.domain.IssueGraph
+import com.exponential.app.domain.IssueNesting
+import com.exponential.app.domain.NodeChip
+import com.exponential.app.domain.NodeChipAction
+import com.exponential.app.domain.SessionTreeContext
+import com.exponential.app.domain.SessionTreeNode
+import com.exponential.app.domain.SwitcherMode
+import com.exponential.app.domain.SwitcherTarget
+import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.WorkFaceKind
-import com.exponential.app.domain.WorkflowNodeReview
+import com.exponential.app.domain.WorkflowNodeDisplayState
+import com.exponential.app.domain.WorkflowOpenQuestion
+import com.exponential.app.domain.WorkflowPrimaryAction
+import com.exponential.app.domain.WorkflowSelection
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.availableFaces
-import com.exponential.app.domain.captionNode
-import com.exponential.app.domain.faceLabel
-import com.exponential.app.domain.line
-import com.exponential.app.domain.modelForNode
-import com.exponential.app.domain.shape
-import com.exponential.app.domain.workflowNodeReview
+import com.exponential.app.domain.coveredIssueIds
+import com.exponential.app.domain.fallbackFace
+import com.exponential.app.domain.groupSessionResults
+import com.exponential.app.domain.parseSessionResults
+import com.exponential.app.domain.resolveSessionDevice
+import com.exponential.app.domain.sessionTree
+import com.exponential.app.domain.switcherMode
+import com.exponential.app.domain.switcherTargets
+import com.exponential.app.domain.visibleSessionTreeRows
+import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.FloatingBarCluster
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassNotice
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IssueChip
-import com.exponential.app.ui.components.MetaRow
-import com.exponential.app.ui.components.OptionGroup
-import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.IssueChipStack
+import com.exponential.app.ui.components.IssueGraphPopover
 import com.exponential.app.ui.components.PillSize
-import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.deviceIcon
+import com.exponential.app.ui.components.TreeGuidesRow
+import com.exponential.app.ui.components.WorkflowEventList
+import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
-import com.exponential.app.ui.components.deviceOptionLabel
-import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.issue.ChangesLoadState
+import com.exponential.app.ui.issue.ChangesViewModel
+import com.exponential.app.ui.issue.CommentThreadViewModel
+import com.exponential.app.ui.issue.IssueDetailViewModel
+import com.exponential.app.ui.issue.IssueFace
+import com.exponential.app.ui.issue.IssueRow
+import com.exponential.app.ui.issue.LiveDot
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.issue.StaticDot
+import com.exponential.app.ui.issue.rememberIssueFaceController
+import com.exponential.app.ui.issue.toDiffFile
+import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
+import com.exponential.app.ui.session.AgentSessionViewModel
+import com.exponential.app.ui.session.RunFace
+import com.exponential.app.ui.session.RunningSessionRow
 import com.exponential.app.ui.theme.DesignTokens
-import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.flatRow
+import com.exponential.app.ui.work.ChangesFace
+import com.exponential.app.ui.work.ChangesMergeControl
+import com.exponential.app.ui.work.FaceSwitcher
+import com.exponential.app.ui.work.GithubHeaderAction
+import com.exponential.app.ui.work.ResultsFace
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * EXP-981/982: ONE workflow. A DRAFT is looked at, configured, planned by an
- * agent or deleted; from P3 it is also STARTED, and then the bound device's
- * engine runs every node once, lands the reviewed PRs into the integration
- * branch in order, and opens the one final pull request.
- *
- * The page reads top to bottom: the name (editable inline) with the shape line
- * and, when the plan holds one, the cycle note in the destructive tone; the
- * GRAPH as this phone's wave-grouped list ([WorkflowGraphList]), which carries
- * the final-PR section at its end; the merge train; "How it runs" (read-only
- * once the workflow left draft); then the status's own actions.
+ * EXP-1087: ONE workflow on the phone. The header carries the name, the ONE
+ * primary action ([WorkflowView.primaryAction]) and an overflow (Stop,
+ * Delete), the caption line ([WorkflowView.headerCaption]), the open question
+ * while there is one, and the node STRIP — `All` first, then one row per
+ * wave. Under it the Work screen's faces behind the existing switcher: one
+ * node = that issue's Issue / Run / Changes / Results in place; All = the
+ * workflow's issues nested, its runs as a tree, the final pull request and
+ * every run's screenshots. Tap selects a chip; long-press opens the
+ * mini-graph and, on a failed or proposed node, its verdicts.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkflowDetailScreen(
     onBack: () -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
-    onOpenAgent: (AgentComposerSeed) -> Unit,
-    /** The node's coding run, opened the usual way (the Work screen's Run face). */
+    /** A run that belongs to no node (the planner), opened the usual way. */
     onOpenSession: (sessionId: String) -> Unit,
-    /** The node issue's pull request, on the issue detail's own Changes page. */
+    /** The standalone Changes route — for a PR the face cannot show. */
     onOpenChanges: (issueId: String) -> Unit,
+    /** `review_final_pr`: the Reviews screen. */
+    onOpenReviews: () -> Unit,
     viewModel: WorkflowDetailViewModel = hiltViewModel(),
 ) {
     val workflow by viewModel.workflow.collectAsStateWithLifecycle()
     val graph by viewModel.graph.collectAsStateWithLifecycle()
+    val strip by viewModel.strip.collectAsStateWithLifecycle()
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val device by viewModel.device.collectAsStateWithLifecycle()
-    val launch by viewModel.launch.collectAsStateWithLifecycle()
+    val headerNodes by viewModel.headerNodes.collectAsStateWithLifecycle()
+    val questions by viewModel.openQuestions.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val deleted by viewModel.deleted.collectAsStateWithLifecycle()
-    val startBlocker by viewModel.startBlocker.collectAsStateWithLifecycle()
-    val mergeTrain by viewModel.mergeTrain.collectAsStateWithLifecycle()
-    val finalPrCaption by viewModel.finalPrCaption.collectAsStateWithLifecycle()
-    val metricRows by viewModel.metricRows.collectAsStateWithLifecycle()
 
-    // A delete pops back to the list; so does a workflow that stopped syncing
-    // (someone else deleted it) once its row has actually been seen.
     LaunchedEffect(deleted) { if (deleted) onBack() }
 
-    var selectedNode by remember { mutableStateOf<WorkflowNodeEntity?>(null) }
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var faceName by rememberSaveable { mutableStateOf<String?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var pickerOpen by remember { mutableStateOf(false) }
+    var confirmStop by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var confirmCancel by remember { mutableStateOf(false) }
-    // EXP-1033: merging the final pull request is the run's ONE human review,
-    // so it asks first — the same confirmation the cancel pill takes.
-    var confirmMergeFinalPr by remember { mutableStateOf(false) }
-    // The name field is LOCAL while it is being typed; a blur writes it.
-    var nameDraft by remember { mutableStateOf<String?>(null) }
+    var sheetNodeId by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val order = remember(strip) { WorkflowSelection.order(strip) }
+    val selection = WorkflowSelection(selectedId).reconcile(order)
+    // A node that left the workflow falls back to All — once the strip exists.
+    LaunchedEffect(order) {
+        if (order.isNotEmpty() && selection.nodeId != selectedId) selectedId = selection.nodeId
+    }
+    val selectNode: (String?) -> Unit = { id ->
+        if (id != selectedId) faceName = null
+        selectedId = id
+    }
+    val nodeOfIssue: (String) -> WorkflowNodeEntity? = { issueId ->
+        graph.nodes.firstOrNull { issueId in it.coveredIssueIds }
+    }
 
     val row = workflow
-    val shape = remember(row?.metrics) { row?.shape ?: WorkflowView.Shape() }
-    val cycleNote = remember(shape) { WorkflowView.cycleNote(shape) }
-    val isDraft = row?.status == DomainContract.wfStatusDraft
-    // The node the sheet is showing, kept LIVE: an approval or a retry lands
-    // through Electric, and the sheet has to move with it.
-    val sheetNode = selectedNode?.let { picked ->
-        graph.nodes.firstOrNull { it.id == picked.id } ?: picked
-    }
+    val deviceLabel = device?.let(::deviceOptionLabel) ?: row?.deviceId?.take(8)
+    val primary = row?.let { WorkflowView.primaryAction(it.status, deviceLabel) }
+    val finalPrUrl = row?.finalPrUrl?.takeIf { it.isNotBlank() }
+    val selectedNode = selection.nodeId?.let { id -> graph.nodes.firstOrNull { it.id == id } }
+    val allFace = WorkFaceKind.entries.firstOrNull { it.name == faceName }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text(WorkflowView.WORKFLOWS_TITLE) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
-    ) { padding ->
-        if (row == null) {
-            // The row has not synced (yet, or at all) — never a crash, and
-            // never an empty page that looks like a broken workflow.
-            Text(
-                "Syncing…",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(padding).padding(16.dp),
-            )
-            return@Scaffold
-        }
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .testTag("workflow-detail"),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            item(key = "__header__") {
+    ProvideMarkdownToolbar {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    GlassTextField(
-                        value = nameDraft ?: row.name,
-                        onValueChange = { nameDraft = it },
-                        placeholder = "Workflow name",
-                        singleLine = true,
-                        bordered = false,
-                        containerColor = Color.Transparent,
-                        textStyle = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("workflow-name")
-                            .onFocusChanged { state ->
-                                if (!state.isFocused) {
-                                    nameDraft?.let(viewModel::rename)
-                                    nameDraft = null
-                                }
-                            },
-                    )
-                    // EXP-1014: the header carries the ONE thing a workflow
-                    // still configures — the machine its nodes run on, a draft
-                    // needs one to start — beside the shape line. Everything
-                    // else about how it runs was decided when it was created.
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            WorkflowView.shapeLine(shape),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Tertiary,
-                            ),
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        RunnerPill(
-                            devices = devices,
-                            device = device,
-                            // The runner is a draft's pick: the server refuses
-                            // the write once the workflow started, so the pill
-                            // states the machine instead of bouncing it.
-                            enabled = isDraft && !busy,
-                            onSelect = viewModel::setDevice,
-                        )
-                    }
-                    cycleNote?.let { note ->
-                        Text(
-                            note,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
-                                .testTag("workflow-header-cycle-note"),
-                        )
-                    }
-                }
-            }
-            error?.let { message ->
-                item(key = "__error__") {
-                    GlassNotice(
-                        text = message,
-                        contentColor = MaterialTheme.colorScheme.error,
-                        onClick = viewModel::clearError,
-                        modifier = Modifier.fillMaxWidth().testTag("workflow-error"),
-                        leading = {
-                            Icon(
-                                ExpIcons.uiWarning,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
+                    CenterAlignedTopAppBar(
+                        title = {
+                            Text(
+                                row?.name.orEmpty(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         },
-                    )
-                }
-            }
-            item(key = "__graph__") {
-                // The cycle note already sits in the header; the graph paints
-                // the nodes and edges it names.
-                WorkflowGraphList(
-                    graph = graph,
-                    workflowStatus = row.status,
-                    cycleNote = null,
-                    onSelectNode = { selectedNode = it },
-                    onOpenRun = onOpenSession,
-                    finalPrCaption = finalPrCaption,
-                    finalPrUrl = row.finalPrUrl,
-                    // Only an OPEN pull request can be merged; the synced row
-                    // carries the result back, so the control goes with it.
-                    finalPrMergeable = row.finalPrState == DomainContract.prStateOpen,
-                    onMergeFinalPr = { confirmMergeFinalPr = true },
-                    busy = busy,
-                    selectedNodeId = sheetNode?.id,
-                )
-            }
-            // EXP-982: what is queued to land on the integration branch, in
-            // landing order. A draft lands nothing, so it has no train.
-            if (!isDraft) {
-                item(key = "__merge_train__") {
-                    MergeTrainSection(
-                        entries = mergeTrain,
-                        graph = graph,
-                        onSelectNode = { selectedNode = it },
-                    )
-                }
-            }
-            // EXP-984: what the run actually cost, once there IS a run.
-            if (metricRows.isNotEmpty()) {
-                item(key = "__metrics__") { WorkflowMetricsSection(metricRows) }
-            }
-            item(key = "__actions__") {
-                // EXP-982: what a workflow offers is its STATUS. A draft is
-                // started, planned or thrown away; a live one is held or
-                // abandoned; one that is over can only be deleted.
-                Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        when (row.status) {
-                            DomainContract.wfStatusDraft -> {
-                                GlassPill(
-                                    WorkflowView.START_WORKFLOW_LABEL,
-                                    primary = true,
-                                    icon = ExpIcons.actionRun,
-                                    enabled = startBlocker == null && !busy,
-                                    onClick = viewModel::start,
-                                    modifier = Modifier.testTag("workflow-start"),
-                                )
-                                // EXP-981: Plan opens the Agent composer seeded
-                                // with the hidden plan-workflow builtin AND this
-                                // workflow's id; its free text ("Anything the
-                                // plan should respect") stays optional.
-                                GlassPill(
-                                    WorkflowView.PLAN_WORKFLOW_LABEL,
-                                    icon = ExpIcons.uiChecklist,
+                        navigationIcon = { TopBarBackButton(onClick = onBack) },
+                        actions = {
+                            if (selectedNode == null && allFace == WorkFaceKind.Changes && finalPrUrl != null) {
+                                GithubHeaderAction(finalPrUrl)
+                            }
+                            primary?.let { action ->
+                                PrimaryActionPill(
+                                    action = action,
+                                    enabled = !busy,
                                     onClick = {
-                                        onOpenAgent(
-                                            AgentComposerSeed(
-                                                actionId = DomainContract.builtinPlanWorkflowId,
-                                                workflowId = row.id,
-                                                deviceId = row.deviceId,
-                                            ),
-                                        )
+                                        when (action) {
+                                            WorkflowPrimaryAction.PICK_DEVICE -> pickerOpen = true
+                                            WorkflowPrimaryAction.START -> viewModel.start()
+                                            WorkflowPrimaryAction.PAUSE -> viewModel.pause()
+                                            WorkflowPrimaryAction.RESUME -> viewModel.resume()
+                                            WorkflowPrimaryAction.REVIEW_FINAL_PR -> onOpenReviews()
+                                        }
                                     },
-                                    modifier = Modifier.testTag("workflow-plan"),
                                 )
-                                WorkflowDeletePill(onClick = { confirmDelete = true })
                             }
-                            DomainContract.wfStatusRunning -> {
-                                GlassPill(
-                                    WorkflowView.PAUSE_WORKFLOW_LABEL,
-                                    icon = ExpIcons.uiStop,
-                                    enabled = !busy,
-                                    onClick = viewModel::pause,
-                                    modifier = Modifier.testTag("workflow-pause"),
-                                )
-                                WorkflowCancelPill(onClick = { confirmCancel = true })
+                            if (row != null) {
+                                Box {
+                                    CircleIconButton(
+                                        ExpIcons.uiMore,
+                                        "Workflow actions",
+                                        onClick = { menuOpen = true },
+                                        modifier = Modifier.padding(end = 8.dp).testTag("workflow-overflow"),
+                                        borderless = true,
+                                    )
+                                    GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                        if (row.status == DomainContract.wfStatusRunning ||
+                                            row.status == DomainContract.wfStatusPaused
+                                        ) {
+                                            GlassMenuItem(
+                                                leadingIcon = { Icon(ExpIcons.uiStop, contentDescription = null) },
+                                                text = { Text(STOP_WORKFLOW_LABEL) },
+                                                destructive = true,
+                                                onClick = {
+                                                    menuOpen = false
+                                                    confirmStop = true
+                                                },
+                                            )
+                                        } else {
+                                            GlassMenuItem(
+                                                leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                                                text = { Text(WorkflowView.DELETE_WORKFLOW_LABEL) },
+                                                destructive = true,
+                                                onClick = {
+                                                    menuOpen = false
+                                                    confirmDelete = true
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
                             }
-                            DomainContract.wfStatusPaused -> {
-                                GlassPill(
-                                    WorkflowView.RESUME_WORKFLOW_LABEL,
-                                    primary = true,
-                                    icon = ExpIcons.actionRun,
-                                    enabled = !busy,
-                                    onClick = viewModel::resume,
-                                    modifier = Modifier.testTag("workflow-resume"),
-                                )
-                                WorkflowCancelPill(onClick = { confirmCancel = true })
-                            }
-                            else -> WorkflowDeletePill(onClick = { confirmDelete = true })
-                        }
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+                    )
+                    if (row != null) {
+                        Text(
+                            WorkflowView.headerCaption(row.status, headerNodes, deviceLabel),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            modifier = Modifier.padding(horizontal = 16.dp).testTag("workflow-caption"),
+                        )
                     }
-                    // Why Start cannot be pressed, in the server's own words.
-                    if (isDraft) {
-                        startBlocker?.let { blocker ->
-                            Text(
-                                blocker,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = TextEmphasis.Tertiary,
-                                ),
-                                modifier = Modifier
-                                    .padding(top = 6.dp, start = 4.dp)
-                                    .testTag("workflow-start-blocker"),
+                    error?.let { message ->
+                        GlassNotice(
+                            text = message,
+                            contentColor = MaterialTheme.colorScheme.error,
+                            onClick = viewModel::clearError,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .testTag("workflow-error"),
+                        )
+                    }
+                    questions.firstOrNull()?.let { question ->
+                        key(question.sessionId) {
+                            QuestionBanner(
+                                question = question,
+                                title = graph.nodes.firstOrNull { it.id == question.nodeId }
+                                    ?.let { node -> graph.issuesById[node.issueId]?.identifier },
+                                onSelect = { selectNode(question.nodeId) },
                             )
                         }
                     }
-                }
-            }
-            item(key = "__bottom__") { Spacer(Modifier.height(24.dp)) }
-        }
-    }
-
-    sheetNode?.let { node ->
-        WorkflowNodeSheet(
-            node = node,
-            graph = graph,
-            workflowStatus = row?.status.orEmpty(),
-            launch = launch,
-            editable = isDraft && !busy,
-            busy = busy,
-            onKindChange = { viewModel.updateNode(node.issueId, kind = it) },
-            onRiskChange = { viewModel.updateNode(node.issueId, risk = it) },
-            onApprove = { approved -> viewModel.approveNode(node.id, approved) },
-            onResolve = { action -> viewModel.resolveNode(node.id, action) },
-            onAdmit = { admit -> viewModel.admitNode(node.id, admit) },
-            onOpenIssue = { issueId ->
-                selectedNode = null
-                onOpenIssue(issueId)
-            },
-            onOpenSession = { sessionId ->
-                selectedNode = null
-                onOpenSession(sessionId)
-            },
-            onOpenChanges = { issueId ->
-                selectedNode = null
-                onOpenChanges(issueId)
-            },
-            onDismiss = { selectedNode = null },
-        )
-    }
-
-    if (confirmMergeFinalPr) {
-        AlertDialog(
-            onDismissRequest = { confirmMergeFinalPr = false },
-            title = {
-                Text(
-                    "${WorkflowView.MERGE_FINAL_PR_LABEL} " +
-                        WorkflowView.FINAL_PR_TITLE.lowercase(),
-                )
-            },
-            text = { Text(WorkflowView.MERGE_FINAL_PR_CONFIRM) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmMergeFinalPr = false
-                    viewModel.mergeFinalPr()
-                }) {
-                    Text(
-                        WorkflowView.MERGE_FINAL_PR_LABEL,
-                        modifier = Modifier.testTag("workflow-final-pr-merge-confirm"),
+                    NodeStrip(
+                        strip = strip,
+                        graph = graph,
+                        selectedId = selection.nodeId,
+                        onSelectAll = { selectNode(null) },
+                        onSelect = { id -> selectNode(WorkflowSelection(selectedId).toggle(id).nodeId) },
+                        onLongPress = { id -> sheetNodeId = id },
                     )
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmMergeFinalPr = false }) { Text("Cancel") }
-            },
-        )
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+        ) { padding ->
+            if (row == null) {
+                Text(
+                    "Syncing…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(padding).padding(16.dp),
+                )
+                return@Scaffold
+            }
+            if (selectedNode != null) {
+                key(selectedNode.id) {
+                    NodeFaces(
+                        issueId = selectedNode.issueId,
+                        sessionId = graph.runsByNodeId[selectedNode.id]?.sessionId,
+                        faceName = faceName,
+                        onFace = { faceName = it.name },
+                        padding = padding,
+                        snackbarHostState = snackbarHostState,
+                        onClose = { selectNode(null) },
+                        onOpenIssue = onOpenIssue,
+                        onOpenChanges = onOpenChanges,
+                    )
+                }
+            } else {
+                AllFaces(
+                    viewModel = viewModel,
+                    graph = graph,
+                    finalPrOpen = finalPrUrl != null && row.finalPrState == DomainContract.prStateOpen,
+                    faceName = faceName,
+                    onFace = { faceName = it.name },
+                    padding = padding,
+                    busy = busy,
+                    onSelectIssue = { issueId ->
+                        val node = nodeOfIssue(issueId)
+                        if (node != null) selectNode(node.id) else onOpenIssue(issueId)
+                    },
+                    onSelectRun = { session ->
+                        val node = graph.nodes.firstOrNull {
+                            it.id == session.workflowNodeId || it.sessionId == session.id
+                        }
+                        if (node != null) {
+                            selectNode(node.id)
+                            faceName = WorkFaceKind.Run.name
+                        } else {
+                            onOpenSession(session.id)
+                        }
+                    },
+                )
+            }
+        }
     }
 
-    if (confirmCancel) {
+    // `pick_device`: the shared picker over the caller's own and the team's
+    // shared runners that are online right now.
+    DevicePicker(
+        devices = devices.filter { it.online }.map { row ->
+            DevicePickerDevice(
+                id = row.deviceId,
+                name = deviceOptionLabel(row),
+                icon = row.icon,
+                isServer = row.isServer,
+            )
+        },
+        value = device?.deviceId,
+        onChange = { id ->
+            pickerOpen = false
+            viewModel.setDevice(id)
+        },
+        open = pickerOpen,
+        onOpenChange = { pickerOpen = it },
+    )
+
+    sheetNodeId?.let { id ->
+        val node = graph.nodes.firstOrNull { it.id == id }
+        val chip = strip.flatMap { it.nodes }.firstOrNull { it.id == id }
+        if (node == null || chip == null) {
+            sheetNodeId = null
+        } else {
+            NodeSheet(
+                node = node,
+                chip = chip,
+                viewModel = viewModel,
+                graph = graph,
+                busy = busy,
+                onOpenIssue = { issueId ->
+                    sheetNodeId = null
+                    val target = nodeOfIssue(issueId)
+                    if (target != null) selectNode(target.id) else onOpenIssue(issueId)
+                },
+                onDismiss = { sheetNodeId = null },
+            )
+        }
+    }
+
+    if (confirmStop) {
         AlertDialog(
-            onDismissRequest = { confirmCancel = false },
-            title = { Text(WorkflowView.CANCEL_WORKFLOW_LABEL) },
+            onDismissRequest = { confirmStop = false },
+            title = { Text(STOP_WORKFLOW_LABEL) },
             text = { Text(WorkflowView.CANCEL_WORKFLOW_CONFIRM) },
             confirmButton = {
                 TextButton(onClick = {
-                    confirmCancel = false
+                    confirmStop = false
                     viewModel.cancel()
-                }) {
-                    Text("Cancel workflow", color = MaterialTheme.colorScheme.error)
-                }
+                }) { Text(STOP_WORKFLOW_LABEL, color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmCancel = false }) { Text("Keep running") }
-            },
+            dismissButton = { TextButton(onClick = { confirmStop = false }) { Text("Cancel") } },
         )
     }
 
@@ -459,606 +422,265 @@ fun WorkflowDetailScreen(
                 TextButton(onClick = {
                     confirmDelete = false
                     viewModel.delete()
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
-            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
 }
 
-/** Destructive, so it takes the error tone rather than the page's primary fill. */
-@Composable
-private fun WorkflowDeletePill(onClick: () -> Unit) {
-    GlassPill(
-        WorkflowView.DELETE_WORKFLOW_LABEL,
-        icon = ExpIcons.uiDelete,
-        tint = MaterialTheme.colorScheme.error,
-        onClick = onClick,
-        modifier = Modifier.testTag("workflow-delete"),
-    )
-}
+/** The overflow's word for ending a live workflow — the ONE ending verb ×4. */
+private const val STOP_WORKFLOW_LABEL = "Stop"
+private const val ALL_CHIP_LABEL = "All"
+private const val PICK_DEVICE_LABEL = "Pick device"
+private const val REVIEW_FINAL_PR_LABEL = "Review"
 
-/** Abandoning a started workflow — confirmed, like every destructive native
- *  action. */
 @Composable
-private fun WorkflowCancelPill(onClick: () -> Unit) {
-    GlassPill(
-        WorkflowView.CANCEL_WORKFLOW_LABEL,
-        icon = ExpIcons.uiClose,
-        tint = MaterialTheme.colorScheme.error,
-        onClick = onClick,
-        modifier = Modifier.testTag("workflow-cancel"),
-    )
-}
-
-/**
- * EXP-982: the merge train — every node whose PR is up, in the order it lands
- * on the integration branch. Web and the desktop draw a horizontal strip; a
- * phone draws the same thing as a SHORT list, one row per node with its step.
- */
-@Composable
-private fun MergeTrainSection(
-    entries: List<WorkflowView.TrainEntry>,
-    graph: WorkflowGraph,
-    onSelectNode: (WorkflowNodeEntity) -> Unit,
-) {
-    val nodesById = remember(graph.nodes) { graph.nodes.associateBy { it.id } }
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        SectionHeader(WorkflowView.MERGE_TRAIN_TITLE)
-        if (entries.isEmpty()) {
-            Text(
-                WorkflowView.MERGE_TRAIN_EMPTY,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .testTag("workflow-train-empty"),
-            )
-            return@Column
-        }
-        entries.forEach { entry ->
-            val node = nodesById[entry.id] ?: return@forEach
-            val issue = graph.issuesById[node.issueId]
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .flatRow()
-                    .clickable { onSelectNode(node) }
-                    .padding(
-                        horizontal = GlassTokens.RowPaddingH,
-                        vertical = GlassTokens.RowPaddingV,
-                    )
-                    .testTag("workflow-train-row"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                WorkflowStateGlyph(node.state)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    issue?.let { WorkflowView.nodeTitle(it.identifier, node.memberIssueIds.size) }
-                        ?: WorkflowView.nodeKindLabel(node.kind),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    WorkflowView.trainStepLabel(entry.step),
-                    style = MaterialTheme.typography.labelSmall,
-                    // Amber means "a person is needed" here too.
-                    color = if (entry.step == WorkflowView.TrainStep.NeedsApproval) {
-                        workflowToneColor(WorkflowView.Tone.Amber)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                    },
-                )
-            }
-        }
+private fun PrimaryActionPill(action: WorkflowPrimaryAction, enabled: Boolean, onClick: () -> Unit) {
+    val (label, icon) = when (action) {
+        WorkflowPrimaryAction.PICK_DEVICE -> PICK_DEVICE_LABEL to ExpIcons.uiDevice
+        WorkflowPrimaryAction.START -> WorkflowView.START_WORKFLOW_LABEL to ExpIcons.actionRun
+        WorkflowPrimaryAction.PAUSE -> WorkflowView.PAUSE_WORKFLOW_LABEL to ExpIcons.uiStop
+        WorkflowPrimaryAction.RESUME -> WorkflowView.RESUME_WORKFLOW_LABEL to ExpIcons.actionRun
+        WorkflowPrimaryAction.REVIEW_FINAL_PR -> REVIEW_FINAL_PR_LABEL to ExpIcons.navReviews
     }
+    GlassPill(
+        label,
+        size = PillSize.Sm,
+        primary = true,
+        icon = icon,
+        enabled = enabled,
+        onClick = onClick,
+        modifier = Modifier.testTag("workflow-primary-${action.wire}"),
+    )
 }
 
 /**
- * EXP-984: the reviewer agent's latest verdict on one node — the shared line
- * ([WorkflowView.reviewLine]) in the verdict's tone, the findings as plain
- * text folded behind Show more when they run long, and the oracle command in
- * mono: the check the reviewer actually RAN is the evidence its prose is not.
+ * The open question, ONLY while one is open: the asking node, the question,
+ * and an inline answer that goes to the run as a message — the same path a
+ * `needs_input` run is answered through from its Run face.
  */
 @Composable
-private fun WorkflowReviewBlock(review: WorkflowNodeReview, nodeApproved: Boolean) {
-    var expanded by remember(review) { mutableStateOf(false) }
-    val findings = review.findings.trim()
-    val folded = findings.length > REVIEW_FINDINGS_CHARS ||
-        findings.count { it == '\n' } >= REVIEW_FINDINGS_LINES
+private fun QuestionBanner(question: WorkflowOpenQuestion, title: String?, onSelect: () -> Unit) {
+    val sessionVm = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
+        key = "session:${question.sessionId}",
+    ) { factory -> factory.create(question.sessionId) }
+    var answer by rememberSaveable(question.sessionId, question.askedAt) { mutableStateOf("") }
+    var failed by remember { mutableStateOf(false) }
+    LaunchedEffect(sessionVm) { sessionVm.ensureConnected() }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .testTag("workflow-node-review"),
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .testTag("workflow-question"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            WorkflowView.AGENT_REVIEW_TITLE,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        GlassNotice(
+            text = listOfNotNull(title, question.question).joinToString(" · "),
+            contentColor = NeedsInputAmber,
+            onClick = onSelect,
+            modifier = Modifier.fillMaxWidth(),
+            leading = { StaticDot(NeedsInputAmber) },
         )
-        Text(
-            WorkflowView.reviewLine(review.line, nodeApproved),
-            style = MaterialTheme.typography.labelSmall,
-            color = if (review.verdict == DomainContract.wfReviewVerdictApprove) {
-                DesignTokens.Semantic.Green
-            } else {
-                MaterialTheme.colorScheme.error
+        GlassTextField(
+            value = answer,
+            onValueChange = {
+                answer = it
+                failed = false
             },
-            modifier = Modifier.padding(top = 2.dp).testTag("workflow-node-review-line"),
+            placeholder = if (failed) "Not sent. The run is not reachable." else "Answer",
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("workflow-question-answer"),
+            trailingIcon = {
+                CircleIconButton(
+                    ExpIcons.uiSend,
+                    "Send",
+                    enabled = answer.isNotBlank(),
+                    borderless = true,
+                    onClick = {
+                        if (sessionVm.sendCommand(answer.trim())) answer = "" else failed = true
+                    },
+                )
+            },
         )
-        if (findings.isNotEmpty()) {
-            Text(
-                findings,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                maxLines = if (folded && !expanded) REVIEW_FINDINGS_LINES else Int.MAX_VALUE,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            if (folded) {
-                Text(
-                    if (expanded) "Show less" else "Show more",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(
-                        alpha = TextEmphasis.Tertiary,
-                    ),
-                    modifier = Modifier
-                        .clickable { expanded = !expanded }
-                        .padding(top = 2.dp),
-                )
-            }
-        }
-        review.oracle?.let { oracle ->
-            Text(
-                oracle.command,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                ),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(top = 4.dp).testTag("workflow-node-review-oracle"),
-            )
-        }
     }
 }
 
-/** The findings fold, the same shape the agent feed's cards use (EXP-698). */
-private const val REVIEW_FINDINGS_CHARS = 600
-private const val REVIEW_FINDINGS_LINES = 6
-
-/**
- * EXP-984: the run's counters ([WorkflowView.metricRows]) as flat label/value
- * rows — the LAST section of a started workflow's detail. A draft has run
- * nothing, so the caller hands over an empty list and nothing is drawn.
- */
+/** The strip: `All`, then one row per wave, scrolling sideways. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun WorkflowMetricsSection(rows: List<WorkflowView.MetricRow>) {
-    if (rows.isEmpty()) return
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        SectionHeader(WorkflowView.METRICS_TITLE)
-        rows.forEach { metric ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .flatRow()
-                    .padding(
-                        horizontal = GlassTokens.RowPaddingH,
-                        vertical = GlassTokens.RowPaddingV,
-                    )
-                    .testTag("workflow-metric-row"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    metric.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    metric.value,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            }
-        }
-    }
-}
-
-/**
- * EXP-1014: the ONE control this screen still carries — the machine the
- * workflow's nodes run on. A draft needs one to start (the server refuses a
- * start without it, in [WorkflowView.startBlocker]'s own words) and a started
- * workflow cannot move, so the pill reads as a plain label there. Everything
- * else about how a workflow runs — the agent, the login, the two models — is
- * decided where the workflow is created and only CARRIED here.
- */
-@Composable
-private fun RunnerPill(
-    devices: List<SteerDevice>,
-    device: SteerDevice?,
-    enabled: Boolean,
+private fun NodeStrip(
+    strip: List<com.exponential.app.domain.StripWave>,
+    graph: WorkflowGraph,
+    selectedId: String?,
+    onSelectAll: () -> Unit,
     onSelect: (String) -> Unit,
+    onLongPress: (String) -> Unit,
 ) {
-    // EXP-1030: the machine list is the shared device picker — the same sheet
-    // of plain rows the composer and the automation editor open. The blank
-    // pick UNBINDS the machine (a draft may), so it rides as the FIRST row:
-    // an unbound runner is a choice here, not a missing one.
-    DevicePicker(
-        devices = listOf(DevicePickerDevice(id = "", name = RUNNER_NONE_LABEL)) +
-            devices.map { row ->
-                DevicePickerDevice(
-                    id = row.deviceId,
-                    name = deviceOptionLabel(row),
-                    icon = row.icon,
-                    isServer = row.isServer,
-                )
-            },
-        value = device?.deviceId ?: "",
-        onChange = onSelect,
-        title = RUNNER_LABEL,
-        trigger = { open ->
-            GlassPill(
-                device?.let(::deviceOptionLabel) ?: RUNNER_UNSET_LABEL,
-                size = PillSize.Sm,
-                icon = device?.let(::deviceIcon) ?: ExpIcons.uiDevice,
-                onClick = if (enabled) ({ open() }) else null,
-                trailing = if (enabled) {
-                    {
-                        Icon(
-                            ExpIcons.uiChevronDown,
-                            contentDescription = null,
-                            modifier = Modifier.size(10.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Tertiary,
+    val nodesById = remember(graph.nodes) { graph.nodes.associateBy { it.id } }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 180.dp)
+            .verticalScroll(rememberScrollState())
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("workflow-strip"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        GlassPill(
+            ALL_CHIP_LABEL,
+            size = PillSize.Sm,
+            selected = selectedId == null,
+            onClick = onSelectAll,
+            modifier = Modifier.testTag("workflow-chip-all"),
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            strip.forEach { wave ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    wave.nodes.forEach { chip ->
+                        val node = nodesById[chip.id]
+                        StripChip(
+                            chip = chip,
+                            status = node?.let { graph.statusByIssueId[it.issueId] },
+                            selected = chip.id == selectedId,
+                            modifier = Modifier.combinedClickable(
+                                onClick = { onSelect(chip.id) },
+                                onLongClick = { onLongPress(chip.id) },
                             ),
                         )
                     }
-                } else {
-                    null
-                },
-                contentDescription = RUNNER_LABEL,
-                modifier = Modifier.testTag("workflow-runner"),
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StripChip(
+    chip: NodeChip,
+    status: com.exponential.app.domain.ResolvedIssueStatus?,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(6.dp)
+    Row(
+        modifier = Modifier.testTag("workflow-chip-${chip.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        val body: @Composable () -> Unit = {
+            IssueChip(
+                identifier = chip.title,
+                title = chip.caption,
+                status = status,
+                modifier = modifier.then(
+                    if (selected) {
+                        Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface, shape)
+                    } else {
+                        Modifier
+                    },
+                ),
+                leading = { NodeGlyph(chip, status) },
             )
+        }
+        if (chip.stacked) IssueChipStack(ghosts = chip.members.coerceAtMost(2)) { body() } else body()
+        if (chip.needsYou) {
+            Box(Modifier.testTag("workflow-chip-needs-you")) { StaticDot(NeedsInputAmber) }
+        }
+    }
+}
+
+/** The node's display state by SHAPE: a live dot (pulsing while the agent is
+ *  mid-turn), a merged glyph, an error, a skip — a queued node wears its
+ *  issue's own status glyph. */
+@Composable
+private fun NodeGlyph(chip: NodeChip, status: com.exponential.app.domain.ResolvedIssueStatus?) {
+    val icon = when (chip.display) {
+        WorkflowNodeDisplayState.RUNNING -> {
+            Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) { LiveDot(busy = chip.live) }
+            return
+        }
+        WorkflowNodeDisplayState.QUEUED -> {
+            if (status != null) {
+                StatusIcon(status, size = 14.dp)
+                return
+            }
+            ExpIcons.uiQueued
+        }
+        WorkflowNodeDisplayState.DONE -> ExpIcons.notificationPrMerged
+        WorkflowNodeDisplayState.FAILED -> ExpIcons.uiError
+        WorkflowNodeDisplayState.SKIPPED -> ExpIcons.uiClose
+    }
+    Icon(
+        icon,
+        contentDescription = chip.display.label,
+        modifier = Modifier.size(14.dp),
+        tint = when (chip.display) {
+            WorkflowNodeDisplayState.DONE -> DesignTokens.Semantic.Green
+            WorkflowNodeDisplayState.FAILED -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
         },
     )
 }
 
-/** What the runner pill says with no machine bound, and what names it. */
-private const val RUNNER_LABEL = "Runner"
-private const val RUNNER_UNSET_LABEL = "Select"
-private const val RUNNER_NONE_LABEL = "No machine"
-
-/**
- * One node, opened from the graph — and the ONLY place a node's plan is read:
- * the issue it covers, the two picks the plan carries (Kind, Risk, editable
- * while the workflow is a draft), the MODEL its run spawns on (EXP-1029's
- * rule, read-only: nothing on a workflow screen configures a model), its
- * state and the verdicts that state offers, the faces the node opens into
- * (EXP-1024) and the latest agent review. EXP-1014 took the `touches` globs
- * off it — they are the planner's bookkeeping, not a panel row.
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** Long-press: THE mini-graph around the node, and its verdicts when the
+ *  state offers any ([WorkflowView.nodeChipMenu]). */
 @Composable
-private fun WorkflowNodeSheet(
+private fun NodeSheet(
     node: WorkflowNodeEntity,
+    chip: NodeChip,
+    viewModel: WorkflowDetailViewModel,
     graph: WorkflowGraph,
-    workflowStatus: String,
-    /** EXP-1029: what the workflow runs on — the sheet only NAMES the model. */
-    launch: NormalizedWorkflowLaunch,
-    editable: Boolean,
     busy: Boolean,
-    onKindChange: (String) -> Unit,
-    onRiskChange: (String) -> Unit,
-    onApprove: (Boolean) -> Unit,
-    onResolve: (String) -> Unit,
-    /** EXP-984: `workflows.admitNode` — take the proposal, or throw it away. */
-    onAdmit: (Boolean) -> Unit,
     onOpenIssue: (String) -> Unit,
-    onOpenSession: (String) -> Unit,
-    onOpenChanges: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val relations by viewModel.relations.collectAsStateWithLifecycle()
     var confirmSkip by remember { mutableStateOf(false) }
-    val issue = graph.issuesById[node.issueId]
-    val caption = remember(node, workflowStatus) {
-        WorkflowView.nodeCaption(node.captionNode, workflowStatus)
+    val blocks = remember(node, relations, graph.issuesById) {
+        IssueGraph.blockGraph(node.coveredIssueIds, relations, graph.issuesById.values.toList())
     }
-    // EXP-984: a proposal is not part of the run, so the run's own verdicts
-    // (approve, retry, skip) make no sense on it — Admit / Dismiss do.
-    val isProposed = node.state == DomainContract.wfNodeStateProposed
-    val review = remember(node.review) { workflowNodeReview(node.review) }
-    GlassSheet(title = issue?.identifier ?: "Node", onDismiss = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .testTag("workflow-node-sheet"),
-        ) {
-            if (issue != null) {
-                // The BADGE is the way into the issue — tapping the subject
-                // opens it, so the sheet needs no "Open issue" pill.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenIssue(issue.id) }
-                        .padding(horizontal = 16.dp)
-                        .testTag("workflow-node-issue"),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StatusIcon(IssueStatus.fromWire(issue.status), size = 14.dp)
-                    Spacer(Modifier.width(8.dp))
-                    IssueChip(
-                        identifier = WorkflowView.nodeTitle(
-                            issue.identifier,
-                            node.memberIssueIds.size,
-                        ),
-                        title = null,
-                        status = null,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        issue.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+    GlassSheet(title = chip.title, onDismiss = onDismiss) {
+        IssueGraphPopover(
+            graph = blocks,
+            issuesById = graph.issuesById,
+            onOpenIssue = onOpenIssue,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        WorkflowView.nodeChipMenu(node.state).forEach { action ->
+            val label = when (action) {
+                NodeChipAction.RETRY -> WorkflowView.RETRY_NODE_LABEL
+                NodeChipAction.SKIP -> WorkflowView.SKIP_NODE_LABEL
+                NodeChipAction.ADMIT -> WorkflowView.ADMIT_NODE_LABEL
+                NodeChipAction.DISMISS -> WorkflowView.DISMISS_NODE_LABEL
             }
-            // EXP-1014: a draft node has no caption at all — nothing has
-            // happened to it yet — so the state line is drawn only once the
-            // workflow is running.
-            if (caption.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (workflowStateHasGlyph(node.state)) {
-                        WorkflowStateGlyph(node.state)
-                        Spacer(Modifier.width(6.dp))
+            GlassSheetRow(
+                label = label,
+                enabled = !busy,
+                onClick = {
+                    when (action) {
+                        NodeChipAction.RETRY -> {
+                            viewModel.resolveNode(node.id, WorkflowsApi.NODE_RETRY)
+                            onDismiss()
+                        }
+                        NodeChipAction.SKIP -> confirmSkip = true
+                        NodeChipAction.ADMIT -> {
+                            viewModel.admitNode(node.id, admit = true)
+                            onDismiss()
+                        }
+                        NodeChipAction.DISMISS -> {
+                            viewModel.admitNode(node.id, admit = false)
+                            onDismiss()
+                        }
                     }
-                    Text(
-                        caption,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = workflowToneColor(WorkflowView.nodeTone(node.state)),
-                    )
-                }
-            }
-            // EXP-984: a follow-up somebody filed DURING the run that was not
-            // plainly additive. It is drawn in the graph but is not part of
-            // the run until a member admits it.
-            if (isProposed) {
-                Text(
-                    WorkflowView.PROPOSED_NODE_NOTE,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .testTag("workflow-node-proposed-note"),
-                )
-            }
-            // EXP-982: why the engine stopped here — its own sentence, shown
-            // verbatim rather than translated into a state word.
-            node.note?.takeIf { it.isNotBlank() }?.let { note ->
-                Text(
-                    note,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .testTag("workflow-node-sheet-note"),
-                )
-            }
-            // EXP-983: the stamp a dependent of this node starts on when the
-            // workflow starts `on contract` — the node has said what it will
-            // build, long before its PR is up.
-            node.checkpointAt?.takeIf { it.isNotBlank() }?.let { stamp ->
-                Text(
-                    "${WorkflowView.CONTRACT_PUBLISHED_LABEL} · ${relativeTime(stamp)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .testTag("workflow-node-checkpoint"),
-                )
-            }
-            // EXP-983: the engine's serialization edges — two siblings' work
-            // collided, so this node merges theirs in before it pushes.
-            if (node.afterNodeIds.isNotEmpty()) {
-                Text(
-                    WorkflowView.MERGES_IN_FIRST_LABEL,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier
-                        .padding(start = 16.dp, end = 16.dp, top = 6.dp)
-                        .testTag("workflow-node-serial"),
-                )
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    node.afterNodeIds.forEach { nodeId ->
-                        val from = graph.nodes.firstOrNull { it.id == nodeId } ?: return@forEach
-                        val issue = graph.issuesById[from.issueId] ?: return@forEach
-                        IssueChip(
-                            identifier = WorkflowView.nodeTitle(
-                                issue.identifier,
-                                from.memberIssueIds.size,
-                            ),
-                            title = issue.title,
-                            status = null,
-                            onClick = { onOpenIssue(issue.id) },
-                        )
-                    }
-                }
-            }
-            // A compound node names the sub-issues it runs as one batch.
-            if (node.memberIssueIds.isNotEmpty()) {
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    node.memberIssueIds.forEach { memberId ->
-                        val member = graph.issuesById[memberId] ?: return@forEach
-                        IssueChip(
-                            identifier = member.identifier,
-                            title = member.title,
-                            status = null,
-                            onClick = { onOpenIssue(member.id) },
-                        )
-                    }
-                }
-            }
-            // EXP-984: the reviewer agent's latest verdict. EXP-1010: the line
-            // says advisory only while the verdict did not clear the node.
-            review?.let { WorkflowReviewBlock(it, nodeApproved = !node.approvedAt.isNullOrEmpty()) }
-            Spacer(Modifier.height(8.dp))
-            OptionGroup {
-                PickerRow(
-                    label = "Kind",
-                    value = WorkflowView.nodeKindLabel(node.kind),
-                    options = DomainContract.wfNodeKindValues,
-                    selected = node.kind,
-                    optionLabel = WorkflowView::nodeKindLabel,
-                    enabled = editable,
-                    onSelect = onKindChange,
-                )
-                GroupDivider()
-                PickerRow(
-                    label = "Risk",
-                    value = WorkflowView.riskLabel(node.risk),
-                    options = DomainContract.wfRiskValues,
-                    selected = node.risk,
-                    optionLabel = WorkflowView::riskLabel,
-                    // Risk stays adjustable after the draft (server parity).
-                    enabled = true,
-                    onSelect = onRiskChange,
-                )
-                GroupDivider()
-                // EXP-1029: the model this node's run spawns on — the strong
-                // one for a contract, an integration or a high-risk node, the
-                // cheap one otherwise. A statement, never a pick.
-                MetaRow(
-                    label = WorkflowView.NODE_MODEL_LABEL,
-                    enabled = false,
-                    onClick = {},
-                    value = {
-                        Text(
-                            modelLabel(modelForNode(launch, node.kind, node.risk)),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Secondary,
-                            ),
-                            maxLines = 1,
-                            modifier = Modifier.testTag("workflow-node-model"),
-                        )
-                    },
-                )
-            }
-            // EXP-1024: the node's surfaces, as the Work screen's own faces —
-            // same labels, same order, same `availableFaces` rule. Nothing is
-            // selected: the reader is on the graph, so every one of them is a
-            // way OUT of it.
-            NodeFaceStrip(
-                issue = issue,
-                sessionId = node.sessionId?.takeIf { it.isNotBlank() },
-                onOpenIssue = onOpenIssue,
-                onOpenSession = onOpenSession,
-                onOpenChanges = onOpenChanges,
+                },
             )
-            Spacer(Modifier.height(12.dp))
-            FlowRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // EXP-984: a proposal's only two verdicts — take it into the
-                // workflow, or throw the node away (never the issue).
-                if (isProposed) {
-                    GlassPill(
-                        WorkflowView.ADMIT_NODE_LABEL,
-                        primary = true,
-                        icon = ExpIcons.uiCheck,
-                        enabled = !busy,
-                        onClick = { onAdmit(true) },
-                        modifier = Modifier.testTag("workflow-node-admit"),
-                    )
-                    GlassPill(
-                        WorkflowView.DISMISS_NODE_LABEL,
-                        icon = ExpIcons.uiClose,
-                        tint = MaterialTheme.colorScheme.error,
-                        enabled = !busy,
-                        onClick = { onAdmit(false) },
-                        modifier = Modifier.testTag("workflow-node-dismiss"),
-                    )
-                }
-                // While this node's PR is up and no review cleared it, a person
-                // may approve it by hand.
-                if (!isProposed &&
-                    node.state == DomainContract.wfNodeStateInReview &&
-                    node.approvedAt.isNullOrEmpty()
-                ) {
-                    GlassPill(
-                        WorkflowView.APPROVE_NODE_LABEL,
-                        primary = true,
-                        icon = ExpIcons.uiCheck,
-                        enabled = !busy,
-                        onClick = { onApprove(true) },
-                        modifier = Modifier.testTag("workflow-node-approve"),
-                    )
-                }
-                // Taking it back is possible right up to the moment it lands.
-                if (!isProposed &&
-                    !node.approvedAt.isNullOrEmpty() &&
-                    node.state != DomainContract.wfNodeStateLanded
-                ) {
-                    GlassPill(
-                        WorkflowView.WITHDRAW_APPROVAL_LABEL,
-                        icon = ExpIcons.uiUndo,
-                        enabled = !busy,
-                        onClick = { onApprove(false) },
-                        modifier = Modifier.testTag("workflow-node-withdraw"),
-                    )
-                }
-                // A failed node's two ways out.
-                if (!isProposed && node.state == DomainContract.wfNodeStateFailed) {
-                    GlassPill(
-                        WorkflowView.RETRY_NODE_LABEL,
-                        icon = ExpIcons.uiRefresh,
-                        enabled = !busy,
-                        onClick = { onResolve(WorkflowsApi.NODE_RETRY) },
-                        modifier = Modifier.testTag("workflow-node-retry"),
-                    )
-                    GlassPill(
-                        WorkflowView.SKIP_NODE_LABEL,
-                        icon = ExpIcons.uiClose,
-                        tint = MaterialTheme.colorScheme.error,
-                        enabled = !busy,
-                        onClick = { confirmSkip = true },
-                        modifier = Modifier.testTag("workflow-node-skip"),
-                    )
-                }
-            }
-            Spacer(Modifier.height(16.dp))
         }
     }
-
     if (confirmSkip) {
         AlertDialog(
             onDismissRequest = { confirmSkip = false },
@@ -1067,65 +689,263 @@ private fun WorkflowNodeSheet(
             confirmButton = {
                 TextButton(onClick = {
                     confirmSkip = false
-                    onResolve(WorkflowsApi.NODE_SKIP)
-                }) {
-                    Text(WorkflowView.SKIP_NODE_LABEL, color = MaterialTheme.colorScheme.error)
-                }
+                    viewModel.resolveNode(node.id, WorkflowsApi.NODE_SKIP)
+                    onDismiss()
+                }) { Text(WorkflowView.SKIP_NODE_LABEL, color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmSkip = false }) { Text("Cancel") }
-            },
+            dismissButton = { TextButton(onClick = { confirmSkip = false }) { Text("Cancel") } },
         )
     }
 }
 
-/**
- * EXP-1024: Issue · Run · Changes for the picked node, as the Work screen's
- * own faces — the SAME `availableFaces` rule, the same labels, in the same
- * order: a node with no run shows no Run, one with no pull request no
- * Changes. Under two faces nothing is drawn at all; the chip above is already
- * the way into the issue. Nothing is selected on purpose — the reader is on
- * the graph, so the strip is a way out of it rather than a picture of where
- * they are.
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** The switcher the Work screen uses, over [faces] — no run rows, no start. */
 @Composable
-private fun NodeFaceStrip(
-    issue: IssueEntity?,
+private fun faceSwitcherSlot(
+    faces: List<WorkFaceKind>,
+    face: WorkFaceKind,
+    diffStats: Diff.Totals?,
+    onFace: (WorkFaceKind) -> Unit,
+): @Composable () -> Unit {
+    val mode = switcherMode(switcherTargets(faces, face, emptyList(), null, offerStart = false))
+    return {
+        if (mode !is SwitcherMode.Hidden) {
+            FaceSwitcher(
+                mode = mode,
+                badge = null,
+                badgeBusy = false,
+                runs = emptyList(),
+                shownRunId = null,
+                diffStats = diffStats,
+                onPick = { target -> if (target is SwitcherTarget.Face) onFace(target.face) },
+            )
+        }
+    }
+}
+
+/** ONE node: its issue's Work screen faces, in place. */
+@Composable
+private fun NodeFaces(
+    issueId: String,
     sessionId: String?,
+    faceName: String?,
+    onFace: (WorkFaceKind) -> Unit,
+    padding: PaddingValues,
+    snackbarHostState: SnackbarHostState,
+    onClose: () -> Unit,
     onOpenIssue: (String) -> Unit,
-    onOpenSession: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
 ) {
-    if (issue == null) return
+    val issueVm = hiltViewModel<IssueDetailViewModel, IssueDetailViewModel.Factory>(
+        key = "issue:$issueId",
+    ) { factory -> factory.create(issueId) }
+    val commentVm: CommentThreadViewModel = hiltViewModel(key = "comments:$issueId")
+    val controller = rememberIssueFaceController()
+    val issueState by issueVm.state.collectAsStateWithLifecycle()
+    val issue = issueState?.issue
+
+    val sessionVm: AgentSessionViewModel? = sessionId?.let { id ->
+        hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(key = "session:$id") { factory ->
+            factory.create(id)
+        }
+    }
+    val session by (sessionVm?.session ?: remember { MutableStateFlow(null) }).collectAsStateWithLifecycle()
+    val activity by (sessionVm?.activity ?: remember { MutableStateFlow(ActivityFeedState()) })
+        .collectAsStateWithLifecycle()
+    val parsedDiff = remember(activity.latestDiff) { activity.latestDiff?.let { Diff.parse(it) } }
+    val prOpen = issue != null && issue.prState == DomainContract.prStateOpen && !issue.prUrl.isNullOrBlank()
+    val hasChanges = parsedDiff != null || prOpen
+    val changesVm: ChangesViewModel? = if (hasChanges && parsedDiff == null) {
+        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:$issueId") { factory ->
+            factory.create(issueId)
+        }
+    } else {
+        null
+    }
+    val prLoad by (changesVm?.load ?: remember { MutableStateFlow<ChangesLoadState?>(null) })
+        .collectAsStateWithLifecycle()
+    val files: List<Diff.File> = remember(parsedDiff, prLoad) {
+        val load = prLoad
+        when {
+            parsedDiff != null -> parsedDiff.files
+            load is ChangesLoadState.Loaded -> load.files.map { it.toDiffFile() }
+            else -> emptyList()
+        }
+    }
+    val diffStats = remember(files) { files.takeIf { it.isNotEmpty() }?.let { Diff.totals(it) } }
+    val results = remember(session?.results) { groupSessionResults(parseSessionResults(session?.results)) }
     val faces = availableFaces(
         hasIssue = true,
         hasRun = sessionId != null,
-        hasChanges = !issue.prUrl.isNullOrBlank(),
-        hasResults = false,
+        hasChanges = hasChanges,
+        hasResults = results.isNotEmpty(),
     )
-    if (faces.size < 2) return
-    FlowRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .testTag("workflow-node-faces"),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        faces.forEach { face ->
-            GlassPill(
-                faceLabel(face),
-                size = PillSize.Sm,
-                onClick = {
-                    when (face) {
-                        WorkFaceKind.Issue -> onOpenIssue(issue.id)
-                        WorkFaceKind.Run -> sessionId?.let(onOpenSession)
-                        WorkFaceKind.Changes -> onOpenChanges(issue.id)
-                        WorkFaceKind.Results -> Unit
-                    }
-                },
+    val wanted = WorkFaceKind.entries.firstOrNull { it.name == faceName } ?: WorkFaceKind.Issue
+    val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
+    val trailing = faceSwitcherSlot(faces, face, diffStats, onFace)
+
+    when (face) {
+        WorkFaceKind.Issue -> IssueFace(
+            viewModel = issueVm,
+            commentViewModel = commentVm,
+            controller = controller,
+            padding = padding,
+            snackbarHostState = snackbarHostState,
+            onBack = onClose,
+            onOpenIssue = onOpenIssue,
+            onOpenChanges = {
+                if (hasChanges) onFace(WorkFaceKind.Changes) else onOpenChanges(issueId)
+            },
+            trailingBarSlot = trailing,
+        )
+        WorkFaceKind.Run -> if (sessionVm != null) {
+            RunFace(
+                viewModel = sessionVm,
+                padding = padding,
+                onOpenIssue = onOpenIssue,
+                trailingBarSlot = trailing,
             )
         }
+        // A node's pull request lands through the workflow's engine, so its
+        // Changes face shows the files and merges nothing.
+        WorkFaceKind.Changes -> ChangesFace(
+            padding = padding,
+            files = files,
+            prLoad = prLoad,
+            merge = null,
+            trailingBarSlot = trailing,
+        )
+        WorkFaceKind.Results -> ResultsFace(padding = padding, groups = results, trailingBarSlot = trailing)
+    }
+}
+
+/** All: the workflow's issues, its runs, its final pull request, its screenshots. */
+@Composable
+private fun AllFaces(
+    viewModel: WorkflowDetailViewModel,
+    graph: WorkflowGraph,
+    finalPrOpen: Boolean,
+    faceName: String?,
+    onFace: (WorkFaceKind) -> Unit,
+    padding: PaddingValues,
+    busy: Boolean,
+    onSelectIssue: (String) -> Unit,
+    onSelectRun: (CodingSessionEntity) -> Unit,
+) {
+    val sessions by viewModel.workflowSessions.collectAsStateWithLifecycle()
+    val results by viewModel.results.collectAsStateWithLifecycle()
+    val relations by viewModel.relations.collectAsStateWithLifecycle()
+    val events by viewModel.events.collectAsStateWithLifecycle()
+    val deviceRows by viewModel.deviceRows.collectAsStateWithLifecycle()
+    val workflow by viewModel.workflow.collectAsStateWithLifecycle()
+    var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    val hasFinalPr = !workflow?.finalPrUrl.isNullOrBlank()
+
+    val faces = availableFaces(
+        hasIssue = true,
+        hasRun = sessions.isNotEmpty(),
+        hasChanges = hasFinalPr,
+        hasResults = results.isNotEmpty(),
+    )
+    val wanted = WorkFaceKind.entries.firstOrNull { it.name == faceName } ?: WorkFaceKind.Issue
+    val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
+    val trailing = faceSwitcherSlot(faces, face, null, onFace)
+
+    when (face) {
+        WorkFaceKind.Issue -> {
+            // The covered issues in strip order, sub-issues nested under their
+            // parent (the ×4 nesting rule).
+            val ids = remember(graph.nodes) { graph.nodes.flatMap { it.coveredIssueIds }.distinct() }
+            val rows = remember(ids, relations, graph.issuesById) {
+                IssueNesting.nestIssueRows(
+                    groups = listOf(ids.filter { it in graph.issuesById }),
+                    relations = relations,
+                    identifierOf = { graph.issuesById[it]?.identifier ?: it },
+                ).firstOrNull().orEmpty()
+            }
+            val guides = remember(rows) { TreeGuides.compute(rows.map { it.depth }) }
+            FaceList(padding = padding, trailing = trailing, tag = "workflow-all-issues") {
+                itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+                    val issue = graph.issuesById[row.id] ?: return@itemsIndexed
+                    TreeGuidesRow(depth = row.depth, guide = guides.getOrNull(index)) {
+                        IssueRow(
+                            issue = issue,
+                            labels = emptyList(),
+                            assignee = null,
+                            onClick = { onSelectIssue(issue.id) },
+                            resolvedStatus = graph.statusByIssueId[issue.id],
+                        )
+                    }
+                }
+                item(key = "__events__") { WorkflowEventList(events, Modifier.fillMaxWidth()) }
+            }
+        }
+        WorkFaceKind.Run -> {
+            val nowMs = System.currentTimeMillis()
+            val tree = remember(sessions, collapsed, graph.issuesById) {
+                visibleSessionTreeRows(
+                    sessionTree(sessions, SessionTreeContext(issues = graph.issuesById.values.toList())),
+                    collapsed,
+                )
+            }
+            val guides = remember(tree) { TreeGuides.compute(tree.map { it.depth }) }
+            FaceList(padding = padding, trailing = trailing, tag = "workflow-all-runs") {
+                itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->
+                    val node = entry.node as? SessionTreeNode.Session ?: return@itemsIndexed
+                    TreeGuidesRow(depth = entry.depth, guide = guides.getOrNull(index)) {
+                        RunningSessionRow(
+                            session = node.session,
+                            issue = node.session.issueId?.let { graph.issuesById[it] },
+                            device = resolveSessionDevice(node.session, deviceRows, nowMs),
+                            onClick = { onSelectRun(node.session) },
+                            expandable = entry.hasChildren,
+                            expanded = entry.key !in collapsed,
+                            onToggle = {
+                                collapsed = if (entry.key in collapsed) collapsed - entry.key else collapsed + entry.key
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        WorkFaceKind.Changes -> ChangesFace(
+            padding = padding,
+            files = emptyList(),
+            prLoad = null,
+            merge = if (finalPrOpen) {
+                ChangesMergeControl(
+                    label = WorkflowView.MERGE_FINAL_PR_LABEL,
+                    fixConflicts = false,
+                    loading = busy,
+                    error = null,
+                    confirmText = WorkflowView.MERGE_FINAL_PR_CONFIRM,
+                    onConfirm = viewModel::mergeFinalPr,
+                    onFixConflicts = {},
+                )
+            } else {
+                null
+            },
+            trailingBarSlot = trailing,
+        )
+        WorkFaceKind.Results -> ResultsFace(padding = padding, groups = results, trailingBarSlot = trailing)
+    }
+}
+
+/** A face that is a plain list: the rows, and the Work screen's floating bar
+ *  carrying the switcher. */
+@Composable
+private fun FaceList(
+    padding: PaddingValues,
+    trailing: @Composable () -> Unit,
+    tag: String,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().testTag(tag),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            content = content,
+        )
+        FloatingBarCluster(modifier = Modifier.align(Alignment.BottomCenter), right = trailing)
     }
 }

@@ -100,9 +100,8 @@ internal data class AdmitNodeInput(
  * (`explicitNulls = false`) would drop a null property from a `@Serializable`
  * class outright, which is exactly how [deviceId] clears the runner ([JsonNull]
  * rides as the explicit "unbind"). The same rule the action editor's patch
- * follows. The phone writes only the name and the runner (EXP-1014): the
- * launch options are picked where the workflow is CREATED and `startOn` is
- * fixed to `contract`, so neither has an encoder here.
+ * follows. The router takes `{id, name?, deviceId?, decision?}` (EXP-1066);
+ * the phone writes the name and the runner.
  */
 internal fun updateWorkflowInput(
     id: String,
@@ -172,9 +171,8 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
      * write.
      *
      * EXP-1014: the phone writes only [name] and the runner — a workflow
-     * screen configures nothing: its two models are picked where the workflow
-     * is created and `startOn` is fixed to `contract`. The router's `launch` /
-     * `startOn` keys stay other clients' business.
+     * screen configures nothing: its models are picked where the workflow is
+     * created.
      */
     suspend fun update(
         accountId: String,

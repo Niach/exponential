@@ -3,7 +3,6 @@ package com.exponential.app.data.db
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.shape
-import com.exponential.app.domain.workflowMetricCounters
 import com.exponential.app.domain.workflowNodeReview
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -40,7 +39,6 @@ class WorkflowEntityDecodeTest {
               "device_id": "dev-1",
               "launch": {"agent":"claude","model":"opus","subagentModel":"fable","maxParallel":5},
               "gate": "human",
-              "start_on": "contract",
               "integration_branch": "exp/wf-abcd1234",
               "final_pr_url": null,
               "final_pr_number": null,
@@ -60,7 +58,6 @@ class WorkflowEntityDecodeTest {
         assertEquals("EXP-14 +3", entity.name)
         assertEquals(DomainContract.wfStatusDraft, entity.status)
         assertEquals("dev-1", entity.deviceId)
-        assertEquals(DomainContract.wfStartOnContract, entity.startOn)
         assertEquals("exp/wf-abcd1234", entity.integrationBranch)
         assertNull(entity.finalPrNumber)
 
@@ -89,7 +86,6 @@ class WorkflowEntityDecodeTest {
               "deviceId": "dev-1",
               "integrationBranch": "exp/wf-00000000",
               "finalPrNumber": 42,
-              "startOn": "pr_open",
               "createdAt": "2026-09-19 10:00:00+00",
               "updatedAt": "2026-09-19 10:00:00+00"
             }
@@ -97,7 +93,6 @@ class WorkflowEntityDecodeTest {
         val entity = json.decodeFromString(WorkflowEntity.serializer(), row)
         assertEquals("wf-2", entity.id)
         assertEquals(DomainContract.wfStatusRunning, entity.status)
-        assertEquals(DomainContract.wfStartOnPrOpen, entity.startOn)
         assertEquals(42, entity.finalPrNumber)
         // Absent jsonb reads as the defaults, never as a dropped row.
         assertEquals(DomainContract.workflowMaxParallelDefault, entity.launchOptions.maxParallel)
@@ -288,23 +283,6 @@ class WorkflowEntityDecodeTest {
             WorkflowEntity.serializer(),
             row.replace("""{"agent":"claude","reviewModel":"opus","maxParallel":4}""", """{"agent":"claude"}"""),
         ).launchOptions.reviewModel)
-    }
-
-    @Test
-    fun `the metric counters keep every number and drop everything else`() {
-        val counters = workflowMetricCounters(
-            """
-                {"nodes":12,"depth":3,"width":8,"cycles":[["EXP-1"]],"landed":"garbage",
-                 "mergeIns":9,"contractChanges":2}
-            """.trimIndent(),
-        )
-        assertEquals(12, counters["nodes"])
-        assertEquals(3, counters["depth"])
-        assertEquals(9, counters["mergeIns"])
-        // A list is not a counter, and neither is a word.
-        assertNull(counters["cycles"])
-        assertNull(counters["landed"])
-        assertTrue(workflowMetricCounters(null).isEmpty())
     }
 
     @Test
