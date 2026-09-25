@@ -322,19 +322,20 @@ pub fn start_pick(
         return None;
     }
     let target = ordered.iter().find(|profile| profile.profile_id == to)?;
-    let own = ordered.iter().find(|profile| profile.profile_id == from);
-    let reason = match own {
-        Some(own) if own.spent_for(model, now_ms) => {
-            let (key, window) = spent_window(own, model, now_ms);
-            format!(
-                "{} hit its {} limit{}",
-                own.label,
-                window_label(key),
-                until_suffix(window.and_then(|w| w.resets_at))
-            )
-        }
-        Some(own) => format!("{} has less headroom", own.label),
-        None => "the default account is not signed in".to_string(),
+    // A launch account the usage cache does not list (a login past
+    // MAX_USAGE_PROFILES, an API-key login that is never monitored) is not
+    // known to be walled: the launch keeps it rather than blaming a sign-in.
+    let own = ordered.iter().find(|profile| profile.profile_id == from)?;
+    let reason = if own.spent_for(model, now_ms) {
+        let (key, window) = spent_window(own, model, now_ms);
+        format!(
+            "{} hit its {} limit{}",
+            own.label,
+            window_label(key),
+            until_suffix(window.and_then(|w| w.resets_at))
+        )
+    } else {
+        format!("{} has less headroom", own.label)
     };
     let message = format!("Starting on {} — {reason}", target.label);
     Some(StartPick {
@@ -608,11 +609,6 @@ impl RotationTracker {
                 }
             }
         }
-    }
-
-    /// The chain's run ended for good (not a switch): forget it.
-    pub fn forget(&mut self, chain_key: &str) {
-        self.chains.remove(chain_key);
     }
 
     /// Note which chains have a LIVE run this beat, and forget the ones no
