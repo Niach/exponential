@@ -28,6 +28,7 @@ import com.exponential.app.domain.SessionResultGroup
 import com.exponential.app.domain.StripNodeInput
 import com.exponential.app.domain.StripWave
 import com.exponential.app.domain.WorkflowOpenQuestion
+import com.exponential.app.domain.WorkflowPrimaryAction
 import com.exponential.app.domain.WorkflowQuestions
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.codingSessionDisplayState
@@ -38,6 +39,7 @@ import com.exponential.app.domain.parseSessionResults
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
+import com.exponential.app.ui.components.deviceOptionLabel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -233,23 +235,16 @@ class WorkflowDetailViewModel @Inject constructor(
 
     /** The chip strip: one row per wave, `All` is the page's own first chip. */
     val strip: StateFlow<List<StripWave>> = combine(graph, openQuestions) { g, questions ->
-        val asking = questions.mapTo(HashSet()) { it.nodeId }
-        WorkflowView.nodeStrip(
-            nodes = g.nodes.map { node ->
-                StripNodeInput(
-                    id = node.id,
-                    identifier = g.issuesById[node.issueId]?.identifier ?: node.issueId.take(8),
-                    state = node.state,
-                    wave = node.wave ?: 0,
-                    lane = node.lane ?: 0,
-                    members = node.memberIssueIds.size,
-                    live = g.runsByNodeId[node.id]?.busy == true,
-                    needsYou = node.id in asking,
-                )
-            },
-            edges = g.edges.map { it.from to it.to },
-        )
+        workflowStrip(g, questions)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-312: the runs the caller OWNS — only those are steerable, so only
+     * their open questions offer an answer field.
+     */
+    val ownSessionIds: StateFlow<Set<String>> = combine(workflowSessions, auth.userId) { rows, userId ->
+        if (userId == null) emptySet() else rows.filter { it.userId == userId }.mapTo(HashSet()) { it.id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     /** Every run's screenshots, grouped by topic in first-published order. */
     val results: StateFlow<List<SessionResultGroup>> = workflowSessions
@@ -271,6 +266,11 @@ class WorkflowDetailViewModel @Inject constructor(
     /** The bound machine's row, when it is still in the registry. */
     val device: StateFlow<SteerDevice?> = combine(devices, workflow) { rows, row ->
         row?.deviceId?.let { id -> rows.firstOrNull { it.deviceId == id } }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Why Start is refused, as the notice above the strip shows it (null = none). */
+    val startNotice: StateFlow<String?> = combine(workflow, device) { row, dev ->
+        row?.let { workflowStartNotice(it, dev?.let(::deviceOptionLabel) ?: it.deviceId?.take(8)) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The header's node counts (`workflowHeaderCaption`). */
@@ -348,4 +348,45 @@ class WorkflowDetailViewModel @Inject constructor(
             _busy.value = false
         }
     }
+}
+
+/**
+ * The strip off the joined graph: each node's chip, captioned by its note
+ * while it has one (a holding node says why), else its display state.
+ */
+internal fun workflowStrip(graph: WorkflowGraph, questions: List<WorkflowOpenQuestion>): List<StripWave> {
+    val asking = questions.mapTo(HashSet()) { it.nodeId }
+    return WorkflowView.nodeStrip(
+        nodes = graph.nodes.map { node ->
+            StripNodeInput(
+                id = node.id,
+                identifier = graph.issuesById[node.issueId]?.identifier ?: node.issueId.take(8),
+                state = node.state,
+                wave = node.wave ?: 0,
+                lane = node.lane ?: 0,
+                members = node.memberIssueIds.size,
+                live = graph.runsByNodeId[node.id]?.busy == true,
+                needsYou = node.id in asking,
+                note = node.note,
+            )
+        },
+        edges = graph.edges.map { it.from to it.to },
+    )
+}
+
+/**
+ * The Start blocker as the page shows it, or null: only while Start or Pick
+ * device is the primary action, and never "Pick the device…" when the
+ * primary action already IS Pick device.
+ */
+internal fun workflowStartNotice(row: WorkflowEntity, deviceLabel: String?): String? {
+    val primary = WorkflowView.primaryAction(row.status, deviceLabel)
+    if (primary != WorkflowPrimaryAction.START && primary != WorkflowPrimaryAction.PICK_DEVICE) return null
+    // Pick device already says "pick a device": judge the rest as if one were
+    // bound, so only the OTHER reasons surface.
+    val deviceId = if (primary == WorkflowPrimaryAction.PICK_DEVICE) row.deviceId ?: "picking" else row.deviceId
+    return WorkflowView.startBlocker(
+        WorkflowView.Startable(row.status, deviceId, row.repositoryId),
+        row.shape,
+    )
 }

@@ -159,6 +159,8 @@ fun WorkflowDetailScreen(
     val device by viewModel.device.collectAsStateWithLifecycle()
     val headerNodes by viewModel.headerNodes.collectAsStateWithLifecycle()
     val questions by viewModel.openQuestions.collectAsStateWithLifecycle()
+    val ownSessionIds by viewModel.ownSessionIds.collectAsStateWithLifecycle()
+    val startNotice by viewModel.startNotice.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val deleted by viewModel.deleted.collectAsStateWithLifecycle()
@@ -202,11 +204,23 @@ fun WorkflowDetailScreen(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     CenterAlignedTopAppBar(
                         title = {
-                            Text(
-                                row?.name.orEmpty(),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                // The workflow's status in the chip vocabulary
+                                // (web `workflowStatusGlyph`, iOS `display(status:)`).
+                                row?.let { wf ->
+                                    Box(Modifier.testTag("workflow-status-glyph")) {
+                                        DisplayGlyph(workflowDisplay(wf.status), live = false, status = null)
+                                    }
+                                }
+                                Text(
+                                    row?.name.orEmpty(),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         },
                         navigationIcon = { TopBarBackButton(onClick = onBack) },
                         actions = {
@@ -216,7 +230,10 @@ fun WorkflowDetailScreen(
                             primary?.let { action ->
                                 PrimaryActionPill(
                                     action = action,
-                                    enabled = !busy,
+                                    // Start stays off while the blocker notice
+                                    // under the header says why.
+                                    enabled = !busy &&
+                                        !(action == WorkflowPrimaryAction.START && startNotice != null),
                                     onClick = {
                                         when (action) {
                                             WorkflowPrimaryAction.PICK_DEVICE -> pickerOpen = true
@@ -303,11 +320,22 @@ fun WorkflowDetailScreen(
                         key(question.sessionId) {
                             QuestionBanner(
                                 question = question,
+                                own = question.sessionId in ownSessionIds,
                                 title = graph.nodes.firstOrNull { it.id == question.nodeId }
                                     ?.let { node -> graph.issuesById[node.issueId]?.identifier },
                                 onSelect = { selectNode(question.nodeId) },
                             )
                         }
+                    }
+                    startNotice?.let { notice ->
+                        GlassNotice(
+                            text = notice,
+                            contentColor = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .testTag("workflow-start-blocker"),
+                        )
                     }
                     NodeStrip(
                         strip = strip,
@@ -317,6 +345,34 @@ fun WorkflowDetailScreen(
                         onSelect = { id -> selectNode(WorkflowSelection(selectedId).toggle(id).nodeId) },
                         onLongPress = { id -> sheetNodeId = id },
                     )
+                    // Stepping: one node selected, the chevrons walk the strip
+                    // in its own order; back past the first node is All.
+                    if (selection.nodeId != null && order.isNotEmpty()) {
+                        val position = selection.position(order)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp)
+                                .testTag("workflow-step"),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            CircleIconButton(
+                                ExpIcons.uiChevronLeft,
+                                "Previous node",
+                                onClick = { selectNode(selection.step(-1, order).nodeId) },
+                                borderless = true,
+                                modifier = Modifier.testTag("workflow-step-previous"),
+                            )
+                            CircleIconButton(
+                                ExpIcons.uiChevronRight,
+                                "Next node",
+                                enabled = position < order.size,
+                                onClick = { selectNode(selection.step(1, order).nodeId) },
+                                borderless = true,
+                                modifier = Modifier.testTag("workflow-step-next"),
+                            )
+                        }
+                    }
                 }
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -467,18 +523,14 @@ private fun PrimaryActionPill(action: WorkflowPrimaryAction, enabled: Boolean, o
 }
 
 /**
- * The open question, ONLY while one is open: the asking node, the question,
- * and an inline answer that goes to the run as a message — the same path a
- * `needs_input` run is answered through from its Run face.
+ * The open question, ONLY while one is open: the asking node and the
+ * question. EXP-312: only the run's OWNER steers it, so only then does an
+ * inline answer follow — it goes to the run as a message, the same path a
+ * `needs_input` run is answered through from its Run face. A teammate's
+ * question reads as the question alone.
  */
 @Composable
-private fun QuestionBanner(question: WorkflowOpenQuestion, title: String?, onSelect: () -> Unit) {
-    val sessionVm = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
-        key = "session:${question.sessionId}",
-    ) { factory -> factory.create(question.sessionId) }
-    var answer by rememberSaveable(question.sessionId, question.askedAt) { mutableStateOf("") }
-    var failed by remember { mutableStateOf(false) }
-    LaunchedEffect(sessionVm) { sessionVm.ensureConnected() }
+private fun QuestionBanner(question: WorkflowOpenQuestion, own: Boolean, title: String?, onSelect: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -493,28 +545,40 @@ private fun QuestionBanner(question: WorkflowOpenQuestion, title: String?, onSel
             modifier = Modifier.fillMaxWidth(),
             leading = { StaticDot(NeedsInputAmber) },
         )
-        GlassTextField(
-            value = answer,
-            onValueChange = {
-                answer = it
-                failed = false
-            },
-            placeholder = if (failed) "Not sent. The run is not reachable." else "Answer",
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().testTag("workflow-question-answer"),
-            trailingIcon = {
-                CircleIconButton(
-                    ExpIcons.uiSend,
-                    "Send",
-                    enabled = answer.isNotBlank(),
-                    borderless = true,
-                    onClick = {
-                        if (sessionVm.sendCommand(answer.trim())) answer = "" else failed = true
-                    },
-                )
-            },
-        )
+        if (own) QuestionAnswer(question)
     }
+}
+
+/** The owner's answer field — the only thing here that connects to the run. */
+@Composable
+private fun QuestionAnswer(question: WorkflowOpenQuestion) {
+    val sessionVm = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
+        key = "session:${question.sessionId}",
+    ) { factory -> factory.create(question.sessionId) }
+    var answer by rememberSaveable(question.sessionId, question.askedAt) { mutableStateOf("") }
+    var failed by remember { mutableStateOf(false) }
+    LaunchedEffect(sessionVm) { sessionVm.ensureConnected() }
+    GlassTextField(
+        value = answer,
+        onValueChange = {
+            answer = it
+            failed = false
+        },
+        placeholder = if (failed) "Not sent. The run is not reachable." else "Answer",
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().testTag("workflow-question-answer"),
+        trailingIcon = {
+            CircleIconButton(
+                ExpIcons.uiSend,
+                "Send",
+                enabled = answer.isNotBlank(),
+                borderless = true,
+                onClick = {
+                    if (sessionVm.sendCommand(answer.trim())) answer = "" else failed = true
+                },
+            )
+        },
+    )
 }
 
 /** The strip: `All`, then one row per wave, scrolling sideways. */
@@ -610,9 +674,27 @@ private fun StripChip(
  *  issue's own status glyph. */
 @Composable
 private fun NodeGlyph(chip: NodeChip, status: com.exponential.app.domain.ResolvedIssueStatus?) {
-    val icon = when (chip.display) {
+    DisplayGlyph(chip.display, live = chip.live, status = status)
+}
+
+/** The workflow's status in the chip vocabulary (web `workflowStatusGlyph`). */
+private fun workflowDisplay(status: String): WorkflowNodeDisplayState = when (status) {
+    DomainContract.wfStatusRunning, DomainContract.wfStatusPaused -> WorkflowNodeDisplayState.RUNNING
+    DomainContract.wfStatusDone -> WorkflowNodeDisplayState.DONE
+    DomainContract.wfStatusCancelled -> WorkflowNodeDisplayState.SKIPPED
+    else -> WorkflowNodeDisplayState.QUEUED
+}
+
+/** One display state as a 14dp glyph — the chips' and the header's. */
+@Composable
+private fun DisplayGlyph(
+    display: WorkflowNodeDisplayState,
+    live: Boolean,
+    status: com.exponential.app.domain.ResolvedIssueStatus?,
+) {
+    val icon = when (display) {
         WorkflowNodeDisplayState.RUNNING -> {
-            Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) { LiveDot(busy = chip.live) }
+            Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) { LiveDot(busy = live) }
             return
         }
         WorkflowNodeDisplayState.QUEUED -> {
@@ -628,9 +710,9 @@ private fun NodeGlyph(chip: NodeChip, status: com.exponential.app.domain.Resolve
     }
     Icon(
         icon,
-        contentDescription = chip.display.label,
+        contentDescription = display.label,
         modifier = Modifier.size(14.dp),
-        tint = when (chip.display) {
+        tint = when (display) {
             WorkflowNodeDisplayState.DONE -> DesignTokens.Semantic.Green
             WorkflowNodeDisplayState.FAILED -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)

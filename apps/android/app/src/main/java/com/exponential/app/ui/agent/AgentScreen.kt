@@ -62,7 +62,6 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.StackStart
-import com.exponential.app.domain.WorkflowQuestions
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.WorkflowView
@@ -97,6 +96,7 @@ import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.workflows.WorkflowsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -136,6 +136,7 @@ fun AgentScreen(
     // The sessions under the composer: the Devices tab's own model, reused
     // rather than mirrored (both read the same synced shapes).
     sessionsViewModel: AgentsViewModel = hiltViewModel(),
+    workflowsViewModel: WorkflowsViewModel = hiltViewModel(),
 ) {
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
@@ -433,12 +434,9 @@ fun AgentScreen(
                     // EXP-1069: a red dot while any workflow of the team has an
                     // open question — the one thing inside a run that waits
                     // for a person.
-                    val workflowNeedsYou = sessionsState.treeContext.workflows.any { workflow ->
-                        WorkflowQuestions.open(
-                            sessionsState.rows.map { it.session },
-                            workflow.id,
-                        ).isNotEmpty()
-                    }
+                    // Every run of the team's workflows (a shared runner's
+                    // too), not only the caller's live rows.
+                    val workflowNeedsYou by workflowsViewModel.needsYou.collectAsStateWithLifecycle()
                     IconButton(
                         onClick = onOpenWorkflows,
                         modifier = Modifier.testTag("agent-workflows-button"),

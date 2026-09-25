@@ -17,7 +17,7 @@ import kotlinx.serialization.json.putJsonArray
 // WorkflowNodeEntity) — this API carries only the mutations: create the draft,
 // rename it or change how it runs, add/drop issues, set a node's plan, replan,
 // delete — and, from EXP-982, RUNNING one: start/pause/resume/cancel plus the
-// two node verdicts a person gives (approve, retry/skip). Any team MEMBER may
+// node verdict a person gives (retry/skip). Any team MEMBER may
 // call them (a workflow is work, not a team setting), and every refusal is a
 // human sentence the caller shows verbatim. The engine-only procedures
 // (`reportNode`/`landNode`/`openFinalPr`) belong to the runner DEVICE and are
@@ -69,13 +69,6 @@ internal data class WorkflowIdInput(@SerialName("id") val id: String)
  */
 @Serializable
 internal data class WorkflowMergeResult(@SerialName("merged") val merged: Boolean = false)
-
-/** `workflows.approveNode` — the gate, taken back with `approved = false`. */
-@Serializable
-internal data class ApproveNodeInput(
-    @SerialName("nodeId") val nodeId: String,
-    @SerialName("approved") val approved: Boolean,
-)
 
 /** `workflows.resolveNode` — `retry` or `skip`, nothing else. */
 @Serializable
@@ -316,16 +309,6 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
         inputSerializer = WorkflowIdInput.serializer(),
         outputSerializer = WorkflowMergeResult.serializer(),
     ).merged
-
-    /** `workflows.approveNode` — clear a node's PR for the merge train. */
-    suspend fun approveNode(accountId: String, nodeId: String, approved: Boolean = true) {
-        trpc.mutationUnit(
-            accountId,
-            path = "workflows.approveNode",
-            input = ApproveNodeInput(nodeId = nodeId, approved = approved),
-            inputSerializer = ApproveNodeInput.serializer(),
-        )
-    }
 
     /**
      * `workflows.resolveNode` — a person unsticks a failed node: [NODE_RETRY]
