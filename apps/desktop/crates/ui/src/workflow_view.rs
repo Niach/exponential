@@ -11,10 +11,13 @@
 //!   node, and the decisions log folded away.
 //! - All × Runs: the session tree of the workflow's runs; a run opens IN
 //!   PLACE.
-//! - All × Changes: the final pull request (the ONE human review).
+//! - All × Changes: the final pull request (the ONE human review, Merge
+//!   there) over every node's PR state; a node with a PR opens its files in
+//!   place, one without reads `No changes yet`.
 //! - All × Results: every run's pictures by topic.
 //! - One node × face: that issue's own views embedded here — the issue
-//!   detail, the run's steer view, the PR files, the run's results.
+//!   detail, the run's steer view (the OWNER's runs only, EXP-312; anyone
+//!   else sees its status row), the PR files, the run's results.
 //! - Several nodes: the All faces filtered to them.
 //!
 //! Every word the page says comes from `domain::workflow_view` (×4, fixture
@@ -44,13 +47,13 @@ use sync::Store;
 use domain::rows::{CodingSession, WorkflowNodeRow, WorkflowRow};
 use domain::workflow_questions::{workflow_open_questions, WorkflowOpenQuestion};
 use domain::workflow_view::{
-    node_chip_menu, workflow_final_pr_caption, workflow_header_caption, workflow_node_strip,
+    node_chip_menu, workflow_final_pr_caption, workflow_status_glyph, workflow_header_caption, workflow_node_strip,
     workflow_node_title, workflow_primary_action, workflow_start_blocker, HeaderNode, NodeChip,
     NodeChipAction, StartableWorkflow, StripNodeInput, StripWave, WorkflowNodeDisplayState,
     WorkflowPrimaryAction, CANCEL_WORKFLOW_CONFIRM, DELETE_WORKFLOW_LABEL, FINAL_PR_TITLE,
     MERGE_FINAL_PR_CONFIRM, MERGE_FINAL_PR_LABEL, NEEDS_YOU_LABEL, NODE_UNSYNCED_TITLE,
     PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, RESUME_WORKFLOW_LABEL, SKIP_NODE_CONFIRM,
-    SKIP_NODE_LABEL, START_WORKFLOW_LABEL, ALL_NODES_LABEL, DECISIONS_LABEL, PICK_DEVICE_LABEL,
+    SKIP_NODE_LABEL, START_WORKFLOW_LABEL, DISMISS_NODE_LABEL, ALL_NODES_LABEL, DECISIONS_LABEL, PICK_DEVICE_LABEL,
     REVIEW_FINAL_PR_LABEL, RUNS_ON_LABEL, STOP_WORKFLOW_LABEL, workflow_overflow_menu,
     WorkflowOverflowItem,
 };
@@ -69,128 +72,38 @@ const STRIP_TITLE_W: f32 = 140.;
 const EVENTS_TITLE: &str = "Activity";
 /// The banner's one button: the run's own composer answers it.
 const ANSWER_LABEL: &str = "Answer";
+/// A node on the Changes face whose issue has no pull request yet.
+const NO_CHANGES_LABEL: &str = "No changes yet";
+/// The Dismiss confirm on a `proposed` node (the Skip confirm's shape).
+const DISMISS_NODE_CONFIRM: &str = "The node is removed from the workflow.";
 
 // ---------------------------------------------------------------------------
 // Selection — pure, so the picker's rules are unit tests
 // ---------------------------------------------------------------------------
 
-/// What the strip has picked: nothing (= `All`, position 0) or a set of
-/// node ids. `anchor` is where a shift-click range and a step start from.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Selection {
-    picked: Vec<String>,
-    anchor: Option<String>,
-}
-
-impl Selection {
-    pub(crate) fn is_all(&self) -> bool {
-        self.picked.is_empty()
-    }
-
-    pub(crate) fn contains(&self, id: &str) -> bool {
-        self.picked.iter().any(|picked| picked == id)
-    }
-
-    /// The picked ids, in the order given (the strip's DAG order).
-    pub(crate) fn picked_in<'a>(&self, order: &'a [String]) -> Vec<&'a String> {
-        order.iter().filter(|id| self.contains(id)).collect()
-    }
-
-    /// The one picked node, when exactly one is.
-    pub(crate) fn single(&self) -> Option<&str> {
-        (self.picked.len() == 1).then(|| self.picked[0].as_str())
-    }
-
-    /// Back to `All`.
-    pub(crate) fn select_all(&mut self) {
-        self.picked.clear();
-        self.anchor = None;
-    }
-
-    /// A plain click: this node and nothing else.
-    pub(crate) fn select(&mut self, id: &str) {
-        self.picked = vec![id.to_string()];
-        self.anchor = Some(id.to_string());
-    }
-
-    /// Cmd-click: in or out of the set. Emptying it is `All` again.
-    pub(crate) fn toggle(&mut self, id: &str) {
-        if let Some(index) = self.picked.iter().position(|picked| picked == id) {
-            self.picked.remove(index);
-            if self.anchor.as_deref() == Some(id) {
-                self.anchor = self.picked.last().cloned();
-            }
-        } else {
-            self.picked.push(id.to_string());
-            self.anchor = Some(id.to_string());
-        }
-    }
-
-    /// Shift-click: every node from the anchor to `id` in DAG order. With no
-    /// anchor it is a plain select.
-    pub(crate) fn extend(&mut self, order: &[String], id: &str) {
-        let Some(to) = order.iter().position(|node| node == id) else {
-            return;
-        };
-        let Some(from) = self
-            .anchor
-            .as_deref()
-            .and_then(|anchor| order.iter().position(|node| node == anchor))
-        else {
-            self.select(id);
-            return;
-        };
-        let (low, high) = (from.min(to), from.max(to));
-        self.picked = order[low..=high].to_vec();
-    }
-
-    /// Where the selection stands in the strip: `All` = 0, node `i` = `i+1`
-    /// (the anchor's, for a set).
-    pub(crate) fn position(&self, order: &[String]) -> usize {
-        if self.is_all() {
-            return 0;
-        }
-        self.anchor
-            .as_deref()
-            .or_else(|| self.picked.first().map(String::as_str))
-            .and_then(|id| order.iter().position(|node| node == id))
-            .map_or(0, |index| index + 1)
-    }
-
-    /// ←/→ (and k/j): one step over `All` + the DAG order, clamped at both
-    /// ends. A step always lands on ONE chip.
-    pub(crate) fn step(&mut self, order: &[String], delta: i64) {
-        let current = self.position(order) as i64;
-        let next = (current + delta).clamp(0, order.len() as i64) as usize;
-        if next == 0 {
-            self.select_all();
-        } else {
-            self.select(&order[next - 1]);
-        }
-    }
-
-    /// Drop the ids that left the workflow.
-    pub(crate) fn retain(&mut self, order: &[String]) {
-        self.picked.retain(|id| order.contains(id));
-        if self
-            .anchor
-            .as_deref()
-            .is_some_and(|anchor| !self.picked.iter().any(|id| id == anchor))
-        {
-            self.anchor = self.picked.last().cloned();
-        }
-    }
-}
+/// What the strip has picked — the ONE picker model, fixture-locked in
+/// `domain::workflow_view::WorkflowSelection` (×4).
+pub(crate) type Selection = domain::workflow_view::WorkflowSelection;
 
 /// A chip click, by its modifiers: cmd toggles, shift extends, plain picks.
 fn apply_click(selection: &mut Selection, order: &[String], id: &str, modifiers: &Modifiers) {
     if modifiers.secondary() {
-        selection.toggle(id);
+        selection.toggle(order, id);
     } else if modifiers.shift {
         selection.extend(order, id);
     } else {
-        selection.select(id);
+        selection.click(order, Some(id));
     }
+}
+
+/// The strip's step for a key press: ←/→ and k/j, and only UNMODIFIED — a
+/// shift/cmd/ctrl/alt arrow never steps (it belongs to whoever else binds it).
+/// `function` is not a modifier here: macOS flags every arrow key with it.
+fn strip_step(key: &str, modifiers: &Modifiers) -> Option<i64> {
+    if modifiers.control || modifiers.alt || modifiers.shift || modifiers.platform {
+        return None;
+    }
+    step_for_key(key)
 }
 
 /// The strip's step for a key, `None` for every other key.
@@ -228,6 +141,10 @@ pub struct WorkflowView {
     scroll: ScrollHandle,
     /// The ONE node's views, embedded (lazily built, re-pointed).
     issue_view: Option<Entity<crate::issue_detail::IssueDetailView>>,
+    /// The issue `issue_view` was last pointed at. Re-pointing is DEFERRED
+    /// out of render (`IssueDetailView::set_issue` grabs focus), so this is
+    /// what render compares against.
+    embedded_issue: Option<String>,
     pr_view: Option<Entity<crate::pr_diff::PrDiffView>>,
     run_view: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
     images: Entity<crate::markdown::ImageCache>,
@@ -250,6 +167,9 @@ struct NodeInfo {
     /// The run's dot tone while the agent is mid-turn.
     busy_tone: Option<gpui::Hsla>,
     has_pr: bool,
+    /// The node's PR, off its issue: `open` / `merged` / `closed`.
+    pr_state: Option<String>,
+    pr_number: Option<i64>,
 }
 
 /// What one chip draws: the domain's chip plus the joins the strip needs.
@@ -321,6 +241,7 @@ impl WorkflowView {
             strip_focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             issue_view: None,
+            embedded_issue: None,
             pr_view: None,
             run_view: None,
             images,
@@ -409,7 +330,7 @@ impl WorkflowView {
     fn answer(&mut self, question: &WorkflowOpenQuestion, cx: &mut gpui::Context<Self>) {
         match question.node_id.as_deref() {
             Some(node_id) => {
-                self.selection.select(node_id);
+                self.selection = Selection::only(node_id);
                 // The ASKING run (a reviewer, an older attempt), never the
                 // node's newest session.
                 self.open_run = Some(question.session_id.clone());
@@ -462,6 +383,8 @@ impl WorkflowView {
                         .unwrap_or_else(|| NODE_UNSYNCED_TITLE.to_string()),
                     status: issue.as_ref().map(|issue| queries::resolve_issue_status(cx, issue)),
                     has_pr: issue.as_ref().is_some_and(|issue| issue.pr_url.is_some()),
+                    pr_state: issue.as_ref().and_then(|issue| issue.pr_state.clone()),
+                    pr_number: issue.as_ref().and_then(|issue| issue.pr_number),
                     run,
                     busy_tone,
                     row,
@@ -494,6 +417,12 @@ fn node_run_busy(
 ) -> bool {
     display == queries::CodingSessionDisplay::Running
         && queries::session_agent_busy(session, None, now_epoch)
+}
+
+/// EXP-312: a run embeds its steer view only for the person who started it
+/// (`user_id` = the signed-in account); everyone else sees its status row.
+fn owns_run(session: &CodingSession, me: Option<&str>) -> bool {
+    me.is_some() && session.user_id.as_deref() == me
 }
 
 /// The workflow's runs (`coding_sessions.workflow_id`).
@@ -587,7 +516,7 @@ impl Render for WorkflowView {
             .iter()
             .flat_map(|wave| wave.nodes.iter().map(|chip| chip.id.clone()))
             .collect();
-        self.selection.retain(&order);
+        self.selection.prune(&order);
 
         let header = self.render_header(&row, &infos, window, cx);
         let banner = render_question_banner(&questions, &infos, cx.entity().downgrade(), cx);
@@ -627,11 +556,6 @@ impl Render for WorkflowView {
                 .collect()
         };
         let results = collect_results(&scope_sessions);
-        let has_changes = if self.selection.is_all() {
-            row.final_pr_number.is_some() || row.final_pr_url.is_some()
-        } else {
-            scope.iter().any(|info| info.has_pr)
-        };
         let run_entries = run_entries(&scope_sessions, &infos);
         let toggle_spec = FaceToggle {
             issue: true,
@@ -640,7 +564,8 @@ impl Render for WorkflowView {
                 None => scope_sessions.first().map(|run| run.id.clone()),
             },
             diff: None,
-            pr_changes: has_changes,
+            // Always there: a node without a PR says so on the face itself.
+            pr_changes: true,
             results: !results.is_empty(),
             active: self.face,
             runs: run_entries,
@@ -701,7 +626,24 @@ impl Render for WorkflowView {
             self.drop_run_view(cx);
         }
 
+        let me = queries::active_account(cx).map(|account| account.user_id);
         let body: AnyElement = match (face, single, shown_run) {
+            // EXP-312: a live session is steerable ONLY by its owner — a
+            // teammate's run reads as its status row, never the steer view.
+            (Face::Run, _, Some(session_id))
+                if !scope_sessions
+                    .iter()
+                    .find(|session| session.id == session_id)
+                    .is_some_and(|session| owns_run(session, me.as_deref())) =>
+            {
+                let foreign: Vec<CodingSession> = scope_sessions
+                    .iter()
+                    .filter(|session| session.id == session_id)
+                    .cloned()
+                    .collect();
+                let row = self.render_run_tree(&foreign, cx);
+                self.scrolled(row)
+            }
             (Face::Run, _, Some(session_id)) => {
                 let screen = match self.run_view.as_ref() {
                     Some((_, view)) => view.clone(),
@@ -729,7 +671,22 @@ impl Render for WorkflowView {
                         cx.new(|cx| crate::issue_detail::IssueDetailView::new(window, cx))
                     })
                     .clone();
-                detail.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
+                // Never re-point during render: `set_issue` ends by focusing
+                // the detail root, which would strand the strip's keys after
+                // ONE step. Defer it, then hand focus back to the strip when
+                // the strip held it (a click or a key step picked this node).
+                if self.embedded_issue.as_deref() != Some(issue_id.as_str()) {
+                    self.embedded_issue = Some(issue_id.clone());
+                    let refocus = self.strip_focus.is_focused(window);
+                    let strip_focus = self.strip_focus.clone();
+                    let target = detail.clone();
+                    window.defer(cx, move |window, cx| {
+                        target.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
+                        if refocus {
+                            window.focus(&strip_focus, cx);
+                        }
+                    });
+                }
                 embedded(detail.into_any_element())
             }
             (Face::Diff, Some(info), _) if info.has_pr => {
@@ -757,12 +714,11 @@ impl Render for WorkflowView {
                 let page = crate::session_results::render(&groups, width.max(200.), &images, cx);
                 self.scrolled(page)
             }
-            (Face::Diff, _, _) => {
-                let list = if self.selection.is_all() {
-                    render_final_pr(&row, cx)
-                } else {
-                    render_pr_rows(&scope, cx)
-                };
+            (Face::Diff, Some(_), _) => self.scrolled(no_changes_line(cx)),
+            (Face::Diff, None, _) => {
+                let final_pr = self.selection.is_all()
+                    && (row.final_pr_number.is_some() || row.final_pr_url.is_some());
+                let list = self.render_changes_rows(&row, &scope, final_pr, cx);
                 self.scrolled(list)
             }
             (Face::Run, _, None) => {
@@ -792,15 +748,17 @@ impl Render for WorkflowView {
                 div()
                     .id("workflow-strip")
                     .track_focus(&strip_focus)
-                    .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _window, cx| {
-                        let modifiers = &event.keystroke.modifiers;
-                        if modifiers.control || modifiers.alt || modifiers.platform {
-                            return;
-                        }
-                        if let Some(delta) = step_for_key(event.keystroke.key.as_str()) {
+                    .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                        let keystroke = &event.keystroke;
+                        if let Some(delta) = strip_step(keystroke.key.as_str(), &keystroke.modifiers)
+                        {
                             cx.stop_propagation();
                             this.selection.step(&key_order, delta);
                             this.open_run = None;
+                            // Keep the keys on the strip: the next embedded
+                            // view's swap must not strand them (its re-point
+                            // re-focuses the strip too, see render).
+                            window.focus(&this.strip_focus, cx);
                             cx.notify();
                         }
                     }))
@@ -895,7 +853,20 @@ impl WorkflowView {
                         }),
                     ),
                     NodeChipAction::Admit => spawn_admit(node_id, true, cx),
-                    NodeChipAction::Dismiss => spawn_admit(node_id, false, cx),
+                    NodeChipAction::Dismiss => crate::native_dialog::open_alert(
+                        window,
+                        cx,
+                        crate::native_dialog::AlertSpec::new(
+                            DISMISS_NODE_LABEL,
+                            DISMISS_NODE_CONFIRM,
+                            DISMISS_NODE_LABEL,
+                        )
+                        .ok_variant(ButtonVariant::Danger)
+                        .on_ok(move |_window, cx| {
+                            spawn_admit(node_id.clone(), false, cx);
+                            true
+                        }),
+                    ),
                 }
             }),
         }
@@ -923,7 +894,11 @@ impl WorkflowView {
         let caption = workflow_header_caption(&status, &header_nodes, label.as_deref());
         // A runner whose row has not synced still counts as picked.
         let picked = label.clone().or_else(|| row.device_id.clone());
-        let action = workflow_primary_action(&status, picked.as_deref());
+        let action = workflow_primary_action(
+            &status,
+            picked.as_deref(),
+            row.final_pr_state.as_deref(),
+        );
         let blocker = draft
             .then(|| {
                 workflow_start_blocker(
@@ -942,7 +917,9 @@ impl WorkflowView {
             .clone()
             .filter(|sentence| sentence.as_str() != PICK_DEVICE_BLOCKER);
         let (glyph, tint) = status_glyph(&status, cx);
-        let primary = action.map(|action| primary_button(action, row, blocker.is_some(), cx));
+        let view = cx.entity().downgrade();
+        let primary =
+            action.map(|action| primary_button(action, row, blocker.is_some(), view, cx));
 
         v_flex()
             .w_full()
@@ -1022,7 +999,7 @@ impl WorkflowView {
                 if let Some(view) = view.upgrade() {
                     let node_id = node_id.clone();
                     view.update(cx, |this, cx| {
-                        this.selection.select(&node_id);
+                        this.selection = Selection::only(&node_id);
                         this.face = Face::Issue;
                         this.open_run = None;
                         cx.notify();
@@ -1128,6 +1105,72 @@ impl WorkflowView {
                         }),
                 );
             }
+        }
+        column.into_any_element()
+    }
+
+    /// All/several × Changes: the final pull request first (All only, Merge
+    /// while it is open), then EVERY node in scope with its PR state. A node
+    /// with a PR opens its files IN PLACE (that node × Changes); one without
+    /// reads `No changes yet`. Nothing navigates away.
+    fn render_changes_rows(
+        &self,
+        row: &WorkflowRow,
+        scope: &[&NodeInfo],
+        final_pr: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        let (muted, success, foreground) = (theme.muted_foreground, theme.success, theme.foreground);
+        let mut column = v_flex().w_full().min_w_0();
+        let mut index = 0;
+        if final_pr {
+            column = column.child(render_final_pr(row, cx));
+            index += 1;
+        }
+        if scope.is_empty() && !final_pr {
+            return no_changes_line(cx);
+        }
+        let view = cx.entity().downgrade();
+        for info in scope {
+            let tint = match (info.has_pr, info.pr_state.as_deref()) {
+                (false, _) | (true, Some("closed")) => muted,
+                (true, Some("merged")) => success,
+                _ => foreground,
+            };
+            let mut chip = crate::issue_chip::issue_chip(
+                SharedString::from(format!("workflow-changes-node-{}", info.row.id)),
+                workflow_node_title(&info.identifier, info.row.member_ids().len()),
+                info.title.clone(),
+            )
+            .flexible()
+            .note(
+                node_pr_caption(info.has_pr, info.pr_number, info.pr_state.as_deref()),
+                tint,
+            );
+            if info.has_pr {
+                chip = chip.slot(Icon::from(registry::PR_OPEN).xsmall().text_color(tint));
+                let node_id = info.row.id.clone();
+                let view = view.clone();
+                chip = chip.on_click(move |_: &ClickEvent, _window, cx| {
+                    if let Some(view) = view.upgrade() {
+                        let node_id = node_id.clone();
+                        view.update(cx, |this, cx| {
+                            this.selection = Selection::only(&node_id);
+                            this.face = Face::Diff;
+                            this.open_run = None;
+                            cx.notify();
+                        });
+                    }
+                });
+            } else if let Some(status) = info.status.clone() {
+                chip = chip.status(status);
+            }
+            column = column.child(crate::surface::list_row(
+                div().w_full().min_w_0().px_2().py_1().child(chip),
+                index,
+            ));
+            index += 1;
         }
         column.into_any_element()
     }
@@ -1350,18 +1393,13 @@ fn display_glyph(display: WorkflowNodeDisplayState) -> Option<crate::icons::ExpI
 /// ONE blocker the Pick device primary already answers.
 const PICK_DEVICE_BLOCKER: &str = "Pick the device that runs this workflow first.";
 
-/// The workflow status beside its name.
+/// The workflow status beside its name, read as the node display state it
+/// looks like (`workflow_status_glyph`, locked ×4): a queued draft keeps the
+/// draft glyph, the rest wear the chips' own glyphs and tints.
 fn status_glyph(status: &str, cx: &App) -> (crate::icons::ExpIcon, gpui::Hsla) {
-    let theme = cx.theme();
-    match status {
-        "draft" => (registry::PR_DRAFT, theme.muted_foreground),
-        "running" => (registry::CODING_RUNNING, theme.foreground),
-        "paused" => (registry::RUN_PAUSE, theme.muted_foreground),
-        "done" => (registry::STATUS_DONE, theme.success),
-        "failed" => (registry::UI_ERROR, theme.danger),
-        "cancelled" => (registry::STATUS_CANCELLED, theme.muted_foreground),
-        _ => (registry::NAV_WORKFLOWS, theme.muted_foreground),
-    }
+    let display = workflow_status_glyph(status);
+    let glyph = display_glyph(display).unwrap_or(registry::PR_DRAFT);
+    (glyph, display_color(display, cx))
 }
 
 /// The node strip: `All`, then the waves left to right, a wave's lanes top
@@ -1471,24 +1509,48 @@ fn strip_chip(
         });
     if let Some(handlers) = handlers {
         if !facts.menu.is_empty() {
-            let menu_items = facts.menu.clone();
-            let node_id = chip_facts.id.clone();
-            let on_menu = handlers.on_menu.clone();
-            return cell.context_menu(move |mut menu, _window, _cx| {
-                for action in menu_items.clone() {
-                    let node_id = node_id.clone();
-                    let on_menu = on_menu.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(action.label())
-                            .on_click(move |_, window, cx| on_menu(&node_id, action, window, cx)),
-                    );
-                }
-                menu
-            })
-            .into_any_element();
+            let fill = chip_menu_builder(facts.menu.clone(), chip_facts.id.clone(), handlers.on_menu.clone());
+            // The same menu on right-click AND behind a visible overflow
+            // button beside the chip — an action is never hover/right-click
+            // only.
+            let more = crate::controls::ghost_icon_button(
+                SharedString::from(format!("workflow-chip-more-{}", chip_facts.id)),
+                Icon::from(registry::UI_MORE),
+                cx,
+            )
+            .dropdown_menu({
+                let fill = fill.clone();
+                move |menu, _window, _cx| fill(menu)
+            });
+            return h_flex()
+                .items_center()
+                .gap_0p5()
+                .child(cell.context_menu(move |menu, _window, _cx| fill(menu)))
+                .child(more)
+                .into_any_element();
         }
     }
     cell.into_any_element()
+}
+
+/// A failed / proposed chip's menu entries, shared by its right-click menu and
+/// its overflow button.
+fn chip_menu_builder(
+    items: Vec<NodeChipAction>,
+    node_id: String,
+    on_menu: Rc<dyn Fn(&str, NodeChipAction, &mut Window, &mut App)>,
+) -> Rc<dyn Fn(gpui_component::menu::PopupMenu) -> gpui_component::menu::PopupMenu> {
+    Rc::new(move |mut menu| {
+        for action in items.clone() {
+            let node_id = node_id.clone();
+            let on_menu = on_menu.clone();
+            menu = menu.item(
+                PopupMenuItem::new(action.label())
+                    .on_click(move |_, window, cx| on_menu(&node_id, action, window, cx)),
+            );
+        }
+        menu
+    })
 }
 
 fn muted_outline(cx: &App) -> gpui::Hsla {
@@ -1617,30 +1679,30 @@ fn render_final_pr(row: &WorkflowRow, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// Several × Changes: the picked nodes' pull requests, each opening its
-/// files.
-fn render_pr_rows(scope: &[&NodeInfo], cx: &App) -> AnyElement {
-    let mut column = v_flex().w_full().min_w_0();
-    for (index, info) in scope.iter().filter(|info| info.has_pr).enumerate() {
-        let Some(issue_id) = info.row.issue_id.clone() else {
-            continue;
-        };
-        let target = issue_id.clone();
-        let chip = issue_chip_element(&issue_id, cx).on_click(move |_, window, cx| {
-            crate::navigation::navigate(
-                window,
-                cx,
-                Screen::PrDiff {
-                    issue_id: target.clone(),
-                },
-            );
-        });
-        column = column.child(crate::surface::list_row(
-            div().w_full().min_w_0().px_2().py_1().child(chip),
-            index,
-        ));
+/// A node's line on the Changes face: `#12 · Open`, or [`NO_CHANGES_LABEL`]
+/// while its issue has no PR.
+fn node_pr_caption(has_pr: bool, number: Option<i64>, state: Option<&str>) -> String {
+    if !has_pr {
+        return NO_CHANGES_LABEL.to_string();
     }
-    column.into_any_element()
+    let word = match state {
+        Some("merged") => "Merged",
+        Some("closed") => "Closed",
+        _ => "Open",
+    };
+    match number {
+        Some(number) => format!("#{number} · {word}"),
+        None => word.to_string(),
+    }
+}
+
+/// One node on the Changes face without a PR.
+fn no_changes_line(cx: &App) -> AnyElement {
+    div()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(NO_CHANGES_LABEL)
+        .into_any_element()
 }
 
 /// The header's ONE primary button.
@@ -1648,6 +1710,7 @@ fn primary_button(
     action: WorkflowPrimaryAction,
     row: &WorkflowRow,
     blocked: bool,
+    view: gpui::WeakEntity<WorkflowView>,
     cx: &App,
 ) -> AnyElement {
     let id = row.id.clone();
@@ -1688,8 +1751,17 @@ fn primary_button(
             .small()
             .icon(Icon::from(registry::NAV_REVIEWS))
             .label(REVIEW_FINAL_PR_LABEL)
-            .on_click(|_, window, cx| {
-                crate::navigation::navigate(window, cx, Screen::Reviews);
+            // All × Changes on THIS page: the final PR row with Merge lives
+            // there (Reviews never lists a workflow's final PR).
+            .on_click(move |_, _window, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| {
+                        this.selection.select_all();
+                        this.face = Face::Diff;
+                        this.open_run = None;
+                        cx.notify();
+                    });
+                }
             })
             .into_any_element(),
     }
@@ -2161,8 +2233,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> AnyElement {
                 .collect()
         })
         .collect();
-    let mut selection = Selection::default();
-    selection.select("running");
+    let selection = Selection::only("running");
     let header_nodes: Vec<HeaderNode> = inputs
         .iter()
         .map(|node| HeaderNode {
@@ -2204,10 +2275,11 @@ mod tests {
     fn a_workflow_opens_on_all() {
         let selection = Selection::default();
         assert!(selection.is_all());
-        assert_eq!(selection.position(&order()), 0);
         assert_eq!(selection.single(), None);
     }
 
+    /// The model's rules are the fixture's (`domain::workflow_view`); here:
+    /// which modifier reaches which rule.
     #[test]
     fn a_plain_click_picks_one_node() {
         let mut selection = Selection::default();
@@ -2222,10 +2294,10 @@ mod tests {
     fn cmd_toggles_and_emptying_the_set_is_all_again() {
         let mut selection = Selection::default();
         let cmd = Modifiers::secondary_key();
-        apply_click(&mut selection, &order(), "b", &cmd);
         apply_click(&mut selection, &order(), "d", &cmd);
+        apply_click(&mut selection, &order(), "b", &cmd);
         assert_eq!(picked(&selection), vec!["b", "d"]);
-        assert_eq!(selection.single(), None);
+        assert_eq!(selection.ids, vec!["b", "d"], "kept in DAG order");
         apply_click(&mut selection, &order(), "b", &cmd);
         assert_eq!(picked(&selection), vec!["d"]);
         apply_click(&mut selection, &order(), "d", &cmd);
@@ -2233,56 +2305,64 @@ mod tests {
     }
 
     #[test]
-    fn shift_extends_a_range_in_dag_order() {
+    fn shift_extends_a_range_from_the_anchor() {
         let mut selection = Selection::default();
-        selection.select("d");
+        apply_click(&mut selection, &order(), "d", &Modifiers::default());
         let shift = Modifiers::shift();
         apply_click(&mut selection, &order(), "b", &shift);
         assert_eq!(picked(&selection), vec!["b", "c", "d"]);
-        // The anchor stays where the range started.
         apply_click(&mut selection, &order(), "c", &shift);
-        assert_eq!(picked(&selection), vec!["c", "d"]);
-        // No anchor yet: a shift-click is a plain pick.
-        let mut fresh = Selection::default();
-        fresh.extend(&order(), "b");
-        assert_eq!(picked(&fresh), vec!["b"]);
+        assert_eq!(picked(&selection), vec!["c", "d"], "the anchor stays");
     }
 
+    /// Finding 3: stepping keeps working past the first step — every step
+    /// moves ONE position from where the last one landed.
     #[test]
-    fn stepping_walks_all_then_the_dag_order_and_clamps() {
+    fn repeated_steps_walk_the_strip() {
         let mut selection = Selection::default();
-        selection.step(&order(), -1);
-        assert!(selection.is_all(), "All is the left end");
-        selection.step(&order(), 1);
-        assert_eq!(selection.single(), Some("a"));
-        selection.step(&order(), 1);
-        selection.step(&order(), 1);
-        assert_eq!(selection.single(), Some("c"));
-        selection.step(&order(), 5);
-        assert_eq!(selection.single(), Some("d"), "the last node is the right end");
-        selection.step(&order(), -4);
+        for want in ["a", "b", "c", "d", "d"] {
+            selection.step(&order(), strip_step("right", &Modifiers::default()).unwrap());
+            assert_eq!(selection.single(), Some(want));
+        }
+        for _ in 0..4 {
+            selection.step(&order(), strip_step("k", &Modifiers::default()).unwrap());
+        }
         assert!(selection.is_all());
     }
 
     #[test]
-    fn a_step_from_a_set_starts_at_its_anchor_and_picks_one() {
-        let mut selection = Selection::default();
-        selection.select("a");
-        selection.toggle("c");
-        selection.step(&order(), 1);
-        assert_eq!(picked(&selection), vec!["d"]);
+    fn a_modified_arrow_never_steps() {
+        assert_eq!(strip_step("right", &Modifiers::shift()), None);
+        assert_eq!(strip_step("left", &Modifiers::secondary_key()), None);
+        assert_eq!(strip_step("j", &Modifiers::alt()), None);
+        let function = Modifiers {
+            function: true,
+            ..Modifiers::default()
+        };
+        assert_eq!(strip_step("right", &function), Some(1), "macOS flags arrows with fn");
     }
 
     #[test]
-    fn a_node_that_left_the_workflow_leaves_the_selection() {
-        let mut selection = Selection::default();
-        selection.select("a");
-        selection.toggle("c");
-        selection.retain(&["a".to_string(), "b".to_string()]);
-        assert_eq!(picked(&selection), vec!["a"]);
-        assert_eq!(selection.position(&order()), 1);
-        selection.retain(&[]);
-        assert!(selection.is_all());
+    fn only_the_owner_embeds_a_run() {
+        let run: CodingSession = serde_json::from_value(serde_json::json!({
+            "id": "s1",
+            "user_id": "me",
+        }))
+        .unwrap();
+        assert!(owns_run(&run, Some("me")));
+        assert!(!owns_run(&run, Some("teammate")));
+        assert!(!owns_run(&run, None));
+        let orphan: CodingSession =
+            serde_json::from_value(serde_json::json!({ "id": "s2" })).unwrap();
+        assert!(!owns_run(&orphan, None));
+    }
+
+    #[test]
+    fn a_node_reads_its_pr_state_or_no_changes() {
+        assert_eq!(node_pr_caption(false, None, None), "No changes yet");
+        assert_eq!(node_pr_caption(true, Some(12), Some("open")), "#12 · Open");
+        assert_eq!(node_pr_caption(true, Some(3), Some("merged")), "#3 · Merged");
+        assert_eq!(node_pr_caption(true, None, Some("closed")), "Closed");
     }
 
     #[test]
