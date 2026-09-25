@@ -103,6 +103,7 @@ public enum DomainContract {
     public static let builtinChatId: String = "builtin:chat"
     public static let builtinPlanWorkflowId: String = "builtin:plan-workflow"
     public static let builtinReviewNodeId: String = "builtin:review-node"
+    public static let builtinFixReviewFindingsId: String = "builtin:fix-review-findings"
     public static let workflowMaxReviewRounds: Int = 3
     public static let workflowEventsMax: Int = 50
     public static let workflowMaxParallelDefault: Int = 3

@@ -42,6 +42,9 @@ pub const BUILTIN_PLAN_WORKFLOW_ID: &str = domain::contract::BUILTIN_PLAN_WORKFL
 /// picker offers it, because only the workflow ENGINE on the runner device
 /// ever starts one.
 pub const BUILTIN_REVIEW_NODE_ID: &str = domain::contract::BUILTIN_REVIEW_NODE_ID;
+/// EXP-1103: the hidden "Fix review findings" builtin — a review wave's ONE
+/// fix run, started by the workflow engine on the runner device only.
+pub const BUILTIN_FIX_REVIEW_FINDINGS_ID: &str = domain::contract::BUILTIN_FIX_REVIEW_FINDINGS_ID;
 
 /// EXP-981: the device capability a planner start needs. An older build would
 /// fall through and author an ACTION instead of planning the workflow, so the
@@ -55,6 +58,7 @@ pub fn is_builtin_action_id(id: &str) -> bool {
         || id == BUILTIN_CHAT_ID
         || id == BUILTIN_PLAN_WORKFLOW_ID
         || id == BUILTIN_REVIEW_NODE_ID
+        || id == BUILTIN_FIX_REVIEW_FINDINGS_ID
 }
 
 /// The name each builtin renders under (web `builtinActionName`). `None` =
@@ -70,6 +74,7 @@ pub fn builtin_action_name(id: &str) -> Option<&'static str> {
         // constructs it — only the workflow engine starts it), but its run
         // rows carry this name snapshot, byte-identical to the server's.
         BUILTIN_REVIEW_NODE_ID => Some(BUILTIN_REVIEW_NODE_NAME),
+        BUILTIN_FIX_REVIEW_FINDINGS_ID => Some(BUILTIN_FIX_REVIEW_FINDINGS_NAME),
         _ => None,
     }
 }
@@ -102,6 +107,9 @@ const BUILTIN_PLAN_WORKFLOW_NAME: &str = "Plan workflow";
 /// EXP-984: the hidden "Review node" builtin's display name — byte-identical
 /// to the web's `BUILTIN_REVIEW_NODE_NAME`.
 pub const BUILTIN_REVIEW_NODE_NAME: &str = "Review node";
+/// EXP-1103: the fix run's display name, byte-identical to the web's
+/// `BUILTIN_FIX_REVIEW_FINDINGS_NAME`.
+pub const BUILTIN_FIX_REVIEW_FINDINGS_NAME: &str = "Fix review findings";
 /// EXP-981: the planner composer's hint — byte-identical to the web factory
 /// (`builtinPlanWorkflowAction.promptPlaceholder`).
 const BUILTIN_PLAN_WORKFLOW_PROMPT_PLACEHOLDER: &str =

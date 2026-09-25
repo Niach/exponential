@@ -83,6 +83,17 @@ fn state(cx: &mut App) -> gpui::Entity<AutomationHostState> {
 /// [`crate::device_sync::start_device_sync`]). Restarting for the same
 /// account replaces the old loop.
 pub fn start_automation_host(account: &api::Account, cx: &mut App) {
+    // EXP-1102: the state's one move out of settings.json — a no-op once done.
+    {
+        let auth = crate::session::AuthContext::global(cx);
+        let device_id = steer::persistent_device_id(&auth.data_dir);
+        let settings_path = coding::Settings::default_path(&auth.data_dir);
+        if automations::AutomationStore::open(&auth.data_dir, &device_id)
+            .migrate_legacy(&settings_path)
+        {
+            log::info!("[automations] moved the automation state out of settings.json");
+        }
+    }
     let state_entity = state(cx);
     let account_id = account.id.clone();
     let stop = Arc::new(AtomicBool::new(false));
@@ -555,7 +566,7 @@ struct PassOutcome {
 
 fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
     let now_ms = snapshot.now_local.timestamp_millis();
-    let mut states = automations::read_states(&snapshot.settings_path, &snapshot.device_id);
+    let mut states = automations::read_states(&store(&snapshot.settings_path, &snapshot.device_id));
     let decisions = automations::evaluate(&EvalInput {
         automations: &snapshot.automations,
         states: &states,
@@ -617,12 +628,19 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
     PassOutcome { states, fires }
 }
 
+/// EXP-1102: the automation state's own store, `{data_dir}/automations/
+/// <device_id>.json` — `settings_path` only names the data dir now.
+fn store(settings_path: &Path, device_id: &str) -> automations::AutomationStore {
+    let data_dir = settings_path.parent().unwrap_or_else(|| Path::new("."));
+    automations::AutomationStore::open(data_dir, device_id)
+}
+
 fn write_states(
     settings_path: &Path,
     device_id: &str,
     states: &HashMap<String, AutomationState>,
 ) -> bool {
-    match automations::write_states(settings_path, device_id, states) {
+    match automations::write_states(&store(settings_path, device_id), states) {
         Ok(()) => true,
         Err(err) => {
             log::warn!("[automations] state write failed: {err}");
@@ -822,7 +840,7 @@ fn launch(
 /// write on the CURRENT map so a concurrent pass's reseeds survive; a state
 /// that vanished meanwhile (trigger deleted) is left alone.
 fn back_off(settings_path: &Path, device_id: &str, automation_id: &str) {
-    let mut states = automations::read_states(settings_path, device_id);
+    let mut states = automations::read_states(&store(settings_path, device_id));
     let Some(state) = states.get_mut(automation_id) else {
         return;
     };

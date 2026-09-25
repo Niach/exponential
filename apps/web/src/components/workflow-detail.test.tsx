@@ -785,6 +785,35 @@ describe(`WorkflowDetail`, () => {
     expect(anchor.closest(`span.relative`)?.contains(screen.getByTestId(`workflow-more`))).toBe(true)
   })
 
+  // EXP-1102: a live workflow whose runner is gone says so and offers to
+  // re-bind; one whose runner is up keeps the pick frozen.
+  it(`a running workflow with an offline runner offers to pick another device`, async () => {
+    state.devices = [
+      { deviceId: `mac`, deviceLabel: `MacBook`, caps: [`workflows`], online: false, lastSeenAt: `2026-09-25T14:49:00.000Z` },
+      { deviceId: `srv`, deviceLabel: `Server`, caps: [`workflows`], online: true },
+    ]
+    renderPage({ status: `running` })
+    const caption = screen.getByTestId(`workflow-runner-offline`)
+    expect(caption.textContent).toMatch(/^Runner offline since \d\d:\d\d\. Pick another device$/)
+    fireEvent.click(screen.getByTestId(`workflow-runner-rebind`))
+    fireEvent.click(await screen.findByText(`Server`))
+    expect(mutates.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: `wf`, deviceId: `srv` }),
+      expect.anything()
+    )
+  })
+
+  it(`a running workflow whose runner is up shows no offline caption`, () => {
+    renderPage({ status: `running` })
+    expect(screen.queryByTestId(`workflow-runner-offline`)).toBeNull()
+  })
+
+  it(`a running workflow whose runner id no row names any more offers a re-bind too`, () => {
+    state.devices = [{ deviceId: `srv`, deviceLabel: `Server`, caps: [`workflows`], online: true }]
+    renderPage({ status: `running` })
+    expect(screen.getByTestId(`workflow-runner-offline`).textContent).toBe(`Runner offline. Pick another device`)
+  })
+
   it(`Runs on reads bare while no device is bound`, async () => {
     renderPage({ status: `draft`, deviceId: null })
     expect(await openOverflow()).toContain(RUNS_ON_LABEL)

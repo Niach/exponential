@@ -47,7 +47,7 @@ pub use events::{
     SEEN_IDS_CAP,
 };
 pub use schedule::{latest_occurrence, next_occurrence};
-pub use state::{read_states, write_states, AutomationState, AUTOMATIONS_KEY};
+pub use state::{read_states, write_states, AutomationState, AutomationStore, AUTOMATIONS_KEY};
 pub use summary::{schedule_phrase, trigger_summary};
 pub use trigger::{
     parse_trigger, parse_trigger_str, trigger_fingerprint, EventKind, EventSpec, ParsedTrigger,

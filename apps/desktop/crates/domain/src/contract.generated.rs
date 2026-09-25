@@ -103,6 +103,7 @@ pub const BUILTIN_FIX_CONFLICTS_ID: &str = "builtin:fix-conflicts";
 pub const BUILTIN_CHAT_ID: &str = "builtin:chat";
 pub const BUILTIN_PLAN_WORKFLOW_ID: &str = "builtin:plan-workflow";
 pub const BUILTIN_REVIEW_NODE_ID: &str = "builtin:review-node";
+pub const BUILTIN_FIX_REVIEW_FINDINGS_ID: &str = "builtin:fix-review-findings";
 pub const WORKFLOW_MAX_REVIEW_ROUNDS: usize = 3;
 pub const WORKFLOW_EVENTS_MAX: usize = 50;
 pub const WORKFLOW_MAX_PARALLEL_DEFAULT: usize = 3;

@@ -190,24 +190,33 @@ export const workflowCreateProcedures = {
       await assertTeamMember(ctx.session.user.id, existing.teamId)
       const { id, name, decision } = input
       // The name is a label and a decision is not configuration; the runner
-      // binding is, and only a draft takes one.
-      if (input.deviceId !== undefined) {
+      // binding is, and only a draft takes one — except a RE-BIND (EXP-1102):
+      // a running or paused workflow whose device went offline (or whose id
+      // changed) is moved to another machine by the person; the new host
+      // re-derives the engine state from the rows and git, so the launch
+      // stays as it was.
+      const rebinding =
+        input.deviceId !== undefined &&
+        (existing.status === `running` || existing.status === `paused`)
+      if (input.deviceId !== undefined && !rebinding) {
         assertDraft(existing.status, `Changing how a workflow runs`)
+      }
+      if (rebinding && !input.deviceId) {
+        throw bad(`A running workflow needs a runner device`)
       }
       // EXP-1032: binding a runner to a DRAFT re-seeds agent, account and both
       // models from THAT machine's agent defaults.
       let nextLaunch: WorkflowLaunch | undefined
       if (input.deviceId) {
-        nextLaunch = await seedLaunchFromBoundDevice(
-          input.deviceId,
-          existing.teamId,
-          ctx.session.user.id
-        )
+        const launch = rebinding
+          ? normalizeWorkflowLaunch(existing.launch)
+          : await seedLaunchFromBoundDevice(input.deviceId, existing.teamId, ctx.session.user.id)
+        if (!rebinding) nextLaunch = launch
         await assertDeviceUsable(
           input.deviceId,
           existing.teamId,
           ctx.session.user.id,
-          nextLaunch.agent,
+          launch.agent,
           WORKFLOW_DEVICE
         )
       }
@@ -232,8 +241,13 @@ export const workflowCreateProcedures = {
             ...(name !== undefined && { name }),
             ...(input.deviceId !== undefined && { deviceId: input.deviceId }),
             ...(nextLaunch !== undefined && { launch: storedLaunchFor(nextLaunch) }),
-            ...(decision !== undefined && {
-              decisions: appendDecisionLine(existing.decisions, decision, new Date()),
+            ...((decision !== undefined || rebinding) && {
+              decisions: appendDecisionLine(
+                existing.decisions ?? ``,
+                decision ??
+                  `Runner moved to device ${input.deviceId}; the new host rebuilds its state from the rows and git.`,
+                new Date()
+              ),
             }),
           })
           .where(eq(workflows.id, id))

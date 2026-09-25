@@ -35,16 +35,27 @@ const FIXTURES: [(&str, &str); 4] = [
 #[test]
 fn the_rule_cascade_matches_every_fixture_case() {
     let mut cases = 0;
+    // Every mismatch is reported at once: a rule change touches several
+    // cases, and one panic per run would cost a rebuild per case.
+    let mut failures = Vec::new();
     for (file, raw) in FIXTURES {
         let parsed: Vec<Case> =
             serde_json::from_str(raw).unwrap_or_else(|err| panic!("{file} parses: {err}"));
         assert!(!parsed.is_empty(), "{file} has cases");
         for case in parsed {
             let got = evaluate(&case.snapshot);
-            assert_eq!(got, case.expected, "{file} — case: {}", case.name);
+            if got != case.expected {
+                failures.push(format!(
+                    "{file} — case: {}\n  expected: {}\n  got:      {}",
+                    case.name,
+                    serde_json::to_string(&case.expected).unwrap(),
+                    serde_json::to_string(&got).unwrap(),
+                ));
+            }
             cases += 1;
         }
     }
+    assert!(failures.is_empty(), "{} case(s) differ:\n{}", failures.len(), failures.join("\n"));
     // A guard against an empty replay silently passing.
     assert!(cases >= 40, "expected the whole rule cascade, replayed {cases}");
 }

@@ -324,9 +324,9 @@ mod tests {
             (Decision::DeleteIntegrationBranch, failed("x"), None),
             (Decision::EnsureIntegrationBranch, Outcome::Done, None),
             (
-                Decision::MergeUpstream {
+                Decision::MergeBase {
                     node_id: "n1".to_string(),
-                    session_id: "s".to_string(),
+                    branch: "exp/EXP-1".to_string(),
                     base_branch: "b".to_string(),
                     sha: "abc".to_string(),
                 },
@@ -343,7 +343,15 @@ mod tests {
                 None,
             ),
             (
-                Decision::SendFindings { node_id: "n1".to_string(), session_id: None },
+                Decision::WakeRun {
+                    node_id: "n1".to_string(),
+                    session_id: "s".to_string(),
+                    mode: super::super::WakeMode::Resume,
+                    reason: super::super::WakeReason::UpstreamConflict {
+                        base_branch: "b".to_string(),
+                        sha: "abc".to_string(),
+                    },
+                },
                 Outcome::Done,
                 None,
             ),

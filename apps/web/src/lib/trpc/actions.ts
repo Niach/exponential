@@ -15,8 +15,10 @@ import {
   BUILTIN_CHAT_ID,
   BUILTIN_PLAN_WORKFLOW_ID,
   BUILTIN_REVIEW_NODE_ID,
+  BUILTIN_FIX_REVIEW_FINDINGS_ID,
   BUILTIN_PLAN_WORKFLOW_NAME,
   BUILTIN_REVIEW_NODE_NAME,
+  BUILTIN_FIX_REVIEW_FINDINGS_NAME,
   BUILTIN_CHAT_NAME,
   BUILTIN_CREATE_ACTION_NAME,
   BUILTIN_FIX_CONFLICTS_ID,
@@ -167,6 +169,7 @@ const actionIdSchema = z
   .or(z.literal(BUILTIN_CHAT_ID))
   .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
   .or(z.literal(BUILTIN_REVIEW_NODE_ID))
+  .or(z.literal(BUILTIN_FIX_REVIEW_FINDINGS_ID))
 
 function rejectBuiltin(id: string, verb: string): void {
   if (isBuiltinActionId(id)) {
@@ -190,6 +193,7 @@ function assertNotReservedName(name: string): void {
     BUILTIN_CHAT_NAME,
     BUILTIN_PLAN_WORKFLOW_NAME,
     BUILTIN_REVIEW_NODE_NAME,
+    BUILTIN_FIX_REVIEW_FINDINGS_NAME,
   ]) {
     if (normalized === reserved.toLowerCase()) {
       throw new TRPCError({

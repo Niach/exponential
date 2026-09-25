@@ -7,15 +7,29 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "blocked", "wave": 0, "lane": 0 }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "blocked",
+          "wave": 0,
+          "lane": 0
+        }
       ],
       "integrationBranchExists": false,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "ensureIntegrationBranch" }]
+    "expected": [
+      {
+        "kind": "ensureIntegrationBranch"
+      }
+    ]
   },
   {
     "name": "rule 2: a diamond starts its root first, then both middles",
@@ -25,12 +39,36 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
-        { "id": "root", "issueId": "i-root", "kind": "contract", "state": "landed", "wave": 0, "lane": 0 },
-        { "id": "left", "issueId": "i-left", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 },
-        { "id": "right", "issueId": "i-right", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 1 },
+        {
+          "id": "root",
+          "issueId": "i-root",
+          "kind": "contract",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0
+        },
+        {
+          "id": "left",
+          "issueId": "i-left",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        },
+        {
+          "id": "right",
+          "issueId": "i-right",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 1
+        },
         {
           "id": "tail",
           "issueId": "i-tail",
@@ -41,17 +79,37 @@
         }
       ],
       "edges": [
-        ["root", "left"],
-        ["root", "right"],
-        ["left", "tail"],
-        ["right", "tail"]
+        [
+          "root",
+          "left"
+        ],
+        [
+          "root",
+          "right"
+        ],
+        [
+          "left",
+          "tail"
+        ],
+        [
+          "right",
+          "tail"
+        ]
       ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "left", "state": "ready" },
-      { "kind": "setNodeState", "nodeId": "right", "state": "ready" },
+      {
+        "kind": "setNodeState",
+        "nodeId": "left",
+        "state": "ready"
+      },
+      {
+        "kind": "setNodeState",
+        "nodeId": "right",
+        "state": "ready"
+      },
       {
         "kind": "startNode",
         "workflowId": "wf-1",
@@ -80,7 +138,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 2,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -93,15 +154,41 @@
           "sessionId": "s-live",
           "attempt": 1
         },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "ready", "wave": 0, "lane": 1 },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "ready", "wave": 0, "lane": 2 }
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "ready",
+          "wave": 0,
+          "lane": 1
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "ready",
+          "wave": 0,
+          "lane": 2
+        }
       ],
-      "sessions": { "s-live": { "live": true } },
+      "sessions": {
+        "s-live": {
+          "live": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      {
+        "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
+        "nodeId": "b",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -112,7 +199,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -129,7 +219,15 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "a", "attempt": 3, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      {
+        "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
+        "nodeId": "a",
+        "attempt": 3,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -140,7 +238,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -154,7 +255,13 @@
           "attempt": 1
         }
       ],
-      "sessions": { "s-a": { "live": true, "blocked": true, "blockedResetsAtMs": 500 } },
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "blocked": true,
+          "blockedResetsAtMs": 500
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -181,7 +288,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -195,8 +305,19 @@
           "attempt": 1
         }
       ],
-      "sessions": { "s-a": { "live": true, "blocked": true, "blockedResetsAtMs": 500 } },
-      "nudged": [["s-a", 500]],
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "blocked": true,
+          "blockedResetsAtMs": 500
+        }
+      },
+      "nudged": [
+        [
+          "s-a",
+          "500"
+        ]
+      ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -217,7 +338,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -231,7 +355,13 @@
           "attempt": 1
         }
       ],
-      "sessions": { "s-a": { "live": true, "blocked": true, "blockedResetsAtMs": 5000 } },
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "blocked": true,
+          "blockedResetsAtMs": 5000
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -245,14 +375,17 @@
     ]
   },
   {
-    "name": "rule 4: the train holds an unapproved node, an approved one behind it lands",
+    "name": "rule 8: a node lands once its run ended, in topological order — no approval gates it",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -278,27 +411,43 @@
         }
       ],
       "issues": {
-        "i-c": { "prState": "open" },
-        "i-l": { "prState": "open" }
+        "i-c": {
+          "prState": "open"
+        },
+        "i-l": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-c": { "live": false },
-        "s-l": { "live": false }
+        "s-c": {
+          "live": false
+        },
+        "s-l": {
+          "live": false
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "l" }]
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "c"
+      }
+    ]
   },
   {
-    "name": "rule 4: one land per pass, the approved contract goes first",
+    "name": "rule 8: one land per pass, the contract goes first",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -325,27 +474,43 @@
         }
       ],
       "issues": {
-        "i-c": { "prState": "open" },
-        "i-l": { "prState": "open" }
+        "i-c": {
+          "prState": "open"
+        },
+        "i-l": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-c": { "live": false },
-        "s-l": { "live": false }
+        "s-c": {
+          "live": false
+        },
+        "s-l": {
+          "live": false
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "c" }]
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "c"
+      }
+    ]
   },
   {
-    "name": "rule 4: a land already in flight blocks the train",
+    "name": "rule 8: a land already in flight blocks the train",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -370,28 +535,41 @@
         }
       ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": false },
-        "s-b": { "live": false }
+        "s-a": {
+          "live": false
+        },
+        "s-b": {
+          "live": false
+        }
       },
-      "inFlight": ["a"],
+      "inFlight": [
+        "a"
+      ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": []
   },
   {
-    "name": "rule 4: nothing is cleared without a verdict",
+    "name": "rule 8: no verdict gates a node: an ended run with its pull request up lands",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -405,31 +583,112 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": false } },
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": false
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "a"
+      }
+    ]
   },
   {
-    "name": "rule 5: everything in, at least one landed, the final PR opens once",
+    "name": "rule 7: everything in, the final wave reviews the landed result before the final PR",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 1 }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "skipped",
+          "wave": 0,
+          "lane": 1
+        }
       ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "openFinalPr" }]
+    "expected": [
+      {
+        "kind": "startReview",
+        "nodeId": "a",
+        "wave": 0,
+        "model": "fable",
+        "adversarial": false,
+        "workflowId": "wf-1",
+        "role": "review"
+      }
+    ]
+  },
+  {
+    "name": "rule 9: everything in and reviewed, at least one landed, the final PR opens once",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "skipped",
+          "wave": 0,
+          "lane": 1
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "openFinalPr"
+      }
+    ]
   },
   {
     "name": "rule 10 (EXP-1059): every node skipped = nothing shipped, the workflow is cancelled instead of opening an empty final PR",
@@ -439,16 +698,32 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
-      "nodes": [{ "id": "a", "issueId": "i-a", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 0 }],
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "skipped",
+          "wave": 0,
+          "lane": 0
+        }
+      ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "cancelUnshipped" }]
+    "expected": [
+      {
+        "kind": "cancelUnshipped"
+      }
+    ]
   },
   {
-    "name": "rule 5: an open final PR is never opened twice",
+    "name": "rule 9: an open final PR is never opened twice",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
@@ -456,9 +731,22 @@
         "integrationBranch": "exp/wf-abcdef12",
         "finalPrUrl": "https://github.com/acme/web/pull/9",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
-      "nodes": [{ "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 }],
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        }
+      ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -472,10 +760,20 @@
         "status": "paused",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "blocked", "wave": 0, "lane": 0 },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 0,
+          "lane": 0
+        },
         {
           "id": "b",
           "issueId": "i-b",
@@ -487,14 +785,30 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-b": { "prState": "open" } },
-      "sessions": { "s-b": { "live": false } },
+      "issues": {
+        "i-b": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-b": {
+          "live": false
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "a", "state": "ready" },
-      { "kind": "setNodeState", "nodeId": "b", "state": "in_review" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "ready"
+      },
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "in_review"
+      }
     ]
   },
   {
@@ -505,7 +819,10 @@
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -530,13 +847,22 @@
         }
       ],
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": false }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": false
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "killSession", "sessionId": "s-a" }]
+    "expected": [
+      {
+        "kind": "killSession",
+        "sessionId": "s-a"
+      }
+    ]
   },
   {
     "name": "cancelled and quiet: the integration branch goes",
@@ -546,7 +872,10 @@
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -560,11 +889,19 @@
           "attempt": 1
         }
       ],
-      "sessions": { "s-a": { "live": false } },
+      "sessions": {
+        "s-a": {
+          "live": false
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "deleteIntegrationBranch" }]
+    "expected": [
+      {
+        "kind": "deleteIntegrationBranch"
+      }
+    ]
   },
   {
     "name": "cancelled with no branch left: nothing at all",
@@ -574,9 +911,21 @@
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
-      "nodes": [{ "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 }],
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0
+        }
+      ],
       "integrationBranchExists": false,
       "nowMs": 1000
     },
@@ -590,9 +939,21 @@
         "status": "draft",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
-      "nodes": [{ "id": "a", "issueId": "i-a", "kind": "leaf", "state": "proposed", "wave": 0, "lane": 0 }],
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "proposed",
+          "wave": 0,
+          "lane": 0
+        }
+      ],
       "integrationBranchExists": false,
       "nowMs": 1000
     },
@@ -606,11 +967,28 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "sonnet" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "sonnet"
+        }
       },
       "nodes": [
-        { "id": "head", "issueId": "i-head", "kind": "contract", "state": "ready", "wave": 0, "lane": 0 },
-        { "id": "leaf", "issueId": "i-leaf", "kind": "leaf", "state": "ready", "wave": 0, "lane": 1 },
+        {
+          "id": "head",
+          "issueId": "i-head",
+          "kind": "contract",
+          "state": "ready",
+          "wave": 0,
+          "lane": 0
+        },
+        {
+          "id": "leaf",
+          "issueId": "i-leaf",
+          "kind": "leaf",
+          "state": "ready",
+          "wave": 0,
+          "lane": 1
+        },
         {
           "id": "tail",
           "issueId": "i-tail",

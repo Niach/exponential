@@ -494,12 +494,24 @@ export function reviewOutcome(args: {
 }
 
 /**
- * EXP-1065: the review a node is cleared WITH at the cap — no approval, the
- * cap's worth of verdicts that still ask for changes (a failed oracle under
- * an approve counts), the latest at the node's own round. The engine lands
- * such a node once the author's last run is done; `landNode` accepts it
- * here and carries the findings. `null` = not that case.
+ * EXP-1065/EXP-1103: the review a landed node carries UNRESOLVED into the
+ * final pull request — a verdict that still asks for changes (a failed oracle
+ * under an approve counts). A wave's fix run had ONE go at it; whatever it
+ * left open is a person's to check at the final review, never another round.
+ * `null` = nothing to carry.
  */
+export function carriedReview(node: {
+  review: WorkflowNodeReview | null
+}): WorkflowNodeReview | null {
+  const review = node.review
+  if (!review) return null
+  const changes = review.verdict === `request_changes` || review.oracle?.passed === false
+  return changes ? review : null
+}
+
+/** @deprecated EXP-1103: the per-node review cap is gone; kept for the
+ *  engines still calling `landNode` on it. Same answer as [`carriedReview`]
+ *  once the node reached the cap without an approval. */
 export function carriedReviewAtCap(node: {
   reviewRound: number
   review: WorkflowNodeReview | null
@@ -508,8 +520,7 @@ export function carriedReviewAtCap(node: {
   if (node.approvedAt || node.reviewRound < WORKFLOW_MAX_REVIEW_ROUNDS) return null
   const review = node.review
   if (!review || review.round !== node.reviewRound) return null
-  const changes = review.verdict === `request_changes` || review.oracle?.passed === false
-  return changes ? review : null
+  return carriedReview(node)
 }
 
 /** The decisions-log line a cap-cleared node leaves behind (one line, the

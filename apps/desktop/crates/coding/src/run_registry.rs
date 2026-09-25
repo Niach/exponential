@@ -133,6 +133,9 @@ pub enum RunKind {
     /// EXP-984: the hidden "Review node" builtin — the agent review of one
     /// workflow node, in a throwaway worktree it owns and drops at the end.
     ReviewNode,
+    /// EXP-1103: the hidden "Fix review findings" builtin — a review wave's
+    /// one fix run, in a worktree of its own on the wave's fix branch.
+    FixReviewFindings,
     FixConflicts,
     Issue,
     Batch,

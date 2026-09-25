@@ -50,13 +50,22 @@ impl Drop for SettingsGuard {
 /// Take the section, blocking until it is ours. Hold the guard across the
 /// read AND the write — a lock released between them guards nothing.
 pub fn locked(data_dir: &Path) -> SettingsGuard {
+    locked_at(&data_dir.join("settings.json.lock"))
+}
+
+/// EXP-1102: the same section for ANY small file store that is replaced by
+/// rename — `lock_file` is the sibling lock file to take (never the store
+/// itself). Every store shares the one in-process mutex: they are rare,
+/// short read-modify-writes, and one mutex cannot deadlock against itself
+/// the way two ordered ones can.
+pub fn locked_at(lock_file: &Path) -> SettingsGuard {
     let process = match LOCK.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
     #[cfg(unix)]
     {
-        let file = open_lock_file(data_dir);
+        let file = open_lock_file(lock_file);
         SettingsGuard {
             _process: process,
             file,
@@ -64,22 +73,24 @@ pub fn locked(data_dir: &Path) -> SettingsGuard {
     }
     #[cfg(not(unix))]
     {
-        let _ = data_dir;
+        let _ = lock_file;
         SettingsGuard { _process: process }
     }
 }
 
-/// Open `settings.json.lock` and take it exclusively, blocking until it is
-/// ours. `None` = carry on with the in-process mutex alone.
+/// Open `lock_file` and take it exclusively, blocking until it is ours.
+/// `None` = carry on with the in-process mutex alone.
 #[cfg(unix)]
-fn open_lock_file(data_dir: &Path) -> Option<std::fs::File> {
+fn open_lock_file(lock_file: &Path) -> Option<std::fs::File> {
     use std::os::unix::io::AsRawFd;
-    let _ = std::fs::create_dir_all(data_dir);
+    if let Some(dir) = lock_file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(data_dir.join("settings.json.lock"))
+        .open(lock_file)
         .ok()?;
     loop {
         // SAFETY: our own open fd.

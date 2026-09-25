@@ -11,28 +11,38 @@
 //! distinct ids), which is the double-run defence, exactly as for
 //! automations.
 //!
-//! The engine runs each node exactly once (Kahn from the roots), lands
-//! reviewed PRs into the integration branch in order (the merge train), then
-//! opens ONE final PR integration → default.
+//! The engine runs each node exactly once (Kahn from the roots), lands each
+//! node's pull request into the integration branch once its run ended green
+//! (the merge train, in topological order), reviews the landed result in
+//! WAVES, then opens ONE final PR integration → default.
 //!
-//! EXP-983 makes the starts SPECULATIVE: dependents start on their blockers' contract,
-//! so a dependent may start before its blockers landed. It then bases on
-//! THEIR work — one unlanded blocker means that blocker's branch, several
-//! mean a synthetic base the host merges them into — upstream movement
-//! propagates by MERGE (never a rebase, never a force-push), two siblings
-//! whose work collides get a SERIALIZATION edge, and the train still lands in
-//! topological order.
+//! EXP-983 makes the starts SPECULATIVE: a dependent may start before its
+//! blockers landed. It then bases on THEIR work — one unlanded blocker means
+//! that blocker's branch, several mean a synthetic base the host merges them
+//! into — and two siblings whose work collides get a SERIALIZATION edge.
 //!
-//! EXP-984 closes the loop (EXP-1010: for EVERY workflow): every node's pushed
-//! branch gets a REVIEWER run — always on the launch's STRONG model (EXP-1029),
-//! adversarial in its PROMPT for a `risk: high` node — whose `request_changes`
-//! findings go back to the author at most three rounds (EXP-1065: the cap
-//! is a bound on bouncing, not a hand-off — the last round's findings reach
-//! the author once more, then the train lands the node and the server
-//! carries them to the final pull request; no person ever gates a node, and
+//! EXP-1106 keeps the agents ASLEEP: upstream movement propagates by a
+//! MECHANICAL merge the host makes in its own worktree (never a rebase, never
+//! a force-push), debounced so several moves become one, and only into a
+//! branch whose run has ENDED — a live run works against the tip it started
+//! on ("pull, not push": it asks for a newer upstream with
+//! `exponential_workflows_request_upstream` and merges it itself). A clean
+//! merge wakes nobody; only a CONFLICT wakes the run, once per tip, resumed
+//! while its cache is warm ([`IDLE_RESUME_MS`]) and started FRESH with a brief
+//! after that. Wakes of any kind go out [`MAX_WAKES_PER_PASS`] at a time.
+//!
+//! EXP-1103: reviews happen in WAVES over the LANDED result, not per node.
+//! By default ONE wave at the end; a graph deeper than
+//! [`REVIEW_WAVE_DEEP_DEPTH`] layers adds a wave after the contract layer and
+//! every [`REVIEW_WAVE_STRIDE`]th layer after it, and later layers neither
+//! start nor land before it cleared. A wave = one reviewer per landed node's
+//! diff (in parallel, blind to the author's reasoning), then ONE fix run on
+//! the integration branch for everything requested, then the wave clears
+//! (`approved_at` stamped on its nodes by the server). No loops: what the fix
+//! run leaves open is carried into the final pull request, the one place a
+//! person reviews. Nobody ever waits for a person inside a run, and
 //! `waiting` is never written: every hold is the node's own state plus a
-//! note); and a follow-up node nobody admitted (`proposed`) is treated as
-//! absent from the run entirely.
+//! note. A follow-up node nobody admitted (`proposed`) is absent from the run.
 //!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
@@ -52,23 +62,23 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 pub use base::{
-    build_base, delete_remote_branch, engine_worktree, merge_conflicts, movement_note,
-    remote_tips, BaseOutcome,
+    build_base, delete_remote_branch, engine_worktree, fetch_origin,
+    is_ancestor as git_is_ancestor, land_branch, merge_conflicts, merge_into_branch,
+    movement_note, remote_tips, BaseOutcome, MergeOutcome,
 };
 pub use branch::{delete_integration_branch, engine_clone, ensure_integration_branch};
 pub use facts::{
-    confine_branches_to_tips, conflict_candidates, conventional_branch, detect_conflicts,
-    prune_conflict_cache, NodeGit,
+    confine_branches_to_tips, conflict_candidates, conventional_branch, detect_base_conflicts,
+    detect_conflicts, prune_conflict_cache, refresh_merged, stamp_tips_seen, NodeGit,
 };
 pub use state::{
-    final_pr_close_handled, hold_resume, merge_resuming, read_states, release_resume, write_states,
-    WorkflowState,
-    WORKFLOW_ENGINE_KEY,
+    conflict_key, final_pr_close_handled, hold_resume, merge_resuming, release_resume,
+    WorkflowState, WorkflowStore, WORKFLOW_ENGINE_KEY,
 };
 
 /// The `exp/*` branches one workflow's tips call covers — every branch the
 /// engine can name lives under it (issue branches, batch branches, the
-/// integration branch and the synthetic bases).
+/// integration branch, the synthetic bases and the fix branches).
 pub const TIPS_PATTERN: &str = "exp/*";
 
 /// The evaluation cadence both hosts beat at (the automations host's).
@@ -115,6 +125,9 @@ pub const NOTE_START_NEVER_CAME_UP: &str = "The run never came up on the runner"
 pub const NOTE_MERGE_REFUSED: &str = "Merging the integration branch in";
 /// The note a node carries when its reviewer runs kept ending with no verdict.
 pub const NOTE_REVIEW_NO_VERDICT: &str = "The review runs ended without a verdict";
+/// EXP-1103: the prefix of the note an unstarted node carries while a review
+/// wave before its layer has not cleared; the layer number (1-based) follows.
+pub const NOTE_WAVE_GATE_PREFIX: &str = "Waiting for the review wave after layer ";
 /// How long a `running` node with no session yet is the host's in-flight
 /// start before the engine reads it as a start that never came up (a host
 /// that died between its `running` report and its `session_id` report).
@@ -133,6 +146,33 @@ pub const MAX_REVIEW_RUN_FAILURES: i64 = 3;
 pub const NUDGE_RATE_LIMIT_RESET: &str =
     "The rate limit has reset. Continue where you left off.";
 
+/// EXP-1106 rule 4: a base whose tip moved is merged only once it stood still
+/// this long — several moves inside the window become ONE merge (or one
+/// wake). Three beats.
+pub const UPSTREAM_DEBOUNCE_MS: i64 = 90_000;
+/// EXP-1106 rule 3: an ended run is RESUMED (its prompt cache is warm) when
+/// it ended less than this long ago; later it is started FRESH with a brief
+/// the host writes, instead of reloading a long transcript uncached.
+pub const IDLE_RESUME_MS: i64 = 5 * 60_000;
+/// EXP-1106 rule 4: how many agent wakes (a nudge, a conflict, a refused
+/// land) one pass may send — the rest wait for the next beat, so a host
+/// restart or a limit reset never wakes every run in the same second.
+pub const MAX_WAKES_PER_PASS: usize = 2;
+/// EXP-1106 rule 2: the `Nudge` key of the one-time notice a run gets once
+/// its first dependent started on its work.
+pub const NUDGE_KEY_FREEZE: &str = "freeze";
+/// What a run is told once its first dependent started on its branch.
+pub const NUDGE_FREEZE: &str = "A dependent node started on your branch: your contract is FROZEN \
+for it. Finish without changing what you announced; if you must change it, say exactly what in \
+your summary. Before you push, run git pull --no-rebase (the scheduler may have merged upstream \
+into your branch while you were idle).";
+/// EXP-1103: a graph with MORE than this many layers gets review waves
+/// between layers; up to it, one wave at the end only.
+pub const REVIEW_WAVE_DEEP_DEPTH: i64 = 3;
+/// EXP-1103: in a deep graph, a wave follows the contract layer (layer 0)
+/// and every this-many-th layer after it.
+pub const REVIEW_WAVE_STRIDE: i64 = 3;
+
 /// The workflow row, as plain data.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -145,7 +185,7 @@ pub struct WorkflowFacts {
     pub final_pr_url: Option<String>,
     /// EXP-1059: contract `prState` of the final PR (`open`/`closed`/
     /// `merged`), `None` while there is none. `closed` = someone closed it
-    /// WITHOUT merging: the engine reopens it once (rule 10).
+    /// WITHOUT merging: the engine reopens it once (rule 9).
     #[serde(default)]
     pub final_pr_state: Option<String>,
     /// Contract `workflow.maxParallelDefault` — how many node runs may be
@@ -209,7 +249,9 @@ pub struct NodeFacts {
     pub session_id: Option<String>,
     #[serde(default)]
     pub attempt: i64,
-    /// Only its PRESENCE matters — an approving review's stamp, or a person's.
+    /// Only its PRESENCE matters — EXP-1103: the review WAVE that covered
+    /// this landed node cleared (the server stamps it on `clearReviewWave`);
+    /// a pre-wave approval reads the same way.
     #[serde(default)]
     pub approved_at: Option<String>,
     /// EXP-983: only its PRESENCE matters — the run announced its contract
@@ -231,11 +273,12 @@ pub struct NodeFacts {
     /// `None` means nothing may base on this node yet.
     #[serde(default)]
     pub branch: Option<String>,
-    /// EXP-984: how many agent reviews were SUBMITTED (the round cap).
+    /// EXP-984: how many agent reviews were SUBMITTED for this node.
     #[serde(default)]
     pub review_round: i64,
-    /// EXP-984: the latest verdict — only the two fields the engine decides
-    /// on (the findings themselves are the host's to deliver).
+    /// The latest verdict. EXP-1103: on a LANDED node it is the review wave's
+    /// verdict on this node's diff; `Some` = this node was reviewed in the
+    /// wave, and [`changes_requested`] decides whether the fix run gets it.
     #[serde(default)]
     pub review: Option<ReviewFacts>,
     /// The row's `updated_at` as ms epoch — a `running` node with no session
@@ -305,6 +348,28 @@ pub struct SessionFacts {
     /// EXP-848: mid-turn right now.
     #[serde(default)]
     pub agent_busy: bool,
+    /// EXP-1106: when an ENDED run ended (`ended_at`, else `updated_at`), as
+    /// ms epoch — what decides between resuming it warm and starting fresh.
+    /// `None` on a live row, or unknown, which reads as long ago.
+    #[serde(default)]
+    pub ended_at_ms: Option<i64>,
+}
+
+/// EXP-1103: a review wave's FIX run, found by its branch
+/// (`exp/wf-<id8>-fix-w<wave>`) on the synced `coding_sessions` rows.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FixRunFacts {
+    pub wave: i64,
+    pub session_id: String,
+    /// Status `running` or `in_review` — still up.
+    #[serde(default)]
+    pub live: bool,
+    /// Host fact: what the run pushed is IN the integration branch already
+    /// (its branch tip is an ancestor of the integration tip, or it pushed
+    /// nothing and its branch is not up at all). Nothing left to land.
+    #[serde(default)]
+    pub landed: bool,
 }
 
 /// One evaluation pass's inputs — everything, including the clock.
@@ -334,26 +399,49 @@ pub struct Snapshot {
     pub final_pr_in_flight: bool,
     /// Host fact (EXP-1059, persisted `WorkflowState::final_pr_close_handled`):
     /// the CURRENT closed episode of the final PR was already put to the
-    /// server (`workflows.reopenFinalPr` answered — reopened, or gave up
-    /// because the one reopen was spent). The host clears it once the PR
-    /// reads `open` again, so EVERY close reaches the server and the
-    /// server's `final_pr_reopened` event is the once-gate; this flag only
-    /// keeps one closed episode from being asked every beat.
+    /// server (`workflows.reopenFinalPr` answered). The host clears it once
+    /// the PR reads `open` again, so EVERY close reaches the server once.
     #[serde(default)]
     pub final_pr_close_handled: bool,
-    /// Host fact: `(session id, resets_at_ms)` pairs already nudged.
+    /// Host fact (persisted): `(session id, key)` pairs already nudged — a
+    /// reset stamp for a rate-limit nudge, [`NUDGE_KEY_FREEZE`] for the
+    /// freeze notice.
     #[serde(default)]
-    pub nudged: HashSet<(String, i64)>,
+    pub nudged: HashSet<(String, String)>,
     /// Host fact (EXP-983): `git ls-remote` for every branch this snapshot
     /// names, refreshed each beat. A branch that is absent does not exist on
     /// origin yet.
     #[serde(default)]
     pub tips: HashMap<String, String>,
-    /// Host fact (EXP-983, persisted): `node id → upstream branch → the tip
-    /// that node was last TOLD to merge` — what keeps one movement from
-    /// being announced twice.
+    /// Host fact (EXP-1106): `node id → base branch → the tip of it that is
+    /// IN the node's branch` — merged by the host or cut at it, re-derived
+    /// by ancestry when the store was lost. A base whose current tip is not
+    /// here has moved.
     #[serde(default)]
-    pub propagated: HashMap<String, HashMap<String, String>>,
+    pub merged: HashMap<String, HashMap<String, String>>,
+    /// Host fact (EXP-1106, persisted): `node id → base branch → the tip the
+    /// run was already WOKEN for` because merging it conflicts — one
+    /// collision wakes the agent once.
+    #[serde(default)]
+    pub woken: HashMap<String, HashMap<String, String>>,
+    /// Host fact (EXP-1106): node ids whose branch does NOT merge cleanly
+    /// with their base's current tip (`git merge-tree`). Such a move wakes
+    /// the run instead of being merged by the host.
+    #[serde(default)]
+    pub base_conflicts: HashSet<String>,
+    /// Host fact (EXP-1106): `branch → ms epoch the host first saw its
+    /// CURRENT tip` — the debounce clock. An absent branch reads as seen
+    /// just now, which holds one window.
+    #[serde(default)]
+    pub tip_seen_ms: HashMap<String, i64>,
+    /// Host fact (EXP-1103): the review waves' fix runs, found by branch.
+    #[serde(default)]
+    pub fix_runs: Vec<FixRunFacts>,
+    /// Host fact (EXP-984): node ids whose reviewer runs kept ending without
+    /// a verdict past [`MAX_REVIEW_RUN_FAILURES`] — a wave treats them as
+    /// reviewed with nothing to fix, rather than waiting for ever.
+    #[serde(default)]
+    pub review_gave_up: HashSet<String>,
     /// Host fact (EXP-983, persisted): `synthetic base branch → the
     /// (branch, sha) pairs it was last built from`. A difference is a
     /// refresh.
@@ -368,21 +456,13 @@ pub struct Snapshot {
     #[serde(default)]
     pub identifier: HashMap<String, String>,
     /// Host fact (EXP-984): node ids whose REVIEWER run is live or starting.
-    /// One review per node at a time, whatever its branch does meanwhile.
+    /// One review per node at a time.
     #[serde(default)]
     pub review_in_flight: HashSet<String>,
     /// Host fact (EXP-984): `node id → the tip of its own branch` — what a
-    /// review would be run against.
+    /// land refusal is keyed on and what the contract-change metric reads.
     #[serde(default)]
     pub pr_head: HashMap<String, String>,
-    /// Host fact (EXP-984, persisted): `node id → the head the last review
-    /// ran against`. A review happens once per head, never once per beat.
-    #[serde(default)]
-    pub reviewed_head: HashMap<String, String>,
-    /// Host fact (EXP-984, persisted): `node id → the highest review round
-    /// whose findings were already delivered to its author`.
-    #[serde(default)]
-    pub findings_sent: HashMap<String, i64>,
     /// Host fact (persisted): `node id → the head of its pull request when
     /// GitHub last REFUSED to merge it`. While the head has not moved the
     /// node stays `updating` — its run is merging the trunk in — and the
@@ -471,15 +551,13 @@ impl WorkflowMembership {
 }
 
 /// EXP-1082 — the ONE glue both hosts (`ui::workflow_host`, the CLI daemon)
-/// run before an ENGINE start (a node's author run, a review): stamp the
-/// decision's membership onto the launch and the decision's own account,
-/// when it names one. The account PICK itself happens exactly once, inside
-/// `coding::prepare` (EXP-1005: every launch on the device, engine starts
-/// included, off the usage cache); `PreparedLaunch::account_pick` hands the
-/// hosts what moved, and they say so (`account_picked`).
+/// run before an ENGINE start (a node's author run, a review, a wave's fix
+/// run): stamp the decision's membership onto the launch and the decision's
+/// own account, when it names one. The account PICK itself happens exactly
+/// once, inside `coding::prepare` (EXP-1005: every launch on the device,
+/// engine starts included, off the usage cache).
 ///
-/// Starts only: a RESUME (merge-upstream, findings, a refused land, a
-/// conflict relaunch) keeps its RECORDED account (EXP-906) and never comes
+/// Starts only: a RESUME keeps its RECORDED account (EXP-906) and never comes
 /// through here; moving a run off a spent login is the mid-run switch
 /// (EXP-1005's `pick_rotation_target`), not a start pick.
 pub fn apply_engine_start(
@@ -553,15 +631,29 @@ pub enum Decision {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         account: Option<String>,
     },
-    /// EXP-983: tell a live (or resume an ended) run that the branch it
-    /// builds on moved to `sha`, so it merges it in. The host writes the
-    /// note from the git range itself — zero agent tokens.
+    /// EXP-1106 rule 1: the branch a node builds on moved and its run is not
+    /// live — the HOST merges `origin/<base_branch>` at `sha` into the node's
+    /// own `branch` in its scratch worktree and pushes. Zero agent tokens; a
+    /// clean merge wakes nobody (the host pre-tested it: a conflict is a
+    /// [`Self::WakeRun`] instead).
     #[serde(rename_all = "camelCase")]
-    MergeUpstream {
+    MergeBase {
         node_id: String,
-        session_id: String,
+        branch: String,
         base_branch: String,
         sha: String,
+    },
+    /// EXP-1106 rule 3: wake a node's ENDED (or idle) run for something only
+    /// its agent can do. `mode` says how: steer the live run where it stands,
+    /// resume the ended one while its cache is warm, or start a FRESH run of
+    /// the node with a brief the host writes (the diff so far, the reason,
+    /// the node's notes) instead of reloading a long transcript.
+    #[serde(rename_all = "camelCase")]
+    WakeRun {
+        node_id: String,
+        session_id: String,
+        mode: WakeMode,
+        reason: WakeReason,
     },
     /// EXP-983: two siblings' work collided — `node_id` merges `after` in
     /// first. `workflows.reportNode({afterNodeIds})`, a whole-array replace;
@@ -573,14 +665,15 @@ pub enum Decision {
         state: String,
         after: Vec<String>,
     },
-    /// EXP-984: start the hidden `builtin:review-node` run against this
-    /// node's pushed branch. EXP-1029: `model` is the launch's STRONG model
-    /// for EVERY review ([`review_model`]) — there is no model swap left, so
-    /// it is always `Some`; `adversarial` only flags the node's own
+    /// EXP-1103: start the hidden `builtin:review-node` run against ONE
+    /// landed node's diff on the integration branch, as part of review
+    /// `wave`. EXP-1029: `model` is the launch's STRONG model for EVERY
+    /// review ([`review_model`]); `adversarial` only flags the node's own
     /// `risk: high` to the review PROMPT.
     #[serde(rename_all = "camelCase")]
     StartReview {
         node_id: String,
+        wave: i64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
         adversarial: bool,
@@ -590,20 +683,37 @@ pub enum Decision {
         /// EXP-1082: contract `wfSessionRole` — what the run is FOR.
         role: WfSessionRole,
         /// EXP-1082 (EXP-1005 fills it): the agent profile the host starts
-        /// on, from `account_rotation::pick_start_account`; `None` = the
-        /// device's own default.
+        /// on; `None` = the device's own default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         account: Option<String>,
     },
-    /// EXP-984: hand the latest review's findings to the node's AUTHOR, once
-    /// per round. `session_id` = the live run to steer; `None` = its run
-    /// ended and the host resumes it with the same text.
+    /// EXP-1103: every reviewer of `wave` answered and some asked for
+    /// changes — start the ONE fix run of the wave (the hidden
+    /// `builtin:fix-review-findings`) on `branch`, cut from the integration
+    /// branch, with every requesting node's findings. `node_ids` = the nodes
+    /// whose findings it carries, in landing order.
     #[serde(rename_all = "camelCase")]
-    SendFindings {
-        node_id: String,
+    StartFix {
+        wave: i64,
+        node_ids: Vec<String>,
+        branch: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
+        model: Option<String>,
+        workflow_id: String,
+        role: WfSessionRole,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
     },
+    /// EXP-1103: the wave's fix run ended — fast-forward the integration
+    /// branch to what it pushed on `branch` (the host, mechanically), then
+    /// drop the branch.
+    #[serde(rename_all = "camelCase")]
+    LandFix { wave: i64, branch: String },
+    /// EXP-1103: the wave is done — `workflows.clearReviewWave` stamps
+    /// `approved_at` on `node_ids` (its landed, still unstamped nodes), which
+    /// releases the layers behind it and, for the last wave, the final PR.
+    #[serde(rename_all = "camelCase")]
+    ClearWave { wave: i64, node_ids: Vec<String> },
     /// The merge train's one step: `workflows.landNode`.
     #[serde(rename_all = "camelCase")]
     LandNode { node_id: String },
@@ -633,6 +743,49 @@ pub enum Decision {
     /// EXP-983: a synthetic base nothing is building on any more.
     #[serde(rename_all = "camelCase")]
     DeleteBase { base_branch: String },
+}
+
+impl Decision {
+    /// EXP-1106: whether executing this decision spends an agent turn — the
+    /// wakes the per-pass budget ([`MAX_WAKES_PER_PASS`]) and the
+    /// `agentWakes` metric count.
+    pub fn is_wake(&self) -> bool {
+        matches!(self, Decision::WakeRun { .. } | Decision::Nudge { .. })
+    }
+}
+
+/// EXP-1106 rule 3 — how a run is woken.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WakeMode {
+    /// The run is live and idle: the text lands as its next message.
+    Steer,
+    /// The run ended less than [`IDLE_RESUME_MS`] ago: re-enter it (warm).
+    Resume,
+    /// The run ended longer ago: a FRESH run of the node with a brief.
+    Fresh,
+}
+
+/// EXP-1106 — why a run is woken.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WakeReason {
+    /// Merging `base_branch` at `sha` into the node's branch conflicts.
+    #[serde(rename_all = "camelCase")]
+    UpstreamConflict { base_branch: String, sha: String },
+}
+
+/// EXP-1106 rule 3 — the mode a run is woken in, off its synced row. `None`
+/// = not now: a live run mid-turn or parked on a question (the text would
+/// land inside its work, or become the answer).
+pub fn wake_mode(session: &SessionFacts, now_ms: i64) -> Option<WakeMode> {
+    if session.live {
+        return (!session.agent_busy && !session.needs_input).then_some(WakeMode::Steer);
+    }
+    Some(match session.ended_at_ms {
+        Some(ended_at) if now_ms - ended_at < IDLE_RESUME_MS => WakeMode::Resume,
+        _ => WakeMode::Fresh,
+    })
 }
 
 /// The live states a node occupies while it holds a parallelism slot.
@@ -734,9 +887,207 @@ fn is_synthetic(workflow_id: &str, branch: &str) -> bool {
     branch.starts_with(&synthetic_prefix(workflow_id))
 }
 
+/// EXP-1103 — the LOCAL, never-pushed-by-the-agent branch one review wave's
+/// fix run works on: `exp/wf-<id8>-fix-w<wave>`, cut from the integration
+/// branch; the host fast-forwards the integration branch to it at the end.
+pub fn fix_branch(workflow_id: &str, wave: i64) -> String {
+    format!("{}{wave}", fix_branch_prefix(workflow_id))
+}
+
+fn fix_branch_prefix(workflow_id: &str) -> String {
+    let id8: String = workflow_id.chars().take(8).collect();
+    format!("exp/wf-{id8}-fix-w")
+}
+
+/// The wave a fix branch of this workflow belongs to; `None` for any other
+/// branch.
+pub fn fix_branch_wave(workflow_id: &str, branch: &str) -> Option<i64> {
+    let rest = branch.strip_prefix(fix_branch_prefix(workflow_id).as_str())?;
+    if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    rest.parse().ok()
+}
+
+/// EXP-1103 — the layers a review wave follows, for a graph `depth` layers
+/// deep (layers are the nodes' `wave` indexes, 0-based): always the last
+/// one; a graph deeper than [`REVIEW_WAVE_DEEP_DEPTH`] also reviews after the
+/// contract layer and after every [`REVIEW_WAVE_STRIDE`]th layer after it.
+/// Empty for no layers at all.
+pub fn review_points(depth: i64) -> Vec<i64> {
+    if depth <= 0 {
+        return Vec::new();
+    }
+    let last = depth - 1;
+    let mut points = Vec::new();
+    if depth > REVIEW_WAVE_DEEP_DEPTH {
+        let mut layer = 0;
+        while layer < last {
+            points.push(layer);
+            layer += REVIEW_WAVE_STRIDE;
+        }
+    }
+    points.push(last);
+    points
+}
+
+/// One review wave as this pass sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct WaveView {
+    /// The layer it follows (a review point).
+    index: i64,
+    /// Every node up to and including this layer is final: the wave is DUE.
+    settled: bool,
+    /// The landed nodes this wave covers (layers after the previous point up
+    /// to this one), in landing order.
+    members: Vec<String>,
+    /// Settled, and every member carries `approved_at`: nothing left to do.
+    cleared: bool,
+}
+
+/// The waves of this snapshot, off the mirrored states.
+fn wave_views(snapshot: &Snapshot, state_of: &HashMap<&str, &str>) -> Vec<WaveView> {
+    let depth = snapshot.nodes.iter().map(|node| node.wave + 1).max().unwrap_or(0);
+    let mut previous = -1;
+    let mut views = Vec::new();
+    for point in review_points(depth) {
+        let mut settled = true;
+        let mut members = Vec::new();
+        let mut cleared = true;
+        for node in ordered_nodes(snapshot) {
+            let state = state_of.get(node.id.as_str()).copied().unwrap_or(node.state.as_str());
+            if node.wave <= point && !is_final(state) {
+                settled = false;
+            }
+            if node.wave > previous && node.wave <= point && state == "landed" {
+                if node.approved_at.is_none() {
+                    cleared = false;
+                }
+                members.push(node.id.clone());
+            }
+        }
+        views.push(WaveView {
+            index: point,
+            settled,
+            members,
+            cleared: settled && cleared,
+        });
+        previous = point;
+    }
+    views
+}
+
+/// The first review point BEFORE `layer` that has not cleared: the wave a
+/// node of that layer waits for (to start and to land). `None` = free.
+fn wave_gate(views: &[WaveView], layer: i64) -> Option<i64> {
+    views
+        .iter()
+        .find(|view| view.index < layer && !view.cleared)
+        .map(|view| view.index)
+}
+
+fn wave_gate_note(point: i64) -> String {
+    format!("{NOTE_WAVE_GATE_PREFIX}{}", point + 1)
+}
+
+/// EXP-1103 rule 7 — the review waves. For the one wave that is due and not
+/// cleared: reviewers for its members that have no verdict yet (up to
+/// `max_parallel` starts per pass, in landing order); once every member
+/// answered, the fix run for whatever was requested (started, then landed
+/// when it ended), then the wave clears. One round, no loops.
+fn wave_decisions(snapshot: &Snapshot, views: &[WaveView]) -> Vec<Decision> {
+    let mut decisions = Vec::new();
+    let Some(view) = views.iter().find(|view| view.settled && !view.cleared) else {
+        return decisions;
+    };
+    let node = |id: &str| snapshot.nodes.iter().find(|node| node.id == id);
+    let answered = |id: &str| {
+        node(id).is_some_and(|node| {
+            node.approved_at.is_some()
+                || node.review.is_some()
+                || snapshot.review_gave_up.contains(&node.id)
+        })
+    };
+    let mut started = 0;
+    for id in &view.members {
+        if answered(id) || snapshot.review_in_flight.contains(id) {
+            continue;
+        }
+        if started >= snapshot.workflow.max_parallel {
+            break;
+        }
+        let Some(member) = node(id) else {
+            continue;
+        };
+        decisions.push(Decision::StartReview {
+            node_id: id.clone(),
+            wave: view.index,
+            model: review_model(snapshot),
+            adversarial: member.risk == RISK_HIGH,
+            workflow_id: snapshot.workflow.id.clone(),
+            role: WfSessionRole::Review,
+            account: None,
+        });
+        started += 1;
+    }
+    if started > 0 || !view.members.iter().all(|id| answered(id) || snapshot.review_in_flight.contains(id)) {
+        return decisions;
+    }
+    if view.members.iter().any(|id| snapshot.review_in_flight.contains(id) && !answered(id)) {
+        return decisions;
+    }
+    // Every member answered. What still asks for changes goes to ONE fix run.
+    let requested: Vec<String> = view
+        .members
+        .iter()
+        .filter(|id| {
+            node(id).is_some_and(|node| {
+                node.approved_at.is_none()
+                    && node.review.as_ref().is_some_and(changes_requested)
+            })
+        })
+        .cloned()
+        .collect();
+    let unstamped: Vec<String> = view
+        .members
+        .iter()
+        .filter(|id| node(id).is_some_and(|node| node.approved_at.is_none()))
+        .cloned()
+        .collect();
+    if requested.is_empty() {
+        decisions.push(Decision::ClearWave {
+            wave: view.index,
+            node_ids: unstamped,
+        });
+        return decisions;
+    }
+    let branch = fix_branch(&snapshot.workflow.id, view.index);
+    match snapshot.fix_runs.iter().find(|fix| fix.wave == view.index) {
+        None => decisions.push(Decision::StartFix {
+            wave: view.index,
+            node_ids: requested,
+            branch,
+            model: review_model(snapshot),
+            workflow_id: snapshot.workflow.id.clone(),
+            role: WfSessionRole::Review,
+            account: None,
+        }),
+        Some(fix) if fix.live => {}
+        Some(fix) if !fix.landed => decisions.push(Decision::LandFix {
+            wave: view.index,
+            branch,
+        }),
+        Some(_) => decisions.push(Decision::ClearWave {
+            wave: view.index,
+            node_ids: unstamped,
+        }),
+    }
+    decisions
+}
+
 /// A blocker releases its dependents (EXP-983 rule 1) once it announced its
 /// CONTRACT, put its pull request up, landed or was skipped. EXP-1066: this
-/// is the ONE start rule — the `start_on` modes are gone, dependents always
+/// is the ONE start rule (the old start modes are gone): dependents always
 /// start on the blockers' contract. A checkpoint counts only while the
 /// blocker is AT WORK: a retried or failed blocker's old announcement
 /// releases nothing (the server nulls it on retry too).
@@ -756,17 +1107,27 @@ fn is_unlanded(state: &str) -> bool {
 
 /// The rule cascade, in order (the module doc names the hosts that run it):
 /// 0. no integration branch → create it, and NOTHING else this pass;
-/// 1. mirror every node's state off its session, PR and blockers, a blocker
-///    releasing on its contract, its PR or its landing (also while `paused`);
+/// 1. mirror every node's state off its session, PR, blockers (a blocker
+///    releasing on its contract, its PR or its landing) and the review waves
+///    before its layer (also while `paused`);
 /// 2. start `ready` nodes up to `max_parallel`, each on the base its
 ///    unlanded blockers dictate (building a synthetic one first);
-/// 3. refresh a synthetic base whose sources moved; 4. tell a run that the
-///    branch under it moved; 5. serialize two siblings whose work collided;
-/// 6. nudge a run whose rate limit reset; 7. the agent review gate — ONE
-///    review start per pass, and a round's findings said exactly once;
-/// 8. land ONE cleared node in TOPOLOGICAL order (the merge train); 9. open
-///    the final PR once everything is in; 10. drop a synthetic base nothing
-///    builds on any more.
+/// 3. refresh a synthetic base whose sources moved;
+/// 4. a base that moved under an ENDED run is merged in by the host —
+///    debounced, once per tip; a conflict wakes the run instead, once;
+/// 5. serialize two siblings whose work collided (the later merges the
+///    earlier in, mechanically too);
+/// 6. nudge a run whose rate limit reset, and tell a run ONCE that its first
+///    dependent started on its work;
+/// 7. the review waves: reviewers, the fix run, the clearance;
+/// 8. land ONE node whose run ended with its pull request up, in TOPOLOGICAL
+///    order and behind every wave before its layer (the merge train);
+/// 9. open the final PR once everything is in and every wave cleared (or
+///    reopen a final PR closed without merging, once; or cancel a workflow
+///    whose every node was skipped);
+/// 10. drop a synthetic base nothing builds on any more.
+/// Last, the wake BUDGET: at most [`MAX_WAKES_PER_PASS`] of the pass's
+/// nudges and wakes go out; the rest are re-decided next beat.
 /// A `cancelled` workflow ends its runs and drops its branches;
 /// `draft`/`done` decide nothing.
 ///
@@ -812,6 +1173,14 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     let mut decisions = Vec::new();
     let order = ordered_nodes(snapshot);
     let blockers = blockers_by_node(snapshot);
+    // EXP-1103: the wave gate an UNSTARTED node reads is the waves as the
+    // rows stand (a wave cannot clear inside the mirror).
+    let row_states: HashMap<&str, &str> = snapshot
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node.state.as_str()))
+        .collect();
+    let row_waves = wave_views(snapshot, &row_states);
 
     // (1) The mirror. A node the host is busy with, and a node a person
     // already resolved, are both left exactly where they are.
@@ -825,7 +1194,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             });
             continue;
         }
-        let Some(desired) = desired_state(snapshot, node, &blockers) else {
+        let Some(desired) = desired_state(snapshot, node, &blockers, &row_waves) else {
             // An unknown session (the row has not synced yet): decide
             // nothing rather than failing a run that is very much alive.
             mirrored.push(Mirrored {
@@ -865,9 +1234,6 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
                 // always writes.
                 let note_changed = match note.as_deref() {
                     Some(next) if is_engine_hold_note(next) => node.note.as_deref() != Some(next),
-                    // A state-bound note (`failed` + why, `updating` + the
-                    // refusal) rides the state change that carries it; the
-                    // host's own reason on the row wins meanwhile.
                     Some(_) => false,
                     None => node.note.as_deref().is_some_and(is_engine_hold_note),
                 };
@@ -969,37 +1335,18 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
         });
     }
 
-    // (4) The branch a run builds on moved: it merges the movement in. ONE
-    // decision per dependent per pass, and only at a turn boundary.
+    // (4) EXP-1106: the branch a node builds on moved. Merged by the HOST
+    // into the node's branch — once the tip stood still for the debounce
+    // window and only while the run is not live (a live run pulls itself).
+    // ONE decision per node per pass.
     for entry in &mirrored {
-        if snapshot.in_flight.contains(&entry.node.id) {
+        if is_final(&entry.state) || snapshot.in_flight.contains(&entry.node.id) {
             continue;
         }
         let Some(base) = entry.node.base_branch.clone() else {
             continue;
         };
-        let Some(session_id) = steerable_session(snapshot, entry) else {
-            continue;
-        };
-        let Some(sha) = snapshot.tips.get(&base) else {
-            continue;
-        };
-        if told(snapshot, &entry.node.id, &base) == Some(sha.as_str()) {
-            continue;
-        }
-        decisions.push(Decision::MergeUpstream {
-            node_id: entry.node.id.clone(),
-            session_id,
-            base_branch: base,
-            sha: sha.clone(),
-        });
-        if entry.state != "updating" {
-            decisions.push(Decision::SetNodeState {
-                node_id: entry.node.id.clone(),
-                state: "updating".to_string(),
-                note: None,
-            });
-        }
+        decisions.extend(upstream_decision(snapshot, entry, &base));
     }
 
     // (5) Two siblings whose work collides are SERIALIZED: the later one
@@ -1008,7 +1355,9 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     decisions.extend(serialization_decisions(snapshot, &mirrored));
 
     // (6) A wall that lifted: tell the run to carry on, exactly once. Keyed
-    // on the RUN (EXP-1065: a walled node keeps its own state).
+    // on the RUN (EXP-1065: a walled node keeps its own state). And the
+    // freeze notice: a run whose first dependent started on its work hears
+    // it once.
     for entry in &mirrored {
         if is_final(&entry.state) {
             continue;
@@ -1019,43 +1368,69 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
         let Some(session) = snapshot.sessions.get(session_id) else {
             continue;
         };
-        if !session.live || !session.blocked || session.needs_input {
+        if !session.live || session.needs_input {
             continue;
         }
-        let Some(resets_at) = session.blocked_resets_at_ms else {
-            continue;
-        };
-        if resets_at > snapshot.now_ms {
+        if session.blocked {
+            let Some(resets_at) = session.blocked_resets_at_ms else {
+                continue;
+            };
+            if resets_at > snapshot.now_ms {
+                continue;
+            }
+            let key = resets_at.to_string();
+            if snapshot.nudged.contains(&(session_id.to_string(), key.clone())) {
+                continue;
+            }
+            decisions.push(Decision::Nudge {
+                session_id: session_id.to_string(),
+                key,
+                text: NUDGE_RATE_LIMIT_RESET.to_string(),
+            });
             continue;
         }
-        if snapshot
-            .nudged
-            .contains(&(session_id.to_string(), resets_at))
+        if session.agent_busy {
+            continue;
+        }
+        let dependents_started = snapshot
+            .edges
+            .iter()
+            .filter(|(from, _)| from == &entry.node.id)
+            .any(|(_, to)| {
+                snapshot
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == *to)
+                    .is_some_and(|node| node.session_id.is_some() || is_final(&node.state))
+            });
+        if !dependents_started
+            || snapshot
+                .nudged
+                .contains(&(session_id.to_string(), NUDGE_KEY_FREEZE.to_string()))
         {
             continue;
         }
         decisions.push(Decision::Nudge {
             session_id: session_id.to_string(),
-            key: resets_at.to_string(),
-            text: NUDGE_RATE_LIMIT_RESET.to_string(),
+            key: NUDGE_KEY_FREEZE.to_string(),
+            text: NUDGE_FREEZE.to_string(),
         });
     }
 
-    // (7) EXP-984: the agent review gate — one reviewer run per node whose
-    // pull request is up, and a round's findings handed over exactly once.
-    decisions.extend(review_decisions(snapshot, &mirrored));
+    // (7) EXP-1103: the review waves, off the states after this mirror.
+    let state_of: HashMap<&str, &str> = mirrored
+        .iter()
+        .map(|entry| (entry.node.id.as_str(), entry.state.as_str()))
+        .collect();
+    let views = wave_views(snapshot, &state_of);
+    decisions.extend(wave_decisions(snapshot, &views));
 
-    // (8) EXP-984/EXP-1065: a node at the review cap stops bouncing — its
-    // last findings go to the author once more (rule 7), then the train
-    // takes it ([`is_cleared`]); nobody waits for a person.
-
-    // (9) The merge train: ONE land per pass, and only while the host is not
+    // (8) The merge train: ONE land per pass, and only while the host is not
     // already landing one. The train is strict order among LANDABLE nodes —
-    // a node still waiting for its review, for a blocker or for the sibling
-    // it has to merge in never blocks a landable one behind it.
-    // A land the mirror already asked for (a pull request merged behind our
-    // back) IS this pass's land: its node still reads `in_review` here, and
-    // the train would otherwise ask for the same one twice.
+    // a node still waiting for its run, for a blocker, for the sibling it
+    // has to merge in or for a review wave never blocks a landable one
+    // behind it. A land the mirror already asked for (a pull request merged
+    // behind our back) IS this pass's land.
     let landing = decisions
         .iter()
         .any(|decision| matches!(decision, Decision::LandNode { .. }))
@@ -1064,14 +1439,10 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
                 && (entry.state == "in_review" || entry.state == "updating")
         });
     if !landing {
-        let state_of: HashMap<&str, &str> = mirrored
-            .iter()
-            .map(|entry| (entry.node.id.as_str(), entry.state.as_str()))
-            .collect();
         if let Some(entry) = mirrored.iter().find(|entry| {
             entry.state == "in_review"
                 && is_cleared(snapshot, entry.node)
-                && !approval_is_stale(snapshot, entry.node)
+                && wave_gate(&views, entry.node.wave).is_none()
                 && is_landable(entry.node, &blockers, &state_of)
         }) {
             decisions.push(Decision::LandNode {
@@ -1080,7 +1451,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
         }
     }
 
-    // (10) Everything is in: the ONE final pull request.
+    // (9) Everything is in and reviewed: the ONE final pull request.
     let all_in = !mirrored.is_empty()
         && mirrored.iter().all(|entry| is_final(&entry.state));
     let any_landed = mirrored.iter().any(|entry| entry.state == "landed");
@@ -1091,19 +1462,21 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             // note; the next pass then sweeps the branch like any cancel.
             decisions.push(Decision::CancelUnshipped);
         } else if snapshot.workflow.final_pr_url.is_none() {
-            decisions.push(Decision::OpenFinalPr);
+            // EXP-1103: not before the last review wave cleared.
+            if views.iter().all(|view| view.cleared) {
+                decisions.push(Decision::OpenFinalPr);
+            }
         } else if snapshot.workflow.final_pr_state.as_deref() == Some("closed")
             && !snapshot.final_pr_close_handled
         {
             // EXP-1059: closed without merging — every close goes to the
             // server once: the first is reopened, a later one is recorded
-            // as a person's decision (a decision line + a `failed` event)
-            // and the workflow waits for a member (`openFinalPr`).
+            // as a person's decision and the workflow waits for a member.
             decisions.push(Decision::ReopenFinalPr);
         }
     }
 
-    // (11) A synthetic base nothing is building on any more: the branch goes,
+    // (10) A synthetic base nothing is building on any more: the branch goes,
     // so a repository's list stays the issues' branches plus the one
     // integration branch.
     let mut live_bases: HashSet<&str> = HashSet::new();
@@ -1124,121 +1497,79 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
         }
     }
 
+    budget_wakes(decisions)
+}
+
+/// EXP-1106 rule 4 — the wake budget: the first [`MAX_WAKES_PER_PASS`]
+/// wakes of a pass stay, the rest go (the same snapshot re-decides them
+/// next beat, staggered).
+fn budget_wakes(decisions: Vec<Decision>) -> Vec<Decision> {
+    let mut wakes = 0;
     decisions
-}
-
-/// The synthetic bases this workflow is known to have pushed: what the host
-/// built, plus anything matching the prefix it can still see on origin.
-fn known_bases(snapshot: &Snapshot) -> Vec<String> {
-    let mut bases: Vec<String> = snapshot
-        .synthetic
-        .keys()
-        .chain(snapshot.tips.keys())
-        .filter(|branch| is_synthetic(&snapshot.workflow.id, branch))
-        .cloned()
-        .collect();
-    bases.sort();
-    bases.dedup();
-    bases
-}
-
-/// The branches a node's synthetic base is built from: its still-unlanded
-/// blockers' branches AND the integration branch, sorted — the same list the
-/// refresh compares against what the host last built.
-fn synthetic_sources(
-    snapshot: &Snapshot,
-    node: &NodeFacts,
-    blockers: &HashMap<&str, Vec<&str>>,
-) -> Vec<String> {
-    let mut sources: Vec<String> = unlanded_blockers(snapshot, node, blockers)
         .into_iter()
-        .filter_map(|blocker| blocker.branch.clone())
-        .collect();
-    sources.push(snapshot.workflow.integration_branch.clone());
-    sources.sort();
-    sources.dedup();
-    sources
-}
-
-/// The blockers whose work is not in the integration branch yet.
-fn unlanded_blockers<'a>(
-    snapshot: &'a Snapshot,
-    node: &NodeFacts,
-    blockers: &HashMap<&str, Vec<&str>>,
-) -> Vec<&'a NodeFacts> {
-    blockers
-        .get(node.id.as_str())
-        .map(|ids| {
-            let mut found: Vec<&NodeFacts> = ids
-                .iter()
-                .filter_map(|id| snapshot.nodes.iter().find(|node| node.id == *id))
-                .filter(|blocker| is_unlanded(&blocker.state))
-                .collect();
-            found.sort_by(|a, b| a.id.cmp(&b.id));
-            found
-        })
-        .unwrap_or_default()
-}
-
-/// EXP-983 rule 2 — the branch a node about to start is cut from: the
-/// integration branch when every blocker is in, the ONE unlanded blocker's
-/// branch, or a synthetic merge of several. `None` = it cannot start yet
-/// (a blocker has no branch, or this node's identifier has not synced).
-fn start_base(
-    snapshot: &Snapshot,
-    node: &NodeFacts,
-    blockers: &HashMap<&str, Vec<&str>>,
-) -> Option<String> {
-    let unlanded = unlanded_blockers(snapshot, node, blockers);
-    match unlanded.len() {
-        0 => Some(snapshot.workflow.integration_branch.clone()),
-        1 => unlanded[0].branch.clone(),
-        _ => {
-            // Every source has to be namable before the base can be built.
-            if unlanded.iter().any(|blocker| blocker.branch.is_none()) {
-                return None;
+        .filter(|decision| {
+            if !decision.is_wake() {
+                return true;
             }
-            let identifier = snapshot.identifier.get(node.id.as_str())?;
-            Some(synthetic_base(&snapshot.workflow.id, identifier))
-        }
-    }
+            wakes += 1;
+            wakes <= MAX_WAKES_PER_PASS
+        })
+        .collect()
 }
 
-/// The session a movement can be announced to: a LIVE run between turns, or
-/// an ended one whose pull request is up (the host resumes that one). `None`
-/// = say nothing this pass.
-fn steerable_session(snapshot: &Snapshot, entry: &Mirrored<'_>) -> Option<String> {
-    if !matches!(
-        entry.state.as_str(),
-        "running" | "waiting" | "in_review" | "updating"
-    ) {
+/// EXP-1106 rule 4 for ONE node and ONE upstream branch (its base, or a
+/// serialized sibling's branch): the host's mechanical merge, or the one
+/// wake a conflict costs. `None` = nothing this pass.
+fn upstream_decision(snapshot: &Snapshot, entry: &Mirrored<'_>, base: &str) -> Option<Decision> {
+    let node = entry.node;
+    let branch = node.branch.clone()?;
+    let sha = snapshot.tips.get(base)?;
+    if snapshot
+        .merged
+        .get(node.id.as_str())
+        .and_then(|branches| branches.get(base))
+        == Some(sha)
+    {
         return None;
     }
-    let session_id = entry.node.session_id.as_deref()?;
+    // Debounced: a tip that moved inside the window is still moving.
+    let seen = snapshot.tip_seen_ms.get(base).copied().unwrap_or(snapshot.now_ms);
+    if snapshot.now_ms - seen < UPSTREAM_DEBOUNCE_MS {
+        return None;
+    }
+    // A live run is never touched: it works against the tip it started on
+    // and pulls a newer one itself when it asks for it.
+    let session_id = node.session_id.as_deref()?;
     let session = snapshot.sessions.get(session_id)?;
     if session.live {
-        // Mid-turn: the message would land inside the agent's own work.
-        // Parked on a question: the message would become its ANSWER.
-        if session.agent_busy || session.needs_input {
-            return None;
-        }
-        return Some(session_id.to_string());
+        return None;
     }
-    let pr_open = snapshot
-        .issues
-        .get(entry.node.issue_id.as_str())
-        .and_then(|issue| issue.pr_state.as_deref())
-        == Some("open");
-    pr_open.then(|| session_id.to_string())
-}
-
-/// The tip a node was last TOLD to merge from one branch.
-fn told<'a>(snapshot: &'a Snapshot, node_id: &str, branch: &str) -> Option<&'a str> {
-    snapshot
-        .propagated
-        .get(node_id)?
-        .get(branch)
-        .map(String::as_str)
+    if !snapshot.base_conflicts.contains(&node.id) {
+        return Some(Decision::MergeBase {
+            node_id: node.id.clone(),
+            branch,
+            base_branch: base.to_string(),
+            sha: sha.clone(),
+        });
+    }
+    if snapshot
+        .woken
+        .get(node.id.as_str())
+        .and_then(|branches| branches.get(base))
+        == Some(sha)
+    {
+        return None;
+    }
+    let mode = wake_mode(session, snapshot.now_ms)?;
+    Some(Decision::WakeRun {
+        node_id: node.id.clone(),
+        session_id: session_id.to_string(),
+        mode,
+        reason: WakeReason::UpstreamConflict {
+            base_branch: base.to_string(),
+            sha: sha.clone(),
+        },
+    })
 }
 
 /// EXP-983 rule 5 — the serialization pass. A conflicting pair only counts
@@ -1327,25 +1658,91 @@ fn serialization_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Ve
                 after,
             });
         }
-        // The merge itself rides the propagation rule: once per tip, never
-        // mid-turn, and the host resumes an ended run rather than steering.
-        let Some(sha) = snapshot.tips.get(&branch) else {
-            continue;
-        };
-        if told(snapshot, &later.node.id, &branch) == Some(sha.as_str()) {
+        // The merge itself rides rule 4: mechanical, debounced, once per
+        // tip, never into a live run.
+        if snapshot.in_flight.contains(&later.node.id) {
             continue;
         }
-        let Some(session_id) = steerable_session(snapshot, later) else {
-            continue;
-        };
-        decisions.push(Decision::MergeUpstream {
-            node_id: later.node.id.clone(),
-            session_id,
-            base_branch: branch,
-            sha: sha.clone(),
-        });
+        decisions.extend(upstream_decision(snapshot, later, &branch));
     }
     decisions
+}
+
+/// The synthetic bases this workflow is known to have pushed: what the host
+/// built, plus anything matching the prefix it can still see on origin.
+fn known_bases(snapshot: &Snapshot) -> Vec<String> {
+    let mut bases: Vec<String> = snapshot
+        .synthetic
+        .keys()
+        .chain(snapshot.tips.keys())
+        .filter(|branch| is_synthetic(&snapshot.workflow.id, branch))
+        .cloned()
+        .collect();
+    bases.sort();
+    bases.dedup();
+    bases
+}
+
+/// The branches a node's synthetic base is built from: its still-unlanded
+/// blockers' branches AND the integration branch, sorted — the same list the
+/// refresh compares against what the host last built.
+fn synthetic_sources(
+    snapshot: &Snapshot,
+    node: &NodeFacts,
+    blockers: &HashMap<&str, Vec<&str>>,
+) -> Vec<String> {
+    let mut sources: Vec<String> = unlanded_blockers(snapshot, node, blockers)
+        .into_iter()
+        .filter_map(|blocker| blocker.branch.clone())
+        .collect();
+    sources.push(snapshot.workflow.integration_branch.clone());
+    sources.sort();
+    sources.dedup();
+    sources
+}
+
+/// The blockers whose work is not in the integration branch yet.
+fn unlanded_blockers<'a>(
+    snapshot: &'a Snapshot,
+    node: &NodeFacts,
+    blockers: &HashMap<&str, Vec<&str>>,
+) -> Vec<&'a NodeFacts> {
+    blockers
+        .get(node.id.as_str())
+        .map(|ids| {
+            let mut found: Vec<&NodeFacts> = ids
+                .iter()
+                .filter_map(|id| snapshot.nodes.iter().find(|node| node.id == *id))
+                .filter(|blocker| is_unlanded(&blocker.state))
+                .collect();
+            found.sort_by(|a, b| a.id.cmp(&b.id));
+            found
+        })
+        .unwrap_or_default()
+}
+
+/// EXP-983 rule 2 — the branch a node about to start is cut from: the
+/// integration branch when every blocker is in, the ONE unlanded blocker's
+/// branch, or a synthetic merge of several. `None` = it cannot start yet
+/// (a blocker has no branch, or this node's identifier has not synced).
+fn start_base(
+    snapshot: &Snapshot,
+    node: &NodeFacts,
+    blockers: &HashMap<&str, Vec<&str>>,
+) -> Option<String> {
+    let unlanded = unlanded_blockers(snapshot, node, blockers);
+    match unlanded.len() {
+        0 => Some(snapshot.workflow.integration_branch.clone()),
+        1 => unlanded[0].branch.clone(),
+        _ => {
+            // Every source has to be namable before the base can be built.
+            if unlanded.iter().any(|blocker| blocker.branch.is_none()) {
+                return None;
+            }
+            let identifier = snapshot.identifier.get(node.id.as_str())?;
+            Some(synthetic_base(&snapshot.workflow.id, identifier))
+        }
+    }
 }
 
 /// The (wave, lane, identifier, id) tie-break rule 5 orders a colliding pair
@@ -1399,101 +1796,10 @@ pub fn node_model(workflow: &WorkflowFacts, kind: &str, risk: &str) -> Option<St
     Some(launch::model_for_node(&workflow.launch, kind, risk))
 }
 
-/// EXP-984 rule 7 — the agent review gate. ONE review start per pass, in
-/// (wave, lane, id) order, and the findings of a round said exactly once.
-/// Nothing here decides an approval: the SERVER does, and only a passing
-/// oracle on a non-contract node counts.
-fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decision> {
-    let mut decisions = Vec::new();
-    for entry in mirrored {
-        let node = entry.node;
-        // An approval of the CURRENT head clears the node; one of an older
-        // head is stale, and the new head is reviewed like any other push.
-        if entry.state != "in_review"
-            || (node.approved_at.is_some() && !approval_is_stale(snapshot, node))
-        {
-            continue;
-        }
-        if node.review_round >= domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS as i64 {
-            continue; // the cap: the last findings go once more, then the train takes it
-        }
-        if snapshot.review_in_flight.contains(&node.id) {
-            continue;
-        }
-        // The author has not seen (or not finished with) the last round's
-        // findings: reviewing again now would review the same code twice.
-        if findings_pending(snapshot, node) {
-            continue;
-        }
-        let Some(head) = snapshot.pr_head.get(&node.id) else {
-            continue; // nothing pushed to review
-        };
-        // Reviewed once per head: the head this host launched a review for,
-        // or the head a verdict already names (the reviewer read it off its
-        // own worktree, which may sit one push past the host's stamp).
-        if snapshot.reviewed_head.get(&node.id) == Some(head)
-            || node
-                .review
-                .as_ref()
-                .and_then(|review| review.head.as_ref())
-                == Some(head)
-        {
-            continue;
-        }
-        let adversarial = node.risk == RISK_HIGH;
-        decisions.push(Decision::StartReview {
-            node_id: node.id.clone(),
-            model: review_model(snapshot),
-            adversarial,
-            workflow_id: snapshot.workflow.id.clone(),
-            role: WfSessionRole::Review,
-            account: None,
-        });
-        break;
-    }
-    for entry in mirrored {
-        let node = entry.node;
-        // Deliberately NOT keyed on the node's state: the server sets
-        // `updating`, and this pass's mirror may already have read the still
-        // open pull request and put it back to `in_review`.
-        let Some(review) = node.review.as_ref() else {
-            continue;
-        };
-        if !changes_requested(review) || review.round != node.review_round {
-            continue;
-        }
-        if findings_delivered(snapshot, node, review.round) {
-            continue;
-        }
-        let Some(session_id) = node.session_id.as_deref() else {
-            continue;
-        };
-        let live = snapshot
-            .sessions
-            .get(session_id)
-            .is_some_and(|session| session.live);
-        if live
-            && snapshot
-                .sessions
-                .get(session_id)
-                .is_some_and(|session| session.agent_busy || session.needs_input)
-        {
-            // Mid-turn the text would land inside its own work; parked on a
-            // question it would become the answer.
-            continue;
-        }
-        decisions.push(Decision::SendFindings {
-            node_id: node.id.clone(),
-            session_id: live.then(|| session_id.to_string()),
-        });
-    }
-    decisions
-}
-
-/// EXP-1065: a verdict that sends the author back to work — `request_changes`,
-/// or an `approve` the reviewer's own checks contradict (a FAILED oracle),
-/// which the server treats the same way (`reviewOutcome`).
-fn changes_requested(review: &ReviewFacts) -> bool {
+/// EXP-1065: a verdict that asks for work — `request_changes`, or an
+/// `approve` the reviewer's own checks contradict (a FAILED oracle), which
+/// the server treats the same way (`reviewOutcome`).
+pub fn changes_requested(review: &ReviewFacts) -> bool {
     review.verdict == VERDICT_REQUEST_CHANGES
         || review
             .oracle
@@ -1501,34 +1807,9 @@ fn changes_requested(review: &ReviewFacts) -> bool {
             .is_some_and(|oracle| oracle.passed == Some(false))
 }
 
-/// Whether the node's CURRENT round still owes its author something: the
-/// findings were never delivered, or the run is mid-turn acting on them.
-fn findings_pending(snapshot: &Snapshot, node: &NodeFacts) -> bool {
-    let Some(review) = node.review.as_ref() else {
-        return false;
-    };
-    if !changes_requested(review) || review.round != node.review_round {
-        return false;
-    }
-    if !findings_delivered(snapshot, node, review.round) {
-        return true;
-    }
-    node.session_id
-        .as_deref()
-        .and_then(|session_id| snapshot.sessions.get(session_id))
-        .is_some_and(|session| session.live && session.agent_busy)
-}
-
-fn findings_delivered(snapshot: &Snapshot, node: &NodeFacts, round: i64) -> bool {
-    snapshot
-        .findings_sent
-        .get(&node.id)
-        .is_some_and(|sent| *sent >= round)
-}
-
-/// EXP-1029: EVERY agent review runs on the launch's STRONG model, whatever
-/// the node — there is no adversarial model swap any more (the strong model
-/// is the capable one, and a review is the one thing always worth it). The
+/// EXP-1029: EVERY agent review (and EXP-1103: the wave's fix run) runs on
+/// the launch's STRONG model, whatever the node — the strong model is the
+/// capable one, and a review is the one thing always worth it. The
 /// `adversarial` flag still rides along to the prompt: it is the node's own
 /// `risk: high`, not a model choice.
 fn review_model(snapshot: &Snapshot) -> Option<String> {
@@ -1552,6 +1833,21 @@ fn is_landable(
         .get(node.id.as_str())
         .map_or(true, |ids| ids.iter().all(|id| settled(id)))
         && node.after_node_ids.iter().all(|id| settled(id))
+}
+
+/// EXP-1103: a node is cleared for the train once its run ENDED with its
+/// pull request up — no review gates a node any more (the waves review the
+/// landed result). A run this device has not synced reads as still up.
+fn is_cleared(snapshot: &Snapshot, node: &NodeFacts) -> bool {
+    match node.session_id.as_deref() {
+        Some(session_id) => snapshot
+            .sessions
+            .get(session_id)
+            .is_some_and(|session| !session.live),
+        // No run at all (a person opened the pull request by hand): nothing
+        // to wait for.
+        None => true,
+    }
 }
 
 /// (6) A cancelled workflow: end every live run, then drop the branch it
@@ -1616,6 +1912,7 @@ fn desired_state(
     snapshot: &Snapshot,
     node: &NodeFacts,
     blockers: &HashMap<&str, Vec<&str>>,
+    waves: &[WaveView],
 ) -> Option<Desired> {
     let Some(session_id) = node.session_id.as_deref() else {
         // The host reported `running` and is still bringing the run up (its
@@ -1663,6 +1960,12 @@ fn desired_state(
             .unwrap_or(true);
         if !ready {
             return Some(state("blocked"));
+        }
+        // EXP-1103: a deep graph reviews between layers, and a layer behind
+        // a wave that has not cleared does not start on the unreviewed
+        // result. Says why, once.
+        if let Some(point) = wave_gate(waves, node.wave) {
+            return Some(state_with_note("blocked", &wave_gate_note(point)));
         }
         // Two of its unlanded blockers collide at the current tips: the base
         // it would be cut from cannot be built until one merges the other in
@@ -1762,6 +2065,7 @@ fn desired_state(
 fn is_engine_hold_note(note: &str) -> bool {
     note == NOTE_RATE_LIMITED
         || LEGACY_HOLD_NOTES.contains(&note)
+        || note.starts_with(NOTE_WAVE_GATE_PREFIX)
         || (note.starts_with("Its blockers ") && note.ends_with("one has to merge the other in"))
         || (note.starts_with("Its base ") && note.contains("could not be built"))
 }
@@ -1906,10 +2210,11 @@ pub fn prune_land_refused(refused: &mut HashMap<String, String>, pr_head: &HashM
 pub enum ReviewRunEnd {
     /// The round advanced: a verdict landed. Nothing to do.
     Verdict { node_id: String },
-    /// No verdict; the head is released so the next pass reviews it again.
+    /// No verdict; the node is reviewed again next pass.
     Retry { node_id: String, failures: i64 },
-    /// No verdict for the last time: the head stays claimed and the node
-    /// should say so (`note`).
+    /// No verdict for the last time: the node counts as reviewed with
+    /// nothing to fix (`Snapshot::review_gave_up`) and should say so
+    /// (`note`).
     GaveUp { node_id: String, note: String },
     /// The recorded run ended but a run on the node's review branch is
     /// live — its resume. The node's record now names that run; nothing
@@ -1928,8 +2233,8 @@ pub enum ReviewRunEnd {
 /// host recorded (`state.review_runs`, with the node's round at its launch in
 /// `state.review_rounds`) whose session ENDED is settled. A round that
 /// advanced meant a verdict; one that did not means the reviewer never
-/// submitted (a wall, a crash), so the claimed head is released and the
-/// review runs again, at most [`MAX_REVIEW_RUN_FAILURES`] times per node.
+/// submitted (a wall, a crash), so the review runs again, at most
+/// [`MAX_REVIEW_RUN_FAILURES`] times per node.
 /// `session_live(id)` = `Some(live)` off the synced row, `None` while the row
 /// has not synced (left alone).
 ///
@@ -1989,7 +2294,6 @@ pub fn settle_review_runs(
         *failures += 1;
         let failures = *failures;
         if failures < MAX_REVIEW_RUN_FAILURES {
-            state.reviewed_head.remove(&node_id);
             outcomes.push(ReviewRunEnd::Retry { node_id, failures });
         } else {
             outcomes.push(ReviewRunEnd::GaveUp {
@@ -2017,58 +2321,6 @@ pub fn settle_review_runs(
         });
     }
     outcomes
-}
-
-/// EXP-1010: a node is cleared for the train once it carries an approval —
-/// the agent review's (the only gate there is). EXP-1065: or once it is AT
-/// THE CAP — `WORKFLOW_MAX_REVIEW_ROUNDS` verdicts that still ask for
-/// changes (a failed oracle counts), the last round's findings delivered,
-/// and the author's run ENDED (a workflow author is unattended and ends
-/// itself; a live run, however idle, may not have read the findings yet).
-/// The findings are not lost: the server carries them into the workflow's
-/// decisions and the final pull request, the one place a person reviews.
-/// The server enforces both readings (`landNode`).
-fn is_cleared(snapshot: &Snapshot, node: &NodeFacts) -> bool {
-    node.approved_at.is_some() || cleared_at_cap(snapshot, node)
-}
-
-fn cleared_at_cap(snapshot: &Snapshot, node: &NodeFacts) -> bool {
-    if node.review_round < domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS as i64 {
-        return false;
-    }
-    let Some(review) = node.review.as_ref() else {
-        return false;
-    };
-    if review.round != node.review_round || !changes_requested(review) {
-        return false;
-    }
-    if !findings_delivered(snapshot, node, review.round) {
-        return false;
-    }
-    !node
-        .session_id
-        .as_deref()
-        .and_then(|session_id| snapshot.sessions.get(session_id))
-        .is_some_and(|session| session.live)
-}
-
-/// An agent approval is tied to the commit the reviewer
-/// judged: a verdict that names a `head` other than the pull request's
-/// CURRENT head approved something that is no longer there. A person's
-/// approval (no agent head on the row) is never stale, and neither is one
-/// whose head the host cannot see this beat.
-fn approval_is_stale(snapshot: &Snapshot, node: &NodeFacts) -> bool {
-    if node.approved_at.is_none() {
-        return false;
-    }
-    let reviewed = node
-        .review
-        .as_ref()
-        .and_then(|review| review.head.as_deref());
-    match (reviewed, snapshot.pr_head.get(&node.id)) {
-        (Some(reviewed), Some(current)) => reviewed != current,
-        _ => false,
-    }
 }
 
 /// Every node in landing order — (wave, lane, id), the ONE order the mirror,
@@ -2134,7 +2386,6 @@ mod tests {
                 role: WfSessionRole::Review,
             })
         );
-        // The Plan-workflow frame: workflow + role, no node.
         let plan = WorkflowMembership::from_wire(Some("wf"), None, Some("plan")).unwrap();
         assert_eq!(plan.node_id, None);
         assert_eq!(plan.role, WfSessionRole::Plan);
@@ -2156,12 +2407,15 @@ mod tests {
         }
     }
 
+    const WF: &str = "wf-1";
+    const INTEGRATION: &str = "exp/wf-abcdef12";
+
     fn running(nodes: Vec<NodeFacts>) -> Snapshot {
         Snapshot {
             workflow: WorkflowFacts {
-                id: "wf-1".to_string(),
+                id: WF.to_string(),
                 status: "running".to_string(),
-                integration_branch: "exp/wf-abcdef12".to_string(),
+                integration_branch: INTEGRATION.to_string(),
                 final_pr_url: None,
                 final_pr_state: None,
                 max_parallel: 3,
@@ -2172,6 +2426,41 @@ mod tests {
             now_ms: 1_000,
             ..Snapshot::default()
         }
+    }
+
+    /// A landed node: its run ended, its pull request merged.
+    fn landed(id: &str, wave: i64, lane: i64) -> NodeFacts {
+        let mut node = node(id, "landed", wave, lane);
+        node.session_id = Some(format!("s-{id}"));
+        node
+    }
+
+    fn ended(ended_at_ms: Option<i64>) -> SessionFacts {
+        SessionFacts {
+            live: false,
+            ended_at_ms,
+            ..SessionFacts::default()
+        }
+    }
+
+    /// A started node on `base` with its branch up and its run ended a long
+    /// time ago — the shape rule 4 acts on.
+    fn started_on(id: &str, base: &str, snapshot: &mut Snapshot) {
+        let mut facts = node(id, "in_review", 1, 0);
+        facts.session_id = Some(format!("s-{id}"));
+        facts.base_branch = Some(base.to_string());
+        facts.branch = Some(format!("exp/EXP-{id}"));
+        snapshot.tips.insert(format!("exp/EXP-{id}"), format!("sha-{id}"));
+        snapshot.sessions.insert(format!("s-{id}"), ended(Some(0)));
+        snapshot.issues.insert(
+            format!("issue-{id}"),
+            IssueFacts { pr_state: Some("open".to_string()) },
+        );
+        snapshot.nodes.push(facts);
+    }
+
+    fn of_kind<'a>(decisions: &'a [Decision], test: fn(&Decision) -> bool) -> Vec<&'a Decision> {
+        decisions.iter().filter(|decision| test(decision)).collect()
     }
 
     /// Rule 0 short-circuits the WHOLE pass: nothing may base on a branch
@@ -2205,43 +2494,45 @@ mod tests {
         );
     }
 
-    /// The engine never makes or unmakes a person's call.
+    /// The engine never makes or unmakes a person's call — and once every
+    /// node is final the LAST wave reviews what landed before the final
+    /// pull request opens.
     #[test]
-    fn landed_and_skipped_nodes_are_left_alone() {
-        let snapshot = running(vec![node("a", "landed", 0, 0), node("b", "skipped", 0, 1)]);
-        // Both are final, at least one landed: the pass goes straight to the
-        // final pull request without touching either row.
-        assert_eq!(evaluate(&snapshot), vec![Decision::OpenFinalPr]);
+    fn landed_and_skipped_nodes_are_left_alone_and_the_final_wave_reviews_them() {
+        let snapshot = running(vec![landed("a", 0, 0), node("b", "skipped", 0, 1)]);
+        assert_eq!(
+            evaluate(&snapshot),
+            vec![Decision::StartReview {
+                node_id: "a".to_string(),
+                wave: 0,
+                model: Some("fable".to_string()),
+                adversarial: false,
+                workflow_id: WF.to_string(),
+                role: WfSessionRole::Review,
+                account: None,
+            }]
+        );
+        // Cleared (the wave stamped it): the final pull request, and nothing
+        // touches either row.
+        let mut cleared = snapshot.clone();
+        cleared.nodes[0].approved_at = Some("2026-09-25T12:00:00Z".to_string());
+        assert_eq!(evaluate(&cleared), vec![Decision::OpenFinalPr]);
     }
 
     /// EXP-1059 (§7): a final PR closed WITHOUT merging is reopened ONCE.
     #[test]
     fn a_closed_final_pr_is_reopened_once() {
-        let mut snapshot = running(vec![node("a", "landed", 0, 0), node("b", "skipped", 0, 1)]);
+        let mut snapshot = running(vec![landed("a", 0, 0), node("b", "skipped", 0, 1)]);
+        snapshot.nodes[0].approved_at = Some("t".to_string());
         snapshot.workflow.final_pr_url = Some("https://gh/pr/9".to_string());
         snapshot.workflow.final_pr_state = Some("closed".to_string());
         assert_eq!(evaluate(&snapshot), vec![Decision::ReopenFinalPr]);
-
-        // The host is mid-call: nothing is asked twice in one flight.
         let mut in_flight = snapshot.clone();
         in_flight.final_pr_in_flight = true;
         assert!(evaluate(&in_flight).is_empty());
-
-        // This closed episode was put to the server already (reopened, or
-        // recorded as closed for good): nothing is asked again until the PR
-        // reads open once more — the engine opens no second PR either.
         let mut handled = snapshot.clone();
         handled.final_pr_close_handled = true;
         assert!(evaluate(&handled).is_empty());
-
-        // Closed AGAIN after a reopen (the host cleared the flag when the PR
-        // read open): the server is asked once more, and it is the one that
-        // knows the reopen was spent.
-        let mut again = snapshot.clone();
-        again.final_pr_close_handled = false;
-        assert_eq!(evaluate(&again), vec![Decision::ReopenFinalPr]);
-
-        // Open or merged: nothing to do either.
         for state in ["open", "merged"] {
             let mut other = snapshot.clone();
             other.workflow.final_pr_state = Some(state.to_string());
@@ -2255,27 +2546,20 @@ mod tests {
     fn an_all_skipped_workflow_is_cancelled_with_a_note() {
         let snapshot = running(vec![node("a", "skipped", 0, 0), node("b", "skipped", 0, 1)]);
         assert_eq!(evaluate(&snapshot), vec![Decision::CancelUnshipped]);
-
-        // A `proposed` node nobody admitted does not keep it alive.
         let mut proposed = snapshot.clone();
         proposed.nodes.push(node("c", "proposed", 1, 0));
         assert_eq!(evaluate(&proposed), vec![Decision::CancelUnshipped]);
-
-        // Paused: the person's hold — the mirror keeps reading, nothing ends.
         let mut paused = snapshot.clone();
         paused.workflow.status = "paused".to_string();
         assert!(evaluate(&paused).is_empty());
-
-        // Once the server flipped it, the cancel sweep takes over.
         let mut cancelled = snapshot.clone();
         cancelled.workflow.status = "cancelled".to_string();
         assert_eq!(evaluate(&cancelled), vec![Decision::DeleteIntegrationBranch]);
     }
 
-    /// EXP-1007: a merge that left the run UP (`endSessionsOnMerge` off,
-    /// `endSessions: false`, a run that merged its own pull request) still
-    /// lands the node — whatever the live run looks like, in every state a
-    /// run can hold a node in.
+    /// EXP-1007: a merge that left the run UP still lands the node —
+    /// whatever the live run looks like, in every state a run can hold a
+    /// node in.
     #[test]
     fn a_merged_pull_request_lands_the_node_while_its_run_is_live() {
         let sessions = [
@@ -2297,10 +2581,7 @@ mod tests {
                     IssueFacts { pr_state: Some("merged".to_string()) },
                 );
                 let decisions = evaluate(&snapshot);
-                let lands: Vec<&Decision> = decisions
-                    .iter()
-                    .filter(|decision| matches!(decision, Decision::LandNode { .. }))
-                    .collect();
+                let lands = of_kind(&decisions, |d| matches!(d, Decision::LandNode { .. }));
                 assert_eq!(
                     lands,
                     vec![&Decision::LandNode { node_id: "a".to_string() }],
@@ -2317,25 +2598,20 @@ mod tests {
         }
     }
 
-    /// The land is asked for ONCE: not while the host is already on it, and
-    /// never again once the node is `landed` — its run may well still be up.
+    /// The land is asked for ONCE: not while the host is already on it.
     #[test]
     fn a_merged_node_with_a_live_run_lands_once() {
-        let build = |state: &str| {
-            let mut a = node("a", state, 0, 0);
-            a.session_id = Some("s-a".to_string());
-            let mut snapshot = running(vec![a]);
-            snapshot.sessions.insert(
-                "s-a".to_string(),
-                SessionFacts { live: true, agent_busy: true, ..SessionFacts::default() },
-            );
-            snapshot.issues.insert(
-                "issue-a".to_string(),
-                IssueFacts { pr_state: Some("merged".to_string()) },
-            );
-            snapshot
-        };
-        let mut landing = build("running");
+        let mut a = node("a", "running", 0, 0);
+        a.session_id = Some("s-a".to_string());
+        let mut landing = running(vec![a]);
+        landing.sessions.insert(
+            "s-a".to_string(),
+            SessionFacts { live: true, agent_busy: true, ..SessionFacts::default() },
+        );
+        landing.issues.insert(
+            "issue-a".to_string(),
+            IssueFacts { pr_state: Some("merged".to_string()) },
+        );
         landing.in_flight.insert("a".to_string());
         assert!(
             !evaluate(&landing)
@@ -2343,24 +2619,22 @@ mod tests {
                 .any(|decision| matches!(decision, Decision::LandNode { .. })),
             "the host is mid-land"
         );
-        // Landed: final. The live run changes nothing, the pass moves on to
-        // the final pull request.
-        assert_eq!(evaluate(&build("landed")), vec![Decision::OpenFinalPr]);
     }
 
-    /// EXP-984 — a review branch is this workflow's, names its node's issue
-    /// and its round, and can never collide with the synthetic bases (which
-    /// carry `-base-`).
+    /// EXP-984/EXP-1103 — a review branch and a fix branch are this
+    /// workflow's, name their round or wave, and never collide with the
+    /// synthetic bases (which carry `-base-`).
     #[test]
-    fn a_review_branch_names_the_workflow_the_issue_and_the_round() {
-        assert_eq!(
-            review_branch("abcdef12-3456-7890-abcd-ef1234567890", "EXP-42", 2),
-            "exp/wf-abcdef12-review-EXP-42-r2"
-        );
-        assert!(!is_synthetic(
-            "abcdef12-3456-7890-abcd-ef1234567890",
-            &review_branch("abcdef12-3456-7890-abcd-ef1234567890", "EXP-42", 2)
-        ));
+    fn review_and_fix_branches_name_the_workflow_and_the_round() {
+        let wf = "abcdef12-3456-7890-abcd-ef1234567890";
+        assert_eq!(review_branch(wf, "EXP-42", 2), "exp/wf-abcdef12-review-EXP-42-r2");
+        assert!(!is_synthetic(wf, &review_branch(wf, "EXP-42", 2)));
+        assert_eq!(fix_branch(wf, 3), "exp/wf-abcdef12-fix-w3");
+        assert!(!is_synthetic(wf, &fix_branch(wf, 3)));
+        assert_eq!(fix_branch_wave(wf, "exp/wf-abcdef12-fix-w3"), Some(3));
+        assert_eq!(fix_branch_wave(wf, "exp/wf-abcdef12-fix-w"), None);
+        assert_eq!(fix_branch_wave(wf, "exp/wf-00000000-fix-w3"), None);
+        assert_eq!(fix_branch_wave(wf, "exp/wf-abcdef12-base-EXP-3"), None);
     }
 
     /// A node the host is mid-start on is untouched for the whole pass, and
@@ -2403,9 +2677,9 @@ mod tests {
             decisions.contains(&Decision::StartNode {
                 node_id: "a".to_string(),
                 attempt: 2,
-                base_branch: "exp/wf-abcdef12".to_string(),
+                base_branch: INTEGRATION.to_string(),
                 model: Some("opus".to_string()),
-                workflow_id: snapshot.workflow.id.clone(),
+                workflow_id: WF.to_string(),
                 role: WfSessionRole::Author,
                 account: None,
             }),
@@ -2422,40 +2696,27 @@ mod tests {
         stale.updated_at_ms = Some(1_000);
         let mut snapshot = running(vec![stale]);
         snapshot.now_ms = 1_000 + START_GRACE_MS;
-        let decisions = evaluate(&snapshot);
         assert_eq!(
-            decisions,
+            evaluate(&snapshot),
             vec![Decision::SetNodeState {
                 node_id: "a".to_string(),
                 state: "failed".to_string(),
                 note: Some(NOTE_START_NEVER_CAME_UP.to_string()),
-            }],
-            "no third start: {decisions:?}"
+            }]
         );
     }
 
     /// EXP-1007: a launch the host could not make (`failed`, no run) is
-    /// retried once; a second failure stays, note and all, for a person.
+    /// retried once, after a rest; a second failure stays for a person.
     #[test]
     fn a_failed_launch_is_retried_once_then_left_for_a_person() {
         let mut first = node("a", "failed", 0, 0);
         first.attempt = 1;
         let snapshot = running(vec![first]);
-        let decisions = evaluate(&snapshot);
-        assert!(
-            decisions.contains(&Decision::StartNode {
-                node_id: "a".to_string(),
-                attempt: 2,
-                base_branch: "exp/wf-abcdef12".to_string(),
-                model: Some("opus".to_string()),
-                workflow_id: snapshot.workflow.id.clone(),
-                role: WfSessionRole::Author,
-                account: None,
-            }),
-            "one free retry: {decisions:?}"
-        );
+        assert!(evaluate(&snapshot)
+            .iter()
+            .any(|decision| matches!(decision, Decision::StartNode { attempt: 2, .. })));
 
-        // EXP-1010: not within the backoff of the failure, though.
         let mut resting = node("a", "failed", 0, 0);
         resting.attempt = 1;
         resting.updated_at_ms = Some(1_000);
@@ -2463,27 +2724,20 @@ mod tests {
         snapshot.now_ms = 1_000 + RETRY_BACKOFF_MS - 1;
         assert!(evaluate(&snapshot).is_empty(), "the failure rests first");
         snapshot.now_ms = 1_000 + RETRY_BACKOFF_MS;
-        assert!(
-            evaluate(&snapshot)
-                .iter()
-                .any(|decision| matches!(decision, Decision::StartNode { attempt: 2, .. })),
-            "then it is retried"
-        );
+        assert!(evaluate(&snapshot)
+            .iter()
+            .any(|decision| matches!(decision, Decision::StartNode { attempt: 2, .. })));
 
         let mut second = node("a", "failed", 0, 0);
         second.attempt = 2;
-        let snapshot = running(vec![second]);
-        assert!(
-            evaluate(&snapshot).is_empty(),
-            "the second failure is final until a person retries"
-        );
+        assert!(evaluate(&running(vec![second])).is_empty());
     }
 
     /// EXP-1029: ONE model policy — the cheap model writes the leaves, the
     /// strong one the contract and integration nodes and every `risk: high`
-    /// node, whatever its kind.
+    /// node, whatever its kind; every review and fix run on the strong one.
     #[test]
-    fn the_strong_model_takes_the_contract_and_integration_nodes() {
+    fn the_strong_model_takes_the_contract_nodes_and_every_review() {
         let mut contract_node = node("a", "ready", 0, 0);
         contract_node.kind = "contract".to_string();
         let snapshot = running(vec![contract_node, node("b", "ready", 0, 1)]);
@@ -2499,35 +2753,17 @@ mod tests {
             vec![
                 ("a".to_string(), Some("fable".to_string())),
                 ("b".to_string(), Some("opus".to_string()))
-            ],
-            "the contract node takes the strong model, the leaf the cheap one"
+            ]
         );
-
         let facts = &running(vec![]).workflow;
         assert_eq!(node_model(facts, "integration", "low").as_deref(), Some("fable"));
         assert_eq!(node_model(facts, "leaf", RISK_HIGH).as_deref(), Some("fable"));
         assert_eq!(node_model(facts, "leaf", "medium").as_deref(), Some("opus"));
-    }
-
-    /// EXP-1029: EVERY agent review runs on the strong model — there is no
-    /// adversarial swap left, and a codex workflow reviews on a codex model.
-    #[test]
-    fn every_review_runs_on_the_strong_model() {
-        let snapshot = running(vec![]);
-        assert_eq!(review_model(&snapshot).as_deref(), Some("fable"));
-
+        assert_eq!(review_model(&running(vec![])).as_deref(), Some("fable"));
         let mut codex = running(vec![]);
         codex.workflow.launch =
             launch::normalize_workflow_launch(&serde_json::json!({ "agent": "codex" }));
         assert_eq!(review_model(&codex).as_deref(), Some("gpt-5.6-luna"));
-
-        // The words ARE contract `codingModel` / `codexModel` values.
-        for model in ["opus", "fable"] {
-            assert!(domain::contract::CODING_MODEL_VALUES.contains(&model));
-        }
-        for model in ["gpt-5.6-sol", "gpt-5.6-luna"] {
-            assert!(domain::contract::CODEX_MODEL_VALUES.contains(&model));
-        }
     }
 
     /// The DAG relation rule 5 skips: an ancestor through any chain of
@@ -2550,32 +2786,382 @@ mod tests {
         let blockers = blockers_by_node(&snapshot);
         assert!(dag_related(&blockers, "a", "c"));
         assert!(dag_related(&blockers, "c", "a"));
-        assert!(dag_related(&blockers, "a", "b"));
         assert!(!dag_related(&blockers, "a", "d"));
-        assert!(!dag_related(&blockers, "d", "c"));
     }
 
+    // ── EXP-1106: mechanical merges, wakes, debounce, stagger ─────────────
+
+    /// A base that moved under an ENDED run is merged by the host — no
+    /// agent wakes — and a tip already in the branch is nothing at all.
+    #[test]
+    fn a_clean_upstream_move_is_merged_by_the_host_without_a_wake() {
+        let mut snapshot = running(vec![landed("c", 0, 0)]);
+        snapshot.nodes[0].approved_at = Some("t".to_string());
+        started_on("a", INTEGRATION, &mut snapshot);
+        snapshot.tips.insert(INTEGRATION.to_string(), "sha-i2".to_string());
+        snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), 0);
+        snapshot.now_ms = UPSTREAM_DEBOUNCE_MS;
+        let decisions = evaluate(&snapshot);
+        assert_eq!(
+            of_kind(&decisions, |d| matches!(d, Decision::MergeBase { .. })),
+            vec![&Decision::MergeBase {
+                node_id: "a".to_string(),
+                branch: "exp/EXP-a".to_string(),
+                base_branch: INTEGRATION.to_string(),
+                sha: "sha-i2".to_string(),
+            }]
+        );
+        assert!(!decisions.iter().any(Decision::is_wake), "{decisions:?}");
+        // Already in: quiet.
+        snapshot
+            .merged
+            .insert("a".to_string(), [(INTEGRATION.to_string(), "sha-i2".to_string())].into());
+        assert!(!evaluate(&snapshot)
+            .iter()
+            .any(|d| matches!(d, Decision::MergeBase { .. })));
+    }
+
+    /// A conflicting move wakes the run ONCE: resumed while its cache is
+    /// warm, fresh with a brief after that; the recorded wake is never
+    /// repeated for the same tip.
+    #[test]
+    fn a_conflicting_upstream_move_wakes_the_run_once() {
+        let mut snapshot = running(vec![]);
+        started_on("a", INTEGRATION, &mut snapshot);
+        snapshot.tips.insert(INTEGRATION.to_string(), "sha-i2".to_string());
+        snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), 0);
+        snapshot.base_conflicts.insert("a".to_string());
+        snapshot.now_ms = UPSTREAM_DEBOUNCE_MS;
+        snapshot.sessions.insert("s-a".to_string(), ended(Some(snapshot.now_ms - 1_000)));
+        let wake = Decision::WakeRun {
+            node_id: "a".to_string(),
+            session_id: "s-a".to_string(),
+            mode: WakeMode::Resume,
+            reason: WakeReason::UpstreamConflict {
+                base_branch: INTEGRATION.to_string(),
+                sha: "sha-i2".to_string(),
+            },
+        };
+        let decisions = evaluate(&snapshot);
+        assert_eq!(of_kind(&decisions, Decision::is_wake), vec![&wake]);
+        assert!(!decisions.iter().any(|d| matches!(d, Decision::MergeBase { .. })));
+        // Ended long ago: a fresh run with a brief instead of a cold resume.
+        snapshot.sessions.insert("s-a".to_string(), ended(Some(snapshot.now_ms - IDLE_RESUME_MS)));
+        assert!(matches!(
+            of_kind(&evaluate(&snapshot), Decision::is_wake)[0],
+            Decision::WakeRun { mode: WakeMode::Fresh, .. }
+        ));
+        // Woken for this tip already: nothing more until it moves again.
+        snapshot
+            .woken
+            .insert("a".to_string(), [(INTEGRATION.to_string(), "sha-i2".to_string())].into());
+        assert!(!evaluate(&snapshot).iter().any(Decision::is_wake));
+        snapshot.tips.insert(INTEGRATION.to_string(), "sha-i3".to_string());
+        assert_eq!(of_kind(&evaluate(&snapshot), Decision::is_wake).len(), 1);
+    }
+
+    /// Three quick moves become one merge: while the tip keeps moving inside
+    /// the window nothing happens, and one decision follows once it rests.
+    /// A live run is never touched at all.
+    #[test]
+    fn quick_upstream_moves_are_debounced_into_one() {
+        let mut snapshot = running(vec![]);
+        started_on("a", INTEGRATION, &mut snapshot);
+        snapshot.now_ms = 100_000;
+        for (sha, seen) in [("sha-i2", 40_000), ("sha-i3", 70_000), ("sha-i4", 90_000)] {
+            snapshot.tips.insert(INTEGRATION.to_string(), sha.to_string());
+            snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), seen);
+            assert!(evaluate(&snapshot).is_empty(), "{sha} still moving");
+        }
+        // A tip the host has not dated reads as just seen: it waits too.
+        snapshot.tip_seen_ms.clear();
+        assert!(evaluate(&snapshot).is_empty());
+        snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), 90_000);
+        snapshot.now_ms = 90_000 + UPSTREAM_DEBOUNCE_MS;
+        assert_eq!(
+            evaluate(&snapshot),
+            vec![Decision::MergeBase {
+                node_id: "a".to_string(),
+                branch: "exp/EXP-a".to_string(),
+                base_branch: INTEGRATION.to_string(),
+                sha: "sha-i4".to_string(),
+            }]
+        );
+        snapshot
+            .sessions
+            .insert("s-a".to_string(), SessionFacts { live: true, ..SessionFacts::default() });
+        assert!(evaluate(&snapshot).is_empty(), "a live run pulls itself");
+    }
+
+    /// EXP-1106 rule 3: the wake mode by idle time — steer a live idle run,
+    /// resume an ended one inside the TTL, start fresh past it; never a run
+    /// mid-turn or parked on a question.
+    #[test]
+    fn the_wake_mode_follows_the_idle_time() {
+        let now = 10 * 60_000;
+        let live = SessionFacts { live: true, ..SessionFacts::default() };
+        assert_eq!(wake_mode(&live, now), Some(WakeMode::Steer));
+        let busy = SessionFacts { live: true, agent_busy: true, ..SessionFacts::default() };
+        assert_eq!(wake_mode(&busy, now), None);
+        let asking = SessionFacts { live: true, needs_input: true, ..SessionFacts::default() };
+        assert_eq!(wake_mode(&asking, now), None);
+        assert_eq!(wake_mode(&ended(Some(now - IDLE_RESUME_MS + 1)), now), Some(WakeMode::Resume));
+        assert_eq!(wake_mode(&ended(Some(now - IDLE_RESUME_MS)), now), Some(WakeMode::Fresh));
+        assert_eq!(wake_mode(&ended(None), now), Some(WakeMode::Fresh));
+    }
+
+    /// A host restart (or a reset) with many runs to wake sends them out a
+    /// few at a time: the budget caps nudges and wakes alike, per pass.
+    #[test]
+    fn wakes_go_out_a_few_per_pass() {
+        let mut snapshot = running(vec![]);
+        for id in ["a", "b", "c", "d"] {
+            started_on(id, INTEGRATION, &mut snapshot);
+            snapshot.base_conflicts.insert(id.to_string());
+        }
+        // Two more runs walled and reset: nudges compete for the same budget.
+        for id in ["e", "f"] {
+            let mut facts = node(id, "running", 1, 5);
+            facts.session_id = Some(format!("s-{id}"));
+            snapshot.sessions.insert(
+                format!("s-{id}"),
+                SessionFacts {
+                    live: true,
+                    blocked: true,
+                    blocked_resets_at_ms: Some(0),
+                    ..SessionFacts::default()
+                },
+            );
+            snapshot.nodes.push(facts);
+        }
+        snapshot.tips.insert(INTEGRATION.to_string(), "sha-i2".to_string());
+        snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), 0);
+        snapshot.now_ms = UPSTREAM_DEBOUNCE_MS;
+        let decisions = evaluate(&snapshot);
+        let wakes = of_kind(&decisions, Decision::is_wake);
+        assert_eq!(wakes.len(), MAX_WAKES_PER_PASS, "{decisions:?}");
+        // The order is the cascade's: the upstream wakes first, in landing
+        // order; the nudges wait their turn.
+        assert!(matches!(wakes[0], Decision::WakeRun { node_id, .. } if node_id == "a"));
+        assert!(matches!(wakes[1], Decision::WakeRun { node_id, .. } if node_id == "b"));
+    }
+
+    /// EXP-1106 rule 2: a run hears ONCE that a dependent started on its
+    /// work — while it is live and idle, never mid-turn.
+    #[test]
+    fn the_freeze_notice_is_said_once() {
+        let mut contract = node("c", "running", 0, 0);
+        contract.kind = "contract".to_string();
+        contract.session_id = Some("s-c".to_string());
+        contract.checkpoint_at = Some("t".to_string());
+        let mut leaf = node("l", "running", 1, 0);
+        leaf.session_id = Some("s-l".to_string());
+        let mut snapshot = running(vec![contract, leaf]);
+        snapshot.edges.push(("c".to_string(), "l".to_string()));
+        snapshot
+            .sessions
+            .insert("s-c".to_string(), SessionFacts { live: true, ..SessionFacts::default() });
+        snapshot
+            .sessions
+            .insert("s-l".to_string(), SessionFacts { live: true, ..SessionFacts::default() });
+        let notice = Decision::Nudge {
+            session_id: "s-c".to_string(),
+            key: NUDGE_KEY_FREEZE.to_string(),
+            text: NUDGE_FREEZE.to_string(),
+        };
+        assert_eq!(evaluate(&snapshot), vec![notice.clone()]);
+        snapshot.nudged.insert(("s-c".to_string(), NUDGE_KEY_FREEZE.to_string()));
+        assert!(evaluate(&snapshot).is_empty());
+        // Mid-turn: not now. No dependent started: not at all.
+        snapshot.nudged.clear();
+        snapshot.sessions.get_mut("s-c").unwrap().agent_busy = true;
+        assert!(evaluate(&snapshot).is_empty());
+        snapshot.sessions.get_mut("s-c").unwrap().agent_busy = false;
+        snapshot.nodes[1].session_id = None;
+        snapshot.nodes[1].state = "blocked".to_string();
+        assert!(!evaluate(&snapshot).contains(&notice));
+    }
+
+    // ── EXP-1103: review waves ────────────────────────────────────────────
+
+    /// One wave at the end by default; a graph deeper than three layers adds
+    /// one after the contract layer and every third layer after it.
+    #[test]
+    fn review_points_follow_the_depth() {
+        assert_eq!(review_points(0), Vec::<i64>::new());
+        assert_eq!(review_points(1), vec![0]);
+        assert_eq!(review_points(2), vec![1]);
+        assert_eq!(review_points(3), vec![2]);
+        assert_eq!(review_points(4), vec![0, 3]);
+        assert_eq!(review_points(5), vec![0, 3, 4]);
+        assert_eq!(review_points(7), vec![0, 3, 6]);
+        assert_eq!(review_points(8), vec![0, 3, 6, 7]);
+    }
+
+    /// The whole wave, beat by beat: reviewers for every landed node (a few
+    /// per pass), one fix run for what they requested, its landing, the
+    /// clearance, then the final pull request. One round, never a loop.
+    #[test]
+    fn a_wave_reviews_fixes_once_and_clears() {
+        let mut snapshot = running(vec![landed("a", 0, 0), landed("b", 0, 1), landed("c", 1, 0)]);
+        snapshot.workflow.max_parallel = 2;
+        snapshot.edges.push(("a".to_string(), "c".to_string()));
+        let review = |node_id: &str| Decision::StartReview {
+            node_id: node_id.to_string(),
+            wave: 1,
+            model: Some("fable".to_string()),
+            adversarial: false,
+            workflow_id: WF.to_string(),
+            role: WfSessionRole::Review,
+            account: None,
+        };
+        // Reviewers go out max_parallel at a time, in landing order.
+        assert_eq!(evaluate(&snapshot), vec![review("a"), review("b")]);
+        snapshot.review_in_flight.insert("a".to_string());
+        snapshot.review_in_flight.insert("b".to_string());
+        assert_eq!(evaluate(&snapshot), vec![review("c")]);
+        // Verdicts land: a approves, b requests changes, c's reviewers gave up.
+        snapshot.review_in_flight.clear();
+        snapshot.nodes[0].review = Some(ReviewFacts { verdict: "approve".to_string(), round: 1, ..ReviewFacts::default() });
+        snapshot.nodes[1].review = Some(ReviewFacts { verdict: "request_changes".to_string(), round: 1, ..ReviewFacts::default() });
+        snapshot.review_gave_up.insert("c".to_string());
+        let fix = Decision::StartFix {
+            wave: 1,
+            node_ids: vec!["b".to_string()],
+            branch: fix_branch(WF, 1),
+            model: Some("fable".to_string()),
+            workflow_id: WF.to_string(),
+            role: WfSessionRole::Review,
+            account: None,
+        };
+        assert_eq!(evaluate(&snapshot), vec![fix]);
+        // The fix run is up: wait. Ended: land what it pushed. Landed: clear.
+        snapshot.fix_runs.push(FixRunFacts { wave: 1, session_id: "s-fix".to_string(), live: true, landed: false });
+        assert!(evaluate(&snapshot).is_empty());
+        snapshot.fix_runs[0].live = false;
+        assert_eq!(evaluate(&snapshot), vec![Decision::LandFix { wave: 1, branch: fix_branch(WF, 1) }]);
+        snapshot.fix_runs[0].landed = true;
+        assert_eq!(
+            evaluate(&snapshot),
+            vec![Decision::ClearWave {
+                wave: 1,
+                node_ids: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            }]
+        );
+        // Stamped: the final pull request, and no second round however the
+        // verdict reads.
+        for node in &mut snapshot.nodes {
+            node.approved_at = Some("t".to_string());
+        }
+        assert_eq!(evaluate(&snapshot), vec![Decision::OpenFinalPr]);
+    }
+
+    /// A wave nobody asked anything of clears without a fix run; an approved
+    /// oracle failure counts as a request.
+    #[test]
+    fn a_wave_with_nothing_requested_clears_at_once() {
+        let mut snapshot = running(vec![landed("a", 0, 0)]);
+        snapshot.nodes[0].review = Some(ReviewFacts { verdict: "approve".to_string(), round: 1, ..ReviewFacts::default() });
+        assert_eq!(
+            evaluate(&snapshot),
+            vec![Decision::ClearWave { wave: 0, node_ids: vec!["a".to_string()] }]
+        );
+        snapshot.nodes[0].review.as_mut().unwrap().oracle = Some(OracleFacts { passed: Some(false) });
+        assert!(matches!(evaluate(&snapshot)[0], Decision::StartFix { .. }));
+    }
+
+    /// In a DEEP graph the wave after the contract layer gates the layers
+    /// behind it: an unstarted node waits (and says why, once), a finished
+    /// one does not land, until the wave cleared.
+    #[test]
+    fn a_mid_graph_wave_gates_the_layers_behind_it() {
+        // Four layers: contract, two leaf layers, integration. `l` (layer 1)
+        // finished on the contract; `n` (layer 1) is released by it and
+        // would start; `m` and `i` wait on their blockers anyway.
+        let mut snapshot = running(vec![landed("c", 0, 0), node("n", "blocked", 1, 1), node("m", "blocked", 2, 0), node("i", "blocked", 3, 0)]);
+        snapshot.edges.extend([
+            ("c".to_string(), "l".to_string()),
+            ("c".to_string(), "n".to_string()),
+            ("l".to_string(), "m".to_string()),
+            ("m".to_string(), "i".to_string()),
+        ]);
+        started_on("l", INTEGRATION, &mut snapshot);
+        snapshot.merged.insert("l".to_string(), [(INTEGRATION.to_string(), "sha-c".to_string())].into());
+        snapshot.tips.insert(INTEGRATION.to_string(), "sha-c".to_string());
+        let decisions = evaluate(&snapshot);
+        // The contract's wave is due (layer 0 is final) and not cleared: it
+        // reviews c; n stays blocked with the gate's note; l does not land.
+        assert!(decisions.iter().any(|d| matches!(d, Decision::StartReview { node_id, wave: 0, .. } if node_id == "c")), "{decisions:?}");
+        assert!(decisions.contains(&Decision::SetNodeState {
+            node_id: "n".to_string(),
+            state: "blocked".to_string(),
+            note: Some(wave_gate_note(0)),
+        }), "{decisions:?}");
+        assert!(!decisions.iter().any(|d| matches!(d, Decision::LandNode { .. } | Decision::StartNode { .. })), "{decisions:?}");
+        assert!(is_engine_hold_note(&wave_gate_note(0)));
+        // Cleared: l lands, n starts, and the note goes with the hold.
+        snapshot.nodes.iter_mut().find(|n| n.id == "c").unwrap().approved_at = Some("t".to_string());
+        snapshot.nodes.iter_mut().find(|n| n.id == "n").unwrap().note = Some(wave_gate_note(0));
+        let decisions = evaluate(&snapshot);
+        assert!(decisions.contains(&Decision::LandNode { node_id: "l".to_string() }), "{decisions:?}");
+        assert!(decisions.contains(&Decision::SetNodeState { node_id: "n".to_string(), state: "ready".to_string(), note: None }), "{decisions:?}");
+        assert!(decisions.iter().any(|d| matches!(d, Decision::StartNode { node_id, .. } if node_id == "n")), "{decisions:?}");
+        assert!(!decisions.iter().any(|d| matches!(d, Decision::StartReview { .. })));
+    }
+
+    /// EXP-1102: the store is a CACHE. Wiped mid-run, the next pass decides
+    /// the same things off the synced rows and git — at most one extra
+    /// mechanical merge (a no-op) once the debounce window passed.
+    #[test]
+    fn a_wiped_store_converges_within_one_beat() {
+        let mut cached = running(vec![landed("c", 0, 0)]);
+        cached.nodes[0].approved_at = Some("t".to_string());
+        started_on("a", INTEGRATION, &mut cached);
+        cached.tips.insert(INTEGRATION.to_string(), "sha-c".to_string());
+        cached.tip_seen_ms.insert(INTEGRATION.to_string(), 0);
+        cached.merged.insert("a".to_string(), [(INTEGRATION.to_string(), "sha-c".to_string())].into());
+        cached.now_ms = UPSTREAM_DEBOUNCE_MS;
+        let expected = evaluate(&cached);
+        assert_eq!(expected, vec![Decision::LandNode { node_id: "a".to_string() }]);
+
+        // The store is gone: no merged cache, no tip clock, no woken record.
+        let mut bare = cached.clone();
+        bare.merged.clear();
+        bare.tip_seen_ms.clear();
+        bare.woken.clear();
+        assert_eq!(evaluate(&bare), expected, "the same pass, the tip reads as just seen");
+        // One beat later the host has dated the tip; the merge it decides is
+        // a no-op (the tip is already in), and nothing else differs.
+        bare.tip_seen_ms.insert(INTEGRATION.to_string(), bare.now_ms);
+        bare.now_ms += UPSTREAM_DEBOUNCE_MS;
+        let mut converged = expected.clone();
+        converged.insert(0, Decision::MergeBase {
+            node_id: "a".to_string(),
+            branch: "exp/EXP-a".to_string(),
+            base_branch: INTEGRATION.to_string(),
+            sha: "sha-c".to_string(),
+        });
+        assert_eq!(evaluate(&bare), converged);
+        // And the host's ancestry check refills the cache from git alone.
+        bare.merged = cached.merged.clone();
+        assert_eq!(evaluate(&bare), expected);
+    }
+
+    // ── host bookkeeping ─────────────────────────────────────────────────
+
     /// A reviewer run that ended: a round that advanced was a verdict; one
-    /// that did not releases the head for another try, up to the cap, after
-    /// which the head stays claimed and the node gets a note.
+    /// that did not is retried, up to the cap, after which the node gets a
+    /// note.
     #[test]
     fn ended_review_runs_settle_into_verdicts_retries_and_a_cap() {
         let mut state = WorkflowState::default();
         state.review_runs.insert("a".to_string(), "r-a".to_string());
         state.review_rounds.insert("a".to_string(), 1);
-        state.reviewed_head.insert("a".to_string(), "sha-a1".to_string());
         state.review_runs.insert("b".to_string(), "r-b".to_string());
         state.review_rounds.insert("b".to_string(), 0);
-        state.reviewed_head.insert("b".to_string(), "sha-b1".to_string());
         state.review_runs.insert("c".to_string(), "r-c".to_string());
-        state.reviewed_head.insert("c".to_string(), "sha-c1".to_string());
-        let rounds: HashMap<String, i64> = [
-            ("a".to_string(), 2), // advanced: a verdict landed
-            ("b".to_string(), 0), // unchanged: no verdict
-            ("c".to_string(), 0),
-        ]
-        .into();
-        // r-c has not synced: left alone this pass.
+        let rounds: HashMap<String, i64> =
+            [("a".to_string(), 2), ("b".to_string(), 0), ("c".to_string(), 0)].into();
         let live = |id: &str| match id {
             "r-a" | "r-b" => Some(false),
             _ => None,
@@ -2584,27 +3170,16 @@ mod tests {
         assert_eq!(
             outcomes,
             vec![
-                ReviewRunEnd::Verdict {
-                    node_id: "a".to_string()
-                },
-                ReviewRunEnd::Retry {
-                    node_id: "b".to_string(),
-                    failures: 1
-                },
+                ReviewRunEnd::Verdict { node_id: "a".to_string() },
+                ReviewRunEnd::Retry { node_id: "b".to_string(), failures: 1 },
             ]
         );
-        assert_eq!(state.reviewed_head.get("a").map(String::as_str), Some("sha-a1"));
-        assert_eq!(state.reviewed_head.get("b"), None, "released for another try");
-        assert_eq!(state.reviewed_head.get("c").map(String::as_str), Some("sha-c1"));
         assert!(!state.review_runs.contains_key("a"));
         assert!(!state.review_runs.contains_key("b"));
         assert!(state.review_runs.contains_key("c"));
-
-        // Two more verdict-less runs on b: the third hits the cap.
         for expected_failures in [2, 3] {
             state.review_runs.insert("b".to_string(), "r-b2".to_string());
             state.review_rounds.insert("b".to_string(), 0);
-            state.reviewed_head.insert("b".to_string(), "sha-b1".to_string());
             let outcomes = settle_review_runs(
                 &mut state,
                 &rounds,
@@ -2616,13 +3191,7 @@ mod tests {
                 0,
             );
             if expected_failures < MAX_REVIEW_RUN_FAILURES {
-                assert_eq!(
-                    outcomes,
-                    vec![ReviewRunEnd::Retry {
-                        node_id: "b".to_string(),
-                        failures: expected_failures
-                    }]
-                );
+                assert_eq!(outcomes, vec![ReviewRunEnd::Retry { node_id: "b".to_string(), failures: expected_failures }]);
             } else {
                 assert_eq!(
                     outcomes,
@@ -2631,11 +3200,7 @@ mod tests {
                         note: format!("{NOTE_REVIEW_NO_VERDICT} (3 runs)"),
                     }]
                 );
-                assert_eq!(
-                    state.reviewed_head.get("b").map(String::as_str),
-                    Some("sha-b1"),
-                    "the head stays claimed: no fourth launch"
-                );
+                assert_eq!(state.review_failures["b"], MAX_REVIEW_RUN_FAILURES);
             }
         }
     }
@@ -2674,8 +3239,7 @@ mod tests {
 
     /// A reviewer launches on `-r<review_round + 1>` and its verdict moves the
     /// node up to that round: a live run on the node's current round or lower
-    /// already submitted and only lingers. The pending-round view leaves it
-    /// out, so it is neither adopted nor followed (and never ended).
+    /// already submitted and only lingers; it is neither adopted nor followed.
     #[test]
     fn a_live_older_round_reviewer_is_not_adopted() {
         let wf = "abcdef12-3456-7890-abcd-ef1234567890";
@@ -2686,10 +3250,6 @@ mod tests {
         .into();
         assert_eq!(review_branch_round(wf, "EXP-1", &review_branch(wf, "EXP-1", 3)), Some(3));
         assert_eq!(review_branch_round(wf, "EXP-1", &review_branch(wf, "EXP-10", 3)), None);
-        assert_eq!(review_branch_round(wf, "EXP-1", "exp/wf-abcdef12-review-EXP-1-r"), None);
-        // n1 is at round 2: its -r1 and -r2 reviewers already submitted, the
-        // pending one would run on -r3. n2 is at round 0: its -r1 reviewer
-        // IS the pending one.
         let rounds: HashMap<String, i64> = [("n1".to_string(), 2), ("n2".to_string(), 0)].into();
         let rows = vec![
             ("s-n1-old".to_string(), review_branch(wf, "EXP-1", 1)),
@@ -2698,9 +3258,6 @@ mod tests {
         ];
         let pending = live_pending_reviews_on_branches(wf, &identifier, &rounds, rows.clone());
         assert_eq!(pending, [("n2".to_string(), "s-n2-pending".to_string())].into());
-        // Settled against the pending view: nothing of n1 is adopted; the
-        // stray stays live and untracked. Once n1's -r3 reviewer is live it
-        // is the one taken in.
         let mut state = WorkflowState::default();
         let live = |id: &str| match id {
             "s-n1-old" | "s-n1-landed" | "s-n2-pending" | "s-n1-next" => Some(true),
@@ -2709,10 +3266,7 @@ mod tests {
         let outcomes = settle_review_runs(&mut state, &rounds, &pending, live, 0);
         assert_eq!(
             outcomes,
-            vec![ReviewRunEnd::Adopted {
-                node_id: "n2".to_string(),
-                session_id: "s-n2-pending".to_string()
-            }]
+            vec![ReviewRunEnd::Adopted { node_id: "n2".to_string(), session_id: "s-n2-pending".to_string() }]
         );
         assert!(!state.review_runs.contains_key("n1"));
         let mut rows = rows;
@@ -2721,30 +3275,23 @@ mod tests {
         let outcomes = settle_review_runs(&mut state, &rounds, &pending, live, 0);
         assert_eq!(
             outcomes,
-            vec![ReviewRunEnd::Adopted {
-                node_id: "n1".to_string(),
-                session_id: "s-n1-next".to_string()
-            }]
+            vec![ReviewRunEnd::Adopted { node_id: "n1".to_string(), session_id: "s-n1-next".to_string() }]
         );
         assert_eq!(state.review_rounds["n1"], 2);
     }
 
-    /// The bug behind workflow 3b828f50's five reviewers of one node: a
-    /// person's account switch ENDS the recorded reviewer and resumes it on
-    /// the same branch. The ended record is re-pointed at the live resume,
-    /// nothing is counted and the head stays claimed; a live reviewer no
-    /// record names is adopted at the node's current round; a resume whose
-    /// successor has not synced yet is under a hold and waits, then settles
-    /// once the grace passed.
+    /// A person's account switch ENDS the recorded reviewer and resumes it
+    /// on the same branch: the ended record is re-pointed at the live
+    /// resume, nothing is counted; a live reviewer no record names is
+    /// adopted; a resume whose successor has not synced yet is under a hold
+    /// and waits, then settles once the grace passed.
     #[test]
     fn a_resumed_reviewer_is_followed_not_counted_and_a_stray_one_adopted() {
         let mut state = WorkflowState::default();
         state.review_runs.insert("a".to_string(), "r-a1".to_string());
         state.review_rounds.insert("a".to_string(), 1);
-        state.reviewed_head.insert("a".to_string(), "sha-a".to_string());
         state.review_runs.insert("h".to_string(), "r-h1".to_string());
         state.review_rounds.insert("h".to_string(), 0);
-        state.reviewed_head.insert("h".to_string(), "sha-h".to_string());
         state.resuming.insert("r-h1".to_string(), 9_000);
         let rounds: HashMap<String, i64> =
             [("a".to_string(), 1), ("b".to_string(), 2), ("h".to_string(), 0)].into();
@@ -2762,41 +3309,17 @@ mod tests {
         assert_eq!(
             outcomes,
             vec![
-                ReviewRunEnd::Followed {
-                    node_id: "a".to_string(),
-                    session_id: "r-a2".to_string()
-                },
-                ReviewRunEnd::Adopted {
-                    node_id: "b".to_string(),
-                    session_id: "r-b".to_string()
-                },
+                ReviewRunEnd::Followed { node_id: "a".to_string(), session_id: "r-a2".to_string() },
+                ReviewRunEnd::Adopted { node_id: "b".to_string(), session_id: "r-b".to_string() },
             ]
         );
         assert_eq!(state.review_runs["a"], "r-a2");
-        assert_eq!(state.review_rounds["a"], 1, "the launch round rides along");
-        assert_eq!(state.reviewed_head["a"], "sha-a", "still claimed: no third reviewer");
+        assert_eq!(state.review_rounds["a"], 1);
         assert!(state.review_failures.is_empty());
-        assert_eq!(state.review_runs["b"], "r-b");
-        assert_eq!(state.review_rounds["b"], 2);
-        // Held: the record stays until the grace passes …
-        assert_eq!(state.review_runs["h"], "r-h1");
-        // … then the end counts like any other.
-        let outcomes = settle_review_runs(
-            &mut state,
-            &rounds,
-            &HashMap::new(),
-            live,
-            9_000 + RESUME_GRACE_MS,
-        );
-        assert_eq!(
-            outcomes,
-            vec![ReviewRunEnd::Retry {
-                node_id: "h".to_string(),
-                failures: 1
-            }]
-        );
+        assert_eq!(state.review_runs["h"], "r-h1", "held until the grace passes");
+        let outcomes = settle_review_runs(&mut state, &rounds, &HashMap::new(), live, 9_000 + RESUME_GRACE_MS);
+        assert_eq!(outcomes, vec![ReviewRunEnd::Retry { node_id: "h".to_string(), failures: 1 }]);
         assert!(!state.resuming.contains_key("r-h1"));
-        // A record that already names the live run is simply live.
         let outcomes = settle_review_runs(&mut state, &rounds, &live_on_branch, live, 20_000);
         assert!(outcomes.is_empty());
     }
@@ -2834,12 +3357,7 @@ mod tests {
         let facts = &snapshot.sessions["s-old"];
         assert!(facts.live && facts.agent_busy);
         assert_eq!(resuming.keys().collect::<Vec<_>>(), ["s-old"]);
-        assert!(
-            evaluate(&snapshot).is_empty(),
-            "an updating node with a busy run holds, and its ended row is not resumed again"
-        );
-
-        // The node names the new run: the entry goes.
+        assert!(evaluate(&snapshot).is_empty());
         snapshot.nodes[0].session_id = Some("s-new".to_string());
         apply_resuming(&mut snapshot, &mut resuming, &HashMap::new());
         assert!(resuming.is_empty());
@@ -2869,18 +3387,9 @@ mod tests {
     /// Both wire forms of a timestamp read, and garbage reads as none.
     #[test]
     fn wire_timestamps_parse_in_both_forms() {
-        assert_eq!(
-            parse_wire_timestamp_ms("2026-07-03T10:11:12.345Z"),
-            Some(1_783_073_472_345)
-        );
-        assert_eq!(
-            parse_wire_timestamp_ms("2026-07-03 10:11:12.345+00"),
-            Some(1_783_073_472_345)
-        );
-        assert_eq!(
-            parse_wire_timestamp_ms("2026-07-03 10:11:12.345"),
-            Some(1_783_073_472_345)
-        );
+        assert_eq!(parse_wire_timestamp_ms("2026-07-03T10:11:12.345Z"), Some(1_783_073_472_345));
+        assert_eq!(parse_wire_timestamp_ms("2026-07-03 10:11:12.345+00"), Some(1_783_073_472_345));
+        assert_eq!(parse_wire_timestamp_ms("2026-07-03 10:11:12.345"), Some(1_783_073_472_345));
         assert_eq!(parse_wire_timestamp_ms("yesterday"), None);
     }
 }

@@ -500,6 +500,9 @@ export async function loadWorkflowEdges(executor: Executor, workflowId: string) 
         memberIssueIds: workflowNodes.memberIssueIds,
         state: workflowNodes.state,
         baseBranch: workflowNodes.baseBranch,
+        // EXP-1103: the review-wave gate reads the layer and the stamp.
+        wave: workflowNodes.wave,
+        approvedAt: workflowNodes.approvedAt,
       })
       .from(workflowNodes)
       .where(eq(workflowNodes.workflowId, workflowId))

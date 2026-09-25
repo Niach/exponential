@@ -342,6 +342,15 @@ export function WorkflowDetail({
   // device the viewer cannot see) the caption drops its `on …` part rather
   // than print a raw uuid. The primary action keys on the id's presence.
   const deviceLabel = runner?.deviceLabel || null
+  // EXP-1102: a live workflow's runner went offline, or no row names its id
+  // any more (the machine re-minted its identity): the page says so and
+  // offers to re-bind to an online machine — the person picks, never an
+  // automatic failover; the new host rebuilds its state from the rows.
+  const runnerOffline =
+    (workflow.status === `running` || workflow.status === `paused`) &&
+    workflow.deviceId !== null &&
+    remote.devices !== null &&
+    (!runner || runner.online === false)
 
   const strip = useMemo(
     () =>
@@ -389,10 +398,12 @@ export function WorkflowDetail({
   // The runner is frozen once the workflow started: the picker can never
   // write `deviceId` on a running workflow, even if it was open at the flip.
   const isDraft = workflow.status === `draft`
-  const runsOnOpen = runsOnOpenState && isDraft
+  // EXP-1102: … unless the runner is gone, when the pick is offered again.
+  const canPickRunner = isDraft || runnerOffline
+  const runsOnOpen = runsOnOpenState && canPickRunner
   useEffect(() => {
-    if (!isDraft) setRunsOnOpen(false)
-  }, [isDraft])
+    if (!canPickRunner) setRunsOnOpen(false)
+  }, [canPickRunner])
   const openComposer = useOpenComposer()
   const [dialog, setDialog] = useState<
     | `cancel`
@@ -752,7 +763,7 @@ export function WorkflowDetail({
                   data-testid="workflow-runs-on-picker"
                   onChange={(deviceId) => {
                     setRunsOnOpen(false)
-                    if (isDraft) void save({ deviceId })
+                    if (canPickRunner) void save({ deviceId })
                   }}
                 />
               )}
@@ -771,6 +782,22 @@ export function WorkflowDetail({
               deviceLabel
             )}
           </p>
+          {runnerOffline && (
+            <p className="pl-7 text-xs text-destructive" data-testid="workflow-runner-offline">
+              {runnerOfflineCaption(runner?.lastSeenAt ?? null)}{` `}
+              <button
+                type="button"
+                className="underline underline-offset-2"
+                data-testid="workflow-runner-rebind"
+                onClick={() => {
+                  runsOnRequested.current = true
+                  setRunsOnOpen(true)
+                }}
+              >
+                {REBIND_RUNNER_LABEL}
+              </button>
+            </p>
+          )}
         </header>
 
         {notice && (
@@ -1023,6 +1050,21 @@ function WorkflowNameField({
       }}
     />
   )
+}
+
+/** EXP-1102: the re-bind offer beside the offline caption. */
+export const REBIND_RUNNER_LABEL = `Pick another device`
+
+/** EXP-1102: what the header says about a runner that is not beating any
+ *  more — "Runner offline since 14:49", or without a stamp when no row names
+ *  the bound id at all (the machine re-minted its identity). */
+export function runnerOfflineCaption(lastSeenAt: string | null): string {
+  if (!lastSeenAt) return `Runner offline.`
+  const seen = new Date(lastSeenAt)
+  if (Number.isNaN(seen.getTime())) return `Runner offline.`
+  const hh = String(seen.getHours()).padStart(2, `0`)
+  const mm = String(seen.getMinutes()).padStart(2, `0`)
+  return `Runner offline since ${hh}:${mm}.`
 }
 
 /** The header's ONE primary button (`workflowPrimaryAction`). */

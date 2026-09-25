@@ -14,7 +14,7 @@ import {
   type WfEventKind,
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
-import { carriedReviewAtCap } from "@/lib/trpc/workflows/shared"
+import { carriedReview } from "@/lib/trpc/workflows/shared"
 import { writeWorkflowEvent } from "@/lib/workflows/record-event"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import {
@@ -61,7 +61,8 @@ export function pickAuditNodes<T>(nodes: readonly T[], seed: string, count: numb
   return out
 }
 
-/** EXP-1065: the findings a node landed WITH at the review cap. */
+/** EXP-1065/EXP-1103: the findings a review wave still asked of a landed
+ *  node after its one fix run. */
 export interface FinalPrCarriedFindings {
   identifier: string
   round: number
@@ -101,7 +102,7 @@ export function finalPrBody(args: {
     lines.push(
       ``,
       `## Unresolved review findings`,
-      `These nodes landed at the review cap with findings their author did not settle. Check each before merging:`
+      `The review wave asked for these changes; its fix run had one go at them. Check each before merging:`
     )
     for (const entry of findings) {
       lines.push(`- [ ] #${entry.identifier} (review round ${entry.round})`)
@@ -515,7 +516,7 @@ export async function openWorkflowFinalPr(
       identifier: issues.identifier,
       title: issues.title,
       prUrl: issues.prUrl,
-      // EXP-1065: what a node landed with at the review cap.
+      // EXP-1065/EXP-1103: what a review wave still asked for.
       reviewRound: workflowNodes.reviewRound,
       review: workflowNodes.review,
       approvedAt: workflowNodes.approvedAt,
@@ -567,10 +568,10 @@ export async function openWorkflowFinalPr(
   const landed = nodes.filter((node) => node.state === `landed`)
   const findings: FinalPrCarriedFindings[] = []
   for (const node of landed) {
-    const carried = carriedReviewAtCap({
-      reviewRound: node.reviewRound ?? 0,
+    // EXP-1103: whatever a review wave still asked for after its ONE fix run
+    // is carried here, the one place a person reviews — never another round.
+    const carried = carriedReview({
       review: (node.review as WorkflowNodeReview | null) ?? null,
-      approvedAt: node.approvedAt ?? null,
     })
     if (!carried) continue
     findings.push({
