@@ -63,8 +63,19 @@ pub(crate) fn unsupported_reason(action: &api::actions::Action) -> Option<&'stat
 /// The `pr` input's pick list (EXP-259): the team's OPEN issue-linked pull
 /// requests, deduped by prUrl (a batch PR shows once; its value is the
 /// representative issue's id). Shared by the field's dropdown and the
-/// fix-conflicts seed's PR preselect (EXP-313).
+/// fix-conflicts seed's PR preselect (EXP-313). EXP-1072: then the team's
+/// workflows with an OPEN final PR, valued by the WORKFLOW id and labelled
+/// `#829 · Workflow: <name>` — the workflow's own PR, never an unlinked one.
 pub(crate) fn pr_pick_options(cx: &App, team_id: &str) -> Vec<(String, String)> {
+    let workflows = crate::queries::review_workflows(cx, team_id)
+        .into_iter()
+        .map(|workflow| {
+            let label = domain::workflow_final_pr::pick_label(
+                workflow.final_pr_number,
+                workflow.name.as_deref().unwrap_or_default(),
+            );
+            (workflow.id, label)
+        });
     crate::queries::review_groups(cx, team_id)
         .iter()
         .flat_map(|group| group.entries.iter())
@@ -85,6 +96,7 @@ pub(crate) fn pr_pick_options(cx: &App, team_id: &str) -> Vec<(String, String)> 
             };
             (issue.id.clone(), label)
         })
+        .chain(workflows)
         .collect()
 }
 

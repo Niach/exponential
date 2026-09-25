@@ -14,6 +14,9 @@ extension NSAttributedString.Key {
     public static let markdownImageURL = NSAttributedString.Key("exp.markdownImageURL")
     public static let markdownImageAlt = NSAttributedString.Key("exp.markdownImageAlt")
     public static let markdownStrikethrough = NSAttributedString.Key("exp.markdownStrikethrough")
+    /// EXP-1018: a `---` thematic break, drawn as `MarkdownStyle.thematicBreakGlyph`
+    /// and written back as `---`.
+    public static let markdownThematicBreak = NSAttributedString.Key("exp.markdownThematicBreak")
 }
 
 public enum MarkdownStyle {
@@ -209,6 +212,16 @@ public enum MarkdownStyle {
         style.headIndent = 14
         style.firstLineHeadIndent = 14
         return style
+    }
+
+    /// EXP-1018: how a `---` thematic break draws in a text run.
+    public static let thematicBreakGlyph = "───"
+
+    public static var thematicBreakAttributes: [NSAttributedString.Key: Any] {
+        var attrs = baseAttributes
+        attrs[.foregroundColor] = PlatformColor.white.withAlphaComponent(0.3)
+        attrs[.markdownThematicBreak] = true
+        return attrs
     }
 
     public static var baseAttributes: [NSAttributedString.Key: Any] {

@@ -1215,6 +1215,7 @@ impl LaunchOptionsSection {
     /// here reach it, and only while the picker sits on that same agent.
     pub(crate) fn options(&self, resume_active: bool, cx: &App) -> LaunchOptions {
         LaunchOptions {
+            workflow: None,
             agent: self.agent,
             model: selected(&self.model, cx),
             // Ignored by the argv while ultracode is on (ultracode IS the

@@ -322,7 +322,7 @@ function ReviewDetailPage() {
         closing={closing}
         trailing={
           /* EXP-897: the review page IS the Changes face — the same stack /
-             batch pill the run's header wears, with `Merge stack` on the
+             batch chip the run's header wears, with `Merge stack` on the
              bottom entry of the stack. */
           <PrGraphBadge
             teamId={issue.teamId}

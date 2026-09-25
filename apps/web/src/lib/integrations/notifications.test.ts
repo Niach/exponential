@@ -183,6 +183,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         actionName: null,
       },
     ])
+    selectResults.push([]) // throttle: no recent wall
     selectResults.push([{ identifier: `EXP-12` }])
     selectResults.push([{ id: `owner` }]) // membership guard
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
@@ -218,6 +219,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         actionName: null,
       },
     ])
+    selectResults.push([]) // throttle: no recent wall
     // The covered rows, in whatever order the lookup returns them: the name
     // follows the STORED order (lib/batch-run.ts), the same rule every list
     // row uses, so the push and the row it opens agree.
@@ -248,6 +250,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         actionName: null,
       },
     ])
+    selectResults.push([]) // throttle: no recent wall
     selectResults.push([
       { id: `issue-2`, identifier: `EXP-13`, title: `Second` },
       { id: `issue-3`, identifier: `EXP-14`, title: `Third` },
@@ -271,6 +274,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         actionName: `Triage inbox`,
       },
     ])
+    selectResults.push([]) // throttle: no recent wall
     selectResults.push([{ id: `owner` }])
     selectResults.push([])
     await notifySessionBlocked(`sess-2`, blocked)
@@ -290,6 +294,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         actionName: null,
       },
     ])
+    selectResults.push([]) // throttle: no recent wall
     selectResults.push([]) // membership guard: gone
     await notifySessionBlocked(`sess-1`, blocked)
     expect(executeState.calls).toBe(0)
@@ -298,5 +303,82 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     // A vanished run row is a no-op too.
     selectResults.push([])
     await expect(notifySessionBlocked(`sess-9`, blocked)).resolves.toBeUndefined()
+  })
+
+  // EXP-1005: at most one wall notification per PROFILE (device × agent ×
+  // account) per owner per hour. The throttle query returns the owner's
+  // recent session_blocked rows with their runs' profiles.
+  describe(`the per-profile hourly throttle`, () => {
+    const walled = {
+      userId: `owner`,
+      teamId: `team-1`,
+      teamSlug: `acme`,
+      issueId: null,
+      batchIssueIds: null,
+      actionName: `Triage inbox`,
+      deviceId: `dev-1`,
+      agent: `claude`,
+      agentAccount: null,
+    }
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000)
+
+    function expectDelivered() {
+      selectResults.push([{ id: `owner` }]) // membership guard
+      executeState.rows = [{ id: `n-2`, user_id: `owner` }]
+      selectResults.push([]) // push prefs
+    }
+
+    it(`a second wall on the same profile within the hour is not delivered`, async () => {
+      selectResults.push([walled])
+      selectResults.push([
+        {
+          createdAt: minutesAgo(20),
+          deviceId: `dev-1`,
+          agent: `claude`,
+          agentAccount: null,
+        },
+      ])
+      await notifySessionBlocked(`sess-2`, blocked)
+      expect(executeState.calls).toBe(0)
+      expect(sendToUsers).not.toHaveBeenCalled()
+    })
+
+    it(`a wall on another profile of the same device is delivered`, async () => {
+      selectResults.push([{ ...walled, agentAccount: `work` }])
+      selectResults.push([
+        {
+          createdAt: minutesAgo(5),
+          deviceId: `dev-1`,
+          agent: `claude`,
+          agentAccount: null, // the ambient `system` login
+        },
+        {
+          createdAt: minutesAgo(5),
+          deviceId: `dev-1`,
+          agent: `codex`,
+          agentAccount: `work`,
+        },
+      ])
+      expectDelivered()
+      await notifySessionBlocked(`sess-2`, blocked)
+      expect(executeState.calls).toBe(1)
+      expect(sendToUsers).toHaveBeenCalledTimes(1)
+    })
+
+    it(`an older wall past the hour is delivered again`, async () => {
+      selectResults.push([walled])
+      selectResults.push([
+        {
+          createdAt: minutesAgo(61),
+          deviceId: `dev-1`,
+          agent: `claude`,
+          agentAccount: null,
+        },
+      ])
+      expectDelivered()
+      await notifySessionBlocked(`sess-2`, blocked)
+      expect(executeState.calls).toBe(1)
+      expect(sendToUsers).toHaveBeenCalledTimes(1)
+    })
   })
 })

@@ -7,6 +7,8 @@ import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import {
   blockGraph,
   ISSUE_GRAPH_CYCLE_NOTE,
+  ISSUE_GRAPH_GEOMETRY,
+  issueGraphSize,
   ISSUE_GRAPH_TRUNCATED_NOTE,
   type IssueGraph,
 } from "@/lib/issue-graph"
@@ -34,6 +36,11 @@ import { cn } from "@/lib/utils"
 // `workflowEdgeStyle`) rather than a flag per meaning — grey solid, red on a
 // cycle or a stale upstream, green out of a landed node, grey DASHED while the
 // dependent builds on work nobody landed yet.
+//
+// EXP-1057: the geometry is THE one of `issue-graph-geometry.json` (identical
+// ×4). The grid sits `inset` inside its scroll box, so the rings on the edge
+// columns are never clipped, and the box is sized from the grid, capped at
+// the contract's viewport.
 
 export function IssueGraphView({
   graph,
@@ -49,6 +56,11 @@ export function IssueGraphView({
 }) {
   if (graph.nodes.length === 0) return null
 
+  const g = ISSUE_GRAPH_GEOMETRY
+  const size = issueGraphSize(
+    Math.max(...graph.nodes.map((node) => node.wave)) + 1,
+    Math.max(...graph.nodes.map((node) => node.lane)) + 1
+  )
   const subjects = new Set(
     graph.nodes.filter((node) => node.subject).map((node) => node.id)
   )
@@ -62,10 +74,19 @@ export function IssueGraphView({
 
   return (
     <div className={cn(`flex flex-col gap-2`, className)} data-testid="issue-graph">
-      <div className="max-h-72 overflow-auto">
+      <div
+        className="overflow-auto"
+        style={{ maxWidth: size.viewWidth, maxHeight: size.viewHeight }}
+        data-testid="issue-graph-viewport"
+      >
+        <div style={{ padding: g.inset, width: size.width, height: size.height }}>
         <WaveGraph
           nodes={graph.nodes}
           edges={edges}
+          nodeWidth={g.nodeWidth}
+          nodeHeight={g.nodeHeight}
+          waveGap={g.waveGap}
+          laneGap={g.laneGap}
           renderNode={(id) => {
             const issue = issueById.get(id)
             return issue ? renderNode(issue) : null
@@ -78,6 +99,7 @@ export function IssueGraphView({
             testId: `issue-graph-node-${issueById.get(id)?.identifier ?? id}`,
           })}
         />
+        </div>
       </div>
       {graph.hasCycle && (
         <div className="text-xs text-destructive">{ISSUE_GRAPH_CYCLE_NOTE}</div>

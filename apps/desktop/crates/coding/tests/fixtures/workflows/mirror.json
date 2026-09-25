@@ -81,11 +81,11 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
-      { "kind": "startNode", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
-    "name": "rule 1: a live session reads running, needs_input and rate limited",
+    "name": "rule 1: a live session reads running; a question changes nothing, a wall keeps running and says why",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
@@ -136,8 +136,12 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "a", "state": "running" },
-      { "kind": "setNodeState", "nodeId": "b", "state": "waiting", "note": "Needs an answer" },
-      { "kind": "setNodeState", "nodeId": "c", "state": "waiting", "note": "Rate limited" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "c",
+        "state": "running",
+        "note": "Waiting for the account's reset"
+      }
     ]
   },
   {
@@ -484,7 +488,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 2, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "b", "attempt": 2, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -515,5 +519,84 @@
       "nowMs": 1000
     },
     "expected": [{ "kind": "landNode", "nodeId": "a" }]
+  },
+  {
+    "name": "rule 1: an open question changes nothing but the badge",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "sessions": { "s-a": { "live": true, "needsInput": true } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 1: a wall's note is written once and cleared when the run is free again",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0,
+        "launch": { "model": "opus", "strongModel": "fable" }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1,
+          "note": "Waiting for the account's reset"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "attempt": 1,
+          "note": "Waiting for the account's reset"
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 2,
+          "sessionId": "s-c",
+          "attempt": 1,
+          "note": "Agent review passed"
+        }
+      ],
+      "sessions": { "s-a": { "live": true, "blocked": true }, "s-b": { "live": true }, "s-c": { "live": true } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "setNodeState", "nodeId": "b", "state": "running" }]
   }
 ]

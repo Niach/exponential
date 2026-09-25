@@ -330,6 +330,28 @@ export const DEMO_SESSION_IDS = {
 } as const
 
 /**
+ * The draft workflow the `workflows-list` view photographs (EXP-986): three
+ * backlog issues of the demo repo, one `blocks` edge between two of them, so
+ * the list shows a real row and the graph two waves. Pinned like the session
+ * ids so a catalog drive (`workflow:<id>` on desktop, the detail route on web)
+ * can name it before the seed runs; the name is the list anchor.
+ */
+export const DEMO_WORKFLOW = {
+  id: `4e7a2c91-8d35-4b6f-a1c0-5f9e3b2d7a18`,
+  name: `Offline editing`,
+  /** Seed issue titles: the nodes, then `[blocker, blocked]`. */
+  nodes: [
+    `Offline queue for issue edits`,
+    `Quick-add issue from the home screen widget`,
+    `Add drag-and-drop reordering on the board`,
+  ],
+  blocks: [
+    `Offline queue for issue edits`,
+    `Quick-add issue from the home screen widget`,
+  ],
+} as const
+
+/**
  * The helpdesk thread the `support-reporter` view is captured on.
  *
  * That view is the ANONYMOUS magic-link page (`/support/<token>`), so it is

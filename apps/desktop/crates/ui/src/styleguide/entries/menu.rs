@@ -9,17 +9,17 @@
 //! md+) draws, 36 / 8 / 8, so this entry is a LEFTOVER by decision: the IDE
 //! reads well at its size and patching the vendored crate is its own issue.
 //!
-//! Like `sub_shell`, this describes rather than paints: `fn() -> Div` takes
-//! no `&App`, and a menu without the theme would be a lookalike.
+//! This still describes rather than paints; drawing the real `PopupMenu`
+//! here is EXP-1092 (entries get the window and the app since EXP-1063).
 
-use gpui::{div, Div, ParentElement as _};
+use gpui::{div, App, Div, ParentElement as _, Window};
 
 use theme::tokens::menu::{pointer, touch};
 
 pub(crate) const ID: &str = "menu";
 pub(crate) const OWNER: &str = "EXP-1074";
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     div()
         .child("Menu — the opaque card fill under a hairline, radius 12, no blur, no shadow;")
         .child("rows on ONE geometry per density, a destructive row red with no divider above it.")

@@ -7,14 +7,22 @@ import SwiftUI
 /// composer page lists what is RUNNING; what is over is one tap away and
 /// never in the way.
 ///
-/// No fold of its own anywhere: a plain list, nested by `SessionTree` the way
-/// the Running band is (14 pt per level, EXP-965's connector), each row the
-/// same `EndedRunRow` the band used to draw, each tap opening that run's Work
-/// screen.
+/// No fold of its own: the sheet is not a disclosure. EXP-1061: the rows are
+/// the `SessionTree.sessionTree` SELECTOR drawn, exactly like the Running band
+/// (and web's Recent panel): a resume succession is ONE row, a child nests
+/// under its parent, a workflow's or a stack's runs sit under one group row,
+/// every parent folds, top level newest ACTIVITY first (rule 5). Each run row
+/// is the `EndedRunRow` the band used to draw, each tap opening that run's
+/// Work screen.
 struct RecentRunsSheet: View {
     let vm: AgentsViewModel
     /// The picked run — the page dismisses this sheet and pushes it.
     let onOpen: (String) -> Void
+    /// A workflow group row's tap — the page dismisses and routes there.
+    let onOpenWorkflow: (String) -> Void
+
+    /// The nodes folded shut, keyed by `SessionTree.nodeKey` (the ×4 rule).
+    @State private var collapsed: Set<String> = []
 
     var body: some View {
         GlassSheetChrome(title: "Recent") {
@@ -24,8 +32,11 @@ struct RecentRunsSheet: View {
                 } else {
                     let rows = pastRows
                     let guides = TreeGuides.compute(depths: rows.map(\.depth))
-                    ForEach(Array(rows.enumerated()), id: \.element.session.session.id) { index, entry in
-                        row(entry.session)
+                    let byId = Dictionary(
+                        vm.pastRows.map { ($0.session.id, $0) }, uniquingKeysWith: { a, _ in a }
+                    )
+                    ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
+                        treeRow(entry, rows: byId)
                             .treeGuides(guides[index])
                     }
                 }
@@ -36,7 +47,55 @@ struct RecentRunsSheet: View {
         .accessibilityIdentifier("recent-runs-sheet")
     }
 
-    private func row(_ row: AgentsViewModel.PastRow) -> some View {
+    /// One drawn row: a run, or the group row its runs hang off.
+    @ViewBuilder
+    private func treeRow(
+        _ entry: SessionTree.FlatRow, rows: [String: AgentsViewModel.PastRow]
+    ) -> some View {
+        let expanded = !collapsed.contains(entry.key)
+        let onToggle = { toggle(entry.key) }
+        switch entry.node {
+        case let .session(node):
+            if let past = rows[node.session.id] {
+                row(past, expandable: entry.hasChildren, expanded: expanded, onToggle: onToggle)
+            }
+        case let .workflow(group):
+            SessionGroupRow(
+                glyph: AppIcons.navWorkflows,
+                title: group.name,
+                count: group.children.count,
+                open: .action({ onOpenWorkflow(group.workflowId) }),
+                key: entry.key,
+                expanded: expanded,
+                onToggle: onToggle
+            )
+        case let .stack(group):
+            SessionGroupRow(
+                glyph: AppIcons.prStack,
+                title: SessionTree.stackGroupLabel,
+                count: group.children.count,
+                open: .none,
+                key: entry.key,
+                expanded: expanded,
+                onToggle: onToggle
+            )
+        }
+    }
+
+    private func toggle(_ key: String) {
+        if collapsed.contains(key) {
+            collapsed.remove(key)
+        } else {
+            collapsed.insert(key)
+        }
+    }
+
+    private func row(
+        _ row: AgentsViewModel.PastRow,
+        expandable: Bool,
+        expanded: Bool,
+        onToggle: @escaping () -> Void
+    ) -> some View {
         EndedRunRow(
             title: PastRuns.title(
                 row.session, issue: row.issue, batchIssues: row.batchIssues
@@ -46,6 +105,9 @@ struct RecentRunsSheet: View {
                 row.session, issue: row.issue, batchIssues: row.batchIssues
             ),
             byline: byline(row),
+            expandable: expandable,
+            expanded: expanded,
+            onToggle: onToggle,
             onOpen: { onOpen(row.session.id) }
         )
         .accessibilityIdentifier("past-run-row")
@@ -61,14 +123,13 @@ struct RecentRunsSheet: View {
         )
     }
 
-    /// EXP-897: history nests too — a child run belongs under its parent here
-    /// as much as in the Running band. Nothing folds, so every row is visible.
-    private var pastRows: [SessionTree.Row<AgentsViewModel.PastRow>] {
-        SessionTree.nest(
-            vm.pastRows,
-            id: { $0.session.id },
-            parent: { $0.session.parentSessionId },
-            startedAt: { $0.session.startedAt }
+    /// EXP-1061: history is the same tree as the Running band — the cap
+    /// (`PastRuns.cap`) applies to the ROWS first, so a child whose parent fell
+    /// off it is a top-level orphan (rule 6).
+    private var pastRows: [SessionTree.FlatRow] {
+        SessionTree.visibleRows(
+            SessionTree.sessionTree(vm.pastRows.map(\.session), context: vm.pastTreeContext),
+            collapsed: collapsed
         )
     }
 

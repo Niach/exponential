@@ -102,6 +102,22 @@ pub struct Attribution<'a> {
     pub device_id: Option<&'a str>,
 }
 
+/// EXP-1082 — a WORKFLOW run's membership, stamped onto its row at start
+/// (`workflowId` / `workflowNodeId` / `workflowRole`, contract
+/// `wfSessionRole`). The server honours it only from the workflow's runner
+/// device; every key is skipped when absent, so any other start's wire is
+/// byte-identical.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowStart<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_node_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_role: Option<&'a str>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartInput<'a> {
@@ -143,6 +159,9 @@ struct StartInput<'a> {
     /// image-less start's wire is byte-identical.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     attachment_ids: &'a [String],
+    /// EXP-1082 — [`WorkflowStart`], flattened.
+    #[serde(flatten)]
+    workflow: WorkflowStart<'a>,
 }
 
 #[derive(Serialize)]
@@ -179,6 +198,9 @@ struct StartBatchInput<'a> {
     /// sees the same wire it always did.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     batch_issue_ids: &'a [String],
+    /// EXP-1082 — [`WorkflowStart`], flattened.
+    #[serde(flatten)]
+    workflow: WorkflowStart<'a>,
 }
 
 #[derive(Serialize)]
@@ -224,6 +246,9 @@ struct StartActionInput<'a> {
     /// EXP-825 — same as [`StartInput::attachment_ids`], on the action branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     attachment_ids: &'a [String],
+    /// EXP-1082 — [`WorkflowStart`], flattened.
+    #[serde(flatten)]
+    workflow: WorkflowStart<'a>,
 }
 
 #[derive(Serialize)]
@@ -281,6 +306,13 @@ pub struct HeartbeatScope {
     /// lose which account its usage numbers belong to, and an absent value
     /// reads as UNKNOWN on every client, never as the ambient login.
     pub agent_account: Option<String>,
+    /// EXP-1068: the run's workflow membership (`LaunchOptions::workflow`),
+    /// echoed so a swept workflow run resurrects INSIDE its group. The server
+    /// honours it through the same runner-device gate `start` uses; all
+    /// `None` on every other run, so their wire is byte-identical.
+    pub workflow_id: Option<String>,
+    pub workflow_node_id: Option<String>,
+    pub workflow_role: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -315,6 +347,13 @@ struct HeartbeatInput<'a> {
     /// so an older server sees the wire it always did.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_account: Option<&'a str>,
+    /// EXP-1068 — the workflow membership, echoed like `agent_account`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_node_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_role: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -398,6 +437,7 @@ pub fn start(
     agent: Option<&str>,
     agent_account: Option<&str>,
     attachment_ids: &[String],
+    workflow: WorkflowStart<'_>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -411,6 +451,7 @@ pub fn start(
             agent,
             agent_account,
             attachment_ids,
+            workflow,
         },
     )?;
     Ok(envelope.session)
@@ -432,6 +473,7 @@ pub fn start_batch(
     agent_account: Option<&str>,
     attachment_ids: &[String],
     batch_issue_ids: &[String],
+    workflow: WorkflowStart<'_>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -446,6 +488,7 @@ pub fn start_batch(
             agent_account,
             attachment_ids,
             batch_issue_ids,
+            workflow,
         },
     )?;
     Ok(envelope.session)
@@ -483,6 +526,8 @@ pub struct ActionStart<'a> {
     /// EXP-825: the composer prompt's pre-session image uploads; empty =
     /// key omitted.
     pub attachment_ids: &'a [String],
+    /// EXP-1082: the workflow membership of a review run; default = none.
+    pub workflow: WorkflowStart<'a>,
 }
 
 pub fn start_action(
@@ -504,6 +549,7 @@ pub fn start_action(
             agent: start.agent,
             agent_account: start.agent_account,
             attachment_ids: start.attachment_ids,
+            workflow: start.workflow,
         },
     )?;
     Ok(envelope.session)
@@ -759,6 +805,12 @@ pub struct BlockedInput<'a> {
     pub window: &'a str,
     pub resets_at: Option<&'a str>,
     pub since: &'a str,
+    /// EXP-1005: `true` = this device handles the wall itself (rotates the
+    /// run to another account, or waits the reset out), so the server sends
+    /// the owner no rate-limit notification. Absent = an older device; the
+    /// server then notifies, throttled to one per profile per hour.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handled: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -825,6 +877,9 @@ pub fn heartbeat(
                 .unwrap_or_default(),
             agent: scope.and_then(|scope| scope.agent.as_deref()),
             agent_account: scope.and_then(|scope| scope.agent_account.as_deref()),
+            workflow_id: scope.and_then(|scope| scope.workflow_id.as_deref()),
+            workflow_node_id: scope.and_then(|scope| scope.workflow_node_id.as_deref()),
+            workflow_role: scope.and_then(|scope| scope.workflow_role.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -851,7 +906,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, None, &[]).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], WorkflowStart::default()).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -917,7 +972,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[]).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], WorkflowStart::default()).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -930,7 +985,7 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[]).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
@@ -955,11 +1010,43 @@ mod tests {
             Some("claude"),
             Some("prof-9"),
             &[],
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(
             request.ends_with(r#"{"issueId":"issue-1","agent":"claude","agentAccount":"prof-9"}"#),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn start_posts_the_workflow_membership() {
+        // EXP-1082: a workflow run names its workflow, node and role; the
+        // keys are skipped when absent (the tests above lock that wire).
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(
+            &client(&base),
+            "issue-1",
+            None,
+            Attribution::default(),
+            None,
+            None,
+            None,
+            None,
+            &[],
+            WorkflowStart {
+                workflow_id: Some("wf-1"),
+                workflow_node_id: Some("node-1"),
+                workflow_role: Some("author"),
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"issueId":"issue-1","workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"}"#
+            ),
             "{request}"
         );
     }
@@ -981,12 +1068,46 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: Some("claude".to_string()),
             agent_account: Some("system".to_string()),
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(
             request.ends_with(
                 r#"{"id":"sess-1","issueId":"issue-1","agent":"claude","agentAccount":"system"}"#
+            ),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn heartbeat_echoes_the_workflow_membership() {
+        // EXP-1068: a resurrected workflow run must land back in its group.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: Some("issue-1".to_string()),
+            team_id: None,
+            action_id: None,
+            action_name: None,
+            started_by_id: None,
+            device_id: Some("dev-1".to_string()),
+            started_reason: Some("workflow".to_string()),
+            automation_id: None,
+            branch: None,
+            batch_issue_ids: Vec::new(),
+            agent: None,
+            agent_account: None,
+            workflow_id: Some("wf-1".to_string()),
+            workflow_node_id: Some("node-1".to_string()),
+            workflow_role: Some("author".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#""deviceId":"dev-1","startedReason":"workflow","workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"}"#
             ),
             "{request}"
         );
@@ -1008,6 +1129,7 @@ mod tests {
             None,
             None,
             &[],
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1035,6 +1157,7 @@ mod tests {
             None,
             &[],
             &[],
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1052,7 +1175,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[]).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], WorkflowStart::default()).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
@@ -1070,7 +1193,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[]).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], WorkflowStart::default()).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
@@ -1094,6 +1217,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1124,6 +1250,7 @@ mod tests {
             None,
             &[],
             &ids,
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1146,6 +1273,9 @@ mod tests {
             batch_issue_ids: vec!["i-1".to_string()],
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-b", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1158,7 +1288,7 @@ mod tests {
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[]) {
+        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], WorkflowStart::default()) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));
@@ -1193,6 +1323,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1217,6 +1350,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1299,6 +1435,7 @@ mod tests {
             None,
             None,
             &[],
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1327,6 +1464,7 @@ mod tests {
             None,
             &[],
             &[],
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1383,6 +1521,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1411,6 +1552,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1466,6 +1610,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1490,6 +1637,7 @@ mod tests {
             Some("codex"),
             None,
             &[],
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1511,6 +1659,7 @@ mod tests {
             None,
             &[],
             &[],
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1550,6 +1699,7 @@ mod tests {
             None,
             None,
             &ids,
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1573,6 +1723,7 @@ mod tests {
             None,
             &ids,
             &[],
+            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1613,6 +1764,9 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: Some("codex".to_string()),
             agent_account: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

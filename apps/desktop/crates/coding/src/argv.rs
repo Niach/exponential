@@ -439,6 +439,11 @@ pub struct LaunchOptions {
     /// `system` = the ambient login; else a device-local profile id under
     /// `{data_dir}/agents/<agent>/<id>/` (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`).
     pub account: Option<String>,
+    /// EXP-1082: the workflow run this launch IS (workflow, node, role) —
+    /// stamped onto the session row at start. Only the workflow engine's
+    /// hosts (and a relay start that names one) set it; `None` everywhere
+    /// else, where the server's own rules apply.
+    pub workflow: Option<crate::workflows::WorkflowMembership>,
 }
 
 impl LaunchOptions {
@@ -456,6 +461,7 @@ impl LaunchOptions {
     /// usual capability masking).
     pub fn defaults_for(settings: &Settings, agent: CodingAgent) -> Self {
         Self {
+            workflow: None,
             agent,
             model: settings.model_for(agent).to_string(),
             effort: settings.effort_for(agent).to_string(),
@@ -532,6 +538,7 @@ impl LaunchOptions {
             None => String::new(),
         };
         Self {
+            workflow: None,
             agent,
             model,
             effort,
@@ -564,6 +571,13 @@ impl LaunchOptions {
             }
         }
         self.mcp_server_ids = out;
+        self
+    }
+
+    /// EXP-1082: the workflow membership a relay start names (see
+    /// [`Self::workflow`]); `None` leaves the launch outside any workflow.
+    pub fn with_workflow(mut self, workflow: Option<crate::workflows::WorkflowMembership>) -> Self {
+        self.workflow = workflow;
         self
     }
 
@@ -726,6 +740,7 @@ mod tests {
 
     fn claude_opts() -> LaunchOptions {
         LaunchOptions {
+            workflow: None,
             agent: CodingAgent::Claude,
             model: "fable".to_string(),
             effort: "".to_string(),

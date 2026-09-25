@@ -9,30 +9,37 @@ import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.WorkflowEntity
+import com.exponential.app.data.db.WorkflowEventEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.HeaderNode
 import com.exponential.app.domain.IssueStatusResolver
-import com.exponential.app.domain.NormalizedWorkflowLaunch
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionDotTone
-import com.exponential.app.domain.WorkflowLaunch
+import com.exponential.app.domain.SessionResultGroup
+import com.exponential.app.domain.StripNodeInput
+import com.exponential.app.domain.StripWave
+import com.exponential.app.domain.WorkflowOpenQuestion
+import com.exponential.app.domain.WorkflowPrimaryAction
+import com.exponential.app.domain.WorkflowQuestions
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.codingSessionDisplayState
+import com.exponential.app.domain.coveredIssueIds
 import com.exponential.app.domain.edgeNode
-import com.exponential.app.domain.launchOptions
-import com.exponential.app.domain.metricCounters
-import com.exponential.app.domain.normalizedLaunch
+import com.exponential.app.domain.groupSessionResults
+import com.exponential.app.domain.parseSessionResults
 import com.exponential.app.domain.shape
-import com.exponential.app.domain.trainNode
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
+import com.exponential.app.ui.components.deviceOptionLabel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -48,21 +55,16 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// EXP-981: ONE draft workflow — its graph, the node plan and the start
-// configuration. Reads are the two synced shapes (`workflows`,
-// `workflow_nodes`) joined against the issues and `blocks` relations the
-// client already holds; writes are the member-gated `workflows` router, whose
-// refusals are human sentences shown verbatim ([error]).
-//
-// No client lays the graph out: `wave`/`lane`/`on_cycle` on the nodes ARE the
-// server's layout, and the edges come from the shared rule
-// ([WorkflowView.edges]) over the synced relations.
+// EXP-1087: ONE workflow on the phone — a node strip (the graph as chips,
+// `WorkflowView.nodeStrip`) over the Work screen's faces. Reads are the synced
+// shapes (`workflows`, `workflow_nodes`, `workflow_events`, `coding_sessions`)
+// joined against the issues and relations the client already holds; writes
+// are the member-gated `workflows` router, whose refusals are human sentences
+// shown verbatim ([error]).
 
 /**
- * EXP-982 — one node's coding run as the graph and the sheet read it: where a
- * tap goes, and what the dot says (the ONE session tone table every session
- * list paints with). `live` is the row's status alone — a run the engine lost
- * is reported by the NODE's own state, never by a stale dot.
+ * One node's coding run: where a tap goes and what the dot says (the ONE
+ * session tone table). `live` is the row's status alone.
  */
 data class WorkflowNodeRun(
     val sessionId: String,
@@ -72,19 +74,14 @@ data class WorkflowNodeRun(
     val busy: Boolean,
 )
 
-/** The graph as the screen draws it: nodes in layout order plus their edges. */
+/** The workflow's nodes with everything a chip or a list row reads. */
 data class WorkflowGraph(
     val nodes: List<WorkflowNodeEntity> = emptyList(),
     val edges: List<WorkflowView.Edge> = emptyList(),
     val issuesById: Map<String, IssueEntity> = emptyMap(),
     /** `node id → its run`, for every node whose session row has synced. */
     val runsByNodeId: Map<String, WorkflowNodeRun> = emptyMap(),
-    /**
-     * EXP-1035: every covered issue resolved against the team's statuses — a
-     * node chip whose state says nothing worth a glyph (a draft, or `blocked`
-     * / `ready` / `proposed` / `skipped`) wears the ISSUE's own status glyph,
-     * so it reads exactly like the same issue anywhere else in the app.
-     */
+    /** Every covered issue resolved against the team's statuses. */
     val statusByIssueId: Map<String, ResolvedIssueStatus> = emptyMap(),
 ) {
     /** The runs that are UP, in the graph's own (wave, lane) order. */
@@ -107,13 +104,11 @@ class WorkflowDetailViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    val currentUserId: StateFlow<String?> = auth.userId
+
     val workflow: StateFlow<WorkflowEntity?> = dbFlow
         .flatMapLatest { db ->
-            if (db == null || workflowId.isEmpty()) {
-                flowOf(null)
-            } else {
-                db.workflowDao().observeById(workflowId)
-            }
+            if (db == null || workflowId.isEmpty()) flowOf(null) else db.workflowDao().observeById(workflowId)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -127,42 +122,69 @@ class WorkflowDetailViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** EXP-1082: the workflow's event log, newest first. */
+    val events: StateFlow<List<WorkflowEventEntity>> = dbFlow
+        .flatMapLatest { db ->
+            if (db == null || workflowId.isEmpty()) {
+                flowOf(emptyList())
+            } else {
+                db.workflowEventDao().observeByWorkflow(workflowId)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // Every synced issue and relation: a node's issue can live on any board of
     // the team, so neither pool may be scoped to one.
     private val allIssues: StateFlow<List<IssueEntity>> =
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val relations: StateFlow<List<IssueRelationEntity>> =
+    /**
+     * The mini-graph's pool: every synced issue (the member teams'), so a
+     * blocker OUTSIDE the workflow still draws, like the issue list's graph.
+     * The walk only reaches issues related to the node, so nothing foreign
+     * leaks in.
+     */
+    val graphIssues: StateFlow<List<IssueEntity>> = allIssues
+
+    val relations: StateFlow<List<IssueRelationEntity>> =
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // EXP-982: the run each started node is in — a node that is up wears its
-    // session's own dot, and the Running strip opens it. Every synced row: a
-    // node's run can be a batch session, which is scoped to no single issue.
     private val sessions: StateFlow<List<CodingSessionEntity>> =
         dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /**
-     * EXP-1035: the workflow team's statuses, in the app's canonical order —
-     * what a node chip's glyph falls back to once its state has nothing of its
-     * own to say. Scoped to the WORKFLOW's team: a builtin anchor resolves
-     * against that team's rows, never another one's.
-     */
+    val deviceRows: StateFlow<List<DeviceEntity>> =
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val teamStatuses: StateFlow<List<ResolvedIssueStatus>> =
-        combine(dbFlow, workflow.map { it?.teamId }.distinctUntilChanged()) { db, teamId ->
-            db to teamId
-        }
+        combine(dbFlow, workflow.map { it?.teamId }.distinctUntilChanged()) { db, teamId -> db to teamId }
             .flatMapLatest { (db, teamId) ->
                 if (db == null || teamId.isNullOrEmpty()) {
                     flowOf(emptyList())
                 } else {
-                    db.issueStatusDao().observeByTeam(teamId)
-                        .map { IssueStatusResolver.teamStatuses(it) }
+                    db.issueStatusDao().observeByTeam(teamId).map { IssueStatusResolver.teamStatuses(it) }
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Every run of THIS workflow — its membership column first (EXP-1082),
+     * plus a node's recorded session for a row that predates it — oldest
+     * first.
+     */
+    val workflowSessions: StateFlow<List<CodingSessionEntity>> = combine(sessions, nodes) { rows, nodeRows ->
+        val nodeSessionIds = nodeRows.mapNotNullTo(HashSet()) { it.sessionId?.takeIf(String::isNotBlank) }
+        rows.filter { it.workflowId == workflowId || it.id in nodeSessionIds }
+            .sortedWith(compareBy({ it.createdAt }, { it.id }))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The open questions of the workflow's live runs (EXP-1065 fills the selector). */
+    val openQuestions: StateFlow<List<WorkflowOpenQuestion>> = sessions
+        .map { rows -> WorkflowQuestions.open(rows, workflowId) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val graph: StateFlow<WorkflowGraph> = combine(
         nodes,
@@ -171,27 +193,19 @@ class WorkflowDetailViewModel @Inject constructor(
         workflow,
         sessions,
     ) { nodeRows, relationRows, issues, row, sessionRows ->
-        // The covered issues of THIS workflow; a relation with an end outside
-        // them is somebody else's edge.
         val covered = HashSet<String>()
-        nodeRows.forEach { node ->
-            covered.add(node.issueId)
-            covered.addAll(node.memberIssueIds)
-        }
+        nodeRows.forEach { covered.addAll(it.coveredIssueIds) }
         val issuesById = issues.filter { it.id in covered }.associateBy { it.id }
         val sessionsById = sessionRows.associateBy { it.id }
         val runs = HashMap<String, WorkflowNodeRun>()
         nodeRows.forEach { node ->
-            val session = node.sessionId?.takeIf { it.isNotBlank() }?.let { sessionsById[it] }
-                ?: return@forEach
+            val session = workflowNodeSession(node, sessionsById, sessionRows) ?: return@forEach
             val live = session.status == DomainContract.codingSessionStatusRunning ||
                 session.status == DomainContract.codingSessionStatusInReview
             val state = codingSessionDisplayState(session, issuesById[node.issueId]?.prState)
             runs[node.id] = WorkflowNodeRun(
                 sessionId = session.id,
                 live = live,
-                // An ended run keeps its row (Open run still works) but never a
-                // live tone: the strip lists what is up, nothing else.
                 tone = if (!live) {
                     SessionDotTone.Muted
                 } else {
@@ -202,7 +216,7 @@ class WorkflowDetailViewModel @Inject constructor(
                         CodingSessionDisplayState.Done -> SessionDotTone.Done
                     }
                 },
-                busy = live && state == CodingSessionDisplayState.Running && session.agentBusy,
+                busy = live && session.agentBusy,
             )
         }
         WorkflowGraph(
@@ -211,13 +225,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 nodes = nodeRows.map { it.edgeNode },
                 relations = relationRows
                     .filter { it.issueId in covered && it.relatedIssueId in covered }
-                    .map {
-                        WorkflowView.EdgeRelation(
-                            type = it.type,
-                            issueId = it.issueId,
-                            relatedIssueId = it.relatedIssueId,
-                        )
-                    },
+                    .map { WorkflowView.EdgeRelation(it.type, it.issueId, it.relatedIssueId) },
                 cycleEdges = row?.shape?.cycleEdges.orEmpty(),
             ),
             issuesById = issuesById,
@@ -226,21 +234,35 @@ class WorkflowDetailViewModel @Inject constructor(
     }
         .combine(teamStatuses) { graph, statuses ->
             graph.copy(
-                statusByIssueId = graph.issuesById.mapValues { (_, issue) ->
-                    IssueStatusResolver.resolve(issue, statuses)
-                },
+                statusByIssueId = graph.issuesById.mapValues { (_, issue) -> IssueStatusResolver.resolve(issue, statuses) },
             )
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowGraph())
 
+    /** The chip strip: one row per wave, `All` is the page's own first chip. */
+    val strip: StateFlow<List<StripWave>> = combine(graph, openQuestions) { g, questions ->
+        workflowStrip(g, questions)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /**
-     * The machines the workflow can be bound to: every synced device — the
-     * caller's own plus the team's shared servers — ONLINE OR NOT, because a
-     * workflow outlives a machine's uptime. The server refuses a device that
-     * cannot run workflows with its own sentence.
+     * EXP-312: the runs the caller OWNS — only those are steerable, so only
+     * their open questions offer an answer field.
+     */
+    val ownSessionIds: StateFlow<Set<String>> = combine(workflowSessions, auth.userId) { rows, userId ->
+        if (userId == null) emptySet() else rows.filter { it.userId == userId }.mapTo(HashSet()) { it.id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /** Every run's screenshots, grouped by topic in first-published order. */
+    val results: StateFlow<List<SessionResultGroup>> = workflowSessions
+        .map { rows -> groupSessionResults(rows.flatMap { parseSessionResults(it.results) }) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The machines the workflow may be bound to: the caller's own plus the
+     * team's shared runners (what the devices shape syncs), ONLINE only.
      */
     val devices: StateFlow<List<SteerDevice>> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+        deviceRows,
         DeviceLiveness.ticker(),
         auth.userId,
     ) { rows, nowMs, userId ->
@@ -252,19 +274,15 @@ class WorkflowDetailViewModel @Inject constructor(
         row?.deviceId?.let { id -> rows.firstOrNull { it.deviceId == id } }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /**
-     * EXP-1029: the workflow's launch as a RUN reads it — the agent and the
-     * two models, folded out of whatever vintage the row stores. Nothing on
-     * this screen edits it (EXP-1014): the phone carries the stored launch and
-     * the node sheet names the model each node runs on.
-     */
-    val launch: StateFlow<NormalizedWorkflowLaunch> = workflow
-        .map { normalizedLaunch(it?.launchOptions ?: WorkflowLaunch()) }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            normalizedLaunch(WorkflowLaunch()),
-        )
+    /** Why Start is refused, as the notice above the strip shows it (null = none). */
+    val startNotice: StateFlow<String?> = combine(workflow, device) { row, dev ->
+        row?.let { workflowStartNotice(it, dev?.let(::deviceOptionLabel) ?: it.deviceId?.take(8)) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The header's node counts (`workflowHeaderCaption`). */
+    val headerNodes: StateFlow<List<HeaderNode>> = nodes
+        .map { rows -> rows.map { HeaderNode(it.state, it.memberIssueIds.size) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
@@ -280,7 +298,7 @@ class WorkflowDetailViewModel @Inject constructor(
         _error.value = null
     }
 
-    /** The name is a label: editable at any status, saved on blur. */
+    /** The header's name field: saves on Done or blur; blank or unchanged = nothing. */
     fun rename(name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty() || trimmed == workflow.value?.name) return
@@ -289,155 +307,43 @@ class WorkflowDetailViewModel @Inject constructor(
         }
     }
 
-    /** Bind (or, with a blank id, unbind) the runner machine. */
+    /** Bind the runner machine (a draft's pick). */
     fun setDevice(deviceId: String) {
         mutate("The runner could not be set") { accountId ->
-            workflowsApi.update(
-                accountId,
-                workflowId,
-                deviceId = deviceId.takeIf { it.isNotEmpty() },
-                clearDevice = deviceId.isEmpty(),
-            )
+            workflowsApi.update(accountId, workflowId, deviceId = deviceId)
         }
     }
 
-    /** What the plan declares for ONE node — addressed by its issue. */
-    fun updateNode(issueId: String, kind: String? = null, risk: String? = null) {
-        mutate("The node could not be updated") { accountId ->
-            workflowsApi.updateNode(accountId, workflowId, issueId, kind = kind, risk = risk)
-        }
-    }
+    fun start() = mutate("The workflow could not be started") { workflowsApi.start(it, workflowId) }
 
-    /** EXP-984: take a mid-run proposal into the graph, or throw it away. */
-    fun admitNode(nodeId: String, admit: Boolean) {
-        mutate(
-            if (admit) "The node could not be admitted" else "The node could not be dismissed",
-        ) { accountId ->
-            workflowsApi.admitNode(accountId, nodeId, admit)
-        }
-    }
+    fun pause() = mutate("The workflow could not be paused") { workflowsApi.pause(it, workflowId) }
 
-    // ── Running a workflow (EXP-982) ────────────────────────────────────────
-    // The server flips INTENT only; the bound device's engine does the work off
-    // these same synced rows, so every button below is one mutation and then
-    // Electric.
+    fun resume() = mutate("The workflow could not be resumed") { workflowsApi.resume(it, workflowId) }
 
-    /**
-     * Why Start is disabled, or null when the draft can start. A row that has
-     * not synced blocks too — the screen shows "Syncing…" rather than a button
-     * whose refusal nobody can predict.
-     */
-    val startBlocker: StateFlow<String?> = workflow
-        .map { row ->
-            row ?: return@map "The workflow has not synced yet."
-            WorkflowView.startBlocker(
-                WorkflowView.Startable(
-                    status = row.status,
-                    deviceId = row.deviceId,
-                    repositoryId = row.repositoryId,
-                ),
-                row.shape,
-            )
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    fun cancel() = mutate("The workflow could not be cancelled") { workflowsApi.cancel(it, workflowId) }
 
-    /** The nodes whose PR is up, in landing order, each with its step. */
-    val mergeTrain: StateFlow<List<WorkflowView.TrainEntry>> = combine(
-        nodes,
-        workflow,
-    ) { nodeRows, row ->
-        WorkflowView.mergeTrain(nodeRows.map { it.trainNode })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** The final-PR node's caption, or null while that node is not drawn. */
-    val finalPrCaption: StateFlow<String?> = combine(nodes, workflow) { nodeRows, row ->
-        if (row == null) {
-            null
-        } else {
-            WorkflowView.finalPrCaption(
-                nodeStates = nodeRows.map { it.state },
-                finalPrState = row.finalPrState,
-                finalPrNumber = row.finalPrNumber,
-            )
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /**
-     * EXP-984: the run's counters, as the Metrics section's rows. A DRAFT has
-     * run nothing, so it has no metrics to read — the section is hidden there
-     * rather than showing a critical path with nothing behind it.
-     */
-    val metricRows: StateFlow<List<WorkflowView.MetricRow>> = workflow
-        .map { row ->
-            if (row == null || row.status == DomainContract.wfStatusDraft) {
-                emptyList()
-            } else {
-                WorkflowView.metricRows(row.metricCounters)
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    fun start() {
-        mutate("The workflow could not be started") { accountId ->
-            workflowsApi.start(accountId, workflowId)
-        }
-    }
-
-    fun pause() {
-        mutate("The workflow could not be paused") { accountId ->
-            workflowsApi.pause(accountId, workflowId)
-        }
-    }
-
-    fun resume() {
-        mutate("The workflow could not be resumed") { accountId ->
-            workflowsApi.resume(accountId, workflowId)
-        }
-    }
-
-    fun cancel() {
-        mutate("The workflow could not be cancelled") { accountId ->
-            workflowsApi.cancel(accountId, workflowId)
-        }
-    }
-
-    /**
-     * EXP-1033: the ONE human review of the whole run — squash-merge the
-     * workflow's final pull request. The synced row carries the result back
-     * (`#42 · Merged`, the workflow's own completion), so nothing is echoed
-     * into local state; a refusal lands in [error] like every other mutation.
-     */
-    fun mergeFinalPr() {
-        mutate("The final pull request could not be merged") { accountId ->
-            workflowsApi.mergeFinalPr(accountId, workflowId)
-        }
-    }
-
-    /** The gate: clear a node's PR for the train, or take the approval back. */
-    fun approveNode(nodeId: String, approved: Boolean) {
-        mutate("The node could not be approved") { accountId ->
-            workflowsApi.approveNode(accountId, nodeId, approved = approved)
-        }
+    /** The ONE human review of the whole run — squash-merge the final PR. */
+    fun mergeFinalPr() = mutate("The final pull request could not be merged") {
+        workflowsApi.mergeFinalPr(it, workflowId)
     }
 
     /** [WorkflowsApi.NODE_RETRY] or [WorkflowsApi.NODE_SKIP] on a failed node. */
-    fun resolveNode(nodeId: String, action: String) {
-        mutate("The node could not be resolved") { accountId ->
-            workflowsApi.resolveNode(accountId, nodeId, action)
-        }
+    fun resolveNode(nodeId: String, action: String) = mutate("The node could not be resolved") {
+        workflowsApi.resolveNode(it, nodeId, action)
     }
+
+    /** EXP-984: take a mid-run proposal into the graph, or throw it away. */
+    fun admitNode(nodeId: String, admit: Boolean) = mutate(
+        if (admit) "The node could not be admitted" else "The node could not be dismissed",
+    ) { workflowsApi.admitNode(it, nodeId, admit) }
 
     /** Permanent, and refused by the server while the workflow is live. */
-    fun delete() {
-        mutate("The workflow could not be deleted") { accountId ->
-            workflowsApi.delete(accountId, workflowId)
-            _deleted.value = true
-        }
+    fun delete() = mutate("The workflow could not be deleted") { accountId ->
+        workflowsApi.delete(accountId, workflowId)
+        _deleted.value = true
     }
 
-    // One mutation at a time, with the server's own refusal surfaced: its copy
-    // names the actual reason (a started issue, two repositories, a device
-    // that cannot run workflows).
+    // One mutation at a time, with the server's own refusal surfaced.
     private fun mutate(fallback: String, block: suspend (String) -> Unit) {
         if (_busy.value) return
         _busy.value = true
@@ -457,4 +363,59 @@ class WorkflowDetailViewModel @Inject constructor(
             _busy.value = false
         }
     }
+}
+
+/**
+ * A node's OWN run: its recorded `session_id`, else the newest AUTHOR run
+ * stamped with the node (a review run carries the node id too and must never
+ * stand in for it; newest by `created_at`, then `updated_at`, then id).
+ */
+internal fun workflowNodeSession(
+    node: WorkflowNodeEntity,
+    sessionsById: Map<String, CodingSessionEntity>,
+    sessionRows: List<CodingSessionEntity>,
+): CodingSessionEntity? =
+    node.sessionId?.takeIf { it.isNotBlank() }?.let { sessionsById[it] }
+        ?: sessionRows
+            .filter { it.workflowNodeId == node.id && it.workflowRole == DomainContract.wfSessionRoleAuthor }
+            .maxWithOrNull(compareBy<CodingSessionEntity>({ it.createdAt }, { it.updatedAt }, { it.id }))
+
+/**
+ * The strip off the joined graph: each node's chip, captioned by its note
+ * while it has one (a holding node says why), else its display state.
+ */
+internal fun workflowStrip(graph: WorkflowGraph, questions: List<WorkflowOpenQuestion>): List<StripWave> {
+    val asking = questions.mapTo(HashSet()) { it.nodeId }
+    return WorkflowView.nodeStrip(
+        nodes = graph.nodes.map { node ->
+            StripNodeInput(
+                id = node.id,
+                identifier = graph.issuesById[node.issueId]?.identifier ?: node.issueId.take(8),
+                state = node.state,
+                wave = node.wave ?: 0,
+                lane = node.lane ?: 0,
+                members = node.memberIssueIds.size,
+                live = graph.runsByNodeId[node.id]?.busy == true,
+                needsYou = node.id in asking,
+                note = node.note,
+            )
+        },
+    )
+}
+
+/**
+ * The Start blocker as the page shows it, or null: only while Start or Pick
+ * device is the primary action, and never "Pick the device…" when the
+ * primary action already IS Pick device.
+ */
+internal fun workflowStartNotice(row: WorkflowEntity, deviceLabel: String?): String? {
+    val primary = WorkflowView.primaryAction(row.status, deviceLabel, row.finalPrState)
+    if (primary != WorkflowPrimaryAction.START && primary != WorkflowPrimaryAction.PICK_DEVICE) return null
+    // Pick device already says "pick a device": judge the rest as if one were
+    // bound, so only the OTHER reasons surface.
+    val deviceId = if (primary == WorkflowPrimaryAction.PICK_DEVICE) row.deviceId ?: "picking" else row.deviceId
+    return WorkflowView.startBlocker(
+        WorkflowView.Startable(row.status, deviceId, row.repositoryId),
+        row.shape,
+    )
 }

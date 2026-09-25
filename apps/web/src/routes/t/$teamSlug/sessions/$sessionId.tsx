@@ -371,7 +371,7 @@ function OwnSessionPage({
                Stop / Resume do. */
             face={shownFace}
             graphBadge={
-              /* EXP-897: the same pill the md+ header wears — the face
+              /* EXP-897: the same stacked chip the md+ header wears — the face
                  showing decides which section its sheet opens on. */
               <PrGraphBadge
                 teamId={team.id}
@@ -435,15 +435,14 @@ function OwnSessionPage({
         prFiles={prFiles}
         prUrl={prUrl}
         graphBadge={
-          /* EXP-1079: the ONE node feeds the phone's bar (a chip) and the
-             md+ work header (the toggle's rung, beside Stop / Resume). */
+          /* EXP-1079: the ONE node feeds the phone's bar and the md+ work
+             header (EXP-1058: the stacked issue chip in both). */
           <PrGraphBadge
             teamId={team.id}
             teamSlug={teamSlug}
             face={face === `diff` ? `changes` : `run`}
             issue={issue}
             session={session}
-            placement={isMobile ? `chip` : `header`}
           />
         }
         renderMobileHeader={renderMobileHeader}

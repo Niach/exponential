@@ -172,4 +172,46 @@ final class StartPullRequestOptionTests: XCTestCase {
 
         XCTAssertEqual(options.first?.label, "EXP-1")
     }
+
+    // EXP-1072: a workflow's OPEN final pull request is the workflow's own PR
+    // — offered with the WORKFLOW id as its value, labelled like its title,
+    // and a seed of that id resolves to it.
+    func testOffersWorkflowsWithAnOpenFinalPullRequest() {
+        func workflow(_ id: String, name: String, number: Int?, state: String?) -> WorkflowEntity {
+            WorkflowEntity(
+                id: id,
+                teamId: "t-1",
+                name: name,
+                integrationBranch: "exp/wf-\(id)",
+                finalPrUrl: state == nil ? nil : "https://github.com/acme/web/pull/\(number ?? 0)",
+                finalPrNumber: number,
+                finalPrState: state,
+                createdAt: "2026-09-25T00:00:00Z",
+                updatedAt: "2026-09-25T00:00:00Z"
+            )
+        }
+        let options = StartPullRequestOption.build(
+            from: [
+                issue(
+                    id: "i-1",
+                    boardId: "b-1",
+                    identifier: "EXP-1",
+                    prUrl: "https://github.com/acme/web/pull/1",
+                    prNumber: 1
+                ),
+            ],
+            teamBoardIds: ["b-1"],
+            workflows: [
+                workflow("wf-open", name: "EXP-996 +5", number: 829, state: DomainContract.prStateOpen),
+                workflow("wf-merged", name: "Done", number: 800, state: DomainContract.prStateMerged),
+                workflow("wf-none", name: "Draft", number: nil, state: nil),
+            ]
+        )
+
+        XCTAssertEqual(options.map(\.issueId), ["i-1", "wf-open"])
+        let final = options.first { $0.issueId == "wf-open" }
+        XCTAssertEqual(final?.label, "#829 · Workflow: EXP-996 +5")
+        XCTAssertEqual(final?.label, WorkflowFinalPr.pickLabel(number: 829, name: "EXP-996 +5"))
+        XCTAssertEqual(StartPullRequestOption.option(in: options, forIssueId: "wf-open")?.issueId, "wf-open")
+    }
 }

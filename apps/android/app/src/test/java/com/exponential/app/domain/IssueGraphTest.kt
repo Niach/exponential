@@ -3,7 +3,9 @@ package com.exponential.app.domain
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.float
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -196,5 +198,108 @@ class IssueGraphTest {
     fun `the graph notes are the shared ones`() {
         assertEquals("Showing the nearest 60 issues.", IssueGraph.TRUNCATED_NOTE)
         assertEquals("Red issues block each other in a cycle.", IssueGraph.CYCLE_NOTE)
+    }
+
+    // EXP-1057: the mini-graph geometry, against `issue-graph-geometry.json`
+    // (each case's `name` is the assertion message).
+
+    private fun geometry(): JsonObject =
+        Json.parseToJsonElement(contractFixtureJson("issue-graph-geometry.json")).jsonObject
+
+    private fun JsonObject.num(key: String): Float = getValue(key).jsonPrimitive.float
+
+    private fun JsonObject.point(key: String): IssueGraph.Geometry.Point {
+        val obj = getValue(key).jsonObject
+        return IssueGraph.Geometry.Point(obj.num("x"), obj.num("y"))
+    }
+
+    @Test
+    fun `the geometry constants are the contract's`() {
+        val c = geometry().getValue("constants").jsonObject
+        val g = IssueGraph.Geometry
+        val expected = mapOf(
+            "nodeWidth" to g.NODE_WIDTH,
+            "nodeHeight" to g.NODE_HEIGHT,
+            "waveGap" to g.WAVE_GAP,
+            "laneGap" to g.LANE_GAP,
+            "inset" to g.INSET,
+            "maxViewWidth" to g.MAX_VIEW_WIDTH,
+            "maxViewHeight" to g.MAX_VIEW_HEIGHT,
+            "edgeStroke" to g.EDGE_STROKE,
+            "ringWidth" to g.RING_WIDTH,
+            "nodeRadius" to g.NODE_RADIUS,
+            "railGutter" to g.RAIL_GUTTER,
+            "railNodeWidth" to g.RAIL_NODE_WIDTH,
+            "railDot" to g.RAIL_DOT,
+            "railDotRing" to g.RAIL_DOT_RING,
+        )
+        assertEquals(c.keys, expected.keys)
+        for ((key, value) in expected) assertEquals(key, c.num(key), value, 0f)
+    }
+
+    @Test
+    fun `every geometry size case sizes the grid and its viewport`() {
+        val sizes = geometry().getValue("sizes").jsonArray
+        assertTrue(sizes.size >= 5)
+        for (element in sizes) {
+            val case = element.jsonObject
+            val name = case.getValue("name").jsonPrimitive.content
+            assertEquals(
+                name,
+                IssueGraph.Geometry.Size(
+                    width = case.num("width"),
+                    height = case.num("height"),
+                    viewWidth = case.num("viewWidth"),
+                    viewHeight = case.num("viewHeight"),
+                ),
+                IssueGraph.Geometry.size(
+                    case.getValue("waves").jsonPrimitive.int,
+                    case.getValue("lanes").jsonPrimitive.int,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `every geometry origin places its box`() {
+        val origins = geometry().getValue("origins").jsonArray
+        assertTrue(origins.isNotEmpty())
+        for (element in origins) {
+            val case = element.jsonObject
+            val wave = case.getValue("wave").jsonPrimitive.int
+            val lane = case.getValue("lane").jsonPrimitive.int
+            assertEquals(
+                "origin($wave, $lane)",
+                IssueGraph.Geometry.Point(case.num("x"), case.num("y")),
+                IssueGraph.Geometry.origin(wave, lane),
+            )
+        }
+    }
+
+    @Test
+    fun `every geometry edge case draws its cubic`() {
+        val edges = geometry().getValue("edges").jsonArray
+        assertTrue(edges.size >= 3)
+        for (element in edges) {
+            val case = element.jsonObject
+            val name = case.getValue("name").jsonPrimitive.content
+            val from = case.getValue("from").jsonObject
+            val to = case.getValue("to").jsonObject
+            assertEquals(
+                name,
+                IssueGraph.Geometry.Curve(
+                    start = case.point("start"),
+                    control1 = case.point("control1"),
+                    control2 = case.point("control2"),
+                    end = case.point("end"),
+                ),
+                IssueGraph.Geometry.edge(
+                    from.getValue("wave").jsonPrimitive.int,
+                    from.getValue("lane").jsonPrimitive.int,
+                    to.getValue("wave").jsonPrimitive.int,
+                    to.getValue("lane").jsonPrimitive.int,
+                ),
+            )
+        }
     }
 }

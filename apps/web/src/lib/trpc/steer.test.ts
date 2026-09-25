@@ -2548,3 +2548,98 @@ describe(`steer.startSession — retired builtin text inputs`, () => {
     expect((error as TRPCError).message).toContain(`Unknown input "prompt"`)
   })
 })
+
+// EXP-1082 §1: the run's workflow membership rides the relay frame verbatim.
+describe(`steer.startSession — workflow membership (EXP-1082)`, () => {
+  const WF = `77777777-7777-4777-8777-777777777777`
+  const NODE = `88888888-8888-4888-8888-888888888888`
+
+  // Only a RUN (an MCP caller) is ever the workflow host; a browser or
+  // phone caller's keys are ignored, never refused.
+  const hostCaller = steerRouter.createCaller({
+    session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
+    db: ctxDb,
+    request: new Request(`http://localhost/`),
+    viaMcp: true,
+  } as never)
+
+  it(`forwards workflowId, workflowNodeId and workflowRole on the frame for a run`, async () => {
+    queueOwnDevice()
+    await hostCaller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    expect(lastStartBody()).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+  })
+
+  it(`drops a person's membership keys from the frame`, async () => {
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    })
+    const body = lastStartBody()
+    expect(`workflowId` in body).toBe(false)
+    expect(`workflowNodeId` in body).toBe(false)
+    expect(`workflowRole` in body).toBe(false)
+  })
+
+  it(`carries a membership on an ordinary action start without treating it as a plan`, async () => {
+    queueAction({ name: `Code review` })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `start-prompt`] })
+    await hostCaller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      prompt: `Look at the diff`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    const body = lastStartBody()
+    expect(body).toMatchObject({
+      actionId: ACTION_ID,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    // The caller's prompt survives: no planner prompt, no workflows read.
+    expect(body.prompt).toBe(`Look at the diff`)
+    expect(h.dbQueue).toEqual([])
+  })
+
+  it(`keeps the keys off the wire when absent`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    const body = lastStartBody()
+    expect(`workflowId` in body).toBe(false)
+    expect(`workflowNodeId` in body).toBe(false)
+    expect(`workflowRole` in body).toBe(false)
+  })
+
+  it(`refuses a node or role without a workflowId, and an off-contract role`, async () => {
+    const orphan = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, workflowRole: `author` })
+    )
+    expect((orphan as TRPCError).code).toBe(`BAD_REQUEST`)
+    const bad = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        workflowId: WF,
+        workflowRole: `boss` as never,
+      })
+    )
+    expect((bad as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+})

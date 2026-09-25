@@ -76,6 +76,7 @@ pub fn run(args: &[String]) -> CommandResult {
         ctx: &ctx,
         runtime: runtime.as_ref(),
         personal_key,
+        rotation_host: false,
     };
     let session = session_host::launch(&env, prepared, Some(issue.id.clone()))?;
     let session = Arc::new(session);

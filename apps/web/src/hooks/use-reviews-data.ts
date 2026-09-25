@@ -3,7 +3,9 @@ import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   codingSessionCollection,
   issueCollection,
+  workflowCollection,
 } from "@/lib/collections"
+import { workflowReviewKey } from "@/lib/workflow-final-pr-identity"
 import {
   useTeamBoards,
   useTeamUsers,
@@ -12,7 +14,7 @@ import { trpc } from "@/lib/trpc-client"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import { nestPrStacks } from "@/lib/pr-stack"
 import type { OpenPull } from "@/lib/integrations/github-pr"
-import type { CodingSession, Issue, Board, Team } from "@/db/schema"
+import type { CodingSession, Issue, Board, Team, SyncedWorkflow } from "@/db/schema"
 
 // One open PR. A batch coding run links several issues to the same prUrl —
 // they all ride ONE entry (EXP-131, never one row per issue); merging/closing
@@ -57,6 +59,15 @@ export interface ReviewGroup {
 export interface SessionReviewEntry {
   key: string
   session: CodingSession
+}
+
+// EXP-1072: a workflow's ONE final pull request (integration branch → the
+// default branch). The workflow row carries its url/number/state, so it is
+// the workflow's OWN PR here — never an "external" one — and merges through
+// `workflows.mergeFinalPr`, which completes the workflow and its issues.
+export interface WorkflowReviewEntry {
+  key: string
+  workflow: SyncedWorkflow
 }
 
 export interface ExternalPullGroup {
@@ -107,6 +118,23 @@ export function useReviewsData(team: Team | null | undefined) {
               and(
                 eq(sessions.teamId, teamId),
                 eq(sessions.prState, `open`)
+              )
+            )
+        : undefined,
+    [teamId]
+  )
+
+  // EXP-1072: workflows whose final PR is open. Team-scoped over the synced
+  // `workflows` shape.
+  const { data: workflowRows } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ workflows: workflowCollection })
+            .where(({ workflows }) =>
+              and(
+                eq(workflows.teamId, teamId),
+                eq(workflows.finalPrState, `open`)
               )
             )
         : undefined,
@@ -266,10 +294,21 @@ export function useReviewsData(team: Team | null | undefined) {
       .sort(byCreatedAtDesc)
       .map((session) => ({ key: `session:${session.id}`, session }))
 
-    // The server already excludes run PRs from `openPulls`, but its 60 s
-    // cache can still hand back one that a run just claimed — drop it here so
-    // the same PR never renders twice.
-    const runUrls = new Set(sessionByUrl.keys())
+    // EXP-1072: the workflows' final PRs, newest workflow first.
+    const workflowEntries: WorkflowReviewEntry[] = [
+      ...((workflowRows ?? []) as SyncedWorkflow[]),
+    ]
+      .filter((workflow) => workflow.finalPrUrl)
+      .sort(byCreatedAtDesc)
+      .map((workflow) => ({ key: workflowReviewKey(workflow.id), workflow }))
+
+    // The server already excludes run PRs and workflow final PRs from
+    // `openPulls`, but its 60 s cache can still hand back one that a run just
+    // claimed — drop it here so the same PR never renders twice.
+    const runUrls = new Set([
+      ...sessionByUrl.keys(),
+      ...workflowEntries.map((entry) => entry.workflow.finalPrUrl as string),
+    ])
     const externalPullGroups = externalGroups
       .map((group) => ({
         ...group,
@@ -284,9 +323,14 @@ export function useReviewsData(team: Team | null | undefined) {
 
     return {
       groups,
+      workflowEntries,
       sessionEntries,
       externalGroups: externalPullGroups,
-      count: entriesByKey.size + sessionEntries.length + externalCount,
+      count:
+        entriesByKey.size +
+        workflowEntries.length +
+        sessionEntries.length +
+        externalCount,
       // A team with no boards skips the query and can never deliver a
       // snapshot — treat it as ready-empty instead of loading forever. The
       // external fetch has its own flag so the synced queue renders without
@@ -299,6 +343,7 @@ export function useReviewsData(team: Team | null | undefined) {
   }, [
     issues,
     sessionRows,
+    workflowRows,
     isReady,
     boards,
     userMap,

@@ -241,8 +241,6 @@ pub struct WorkflowPromptArgs<'a> {
     pub base_branch: &'a str,
     /// `workflows.decisions` as synced; blank renders "None yet.".
     pub decisions: &'a str,
-    /// contract `wfStartOn` — only `contract` asks the run to announce one.
-    pub start_on: &'a str,
     /// EXP-983: the identifiers of the issues this node builds on, in the
     /// order the engine lists them. Empty for a root node.
     pub blockers: &'a [String],
@@ -259,23 +257,19 @@ pub fn workflow_section(args: &WorkflowPromptArgs<'_>) -> String {
         name,
         base_branch,
         decisions,
-        start_on,
         blockers,
     } = *args;
     let decisions = match decisions.trim() {
         "" => "None yet.",
         text => text,
     };
-    // EXP-983 — the two speculative bullets: only a `contract` workflow asks
-    // for an announcement, and only a node with blockers builds on anyone.
-    let contract = if start_on == "contract" {
-        "\n- Dependents start as soon as your CONTRACT is pushed. Do this FIRST: commit and push \
+    // EXP-983 / EXP-1066 — the two speculative bullets: every workflow starts
+    // dependents on the contract, so every node is asked to announce one; only
+    // a node with blockers builds on anyone.
+    let contract = "\n- Dependents start as soon as your CONTRACT is pushed. Do this FIRST: commit and push \
 the types, interfaces, stubs, contract tests and acceptance tests others build against, then call \
 exponential_workflows_checkpoint. After that, do not break what you announced; if you must, say so \
-in your summary."
-    } else {
-        ""
-    };
+in your summary.";
     let upstream = if blockers.is_empty() {
         String::new()
     } else {
@@ -328,6 +322,16 @@ any conflict, run the tests you touched, and push."
 /// paraphrased on the way.
 pub fn review_findings_prompt(round: i64, findings: &str) -> String {
     let max = domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS;
+    if round >= max as i64 {
+        // EXP-1065: the LAST round. Nobody waits for a person after it: the
+        // node lands once this run is done, and whatever stays open is
+        // carried to the final pull request's review.
+        return format!(
+            "The agent review requested changes (round {round} of {max}, the last one). Address \
+every point you can, push, then end the run: after this round the node lands and any unresolved \
+finding is carried to the final pull request's review.\n\nFindings:\n{findings}"
+        );
+    }
     format!(
         "The agent review requested changes (round {round} of {max}). Address every point, push, \
 then end the run again.\n\nFindings:\n{findings}"
@@ -483,7 +487,6 @@ mod tests {
             name: "Login rework",
             base_branch: "exp/wf-abcdef12",
             decisions,
-            start_on: "landed",
             blockers: &[],
         }
     }
@@ -513,6 +516,10 @@ who started the workflow and MUST contain a line starting with `Proposal:` that 
 with yes or no. After the answer arrives, record what was decided with exponential_workflows_update \
 (id `wf-1`, decision) so no sibling asks again.
 - Finish with exponential_sessions_end once your pull request is open.
+- Dependents start as soon as your CONTRACT is pushed. Do this FIRST: commit and push the types, \
+interfaces, stubs, contract tests and acceptance tests others build against, then call \
+exponential_workflows_checkpoint. After that, do not break what you announced; if you must, say so \
+in your summary.
 
 Decisions so far:
 2026-09-19: ship the API first
@@ -524,8 +531,8 @@ Decisions so far:
     }
 
     /// EXP-983 — the two speculative bullets, byte for byte: the contract
-    /// announcement (only under `start_on: contract`) and who this node
-    /// builds on. A root node of a `landed` workflow gets neither.
+    /// announcement (every node, EXP-1066) and who this node builds on. A
+    /// root node builds on nobody.
     #[test]
     fn the_speculative_bullets_read_exactly() {
         let blockers = ["EXP-1".to_string(), "EXP-2".to_string()];
@@ -534,7 +541,6 @@ Decisions so far:
             name: "Login rework",
             base_branch: "exp/wf-abcdef12-base-EXP-3",
             decisions: "",
-            start_on: "contract",
             blockers: &blockers,
         });
         assert!(rendered.contains(
@@ -552,9 +558,10 @@ exponential_sessions_ask_parent.\n"
         // The bullets stay bullets: the decisions log still ends the section.
         assert!(rendered.ends_with("Decisions so far:\nNone yet.\n"));
 
-        // Neither line exists without a reason for it.
+        // The upstream line exists only with a reason for it; the contract
+        // announcement is asked of every node.
         let plain = workflow_section(&workflow_args(""));
-        assert!(!plain.contains("exponential_workflows_checkpoint"));
+        assert!(plain.contains("exponential_workflows_checkpoint"));
         assert!(!plain.contains("exponential_workflows_request_upstream"));
     }
 
@@ -578,6 +585,11 @@ origin/exp/EXP-1, resolve any conflict, run the tests you touched, and push."
             "The agent review requested changes (round 2 of 3). Address every point, push, then \
 end the run again.\n\nFindings:\nsrc/a.rs:4 off by one\nsrc/b.rs:9 no test"
         );
+        // EXP-1065: the last round says the node lands after it.
+        let last = review_findings_prompt(3, "src/a.rs:4 off by one");
+        assert!(last.starts_with("The agent review requested changes (round 3 of 3, the last one)."));
+        assert!(last.contains("the node lands"));
+        assert!(last.ends_with("Findings:\nsrc/a.rs:4 off by one"));
     }
 
     /// The section is appended, never woven in: without a workflow every

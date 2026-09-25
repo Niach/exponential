@@ -11,6 +11,7 @@ import {
   workflowReviewOracleSchema,
   workflowTouchesSchema,
   type WfReviewVerdict,
+  type WfSessionRole,
   CATEGORY_ANCHOR,
   customizableStatusCategoryValues,
   dateOnlySchema,
@@ -96,7 +97,8 @@ import {
 } from "@/lib/issue-relations"
 import { findRelationCycle } from "@/lib/relation-cycles"
 import { liveWorkflowBaseForIssue } from "@/lib/workflows"
-import { appendDecisionLine, bumpMetrics } from "@/lib/trpc/workflows"
+import { appendDecisionLine } from "@/lib/trpc/workflows"
+import { resolveWorkflowMembership } from "@/lib/sessions/workflow-membership"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import {
   issueWireColumns,
@@ -374,6 +376,29 @@ async function loadWorkflowNodeForSession(sessionId: string) {
   return row ?? null
 }
 
+/** EXP-1082/EXP-1065: the run's own workflow membership (author, review,
+ *  plan …), off its row. `null` outside any workflow. */
+async function loadWorkflowMembershipForSession(
+  sessionId: string
+): Promise<{ workflowId: string; workflowNodeId: string | null; workflowRole: string | null } | null> {
+  const [row] = await db
+    .select({
+      workflowId: codingSessions.workflowId,
+      workflowNodeId: codingSessions.workflowNodeId,
+      workflowRole: codingSessions.workflowRole,
+    })
+    .from(codingSessions)
+    .where(eq(codingSessions.id, sessionId))
+    .limit(1)
+  return row?.workflowId
+    ? {
+        workflowId: row.workflowId,
+        workflowNodeId: row.workflowNodeId ?? null,
+        workflowRole: row.workflowRole ?? null,
+      }
+    : null
+}
+
 /** Another live run of the same workflow is parked on this very question. */
 async function siblingAlreadyAsked(
   workflowId: string,
@@ -496,6 +521,61 @@ const sessionColumns = {
   endedAt: codingSessions.endedAt,
   createdAt: codingSessions.createdAt,
   updatedAt: codingSessions.updatedAt,
+}
+
+/**
+ * EXP-679 + EXP-1082 §1 rule (c): the device creates a child's row, so its
+ * links are stamped after `exponential_sessions_start`'s poll: the parent
+ * (when the row has none) and, when the row joined no workflow itself and
+ * the calling run belongs to one, the parent's workflow + node through
+ * `resolveWorkflowMembership` (role `author` for an issue or batch child,
+ * else none). History only: the caller swallows a failure.
+ */
+async function stampChildOfRun(
+  row: { id: unknown; parentSessionId?: unknown },
+  sessionId: string
+): Promise<void> {
+  const rowId = row.id as string
+  const patch: {
+    parentSessionId?: string
+    workflowId?: string | null
+    workflowNodeId?: string | null
+    workflowRole?: string | null
+  } = {}
+  if (!row.parentSessionId) patch.parentSessionId = sessionId
+  const [parent] = await db
+    .select({
+      workflowId: codingSessions.workflowId,
+      workflowNodeId: codingSessions.workflowNodeId,
+    })
+    .from(codingSessions)
+    .where(eq(codingSessions.id, sessionId))
+    .limit(1)
+  const [child] = parent?.workflowId
+    ? await db
+        .select({
+          workflowId: codingSessions.workflowId,
+          issueId: codingSessions.issueId,
+          batchIssueIds: codingSessions.batchIssueIds,
+          startedReason: codingSessions.startedReason,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, rowId))
+        .limit(1)
+    : []
+  if (child && !child.workflowId && parent?.workflowId) {
+    const membership = resolveWorkflowMembership({
+      parent,
+      startedReason: child.startedReason,
+      issueIds: child.issueId ? [child.issueId] : (child.batchIssueIds ?? []),
+    })
+    patch.workflowId = membership.workflowId
+    patch.workflowNodeId = membership.workflowNodeId
+    patch.workflowRole = membership.workflowRole
+  }
+  if (Object.keys(patch).length === 0) return
+  await db.update(codingSessions).set(patch).where(eq(codingSessions.id, rowId))
+  if (patch.parentSessionId) row.parentSessionId = sessionId
 }
 
 // How long exponential_sessions_start waits for the device to report the
@@ -3052,12 +3132,15 @@ export function registerExponentialTools(
   // which the parent stamps only after its sessions_start poll returns; the
   // handler below re-checks the linkage. NON-blocking on purpose — agent
   // CLIs time out long-held tool calls — so the answer arrives later as an
-  // injected user message, the same rail a human steers with.
+  // injected user message, the same rail a human steers with. EXP-1089:
+  // registered for EVERY run of the caller's; `to: 'user'` works from any of
+  // them (a person's chat, a workflow's planner run), the starter targets
+  // still need a starter.
   if (gates.askParent) {
     server.registerTool(
       `exponential_sessions_ask_parent`,
       {
-        description: `Ask the run that started this one a question only it can answer; it lands in that run's channel. 'to' picks who: 'parent' (default), 'root' (the top live run of your chain — use it when the whole plan is wrong) or 'user' (the person who owns the run; it parks yours as needing input). Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. Act on it, then still finish with exponential_sessions_end. If delivery fails, finish anyway and note the open question in your summary.`,
+        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run that started this one), 'root' (the top live run of your chain, when the whole plan is wrong) or 'user' (the person who owns this run, or the workflow's creator; works from any run, parks yours as needing input and notifies them). Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. If delivery fails, finish anyway and note the open question in your summary.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           question: z.string().min(1).max(4_000),
@@ -3078,19 +3161,36 @@ export function registerExponentialTools(
           }
           // The gate is context hygiene; re-check ownership and the linkage.
           const child = await loadChildParentContext(db, sessionId)
-          // EXP-982: a workflow NODE has no parent run. Its question always
-          // goes to a person, must carry a proposal (answerable yes/no), and
-          // is asked ONCE per workflow: a sibling with the same open question
-          // parks silently and gets the recorded decision relayed.
           if (
             !child ||
             (child.userId !== user.id && child.hostUserId !== user.id)
           ) {
             return err(new Error(`This run has no live starter to ask.`))
           }
-          const workflowNode =
-            child.startedReason === `workflow`
+          // EXP-982 / EXP-1065: a workflow NODE has no parent run. Its
+          // question always goes to a person, must carry a proposal
+          // (answerable yes/no), and is asked ONCE per workflow: a sibling
+          // with the same open question parks silently and gets the recorded
+          // decision relayed. EXP-1089: a workflow's PLANNER run asks the
+          // person too (its batched question set needs no proposal line).
+          // The membership comes off the run's own row (the contract's
+          // columns); rows stamped before them fall back to the node lookup.
+          const membership = await loadWorkflowMembershipForSession(sessionId)
+          const legacyNode =
+            !membership?.workflowNodeId && child.startedReason === `workflow`
               ? await loadWorkflowNodeForSession(sessionId)
+              : null
+          const workflowNode: { workflowId: string; workflowNodeId: string } | null =
+            membership?.workflowNodeId
+              ? { workflowId: membership.workflowId, workflowNodeId: membership.workflowNodeId }
+              : legacyNode
+                ? { workflowId: legacyNode.workflowId, workflowNodeId: legacyNode.nodeId }
+                : null
+          const planner =
+            !workflowNode &&
+            membership?.workflowId &&
+            (membership.workflowRole === `plan` || membership.workflowRole === `replan`)
+              ? membership
               : null
           if (workflowNode) {
             if (!/^proposal:/im.test(question)) {
@@ -3101,23 +3201,32 @@ export function registerExponentialTools(
               )
             }
             to = `user`
-          } else if (child.startedReason !== `agent` || !child.parentSessionId) {
+          } else if (planner) {
+            to = `user`
+          } else if (
+            to !== `user` &&
+            (child.startedReason !== `agent` || !child.parentSessionId)
+          ) {
             return err(new Error(`This run has no live starter to ask.`))
           }
 
-          // EXP-897: escalate to the PERSON. No new notification type and no
-          // new column: the run parks as needing input (every client already
-          // surfaces that, and the caption IS the question) and the owner gets
-          // the existing agent_message inbox row + push. The answer comes back
-          // as a normal user message in THIS run's own composer.
+          // EXP-897: escalate to the PERSON. The run parks as needing input
+          // (every client surfaces that, and the caption IS the question),
+          // the question itself lands on the row (`pending_question`, the
+          // workflow page's badge and list), and the person gets the
+          // existing agent_message inbox row + push: the run's owner, or
+          // (EXP-1065) the workflow's creator for a workflow run. The answer
+          // comes back as a normal user message in THIS run's own composer.
           if (to === `user`) {
             const caption = question.slice(0, 160)
+            const askedAt = new Date()
             await db
               .update(codingSessions)
               .set({
                 needsInput: true,
                 agentCaption: caption,
-                updatedAt: new Date(),
+                pendingQuestion: { question, askedAt: askedAt.toISOString() },
+                updatedAt: askedAt,
               })
               .where(eq(codingSessions.id, sessionId))
             const [row] = await db
@@ -3131,22 +3240,10 @@ export function registerExponentialTools(
             if (!row?.teamId) {
               return err(new Error(`This run has no team to notify in.`))
             }
+            const workflowId = workflowNode?.workflowId ?? planner?.workflowId ?? null
             const duplicate =
               workflowNode !== null &&
               (await siblingAlreadyAsked(workflowNode.workflowId, sessionId, caption))
-            if (workflowNode) {
-              // EXP-984 metrics: escalations per workflow + how many were
-              // duplicates a sibling had already asked.
-              await db
-                .update(workflows)
-                .set({
-                  metrics: bumpMetrics({
-                    escalations: 1,
-                    ...(duplicate && { duplicateEscalations: 1 }),
-                  }),
-                })
-                .where(eq(workflows.id, workflowNode.workflowId))
-            }
             if (duplicate) {
               return ok({
                 delivered: true,
@@ -3154,18 +3251,41 @@ export function registerExponentialTools(
                 note: `A sibling run of this workflow already asked exactly this. Stop working NOW and end your turn; the decision arrives as a user message in this session.`,
               })
             }
+            let recipient = row.userId
+            let title = `${child.issueIdentifier ?? sessionId.slice(0, 8)} asks`
+            if (workflowId) {
+              const [wf] = await db
+                .select({ creatorId: workflows.creatorId, name: workflows.name })
+                .from(workflows)
+                .where(eq(workflows.id, workflowId))
+                .limit(1)
+              recipient = wf?.creatorId ?? row.userId
+              if (planner) title = `${wf?.name ?? `Workflow`} planner asks`
+            }
             await sendAgentMessage({
               teamId: row.teamId,
               senderUserId: row.userId,
-              // The OWNER only: a run's question is not the team's inbox.
-              recipientIds: [row.userId],
-              title: `${child.issueIdentifier ?? sessionId.slice(0, 8)} asks`,
+              // ONE person: the run's owner, or the workflow's creator — a
+              // run's question is not the team's inbox.
+              recipientIds: [recipient],
+              title,
               body: question,
             })
+            if (workflowId) {
+              const { recordWorkflowEvent } = await import(`@/lib/workflows/record-event`)
+              await recordWorkflowEvent(db, {
+                workflowId,
+                teamId: row.teamId,
+                nodeId: workflowNode?.workflowNodeId ?? null,
+                sessionId,
+                kind: `question_asked`,
+                message: `${child.issueIdentifier ?? `The planner`} asks: ${question}`,
+              })
+            }
             return ok({
               delivered: true,
               to: `user`,
-              note: `Asked the person who owns this run. Stop working NOW and end your turn; their answer arrives as a user message in this session.`,
+              note: `Asked the person. Stop working NOW and end your turn; their answer arrives as a user message in this session.`,
             })
           }
 
@@ -3727,6 +3847,10 @@ export function registerExponentialTools(
             `Not delivered: the session's device is not connected to the relay. The run may still be starting or its device offline; retry, or fall back to exponential_sessions_get.`
           )
         }
+        // EXP-1065: a delivered message IS the answer to the run's open
+        // question (`ask_parent`): off the row, into the workflow's log.
+        const { answerPendingQuestion } = await import(`@/lib/sessions/answer-pending-question`)
+        await answerPendingQuestion(db, targetId)
         return ok({ ok: true, id: targetId, delivered: true })
       } catch (e) {
         return err(e)
@@ -3743,7 +3867,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on an ONLINE device (exponential_devices_list, agents includes it); offline = refused, never queued. One subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from the device's agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId stacks it on that issue's PR. Track it with exponential_sessions_get. Started from inside a run, the child is unattended: its question, finish or usage wall (wait it out) lands here as '[Exponential child run ...]' user input; answer with exponential_sessions_message. Read its report before merging.`,
+      description: `Start a coding session on an ONLINE device (exponential_devices_list); offline = refused. One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId = stack on that issue's PR. Track it with exponential_sessions_get. A child started from a run is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -3766,6 +3890,13 @@ export function registerExponentialTools(
         // whose default profile is walled had to route around this tool
         // (and lose the parent link) to launch on another account.
         account: z.string().min(1).max(64).optional(),
+        // EXP-1082: workflow membership for the frame (honoured only from
+        // the workflow's runner device, see codingSessions.start).
+        workflowId: uuidString.optional(),
+        workflowNodeId: uuidString.optional(),
+        // Validated against contract `wfSessionRole` by steer.startSession
+        // (a plain string keeps this tool inside its context budget).
+        workflowRole: z.string().optional(),
       }),
     },
     async (input) => {
@@ -3854,9 +3985,39 @@ export function registerExponentialTools(
           assertBoardGranted(access, lowerCtx.boardId, lowerCtx.teamId)
           stackOn = { issueId: lowerId }
         }
-        const { stackOnIssueId: _stackOnIssueId, ...startInput } = input
+        // EXP-1082 §1: only the workflow HOST names a membership — the
+        // calling run must itself belong to that workflow. Anyone else's
+        // keys are dropped silently (ignored, never refused).
+        const {
+          stackOnIssueId: _stackOnIssueId,
+          workflowRole,
+          workflowId,
+          workflowNodeId,
+          ...startInput
+        } = input
+        let membership: {
+          workflowId?: string
+          workflowNodeId?: string
+          workflowRole?: WfSessionRole
+        } = {}
+        if (workflowId && sessionId) {
+          const [me] = await db
+            .select({ workflowId: codingSessions.workflowId })
+            .from(codingSessions)
+            .where(eq(codingSessions.id, sessionId))
+            .limit(1)
+          if (me?.workflowId === workflowId) {
+            membership = {
+              workflowId,
+              ...(workflowNodeId ? { workflowNodeId } : {}),
+              // The router validates the contract role (a plain string here).
+              ...(workflowRole ? { workflowRole: workflowRole as WfSessionRole } : {}),
+            }
+          }
+        }
         await caller(user, request).steer.startSession({
           ...startInput,
+          ...membership,
           issueId,
           issueIds,
           ...(stackOn ? { stackOn } : {}),
@@ -3888,13 +4049,9 @@ export function registerExponentialTools(
           if (row) {
             // EXP-679: the device creates the row, so the parent link is
             // stamped here — history only, never worth failing the start.
-            if (sessionId && !row.parentSessionId) {
+            if (sessionId) {
               try {
-                await db
-                  .update(codingSessions)
-                  .set({ parentSessionId: sessionId })
-                  .where(eq(codingSessions.id, row.id))
-                row.parentSessionId = sessionId
+                await stampChildOfRun(row, sessionId)
               } catch {
                 // ignored
               }

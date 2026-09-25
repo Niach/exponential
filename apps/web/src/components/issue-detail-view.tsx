@@ -569,7 +569,7 @@ export function IssueDetailView({
       handlers={handlers}
       dot={mobileWork?.dot ?? null}
       graphBadge={
-        /* EXP-897: the same pill the md+ header wears, opening the same
+        /* EXP-897: the same stacked chip the md+ header wears, opening the same
            overlay as a sheet. */
         <PrGraphBadge
           teamId={issue.teamId}
@@ -743,14 +743,13 @@ export function IssueDetailView({
         title={titleField}
         trailing={
           <>
-            {/* EXP-897: what this issue is part of — its stack, its batch.
-                EXP-1079: beside the toggle it wears the toggle's rung. */}
+            {/* EXP-897: what this issue is part of — its stack, its batch
+                (EXP-1058: the stacked issue chip). */}
             <PrGraphBadge
               teamId={issue.teamId}
               teamSlug={teamSlug}
               face="issue"
               issue={issue}
-              placement="header"
             />
             {faceToggle}
             {/* EXP-949: no GitHub here — the way out to the PR belongs to the

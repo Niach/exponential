@@ -7,6 +7,8 @@
 // `StartPullRequestOption.build` on iOS) down to the lowest-id representative
 // and the label format.
 
+import { workflowFinalPrIdentifier } from "@/lib/workflow-final-pr-identity"
+
 export interface PrOptionIssue {
   id: string
   boardId: string
@@ -16,8 +18,19 @@ export interface PrOptionIssue {
   prState: string | null
 }
 
+/** EXP-1072: a workflow whose ONE final pull request is open — it is the
+ *  workflow's own PR, so the `pr` input offers it like any linked PR. */
+export interface PrOptionWorkflow {
+  id: string
+  teamId: string
+  name: string
+  finalPrNumber: number | null
+  finalPrState: string | null
+}
+
 export interface PrOption {
-  /** The representative issue's id — the value the `pr` input submits. */
+  /** The representative issue's id — the value the `pr` input submits.
+   *  EXP-1072: a WORKFLOW's id for its final pull request. */
   issueId: string
   prNumber: number | null
   /** Every issue identifier linked to this pull request, sorted. */
@@ -37,9 +50,22 @@ export interface PrOption {
  */
 export function buildPrOptions(
   issues: PrOptionIssue[],
-  teamBoardIds: Set<string>
+  teamBoardIds: Set<string>,
+  workflows: PrOptionWorkflow[] = []
 ): PrOption[] {
   const byPrUrl = new Map<string, PrOption>()
+  // EXP-1072: the team's workflows with an OPEN final pull request, one
+  // option each, labelled like the PR's title (`#829 · Workflow: EXP-996 +5`).
+  for (const workflow of workflows) {
+    if (workflow.finalPrState !== `open`) continue
+    byPrUrl.set(`workflow:${workflow.id}`, {
+      issueId: workflow.id,
+      prNumber: workflow.finalPrNumber,
+      identifiers: [workflowFinalPrIdentifier(workflow.name)],
+      linkedIssueIds: [workflow.id],
+      label: ``,
+    })
+  }
   for (const issue of [...issues].sort((left, right) =>
     left.id.localeCompare(right.id)
   )) {

@@ -397,6 +397,22 @@ interface WorkflowNodeDao {
     suspend fun clear()
 }
 
+// EXP-1082: a workflow's event log, newest first.
+@Dao
+interface WorkflowEventDao {
+    @Query("SELECT * FROM workflow_events WHERE workflow_id = :workflowId ORDER BY at DESC, id DESC")
+    fun observeByWorkflow(workflowId: String): Flow<List<WorkflowEventEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: WorkflowEventEntity)
+
+    @Query("DELETE FROM workflow_events WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM workflow_events")
+    suspend fun clear()
+}
+
 // EXP-778: the caller's personal pins. The per-account DB only ever holds
 // the signed-in user's rows (the shape is `user_id = me`), so no user filter.
 // Sync-only since EXP-976: the phone has no sidebar, so nothing reads pins

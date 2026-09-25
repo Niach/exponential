@@ -4,7 +4,8 @@
 //! ONE pure rule, mirrored ×4 (web `apps/web/src/lib/issue-graph.ts`, iOS
 //! `IssueGraph.swift`, Android `IssueGraph.kt`) and locked by the contract
 //! fixture `packages/domain-contract/fixtures/issue-graph.json` — same cases,
-//! same test names.
+//! same test names. EXP-1057: [`geometry`] = the ONE pixel look, locked by
+//! `fixtures/issue-graph-geometry.json`.
 //!
 //! A canonical `blocks` row is `issue_id` BLOCKS `related_issue_id` (EXP-736).
 //! An edge counts only while BOTH ends are synced and OPEN (anchor status not
@@ -345,6 +346,84 @@ pub fn block_graph<'a>(
     IssueGraph { nodes, edges, has_cycle, truncated }
 }
 
+/// EXP-1057 — THE mini-graph look, identical ×4 (web `ISSUE_GRAPH_GEOMETRY`,
+/// iOS `IssueGraph.Geometry`, Android `IssueGraph.Geometry`), locked by
+/// `packages/domain-contract/fixtures/issue-graph-geometry.json`. Points
+/// (desktop px = web px). A node box sits at `inset + wave * (node + gap)`;
+/// the grid is the boxes plus `inset` on every side, so rings never clip.
+pub mod geometry {
+    pub const NODE_WIDTH: f32 = 176.;
+    pub const NODE_HEIGHT: f32 = 28.;
+    pub const WAVE_GAP: f32 = 40.;
+    pub const LANE_GAP: f32 = 8.;
+    pub const INSET: f32 = 4.;
+    pub const MAX_VIEW_WIDTH: f32 = 520.;
+    pub const MAX_VIEW_HEIGHT: f32 = 320.;
+    pub const EDGE_STROKE: f32 = 1.25;
+    pub const RING_WIDTH: f32 = 1.;
+    pub const NODE_RADIUS: f32 = 6.;
+    pub const RAIL_GUTTER: f32 = 8.;
+    pub const RAIL_NODE_WIDTH: f32 = 24.;
+    pub const RAIL_DOT: f32 = 10.;
+    pub const RAIL_DOT_RING: f32 = 2.;
+
+    /// The grid's natural size (insets included) and the viewport it shows
+    /// before scrolling.
+    #[derive(Debug, Clone, Copy, Default, PartialEq)]
+    pub struct GraphSize {
+        pub width: f32,
+        pub height: f32,
+        pub view_width: f32,
+        pub view_height: f32,
+    }
+
+    /// One edge as a cubic: `(start, control1, control2, end)`, each `(x, y)`.
+    pub type GraphEdgeCurve = ((f32, f32), (f32, f32), (f32, f32), (f32, f32));
+
+    /// A node box's top-left inside the grid.
+    pub fn origin(wave: usize, lane: usize) -> (f32, f32) {
+        (
+            INSET + wave as f32 * (NODE_WIDTH + WAVE_GAP),
+            INSET + lane as f32 * (NODE_HEIGHT + LANE_GAP),
+        )
+    }
+
+    /// The grid for `waves` × `lanes`; nothing at all without a node.
+    pub fn size(waves: usize, lanes: usize) -> GraphSize {
+        if waves == 0 || lanes == 0 {
+            return GraphSize::default();
+        }
+        let width = 2. * INSET + waves as f32 * (NODE_WIDTH + WAVE_GAP) - WAVE_GAP;
+        let height = 2. * INSET + lanes as f32 * (NODE_HEIGHT + LANE_GAP) - LANE_GAP;
+        GraphSize {
+            width,
+            height,
+            view_width: width.min(MAX_VIEW_WIDTH),
+            view_height: height.min(MAX_VIEW_HEIGHT),
+        }
+    }
+
+    /// How far a curve's control points sit from its ends: forward, the
+    /// gap's middle; backward (a cycle), `max(gap / 2, |dx| / 2)`.
+    pub fn bend(start_x: f32, end_x: f32, gap: f32) -> f32 {
+        if end_x > start_x {
+            (end_x - start_x) / 2.
+        } else {
+            (gap / 2.).max((end_x - start_x).abs() / 2.)
+        }
+    }
+
+    /// The blocker's right-middle → the blocked box's left-middle.
+    pub fn edge(from: (usize, usize), to: (usize, usize)) -> GraphEdgeCurve {
+        let (ax, ay) = origin(from.0, from.1);
+        let (bx, by) = origin(to.0, to.1);
+        let start = (ax + NODE_WIDTH, ay + NODE_HEIGHT / 2.);
+        let end = (bx, by + NODE_HEIGHT / 2.);
+        let bend = bend(start.0, end.0, WAVE_GAP);
+        (start, (start.0 + bend, start.1), (end.0 - bend, end.1), end)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +595,131 @@ mod tests {
                 assert_eq!(graph.has_cycle, expected.has_cycle, "case: {}", case.name);
                 assert_eq!(graph.truncated, expected.truncated, "case: {}", case.name);
             }
+        }
+    }
+
+    const GEOMETRY_FIXTURE: &str = include_str!(
+        "../../../../../packages/domain-contract/fixtures/issue-graph-geometry.json"
+    );
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GeometryPoint {
+        x: f32,
+        y: f32,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GeometryCell {
+        wave: usize,
+        lane: usize,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GeometrySize {
+        name: String,
+        waves: usize,
+        lanes: usize,
+        width: f32,
+        height: f32,
+        view_width: f32,
+        view_height: f32,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GeometryOrigin {
+        wave: usize,
+        lane: usize,
+        x: f32,
+        y: f32,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GeometryEdge {
+        name: String,
+        from: GeometryCell,
+        to: GeometryCell,
+        start: GeometryPoint,
+        control1: GeometryPoint,
+        control2: GeometryPoint,
+        end: GeometryPoint,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GeometryFixture {
+        constants: HashMap<String, f32>,
+        sizes: Vec<GeometrySize>,
+        origins: Vec<GeometryOrigin>,
+        edges: Vec<GeometryEdge>,
+    }
+
+    /// EXP-1057 — the geometry fixture: constants, sizes, origins and edges,
+    /// each case under its fixture name.
+    #[test]
+    fn issue_graph_geometry_contract_fixture() {
+        use geometry::*;
+        let fixture: GeometryFixture =
+            serde_json::from_str(GEOMETRY_FIXTURE).expect("the geometry fixture parses");
+        let constants = [
+            ("nodeWidth", NODE_WIDTH),
+            ("nodeHeight", NODE_HEIGHT),
+            ("waveGap", WAVE_GAP),
+            ("laneGap", LANE_GAP),
+            ("inset", INSET),
+            ("maxViewWidth", MAX_VIEW_WIDTH),
+            ("maxViewHeight", MAX_VIEW_HEIGHT),
+            ("edgeStroke", EDGE_STROKE),
+            ("ringWidth", RING_WIDTH),
+            ("nodeRadius", NODE_RADIUS),
+            ("railGutter", RAIL_GUTTER),
+            ("railNodeWidth", RAIL_NODE_WIDTH),
+            ("railDot", RAIL_DOT),
+            ("railDotRing", RAIL_DOT_RING),
+        ];
+        assert_eq!(fixture.constants.len(), constants.len(), "every constant mirrored");
+        for (name, value) in constants {
+            assert_eq!(fixture.constants.get(name), Some(&value), "constant: {name}");
+        }
+        for case in &fixture.sizes {
+            assert_eq!(
+                size(case.waves, case.lanes),
+                GraphSize {
+                    width: case.width,
+                    height: case.height,
+                    view_width: case.view_width,
+                    view_height: case.view_height,
+                },
+                "size: {}",
+                case.name
+            );
+        }
+        for case in &fixture.origins {
+            assert_eq!(
+                origin(case.wave, case.lane),
+                (case.x, case.y),
+                "origin: {} {}",
+                case.wave,
+                case.lane
+            );
+        }
+        for case in &fixture.edges {
+            let point = |p: &GeometryPoint| (p.x, p.y);
+            assert_eq!(
+                edge((case.from.wave, case.from.lane), (case.to.wave, case.to.lane)),
+                (
+                    point(&case.start),
+                    point(&case.control1),
+                    point(&case.control2),
+                    point(&case.end)
+                ),
+                "edge: {}",
+                case.name
+            );
         }
     }
 

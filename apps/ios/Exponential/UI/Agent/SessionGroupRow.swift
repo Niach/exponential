@@ -5,9 +5,10 @@ import SwiftUI
 /// EXP-996: the GROUP row of a session tree — a workflow's runs, or a stack's
 /// (web `SessionGroupRow`, desktop `session_tree`, Android `SessionGroupRow`).
 ///
-/// A group row is NOT a run: no state dot, no device, no kill. It only names
-/// what the rows below it belong to, says how many they are, and folds them
-/// away — a group IS its children, so their count is exactly what the reader is
+/// A group row is NOT a run: no device, no kill. It only names what the rows
+/// below it belong to, says how many they are, and folds them away. EXP-1068:
+/// a WORKFLOW group also wears its `wfStatus` dot beside the name and trails
+/// `workflowGroupCaption` (`3 running · 5 of 8 done`) instead of a count — a group IS its children, so their count is exactly what the reader is
 /// deciding to hide. Its glyph is the whole difference between a workflow and a
 /// stack (EXP-996: the two are deliberately not unified).
 ///
@@ -27,6 +28,12 @@ struct SessionGroupRow: View {
     let key: String
     var expanded: Bool = true
     var onToggle: (() -> Void)?
+    /// EXP-1068: a workflow group's contract `wfStatus` — the dot. Nil on a
+    /// stack, which has no status.
+    var status: String?
+    /// EXP-1068: the trailing text in place of the bare count
+    /// (`SessionTree.workflowGroupCaption`). Nil = the count.
+    var caption: String?
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
@@ -75,17 +82,35 @@ struct SessionGroupRow: View {
         HStack(spacing: 10) {
             AppIcon(glyph, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            if let status {
+                Circle()
+                    .fill(workflowStatusColor(status))
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+            }
             Text(title)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
-            Text("\(count)")
+            Text(caption ?? "\(count)")
                 .font(.caption.monospacedDigit())
+                .lineLimit(1)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
         .frame(minHeight: GlassTokens.controlSize)
         .contentShape(Rectangle())
+    }
+}
+
+/// EXP-1068: a workflow group's dot, in the run rows' state-dot colours —
+/// draft/cancelled quiet, running the live colour, paused amber, done green.
+func workflowStatusColor(_ status: String) -> Color {
+    switch status {
+    case DomainContract.wfStatusRunning: sessionStateColor(.running)
+    case DomainContract.wfStatusPaused: sessionStateColor(.needsInput)
+    case DomainContract.wfStatusDone: DesignTokens.Semantic.green
+    default: .white.opacity(TextOpacity.tertiary)
     }
 }

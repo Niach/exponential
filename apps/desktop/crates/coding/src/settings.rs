@@ -187,6 +187,11 @@ pub struct Settings {
     /// Claude native plan-mode default — ON by default (Claude presents a
     /// plan for approval in the terminal before editing).
     pub claude_plan_mode: bool,
+    /// EXP-1082 (EXP-1005): let the workflow engine move an unattended run
+    /// to another signed-in profile when its usage window is spent — ON by
+    /// default, a missing key reads TRUE (the manual [`Default`], locked by a
+    /// test). Claude-only: it rides `launch_defaults.agents.claude`.
+    pub auto_rotate_accounts: bool,
     /// EXP-288: program name or absolute path of the shell new terminal tabs
     /// spawn (launched as a login shell on unix). Not a launcher knob — it
     /// lives here because this file is the app's ONE merge-preserving
@@ -263,6 +268,7 @@ impl Default for Settings {
             codex_effort: String::new(),
             claude_ultracode: false,
             claude_plan_mode: true,
+            auto_rotate_accounts: true,
             terminal_shell: None,
             changelog_seen_id: None,
             tools_setup_seen: false,
@@ -880,6 +886,7 @@ mod tests {
         let settings = Settings::load(&path);
         assert!(!settings.claude_ultracode, "missing key must default FALSE");
         assert!(settings.claude_plan_mode, "missing key must default TRUE");
+        assert!(settings.auto_rotate_accounts, "missing key must default TRUE");
 
         fs::write(
             &path,
@@ -943,6 +950,7 @@ mod tests {
             codex_effort: "high".to_string(),
             claude_ultracode: true,
             claude_plan_mode: false,
+            auto_rotate_accounts: false,
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             tools_setup_seen: true,

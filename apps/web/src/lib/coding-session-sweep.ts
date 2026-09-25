@@ -93,6 +93,7 @@ export async function runCodingSessionSweep(
         endedAt: now,
         endedBy: `stale`,
         needsInput: false,
+        pendingQuestion: null,
         // EXP-848/850: an ended run is never busy and says nothing.
         agentBusy: false,
         agentCaption: null,

@@ -1,22 +1,31 @@
 import { useMemo, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
+import { useLiveQuery } from "@tanstack/react-db"
 import {
   conceptIcon,
   ListRow,
+  LiveDot,
   TREE_BASE,
   TREE_INDENT,
   TreeGuides,
   treeGuides,
+  type LiveDotTone,
   type TreeGuide,
 } from "@exp/ui"
-import type { Board, CodingSession, Issue } from "@/db/schema"
+import type { Board, CodingSession, Device, Issue, WorkflowNode } from "@/db/schema"
+import { deviceCollection } from "@/lib/collections"
 import type { SessionDevice } from "@/lib/session-device"
 import { runHasEnded } from "@/lib/past-runs"
 import { sessionIdentity } from "@/lib/session-identity"
 import {
+  reviewRoundVerdict,
+  reviewRowCaption,
+  sessionRowIsLive,
   sessionTree,
   sessionTreeNodeKey,
   visibleSessionTreeRows,
+  workflowGroupCaption,
+  type SessionNode,
   type SessionTreeContext,
   type SessionTreeFlatRow,
   type SessionTreeNode,
@@ -26,6 +35,7 @@ import { pastRunRowByline } from "@/components/agent-session-row"
 import {
   PastSessionRow,
   RunningSessionRow,
+  type SessionRowDecor,
 } from "@/components/session-list-rows"
 import type {
   SessionListRow,
@@ -49,8 +59,12 @@ import {
 // unified (the EXP-996 decision) — a stack is a linear group with its own
 // icon, and that icon is the whole difference the reader needs.
 //
-// A group row is not a run: no state dot, no device, no kill. It only names
-// what the rows below it belong to and folds them away.
+// A group row is not a run: no device, no kill. It names what the rows below
+// it belong to and folds them away; EXP-1068 gives a WORKFLOW group its
+// synced status dot and the `3 running · 5 of 8 done` caption, and every
+// member row its role: a review nests under its node's author row as
+// `Review r2 · approved`, a node with two live runs wears the warning glyph,
+// an open question the red dot, an off-default account its caption.
 
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
@@ -115,9 +129,11 @@ export function useSessionTreeContext(
         status: workflow.status,
       })),
       workflowNodes: nodes.map((node) => ({
+        id: node.id,
         workflowId: node.workflowId,
         issueId: node.issueId,
         sessionId: node.sessionId,
+        state: node.state,
       })),
       issues,
     }),
@@ -152,6 +168,95 @@ export function useSessionTreeRows<T extends TreeListRow>(
       guide: guides[index]!,
     }))
   }, [rows, context, collapsed])
+}
+
+/** EXP-1068 3d: the duplicate-run warning's words, ×4. */
+export const DUPLICATE_RUN_WARNING = `Two live runs on this node`
+
+/** The device's DEFAULT account for `agent` (EXP-872: `defaultAccount` when
+ *  it is the default agent's, else the agent's active login), or null when
+ *  the device is unknown. */
+function deviceDefaultAccount(device: Device | undefined, agent: string | null): string | null {
+  if (!device || !agent) return null
+  const defaults = device.launchDefaults ?? {}
+  if (defaults.defaultAgent === agent && defaults.defaultAccount) {
+    return defaults.defaultAccount
+  }
+  const profiles = device.agentAccounts?.[agent]?.profiles ?? []
+  return profiles.find((profile) => profile.active)?.id ?? `system`
+}
+
+/** EXP-1068: `account <label>` when a workflow run does NOT run on its
+ *  device's default account for its agent (the resumed-on-account-2 case);
+ *  null otherwise or when the device has not synced. */
+export function workflowRunAccountCaption(
+  session: Pick<CodingSession, `agent` | `agentAccount` | `deviceId` | `userId`>,
+  devices: readonly Device[]
+): string | null {
+  const account = session.agentAccount
+  if (!account) return null
+  const matches = devices.filter((device) => device.deviceId === session.deviceId)
+  const device = matches.find((entry) => entry.userId === session.userId) ?? matches[0]
+  const fallback = deviceDefaultAccount(device, session.agent)
+  if (!fallback || fallback === account) return null
+  const profile = session.agent
+    ? device?.agentAccounts?.[session.agent]?.profiles?.find((entry) => entry.id === account)
+    : undefined
+  const label = profile?.label || (account === `system` ? `Default` : account)
+  return `account ${label}`
+}
+
+/** EXP-1068: what a session node adds to its row beyond the identity — pure,
+ *  given the team's `workflow_nodes` (for a review's verdict) and the devices
+ *  (for the account caption). */
+export function sessionNodeDecor(
+  node: SessionNode<CodingSession>,
+  nodesById: ReadonlyMap<string, WorkflowNode>,
+  devices: readonly Device[]
+): SessionRowDecor | undefined {
+  const { session } = node
+  if (!session.workflowId) return undefined
+  const live = sessionRowIsLive(session)
+  const decor: SessionRowDecor = {
+    needsYou: live && session.pendingQuestion != null,
+    warning: node.duplicateLive ? DUPLICATE_RUN_WARNING : null,
+    caption: workflowRunAccountCaption(session, devices),
+  }
+  if (session.workflowRole === `review`) {
+    const workflowNode = session.workflowNodeId
+      ? nodesById.get(session.workflowNodeId)
+      : undefined
+    decor.title = reviewRowCaption(
+      node.reviewRound,
+      reviewRoundVerdict(node.reviewRound, workflowNode ?? null),
+      live
+    )
+  }
+  return decor
+}
+
+/** EXP-1068: the decoration resolver every drawn list shares. */
+export function useSessionRowDecor(
+  teamId: string | undefined
+): (node: SessionNode<CodingSession>) => SessionRowDecor | undefined {
+  const nodes = useTeamWorkflowNodes(teamId)
+  const { data: deviceRows } = useLiveQuery(
+    (query) => (teamId ? query.from({ d: deviceCollection }) : undefined),
+    [teamId]
+  )
+  return useMemo(() => {
+    const nodesById = new Map(nodes.map((node) => [node.id, node]))
+    const devices = (deviceRows ?? []) as Device[]
+    return (node) => sessionNodeDecor(node, nodesById, devices)
+  }, [nodes, deviceRows])
+}
+
+/** EXP-1068: the group row's status glyph — `wfStatus` as a `LiveDot` tone. */
+export function workflowStatusTone(status: string): LiveDotTone {
+  if (status === `running`) return `live`
+  if (status === `paused`) return `attention`
+  if (status === `done`) return `done`
+  return `idle`
 }
 
 /** EXP-996: the collapse set every session list holds — expanded by default,
@@ -257,6 +362,14 @@ export function SessionGroupRow({
         onToggle={onToggle}
       />
       <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+      {workflow && (
+        // EXP-1068: the workflow's status, the run rows' own dot vocabulary.
+        <LiveDot
+          tone={workflowStatusTone(workflow.status)}
+          label={workflow.status}
+          className="size-1.5 shrink-0"
+        />
+      )}
       {workflow && teamSlug ? (
         <Link
           to="/t/$teamSlug/workflows/$workflowId"
@@ -269,8 +382,10 @@ export function SessionGroupRow({
       ) : (
         <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
       )}
+      {/* EXP-1068: a workflow group says how it stands (`3 running · 5 of 8
+          done`); a stack has no synced row to count, so it keeps its size. */}
       <span className="shrink-0 font-mono text-xs text-muted-foreground">
-        {node.children.length}
+        {workflow ? workflowGroupCaption(workflow) : node.children.length}
       </span>
     </ListRow>
   )
@@ -326,6 +441,7 @@ export function SessionTree({
   const { teamId, teamSlug } = useListTeam(teamIdProp, teamSlugProp)
   const context = useSessionTreeContext(teamId, rows)
   const tree = useSessionTreeRows(rows, context, collapsed)
+  const decorOf = useSessionRowDecor(teamId)
 
   if (tree.length === 0) {
     return emptyNote ? (
@@ -355,11 +471,15 @@ export function SessionTree({
         if (!row) return null
         const session = node.session
         const active = session.id === activeSessionId
+        // EXP-1068: a review's title, the duplicate warning, the needs-you
+        // dot and the account caption of a workflow member.
+        const decor = decorOf(node)
         return runHasEnded(session) ? (
           <PastSessionRow
             key={key}
             sessionId={session.id}
-            title={titleOf?.(row) ?? row.title ?? sessionIdentity(row).subject}
+            title={decor?.title ?? titleOf?.(row) ?? row.title ?? sessionIdentity(row).subject}
+            decor={decor}
             identifier={row.identifier ?? sessionIdentity(row).identifier}
             byline={pastRunRowByline(row)}
             depth={depth}
@@ -374,6 +494,7 @@ export function SessionTree({
           <RunningSessionRow
             key={key}
             row={{ ...row, paused: row.paused ?? false } as SessionListRow}
+            decor={decor}
             depth={depth}
             guide={guide}
             active={active}

@@ -86,12 +86,14 @@ struct AgentSessionsList: View {
             if let row = rows[node.session.id] {
                 sessionRow(
                     row,
+                    node: node,
                     expandable: entry.hasChildren,
                     expanded: expanded,
                     onToggle: onToggle
                 )
             }
         case let .workflow(group):
+            // EXP-1068: the workflow's status dot + `3 running · 5 of 8 done`.
             SessionGroupRow(
                 glyph: AppIcons.navWorkflows,
                 title: group.name,
@@ -99,7 +101,13 @@ struct AgentSessionsList: View {
                 open: .route(.workflow(accountId: accountId, id: group.workflowId)),
                 key: entry.key,
                 expanded: expanded,
-                onToggle: onToggle
+                onToggle: onToggle,
+                status: group.status,
+                caption: SessionTree.workflowGroupCaption(
+                    liveRuns: group.liveRuns,
+                    nodesDone: group.nodesDone,
+                    nodesTotal: group.nodesTotal
+                )
             )
         case let .stack(group):
             // A stack is not a place you can go — its members are its only
@@ -142,6 +150,7 @@ struct AgentSessionsList: View {
     @ViewBuilder
     private func sessionRow(
         _ row: AgentsViewModel.Row,
+        node: SessionTree.SessionNode? = nil,
         expandable: Bool = false,
         expanded: Bool = true,
         onToggle: (() -> Void)? = nil
@@ -158,7 +167,7 @@ struct AgentSessionsList: View {
             identifier: sessionRowIdentifier(
                 issue: row.issue, session: row.session, batchIssues: row.batchIssues
             ),
-            title: sessionRowTitle(
+            title: reviewTitle(node) ?? sessionRowTitle(
                 issue: row.issue, session: row.session, batchIssues: row.batchIssues
             ),
             state: state,
@@ -166,9 +175,29 @@ struct AgentSessionsList: View {
             open: sessionRowOpen(row),
             expandable: expandable,
             expanded: expanded,
-            onToggle: onToggle
+            onToggle: onToggle,
+            marks: RunningSessionRowMarks(
+                needsYou: !(row.session.pendingQuestion ?? "").isEmpty,
+                duplicateLive: node?.duplicateLive == true,
+                account: nonDefaultAccount(row.session)
+            )
         )
         .accessibilityIdentifier("agent-session-row")
+    }
+
+    // MARK: - Workflow marks (EXP-1068)
+
+    /// The shared rule (`RunningSessionRowMarks.reviewTitle`), fed this
+    /// list's synced node row.
+    private func reviewTitle(_ node: SessionTree.SessionNode?) -> String? {
+        let nodeRow = vm.sessionTreeContext.workflowNode(id: node?.session.workflowNodeId)
+        return RunningSessionRowMarks.reviewTitle(
+            node, nodeReviewRound: nodeRow?.reviewRound, review: nodeRow?.review
+        )
+    }
+
+    private func nonDefaultAccount(_ session: CodingSessionEntity) -> String? {
+        RunningSessionRowMarks.nonDefaultAccount(session, devices: vm.devices)
     }
 
     /// Every listed row is the caller's own (EXP-312: live sessions are

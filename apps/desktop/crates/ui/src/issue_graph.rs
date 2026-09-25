@@ -16,6 +16,11 @@
 //! workflow detail feeds it the server-laid-out `workflow_nodes` (whose
 //! `wave`/`lane` come off the wire rather than from `block_graph`), so both
 //! surfaces draw the same picture with the same edges and the same red.
+//!
+//! EXP-1057: the boxes' pixels are [`domain::issue_graph::geometry`] — the ONE
+//! look locked ×4 by `fixtures/issue-graph-geometry.json` (176×28 boxes, 40/8
+//! gaps, a 4px inset all round so rings never clip, 1.25px edges, and a
+//! backward cycle edge that bows by `max(gap / 2, |dx| / 2)`).
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -27,28 +32,17 @@ use gpui::{
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use domain::issue_graph::{
-    block_graph, open_blockers_of_set, BlockCounts, GraphIssue, GraphRelation,
+    block_graph, geometry, open_blockers_of_set, BlockCounts, GraphIssue, GraphRelation,
     IssueGraph, ISSUE_GRAPH_CYCLE_NOTE, ISSUE_GRAPH_TRUNCATED_NOTE,
 };
 use domain::workflow_view::WorkflowEdgeStyle;
 
 use crate::issue_chip::issue_chip;
 
-/// One node's box. Wide enough for an identifier and a clipped title.
-const NODE_W: f32 = 176.;
-/// The issue graph's one-line box.
-const NODE_H: f32 = 24.;
-/// The space an edge crosses between two waves.
-const COL_GAP: f32 = 44.;
-/// The space between two lanes of the same wave.
-const LANE_GAP: f32 = 8.;
 /// The graph's default viewport width — past it the grid scrolls rather than
 /// growing the popover off the screen. Hosts with a narrower box (the work
 /// header's overlay, the dialog) pass their own.
-pub(crate) const VIEW_W: f32 = 520.;
-const VIEW_H: f32 = 320.;
-/// The edge stroke.
-const LINE: f32 = 1.;
+pub(crate) const VIEW_W: f32 = geometry::MAX_VIEW_WIDTH;
 
 /// What a node tap does — open that issue, in whatever way the host surface
 /// navigates (a popover navigates in place, a dialog closes first).
@@ -58,7 +52,8 @@ pub(crate) type OnPickIssue = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 /// viewport it scrolls inside, and where an edge LEAVES and ENTERS a cell
 /// (offsets from the cell's top-left). Boxes anchor on their side middles;
 /// the workflow graph's circles anchor on the circle, not on the label
-/// underneath it.
+/// underneath it. `inset` pads the grid on every side (EXP-1057: room for
+/// the rings); `stroke` is the edge width.
 #[derive(Clone, Copy)]
 pub(crate) struct GridGeometry {
     pub(crate) node_w: f32,
@@ -69,29 +64,35 @@ pub(crate) struct GridGeometry {
     pub(crate) view_h: f32,
     pub(crate) edge_out: (f32, f32),
     pub(crate) edge_in: (f32, f32),
+    pub(crate) inset: f32,
+    pub(crate) stroke: f32,
 }
 
 impl GridGeometry {
-    /// The blocks mini-graph: one-line boxes, edges side to side.
+    /// The blocks mini-graph: one-line boxes, edges side to side — the
+    /// contract geometry, the viewport capped at `view_w`.
     pub(crate) fn boxes(view_w: f32) -> Self {
+        use geometry::*;
         Self {
-            node_w: NODE_W,
-            node_h: NODE_H,
-            col_gap: COL_GAP,
+            node_w: NODE_WIDTH,
+            node_h: NODE_HEIGHT,
+            col_gap: WAVE_GAP,
             lane_gap: LANE_GAP,
-            view_w,
-            view_h: VIEW_H,
-            edge_out: (NODE_W, NODE_H / 2.),
-            edge_in: (0., NODE_H / 2.),
+            view_w: view_w.min(MAX_VIEW_WIDTH),
+            view_h: MAX_VIEW_HEIGHT,
+            edge_out: (NODE_WIDTH, NODE_HEIGHT / 2.),
+            edge_in: (0., NODE_HEIGHT / 2.),
+            inset: INSET,
+            stroke: EDGE_STROKE,
         }
     }
 
     fn x(&self, wave: usize) -> f32 {
-        wave as f32 * (self.node_w + self.col_gap)
+        self.inset + wave as f32 * (self.node_w + self.col_gap)
     }
 
     fn y(&self, lane: usize) -> f32 {
-        lane as f32 * (self.node_h + self.lane_gap)
+        self.inset + lane as f32 * (self.node_h + self.lane_gap)
     }
 }
 
@@ -215,8 +216,10 @@ pub(crate) fn grid_view(
 
     let waves = nodes.iter().map(|node| node.wave).max().unwrap_or(0);
     let lanes = nodes.iter().map(|node| node.lane).max().unwrap_or(0);
-    let width = geometry.x(waves) + geometry.node_w;
-    let height = geometry.y(lanes) + geometry.node_h;
+    let width = geometry.x(waves) + geometry.node_w + geometry.inset;
+    let height = geometry.y(lanes) + geometry.node_h + geometry.inset;
+    let line = geometry.stroke;
+    let col_gap = geometry.col_gap;
 
     // Where each node sits, so the edges can be painted in one pass.
     let places: HashMap<&str, (usize, usize)> = nodes
@@ -272,17 +275,14 @@ pub(crate) fn grid_view(
                     // its anchor. It leaves and arrives HORIZONTALLY, both
                     // control points on the gap's middle, so a fan of edges
                     // gathers into one bus instead of hooking at one end. A
-                    // backwards (cycle) edge has no gap and curves anchor to
-                    // anchor.
-                    let (c1, c2) = if gap_end > gap_start {
-                        (gap_start, gap_end)
-                    } else {
-                        (x1, x2)
-                    };
+                    // backwards (cycle) edge has no gap: it curves anchor to
+                    // anchor, bowing out by the contract's bend (EXP-1057).
+                    let forward = gap_end > gap_start;
+                    let (c1, c2) = if forward { (gap_start, gap_end) } else { (x1, x2) };
                     let (curve_from, curve_to) = (at(c1, y1), at(c2, y2));
-                    let middle = (c1 + c2) / 2.;
-                    let controls = (at(middle, y1), at(middle, y2));
-                    let curved = (y1 - y2).abs() >= 0.5;
+                    let bend = domain::issue_graph::geometry::bend(c1, c2, col_gap);
+                    let controls = (at(c1 + bend, y1), at(c2 - bend, y2));
+                    let curved = !forward || (y1 - y2).abs() >= 0.5;
                     if style == WorkflowEdgeStyle::Speculative {
                         // gpui's PathBuilder dashes per path, so the dashes
                         // are painted as short segments along the same route.
@@ -293,7 +293,7 @@ pub(crate) fn grid_view(
                         ];
                         for (from, to, controls) in route {
                             for (from, to) in dashes(from, to, controls) {
-                                let mut path = gpui::PathBuilder::stroke(px(LINE));
+                                let mut path = gpui::PathBuilder::stroke(px(line));
                                 path.move_to(from);
                                 path.line_to(to);
                                 if let Ok(path) = path.build() {
@@ -303,7 +303,7 @@ pub(crate) fn grid_view(
                         }
                         continue;
                     }
-                    let mut path = gpui::PathBuilder::stroke(px(LINE));
+                    let mut path = gpui::PathBuilder::stroke(px(line));
                     path.move_to(start);
                     if curved {
                         path.line_to(curve_from);
@@ -560,7 +560,7 @@ fn node_chip(
         .h_full()
         .flex()
         .items_center()
-        .rounded(px(6.))
+        .rounded(px(geometry::NODE_RADIUS))
         .border_1()
         .border_color(outline.unwrap_or_else(gpui::transparent_black))
         .child(chip)

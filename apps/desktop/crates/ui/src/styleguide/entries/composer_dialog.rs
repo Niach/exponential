@@ -19,13 +19,13 @@
 //! keeps the IDE's entry ids and owners from drifting from the page that
 //! draws them.
 
-use gpui::{div, px, Div, FontWeight, ParentElement as _, Styled as _};
+use gpui::{div, px, App, Div, FontWeight, ParentElement as _, Styled as _, Window};
 use theme::tokens as t;
 
 pub(crate) const ID: &str = "composer-dialog";
 pub(crate) const OWNER: &str = "EXP-1019";
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     div()
         .flex()
         .flex_col()

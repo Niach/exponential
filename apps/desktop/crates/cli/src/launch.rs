@@ -210,6 +210,40 @@ pub fn default_team_id(trpc: &api::trpc::TrpcClient) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow!("You are not a member of any team yet."))
 }
 
+/// The resolved `pr` input of a fix-conflicts run (desktop
+/// `action_run::FixConflictsTarget` twin).
+struct FixTarget {
+    identifier: String,
+    branch: String,
+    /// The representative issue's UUID — or, for a workflow's final PR, the
+    /// WORKFLOW's (`issues.prepareConflictFix` accepts both).
+    issue_id: String,
+    board_id: Option<String>,
+    /// EXP-1072: `Some` = the target is a WORKFLOW's final PR, carrying the
+    /// workflow's `repository_id` (itself `None` when the repo was unlinked).
+    workflow_repository_id: Option<Option<String>>,
+}
+
+/// EXP-1072: the fix-conflicts target of a WORKFLOW's ONE final PR — the
+/// integration branch, the workflow's own repository, no board.
+fn workflow_fix_target(workflow: api::workflows::Workflow) -> anyhow::Result<FixTarget> {
+    if workflow.final_pr_state.as_deref() != Some("open") {
+        bail!("That pull request is no longer open.");
+    }
+    let branch = workflow
+        .integration_branch
+        .clone()
+        .filter(|branch| !branch.is_empty())
+        .ok_or_else(|| anyhow!("That pull request has no recorded branch."))?;
+    Ok(FixTarget {
+        identifier: domain::workflow_final_pr::identifier(&workflow.name),
+        branch,
+        issue_id: workflow.id,
+        board_id: None,
+        workflow_repository_id: Some(workflow.repository_id),
+    })
+}
+
 /// How an action run's repo group arrives (ui `ActionRepo` twin).
 pub enum ActionRepo {
     /// Remote start: the frame's server-resolved group (`None` = repo-less).
@@ -262,23 +296,36 @@ pub fn resolve_action_request(
             .map(|input| input.value.trim().to_string())
             .filter(|value| !value.is_empty())
             .ok_or_else(|| anyhow!("Pick a pull request to fix (--input pr=<issue>)."))?;
-        let fetched = api::issues::issues_get(&ctx.trpc, &value)
-            .context("resolve the pull request's issue")?;
-        let issue = fetched.issue;
-        if issue.pr_state.as_deref() != Some("open") {
-            bail!("That pull request is no longer open.");
+        match api::issues::issues_get(&ctx.trpc, &value) {
+            Ok(fetched) => {
+                let issue = fetched.issue;
+                if issue.pr_state.as_deref() != Some("open") {
+                    bail!("That pull request is no longer open.");
+                }
+                let branch = issue
+                    .branch
+                    .clone()
+                    .filter(|branch| !branch.is_empty())
+                    .ok_or_else(|| anyhow!("That pull request has no recorded branch."))?;
+                Some(FixTarget {
+                    identifier: issue.identifier.clone(),
+                    branch,
+                    issue_id: issue.id.clone(),
+                    board_id: issue.board_id.clone(),
+                    workflow_repository_id: None,
+                })
+            }
+            // EXP-1072: no issue has that id — it may name a WORKFLOW, whose
+            // ONE final PR the builtin fixes (desktop `action_run.rs` parity).
+            Err(api::ApiError::Http { status: 404, .. }) => {
+                let workflow = api::workflows::get(&ctx.trpc, &value)
+                    .context("resolve the pull request's issue or workflow")?;
+                Some(workflow_fix_target(workflow)?)
+            }
+            Err(err) => {
+                return Err(anyhow::Error::from(err).context("resolve the pull request's issue"))
+            }
         }
-        let branch = issue
-            .branch
-            .clone()
-            .filter(|branch| !branch.is_empty())
-            .ok_or_else(|| anyhow!("That pull request has no recorded branch."))?;
-        Some((
-            issue.identifier.clone(),
-            branch,
-            issue.id.clone(),
-            issue.board_id.clone(),
-        ))
     } else {
         None
     };
@@ -336,19 +383,38 @@ pub fn resolve_action_request(
             match repo {
                 ActionRepo::Provided(group) => group,
                 ActionRepo::Resolve => {
-                    let (_, _, issue_id, _) = fix_target
-                        .as_ref()
-                        .expect("fix target resolved above");
-                    let repository = api::repositories::for_issue(&ctx.trpc, issue_id)
-                        .context("resolve the pull request's repository")?
-                        .ok_or_else(|| {
-                            anyhow!("That pull request's board has no linked repository.")
-                        })?;
-                    Some(RepoGroup {
-                        repository_id: repository.repository_id,
-                        full_name: repository.full_name,
-                        default_branch: repository.default_branch,
-                    })
+                    let fix = fix_target.as_ref().expect("fix target resolved above");
+                    // EXP-1072: a workflow's final PR lives in the WORKFLOW's
+                    // repository — no board, so `repositories.forIssue` does
+                    // not apply.
+                    if let Some(repository_id) = fix.workflow_repository_id.as_ref() {
+                        let repository_id = repository_id
+                            .as_deref()
+                            .ok_or_else(|| anyhow!("That workflow has no linked repository."))?;
+                        let rows = fetch_repositories(&ctx.trpc, &action.team_id)
+                            .context("resolve the repository")?;
+                        let row = rows
+                            .into_iter()
+                            .find(|row| row.id == repository_id)
+                            .ok_or_else(|| anyhow!("That repository is no longer connected."))?;
+                        Some(RepoGroup {
+                            repository_id: row.id,
+                            full_name: row.full_name,
+                            default_branch: row.default_branch.unwrap_or_default(),
+                        })
+                    } else {
+                        let issue_id = &fix.issue_id;
+                        let repository = api::repositories::for_issue(&ctx.trpc, issue_id)
+                            .context("resolve the pull request's repository")?
+                            .ok_or_else(|| {
+                                anyhow!("That pull request's board has no linked repository.")
+                            })?;
+                        Some(RepoGroup {
+                            repository_id: repository.repository_id,
+                            full_name: repository.full_name,
+                            default_branch: repository.default_branch,
+                        })
+                    }
                 }
             }
         } else {
@@ -382,7 +448,13 @@ pub fn resolve_action_request(
     };
 
     let kind = match fix_target {
-        Some((identifier, branch, issue_id, board_id)) => {
+        Some(FixTarget {
+            identifier,
+            branch,
+            issue_id,
+            board_id,
+            workflow_repository_id,
+        }) => {
             let default_branch = repo_group
                 .as_ref()
                 .map(|group| group.default_branch.clone())
@@ -401,6 +473,8 @@ pub fn resolve_action_request(
                 board_id,
                 identifier,
                 issue_id,
+                // EXP-1072: the `pr` input named a workflow — its final PR.
+                workflow_final_pr: workflow_repository_id.is_some(),
             }
         }
         // EXP-615/EXP-981: the builtin kinds are id-dispatched (desktop

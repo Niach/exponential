@@ -18,7 +18,6 @@ export const WORKFLOW_COLUMNS = [
   `device_id`,
   `launch`,
   `gate`,
-  `start_on`,
   `integration_branch`,
   `final_pr_url`,
   `final_pr_number`,

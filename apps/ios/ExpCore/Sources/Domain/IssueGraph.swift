@@ -259,6 +259,124 @@ public enum IssueGraph {
         )
     }
 
+    // MARK: - Geometry
+
+    /// EXP-1057: THE mini-graph's geometry, identical ×4 and locked by
+    /// `domain-contract/fixtures/issue-graph-geometry.json` (web
+    /// `lib/issue-graph.ts` `ISSUE_GRAPH_GEOMETRY`, desktop
+    /// `domain::issue_graph::geometry`, Android `IssueGraph.Geometry`). Points:
+    /// web px = desktop px = iOS pt = Android dp. The grid sits `inset` inside
+    /// its scroll box so the rings are never clipped.
+    public enum Geometry {
+        public static let nodeWidth: Double = 176
+        public static let nodeHeight: Double = 28
+        public static let waveGap: Double = 40
+        public static let laneGap: Double = 8
+        public static let inset: Double = 4
+        public static let maxViewWidth: Double = 520
+        public static let maxViewHeight: Double = 320
+        public static let edgeStroke: Double = 1.25
+        public static let ringWidth: Double = 1
+        public static let nodeRadius: Double = 6
+        public static let railGutter: Double = 8
+        public static let railNodeWidth: Double = 24
+        public static let railDot: Double = 10
+        public static let railDotRing: Double = 2
+
+        public struct Point: Equatable, Sendable {
+            public let x: Double
+            public let y: Double
+
+            public init(x: Double, y: Double) {
+                self.x = x
+                self.y = y
+            }
+        }
+
+        /// The grid's natural size (insets included) and the viewport it shows
+        /// before scrolling.
+        public struct Size: Equatable, Sendable {
+            public let width: Double
+            public let height: Double
+            public let viewWidth: Double
+            public let viewHeight: Double
+
+            public init(width: Double, height: Double, viewWidth: Double, viewHeight: Double) {
+                self.width = width
+                self.height = height
+                self.viewWidth = viewWidth
+                self.viewHeight = viewHeight
+            }
+        }
+
+        /// One edge as a cubic: blocker's right-middle → blocked box's left-middle.
+        public struct EdgeCurve: Equatable, Sendable {
+            public let start: Point
+            public let control1: Point
+            public let control2: Point
+            public let end: Point
+
+            public init(start: Point, control1: Point, control2: Point, end: Point) {
+                self.start = start
+                self.control1 = control1
+                self.control2 = control2
+                self.end = end
+            }
+        }
+
+        /// A node box's top-left inside the grid.
+        public static func origin(wave: Int, lane: Int) -> Point {
+            Point(
+                x: inset + Double(wave) * (nodeWidth + waveGap),
+                y: inset + Double(lane) * (nodeHeight + laneGap)
+            )
+        }
+
+        /// The grid for `waves` × `lanes`; nothing at all when either is 0.
+        public static func size(waves: Int, lanes: Int) -> Size {
+            guard waves > 0, lanes > 0 else {
+                return Size(width: 0, height: 0, viewWidth: 0, viewHeight: 0)
+            }
+            let width = 2 * inset + Double(waves) * (nodeWidth + waveGap) - waveGap
+            let height = 2 * inset + Double(lanes) * (nodeHeight + laneGap) - laneGap
+            return Size(
+                width: width,
+                height: height,
+                viewWidth: min(width, maxViewWidth),
+                viewHeight: min(height, maxViewHeight)
+            )
+        }
+
+        /// The grid a graph needs: its highest wave and lane, plus one.
+        public static func size(of graph: Graph) -> Size {
+            size(
+                waves: (graph.nodes.map(\.wave).max() ?? -1) + 1,
+                lanes: (graph.nodes.map(\.lane).max() ?? -1) + 1
+            )
+        }
+
+        /// Forward, the curve bends on the gap's middle; a backward (cycle)
+        /// edge bows by max(waveGap / 2, |dx| / 2).
+        public static func edge(
+            from: (wave: Int, lane: Int),
+            to: (wave: Int, lane: Int)
+        ) -> EdgeCurve {
+            let a = origin(wave: from.wave, lane: from.lane)
+            let b = origin(wave: to.wave, lane: to.lane)
+            let start = Point(x: a.x + nodeWidth, y: a.y + nodeHeight / 2)
+            let end = Point(x: b.x, y: b.y + nodeHeight / 2)
+            let bend = end.x > start.x
+                ? (end.x - start.x) / 2
+                : max(waveGap / 2, abs(end.x - start.x) / 2)
+            return EdgeCurve(
+                start: start,
+                control1: Point(x: start.x + bend, y: start.y),
+                control2: Point(x: end.x - bend, y: end.y),
+                end: end
+            )
+        }
+    }
+
     // MARK: - Pieces
 
     /// The `blocks` edges both of whose ends are synced and open, deduped and

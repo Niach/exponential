@@ -84,6 +84,10 @@ pub struct BatchEntry {
 /// and the header shows no badge.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PrGraph {
+    /// The subject's own pull request (web `entry`): the subject issue's, or
+    /// the one the subject run resolves to. `None` for a run with neither an
+    /// issue nor a pull request of its own.
+    pub entry: Option<PrEntry>,
     /// The whole chain, BOTTOM first. Empty unless the subject's PR really is
     /// stacked (a lone PR is not a stack of one).
     pub stack: Vec<StackEntry>,
@@ -141,6 +145,65 @@ pub fn badge_kind(graph: &PrGraph) -> Option<BadgeKind> {
         (false, true) => Some(BadgeKind::Batch),
         (false, false) => None,
     }
+}
+
+/// Which face of a top tab the badge is drawn on — it decides the overlay's
+/// sections and, on the Run face, whether the session tree alone earns a
+/// badge (web `PrGraphFace`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrGraphFace {
+    Issue,
+    Run,
+    Changes,
+}
+
+/// EXP-1058: what the header's STACKED issue chip draws in place of the old
+/// pill — the front chip's issue and how many ride behind it (`+N`).
+/// `issue` = the subject's pull request's representative row; `None` only on
+/// the Run face of a run with no issue (the tree alone), where the front chip
+/// names the run instead. `count` = every OTHER issue on the stack (all its
+/// entries' issues) or batch, or every other run of the tree for the
+/// runs-only shape. Byte-identical ×4 (web `badgeChip`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BadgeChip {
+    pub issue: Option<Issue>,
+    pub count: usize,
+}
+
+/// The chip rule. `None` = no chip, exactly when the web's `badgeShape` is
+/// null: no PR relation ([`badge_kind`]) and not the Run face of a run with
+/// a family. (Here a lone run has an EMPTY tree and a family's tree carries
+/// the subject, so "the other runs" = `tree.len() - 1` on both sides.)
+pub fn badge_chip(graph: &PrGraph, face: PrGraphFace) -> Option<BadgeChip> {
+    let issue = graph
+        .entry
+        .as_ref()
+        .map(|entry| entry.representative().clone());
+    if badge_kind(graph).is_none() {
+        if face == PrGraphFace::Run && graph.tree.len() > 1 {
+            return Some(BadgeChip {
+                issue,
+                count: graph.tree.len() - 1,
+            });
+        }
+        return None;
+    }
+    if graph.stack.len() >= 2 {
+        let total: usize = graph
+            .stack
+            .iter()
+            .map(|member| member.entry.issues.len())
+            .sum();
+        return Some(BadgeChip {
+            issue,
+            count: total.saturating_sub(1),
+        });
+    }
+    let batch = graph.batch.as_ref().map_or(1, |batch| batch.issues.len());
+    Some(BadgeChip {
+        issue,
+        count: batch.saturating_sub(1),
+    })
 }
 
 fn non_empty(value: Option<&str>) -> Option<&str> {
@@ -293,6 +356,7 @@ pub fn pr_graph(
             .as_ref()
             .and_then(|entry| entry.branch())
             .map(str::to_string),
+        entry: subject_entry,
         stack,
         batch,
         tree,
@@ -487,6 +551,37 @@ mod tests {
         // An issue with no pull request at all is just as quiet.
         let bare = vec![issue("EXP-31", None, None)];
         assert_eq!(badge_kind(&pr_graph(Some(&bare[0]), None, &bare, &[])), None);
+    }
+
+    /// EXP-1058 — mirrors the web's "names the representative issue and the
+    /// count on the stacked chip" (`pr-graph.test.ts`).
+    #[test]
+    fn badge_chip_names_the_representative_issue_and_the_count() {
+        // A batch inside a stack: the subject PR's representative, every
+        // other issue on the stack behind it.
+        let lower = issue("LOWER", Some("exp/LOWER"), Some("master"));
+        let one = batch_issue("ONE", "exp/batch-abcd1234", Some("exp/LOWER"), "u/9");
+        let two = batch_issue("TWO", "exp/batch-abcd1234", Some("exp/LOWER"), "u/9");
+        let issues = vec![lower.clone(), one.clone(), two.clone()];
+        let both = pr_graph(Some(&two), None, &issues, &[]);
+        let chip = badge_chip(&both, PrGraphFace::Issue).unwrap();
+        assert_eq!(chip.issue.as_ref().map(|issue| issue.id.as_str()), Some("id-ONE"));
+        assert_eq!(chip.count, 2);
+        // A plain batch: the others of the batch.
+        let mut loose = two.clone();
+        loose.pr_base_branch = None;
+        let issues = vec![one.clone(), loose];
+        let batch = pr_graph(Some(&one), None, &issues, &[]);
+        assert_eq!(badge_chip(&batch, PrGraphFace::Changes).unwrap().count, 1);
+        // A run family with no issue: no front issue, the other runs behind.
+        let sessions = vec![run("child", Some("root")), run("root", None)];
+        let family = pr_graph(None, Some(&sessions[0]), &[], &sessions);
+        assert_eq!(
+            badge_chip(&family, PrGraphFace::Run),
+            Some(BadgeChip { issue: None, count: 1 })
+        );
+        // No badge = no chip.
+        assert_eq!(badge_chip(&family, PrGraphFace::Issue), None);
     }
 
     #[test]

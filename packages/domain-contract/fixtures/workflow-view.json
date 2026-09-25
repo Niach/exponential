@@ -65,88 +65,6 @@
       "cycleNote": "These issues block each other in a cycle: EXP-2, EXP-3; EXP-7. Remove one relation to start."
     }
   ],
-  "captions": [
-    {
-      "node": {
-        "kind": "contract",
-        "state": "blocked",
-        "risk": "high"
-      },
-      "workflowStatus": "draft",
-      "caption": "",
-      "tone": "muted"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "blocked",
-        "risk": "medium"
-      },
-      "workflowStatus": "draft",
-      "caption": "",
-      "tone": "muted"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "in_review",
-        "risk": "low"
-      },
-      "workflowStatus": "running",
-      "caption": "In review",
-      "tone": "active"
-    },
-    {
-      "node": {
-        "kind": "contract",
-        "state": "running",
-        "risk": "high"
-      },
-      "workflowStatus": "running",
-      "caption": "Running",
-      "tone": "active"
-    },
-    {
-      "node": {
-        "kind": "integration",
-        "state": "waiting",
-        "risk": "medium"
-      },
-      "workflowStatus": "paused",
-      "caption": "Waiting",
-      "tone": "amber"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "landed",
-        "risk": "medium"
-      },
-      "workflowStatus": "done",
-      "caption": "Landed",
-      "tone": "success"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "failed",
-        "risk": "medium"
-      },
-      "workflowStatus": "running",
-      "caption": "Failed",
-      "tone": "danger"
-    },
-    {
-      "node": {
-        "kind": "leaf",
-        "state": "brand-new",
-        "risk": "medium"
-      },
-      "workflowStatus": "running",
-      "caption": "brand-new",
-      "tone": "muted"
-    }
-  ],
   "titles": [
     {
       "identifier": "EXP-14",
@@ -300,8 +218,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": "dev",
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 3,
@@ -315,8 +232,7 @@
       "workflow": {
         "status": "running",
         "deviceId": "dev",
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 3,
@@ -330,8 +246,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": "dev",
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 0,
@@ -345,8 +260,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": null,
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 2,
@@ -365,8 +279,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": "dev",
-        "repositoryId": null,
-        "startOn": "landed"
+        "repositoryId": null
       },
       "metrics": {
         "nodes": 3,
@@ -380,8 +293,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": null,
-        "repositoryId": "repo",
-        "startOn": "landed"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 3,
@@ -395,8 +307,7 @@
       "workflow": {
         "status": "draft",
         "deviceId": "dev",
-        "repositoryId": "repo",
-        "startOn": "contract"
+        "repositoryId": "repo"
       },
       "metrics": {
         "nodes": 3,
@@ -407,116 +318,6 @@
       "blocker": null
     }
   ],
-  "trains": [
-    {
-      "name": "an unreviewed node waits, approved ones queue in landing order",
-      "nodes": [
-        {
-          "id": "l2",
-          "kind": "leaf",
-          "state": "in_review",
-          "wave": 1,
-          "lane": 1,
-          "approvedAt": "2026-09-19T00:00:00Z"
-        },
-        {
-          "id": "c",
-          "kind": "contract",
-          "state": "in_review",
-          "wave": 0,
-          "lane": 0,
-          "approvedAt": null
-        },
-        {
-          "id": "l1",
-          "kind": "leaf",
-          "state": "in_review",
-          "wave": 1,
-          "lane": 0,
-          "approvedAt": "2026-09-19T00:00:00Z"
-        },
-        {
-          "id": "r",
-          "kind": "leaf",
-          "state": "running",
-          "wave": 1,
-          "lane": 2,
-          "approvedAt": null
-        },
-        {
-          "id": "d",
-          "kind": "leaf",
-          "state": "landed",
-          "wave": 1,
-          "lane": 3,
-          "approvedAt": null
-        }
-      ],
-      "expected": [
-        {
-          "id": "c",
-          "step": "needs-approval"
-        },
-        {
-          "id": "l1",
-          "step": "next"
-        },
-        {
-          "id": "l2",
-          "step": "queued"
-        }
-      ]
-    },
-    {
-      "name": "only approved nodes are cleared, an updating node says so",
-      "nodes": [
-        {
-          "id": "a",
-          "kind": "leaf",
-          "state": "in_review",
-          "wave": 0,
-          "lane": 0,
-          "approvedAt": null
-        },
-        {
-          "id": "b",
-          "kind": "leaf",
-          "state": "in_review",
-          "wave": 0,
-          "lane": 1,
-          "approvedAt": "2026-09-19T00:00:00Z"
-        },
-        {
-          "id": "u",
-          "kind": "leaf",
-          "state": "updating",
-          "wave": 0,
-          "lane": 2,
-          "approvedAt": "2026-09-19T00:00:00Z"
-        }
-      ],
-      "expected": [
-        {
-          "id": "a",
-          "step": "needs-approval"
-        },
-        {
-          "id": "b",
-          "step": "next"
-        },
-        {
-          "id": "u",
-          "step": "updating"
-        }
-      ]
-    }
-  ],
-  "trainStepLabels": {
-    "next": "Landing next",
-    "queued": "Queued",
-    "needs-approval": "Needs approval",
-    "updating": "Merging the trunk in"
-  },
   "finalPr": [
     {
       "states": [],
@@ -691,134 +492,1080 @@
       "style": "plain"
     }
   ],
-  "reviewLines": [
+  "displayStates": [
     {
-      "review": {
-        "verdict": "approve",
-        "round": 1,
-        "oracle": {
-          "passed": true
-        }
-      },
-      "approved": true,
-      "line": "Approved · round 1 · checks passed"
+      "state": "proposed",
+      "display": "queued",
+      "caption": "Queued"
     },
     {
-      "review": {
-        "verdict": "approve",
-        "round": 1,
-        "oracle": null
-      },
-      "approved": true,
-      "line": "Approved · round 1"
+      "state": "blocked",
+      "display": "queued",
+      "caption": "Queued"
     },
     {
-      "review": {
-        "verdict": "approve",
-        "round": 1,
-        "oracle": null
-      },
-      "approved": false,
-      "line": "Approved · round 1 · advisory"
+      "state": "ready",
+      "display": "queued",
+      "caption": "Queued"
     },
     {
-      "review": {
-        "verdict": "request_changes",
-        "round": 2,
-        "oracle": {
-          "passed": false
-        }
-      },
-      "approved": false,
-      "line": "Changes requested · round 2 · checks failed"
+      "state": "running",
+      "display": "running",
+      "caption": "Running"
     },
     {
-      "review": {
-        "verdict": "request_changes",
-        "round": 3,
-        "oracle": null
-      },
-      "approved": false,
-      "line": "Changes requested · round 3"
+      "state": "waiting",
+      "display": "running",
+      "caption": "Running"
+    },
+    {
+      "state": "in_review",
+      "display": "running",
+      "caption": "Running"
+    },
+    {
+      "state": "updating",
+      "display": "running",
+      "caption": "Running"
+    },
+    {
+      "state": "landed",
+      "display": "done",
+      "caption": "Done"
+    },
+    {
+      "state": "failed",
+      "display": "failed",
+      "caption": "Failed"
+    },
+    {
+      "state": "skipped",
+      "display": "skipped",
+      "caption": "Skipped"
+    },
+    {
+      "state": "brand-new",
+      "display": "queued",
+      "caption": "Queued"
     }
   ],
-  "metricRows": [
+  "needsYouLabel": "needs you",
+  "nodeStrips": [
     {
-      "metrics": {
-        "nodes": 12,
-        "depth": 3,
-        "width": 8,
-        "cycles": []
-      },
-      "rows": [
+      "name": "waves left to right, lanes top to bottom, a compound node stacked",
+      "nodes": [
         {
-          "label": "Critical path",
-          "value": "3 waves for 12 nodes"
+          "id": "c",
+          "identifier": "EXP-1",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "members": 0,
+          "live": false,
+          "needsYou": false
+        },
+        {
+          "id": "b",
+          "identifier": "EXP-3",
+          "state": "running",
+          "wave": 1,
+          "lane": 1,
+          "members": 0,
+          "live": true,
+          "needsYou": false
+        },
+        {
+          "id": "a",
+          "identifier": "EXP-2",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "members": 2,
+          "live": false,
+          "needsYou": true
+        },
+        {
+          "id": "d",
+          "identifier": "EXP-4",
+          "state": "blocked",
+          "wave": 2,
+          "lane": 0,
+          "members": 0,
+          "live": false,
+          "needsYou": false
+        }
+      ],
+      "strip": [
+        {
+          "wave": 0,
+          "nodes": [
+            {
+              "id": "c",
+              "title": "EXP-1",
+              "display": "done",
+              "caption": "Done",
+              "stacked": false,
+              "members": 0,
+              "live": false,
+              "needsYou": false
+            }
+          ]
+        },
+        {
+          "wave": 1,
+          "nodes": [
+            {
+              "id": "a",
+              "title": "EXP-2 +2",
+              "display": "running",
+              "caption": "Running",
+              "stacked": true,
+              "members": 2,
+              "live": false,
+              "needsYou": true
+            },
+            {
+              "id": "b",
+              "title": "EXP-3",
+              "display": "running",
+              "caption": "Running",
+              "stacked": false,
+              "members": 0,
+              "live": true,
+              "needsYou": false
+            }
+          ]
+        },
+        {
+          "wave": 2,
+          "nodes": [
+            {
+              "id": "d",
+              "title": "EXP-4",
+              "display": "queued",
+              "caption": "Queued",
+              "stacked": false,
+              "members": 0,
+              "live": false,
+              "needsYou": false
+            }
+          ]
         }
       ]
     },
     {
-      "metrics": {
-        "nodes": 12,
-        "depth": 3,
-        "landed": 5,
-        "mergeIns": 9,
-        "contractChanges": 2,
-        "escalations": 4,
-        "duplicateEscalations": 1,
-        "operatorMinutes": 37,
-        "reviewRounds": 6,
-        "defectsByOracle": 2,
-        "defectsByAgentReview": 1
-      },
-      "rows": [
+      "name": "a note replaces the bare caption while the node holds",
+      "nodes": [
         {
-          "label": "Critical path",
-          "value": "3 waves for 12 nodes"
-        },
+          "id": "a",
+          "identifier": "EXP-2",
+          "state": "waiting",
+          "wave": 0,
+          "lane": 0,
+          "members": 0,
+          "live": false,
+          "needsYou": false,
+          "note": "Waiting for EXP-996 to land: its branch conflicts with EXP-1021"
+        }
+      ],
+      "strip": [
         {
-          "label": "Landed",
-          "value": "5"
-        },
-        {
-          "label": "Merge-ins per contract change",
-          "value": "4.5"
-        },
-        {
-          "label": "Escalations",
-          "value": "4 (1 duplicate)"
-        },
-        {
-          "label": "Operator minutes",
-          "value": "37"
-        },
-        {
-          "label": "Review rounds",
-          "value": "6"
-        },
-        {
-          "label": "Defects found",
-          "value": "2 by checks · 1 by agent review"
+          "wave": 0,
+          "nodes": [
+            {
+              "id": "a",
+              "title": "EXP-2",
+              "display": "running",
+              "caption": "Waiting for EXP-996 to land: its branch conflicts with EXP-1021",
+              "stacked": false,
+              "members": 0,
+              "live": false,
+              "needsYou": false
+            }
+          ]
         }
       ]
     },
     {
-      "metrics": {
-        "nodes": 2,
-        "depth": 2,
-        "mergeIns": 3,
-        "landed": "garbage"
-      },
-      "rows": [
+      "name": "a proposed node rides in its wave as queued, a missing wave is skipped",
+      "nodes": [
         {
-          "label": "Critical path",
-          "value": "2 waves for 2 nodes"
+          "id": "p",
+          "identifier": "EXP-9",
+          "state": "proposed",
+          "wave": 3,
+          "lane": 0,
+          "members": 0,
+          "live": false,
+          "needsYou": false
         },
         {
-          "label": "Merge-ins",
-          "value": "3"
+          "id": "r",
+          "identifier": "EXP-8",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "members": 0,
+          "live": false,
+          "needsYou": false
+        }
+      ],
+      "strip": [
+        {
+          "wave": 0,
+          "nodes": [
+            {
+              "id": "r",
+              "title": "EXP-8",
+              "display": "done",
+              "caption": "Done",
+              "stacked": false,
+              "members": 0,
+              "live": false,
+              "needsYou": false
+            }
+          ]
+        },
+        {
+          "wave": 3,
+          "nodes": [
+            {
+              "id": "p",
+              "title": "EXP-9",
+              "display": "queued",
+              "caption": "Filed during the run. Admit it into the workflow or dismiss it.",
+              "stacked": false,
+              "members": 0,
+              "live": false,
+              "needsYou": false
+            }
+          ]
         }
       ]
+    }
+  ],
+  "headerCaptions": [
+    {
+      "name": "a draft counts its issues, members included",
+      "status": "draft",
+      "device": null,
+      "nodes": [
+        {
+          "state": "blocked",
+          "members": 2
+        },
+        {
+          "state": "blocked",
+          "members": 0
+        },
+        {
+          "state": "blocked",
+          "members": 3
+        }
+      ],
+      "caption": "Draft · 8 issues"
+    },
+    {
+      "name": "a running workflow names its runner and its progress",
+      "status": "running",
+      "device": "MacBook",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "running",
+          "members": 0
+        },
+        {
+          "state": "in_review",
+          "members": 0
+        },
+        {
+          "state": "blocked",
+          "members": 0
+        }
+      ],
+      "caption": "on MacBook · 5 of 8 done · 2 running"
+    },
+    {
+      "name": "a running workflow with nothing live says only its progress",
+      "status": "running",
+      "device": "MacBook",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "blocked",
+          "members": 0
+        }
+      ],
+      "caption": "on MacBook · 1 of 2 done"
+    },
+    {
+      "name": "a paused workflow reads like a running one",
+      "status": "paused",
+      "device": "build-box",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "running",
+          "members": 0
+        }
+      ],
+      "caption": "on build-box · 1 of 2 done · 1 running"
+    },
+    {
+      "name": "a done workflow counts what landed",
+      "status": "done",
+      "device": "MacBook",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "skipped",
+          "members": 0
+        }
+      ],
+      "caption": "Done · 2 done · 1 skipped"
+    },
+    {
+      "name": "a failed or cancelled workflow says so",
+      "status": "cancelled",
+      "device": "MacBook",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "failed",
+          "members": 0
+        }
+      ],
+      "caption": "Cancelled · 1 done · 1 failed"
+    },
+    {
+      "name": "a failed workflow says so",
+      "status": "failed",
+      "device": "MacBook",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "failed",
+          "members": 0
+        },
+        {
+          "state": "skipped",
+          "members": 0
+        }
+      ],
+      "caption": "Failed · 1 done · 1 failed · 1 skipped"
+    },
+    {
+      "name": "a proposed node is not counted until it is admitted",
+      "status": "running",
+      "device": "MacBook",
+      "nodes": [
+        {
+          "state": "landed",
+          "members": 0
+        },
+        {
+          "state": "proposed",
+          "members": 0
+        },
+        {
+          "state": "running",
+          "members": 1
+        }
+      ],
+      "caption": "on MacBook · 1 of 2 done · 1 running"
+    }
+  ],
+  "primaryActions": [
+    {
+      "status": "draft",
+      "device": null,
+      "action": "pick_device",
+      "finalPrState": null
+    },
+    {
+      "status": "draft",
+      "device": "MacBook",
+      "action": "start",
+      "finalPrState": null
+    },
+    {
+      "status": "running",
+      "device": "MacBook",
+      "action": "pause",
+      "finalPrState": null
+    },
+    {
+      "status": "paused",
+      "device": "MacBook",
+      "action": "resume",
+      "finalPrState": null
+    },
+    {
+      "status": "done",
+      "device": "MacBook",
+      "action": "review_final_pr",
+      "finalPrState": null
+    },
+    {
+      "status": "failed",
+      "device": "MacBook",
+      "action": null,
+      "finalPrState": null
+    },
+    {
+      "status": "cancelled",
+      "device": "MacBook",
+      "action": null,
+      "finalPrState": null
+    },
+    {
+      "status": "something-new",
+      "device": "MacBook",
+      "action": null,
+      "finalPrState": null
+    },
+    {
+      "status": "running",
+      "device": "MacBook",
+      "finalPrState": "open",
+      "action": "review_final_pr"
+    },
+    {
+      "status": "paused",
+      "device": "MacBook",
+      "finalPrState": "open",
+      "action": "review_final_pr"
+    },
+    {
+      "status": "running",
+      "device": "MacBook",
+      "finalPrState": "merged",
+      "action": "pause"
+    },
+    {
+      "status": "running",
+      "device": "MacBook",
+      "finalPrState": "closed",
+      "action": "pause"
+    },
+    {
+      "status": "draft",
+      "device": null,
+      "finalPrState": "open",
+      "action": "pick_device"
+    }
+  ],
+  "chipMenus": [
+    {
+      "state": "failed",
+      "menu": [
+        "retry",
+        "skip"
+      ]
+    },
+    {
+      "state": "blocked",
+      "menu": []
+    },
+    {
+      "state": "running",
+      "menu": []
+    },
+    {
+      "state": "waiting",
+      "menu": []
+    },
+    {
+      "state": "landed",
+      "menu": []
+    },
+    {
+      "state": "skipped",
+      "menu": []
+    },
+    {
+      "state": "proposed",
+      "menu": [
+        "admit",
+        "dismiss"
+      ]
+    },
+    {
+      "state": "brand-new",
+      "menu": []
+    }
+  ],
+  "overflowMenus": [
+    {
+      "status": "draft",
+      "menu": [
+        "plan",
+        "runs_on",
+        "delete"
+      ]
+    },
+    {
+      "status": "running",
+      "menu": [
+        "stop"
+      ]
+    },
+    {
+      "status": "paused",
+      "menu": [
+        "stop"
+      ]
+    },
+    {
+      "status": "done",
+      "menu": [
+        "delete"
+      ]
+    },
+    {
+      "status": "failed",
+      "menu": [
+        "delete"
+      ]
+    },
+    {
+      "status": "cancelled",
+      "menu": [
+        "delete"
+      ]
+    },
+    {
+      "status": "something-new",
+      "menu": [
+        "delete"
+      ]
+    }
+  ],
+  "pageLabels": {
+    "allNodes": "All",
+    "decisions": "Decisions",
+    "stop": "Stop",
+    "pickDevice": "Pick device",
+    "runsOn": "Runs on",
+    "reviewFinalPr": "Review final PR",
+    "noChanges": "No changes yet",
+    "dismissNodeConfirm": "The node is removed from the workflow.",
+    "noRuns": "No runs yet",
+    "noResults": "No results yet"
+  },
+  "statusGlyphs": [
+    {
+      "status": "draft",
+      "display": "queued"
+    },
+    {
+      "status": "running",
+      "display": "running"
+    },
+    {
+      "status": "paused",
+      "display": "running"
+    },
+    {
+      "status": "done",
+      "display": "done"
+    },
+    {
+      "status": "failed",
+      "display": "failed"
+    },
+    {
+      "status": "cancelled",
+      "display": "skipped"
+    },
+    {
+      "status": "something-new",
+      "display": "queued"
+    }
+  ],
+  "proposedNodeNote": "Filed during the run. Admit it into the workflow or dismiss it.",
+  "selection": [
+    {
+      "name": "a click picks exactly that node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "click",
+        "id": "a"
+      },
+      "expected": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      }
+    },
+    {
+      "name": "a click on the picked chip keeps it",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      },
+      "op": {
+        "kind": "click",
+        "id": "a"
+      },
+      "expected": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      }
+    },
+    {
+      "name": "a click on All clears the pick",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "a",
+          "b"
+        ],
+        "anchor": "a",
+        "cursor": "b"
+      },
+      "op": {
+        "kind": "click",
+        "id": null
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "a click on an unknown node is All",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      },
+      "op": {
+        "kind": "click",
+        "id": "ghost"
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "toggle adds a node, in DAG order",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      },
+      "op": {
+        "kind": "toggle",
+        "id": "c"
+      },
+      "expected": {
+        "ids": [
+          "c",
+          "b"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      }
+    },
+    {
+      "name": "toggle removes a picked node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c",
+          "b"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      },
+      "op": {
+        "kind": "toggle",
+        "id": "b"
+      },
+      "expected": {
+        "ids": [
+          "c"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      }
+    },
+    {
+      "name": "toggling the last node out is All",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      },
+      "op": {
+        "kind": "toggle",
+        "id": "c"
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "extend picks the range from the anchor, either direction",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      },
+      "op": {
+        "kind": "extend",
+        "id": "c"
+      },
+      "expected": {
+        "ids": [
+          "c",
+          "a",
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "c"
+      }
+    },
+    {
+      "name": "extend without an anchor anchors on the node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "extend",
+        "id": "b"
+      },
+      "expected": {
+        "ids": [
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      }
+    },
+    {
+      "name": "a step from All lands on the first node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "step",
+        "delta": 1
+      },
+      "expected": {
+        "ids": [
+          "c"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      }
+    },
+    {
+      "name": "a step back from the first node is All",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c"
+        ],
+        "anchor": "c",
+        "cursor": "c"
+      },
+      "op": {
+        "kind": "step",
+        "delta": -1
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "a step moves from the cursor, not the anchor",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c",
+          "a",
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "c"
+      },
+      "op": {
+        "kind": "step",
+        "delta": 1
+      },
+      "expected": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      }
+    },
+    {
+      "name": "a step without a cursor moves from the last picked node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "c",
+          "a"
+        ],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "step",
+        "delta": 1
+      },
+      "expected": {
+        "ids": [
+          "b"
+        ],
+        "anchor": "b",
+        "cursor": "b"
+      }
+    },
+    {
+      "name": "a step is clamped at the last node",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "d"
+        ],
+        "anchor": "d",
+        "cursor": "d"
+      },
+      "op": {
+        "kind": "step",
+        "delta": 1
+      },
+      "expected": {
+        "ids": [
+          "d"
+        ],
+        "anchor": "d",
+        "cursor": "d"
+      }
+    },
+    {
+      "name": "a step back from All stays on All",
+      "order": [
+        "c",
+        "a",
+        "b",
+        "d"
+      ],
+      "current": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      },
+      "op": {
+        "kind": "step",
+        "delta": -1
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
+    },
+    {
+      "name": "prune drops nodes that left, keeping anchor and cursor when they stay",
+      "order": [
+        "c",
+        "b"
+      ],
+      "current": {
+        "ids": [
+          "c",
+          "a",
+          "b"
+        ],
+        "anchor": "a",
+        "cursor": "b"
+      },
+      "op": {
+        "kind": "prune"
+      },
+      "expected": {
+        "ids": [
+          "c",
+          "b"
+        ],
+        "anchor": "c",
+        "cursor": "b"
+      }
+    },
+    {
+      "name": "prune to nothing is All",
+      "order": [
+        "d"
+      ],
+      "current": {
+        "ids": [
+          "a"
+        ],
+        "anchor": "a",
+        "cursor": "a"
+      },
+      "op": {
+        "kind": "prune"
+      },
+      "expected": {
+        "ids": [],
+        "anchor": null,
+        "cursor": null
+      }
     }
   ]
 }

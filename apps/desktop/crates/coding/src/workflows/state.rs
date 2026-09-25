@@ -15,7 +15,6 @@
 //!       "reviewedHead": { "<nodeId>": "<sha>" },
 //!       "findingsSent": { "<nodeId>": 2 },
 //!       "reviewRuns": { "<nodeId>": "<sessionId>" },
-//!       "checkpointTips": { "<nodeId>": "<sha>" },
 //!       "landRefused": { "<nodeId>": "<sha>" },
 //!       "resuming": { "<sessionId>": 1726000000000 },
 //!       "reviewRounds": { "<nodeId>": 1 },
@@ -57,6 +56,10 @@ pub struct WorkflowState {
     pub nudged: HashSet<(String, i64)>,
     /// The cancel sweep already dropped the integration branch.
     pub branch_deleted: bool,
+    /// EXP-1059: the current CLOSED episode of the final PR was put to the
+    /// server (`Snapshot::final_pr_close_handled`); cleared by
+    /// [`final_pr_close_handled`] once the PR reads open again.
+    pub final_pr_close_handled: bool,
     /// EXP-983: `node id → branch → the tip that node was last TOLD to
     /// merge`, so one movement is announced exactly once.
     pub propagated: HashMap<String, HashMap<String, String>>,
@@ -78,9 +81,6 @@ pub struct WorkflowState {
     /// review is never started twice (its liveness comes off the synced
     /// `coding_sessions` row).
     pub review_runs: HashMap<String, String>,
-    /// EXP-984: `node id → the branch tip last counted as a contract
-    /// change`, the input to the `contractChanges` metric.
-    pub checkpoint_tips: HashMap<String, String>,
     /// `node id → the head of its pull request when GitHub last refused to
     /// merge it`; the node holds `updating` until that head moves.
     pub land_refused: HashMap<String, String>,
@@ -180,6 +180,35 @@ pub fn merge_resuming(
 
 /// Read `device_id`'s whole state map. Missing/corrupt file or key → empty,
 /// which can only re-send a nudge, never skip one.
+/// EXP-1059: the snapshot's `final_pr_close_handled` for one workflow. True
+/// only while the final PR still reads `closed` AND this device already put
+/// that close to the server. A PR back at `open` (the reopen's echo, or a
+/// member's `openFinalPr`) CLEARS the persisted flag, so the next close is
+/// asked again — the server's `final_pr_reopened` event decides whether
+/// that is the one reopen or a person's decision.
+pub fn final_pr_close_handled(
+    settings_path: &Path,
+    device_id: &str,
+    workflow_id: &str,
+    final_pr_closed: bool,
+) -> bool {
+    let mut states = read_states(settings_path, device_id);
+    let Some(state) = states.get_mut(workflow_id) else {
+        return false;
+    };
+    if !state.final_pr_close_handled {
+        return false;
+    }
+    if final_pr_closed {
+        return true;
+    }
+    state.final_pr_close_handled = false;
+    if let Err(err) = write_states(settings_path, device_id, &states) {
+        log::warn!("workflow state write failed: {err}");
+    }
+    false
+}
+
 pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, WorkflowState> {
     let Some(root) = read_root(settings_path) else {
         return HashMap::new();
@@ -208,6 +237,10 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Wor
                         .get("branchDeleted")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
+                    final_pr_close_handled: entry
+                        .get("finalPrCloseHandled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                     propagated: read_propagated(entry.get("propagated")),
                     synthetic: read_synthetic(entry.get("synthetic")),
                     conflicts: entry
@@ -234,7 +267,6 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Wor
                     reviewed_head: read_string_map(entry.get("reviewedHead")),
                     findings_sent: read_round_map(entry.get("findingsSent")),
                     review_runs: read_string_map(entry.get("reviewRuns")),
-                    checkpoint_tips: read_string_map(entry.get("checkpointTips")),
                     land_refused: read_string_map(entry.get("landRefused")),
                     resuming: read_round_map(entry.get("resuming")),
                     review_rounds: read_round_map(entry.get("reviewRounds")),
@@ -270,9 +302,8 @@ fn read_propagated(value: Option<&Value>) -> HashMap<String, HashMap<String, Str
         .unwrap_or_default()
 }
 
-/// EXP-984: a flat `key → string` map (`reviewedHead`, `reviewRuns`,
-/// `checkpointTips`); anything malformed is dropped, which at worst re-runs
-/// one review or re-counts one metric.
+/// EXP-984: a flat `key → string` map (`reviewedHead`, `reviewRuns`);
+/// anything malformed is dropped, which at worst re-runs one review.
 fn read_string_map(value: Option<&Value>) -> HashMap<String, String> {
     value
         .and_then(Value::as_object)
@@ -356,6 +387,7 @@ pub fn write_states(
             serde_json::json!({
                 "nudged": nudged,
                 "branchDeleted": state.branch_deleted,
+                "finalPrCloseHandled": state.final_pr_close_handled,
                 "propagated": state.propagated,
                 "synthetic": state.synthetic,
                 "conflicts": state.conflicts,
@@ -363,7 +395,6 @@ pub fn write_states(
                 "reviewedHead": state.reviewed_head,
                 "findingsSent": state.findings_sent,
                 "reviewRuns": state.review_runs,
-                "checkpointTips": state.checkpoint_tips,
                 "landRefused": state.land_refused,
                 "resuming": state.resuming,
                 "reviewRounds": state.review_rounds,
@@ -536,6 +567,37 @@ mod tests {
         assert_eq!(persisted, [("s".to_string(), 42)].into_iter().collect::<HashMap<_, _>>());
     }
 
+    /// EXP-1059: one closed episode is put to the server once; the flag
+    /// clears itself the moment the PR reads open again, so the NEXT close
+    /// is asked again (the server knows whether the reopen was spent).
+    #[test]
+    fn the_final_pr_close_handled_flag_lives_for_one_closed_episode() {
+        let dir = temp_dir("final-pr-close");
+        let path = dir.0.join("settings.json");
+        // Nothing recorded: not handled, whatever the PR reads.
+        assert!(!final_pr_close_handled(&path, "dev", "wf", true));
+        assert!(!final_pr_close_handled(&path, "dev", "wf", false));
+
+        let mut states = HashMap::new();
+        states.insert(
+            "wf".to_string(),
+            WorkflowState {
+                final_pr_close_handled: true,
+                ..WorkflowState::default()
+            },
+        );
+        write_states(&path, "dev", &states).unwrap();
+        // Still closed: handled, and the flag persists (the JSON key).
+        assert!(final_pr_close_handled(&path, "dev", "wf", true));
+        assert!(final_pr_close_handled(&path, "dev", "wf", true));
+        assert!(read_states(&path, "dev")["wf"].final_pr_close_handled);
+        // Back to open: the read clears the persisted flag …
+        assert!(!final_pr_close_handled(&path, "dev", "wf", false));
+        assert!(!read_states(&path, "dev")["wf"].final_pr_close_handled);
+        // … so a later close is asked again.
+        assert!(!final_pr_close_handled(&path, "dev", "wf", true));
+    }
+
     #[test]
     fn missing_or_corrupt_file_reads_as_empty() {
         let dir = temp_dir("corrupt");
@@ -579,8 +641,6 @@ mod tests {
         mine.findings_sent.insert("node-1".to_string(), 2);
         mine.review_runs
             .insert("node-1".to_string(), "sess-r1".to_string());
-        mine.checkpoint_tips
-            .insert("node-1".to_string(), "sha-a2".to_string());
         // The refusal hold, the resume grace and the verdict-less run count.
         mine.land_refused
             .insert("node-1".to_string(), "sha-a2".to_string());

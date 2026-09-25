@@ -95,10 +95,10 @@ pub enum Screen {
     /// opened from the rail's Workflows entry; it IS a list, so the detail a
     /// row opens keeps it in the left column.
     Workflows,
-    /// One workflow's detail (EXP-981): the server-laid-out graph of its
-    /// nodes as issue chips, the runner pick in the header and the picked
-    /// node's side panel (EXP-1014: nothing to configure). A DETAIL like an issue — it gets a tab chip and sits
-    /// beside the Workflows list it was opened from.
+    /// One workflow's detail (EXP-1069): the node strip as the picker over
+    /// the Issue · Runs · Changes · Results faces, one primary action in the
+    /// header. A DETAIL like an issue — it gets a tab chip and sits beside
+    /// the Workflows list it was opened from.
     Workflow { workflow_id: String },
     /// The Chat page (EXP-772 — the web `t/$teamSlug/chat` page: one centred
     /// prompt box over a subtle row of launch pickers). Tab-less full-page

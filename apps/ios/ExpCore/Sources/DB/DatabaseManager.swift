@@ -459,6 +459,12 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("resumed_from_id", .text)
                 // EXP-818: the run that spawned this one (`sessions_start`).
                 t.column("parent_session_id", .text)
+                // EXP-1082: workflow membership (contract `wfSessionRole`)
+                // and the run's open question (raw jsonb text, NULL = none).
+                t.column("workflow_id", .text)
+                t.column("workflow_node_id", .text)
+                t.column("workflow_role", .text)
+                t.column("pending_question", .text)
                 // EXP-734: the run's OWN pull request — stamped only when the
                 // PR links no issue (an action or chat run's chore PR).
                 t.column("pr_url", .text)
@@ -469,6 +475,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
+            // EXP-1082: `workflow_events` (the 25th shape) is created by v55,
+            // which OWNS the table like v47 owns `workflows` — a fresh store
+            // gets it there too.
         }
 
         // v2 (EXP-180 helpdesk follow-up): `notifications.team_id` rides along
@@ -1779,7 +1788,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 // The launch jsonb, stored as stringified JSON.
                 t.column("launch", .text)
                 t.column("gate", .text).notNull().defaults(to: "human")
-                t.column("start_on", .text).notNull().defaults(to: "contract")
                 t.column("integration_branch", .text).notNull().defaults(to: "")
                 t.column("final_pr_url", .text)
                 t.column("final_pr_number", .integer)
@@ -2011,7 +2019,65 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v55 (EXP-1082 workflow contract): `coding_sessions` gains the run's
+        // workflow membership (`workflow_id`/`workflow_node_id`/
+        // `workflow_role`) and its open `pending_question` (jsonb), and the
+        // brand-new `workflow_events` table backs the 25th shape. Guarded
+        // additive ALTERs, then the coding-sessions offset resets so
+        // already-synced rows re-snapshot carrying the columns (shape key
+        // 'coding-sessions' WITH A DASH). The new table has no offset row and
+        // snapshots from scratch.
+        migrator.registerMigration("v55_workflow_session_membership_events") { db in
+            if try db.tableExists("coding_sessions") {
+                let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+                for column in ["workflow_id", "workflow_node_id", "workflow_role", "pending_question"]
+                where !existing.contains(column) {
+                    try db.alter(table: "coding_sessions") { t in
+                        t.add(column: column, .text)
+                    }
+                }
+                if try db.tableExists("electric_offsets") {
+                    try db.execute(sql: """
+                        UPDATE "electric_offsets"
+                        SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                        WHERE "shape" = 'coding-sessions'
+                        """)
+                }
+            }
+            try Self.createWorkflowEventsTable(db)
+        }
+
+        // v56 (EXP-1066/EXP-1090): the workflows shape no longer carries
+        // `start_on` (every node starts on its blocker's PR). Drop the dead
+        // column from the cache (the v5/v7 precedent); guarded on presence so
+        // fresh installs (which never create it in v47 any more) and re-runs
+        // are no-ops. Rows keep their cursor: nothing else changed.
+        migrator.registerMigration("v56_workflow_start_on_dropped") { db in
+            guard try db.tableExists("workflows") else { return }
+            let existing = Set(try db.columns(in: "workflows").map(\.name))
+            if existing.contains("start_on") {
+                try db.alter(table: "workflows") { t in
+                    t.drop(column: "start_on")
+                }
+            }
+        }
+
         return migrator
+    }
+
+    /// EXP-1082: the `workflow_events` table — shared by the v1 base schema
+    /// and the v55 migration so both converge on one shape.
+    static func createWorkflowEventsTable(_ db: Database) throws {
+        try db.create(table: "workflow_events", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("workflow_id", .text).notNull().indexed()
+            t.column("team_id", .text).notNull().indexed()
+            t.column("node_id", .text)
+            t.column("session_id", .text)
+            t.column("at", .text).notNull().defaults(to: "")
+            t.column("kind", .text).notNull().defaults(to: "")
+            t.column("message", .text).notNull().defaults(to: "")
+        }
     }
 
     public func clearAllData(forAccountId accountId: String) throws {
@@ -2019,6 +2085,8 @@ public final class DatabaseManager: @unchecked Sendable {
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
             // EXP-981: nodes reference issues and their workflow — child first.
+            // EXP-1082: events reference their workflow and nodes — first.
+            try db.execute(sql: "DELETE FROM workflow_events")
             try db.execute(sql: "DELETE FROM workflow_nodes")
             try db.execute(sql: "DELETE FROM workflows")
             // EXP-778: pins point at issues/sessions/actions — first.

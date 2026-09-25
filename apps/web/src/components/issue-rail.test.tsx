@@ -1,168 +1,53 @@
-import { fireEvent, render } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { render } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
 
-import {
-  IssueRailGap,
-  IssueRailLayer,
-  RAIL_OPEN_ATTR,
-  RAIL_ROOT_ATTR,
-  railCurve,
-} from "./issue-rail"
-import { issueRail, railLaneX, railNodeX, railWidth } from "@/lib/issue-rail"
-import type { GraphIssue, GraphRelation } from "@/lib/issue-graph"
+import { IssueRailLayer } from "./issue-rail"
 
-// EXP-998: the rail's painter. The RULE is `lib/issue-rail.test.ts`; what is
-// checked here is that a row paints its lanes + node, a gap its lanes only,
-// that a hover opens the rail (the arrows are hidden at rest) and lights
-// the whole edge up across rows, and that the rail closes again after the
-// pointer leaves.
+// EXP-1057: the rail's painter — one dot per row, no lanes, no arrows; the
+// dot is the mini-graph popover's trigger (mocked here to its trigger).
 
 vi.mock(`@/components/issue-blocks-badge`, () => ({
-  IssueBlocksPopover: ({ trigger }: { trigger: React.ReactElement }) => trigger,
+  IssueBlocksPopover: ({ trigger }: { trigger: React.ReactElement }) => (
+    <div data-testid="popover">{trigger}</div>
+  ),
 }))
 
-const issues: GraphIssue[] = [
-  { id: `a`, identifier: `EXP-1`, status: `in_progress` },
-  { id: `b`, identifier: `EXP-2`, status: `backlog` },
-]
-const relations: GraphRelation[] = [
-  { type: `blocks`, issueId: `a`, relatedIssueId: `b` },
-]
-
-function List() {
-  const rail = issueRail(
-    [{ kind: `row`, id: `a` }, { kind: `gap` }, { kind: `row`, id: `b` }],
-    relations,
-    issues
-  )
-  const width = railWidth(rail)
-  return (
-    <div {...{ [RAIL_ROOT_ATTR]: `` }} data-testid="root">
-      <div className="relative" data-testid="row-a">
-        <IssueRailLayer row={rail.entries[0]} width={width} issueId="a" teamId="t" />
-      </div>
-      <div className="relative" data-testid="gap">
-        <IssueRailGap row={rail.entries[1]} width={width} />
-      </div>
-      <div className="relative" data-testid="row-b">
-        <IssueRailLayer row={rail.entries[2]} width={width} issueId="b" teamId="t" />
-      </div>
-    </div>
-  )
-}
-
 describe(`IssueRailLayer`, () => {
-  it(`draws nothing for a row with no relation`, () => {
-    const rail = issueRail([{ kind: `row`, id: `a` }], [], issues)
-    const { container } = render(
-      <IssueRailLayer row={rail.entries[0]} width={railWidth(rail)} issueId="a" teamId="t" />
+  it(`draws nothing for a row with no relation, or a list without a rail`, () => {
+    const none = render(
+      <IssueRailLayer blockedBy={0} blocking={0} width={32} issueId="a" teamId="t" />
     )
-    expect(container.firstChild).toBeNull()
+    expect(none.container.firstChild).toBeNull()
+    const noRail = render(
+      <IssueRailLayer blockedBy={1} blocking={0} width={0} issueId="a" teamId="t" />
+    )
+    expect(noRail.container.firstChild).toBeNull()
   })
 
-  it(`paints the blocker's dot, the gap's pass-through and the blocked row's ring + arrow`, () => {
-    const { getByTestId } = render(<List />)
-    const width = railWidth(issueRail([{ kind: `row`, id: `a` }, { kind: `row`, id: `b` }], relations, issues))
-    const a = getByTestId(`row-a`)
-    expect(a.querySelector(`[data-testid="issue-rail-node"]`)!.getAttribute(`data-kind`)).toBe(
-      `blocking`
+  it(`fills a blocker's dot and rings a blocked row's, labelled by the counts`, () => {
+    const blocking = render(
+      <IssueRailLayer blockedBy={0} blocking={1} width={32} issueId="a" teamId="t" />
     )
-    expect(a.querySelector(`[data-testid="issue-rail-node"]`)!.getAttribute(`aria-label`)).toBe(
-      `Blocking 1`
-    )
-    // The blocker's slice: one curve out of the node to the lane at the
-    // row's bottom edge, nothing above.
-    const aLane = a.querySelector(`path[data-testid="issue-rail-lane"]`)!
-    expect(aLane.getAttribute(`d`)).toBe(railCurve(railLaneX(0, width), railNodeX(width), 20))
-    expect(a.querySelector(`[data-testid="issue-rail-arrow"]`)).toBeNull()
+    const a = blocking.getByTestId(`issue-rail-node`)
+    expect(a.getAttribute(`data-kind`)).toBe(`blocking`)
+    expect(a.getAttribute(`aria-label`)).toBe(`Blocking 1`)
 
-    const gap = getByTestId(`gap`)
-    expect(gap.querySelector(`[data-testid="issue-rail-node"]`)).toBeNull()
-    expect(gap.querySelector(`path[data-testid="issue-rail-lane"]`)!.getAttribute(`d`)).toBe(
-      `M ${railLaneX(0, width)} -1000 V 1000`
+    const blocked = render(
+      <IssueRailLayer blockedBy={2} blocking={1} width={32} issueId="b" teamId="t" />
     )
-
-    const b = getByTestId(`row-b`)
-    const node = b.querySelector(`[data-testid="issue-rail-node"]`)!
-    expect(node.getAttribute(`data-kind`)).toBe(`blocked`)
-    expect(node.getAttribute(`aria-label`)).toBe(`Blocked by 1`)
-    expect(b.querySelector(`[data-testid="issue-rail-arrow"]`)).toBeTruthy()
-    // …and the blocked row's: the curve in from the top edge.
-    expect(b.querySelector(`path[data-testid="issue-rail-lane"]`)!.getAttribute(`d`)).toBe(
-      railCurve(railLaneX(0, width), railNodeX(width), -20)
-    )
-    expect(b.querySelector(`title`)!.textContent).toBe(`EXP-1 blocks EXP-2`)
+    const b = blocked.container.querySelector(`[data-testid="issue-rail-node"]`)!
+    expect(b.getAttribute(`data-kind`)).toBe(`blocked`)
+    expect(b.getAttribute(`aria-label`)).toBe(`Blocked by 2, blocking 1`)
+    // The dot hangs the mini-graph; no lane or arrow is drawn anywhere.
+    expect(blocked.container.querySelector(`[data-testid="popover"]`)).toBeTruthy()
+    expect(blocked.container.querySelector(`svg`)).toBeNull()
   })
 
-  describe(`hover`, () => {
-    beforeEach(() => vi.useFakeTimers())
-    afterEach(() => vi.useRealTimers())
-
-    it(`opens the rail and lights the whole edge up while a segment or a node is hovered`, () => {
-      const { container, getByTestId } = render(<List />)
-      const root = getByTestId(`root`)
-      const segments = () => [...container.querySelectorAll(`[data-rail-edge~="a:b"]`)]
-      expect(segments().length).toBeGreaterThan(2)
-      expect(segments().every((node) => !node.hasAttribute(`data-hot`))).toBe(true)
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(false)
-
-      const group = getByTestId(`gap`).querySelector(`g`)!
-      fireEvent.mouseEnter(group)
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
-      expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
-      fireEvent.mouseLeave(group)
-      expect(segments().every((node) => !node.hasAttribute(`data-hot`))).toBe(true)
-      // The arrows linger a beat, so a move from one dot to the next never
-      // flickers them away.
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
-      vi.advanceTimersByTime(200)
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(false)
-
-      const node = getByTestId(`row-b`).querySelector(`[data-testid="issue-rail-node"]`)!
-      fireEvent.mouseEnter(node)
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
-      expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
-    })
-
-    it(`opens the rail on keyboard focus of a dot and closes it a beat after blur`, () => {
-      const { container, getByTestId } = render(<List />)
-      const root = getByTestId(`root`)
-      const segments = () => [...container.querySelectorAll(`[data-rail-edge~="a:b"]`)]
-      const node = getByTestId(`row-b`).querySelector(`[data-testid="issue-rail-node"]`)!
-      fireEvent.focus(node)
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
-      expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
-      fireEvent.blur(node)
-      expect(segments().every((node) => !node.hasAttribute(`data-hot`))).toBe(true)
-      // The same linger as a pointer leaving.
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
-      vi.advanceTimersByTime(200)
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(false)
-    })
-
-    it(`never lets the lanes' svg box take the pointer, open or not`, () => {
-      // Hit testing lives on each slice's hit stroke alone, so a group
-      // header's "+" button under the node column stays clickable while the
-      // arrows linger.
-      const { getByTestId } = render(<List />)
-      const svg = getByTestId(`gap`).querySelector(`[data-testid="issue-rail-lanes"]`)!
-      expect(svg.classList.contains(`pointer-events-none`)).toBe(true)
-      expect(svg.getAttribute(`class`)).not.toContain(`rail-open]/rail:pointer-events-auto`)
-      const hit = getByTestId(`gap`).querySelector(`g > path`) as SVGPathElement
-      expect(hit.style.pointerEvents).toBe(`stroke`)
-    })
-
-    it(`keeps the rail open across a move from one hover target to the next`, () => {
-      const { getByTestId } = render(<List />)
-      const root = getByTestId(`root`)
-      const a = getByTestId(`row-a`).querySelector(`[data-testid="issue-rail-node"]`)!
-      const b = getByTestId(`row-b`).querySelector(`[data-testid="issue-rail-node"]`)!
-      fireEvent.mouseEnter(a)
-      fireEvent.mouseLeave(a)
-      vi.advanceTimersByTime(50)
-      fireEvent.mouseEnter(b)
-      vi.advanceTimersByTime(500)
-      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
-    })
+  it(`keeps an inert dot without a graph scope`, () => {
+    const { queryByTestId, getByTestId } = render(
+      <IssueRailLayer blockedBy={1} blocking={0} width={32} issueId="a" teamId={undefined} />
+    )
+    expect(getByTestId(`issue-rail-node`)).toBeTruthy()
+    expect(queryByTestId(`popover`)).toBeNull()
   })
 })

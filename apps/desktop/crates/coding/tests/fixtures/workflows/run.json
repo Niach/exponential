@@ -54,6 +54,8 @@
       { "kind": "setNodeState", "nodeId": "right", "state": "ready" },
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "left",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -61,6 +63,8 @@
       },
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "right",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -97,7 +101,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -125,7 +129,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startNode", "nodeId": "a", "attempt": 3, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "a", "attempt": 3, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -155,6 +159,12 @@
       "nowMs": 1000
     },
     "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "running",
+        "note": "Waiting for the account's reset"
+      },
       {
         "kind": "nudge",
         "sessionId": "s-a",
@@ -190,7 +200,14 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "running",
+        "note": "Waiting for the account's reset"
+      }
+    ]
   },
   {
     "name": "rule 3: a wall that has not lifted yet waits",
@@ -218,7 +235,14 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "running",
+        "note": "Waiting for the account's reset"
+      }
+    ]
   },
   {
     "name": "rule 4: the train holds an unapproved node, an approved one behind it lands",
@@ -360,7 +384,7 @@
     "expected": []
   },
   {
-    "name": "rule 4: nothing is cleared under a human gate",
+    "name": "rule 4: nothing is cleared without a verdict",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
@@ -408,7 +432,7 @@
     "expected": [{ "kind": "openFinalPr" }]
   },
   {
-    "name": "rule 5: every node skipped opens nothing",
+    "name": "rule 10 (EXP-1059): every node skipped = nothing shipped, the workflow is cancelled instead of opening an empty final PR",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
@@ -421,7 +445,7 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [{ "kind": "cancelUnshipped" }]
   },
   {
     "name": "rule 5: an open final PR is never opened twice",
@@ -603,6 +627,8 @@
     "expected": [
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "head",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -610,6 +636,8 @@
       },
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "leaf",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -617,6 +645,8 @@
       },
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "tail",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",

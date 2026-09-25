@@ -33,9 +33,14 @@ struct AgentPageView: View {
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// EXP-923: the history sheet — the finished runs, off the toolbar glyph.
     @State private var showRecent = false
+    /// EXP-1086: the team's workflows, for the Workflows glyph's red dot
+    /// while one of them has an open question (the list rows' own rule).
+    @State private var workflowDots: WorkflowsViewModel?
     /// The run picked in that sheet, pushed once the sheet is gone (a push
     /// racing its own dismissal lands on nothing).
     @State private var pendingRecent: String?
+    /// EXP-1061: a workflow group row picked in the sheet, pushed the same way.
+    @State private var pendingRecentWorkflow: String?
     /// The seed's team has been made the active one (once per push).
     @State private var alignedSeedTeam = false
     /// EXP-820: the chips THIS mount shows — drawn once, never reshuffled
@@ -127,6 +132,12 @@ struct AgentPageView: View {
                     AppIcon(AppIcons.navWorkflows, size: AppIcon.Size.medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(width: 32, height: 32)
+                        .overlay(alignment: .topTrailing) {
+                            if workflowDots?.asking.isEmpty == false {
+                                FloatingBarBadgeDot(color: DesignTokens.Semantic.red)
+                                    .accessibilityLabel(WorkflowView.needsYouLabel)
+                            }
+                        }
                         .contentShape(Circle())
                 }
                 .accessibilityLabel(WorkflowView.title)
@@ -145,10 +156,17 @@ struct AgentPageView: View {
         }
         .sheet(isPresented: $showRecent, onDismiss: pushPendingRecent) {
             if let sessions {
-                RecentRunsSheet(vm: sessions) { sessionId in
-                    pendingRecent = sessionId
-                    showRecent = false
-                }
+                RecentRunsSheet(
+                    vm: sessions,
+                    onOpen: { sessionId in
+                        pendingRecent = sessionId
+                        showRecent = false
+                    },
+                    onOpenWorkflow: { workflowId in
+                        pendingRecentWorkflow = workflowId
+                        showRecent = false
+                    }
+                )
             }
         }
         .accessibilityElement(children: .contain)
@@ -178,7 +196,14 @@ struct AgentPageView: View {
                 )
             }
         }
+        .task(id: teamState.activeTeamId) {
+            if workflowDots == nil {
+                workflowDots = WorkflowsViewModel(accountId: accountId, db: deps.db)
+            }
+            workflowDots?.observe(teamId: teamState.activeTeamId)
+        }
         .onDisappear {
+            workflowDots?.stop()
             sessions?.stopObserving()
             composer?.startWatcher.stop()
         }
@@ -226,6 +251,11 @@ struct AgentPageView: View {
     /// EXP-923: the sheet's pick, pushed once it has actually closed — the
     /// same destination its rows had while they lived on the page.
     private func pushPendingRecent() {
+        if let workflowId = pendingRecentWorkflow {
+            pendingRecentWorkflow = nil
+            pushRoute(.workflow(accountId: accountId, id: workflowId))
+            return
+        }
         guard let sessionId = pendingRecent else { return }
         pendingRecent = nil
         sessionTarget = .init(sessionId: sessionId)

@@ -34,7 +34,12 @@ import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.TreeGuide
 import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.WorkFaceKind
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.WorkflowView
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.IssueChipStack
+import com.exponential.app.ui.markdown.MdStyle
+import androidx.compose.ui.semantics.Role
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.IssueGraphList
@@ -57,48 +62,55 @@ import com.exponential.app.ui.theme.flatRow
 // the pull requests. Same rows and the same words on all four clients
 // (`components/pr-graph-badge.tsx`, `PrGraphBadge.swift`, `pr_graph.rs`).
 
-/** The pill's own words — `2 of 3`, `3 issues`, or both. */
-internal fun badgeLabel(graph: PrGraph.Graph): String? {
-    val batchCount = graph.batch?.issues?.size
-    val position = graph.subject
-    val stacked = graph.stack.size > 1
-    val head = if (stacked && position != null) "${position.depth + 1} of ${graph.stack.size}" else null
-    val tail = batchCount?.let { "$it issues" }
-    return when {
-        head != null && tail != null -> "$head · $tail"
-        head != null -> head
-        else -> tail
-    }
-}
-
 /**
- * The badge itself: nothing at all for a lone single-issue pull request, a
- * tappable pill otherwise. [onOpen] opens the overlay the host renders.
+ * EXP-1058: the badge is the STACKED issue chip — the subject pull request's
+ * representative issue in front, `+N` for everything behind it
+ * ([PrGraph.badgeChip]), ghost outlines saying there is more than one. A run
+ * with no issue (the run tree alone) fronts the same chip box with the
+ * session-tree glyph and the run's own name ([runTitle]). The chip is inert:
+ * the WHOLE thing is one tap target that opens the overlay ([onOpen]).
+ * Nothing at all when [PrGraph.badgeChip] is null.
  */
 @Composable
-fun PrGraphBadge(graph: PrGraph.Graph, onOpen: () -> Unit) {
-    val kind = PrGraph.badgeKind(graph) ?: return
-    val label = badgeLabel(graph) ?: return
-    GlassPill(
-        label,
-        onClick = onOpen,
-        size = PillSize.Sm,
-        icon = when (kind) {
-            PrGraph.BadgeKind.BATCH -> ExpIcons.prBatch
-            else -> ExpIcons.prStack
-        },
-        trailing = if (kind == PrGraph.BadgeKind.STACK_AND_BATCH) {
-            {
-                Icon(
-                    ExpIcons.prBatch,
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp),
-                )
-            }
-        } else {
-            null
-        },
-        modifier = Modifier.testTag("pr-graph-badge"),
+fun PrGraphBadge(
+    graph: PrGraph.Graph,
+    face: WorkFaceKind,
+    leadStatus: ResolvedIssueStatus?,
+    runTitle: String?,
+    onOpen: () -> Unit,
+) {
+    val spec = PrGraph.badgeChip(graph, face) ?: return
+    val front = spec.issue
+    val chip: @Composable () -> Unit = if (front != null) {
+        {
+            IssueChip(
+                identifier = WorkflowView.nodeTitle(front.identifier, spec.count),
+                title = null,
+                status = leadStatus,
+            )
+        }
+    } else {
+        {
+            IssueChip(
+                identifier = "",
+                title = WorkflowView.nodeTitle(runTitle ?: "Run", spec.count),
+                status = null,
+                leading = {
+                    Icon(
+                        ExpIcons.sessionTree,
+                        contentDescription = null,
+                        modifier = Modifier.size(MdStyle.chipIconSize),
+                        tint = MdStyle.ChipToken,
+                    )
+                },
+            )
+        }
+    }
+    IssueChipStack(
+        modifier = Modifier
+            .clickable(role = Role.Button, onClick = onOpen)
+            .testTag("pr-graph-badge"),
+        chip = chip,
     )
 }
 
@@ -127,6 +139,8 @@ fun PrGraphSheet(
     GlassSheet(
         title = when (PrGraph.badgeKind(graph)) {
             PrGraph.BadgeKind.BATCH -> "Batch pull request"
+            // EXP-1058: the run tree alone earns the chip on the Run face.
+            null -> "Runs"
             else -> "Stacked pull requests"
         },
         onDismiss = onDismiss,

@@ -329,6 +329,28 @@ app.post(`/start`, async (c) => {
       return c.json({ error: `Bad request` }, 400)
     }
   }
+  // EXP-1082 §1: workflow membership, OPTIONAL on every subject (resume
+  // included) and forwarded verbatim; a PRESENT key must be a non-empty
+  // string within its cap (ids ≤128, role ≤16), else 400 — the startedBy
+  // stance.
+  const membership: {
+    workflowId?: string
+    workflowNodeId?: string
+    workflowRole?: string
+  } = {}
+  for (const [key, max] of [
+    [`workflowId`, 128],
+    [`workflowNodeId`, 128],
+    [`workflowRole`, 16],
+  ] as const) {
+    if (body && key in body) {
+      const value = asString(body[key])
+      if (!value || value.length > max) {
+        return c.json({ error: `Bad request` }, 400)
+      }
+      membership[key] = value
+    }
+  }
   // EXP-825: prompt is an OPTIONAL pass-through on the three subject forms
   // (never on a resume, which keeps its recorded first turn) — a PRESENT key
   // must be a non-empty string within the contract cap, else 400.
@@ -372,6 +394,7 @@ app.post(`/start`, async (c) => {
     ...(account ? { account } : {}),
     ...(prompt ? { prompt } : {}),
     ...(stack ? { stack } : {}),
+    ...membership,
   }
   const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)

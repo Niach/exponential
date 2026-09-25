@@ -3,7 +3,6 @@ package com.exponential.app.data.db
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.shape
-import com.exponential.app.domain.workflowMetricCounters
 import com.exponential.app.domain.workflowNodeReview
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -40,7 +39,6 @@ class WorkflowEntityDecodeTest {
               "device_id": "dev-1",
               "launch": {"agent":"claude","model":"opus","subagentModel":"fable","maxParallel":5},
               "gate": "human",
-              "start_on": "contract",
               "integration_branch": "exp/wf-abcd1234",
               "final_pr_url": null,
               "final_pr_number": null,
@@ -60,7 +58,6 @@ class WorkflowEntityDecodeTest {
         assertEquals("EXP-14 +3", entity.name)
         assertEquals(DomainContract.wfStatusDraft, entity.status)
         assertEquals("dev-1", entity.deviceId)
-        assertEquals(DomainContract.wfStartOnContract, entity.startOn)
         assertEquals("exp/wf-abcd1234", entity.integrationBranch)
         assertNull(entity.finalPrNumber)
 
@@ -89,7 +86,6 @@ class WorkflowEntityDecodeTest {
               "deviceId": "dev-1",
               "integrationBranch": "exp/wf-00000000",
               "finalPrNumber": 42,
-              "startOn": "pr_open",
               "createdAt": "2026-09-19 10:00:00+00",
               "updatedAt": "2026-09-19 10:00:00+00"
             }
@@ -97,7 +93,6 @@ class WorkflowEntityDecodeTest {
         val entity = json.decodeFromString(WorkflowEntity.serializer(), row)
         assertEquals("wf-2", entity.id)
         assertEquals(DomainContract.wfStatusRunning, entity.status)
-        assertEquals(DomainContract.wfStartOnPrOpen, entity.startOn)
         assertEquals(42, entity.finalPrNumber)
         // Absent jsonb reads as the defaults, never as a dropped row.
         assertEquals(DomainContract.workflowMaxParallelDefault, entity.launchOptions.maxParallel)
@@ -291,23 +286,6 @@ class WorkflowEntityDecodeTest {
     }
 
     @Test
-    fun `the metric counters keep every number and drop everything else`() {
-        val counters = workflowMetricCounters(
-            """
-                {"nodes":12,"depth":3,"width":8,"cycles":[["EXP-1"]],"landed":"garbage",
-                 "mergeIns":9,"contractChanges":2}
-            """.trimIndent(),
-        )
-        assertEquals(12, counters["nodes"])
-        assertEquals(3, counters["depth"])
-        assertEquals(9, counters["mergeIns"])
-        // A list is not a counter, and neither is a word.
-        assertNull(counters["cycles"])
-        assertNull(counters["landed"])
-        assertTrue(workflowMetricCounters(null).isEmpty())
-    }
-
-    @Test
     fun `the serialization edges decode in every wire dialect`() {
         // Electric ships a jsonb cell as its JSON TEXT inside a string; tRPC
         // and tests hand over a native array. Anything else — a null, a
@@ -332,5 +310,62 @@ class WorkflowEntityDecodeTest {
         assertTrue(nodeWith("\"not an array\"").afterNodeIds.isEmpty())
         // The camelCase tRPC twin of the contract stamp.
         assertEquals("2026-09-19 12:00:00+00", nodeWith("[]").checkpointAt)
+    }
+
+    @Test
+    fun `the snake_case workflow event row decodes with every column`() {
+        val row = """
+            {
+              "id": "ev-1",
+              "workflow_id": "wf-1",
+              "team_id": "team-1",
+              "node_id": "node-1",
+              "session_id": "sess-1",
+              "at": "2026-09-25 10:00:00+00",
+              "kind": "${DomainContract.wfEventKindNodeStarted}",
+              "message": "EXP-14 started"
+            }
+        """.trimIndent()
+        val event = json.decodeFromString(WorkflowEventEntity.serializer(), row)
+        assertEquals("ev-1", event.id)
+        assertEquals("wf-1", event.workflowId)
+        assertEquals("team-1", event.teamId)
+        assertEquals("node-1", event.nodeId)
+        assertEquals("sess-1", event.sessionId)
+        assertEquals("2026-09-25 10:00:00+00", event.at)
+        assertEquals(DomainContract.wfEventKindNodeStarted, event.kind)
+        assertEquals("EXP-14 started", event.message)
+    }
+
+    @Test
+    fun `the workflow membership columns decode on a session row and default to null`() {
+        val withMembership = json.decodeFromString(
+            CodingSessionEntity.serializer(),
+            """
+                {
+                  "id": "sess-1",
+                  "team_id": "team-1",
+                  "user_id": "user-1",
+                  "started_at": "2026-09-25 10:00:00+00", "created_at": "2026-09-25 10:00:00+00", "updated_at": "2026-09-25 10:00:00+00",
+                  "workflow_id": "wf-1",
+                  "workflow_node_id": "node-1",
+                  "workflow_role": "${DomainContract.wfSessionRoleAuthor}",
+                  "pending_question": {"question": "Which API?", "askedAt": "2026-09-25T10:00:00Z"}
+                }
+            """.trimIndent(),
+        )
+        assertEquals("wf-1", withMembership.workflowId)
+        assertEquals("node-1", withMembership.workflowNodeId)
+        assertEquals(DomainContract.wfSessionRoleAuthor, withMembership.workflowRole)
+        assertTrue(withMembership.pendingQuestion!!.contains("Which API?"))
+
+        val bare = json.decodeFromString(
+            CodingSessionEntity.serializer(),
+            """{"id": "sess-2", "team_id": "team-1", "user_id": "user-1", "started_at": "2026-09-25 10:00:00+00", "created_at": "2026-09-25 10:00:00+00", "updated_at": "2026-09-25 10:00:00+00"}""",
+        )
+        assertNull(bare.workflowId)
+        assertNull(bare.workflowNodeId)
+        assertNull(bare.workflowRole)
+        assertNull(bare.pendingQuestion)
     }
 }

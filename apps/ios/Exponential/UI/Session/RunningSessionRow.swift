@@ -24,6 +24,9 @@ struct RunningSessionRow<Footer: View>: View {
     var expandable: Bool = false
     var expanded: Bool = true
     var onToggle: (() -> Void)?
+    /// EXP-1068: the workflow marks (needs-you dot, duplicate warning, a
+    /// non-default account). Empty on every other surface.
+    var marks = RunningSessionRowMarks()
     @ViewBuilder let footer: () -> Footer
 
     var body: some View {
@@ -80,14 +83,29 @@ struct RunningSessionRow<Footer: View>: View {
         let paused = device.isPaused(state)
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                SessionRowTitle(
-                    identifier: identifier,
-                    title: title,
-                    state: state,
-                    paused: paused,
-                    // EXP-848: the dot pulses on the device-written turn flag.
-                    busy: session.agentBusy
-                )
+                HStack(spacing: 6) {
+                    // EXP-1068: an open question to a person — red, beside
+                    // the state dot (the amber needs-input state stays).
+                    if marks.needsYou {
+                        Circle()
+                            .fill(DesignTokens.Semantic.red)
+                            .frame(width: 7, height: 7)
+                            .accessibilityLabel("Needs you")
+                    }
+                    SessionRowTitle(
+                        identifier: identifier,
+                        title: title,
+                        state: state,
+                        paused: paused,
+                        // EXP-848: the dot pulses on the device-written turn flag.
+                        busy: session.agentBusy
+                    )
+                    if marks.duplicateLive {
+                        AppIcon(AppIcons.uiWarning, size: 12)
+                            .foregroundStyle(DesignTokens.Semantic.yellow)
+                            .accessibilityLabel("Two live runs on this node")
+                    }
+                }
                 // EXP-850 §8: the device-written caption, only on a live row.
                 if state != .done, let caption = session.agentCaption, !caption.isEmpty {
                     Text(caption)
@@ -101,7 +119,7 @@ struct RunningSessionRow<Footer: View>: View {
                     paused: paused,
                     device: device.displayLabel,
                     started: relativeWireDate(session.startedAt)
-                ))
+                ) + (marks.account.map { " · account \($0)" } ?? ""))
                 .font(.caption)
                 .foregroundStyle(sessionStatusLineColor(state: state, paused: paused))
                 .lineLimit(1)
@@ -126,7 +144,8 @@ extension RunningSessionRow where Footer == EmptyView {
         open: RunningSessionRowOpen,
         expandable: Bool = false,
         expanded: Bool = true,
-        onToggle: (() -> Void)? = nil
+        onToggle: (() -> Void)? = nil,
+        marks: RunningSessionRowMarks = RunningSessionRowMarks()
     ) {
         self.init(
             session: session,
@@ -138,8 +157,71 @@ extension RunningSessionRow where Footer == EmptyView {
             expandable: expandable,
             expanded: expanded,
             onToggle: onToggle,
+            marks: marks,
             footer: { EmptyView() }
         )
+    }
+}
+
+/// EXP-1068: what a workflow member's row adds to the plain run row.
+struct RunningSessionRowMarks {
+    /// The run holds an open question to a person (`pendingQuestion`).
+    var needsYou = false
+    /// Two live author (or review) runs on this node.
+    var duplicateLive = false
+    /// The account label, only when it is not the machine's default.
+    var account: String?
+}
+
+extension RunningSessionRowMarks {
+    /// EXP-1068: a REVIEW chain's title, `Review r2 · approved`, off its
+    /// node's synced `review_round` + latest `review`. Nil on every other
+    /// row. Shared by the Agent page's lists and the workflow page's Runs
+    /// face (EXP-1083), so both read the same caption.
+    ///
+    /// `nodeReviewRound` + `review` = the node row's synced `review_round` and
+    /// `review` json (the tree context's `WorkflowNode` or the entity).
+    static func reviewTitle(
+        _ node: SessionTree.SessionNode?, nodeReviewRound: Int?, review: String?
+    ) -> String? {
+        guard let node, node.session.workflowRole == DomainContract.wfSessionRoleReview else {
+            return nil
+        }
+        let latest = WorkflowNodeReview.parse(review)
+        let verdict = SessionTree.reviewRoundVerdict(
+            round: node.reviewRound,
+            nodeReviewRound: nodeReviewRound,
+            latestRound: latest?.round,
+            latestVerdict: latest?.verdict
+        )
+        return SessionTree.reviewRowCaption(
+            round: node.reviewRound,
+            verdict: verdict,
+            live: SessionTree.sessionRowIsLive(status: node.session.status)
+        )
+    }
+
+    /// The run's account label when it is NOT the host machine's default for
+    /// that agent (`launch_defaults.defaultAccount` when the agent is the
+    /// machine's default agent, else its ambient `system` login). A host this
+    /// phone has not synced shows any non-ambient account.
+    static func nonDefaultAccount(_ session: CodingSessionEntity, devices: [SteerDevice]?) -> String? {
+        guard let account = session.agentAccount, !account.isEmpty else { return nil }
+        let device = session.deviceId.flatMap { id in
+            devices?.first { $0.deviceId == id }
+        }
+        let system = AgentAccountsRows.systemProfileId
+        let defaults = device?.launchDefaults
+        let fallback = defaults?.defaultAccount.flatMap { $0.isEmpty ? nil : $0 } ?? system
+        let machineDefault = (session.agent != nil && defaults?.defaultAgent == session.agent)
+            ? fallback : system
+        guard account != machineDefault else { return nil }
+        let profile = session.agent.flatMap { agent in
+            device?.agentAccounts?[agent]?.profiles?.first { $0.id == account }
+        }
+        let label = profile?.label ?? profile?.email
+        if let label, !label.isEmpty { return label }
+        return account == system ? "Default" : account
     }
 }
 

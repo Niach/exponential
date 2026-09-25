@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/issue-graph.json"
+import geometry from "@exp/domain-contract/fixtures/issue-graph-geometry.json"
 import {
   blockCounts,
   blockGraph,
   blocksBadgeLabel,
+  ISSUE_GRAPH_GEOMETRY,
   ISSUE_GRAPH_MAX_NODES,
+  issueGraphEdge,
+  issueGraphOrigin,
+  issueGraphSize,
   openBlockersOfSet,
   type BlockCounts,
   type GraphIssue,
@@ -84,4 +89,28 @@ describe(`issue graph node cap`, () => {
       subject: true,
     })
   })
+})
+
+// EXP-1057: the mini-graph's ONE geometry, locked ×4 against the fixture.
+describe(`issue graph geometry`, () => {
+  it(`matches the contract constants`, () => {
+    expect(ISSUE_GRAPH_GEOMETRY).toEqual(geometry.constants)
+  })
+  for (const entry of geometry.sizes) {
+    it(`size: ${entry.name}`, () => {
+      const { name: _name, waves, lanes, ...expected } = entry
+      expect(issueGraphSize(waves, lanes)).toEqual(expected)
+    })
+  }
+  it(`places node origins`, () => {
+    for (const entry of geometry.origins) {
+      expect(issueGraphOrigin(entry.wave, entry.lane)).toEqual({ x: entry.x, y: entry.y })
+    }
+  })
+  for (const entry of geometry.edges) {
+    it(`edge: ${entry.name}`, () => {
+      const { name: _name, from, to, ...expected } = entry
+      expect(issueGraphEdge(from, to)).toEqual(expected)
+    })
+  }
 })

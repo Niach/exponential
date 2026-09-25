@@ -15,7 +15,7 @@
 //! reviewed PRs into the integration branch in order (the merge train), then
 //! opens ONE final PR integration → default.
 //!
-//! EXP-983 makes the starts SPECULATIVE: all three `start_on` modes are live,
+//! EXP-983 makes the starts SPECULATIVE: dependents start on their blockers' contract,
 //! so a dependent may start before its blockers landed. It then bases on
 //! THEIR work — one unlanded blocker means that blocker's branch, several
 //! mean a synthetic base the host merges them into — upstream movement
@@ -26,8 +26,13 @@
 //! EXP-984 closes the loop (EXP-1010: for EVERY workflow): every node's pushed
 //! branch gets a REVIEWER run — always on the launch's STRONG model (EXP-1029),
 //! adversarial in its PROMPT for a `risk: high` node — whose `request_changes`
-//! findings go back to the author at most three rounds; and a follow-up node
-//! nobody admitted (`proposed`) is treated as absent from the run entirely.
+//! findings go back to the author at most three rounds (EXP-1065: the cap
+//! is a bound on bouncing, not a hand-off — the last round's findings reach
+//! the author once more, then the train lands the node and the server
+//! carries them to the final pull request; no person ever gates a node, and
+//! `waiting` is never written: every hold is the node's own state plus a
+//! note); and a follow-up node nobody admitted (`proposed`) is treated as
+//! absent from the run entirely.
 //!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
@@ -35,6 +40,8 @@
 
 pub mod base;
 pub mod branch;
+// EXP-1082: the host's audit-trail sink (`workflow_events`).
+pub mod events;
 pub mod facts;
 // EXP-1029: the two-model launch every node run and review reads from.
 pub mod launch;
@@ -54,7 +61,8 @@ pub use facts::{
     prune_conflict_cache, NodeGit,
 };
 pub use state::{
-    hold_resume, merge_resuming, read_states, release_resume, write_states, WorkflowState,
+    final_pr_close_handled, hold_resume, merge_resuming, read_states, release_resume, write_states,
+    WorkflowState,
     WORKFLOW_ENGINE_KEY,
 };
 
@@ -89,10 +97,13 @@ pub fn launch_options(
     options
 }
 
-/// The note a node carries while it waits for an answer.
-pub const NOTE_NEEDS_ANSWER: &str = "Needs an answer";
-/// The note a node carries while its agent is rate limited.
-pub const NOTE_RATE_LIMITED: &str = "Rate limited";
+/// The note a node carries while its agent is rate limited (EXP-1065: a
+/// hold keeps the node's own state — `waiting` is never written — and says
+/// why here).
+pub const NOTE_RATE_LIMITED: &str = "Waiting for the account's reset";
+/// The two hold notes engines before EXP-1065 wrote next to `waiting`;
+/// recognised so the mirror clears them once the hold is over.
+const LEGACY_HOLD_NOTES: [&str; 2] = ["Needs an answer", "Rate limited"];
 /// The note a node carries when its run ended with nothing to review.
 pub const NOTE_NO_PULL_REQUEST: &str = "The run ended without a pull request";
 /// EXP-1007: the note a node carries when its start never came up on the
@@ -132,6 +143,11 @@ pub struct WorkflowFacts {
     pub integration_branch: String,
     #[serde(default)]
     pub final_pr_url: Option<String>,
+    /// EXP-1059: contract `prState` of the final PR (`open`/`closed`/
+    /// `merged`), `None` while there is none. `closed` = someone closed it
+    /// WITHOUT merging: the engine reopens it once (rule 10).
+    #[serde(default)]
+    pub final_pr_state: Option<String>,
     /// Contract `workflow.maxParallelDefault` — how many node runs may be
     /// live at once. Not a launch field any more (EXP-1029): the hosts fill
     /// it from the contract.
@@ -143,17 +159,6 @@ pub struct WorkflowFacts {
     /// here and it normalizes the same way.
     #[serde(default, deserialize_with = "deserialize_launch")]
     pub launch: launch::WorkflowLaunch,
-    /// contract `wfStartOn` (`contract|pr_open|landed`). New workflows are
-    /// all `contract` (EXP-1029); an older row keeps what it was started
-    /// with, and an absent or unknown word reads as `landed`: the
-    /// conservative mode, which never starts a node on work that is not in
-    /// yet.
-    #[serde(default = "start_on_landed")]
-    pub start_on: String,
-}
-
-fn start_on_landed() -> String {
-    START_ON_LANDED.to_string()
 }
 
 /// The stored `launch` jsonb of ANY vintage → the strict launch.
@@ -172,19 +177,12 @@ impl Default for WorkflowFacts {
             status: String::new(),
             integration_branch: String::new(),
             final_pr_url: None,
+            final_pr_state: None,
             max_parallel: 0,
-            start_on: start_on_landed(),
             launch: launch::WorkflowLaunch::default(),
         }
     }
 }
-
-/// contract `wfStartOn` — a dependent starts once its blockers LANDED.
-pub const START_ON_LANDED: &str = "landed";
-/// A dependent starts once its blockers' pull requests are OPEN.
-pub const START_ON_PR_OPEN: &str = "pr_open";
-/// A dependent starts once its blockers announced their CONTRACT.
-pub const START_ON_CONTRACT: &str = "contract";
 
 /// One `workflow_nodes` row, as plain data.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -216,7 +214,7 @@ pub struct NodeFacts {
     pub approved_at: Option<String>,
     /// EXP-983: only its PRESENCE matters — the run announced its contract
     /// (`exponential_workflows_checkpoint`), which releases its dependents
-    /// under `start_on: contract`.
+    /// (EXP-1066: the one start rule).
     #[serde(default)]
     pub checkpoint_at: Option<String>,
     /// The branch this node's run was cut from, as reported at its start.
@@ -245,6 +243,10 @@ pub struct NodeFacts {
     /// = unknown, which holds.
     #[serde(default)]
     pub updated_at_ms: Option<i64>,
+    /// EXP-1071: the row's current note — the mirror writes a hold note only
+    /// when it changes, and clears its OWN notes once the hold is over.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// The half of `workflow_nodes.review` the engine reads.
@@ -262,6 +264,18 @@ pub struct ReviewFacts {
     /// stale: it clears nothing, and the new head gets its own review.
     #[serde(default)]
     pub head: Option<String>,
+    /// EXP-1065: the reviewer's own checks. A FAILED oracle under an
+    /// `approve` reads exactly like `request_changes` ([`changes_requested`]).
+    #[serde(default)]
+    pub oracle: Option<OracleFacts>,
+}
+
+/// The half of `workflow_nodes.review.oracle` the engine reads.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OracleFacts {
+    #[serde(default)]
+    pub passed: Option<bool>,
 }
 
 /// What the engine reads off a node's representative issue.
@@ -318,6 +332,15 @@ pub struct Snapshot {
     pub in_flight: HashSet<String>,
     #[serde(default)]
     pub final_pr_in_flight: bool,
+    /// Host fact (EXP-1059, persisted `WorkflowState::final_pr_close_handled`):
+    /// the CURRENT closed episode of the final PR was already put to the
+    /// server (`workflows.reopenFinalPr` answered — reopened, or gave up
+    /// because the one reopen was spent). The host clears it once the PR
+    /// reads `open` again, so EVERY close reaches the server and the
+    /// server's `final_pr_reopened` event is the once-gate; this flag only
+    /// keeps one closed episode from being asked every beat.
+    #[serde(default)]
+    pub final_pr_close_handled: bool,
     /// Host fact: `(session id, resets_at_ms)` pairs already nudged.
     #[serde(default)]
     pub nudged: HashSet<(String, i64)>,
@@ -369,6 +392,107 @@ pub struct Snapshot {
     pub now_ms: i64,
 }
 
+/// EXP-1082 — contract `wfSessionRole`: what a workflow run is FOR,
+/// stamped onto `coding_sessions.workflow_role` at start.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum WfSessionRole {
+    Author,
+    Review,
+    BaseMerge,
+    Plan,
+    Replan,
+}
+
+impl WfSessionRole {
+    /// The contract wire value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WfSessionRole::Author => "author",
+            WfSessionRole::Review => "review",
+            WfSessionRole::BaseMerge => "base_merge",
+            WfSessionRole::Plan => "plan",
+            WfSessionRole::Replan => "replan",
+        }
+    }
+    /// The inverse of [`Self::as_str`]; `None` for a value this build does
+    /// not know.
+    pub fn parse(value: &str) -> Option<Self> {
+        [
+            WfSessionRole::Author,
+            WfSessionRole::Review,
+            WfSessionRole::BaseMerge,
+            WfSessionRole::Plan,
+            WfSessionRole::Replan,
+        ]
+        .into_iter()
+        .find(|role| role.as_str() == value)
+    }
+}
+
+/// EXP-1082 — the workflow membership a launch carries into its session row
+/// (`LaunchOptions::workflow` → `codingSessions.start({workflowId,
+/// workflowNodeId, workflowRole})`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowMembership {
+    pub workflow_id: String,
+    /// `None` for a workflow-level run with no node: the `plan` / `replan`
+    /// planner runs of a draft (the Plan-workflow frame names the workflow
+    /// and the role only). Node runs always carry one.
+    pub node_id: Option<String>,
+    pub role: WfSessionRole,
+}
+
+impl WorkflowMembership {
+    /// Decode the optional wire keys (the relay's `start_session` frame): a
+    /// membership needs the workflow id and a known role; the node is
+    /// optional (a planner run has none). An unknown role drops it.
+    pub fn from_wire(
+        workflow_id: Option<&str>,
+        node_id: Option<&str>,
+        role: Option<&str>,
+    ) -> Option<Self> {
+        let role = WfSessionRole::parse(role?)?;
+        Some(Self {
+            workflow_id: workflow_id.filter(|id| !id.is_empty())?.to_string(),
+            node_id: node_id.filter(|id| !id.is_empty()).map(str::to_string),
+            role,
+        })
+    }
+
+    /// The `codingSessions.start` keys; a `None` node stays off the wire.
+    pub fn wire(&self) -> api::coding_sessions::WorkflowStart<'_> {
+        api::coding_sessions::WorkflowStart {
+            workflow_id: Some(&self.workflow_id),
+            workflow_node_id: self.node_id.as_deref(),
+            workflow_role: Some(self.role.as_str()),
+        }
+    }
+}
+
+/// EXP-1082 — the ONE glue both hosts (`ui::workflow_host`, the CLI daemon)
+/// run before an ENGINE start (a node's author run, a review): stamp the
+/// decision's membership onto the launch and the decision's own account,
+/// when it names one. The account PICK itself happens exactly once, inside
+/// `coding::prepare` (EXP-1005: every launch on the device, engine starts
+/// included, off the usage cache); `PreparedLaunch::account_pick` hands the
+/// hosts what moved, and they say so (`account_picked`).
+///
+/// Starts only: a RESUME (merge-upstream, findings, a refused land, a
+/// conflict relaunch) keeps its RECORDED account (EXP-906) and never comes
+/// through here; moving a run off a spent login is the mid-run switch
+/// (EXP-1005's `pick_rotation_target`), not a start pick.
+pub fn apply_engine_start(
+    options: &mut crate::LaunchOptions,
+    membership: WorkflowMembership,
+    decision_account: Option<String>,
+) {
+    options.workflow = Some(membership);
+    if let Some(account) = decision_account {
+        options.account = Some(account);
+    }
+}
+
 /// What one pass asks the host to do. Every side effect lives in the host.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -392,6 +516,16 @@ pub enum Decision {
         node_id: String,
         base_branch: String,
         sources: Vec<String>,
+        /// EXP-1082: the workflow this run belongs to, stamped onto its
+        /// `coding_sessions` row (`workflow_id`) at start.
+        workflow_id: String,
+        /// EXP-1082: contract `wfSessionRole` — what the run is FOR.
+        role: WfSessionRole,
+        /// EXP-1082 (EXP-1005 fills it): the agent profile the host starts
+        /// on, from `account_rotation::pick_start_account`; `None` = the
+        /// device's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
     },
     /// Report `running` FIRST, then launch the node's run locally, cut from
     /// `base_branch` (EXP-983: the integration branch only when no blocker
@@ -408,6 +542,16 @@ pub enum Decision {
         /// device's own default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// EXP-1082: the workflow this run belongs to, stamped onto its
+        /// `coding_sessions` row (`workflow_id`) at start.
+        workflow_id: String,
+        /// EXP-1082: contract `wfSessionRole` — what the run is FOR.
+        role: WfSessionRole,
+        /// EXP-1082 (EXP-1005 fills it): the agent profile the host starts
+        /// on, from `account_rotation::pick_start_account`; `None` = the
+        /// device's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
     },
     /// EXP-983: tell a live (or resume an ended) run that the branch it
     /// builds on moved to `sha`, so it merges it in. The host writes the
@@ -440,6 +584,16 @@ pub enum Decision {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
         adversarial: bool,
+        /// EXP-1082: the workflow this run belongs to, stamped onto its
+        /// `coding_sessions` row (`workflow_id`) at start.
+        workflow_id: String,
+        /// EXP-1082: contract `wfSessionRole` — what the run is FOR.
+        role: WfSessionRole,
+        /// EXP-1082 (EXP-1005 fills it): the agent profile the host starts
+        /// on, from `account_rotation::pick_start_account`; `None` = the
+        /// device's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
     },
     /// EXP-984: hand the latest review's findings to the node's AUTHOR, once
     /// per round. `session_id` = the live run to steer; `None` = its run
@@ -462,6 +616,15 @@ pub enum Decision {
     },
     /// `workflows.openFinalPr` — integration branch → the default branch.
     OpenFinalPr,
+    /// EXP-1059: `workflows.reopenFinalPr` — the final PR was closed without
+    /// merging. The server reopens it ONCE and records a later close as a
+    /// person's decision; once it ANSWERED, the host remembers
+    /// `final_pr_close_handled` for this closed episode.
+    ReopenFinalPr,
+    /// EXP-1059: `workflows.cancelUnshipped` — every node was skipped, so
+    /// nothing reached the integration branch and there is no final PR to
+    /// open: the workflow ends `cancelled` with the `nothing shipped` note.
+    CancelUnshipped,
     /// Cancelled: end a live run.
     #[serde(rename_all = "camelCase")]
     KillSession { session_id: String },
@@ -571,19 +734,16 @@ fn is_synthetic(workflow_id: &str, branch: &str) -> bool {
     branch.starts_with(&synthetic_prefix(workflow_id))
 }
 
-/// A blocker satisfies the workflow's start mode (EXP-983 rule 1). `skipped`
-/// releases under every mode: there is nothing left to wait for.
-fn blocker_releases(start_on: &str, blocker: &NodeFacts) -> bool {
-    if blocker.state == "skipped" || blocker.state == "landed" {
-        return true;
-    }
-    match start_on {
-        START_ON_PR_OPEN => matches!(blocker.state.as_str(), "in_review" | "updating"),
-        START_ON_CONTRACT => {
-            blocker.checkpoint_at.is_some()
-                || matches!(blocker.state.as_str(), "in_review" | "updating")
-        }
-        // `landed` and anything a newer server invents: landed only.
+/// A blocker releases its dependents (EXP-983 rule 1) once it announced its
+/// CONTRACT, put its pull request up, landed or was skipped. EXP-1066: this
+/// is the ONE start rule — the `start_on` modes are gone, dependents always
+/// start on the blockers' contract. A checkpoint counts only while the
+/// blocker is AT WORK: a retried or failed blocker's old announcement
+/// releases nothing (the server nulls it on retry too).
+fn blocker_releases(blocker: &NodeFacts) -> bool {
+    match blocker.state.as_str() {
+        "in_review" | "updating" | "landed" | "skipped" => true,
+        "running" | "waiting" => blocker.checkpoint_at.is_some(),
         _ => false,
     }
 }
@@ -596,8 +756,8 @@ fn is_unlanded(state: &str) -> bool {
 
 /// The rule cascade, in order (the module doc names the hosts that run it):
 /// 0. no integration branch → create it, and NOTHING else this pass;
-/// 1. mirror every node's state off its session, PR and blockers, the
-///    blockers read through the workflow's START MODE (also while `paused`);
+/// 1. mirror every node's state off its session, PR and blockers, a blocker
+///    releasing on its contract, its PR or its landing (also while `paused`);
 /// 2. start `ready` nodes up to `max_parallel`, each on the base its
 ///    unlanded blockers dictate (building a synthetic one first);
 /// 3. refresh a synthetic base whose sources moved; 4. tell a run that the
@@ -698,7 +858,20 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
                 } else {
                     state
                 };
-                if state != node.state {
+                // EXP-1071: ONE write per real change. A hold note is written
+                // when it appears or changes, cleared once the hold is over
+                // (only the engine's own notes: a review note the server
+                // wrote stays with an unchanged state), and a state change
+                // always writes.
+                let note_changed = match note.as_deref() {
+                    Some(next) if is_engine_hold_note(next) => node.note.as_deref() != Some(next),
+                    // A state-bound note (`failed` + why, `updating` + the
+                    // refusal) rides the state change that carries it; the
+                    // host's own reason on the row wins meanwhile.
+                    Some(_) => false,
+                    None => node.note.as_deref().is_some_and(is_engine_hold_note),
+                };
+                if state != node.state || note_changed {
                     decisions.push(Decision::SetNodeState {
                         node_id: node.id.clone(),
                         state: state.clone(),
@@ -738,6 +911,9 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
                 node_id: entry.node.id.clone(),
                 sources: synthetic_sources(snapshot, entry.node, &blockers),
                 base_branch: base.clone(),
+                workflow_id: snapshot.workflow.id.clone(),
+                role: WfSessionRole::BaseMerge,
+                account: None,
             });
         }
         decisions.push(Decision::StartNode {
@@ -745,6 +921,9 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             attempt: entry.node.attempt + 1,
             base_branch: base,
             model: node_model(&snapshot.workflow, &entry.node.kind, &entry.node.risk),
+            workflow_id: snapshot.workflow.id.clone(),
+            role: WfSessionRole::Author,
+            account: None,
         });
         active += 1;
     }
@@ -759,6 +938,12 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             continue;
         };
         if !is_synthetic(&snapshot.workflow.id, base) {
+            continue;
+        }
+        // EXP-1071: while two of its sources collide the base cannot be
+        // rebuilt — the mirror carries the reason on the node; rule 5
+        // serializes the pair. Asking every beat was the flap.
+        if conflicting_blockers(snapshot, entry.node, &blockers).is_some() {
             continue;
         }
         let sources = synthetic_sources(snapshot, entry.node, &blockers);
@@ -778,6 +963,9 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             node_id: entry.node.id.clone(),
             base_branch: base.to_string(),
             sources,
+            workflow_id: snapshot.workflow.id.clone(),
+            role: WfSessionRole::BaseMerge,
+            account: None,
         });
     }
 
@@ -819,9 +1007,10 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     // graph both know about it.
     decisions.extend(serialization_decisions(snapshot, &mirrored));
 
-    // (6) A wall that lifted: tell the run to carry on, exactly once.
+    // (6) A wall that lifted: tell the run to carry on, exactly once. Keyed
+    // on the RUN (EXP-1065: a walled node keeps its own state).
     for entry in &mirrored {
-        if entry.state != "waiting" {
+        if is_final(&entry.state) {
             continue;
         }
         let Some(session_id) = entry.node.session_id.as_deref() else {
@@ -856,13 +1045,14 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     // pull request is up, and a round's findings handed over exactly once.
     decisions.extend(review_decisions(snapshot, &mirrored));
 
-    // (8) EXP-984: a node that spent more than it was given stops there and
-    // waits for a person (`resolveNode retry` puts it back in the run).
+    // (8) EXP-984/EXP-1065: a node at the review cap stops bouncing — its
+    // last findings go to the author once more (rule 7), then the train
+    // takes it ([`is_cleared`]); nobody waits for a person.
 
     // (9) The merge train: ONE land per pass, and only while the host is not
     // already landing one. The train is strict order among LANDABLE nodes —
-    // a node still waiting for a person, for a blocker or for the sibling it
-    // has to merge in never blocks a landable one behind it.
+    // a node still waiting for its review, for a blocker or for the sibling
+    // it has to merge in never blocks a landable one behind it.
     // A land the mirror already asked for (a pull request merged behind our
     // back) IS this pass's land: its node still reads `in_review` here, and
     // the train would otherwise ask for the same one twice.
@@ -880,7 +1070,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             .collect();
         if let Some(entry) = mirrored.iter().find(|entry| {
             entry.state == "in_review"
-                && is_cleared(entry.node)
+                && is_cleared(snapshot, entry.node)
                 && !approval_is_stale(snapshot, entry.node)
                 && is_landable(entry.node, &blockers, &state_of)
         }) {
@@ -894,12 +1084,23 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     let all_in = !mirrored.is_empty()
         && mirrored.iter().all(|entry| is_final(&entry.state));
     let any_landed = mirrored.iter().any(|entry| entry.state == "landed");
-    if all_in
-        && any_landed
-        && snapshot.workflow.final_pr_url.is_none()
-        && !snapshot.final_pr_in_flight
-    {
-        decisions.push(Decision::OpenFinalPr);
+    if all_in && !snapshot.final_pr_in_flight {
+        if !any_landed {
+            // EXP-1059: every node skipped — nothing shipped, nothing to
+            // review. The server ends the workflow `cancelled` with its
+            // note; the next pass then sweeps the branch like any cancel.
+            decisions.push(Decision::CancelUnshipped);
+        } else if snapshot.workflow.final_pr_url.is_none() {
+            decisions.push(Decision::OpenFinalPr);
+        } else if snapshot.workflow.final_pr_state.as_deref() == Some("closed")
+            && !snapshot.final_pr_close_handled
+        {
+            // EXP-1059: closed without merging — every close goes to the
+            // server once: the first is reopened, a later one is recorded
+            // as a person's decision (a decision line + a `failed` event)
+            // and the workflow waits for a member (`openFinalPr`).
+            decisions.push(Decision::ReopenFinalPr);
+        }
     }
 
     // (11) A synthetic base nothing is building on any more: the branch goes,
@@ -1214,7 +1415,7 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
             continue;
         }
         if node.review_round >= domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS as i64 {
-            continue; // it stopped bouncing; a person owns it now
+            continue; // the cap: the last findings go once more, then the train takes it
         }
         if snapshot.review_in_flight.contains(&node.id) {
             continue;
@@ -1244,6 +1445,9 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
             node_id: node.id.clone(),
             model: review_model(snapshot),
             adversarial,
+            workflow_id: snapshot.workflow.id.clone(),
+            role: WfSessionRole::Review,
+            account: None,
         });
         break;
     }
@@ -1255,7 +1459,7 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
         let Some(review) = node.review.as_ref() else {
             continue;
         };
-        if review.verdict != VERDICT_REQUEST_CHANGES || review.round != node.review_round {
+        if !changes_requested(review) || review.round != node.review_round {
             continue;
         }
         if findings_delivered(snapshot, node, review.round) {
@@ -1286,13 +1490,24 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
     decisions
 }
 
+/// EXP-1065: a verdict that sends the author back to work — `request_changes`,
+/// or an `approve` the reviewer's own checks contradict (a FAILED oracle),
+/// which the server treats the same way (`reviewOutcome`).
+fn changes_requested(review: &ReviewFacts) -> bool {
+    review.verdict == VERDICT_REQUEST_CHANGES
+        || review
+            .oracle
+            .as_ref()
+            .is_some_and(|oracle| oracle.passed == Some(false))
+}
+
 /// Whether the node's CURRENT round still owes its author something: the
 /// findings were never delivered, or the run is mid-turn acting on them.
 fn findings_pending(snapshot: &Snapshot, node: &NodeFacts) -> bool {
     let Some(review) = node.review.as_ref() else {
         return false;
     };
-    if review.verdict != VERDICT_REQUEST_CHANGES || review.round != node.review_round {
+    if !changes_requested(review) || review.round != node.review_round {
         return false;
     }
     if !findings_delivered(snapshot, node, review.round) {
@@ -1432,9 +1647,8 @@ fn desired_state(
         if node.state == "failed" && retry_in_backoff(snapshot, node) {
             return Some(state("failed"));
         }
-        // Not started yet: the blockers decide, read through the workflow's
-        // START MODE (EXP-983 — `landed` waits for the merge, `pr_open` for
-        // the pull request, `contract` for the announcement).
+        // Not started yet: the blockers decide (EXP-983 — a blocker releases
+        // on its contract announcement, its pull request or its landing).
         let ready = blockers
             .get(node.id.as_str())
             .map(|ids| {
@@ -1443,9 +1657,7 @@ fn desired_state(
                         .nodes
                         .iter()
                         .find(|candidate| candidate.id == *id)
-                        .is_some_and(|candidate| {
-                            blocker_releases(&snapshot.workflow.start_on, candidate)
-                        })
+                        .is_some_and(blocker_releases)
                 })
             })
             .unwrap_or(true);
@@ -1457,8 +1669,9 @@ fn desired_state(
         // (rule 5 arranges that), so it waits here, and says why, instead of
         // flipping ready ↔ waiting on every beat.
         if let Some((left, right)) = conflicting_blockers(snapshot, node, blockers) {
+            // EXP-1065: not started = `blocked`, with the reason on the row.
             return Some(state_with_note(
-                "waiting",
+                "blocked",
                 &conflicting_blockers_note(snapshot, &left, &right),
             ));
         }
@@ -1501,31 +1714,56 @@ fn desired_state(
             }
         }
     }
+    // EXP-1065/EXP-1071: a STARTED node whose unlanded blockers collide holds
+    // its own state and says why — the same note every beat, so the row is
+    // written once (the base build that found the conflict used to write
+    // `waiting`, and the mirror put the state back the next beat).
+    let conflict = conflicting_blockers(snapshot, node, blockers)
+        .map(|(left, right)| conflicting_blockers_note(snapshot, &left, &right));
+    let hold = |name: &str, note: Option<String>| -> Desired {
+        Desired::State {
+            state: name.to_string(),
+            note,
+        }
+    };
     if session.live {
         // A node merging the trunk in stays `updating` for as long as the
         // agent is actually working on it.
         if node.state == "updating" && session.agent_busy {
-            return Some(state("updating"));
+            return Some(hold("updating", conflict));
         }
         if pr_state == Some("open") {
-            return Some(state("in_review"));
+            return Some(hold("in_review", conflict));
         }
-        if session.needs_input {
-            return Some(state_with_note("waiting", NOTE_NEEDS_ANSWER));
-        }
+        // An open question (`needs_input`) changes NOTHING here: the badge a
+        // person sees comes off the run's own `pending_question`.
         if session.blocked {
-            return Some(state_with_note("waiting", NOTE_RATE_LIMITED));
+            // EXP-1065: a wall keeps the node `running`; the note says why.
+            return Some(hold(
+                "running",
+                conflict.or_else(|| Some(NOTE_RATE_LIMITED.to_string())),
+            ));
         }
-        return Some(state("running"));
+        return Some(hold("running", conflict));
     }
     match pr_state {
-        Some("open") => Some(state("in_review")),
-        // The run ended with nothing to review: one free retry, then a
-        // person's call. `attempt` counts the starts so far (the first run
-        // is attempt 1), so the retry is the second start.
+        Some("open") => Some(hold("in_review", conflict)),
+        // The run ended with nothing to review: one free retry, then the
+        // node fails and says so. `attempt` counts the starts so far (the
+        // first run is attempt 1), so the retry is the second start.
         _ if node.attempt <= 1 => Some(state("ready")),
         _ => Some(state_with_note("failed", NOTE_NO_PULL_REQUEST)),
     }
+}
+
+/// EXP-1071: a note the ENGINE itself put on a node while it held — the
+/// only notes the mirror may clear again (a server-written review note is
+/// never touched while the state stands).
+fn is_engine_hold_note(note: &str) -> bool {
+    note == NOTE_RATE_LIMITED
+        || LEGACY_HOLD_NOTES.contains(&note)
+        || (note.starts_with("Its blockers ") && note.ends_with("one has to merge the other in"))
+        || (note.starts_with("Its base ") && note.contains("could not be built"))
 }
 
 /// A launch that just failed is not retried for [`RETRY_BACKOFF_MS`] after
@@ -1782,10 +2020,36 @@ pub fn settle_review_runs(
 }
 
 /// EXP-1010: a node is cleared for the train once it carries an approval —
-/// the agent review's (the only gate there is) or a person's, by hand. The
-/// server enforces it.
-fn is_cleared(node: &NodeFacts) -> bool {
-    node.approved_at.is_some()
+/// the agent review's (the only gate there is). EXP-1065: or once it is AT
+/// THE CAP — `WORKFLOW_MAX_REVIEW_ROUNDS` verdicts that still ask for
+/// changes (a failed oracle counts), the last round's findings delivered,
+/// and the author's run ENDED (a workflow author is unattended and ends
+/// itself; a live run, however idle, may not have read the findings yet).
+/// The findings are not lost: the server carries them into the workflow's
+/// decisions and the final pull request, the one place a person reviews.
+/// The server enforces both readings (`landNode`).
+fn is_cleared(snapshot: &Snapshot, node: &NodeFacts) -> bool {
+    node.approved_at.is_some() || cleared_at_cap(snapshot, node)
+}
+
+fn cleared_at_cap(snapshot: &Snapshot, node: &NodeFacts) -> bool {
+    if node.review_round < domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS as i64 {
+        return false;
+    }
+    let Some(review) = node.review.as_ref() else {
+        return false;
+    };
+    if review.round != node.review_round || !changes_requested(review) {
+        return false;
+    }
+    if !findings_delivered(snapshot, node, review.round) {
+        return false;
+    }
+    !node
+        .session_id
+        .as_deref()
+        .and_then(|session_id| snapshot.sessions.get(session_id))
+        .is_some_and(|session| session.live)
 }
 
 /// An agent approval is tied to the commit the reviewer
@@ -1838,6 +2102,48 @@ fn blockers_by_node(snapshot: &Snapshot) -> HashMap<&str, Vec<&str>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn wf_session_role_matches_the_contract() {
+        let ours: Vec<&str> = [
+            WfSessionRole::Author,
+            WfSessionRole::Review,
+            WfSessionRole::BaseMerge,
+            WfSessionRole::Plan,
+            WfSessionRole::Replan,
+        ]
+        .into_iter()
+        .map(WfSessionRole::as_str)
+        .collect();
+        assert_eq!(ours, domain::contract::WF_SESSION_ROLE_VALUES);
+        for value in domain::contract::WF_SESSION_ROLE_VALUES {
+            let role = WfSessionRole::parse(value).expect("known role");
+            assert_eq!(
+                serde_json::to_value(role).unwrap(),
+                serde_json::json!(value)
+            );
+        }
+    }
+
+    #[test]
+    fn membership_needs_a_workflow_and_a_role_the_node_is_optional() {
+        assert_eq!(
+            WorkflowMembership::from_wire(Some("wf"), Some("n"), Some("review")),
+            Some(WorkflowMembership {
+                workflow_id: "wf".to_string(),
+                node_id: Some("n".to_string()),
+                role: WfSessionRole::Review,
+            })
+        );
+        // The Plan-workflow frame: workflow + role, no node.
+        let plan = WorkflowMembership::from_wire(Some("wf"), None, Some("plan")).unwrap();
+        assert_eq!(plan.node_id, None);
+        assert_eq!(plan.role, WfSessionRole::Plan);
+        assert_eq!(plan.wire().workflow_node_id, None);
+        assert_eq!(WorkflowMembership::from_wire(None, Some("n"), Some("author")), None);
+        assert_eq!(WorkflowMembership::from_wire(Some("wf"), Some("n"), None), None);
+        assert_eq!(WorkflowMembership::from_wire(Some("wf"), Some("n"), Some("boss")), None);
+    }
+
     fn node(id: &str, state: &str, wave: i64, lane: i64) -> NodeFacts {
         NodeFacts {
             id: id.to_string(),
@@ -1857,8 +2163,8 @@ mod tests {
                 status: "running".to_string(),
                 integration_branch: "exp/wf-abcdef12".to_string(),
                 final_pr_url: None,
+                final_pr_state: None,
                 max_parallel: 3,
-                start_on: START_ON_LANDED.to_string(),
                 launch: launch::WorkflowLaunch::default(),
             },
             nodes,
@@ -1906,6 +2212,64 @@ mod tests {
         // Both are final, at least one landed: the pass goes straight to the
         // final pull request without touching either row.
         assert_eq!(evaluate(&snapshot), vec![Decision::OpenFinalPr]);
+    }
+
+    /// EXP-1059 (§7): a final PR closed WITHOUT merging is reopened ONCE.
+    #[test]
+    fn a_closed_final_pr_is_reopened_once() {
+        let mut snapshot = running(vec![node("a", "landed", 0, 0), node("b", "skipped", 0, 1)]);
+        snapshot.workflow.final_pr_url = Some("https://gh/pr/9".to_string());
+        snapshot.workflow.final_pr_state = Some("closed".to_string());
+        assert_eq!(evaluate(&snapshot), vec![Decision::ReopenFinalPr]);
+
+        // The host is mid-call: nothing is asked twice in one flight.
+        let mut in_flight = snapshot.clone();
+        in_flight.final_pr_in_flight = true;
+        assert!(evaluate(&in_flight).is_empty());
+
+        // This closed episode was put to the server already (reopened, or
+        // recorded as closed for good): nothing is asked again until the PR
+        // reads open once more — the engine opens no second PR either.
+        let mut handled = snapshot.clone();
+        handled.final_pr_close_handled = true;
+        assert!(evaluate(&handled).is_empty());
+
+        // Closed AGAIN after a reopen (the host cleared the flag when the PR
+        // read open): the server is asked once more, and it is the one that
+        // knows the reopen was spent.
+        let mut again = snapshot.clone();
+        again.final_pr_close_handled = false;
+        assert_eq!(evaluate(&again), vec![Decision::ReopenFinalPr]);
+
+        // Open or merged: nothing to do either.
+        for state in ["open", "merged"] {
+            let mut other = snapshot.clone();
+            other.workflow.final_pr_state = Some(state.to_string());
+            assert!(evaluate(&other).is_empty(), "state {state}");
+        }
+    }
+
+    /// EXP-1059 (§7): every node skipped = nothing shipped — the workflow is
+    /// cancelled with a note instead of opening an empty final PR.
+    #[test]
+    fn an_all_skipped_workflow_is_cancelled_with_a_note() {
+        let snapshot = running(vec![node("a", "skipped", 0, 0), node("b", "skipped", 0, 1)]);
+        assert_eq!(evaluate(&snapshot), vec![Decision::CancelUnshipped]);
+
+        // A `proposed` node nobody admitted does not keep it alive.
+        let mut proposed = snapshot.clone();
+        proposed.nodes.push(node("c", "proposed", 1, 0));
+        assert_eq!(evaluate(&proposed), vec![Decision::CancelUnshipped]);
+
+        // Paused: the person's hold — the mirror keeps reading, nothing ends.
+        let mut paused = snapshot.clone();
+        paused.workflow.status = "paused".to_string();
+        assert!(evaluate(&paused).is_empty());
+
+        // Once the server flipped it, the cancel sweep takes over.
+        let mut cancelled = snapshot.clone();
+        cancelled.workflow.status = "cancelled".to_string();
+        assert_eq!(evaluate(&cancelled), vec![Decision::DeleteIntegrationBranch]);
     }
 
     /// EXP-1007: a merge that left the run UP (`endSessionsOnMerge` off,
@@ -2041,6 +2405,9 @@ mod tests {
                 attempt: 2,
                 base_branch: "exp/wf-abcdef12".to_string(),
                 model: Some("opus".to_string()),
+                workflow_id: snapshot.workflow.id.clone(),
+                role: WfSessionRole::Author,
+                account: None,
             }),
             "past the grace the start is retried: {decisions:?}"
         );
@@ -2081,6 +2448,9 @@ mod tests {
                 attempt: 2,
                 base_branch: "exp/wf-abcdef12".to_string(),
                 model: Some("opus".to_string()),
+                workflow_id: snapshot.workflow.id.clone(),
+                role: WfSessionRole::Author,
+                account: None,
             }),
             "one free retry: {decisions:?}"
         );

@@ -423,6 +423,56 @@ pub fn stack_extra(
     extra
 }
 
+/// EXP-1083 (EXP-1068's finding): the [`RunRecord::extra`] keys carrying the
+/// run's WORKFLOW MEMBERSHIP (`workflow_id`, `workflow_node_id`,
+/// `workflow_role`, the `codingSessions.start` wire words). A resume rebuilds
+/// `LaunchOptions::workflow` from them, so its heartbeat echoes the
+/// membership and a swept resumed node or reviewer row resurrects INSIDE its
+/// workflow group instead of as a stray. They ride `extra` rather than
+/// declared fields so an older host round-trips them untouched.
+pub const WORKFLOW_ID_KEY: &str = "workflowId";
+pub const WORKFLOW_NODE_ID_KEY: &str = "workflowNodeId";
+pub const WORKFLOW_ROLE_KEY: &str = "workflowRole";
+
+impl RunRecord {
+    /// EXP-1083: the recorded workflow membership; `None` for a run outside
+    /// a workflow, or one recorded before the keys existed (its resume then
+    /// still inherits server-side, it only loses the heartbeat echo).
+    pub fn workflow_membership(&self) -> Option<crate::workflows::WorkflowMembership> {
+        let text = |key: &str| self.extra.get(key).and_then(|value| value.as_str());
+        crate::workflows::WorkflowMembership::from_wire(
+            text(WORKFLOW_ID_KEY),
+            text(WORKFLOW_NODE_ID_KEY),
+            text(WORKFLOW_ROLE_KEY),
+        )
+    }
+}
+
+/// EXP-1083: the `extra` entries a workflow launch writes — empty outside a
+/// workflow, so every other record stays byte-identical.
+pub fn workflow_extra(
+    membership: Option<&crate::workflows::WorkflowMembership>,
+) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = BTreeMap::new();
+    if let Some(membership) = membership {
+        extra.insert(
+            WORKFLOW_ID_KEY.to_string(),
+            serde_json::Value::String(membership.workflow_id.clone()),
+        );
+        if let Some(node_id) = &membership.node_id {
+            extra.insert(
+                WORKFLOW_NODE_ID_KEY.to_string(),
+                serde_json::Value::String(node_id.clone()),
+            );
+        }
+        extra.insert(
+            WORKFLOW_ROLE_KEY.to_string(),
+            serde_json::Value::String(membership.role.as_str().to_string()),
+        );
+    }
+    extra
+}
+
 /// EXP-1051: the [`RunRecord::extra`] key carrying the run's MEASURED base
 /// context — `{"tokens": <u64>, "model": "<string>"}`, written by the engine
 /// once the agent reports its own count for the run's opening turn.

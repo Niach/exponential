@@ -42,7 +42,7 @@ use sync::Store;
 use theme::tokens as t;
 
 use domain::board::format_short_date;
-use domain::issue_rail::{issue_rail, BlockEdge, RailEntry, RailRow};
+use domain::issue_rail::{issue_rail, RailEntry, RailRow};
 use domain::options::{get_issue_priority_config, ColorToken, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::{Issue, Label, Board, User};
 use domain::statuses::{ResolvedStatus, StatusTint};
@@ -245,8 +245,6 @@ enum ListRow {
         status: Box<ResolvedStatus>,
         count: usize,
         collapsed: bool,
-        /// EXP-998: the blocks rail's lanes crossing this header.
-        rail: RailRow,
     },
     Issue {
         issue: Rc<Issue>,
@@ -255,8 +253,8 @@ enum ListRow {
         /// two can never disagree (EXP-965's `guides_for` over the group's
         /// visible depth sequence).
         guides: Guides,
-        /// EXP-998: the row's slice of the blocks rail — its node (labelled
-        /// by the query's `blocks` numbers) and lanes.
+        /// EXP-998: the row's slice of the blocks rail — its node, labelled
+        /// by the query's `blocks` numbers.
         rail: RailRow,
     },
 }
@@ -305,14 +303,9 @@ pub struct IssueListView {
     /// Rows of the CURRENT render — rebuilt in `render`, read by the
     /// virtual-list range closure afterwards.
     rows: Rc<Vec<ListRow>>,
-    /// EXP-998: the blocks rail of the CURRENT render — its column width
-    /// (0 = no rail), the open edges its lanes name, and the hover state:
-    /// the row indices whose rail strip the pointer is on (any = the arrows
-    /// show) and the issue whose node is hovered (its edges go foreground).
+    /// EXP-998: the blocks rail's column width in the CURRENT render (0 = no
+    /// rail). EXP-1057: dots only; each dot owns its hover card.
     rail_width: f32,
-    block_edges: Rc<Vec<BlockEdge>>,
-    rail_hovered: HashSet<usize>,
-    rail_hot: Option<String>,
     /// EXP-314: the scope team's resolved status vocabulary for the CURRENT
     /// render — the row dropdowns and the context menu read it instead of
     /// re-querying the collections once per row.
@@ -384,9 +377,6 @@ impl IssueListView {
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             rail_width: 0.,
-            block_edges: Rc::new(Vec::new()),
-            rail_hovered: HashSet::new(),
-            rail_hot: None,
             team_statuses: Rc::new(Vec::new()),
             row_assignees: Rc::new(Vec::new()),
             data: queries::Memo::default(),
@@ -565,9 +555,8 @@ impl IssueListView {
                 status,
                 count,
                 collapsed,
-                rail,
             } => self
-                .render_group_header(status, *count, *collapsed, rail, cx)
+                .render_group_header(status, *count, *collapsed, cx)
                 .into_any_element(),
             ListRow::Issue {
                 issue,
@@ -575,7 +564,7 @@ impl IssueListView {
                 guides,
                 rail,
             } => self
-                .render_issue_row(ix, issue, labels, guides, rail, cx)
+                .render_issue_row(issue, labels, guides, rail, cx)
                 .into_any_element(),
         }) else {
             return div().into_any_element();
@@ -592,7 +581,6 @@ impl IssueListView {
         status: &ResolvedStatus,
         count: usize,
         collapsed: bool,
-        rail: &RailRow,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let chevron = if collapsed {
@@ -608,9 +596,6 @@ impl IssueListView {
             .px_3()
             .gap_1p5()
             .items_center()
-            // EXP-998: the rail's lanes cross the band; a paint-only layer.
-            .relative()
-            .children(self.rail_lanes(rail, cx))
             // EXP-293: a wash in the status' hue so the header reads as a group
             // divider and not as one more issue row (the hairline alone was too
             // little). Web parity — `statusHeaderBg` in issue-list.tsx.
@@ -659,7 +644,6 @@ impl IssueListView {
     /// `grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]` template).
     fn render_issue_row(
         &self,
-        ix: usize,
         issue: &Rc<Issue>,
         labels: &[Label],
         guides: &Guides,
@@ -830,45 +814,19 @@ impl IssueListView {
             // parity; presets edit via the context menu's "Set due date"
             // submenu, mirroring `due-date-presets.tsx`.
             .child(due_cell(issue, cx))
-            // EXP-998: the blocks rail — the column the row reserves for it,
-            // the hover strip, the lanes and the node (the pill's successor:
-            // the dot's click opens the mini-graph).
+            // EXP-998: the blocks rail — the column the row reserves for it
+            // and the node (the pill's successor). EXP-1057: hovering the dot
+            // opens the mini-graph.
             .when(self.rail_width > 0., |row| {
                 row.child(div().flex_shrink_0().w(px(self.rail_width)))
             })
-            .children(crate::issue_rail::rail_strip(
-                row_id("rail-strip", &issue.id),
-                self.rail_width,
+            .children(crate::issue_rail::rail_node(
+                format!("rail-node-{}", issue.id),
+                &issue.id,
+                rail,
                 ROW_PAD,
-                cx.listener(move |this, hovered: &bool, _, cx| {
-                    let changed = if *hovered {
-                        this.rail_hovered.insert(ix)
-                    } else {
-                        this.rail_hovered.remove(&ix)
-                    };
-                    if changed {
-                        cx.notify();
-                    }
-                }),
+                cx,
             ))
-            .children(self.rail_lanes(rail, cx))
-            .children({
-                let hot_id = issue.id.clone();
-                crate::issue_rail::rail_node(
-                    format!("rail-node-{}", issue.id),
-                    &issue.id,
-                    rail,
-                    ROW_PAD,
-                    cx.listener(move |this, hovered: &bool, _, cx| {
-                        let next = hovered.then(|| hot_id.clone());
-                        if this.rail_hot != next {
-                            this.rail_hot = next;
-                            cx.notify();
-                        }
-                    }),
-                    cx,
-                )
-            })
             // Right-click context menu (web `IssueRowContextMenu`, §4.2/§4.6).
             .context_menu(move |menu, window, cx| {
                 build_row_context_menu(
@@ -880,23 +838,6 @@ impl IssueListView {
                     cx,
                 )
             })
-    }
-
-    /// EXP-998: one entry's lanes of the rail, painted only while the pointer
-    /// is on the rail.
-    fn rail_lanes(&self, rail: &RailRow, cx: &App) -> Option<gpui::AnyElement> {
-        crate::issue_rail::rail_lanes_layer(
-            &crate::issue_rail::RailPaint {
-                row: rail,
-                edges: &self.block_edges,
-                width: self.rail_width,
-                right_pad: ROW_PAD,
-                gap: ROW_GAP,
-                open: !self.rail_hovered.is_empty(),
-                hot: self.rail_hot.as_deref(),
-            },
-            cx,
-        )
     }
 
     // -- bulk action bar -------------------------------------------------------
@@ -1799,7 +1740,6 @@ impl Render for IssueListView {
                 status: Box::new(group.status.clone()),
                 count: group.issues.len(),
                 collapsed,
-                rail: RailRow::default(),
             });
             if collapsed {
                 continue;
@@ -1826,9 +1766,7 @@ impl Render for IssueListView {
         }
 
         // EXP-998: the blocks rail over the VISIBLE entries — every row and
-        // every header (folded or not), in order — so an arrow between two
-        // rows crosses whatever sits between them and stops short of a row
-        // folded away.
+        // every header, in order; only an issue row can carry a node.
         let entries: Vec<RailEntry<'_>> = rows
             .iter()
             .map(|row| match row {
@@ -1836,23 +1774,11 @@ impl Render for IssueListView {
                 ListRow::Issue { issue, .. } => RailEntry::Row(issue.id.as_str()),
             })
             .collect();
-        let rail = issue_rail(&entries, &data.block_edges, &data.block_counts);
+        let rail = issue_rail(&entries, &data.block_counts);
         self.rail_width = rail.width();
         for (row, slice) in rows.iter_mut().zip(rail.entries) {
-            match row {
-                ListRow::Header { rail, .. } | ListRow::Issue { rail, .. } => *rail = slice,
-            }
-        }
-        self.block_edges = data.block_edges.clone();
-        self.rail_hovered.retain(|&ix| ix < rows.len());
-        // DEV-ONLY (the capture pipeline's no-synthetic-input rule, like
-        // `EXP_DEV_SELECT`): `EXP_DEV_RAIL_HOT=<issue uuid>` photographs the
-        // rail open with that node's edges lit — pinned every render, since
-        // the prune above drops the marker index.
-        if let Some(hot) = dev_rail_hot() {
-            if rows.iter().any(|row| matches!(row, ListRow::Issue { issue, .. } if issue.id == hot)) {
-                self.rail_hovered.insert(usize::MAX);
-                self.rail_hot = Some(hot.to_string());
+            if let ListRow::Issue { rail, .. } = row {
+                *rail = slice;
             }
         }
 
@@ -1878,18 +1804,6 @@ impl Render for IssueListView {
                     .id("issue-list-scroll")
                     .relative()
                     .size_full()
-                    // EXP-998: gpui's `on_hover` only fires on a mouse MOVE,
-                    // so a strip that scrolls out from under the pointer (or
-                    // out of the virtual window entirely) never reports
-                    // `false` — the rail stuck open. A wheel scroll closes
-                    // it; the next move over a strip re-opens it.
-                    .on_scroll_wheel(cx.listener(|this, _, _, cx| {
-                        if !this.rail_hovered.is_empty() || this.rail_hot.is_some() {
-                            this.rail_hovered.clear();
-                            this.rail_hot = None;
-                            cx.notify();
-                        }
-                    }))
                     .child(
                         v_virtual_list(
                             cx.entity().clone(),
@@ -1911,14 +1825,6 @@ impl Render for IssueListView {
         )
         .into_any_element()
     }
-}
-
-/// EXP-998 DEV-ONLY: `EXP_DEV_RAIL_HOT=<issue uuid>` (the big list's and the
-/// sidebar's capture hook), read ONCE — the environment never changes under a
-/// running process, and a release build pays one lookup, not one per render.
-pub(crate) fn dev_rail_hot() -> Option<&'static str> {
-    static HOT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    HOT.get_or_init(|| std::env::var("EXP_DEV_RAIL_HOT").ok()).as_deref()
 }
 
 // ---------------------------------------------------------------------------

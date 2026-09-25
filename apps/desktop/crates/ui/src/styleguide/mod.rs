@@ -107,4 +107,39 @@ mod tests {
         // The placeholder's one job: say whose it is.
         assert_eq!(owner_of("toast").as_deref(), Some("EXP-1031"));
     }
+
+    /// EXP-1063: an entry is handed the window and the app, so it can draw
+    /// the REAL component. Every entry paints in one window, twice (the
+    /// second frame reuses the entities `use_keyed_state` kept), and the
+    /// two that used to only describe theirs — `sub-shell` and
+    /// `device-settings` — now paint the product's own elements.
+    #[gpui::test]
+    async fn every_entry_paints_with_the_window_and_the_app(cx: &mut gpui::TestAppContext) {
+        use gpui::{div, IntoElement, ParentElement as _, Render, Window};
+
+        struct Gallery;
+
+        impl Render for Gallery {
+            fn render(
+                &mut self,
+                window: &mut Window,
+                cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                let mut gallery = div();
+                for entry in entries::ENTRIES {
+                    gallery = gallery.child((entry.render)(window, cx));
+                }
+                gallery
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_view, cx) = cx.add_window_view(|_, _| Gallery);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
 }

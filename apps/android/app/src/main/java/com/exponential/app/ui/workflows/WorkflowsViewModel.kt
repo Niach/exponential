@@ -5,8 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.WorkflowQuestions
 import com.exponential.app.domain.WorkflowView
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -64,4 +67,22 @@ class WorkflowsViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Every synced run, whoever owns it: a question from a run on a teammate's
+    // shared runner still waits for a person.
+    private val sessions: StateFlow<List<CodingSessionEntity>> =
+        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** EXP-1069: any workflow of the team has an open question (the Agent page's red dot). */
+    val needsYou: StateFlow<Boolean> = combine(workflows, sessions) { rows, sessionRows ->
+        workflowsNeedYou(rows, sessionRows)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+}
+
+/** Any of [workflows] has an open question among [sessions] — every run of it, not only the caller's. */
+internal fun workflowsNeedYou(workflows: List<WorkflowEntity>, sessions: List<CodingSessionEntity>): Boolean {
+    val ids = workflows.mapTo(HashSet()) { it.id }
+    val byWorkflow = sessions.filter { it.workflowId in ids }.groupBy { it.workflowId }
+    return byWorkflow.any { (id, rows) -> id != null && WorkflowQuestions.open(rows, id).isNotEmpty() }
 }

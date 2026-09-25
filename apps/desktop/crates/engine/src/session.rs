@@ -49,6 +49,11 @@ pub struct EngineStart {
     /// EXP-444: a foreign requester on a shared host — suppresses login
     /// affordances.
     pub foreign_host: bool,
+    /// EXP-1005: the host runs an account-rotation beat (the desktop, the
+    /// daemon) — a wall it will rotate or wait out itself is reported
+    /// `handled`, so the owner gets no rate-limit push. A foreground
+    /// `exponential code`/`run` has no beat: `false`, and the owner hears.
+    pub rotation_host: bool,
     /// `false` = no relay room at all (unit tests, `--no-publish`).
     pub publish: bool,
     /// Registered by the host BEFORE this call, so no edge can be missed
@@ -148,6 +153,7 @@ impl EngineSession {
                 env: Vec::new(),
             },
             options: coding::LaunchOptions {
+                workflow: None,
                 agent,
                 model: String::new(),
                 effort: String::new(),
@@ -192,6 +198,7 @@ impl EngineSession {
             personal_key,
             issue_id: None,
             foreign_host: false,
+            rotation_host: false,
             publish: false,
             local_sink: Some(local_sink),
             agent: agent.clone(),
@@ -343,6 +350,21 @@ impl EngineSession {
         self.0.ctx.turn_signal.clone()
     }
 
+    /// EXP-1005: the agent's usage wall as the engine last saw it (`None` =
+    /// not blocked) — what a host's account-rotation beat reads, together
+    /// with the turn slot, to decide whether this run may move to another
+    /// account right now. An expired wall (its own reset stamp passed)
+    /// reads as `None`, by the same rule the synced row follows.
+    pub fn blocked(&self) -> Option<steer::SessionBlocked> {
+        self.0
+            .ctx
+            .blocked
+            .lock()
+            .ok()
+            .and_then(|wall| wall.clone())
+            .filter(|wall| !steer::blocked_wall_expired(wall, steer::now_unix_millis()))
+    }
+
     /// EXP-850 §8: the in-process workflow caption of THIS run — the second
     /// line a session row hosted here renders, with no round trip through the
     /// `agent_caption` column this process is writing (the `turn_signal`
@@ -453,6 +475,7 @@ where
         personal_key,
         issue_id,
         foreign_host,
+        rotation_host,
         publish,
         kill,
         local_sink,
@@ -477,6 +500,7 @@ where
         personal_key,
         issue_id,
         foreign_host,
+        rotation_host,
         publish,
         local_sink,
         agent,
@@ -504,6 +528,7 @@ struct CtxSpec {
     personal_key: Option<String>,
     issue_id: Option<String>,
     foreign_host: bool,
+    rotation_host: bool,
     publish: bool,
     local_sink: Option<LocalSink>,
     agent: coding::CodingAgent,
@@ -575,6 +600,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         own_user_id: spec.own_user_id,
         issue_id: spec.issue_id,
         foreign_host: spec.foreign_host,
+        rotation_host: spec.rotation_host,
         publish: spec.publish,
         local_sink: spec.local_sink,
         turn_signal: Arc::new(steer::TurnSignal::new()),

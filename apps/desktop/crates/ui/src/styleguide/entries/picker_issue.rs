@@ -2,14 +2,14 @@
 //!
 //! Filled by EXP-1021; never edits `entries/mod.rs` nor the index.
 
-use gpui::Div;
+use gpui::{App, Div, Window};
 
 use super::picker::{chip, column, demo, inert};
 
 pub(crate) const ID: &str = "picker-issue";
 pub(crate) const OWNER: &str = "EXP-1021";
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     column(vec![
         demo("issue — single (a relation, a duplicate, a stack)", |window, cx| {
             let issues = super::picker::demo_issues();

@@ -51,6 +51,13 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
 // the helper is internally best-effort, so the router just calls it.
 vi.mock(`@/lib/steer-child-messages`, () => ({
   notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
+  notifyParentOfChildBlocked: vi.fn(async () => ({ delivered: false })),
+}))
+
+// EXP-980/1005: a wall tells the run's owner unless the device handles it.
+vi.mock(`@/lib/integrations/notifications`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/notifications")>()),
+  notifySessionBlocked: vi.fn(async () => {}),
 }))
 
 // EXP-1051: `contextBudget` lazily imports the MCP measurement (the tool table
@@ -66,7 +73,11 @@ vi.mock(`@/lib/mcp/context-budget`, () => ({
 
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { codingSessions, sessionAttachments, workflowNodes } from "@/db/schema"
-import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
+import {
+  notifyParentOfChildBlocked,
+  notifyParentOfChildEnd,
+} from "@/lib/steer-child-messages"
+import { notifySessionBlocked } from "@/lib/integrations/notifications"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const TEAM_ID = `22222222-2222-4222-8222-222222222222`
@@ -135,8 +146,11 @@ const fakeDb = {
       }
     },
   }),
-  select: () => ({
-    from: () => ({
+  select: () => {
+    const from = {
+      // EXP-1082: the membership lookups join (workflow ⋈ device, node ⋈
+      // workflow); the fake ignores the join and reads the queue.
+      innerJoin: () => from,
       where: (cond: unknown) => {
         selectWheres.push(cond)
         // Awaited WITHOUT `.limit()` by the unbounded reads (EXP-876's batch
@@ -147,8 +161,9 @@ const fakeDb = {
             Promise.resolve(selectResults.shift() ?? []).then(resolve),
         }
       },
-    }),
-  }),
+    }
+    return { from: () => from }
+  },
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => ({
       where: (cond: unknown) => {
@@ -197,6 +212,8 @@ beforeEach(() => {
     teamId: `ws-issue`,
   })
   vi.mocked(notifyParentOfChildEnd).mockClear()
+  vi.mocked(notifyParentOfChildBlocked).mockClear()
+  vi.mocked(notifySessionBlocked).mockClear()
   h.applySessionPrState.mockClear()
   h.loadRepositoryByFullName.mockClear()
   h.mergeRepositoryPull.mockClear()
@@ -340,6 +357,10 @@ describe(`codingSessions.start — issue path`, () => {
       startedReason: null,
       // EXP-906: nor a parent — this start resumes nothing.
       parentSessionId: null,
+      // EXP-1082: nor a workflow — no node names this subject.
+      workflowId: null,
+      workflowNodeId: null,
+      workflowRole: null,
       userId: `actor`,
       // EXP-432: an unattributed start is host-less — the row is the
       // caller's own.
@@ -385,6 +406,10 @@ describe(`codingSessions.start — batch path`, () => {
       startedReason: null,
       // EXP-906: nor a parent — this start resumes nothing.
       parentSessionId: null,
+      // EXP-1082: nor a workflow — no node names this subject.
+      workflowId: null,
+      workflowNodeId: null,
+      workflowRole: null,
       userId: `actor`,
       hostUserId: null,
       deviceId: null,
@@ -538,6 +563,10 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       startedReason: null,
       // EXP-906: nor a parent — this start resumes nothing.
       parentSessionId: null,
+      // EXP-1082: nor a workflow — no node names this subject.
+      workflowId: null,
+      workflowNodeId: null,
+      workflowRole: null,
       automationId: null,
       userId: `actor`,
       hostUserId: null,
@@ -666,6 +695,48 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       startedReason: `schedule`,
     })
     expect(inserts[1]!.values.startedReason).toBeNull()
+  })
+
+  it(`heartbeat re-creates a workflow run inside its group from the runner (EXP-1068)`, async () => {
+    const WF = `77777777-7777-4777-8777-777777777777`
+    const NODE = `88888888-8888-4888-8888-888888888888`
+    selectResults.push([]) // row swept
+    selectResults.push([{ status: `in_progress`, prState: null }]) // the issue
+    selectResults.push([{ label: `mac` }]) // device label
+    selectResults.push([{ id: WF }]) // workflow hosted by this caller's device
+    selectResults.push([{ id: NODE }]) // node in the workflow
+    await caller.heartbeat({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+      deviceId: `dev-1`,
+      startedReason: `workflow`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    expect(inserts[0]!.values).toMatchObject({
+      issueId: ISSUE_ID,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+
+    // Anyone but the runner: ignored, never refused — the row falls back to
+    // the issue match (here none), exactly like `start`.
+    selectResults.push([]) // row swept
+    selectResults.push([{ status: `in_progress`, prState: null }])
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not this caller's runner device
+    selectResults.push([]) // no joinable node names the issue
+    await caller.heartbeat({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+      deviceId: `dev-1`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+    expect(inserts[1]!.values).toMatchObject({ workflowId: null, workflowRole: null })
   })
 
   it(`404s a missing action before any membership check or insert`, async () => {
@@ -1319,6 +1390,55 @@ describe(`codingSessions.setAgentBusy — turn state (EXP-848)`, () => {
     expect(updates[0]!.values).toEqual({ agentBusy: false })
   })
 
+  // EXP-1065: the person's answer reaches the device over the relay, never
+  // this server — the turn it starts is how the server learns the run's
+  // open question (`ask_parent`) was answered.
+  it(`a turn start answers the run's open question and logs it for its workflow`, async () => {
+    selectResults.push([
+      {
+        userId: `actor`,
+        status: `running`,
+        pendingQuestion: { question: `Proposal: keep the enum?`, askedAt: `2026-09-25T10:00:00Z` },
+        workflowId: `wf-1`,
+        workflowNodeId: `node-1`,
+        teamId: `team-1`,
+      },
+    ])
+
+    const result = await caller.setAgentBusy({ id: SESSION_ID, agentBusy: true })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates[0]!.values).toEqual({
+      agentBusy: true,
+      pendingQuestion: null,
+      needsInput: false,
+    })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: `wf-1`,
+      teamId: `team-1`,
+      nodeId: `node-1`,
+      sessionId: SESSION_ID,
+      kind: `question_answered`,
+      message: `Answered: Proposal: keep the enum?`,
+    })
+  })
+
+  it(`a turn end never touches the question, and a run without one writes only the flag`, async () => {
+    selectResults.push([
+      {
+        userId: `actor`,
+        status: `running`,
+        pendingQuestion: { question: `Still open?`, askedAt: `2026-09-25T10:00:00Z` },
+        workflowId: `wf-1`,
+        workflowNodeId: `node-1`,
+      },
+    ])
+    await caller.setAgentBusy({ id: SESSION_ID, agentBusy: false })
+    expect(updates[0]!.values).toEqual({ agentBusy: false })
+    expect(inserts).toHaveLength(0)
+  })
+
   it(`reports a swept row without writing`, async () => {
     selectResults.push([])
 
@@ -1338,6 +1458,71 @@ describe(`codingSessions.setAgentBusy — turn state (EXP-848)`, () => {
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
     expect(updates).toHaveLength(0)
+  })
+})
+
+// EXP-1005: `handled` = the device rotates accounts or waits the wall out
+// itself — a WRITE-TIME flag that silences the owner's notification but never
+// the parent nudge, and never lands on the stored row.
+describe(`codingSessions.setBlocked — handled walls (EXP-1005)`, () => {
+  const wall = {
+    kind: `rate_limit`,
+    agent: `claude`,
+    window: `five_hour`,
+    resetsAt: `2026-09-25T18:00:00Z`,
+    since: `2026-09-25T13:00:00Z`,
+  }
+  const canonical = { blocked: wall }
+
+  it(`handled: true skips the owner notification but still nudges the parent`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running`, blocked: null }])
+
+    const result = await caller.setBlocked({
+      id: SESSION_ID,
+      blocked: { ...wall, handled: true },
+    })
+
+    expect(result).toEqual({ updated: true, wasBlocked: false })
+    expect(notifyParentOfChildBlocked).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(notifyParentOfChildBlocked).mock.calls[0]![2]).toEqual(wall)
+    expect(notifySessionBlocked).not.toHaveBeenCalled()
+  })
+
+  it(`a wall without handled notifies the owner`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running`, blocked: null }])
+
+    await caller.setBlocked({ id: SESSION_ID, blocked: wall })
+
+    expect(notifyParentOfChildBlocked).toHaveBeenCalledTimes(1)
+    expect(notifySessionBlocked).toHaveBeenCalledWith(SESSION_ID, wall)
+
+    // `handled: false` (and an older device's absent key) read the same.
+    vi.mocked(notifySessionBlocked).mockClear()
+    selectResults.push([{ userId: `actor`, status: `running`, blocked: null }])
+    await caller.setBlocked({
+      id: SESSION_ID,
+      blocked: { ...wall, handled: false },
+    })
+    expect(notifySessionBlocked).toHaveBeenCalledTimes(1)
+  })
+
+  it(`handled is never stored on the row`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running`, blocked: null }])
+
+    await caller.setBlocked({
+      id: SESSION_ID,
+      blocked: { ...wall, handled: true },
+    })
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toEqual(canonical)
+    expect(Object.keys(updates[0]!.values.blocked as object).sort()).toEqual([
+      `agent`,
+      `kind`,
+      `resetsAt`,
+      `since`,
+      `window`,
+    ])
   })
 })
 
@@ -1684,9 +1869,9 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
       startedById: `actor`,
     })
 
-    // The only select is EXP-549's device-label stamp (below) — never the
-    // share verification.
-    expect(selectWheres).toHaveLength(1)
+    // The only selects are EXP-549's device-label stamp (below) and
+    // EXP-1082's workflow-node match — never the share verification.
+    expect(selectWheres).toHaveLength(2)
     expect(inserts[0]!.values).toMatchObject({
       userId: `actor`,
       hostUserId: null,
@@ -1754,7 +1939,8 @@ describe(`codingSessions — device stamp (EXP-549)`, () => {
   it(`start without a deviceId stamps NULL and never probes the registry`, async () => {
     await caller.start({ issueId: ISSUE_ID, deviceLabel: `old-host` })
 
-    expect(selectWheres).toHaveLength(0)
+    // The one select is EXP-1082's workflow-node match, never the registry.
+    expect(selectWheres).toHaveLength(1)
     expect(inserts[0]!.values).toMatchObject({
       deviceId: null,
       deviceLabel: null,
@@ -2323,5 +2509,224 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
     expect(updates).toHaveLength(0)
     // EXP-700: the idempotent no-op end never re-notifies.
     expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1082 §1: every start stamps workflow membership through the ONE rule
+// (`lib/sessions/workflow-membership.ts`, table-tested there).
+describe(`codingSessions.start — workflow membership (EXP-1082)`, () => {
+  const WF = `77777777-7777-4777-8777-777777777777`
+  const NODE = `88888888-8888-4888-8888-888888888888`
+  const RESUMED_FROM = `55555555-5555-4555-8555-555555555555`
+
+  it(`joins a person's issue run to the node of a running workflow as author`, async () => {
+    selectResults.push([
+      {
+        workflowId: WF,
+        nodeId: NODE,
+        issueId: ISSUE_ID,
+        memberIssueIds: [],
+        workflowStatus: `running`,
+        workflowCreatedAt: new Date(),
+      },
+    ])
+
+    await caller.start({ issueId: ISSUE_ID })
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+      startedReason: null,
+    })
+    // Scoped to the run's team and the joinable statuses.
+    expect(whereShape(selectWheres[0])).toEqual([
+      `col:team_id`,
+      `ws-issue`,
+      `col:status`,
+      `draft`,
+      `running`,
+    ])
+  })
+
+  it(`joins a batch whose covered issues are one compound node`, async () => {
+    const SUB = `99999999-9999-4999-8999-999999999999`
+    selectResults.push([{ id: ISSUE_ID }, { id: SUB }]) // batch scoping
+    selectResults.push([
+      {
+        workflowId: WF,
+        nodeId: NODE,
+        issueId: ISSUE_ID,
+        memberIssueIds: [SUB],
+        workflowStatus: `draft`,
+        workflowCreatedAt: new Date(),
+      },
+    ])
+
+    await caller.start({ teamId: TEAM_ID, batchIssueIds: [ISSUE_ID, SUB] })
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+  })
+
+  it(`honours explicit values from the workflow's runner device`, async () => {
+    selectResults.push([{ label: `mac` }]) // device label
+    selectResults.push([{ id: WF }]) // workflow hosted by this caller's device
+    selectResults.push([{ id: NODE }]) // node in the workflow
+
+    await caller.start({
+      actionId: `builtin:review-node`,
+      teamId: TEAM_ID,
+      deviceId: `dev-1`,
+      startedReason: `workflow`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    } as never)
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+      startedReason: `workflow`,
+    })
+    expect(whereShape(selectWheres[1])).toEqual([
+      `col:id`,
+      WF,
+      `col:team_id`,
+      TEAM_ID,
+      `col:device_id`,
+      `dev-1`,
+      `col:user_id`,
+      `actor`,
+    ])
+  })
+
+  it(`honours a node-less plan role on a draft whose runner is not picked yet`, async () => {
+    selectResults.push([{ label: `mac` }]) // device label
+    selectResults.push([]) // not the runner device (the draft has none)
+    selectResults.push([{ id: WF }]) // a draft of the team
+
+    await caller.start({
+      actionId: `builtin:plan-workflow`,
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowRole: `plan`,
+    } as never)
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: null,
+      workflowRole: `plan`,
+    })
+    expect(whereShape(selectWheres[2])).toEqual([
+      `col:id`,
+      WF,
+      `col:team_id`,
+      TEAM_ID,
+      `col:status`,
+      `draft`,
+    ])
+  })
+
+  it(`still ignores a plan role on a running workflow, or one that names a node`, async () => {
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not the runner
+    selectResults.push([]) // not a draft
+
+    await caller.start({
+      actionId: `builtin:plan-workflow`,
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowRole: `plan`,
+    } as never)
+    expect(inserts[0]!.values).toMatchObject({ workflowId: null, workflowRole: null })
+
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not the runner; a node-bearing plan never falls through
+    await caller.start({
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `plan`,
+    })
+    expect(inserts[1]!.values).toMatchObject({ workflowId: null, workflowRole: null })
+  })
+
+  it(`ignores explicit values from anyone but the runner, without refusing`, async () => {
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not this caller's runner device
+
+    await caller.start({
+      issueId: ISSUE_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: null,
+      workflowNodeId: null,
+      workflowRole: null,
+    })
+  })
+
+  it(`ignores an explicit node outside the named workflow`, async () => {
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([{ id: WF }])
+    selectResults.push([]) // node not in the workflow
+
+    await caller.start({
+      teamId: TEAM_ID,
+      deviceId: `dev-1`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({ workflowId: null, workflowNodeId: null })
+  })
+
+  it(`ignores explicit values without a deviceId`, async () => {
+    await caller.start({ teamId: TEAM_ID, workflowId: WF, workflowRole: `plan` })
+    expect(inserts[0]!.values).toMatchObject({ workflowId: null, workflowRole: null })
+    expect(selectWheres).toHaveLength(0)
+  })
+
+  it(`keeps a resumed workflow run's membership and reason under an agent frame`, async () => {
+    selectResults.push([
+      {
+        id: RESUMED_FROM,
+        userId: `actor`,
+        parentSessionId: null,
+        startedReason: `workflow`,
+        workflowId: WF,
+        workflowNodeId: NODE,
+        workflowRole: `author`,
+      },
+    ])
+
+    await caller.start({
+      issueId: ISSUE_ID,
+      resumedFromId: RESUMED_FROM,
+      startedReason: `agent`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+      startedReason: `workflow`,
+      resumedFromId: RESUMED_FROM,
+    })
+    // The resume decides: no node lookup.
+    expect(selectWheres).toHaveLength(1)
   })
 })

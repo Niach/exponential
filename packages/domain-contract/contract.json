@@ -248,19 +248,48 @@
   "wfNodeKind": {
     "values": ["contract", "leaf", "integration"]
   },
-  "wfStartOn": {
-    "values": ["contract", "pr_open", "landed"]
-  },
   "wfRisk": {
     "values": ["low", "medium", "high"]
   },
   "wfReviewVerdict": {
     "values": ["approve", "request_changes"]
   },
+  "wfSessionRole": {
+    "values": ["author", "review", "base_merge", "plan", "replan"]
+  },
+  "wfEventKind": {
+    "values": [
+      "node_started",
+      "review_started",
+      "review_verdict",
+      "review_no_verdict",
+      "retrying",
+      "gave_up",
+      "following_resume",
+      "adopting_run",
+      "account_picked",
+      "account_switched",
+      "waiting_reset",
+      "cleared_at_cap",
+      "question_asked",
+      "question_answered",
+      "landed",
+      "skipped",
+      "failed",
+      "final_pr_opened",
+      "final_pr_reopened",
+      "completed",
+      "cancelled"
+    ]
+  },
+  "wfNodeDisplayState": {
+    "values": ["queued", "running", "done", "failed", "skipped"]
+  },
   "workflow": {
     "maxParallelDefault": 3,
     "maxIssues": 50,
-    "maxReviewRounds": 3
+    "maxReviewRounds": 3,
+    "eventsMax": 50
   },
   "workflowLaunch": {
     "agents": ["claude", "codex"],

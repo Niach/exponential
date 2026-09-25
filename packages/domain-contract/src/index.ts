@@ -56,13 +56,21 @@ export interface DomainContract {
   wfStatus: { values: readonly string[] }
   wfNodeState: { values: readonly string[] }
   wfNodeKind: { values: readonly string[] }
-  wfStartOn: { values: readonly string[] }
   wfRisk: { values: readonly string[] }
   wfReviewVerdict: { values: readonly string[] }
+  /** EXP-1082: which workflow node a session belongs to and as what. */
+  wfSessionRole: { values: readonly string[] }
+  /** EXP-1082: the engine's event log (`workflow_events.kind`). */
+  wfEventKind: { values: readonly string[] }
+  /** EXP-1082: the FIVE node states a person sees (the stored
+   *  `wfNodeState` is the engine's internal vocabulary). */
+  wfNodeDisplayState: { values: readonly string[] }
   workflow: {
     maxParallelDefault: number
     maxIssues: number
     maxReviewRounds: number
+    /** EXP-1082: `workflow_events` kept per workflow. */
+    eventsMax: number
   }
   /** EXP-1029: the two-model workflow launch per agent (cheap `model`,
    *  capable `strongModel`) and a device's agent defaults. */

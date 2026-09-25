@@ -732,6 +732,23 @@ pub struct CodingSession {
     /// The session lists nest a child under its parent.
     #[serde(default)]
     pub parent_session_id: Option<String>,
+    /// EXP-1082: the WORKFLOW this run belongs to, and the node it works
+    /// on; `None` on every run outside a workflow (and on rows written
+    /// before the columns existed).
+    #[serde(default)]
+    pub workflow_id: Option<String>,
+    #[serde(default)]
+    pub workflow_node_id: Option<String>,
+    /// EXP-1082: contract `wfSessionRole` (author|review|base_merge|plan|
+    /// replan) — raw wire value.
+    #[serde(default)]
+    pub workflow_role: Option<String>,
+    /// EXP-1082 jsonb `{question, askedAt}` — the question the run is parked
+    /// on (`exponential_sessions_ask_parent`); `None` = none open. Same
+    /// tolerant jsonb handling as `blocked` above. Read through
+    /// [`crate::workflow_questions`].
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub pending_question: Option<serde_json::Value>,
     #[serde(default)]
     pub started_at: Option<String>,
     #[serde(default)]
@@ -1125,9 +1142,6 @@ pub struct WorkflowRow {
     /// which fills what is absent from the agent's contract defaults.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub launch: Option<serde_json::Value>,
-    /// contract `wfStartOn` — raw wire word.
-    #[serde(default)]
-    pub start_on: Option<String>,
     /// `exp/wf-<id8>`, stamped at create.
     #[serde(default)]
     pub integration_branch: Option<String>,
@@ -1162,8 +1176,8 @@ impl WorkflowRow {
         self.status.as_deref().unwrap_or("draft")
     }
 
-    /// The metrics counters the list row and the header render. A missing or
-    /// unparseable payload reads as an EMPTY shape (`0 nodes · depth 0 ·
+    /// The plan's layout facts the list row and the header render. A missing
+    /// or unparseable payload reads as an EMPTY shape (`0 nodes · depth 0 ·
     /// width 0`), never a dropped row.
     pub fn shape(&self) -> crate::workflow_view::WorkflowShape {
         let Some(metrics) = self.metrics.as_ref() else {
@@ -1260,7 +1274,7 @@ pub struct WorkflowNodeRow {
     #[serde(default)]
     pub approved_at: Option<String>,
     /// EXP-983: when the node's run announced its CONTRACT
-    /// (`exponential_workflows_checkpoint`). Under `start_on: contract` its
+    /// (`exponential_workflows_checkpoint`); its
     /// dependents may start from that moment.
     #[serde(default)]
     pub checkpoint_at: Option<String>,
@@ -1291,6 +1305,28 @@ pub struct WorkflowNodeRow {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// `workflow_events` shape row (EXP-1082): ONE line of a workflow's audit
+/// trail, appended by the runner device's engine host
+/// (`workflows.appendEvent`). `kind` = contract `wfEventKind`, raw wire word.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkflowEventRow {
+    pub id: String,
+    #[serde(default)]
+    pub workflow_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub node_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub at: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 impl WorkflowNodeRow {

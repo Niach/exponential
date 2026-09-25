@@ -27,9 +27,11 @@ import {
   SessionGroupRow,
   TreeFoldToggle,
   useCollapsedNodes,
+  useSessionRowDecor,
   useSessionTreeContext,
   useSessionTreeRows,
 } from "@/components/session-tree"
+import { DuplicateRunGlyph, type SessionRowDecor } from "@/components/session-list-rows"
 import { rowPrState, useSessionListRows, type SessionListRow } from "@/hooks/use-agents-data"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -80,6 +82,9 @@ export interface RunningSessionEntry extends RunningEntryBase {
   needsInput: boolean
   identifier: string | null
   subject: string
+  /** EXP-1068: a workflow member's role on the row — a review's title, the
+   *  duplicate warning, the red needs-you dot. */
+  decor: SessionRowDecor | undefined
 }
 
 export interface RunningGroupEntry extends RunningEntryBase {
@@ -98,6 +103,7 @@ export function useMyRunningRows(
   const rows = useSessionListRows(teamId, runs)
   const context = useSessionTreeContext(teamId, rows)
   const tree = useSessionTreeRows(rows, context, collapsed)
+  const decorOf = useSessionRowDecor(teamId)
   const { data: deviceRows } = useLiveQuery(
     (query) => (teamId ? query.from({ d: deviceCollection }) : undefined),
     [teamId]
@@ -127,6 +133,7 @@ export function useMyRunningRows(
         row.session,
         rowPrState(row.session, row.issue)
       )
+      const decor = decorOf(flat.node)
       return [
         {
           ...base,
@@ -136,11 +143,12 @@ export function useMyRunningRows(
           deviceName: row.device.label || row.session.deviceLabel || `Desktop`,
           needsInput: state === `needs_input`,
           identifier: identity.identifier,
-          subject: identity.subject,
+          subject: decor?.title ?? identity.subject,
+          decor,
         } satisfies RunningSessionEntry,
       ]
     })
-  }, [tree, deviceRows])
+  }, [tree, deviceRows, decorOf])
 }
 
 /** Which run the app is SHOWING right now — a sidebar row lights up on either
@@ -172,10 +180,14 @@ function isShown(
 function RunningMark({
   agent,
   needsInput,
+  needsYou = false,
   className,
 }: {
   agent: string | null
   needsInput: boolean
+  /** EXP-1068/1082 §4: an open question for a person — the RED badge, which
+   *  beats the amber one. */
+  needsYou?: boolean
   className?: string
 }) {
   return (
@@ -183,10 +195,13 @@ function RunningMark({
       className={cn(`relative flex size-3.5 items-center justify-center`, className)}
     >
       <AgentBrandMark agent={agent} className="size-3.5" />
-      {needsInput && (
+      {(needsInput || needsYou) && (
         <span
           aria-hidden
-          className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-yellow-400 ring-2 ring-sidebar"
+          className={cn(
+            `absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2 ring-sidebar`,
+            needsYou ? `bg-red-500` : `bg-yellow-400`
+          )}
         />
       )}
     </span>
@@ -261,6 +276,7 @@ export function SidebarRunningSection({
                 <RunningMark
                   agent={session.agent}
                   needsInput={entry.needsInput}
+                  needsYou={entry.decor?.needsYou}
                 />
                 {entry.identifier && (
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">
@@ -268,6 +284,9 @@ export function SidebarRunningSection({
                   </span>
                 )}
                 <span className="min-w-0 flex-1 truncate">{entry.subject}</span>
+                {entry.decor?.warning && (
+                  <DuplicateRunGlyph warning={entry.decor.warning} />
+                )}
                 {/* Fixed, never truncated: WHERE the run is. */}
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -334,6 +353,7 @@ export function SidebarRunningIcons({
             <RunningMark
               agent={session.agent}
               needsInput={entry.needsInput}
+              needsYou={entry.decor?.needsYou}
             />
           ),
         })

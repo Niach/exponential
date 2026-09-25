@@ -17,9 +17,13 @@
 //! `lib/sessions/session-tree.ts` twin, same rules and same test names):
 //! resume successions COLLAPSE into one node, the runs of one workflow and of
 //! one PR stack fold under GROUP rows, and [`visible_session_tree_rows`] is
-//! the flattening every client paints its connector over. `nest_sessions`
-//! stays exactly as it was — the Automations log and [`crate::pr_graph`] still
-//! nest plain parent/child lists through it.
+//! the flattening every client paints its connector over. EXP-1068 groups a
+//! workflow's runs by the server-stamped membership ONLY (`workflow_id` /
+//! `workflow_node_id` / `workflow_role`, EXP-1082), nests reviews under their
+//! node's author and flags duplicate live runs; the strings drawn off it
+//! ([`workflow_group_caption`], [`review_row_caption`]) are byte-identical ×4.
+//! `nest_sessions` stays exactly as it was — the Automations log and
+//! [`crate::pr_graph`] still nest plain parent/child lists through it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -147,25 +151,35 @@ pub const COLLAPSE_GROUP_LABEL: &str = "Collapse these runs";
 pub const EXPAND_GROUP_LABEL: &str = "Expand these runs";
 
 /// EXP-996 — the row fields the tree reads, lifted off whatever row type the
-/// caller holds. ONE mapper, not [`nest_sessions`]' accessor closures: seven
-/// of those are unreadable at the call site, and a batch row's covered ids are
-/// PARSED out of jsonb ([`crate::batch_run::parse_batch_issue_ids`]), so they
-/// cannot be borrowed anyway. `started_reason` is deliberately ABSENT —
-/// `workflow` alone never groups a run (rule 3: the group row's name lives on
-/// the `workflows` row, so an unsynced workflow leaves its runs ungrouped).
+/// caller holds. ONE mapper, not [`nest_sessions`]' accessor closures: a batch
+/// row's covered ids are PARSED out of jsonb
+/// ([`crate::batch_run::parse_batch_issue_ids`]), so they cannot be borrowed.
+/// `started_reason` is deliberately ABSENT — `workflow` alone never groups a
+/// run (EXP-1068: only the stamped `workflow_id` does).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionFacts {
     pub id: String,
     pub resumed_from_id: Option<String>,
     pub parent_session_id: Option<String>,
     pub issue_id: Option<String>,
-    /// The issues a BATCH run covers (EXP-876) — a batch node run of a
-    /// workflow names its issues here and nowhere else.
+    /// The issues a BATCH run covers (EXP-876).
     pub batch_issue_ids: Vec<String>,
     /// ISO-8601 UTC, compared lexicographically (this file's convention);
     /// `""` = unknown, which sorts OLDEST — the web's `stamp` of 0.
     pub created_at: String,
     pub updated_at: String,
+    /// The raw `status` word; anything but `ended` (incl. `""`) is LIVE
+    /// ([`session_row_is_live`]).
+    pub status: String,
+    /// The run's branch — a review run's round rides its suffix
+    /// ([`review_branch_round`]).
+    pub branch: Option<String>,
+    /// EXP-1082: the server-stamped workflow membership
+    /// (`coding_sessions.workflow_id` / `workflow_node_id` /
+    /// `workflow_role`) — the ONLY thing that groups a run (EXP-1068).
+    pub workflow_id: Option<String>,
+    pub workflow_node_id: Option<String>,
+    pub workflow_role: Option<String>,
 }
 
 /// The facts of a synced `coding_sessions` row — every desktop caller's
@@ -179,6 +193,11 @@ pub fn coding_session_facts(session: &crate::rows::CodingSession) -> SessionFact
         batch_issue_ids: crate::batch_run::parse_batch_issue_ids(session.batch_issue_ids.as_ref()),
         created_at: session.created_at.clone().unwrap_or_default(),
         updated_at: session.updated_at.clone().unwrap_or_default(),
+        status: session.status.clone().unwrap_or_default(),
+        branch: session.branch.clone(),
+        workflow_id: session.workflow_id.clone(),
+        workflow_node_id: session.workflow_node_id.clone(),
+        workflow_role: session.workflow_role.clone(),
     }
 }
 
@@ -190,6 +209,9 @@ pub fn coding_session_facts(session: &crate::rows::CodingSession) -> SessionFact
 pub struct WorkflowFacts {
     pub id: String,
     pub name: String,
+    /// contract `wfStatus`, raw (`""` when the row carries none) — the group
+    /// row's glyph.
+    pub status: String,
 }
 
 impl WorkflowFacts {
@@ -205,34 +227,40 @@ impl WorkflowFacts {
                 .filter(|name| !name.is_empty())
                 .unwrap_or(WORKFLOW_GROUP_FALLBACK_NAME)
                 .to_string(),
+            status: row.status.clone().unwrap_or_default(),
         }
     }
 }
 
-/// EXP-996 — one `workflow_nodes` row's membership: which issue (and which
-/// run) sits in which workflow.
+/// EXP-996 — one `workflow_nodes` row. Since EXP-1068 it groups NOTHING (the
+/// session rows carry their membership); `state` (contract `wfNodeState`)
+/// feeds the group caption's `5 of 8 done`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowNodeFacts {
+    pub id: Option<String>,
     pub workflow_id: String,
     pub issue_id: Option<String>,
     pub session_id: Option<String>,
+    pub state: Option<String>,
 }
 
 impl WorkflowNodeFacts {
-    /// A synced row's facts — `None` on a row that names no workflow, which
-    /// can group nothing.
+    /// A synced row's facts — `None` on a row that names no workflow.
     pub fn from_row(row: &crate::rows::WorkflowNodeRow) -> Option<Self> {
         Some(Self {
+            id: Some(row.id.clone()),
             workflow_id: row.workflow_id.clone()?,
             issue_id: row.issue_id.clone(),
             session_id: row.session_id.clone(),
+            state: row.state.clone(),
         })
     }
 }
 
-/// EXP-996 — what the rows alone cannot say: which workflow an issue belongs
-/// to, and which issues stack on which. Every slice may be empty — a caller
-/// with no workflows synced still gets the session/parent tree.
+/// EXP-996 — what the rows alone cannot say: which workflow is called what,
+/// how its nodes stand, and which issues stack on which. Every slice may be
+/// empty — a caller with no workflows synced still gets the session/parent
+/// tree.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SessionTreeContext<'a> {
     pub workflows: &'a [WorkflowFacts],
@@ -264,6 +292,12 @@ pub struct SessionNode<T> {
     /// The newest `updated_at` across the chain AND the whole subtree, so
     /// folding a parent never moves it.
     pub last_activity_at: String,
+    /// EXP-1068: a REVIEW chain's round, off its branch
+    /// ([`review_branch_round`]); `None` on every other row.
+    pub review_round: Option<i64>,
+    /// EXP-1068: this AUTHOR row's node has two live author chains or two
+    /// live review chains — the warning glyph. Never set on a review row.
+    pub duplicate_live: bool,
 }
 
 impl<T> SessionNode<T> {
@@ -273,12 +307,20 @@ impl<T> SessionNode<T> {
     }
 }
 
-/// Rule 3 — the node runs of ONE workflow (EXP-978), newest first.
+/// Rule 3 — the runs of ONE workflow (EXP-978), newest first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowGroupNode<T> {
     pub workflow_id: String,
     /// The synced name, else [`WORKFLOW_GROUP_FALLBACK_NAME`].
     pub name: String,
+    /// contract `wfStatus` — the group row's glyph.
+    pub status: String,
+    /// Live session nodes in the group's whole subtree.
+    pub live_runs: usize,
+    /// `workflow_nodes` of this workflow in state `landed`, of `nodes_total`
+    /// ([`workflow_group_caption`]).
+    pub nodes_done: usize,
+    pub nodes_total: usize,
     pub children: Vec<SessionTreeNode<T>>,
     pub last_activity_at: String,
 }
@@ -334,23 +376,135 @@ pub fn session_tree_node_key<T>(node: &SessionTreeNode<T>) -> String {
     }
 }
 
+/// A row is LIVE until the server ends it (`running` and `in_review` both
+/// are; `needs_input`/`blocked` are flags on a live row).
+pub fn session_row_is_live(status: &str) -> bool {
+    status != "ended"
+}
+
+/// EXP-1068: the round a review branch carries — `exp/wf-<id8>-review-
+/// <IDENT>-r<n>` → n (> 0). `None` for any other branch. Only the SUFFIX is
+/// read, so the four clients cannot drift on the prefix.
+pub fn review_branch_round(branch: Option<&str>) -> Option<i64> {
+    let branch = branch?;
+    let digits = &branch[branch.rfind("-r")? + 2..];
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<i64>().ok().filter(|round| *round > 0)
+}
+
+/// What a review row says about its verdict. `Submitted` = an older round
+/// whose verdict the node row no longer carries (only the latest is stored).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewRowVerdict {
+    Approved,
+    ChangesRequested,
+    Submitted,
+    None,
+}
+
+/// EXP-1068: the verdict of the review of `round`, from the node's
+/// `(review_round, latest review (round, verdict))` — `verdict` a contract
+/// `wfReviewVerdict` word (`approve` | `request_changes`).
+pub fn review_round_verdict(
+    round: Option<i64>,
+    node: Option<(i64, Option<(i64, &str)>)>,
+) -> ReviewRowVerdict {
+    let (Some(round), Some((review_round, latest))) = (round, node) else {
+        return ReviewRowVerdict::None;
+    };
+    if let Some((latest_round, verdict)) = latest {
+        if latest_round == round {
+            return if verdict == "approve" {
+                ReviewRowVerdict::Approved
+            } else {
+                ReviewRowVerdict::ChangesRequested
+            };
+        }
+    }
+    if round <= review_round {
+        ReviewRowVerdict::Submitted
+    } else {
+        ReviewRowVerdict::None
+    }
+}
+
+/// EXP-1068: a review row's title — `Review r2 · approved`, `Review r2 ·
+/// changes requested`, `Review r2 · submitted`, `Review r2 · no verdict`
+/// (ended, nothing submitted), `Review r2` (still reviewing), `Review` (no
+/// round known). Byte-identical ×4.
+pub fn review_row_caption(round: Option<i64>, verdict: ReviewRowVerdict, live: bool) -> String {
+    let title = match round {
+        Some(round) => format!("Review r{round}"),
+        None => "Review".to_string(),
+    };
+    match verdict {
+        ReviewRowVerdict::Approved => format!("{title} · approved"),
+        ReviewRowVerdict::ChangesRequested => format!("{title} · changes requested"),
+        ReviewRowVerdict::Submitted => format!("{title} · submitted"),
+        ReviewRowVerdict::None if live => title,
+        ReviewRowVerdict::None => format!("{title} · no verdict"),
+    }
+}
+
+/// EXP-1068: a workflow group row's trailing caption — `3 running · 5 of 8
+/// done`; `5 of 8 done` with nothing live; `3 running` before the nodes
+/// synced; empty with neither. Byte-identical ×4.
+pub fn workflow_group_caption(live_runs: usize, nodes_done: usize, nodes_total: usize) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if live_runs > 0 {
+        parts.push(format!("{live_runs} running"));
+    }
+    if nodes_total > 0 {
+        parts.push(format!("{nodes_done} of {nodes_total} done"));
+    }
+    parts.join(" · ")
+}
+
+/// A chain's workflow membership: its NEWEST stamped row's.
+#[derive(Debug, Clone)]
+struct Membership {
+    workflow_id: String,
+    node_id: Option<String>,
+    role: Option<String>,
+}
+
+fn membership_of(chain: &[usize], facts: &[SessionFacts]) -> Option<Membership> {
+    chain.iter().rev().find_map(|member| {
+        let row = &facts[*member];
+        row.workflow_id.as_ref().map(|workflow_id| Membership {
+            workflow_id: workflow_id.clone(),
+            node_id: row.workflow_node_id.clone(),
+            role: row.workflow_role.clone(),
+        })
+    })
+}
+
 /// EXP-996 — the sessions list as a TREE, the web `sessionTree`'s twin: the
 /// ONE selector every session list draws from (the rail's Running section, the
 /// IDE's Recent list, the phones' session screens). Rules, in this order:
 ///
 /// 1. Resume successions COLLAPSE into one node keyed by their newest row.
 /// 2. Children nest under their `parent_session_id`, following the parent's
-///    whole succession (EXP-906: a resume inherits it).
-/// 3. The runs of ONE workflow group under a workflow node.
+///    whole succession (EXP-906) — UNLESS the child chain has a workflow
+///    membership the parent's chain does not share (EXP-1068).
+/// 3. Runs group under a workflow node by their chain's membership (its
+///    newest stamped row's `workflow_id`), only when that workflow is LISTED
+///    (the name source). Inside: one row per AUTHOR chain; a node's REVIEW
+///    chains nest under its head author (live first, then newest activity),
+///    else sit as plain group children like every other stamped row; a node
+///    with ≥2 live authors or ≥2 live reviewers flags `duplicate_live` on
+///    each author row. The group carries the status and caption counts.
 /// 4. A PR stack groups under a stack node, LINEAR, lowest first — a stack
 ///    with fewer than two listed runs is no group.
 /// 5. Groups and top-level nodes sort by last activity, newest first;
-///    children keep creation order.
+///    children keep creation order (a group's: newest activity first).
 /// 6. An orphan child (parent swept, another team, not synced) sits at top
 ///    level; so does a row naming itself, and a cycle breaks where it closes.
 ///
-/// Workflow grouping WINS over stack grouping. Pure: no clock, no IO; every
-/// tie breaks on the node key, so two clients agree row for row.
+/// Pure: no clock, no IO; every tie breaks on the node key, so two clients
+/// agree row for row.
 pub fn session_tree<T, F>(
     sessions: Vec<T>,
     facts: F,
@@ -397,8 +551,16 @@ where
         chains.push((canonical, chain));
     }
 
+    let memberships: HashMap<usize, Membership> = chains
+        .iter()
+        .filter_map(|(canonical, chain)| {
+            membership_of(chain, &facts).map(|membership| (*canonical, membership))
+        })
+        .collect();
+
     // 2. Children nest under their parent's SUCCESSION — the whole chain
-    //    answers for the newest `parent_session_id` it names.
+    //    answers for the newest `parent_session_id` it names — unless the
+    //    child is a workflow's the parent is not (the group claims it).
     let mut parent_of: HashMap<usize, usize> = HashMap::new();
     for (canonical, chain) in &chains {
         let named = chain
@@ -411,11 +573,16 @@ where
             .copied();
         // Rule 6: a parent that is gone leaves the child at top level, and so
         // does a row naming its own succession.
-        if let Some(parent) = parent {
-            if parent != *canonical {
-                parent_of.insert(*canonical, parent);
+        let Some(parent) = parent.filter(|parent| parent != canonical) else {
+            continue;
+        };
+        if let Some(own) = memberships.get(canonical) {
+            let parents = memberships.get(&parent).map(|m| m.workflow_id.as_str());
+            if parents != Some(own.workflow_id.as_str()) {
+                continue;
             }
         }
+        parent_of.insert(*canonical, parent);
     }
 
     let mut children_of: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -443,15 +610,18 @@ where
         .map(|canonical| {
             (
                 *canonical,
-                build_node(*canonical, &chain_of, &children_of, &facts, &mut slots),
+                build_node(*canonical, &chain_of, &children_of, &facts, &memberships, &mut slots),
             )
         })
         .collect();
 
     // 3./4. Workflow groups, then stack groups — over the TOP-LEVEL nodes
     //       only (a child run stays under its parent wherever that lands).
-    let workflow_of = workflow_of(&chain_of, &facts, context);
-    let grouped = group_stacks(group_workflows(built, &workflow_of), &facts, context.issues);
+    let grouped = group_stacks(
+        group_workflows(built, &memberships, &facts, context),
+        &facts,
+        context.issues,
+    );
 
     // 5. Groups and lone nodes sort by last activity, newest FIRST.
     let mut out = grouped;
@@ -542,6 +712,7 @@ fn build_node<T>(
     chain_of: &HashMap<usize, Vec<usize>>,
     children_of: &HashMap<usize, Vec<usize>>,
     facts: &[SessionFacts],
+    memberships: &HashMap<usize, Membership>,
     slots: &mut Vec<Option<T>>,
 ) -> SessionNode<T> {
     let chain = chain_of.get(&canonical).cloned().unwrap_or_default();
@@ -555,7 +726,14 @@ fn build_node<T>(
         .map(|kids| {
             kids.iter()
                 .map(|kid| {
-                    SessionTreeNode::Session(build_node(*kid, chain_of, children_of, facts, slots))
+                    SessionTreeNode::Session(build_node(
+                        *kid,
+                        chain_of,
+                        children_of,
+                        facts,
+                        memberships,
+                        slots,
+                    ))
                 })
                 .collect()
         })
@@ -573,106 +751,186 @@ fn build_node<T>(
             .collect(),
         children,
         last_activity_at,
+        review_round: memberships
+            .get(&canonical)
+            .filter(|membership| membership.role.as_deref() == Some("review"))
+            .and_then(|_| review_branch_round(facts[canonical].branch.as_deref())),
+        duplicate_live: false,
     }
 }
 
-/// Rule 3 — canonical index → the workflow (id, name) its run belongs to. A
-/// node belongs to the workflow that lists one of its rows, one of their
-/// issues, or an issue a BATCH row covers; the workflow must be LISTED, which
-/// is where the name comes from.
-fn workflow_of(
-    chain_of: &HashMap<usize, Vec<usize>>,
-    facts: &[SessionFacts],
-    context: &SessionTreeContext<'_>,
-) -> HashMap<usize, (String, String)> {
-    let mut out: HashMap<usize, (String, String)> = HashMap::new();
-    if context.workflows.is_empty() || context.workflow_nodes.is_empty() {
-        return out;
-    }
-    let names: HashMap<&str, &str> = context
-        .workflows
-        .iter()
-        .map(|workflow| (workflow.id.as_str(), workflow.name.as_str()))
-        .collect();
-    let mut by_issue: HashMap<&str, &str> = HashMap::new();
-    let mut by_session: HashMap<&str, &str> = HashMap::new();
-    for node in context.workflow_nodes {
-        let workflow_id = node.workflow_id.as_str();
-        if !names.contains_key(workflow_id) {
-            continue;
-        }
-        if let Some(issue_id) = node.issue_id.as_deref() {
-            by_issue.entry(issue_id).or_insert(workflow_id);
-        }
-        if let Some(session_id) = node.session_id.as_deref() {
-            by_session.entry(session_id).or_insert(workflow_id);
-        }
-    }
-    for (canonical, chain) in chain_of {
-        let named = chain.iter().find_map(|member| {
-            let row = &facts[*member];
-            by_session
-                .get(row.id.as_str())
-                .or_else(|| row.issue_id.as_deref().and_then(|id| by_issue.get(id)))
-                // A batch node run covers several workflow issues (EXP-978).
-                .or_else(|| {
-                    row.batch_issue_ids
-                        .iter()
-                        .find_map(|id| by_issue.get(id.as_str()))
-                })
-                .copied()
-        });
-        if let Some(workflow_id) = named {
-            let name = names.get(workflow_id).copied().unwrap_or_default();
-            out.insert(*canonical, (workflow_id.to_string(), name.to_string()));
-        }
-    }
-    out
-}
-
-/// Rule 3 — the runs of ONE workflow under one group row, newest first. The
-/// `Option<usize>` a bare run keeps is its facts index, which the stack pass
-/// reads its issue out of.
+/// Rule 3 — the runs of ONE workflow under one group row, by their chain's
+/// own membership; a workflow the caller did not list leaves its runs
+/// ungrouped (the group's NAME lives on that row). The `Option<usize>` a bare
+/// run keeps is its facts index, which the stack pass reads its issue out of.
 fn group_workflows<T>(
     roots: Vec<(usize, SessionNode<T>)>,
-    workflow_of: &HashMap<usize, (String, String)>,
+    memberships: &HashMap<usize, Membership>,
+    facts: &[SessionFacts],
+    context: &SessionTreeContext<'_>,
 ) -> Vec<(Option<usize>, SessionTreeNode<T>)> {
+    let listed: HashMap<&str, &WorkflowFacts> = context
+        .workflows
+        .iter()
+        .map(|workflow| (workflow.id.as_str(), workflow))
+        .collect();
+    if listed.is_empty() {
+        return roots
+            .into_iter()
+            .map(|(index, node)| (Some(index), SessionTreeNode::Session(node)))
+            .collect();
+    }
+    let by_id: HashMap<&str, &SessionFacts> =
+        facts.iter().map(|row| (row.id.as_str(), row)).collect();
+    let live = |node: &SessionNode<T>| {
+        by_id
+            .get(node.id.as_str())
+            .is_some_and(|row| session_row_is_live(&row.status))
+    };
+    let created = |node: &SessionTreeNode<T>| -> String {
+        match node {
+            SessionTreeNode::Session(session) => by_id
+                .get(session.id.as_str())
+                .map(|row| row.created_at.clone())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    };
+
+    /// One group's pieces: author and review chains by node id, the rest.
+    struct Parts<T> {
+        position: usize,
+        authors: HashMap<String, Vec<SessionNode<T>>>,
+        reviews: HashMap<String, Vec<SessionNode<T>>>,
+        plain: Vec<SessionNode<T>>,
+    }
     let mut out: Vec<(Option<usize>, SessionTreeNode<T>)> = Vec::new();
-    let mut group_at: HashMap<String, usize> = HashMap::new();
+    let mut parts: Vec<Parts<T>> = Vec::new();
+    let mut part_of: HashMap<String, usize> = HashMap::new();
     for (index, node) in roots {
-        let Some((workflow_id, name)) = workflow_of.get(&index) else {
+        let Some((membership, workflow)) = memberships.get(&index).and_then(|membership| {
+            listed
+                .get(membership.workflow_id.as_str())
+                .map(|workflow| (membership, *workflow))
+        }) else {
             out.push((Some(index), SessionTreeNode::Session(node)));
             continue;
         };
-        let position = match group_at.get(workflow_id) {
-            Some(position) => *position,
+        let at = match part_of.get(&workflow.id) {
+            Some(at) => *at,
             None => {
+                let nodes_of: Vec<&WorkflowNodeFacts> = context
+                    .workflow_nodes
+                    .iter()
+                    .filter(|entry| entry.workflow_id == workflow.id)
+                    .collect();
                 out.push((
                     None,
                     SessionTreeNode::Workflow(WorkflowGroupNode {
-                        workflow_id: workflow_id.clone(),
-                        name: name.clone(),
+                        workflow_id: workflow.id.clone(),
+                        name: workflow.name.clone(),
+                        status: workflow.status.clone(),
+                        live_runs: 0,
+                        nodes_done: nodes_of
+                            .iter()
+                            .filter(|entry| entry.state.as_deref() == Some("landed"))
+                            .count(),
+                        nodes_total: nodes_of.len(),
                         children: Vec::new(),
                         last_activity_at: String::new(),
                     }),
                 ));
-                group_at.insert(workflow_id.clone(), out.len() - 1);
-                out.len() - 1
+                parts.push(Parts {
+                    position: out.len() - 1,
+                    authors: HashMap::new(),
+                    reviews: HashMap::new(),
+                    plain: Vec::new(),
+                });
+                part_of.insert(workflow.id.clone(), parts.len() - 1);
+                parts.len() - 1
             }
         };
-        if let (_, SessionTreeNode::Workflow(group)) = &mut out[position] {
-            if node.last_activity_at > group.last_activity_at {
-                group.last_activity_at = node.last_activity_at.clone();
+        let part = &mut parts[at];
+        match (membership.node_id.as_deref(), membership.role.as_deref()) {
+            (Some(node_id), Some("author")) => {
+                part.authors.entry(node_id.to_string()).or_default().push(node)
             }
-            group.children.push(SessionTreeNode::Session(node));
+            (Some(node_id), Some("review")) => {
+                part.reviews.entry(node_id.to_string()).or_default().push(node)
+            }
+            _ => part.plain.push(node),
         }
     }
-    for (_, entry) in out.iter_mut() {
-        if let SessionTreeNode::Workflow(group) = entry {
-            sort_by_activity(&mut group.children);
+
+    for part in parts {
+        let Parts { position, authors, mut reviews, plain } = part;
+        let mut children: Vec<SessionTreeNode<T>> = Vec::new();
+        for (node_id, mut authors) in authors {
+            // The node's HEAD author: live first, then newest activity.
+            authors.sort_by(|a, b| {
+                live(b)
+                    .cmp(&live(a))
+                    .then_with(|| b.last_activity_at.cmp(&a.last_activity_at))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            let node_reviews = reviews.remove(&node_id).unwrap_or_default();
+            let live_authors = authors.iter().filter(|node| live(node)).count();
+            let live_reviews = node_reviews.iter().filter(|node| live(node)).count();
+            let duplicate = live_authors > 1 || live_reviews > 1;
+            for author in authors.iter_mut() {
+                author.duplicate_live = duplicate;
+            }
+            if !node_reviews.is_empty() {
+                let head = &mut authors[0];
+                head.children
+                    .extend(node_reviews.into_iter().map(SessionTreeNode::Session));
+                head.children.sort_by(|a, b| {
+                    created(a)
+                        .cmp(&created(b))
+                        .then_with(|| session_tree_node_key(a).cmp(&session_tree_node_key(b)))
+                });
+                if let Some(newest) = head
+                    .children
+                    .iter()
+                    .map(|child| child.last_activity_at().to_string())
+                    .max()
+                {
+                    if newest > head.last_activity_at {
+                        head.last_activity_at = newest;
+                    }
+                }
+            }
+            children.extend(authors.into_iter().map(SessionTreeNode::Session));
+        }
+        // A review whose node has no author listed is a plain child.
+        for (_, orphans) in reviews {
+            children.extend(orphans.into_iter().map(SessionTreeNode::Session));
+        }
+        children.extend(plain.into_iter().map(SessionTreeNode::Session));
+        sort_by_activity(&mut children);
+        let live_runs = live_count(&children, &live);
+        if let (_, SessionTreeNode::Workflow(group)) = &mut out[position] {
+            group.last_activity_at = children
+                .iter()
+                .map(|child| child.last_activity_at().to_string())
+                .max()
+                .unwrap_or_default();
+            group.live_runs = live_runs;
+            group.children = children;
         }
     }
     out
+}
+
+/// How many session nodes of a subtree are live.
+fn live_count<T>(nodes: &[SessionTreeNode<T>], live: &dyn Fn(&SessionNode<T>) -> bool) -> usize {
+    nodes
+        .iter()
+        .map(|node| {
+            let own = matches!(node, SessionTreeNode::Session(session) if live(session));
+            usize::from(own) + live_count(node.children(), live)
+        })
+        .sum()
 }
 
 /// Rule 4 — a stack under one group row, LINEAR, lowest first. A stack with
@@ -904,6 +1162,13 @@ mod tree_tests {
         batch_issue_ids: Vec<&'static str>,
         /// `created_at` == `updated_at`, like the web fixture's `at()`.
         at: &'static str,
+        /// The raw `status` word (`running` unless a case ends it).
+        status: &'static str,
+        branch: Option<&'static str>,
+        /// EXP-1082: the workflow membership columns.
+        workflow_id: Option<&'static str>,
+        workflow_node_id: Option<&'static str>,
+        workflow_role: Option<&'static str>,
     }
 
     fn run(id: &'static str) -> Run {
@@ -914,6 +1179,11 @@ mod tree_tests {
             issue_id: None,
             batch_issue_ids: Vec::new(),
             at: "2026-09-01T10:00:00Z",
+            status: "running",
+            branch: None,
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         }
     }
 
@@ -938,6 +1208,27 @@ mod tree_tests {
             self.batch_issue_ids = issue_ids.to_vec();
             self
         }
+        fn ended(mut self) -> Self {
+            self.status = "ended";
+            self
+        }
+        fn branch(mut self, branch: &'static str) -> Self {
+            self.branch = Some(branch);
+            self
+        }
+        /// The row's `workflow_id` / `workflow_node_id` / `workflow_role`
+        /// (the web test's `member()`).
+        fn member(
+            mut self,
+            workflow_id: &'static str,
+            node_id: Option<&'static str>,
+            role: &'static str,
+        ) -> Self {
+            self.workflow_id = Some(workflow_id);
+            self.workflow_node_id = node_id;
+            self.workflow_role = Some(role);
+            self
+        }
     }
 
     fn facts(run: &Run) -> SessionFacts {
@@ -949,6 +1240,11 @@ mod tree_tests {
             batch_issue_ids: run.batch_issue_ids.iter().map(|id| id.to_string()).collect(),
             created_at: run.at.to_string(),
             updated_at: run.at.to_string(),
+            status: run.status.to_string(),
+            branch: run.branch.map(str::to_string),
+            workflow_id: run.workflow_id.map(str::to_string),
+            workflow_node_id: run.workflow_node_id.map(str::to_string),
+            workflow_role: run.workflow_role.map(str::to_string),
         }
     }
 
@@ -977,24 +1273,38 @@ mod tree_tests {
     /// A synced `workflows` row's facts, through the projection every caller
     /// uses (so the name fallback is exercised too).
     fn workflow(id: &str, name: Option<&str>) -> WorkflowFacts {
+        workflow_in(id, name, "running")
+    }
+
+    fn workflow_in(id: &str, name: Option<&str>, status: &str) -> WorkflowFacts {
         WorkflowFacts::from_row(
             &serde_json::from_value(serde_json::json!({
                 "id": id,
                 "team_id": "team-1",
                 "name": name,
-                "status": "running",
+                "status": status,
             }))
             .unwrap(),
         )
     }
 
     fn workflow_node(workflow_id: &str, issue_id: &str) -> WorkflowNodeFacts {
+        workflow_node_in(&format!("node-{issue_id}"), workflow_id, issue_id, None)
+    }
+
+    fn workflow_node_in(
+        id: &str,
+        workflow_id: &str,
+        issue_id: &str,
+        state: Option<&str>,
+    ) -> WorkflowNodeFacts {
         WorkflowNodeFacts::from_row(
             &serde_json::from_value(serde_json::json!({
-                "id": format!("node-{issue_id}"),
+                "id": id,
                 "workflow_id": workflow_id,
                 "team_id": "team-1",
                 "issue_id": issue_id,
+                "state": state,
             }))
             .unwrap(),
         )
@@ -1071,8 +1381,11 @@ mod tree_tests {
         let workflow_nodes = vec![workflow_node("w", "i1"), workflow_node("w", "i2")];
         let nodes = tree(
             vec![
-                run("n1").on("i1"),
-                run("n2").on("i2").at("2026-09-01T11:00:00Z"),
+                run("n1").on("i1").member("w", Some("n1"), "author"),
+                run("n2")
+                    .on("i2")
+                    .member("w", Some("n2"), "author")
+                    .at("2026-09-01T11:00:00Z"),
             ],
             &SessionTreeContext {
                 workflows: &workflows,
@@ -1111,8 +1424,8 @@ mod tree_tests {
         let nodes = tree(
             vec![
                 run("lone").at("2026-09-01T11:30:00Z"),
-                run("n1").on("i1").at("2026-09-01T10:00:00Z"),
-                run("n2").on("i2").at("2026-09-01T12:00:00Z"),
+                run("n1").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                run("n2").on("i2").member("w", Some("n2"), "author").at("2026-09-01T12:00:00Z"),
             ],
             &SessionTreeContext {
                 workflows: &workflows,
@@ -1162,16 +1475,15 @@ mod tree_tests {
         assert_eq!(shape(&nodes), "r3 r2");
     }
 
-    /// `started_reason = workflow` alone never groups: the group row's name
-    /// comes from the `workflows` row, so an unsynced workflow leaves its runs
-    /// where they are.
+    /// A stamped run's group row takes its name from the `workflows` row, so
+    /// an unsynced workflow leaves its runs where they are.
     #[test]
     fn never_groups_the_runs_of_a_workflow_it_was_not_handed() {
         let workflow_nodes = vec![workflow_node("w", "i1"), workflow_node("w", "i2")];
         let nodes = tree(
             vec![
-                run("n1").on("i1"),
-                run("n2").on("i2").at("2026-09-01T11:00:00Z"),
+                run("n1").on("i1").member("w", Some("n1"), "author"),
+                run("n2").on("i2").member("w", Some("n2"), "author").at("2026-09-01T11:00:00Z"),
             ],
             &SessionTreeContext {
                 workflow_nodes: &workflow_nodes,
@@ -1181,17 +1493,16 @@ mod tree_tests {
         assert_eq!(shape(&nodes), "n2 n1");
     }
 
-    /// A BATCH node run names its workflow issues in `batch_issue_ids` and
-    /// nowhere else (EXP-876/EXP-978); a nameless workflow row falls back to
-    /// the generic word.
+    /// A BATCH node run (EXP-876/EXP-978) groups by its stamp like any other;
+    /// a nameless workflow row falls back to the generic word.
     #[test]
     fn groups_a_batch_node_run_by_the_issues_it_covers() {
         let workflows = vec![workflow("w", None)];
         let workflow_nodes = vec![workflow_node("w", "i1"), workflow_node("w", "i2")];
         let nodes = tree(
             vec![
-                run("batch").covering(&["i1", "i9"]),
-                run("n2").on("i2").at("2026-09-01T11:00:00Z"),
+                run("batch").covering(&["i1", "i9"]).member("w", Some("n1"), "author"),
+                run("n2").on("i2").member("w", Some("n2"), "author").at("2026-09-01T11:00:00Z"),
             ],
             &SessionTreeContext {
                 workflows: &workflows,
@@ -1218,8 +1529,11 @@ mod tree_tests {
         ];
         let nodes = tree(
             vec![
-                run("s-low").on("id-APP-1"),
-                run("s-mid").on("id-APP-2").at("2026-09-01T11:00:00Z"),
+                run("s-low").on("id-APP-1").member("w", Some("n1"), "author"),
+                run("s-mid")
+                    .on("id-APP-2")
+                    .member("w", Some("n2"), "author")
+                    .at("2026-09-01T11:00:00Z"),
             ],
             &SessionTreeContext {
                 workflows: &workflows,
@@ -1278,9 +1592,9 @@ mod tree_tests {
             vec![workflow("w", Some("W"))],
             vec![workflow_node("w", "i1"), workflow_node("w", "i2")],
             vec![
-                run("p").on("i1").at("2026-09-01T11:00:00Z"),
+                run("p").on("i1").member("w", Some("n1"), "author").at("2026-09-01T11:00:00Z"),
                 run("c").under("p").at("2026-09-01T10:30:00Z"),
-                run("n2").on("i2").at("2026-09-01T10:00:00Z"),
+                run("n2").on("i2").member("w", Some("n2"), "author").at("2026-09-01T10:00:00Z"),
             ],
         )
     }
@@ -1390,5 +1704,419 @@ mod tree_tests {
         assert_eq!(STACK_GROUP_LABEL, "Stacked pull requests");
         assert_eq!(COLLAPSE_GROUP_LABEL, "Collapse these runs");
         assert_eq!(EXPAND_GROUP_LABEL, "Expand these runs");
+    }
+
+    /// EXP-1082 → EXP-1068 — membership-first grouping, with the web twin's
+    /// rows and case names (snake_cased).
+    mod workflow_membership {
+        use super::*;
+
+        /// One workflow `w` named "Checkout rewrite", and NO `workflow_nodes`
+        /// rows unless a case hands its own: membership alone must group.
+        fn membership_tree(runs: Vec<Run>, workflow_nodes: &[WorkflowNodeFacts]) -> Vec<SessionTreeNode<Run>> {
+            let workflows = vec![workflow("w", Some("Checkout rewrite"))];
+            tree(
+                runs,
+                &SessionTreeContext {
+                    workflows: &workflows,
+                    workflow_nodes,
+                    issues: &[],
+                },
+            )
+        }
+
+        fn group(nodes: &[SessionTreeNode<Run>]) -> &WorkflowGroupNode<Run> {
+            match nodes.first() {
+                Some(SessionTreeNode::Workflow(group)) => group,
+                _ => panic!("expected a workflow group first"),
+            }
+        }
+
+        fn session_at<'a>(nodes: &'a [SessionTreeNode<Run>], path: &[usize]) -> &'a SessionNode<Run> {
+            let mut cursor = &nodes[path[0]];
+            for index in &path[1..] {
+                cursor = &cursor.children()[*index];
+            }
+            match cursor {
+                SessionTreeNode::Session(node) => node,
+                _ => panic!("expected a session at {path:?}"),
+            }
+        }
+
+        #[test]
+        fn groups_by_workflow_id_before_any_heuristic() {
+            // No `workflow_nodes` row names the run or its issue: the row's
+            // own `workflow_id` is what folds it under the group.
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i9").member("w", Some("n1"), "author").at("2026-09-01T11:00:00Z"),
+                    run("x").on("i-other"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a) x");
+        }
+
+        #[test]
+        fn never_groups_an_unstamped_row_whatever_workflow_nodes_say() {
+            let mut node = workflow_node_in("n1", "w", "i1", None);
+            node.session_id = Some("n1".to_string());
+            let nodes = membership_tree(vec![run("n1").on("i1")], &[node]);
+            assert_eq!(shape(&nodes), "n1");
+        }
+
+        #[test]
+        fn leaves_a_stamped_run_ungrouped_when_the_workflow_is_not_listed() {
+            let nodes = tree(
+                vec![run("a").on("i1").member("w", Some("n1"), "author")],
+                &SessionTreeContext::default(),
+            );
+            assert_eq!(shape(&nodes), "a");
+        }
+
+        #[test]
+        fn nests_a_review_run_under_its_nodes_author_row() {
+            // `review` on node n1 sits as a child of n1's `author` run — no
+            // `parent_session_id` needed — its round read off the branch.
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("r")
+                        .member("w", Some("n1"), "review")
+                        .branch("exp/wf-2f353e88-review-EXP-1068-r1")
+                        .at("2026-09-01T11:00:00Z"),
+                    run("b").on("i2").member("w", Some("n2"), "author").at("2026-09-01T09:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a(r) b)");
+            assert_eq!(session_at(&nodes, &[0, 0, 0]).review_round, Some(1));
+            assert_eq!(session_at(&nodes, &[0, 0]).review_round, None);
+            assert!(!session_at(&nodes, &[0, 0]).duplicate_live);
+        }
+
+        #[test]
+        fn keeps_a_switched_reviewer_under_its_node() {
+            // An account-switch resume of the reviewer (a new row, same
+            // membership) collapses into the same chain under n1's author.
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("r1")
+                        .member("w", Some("n1"), "review")
+                        .ended()
+                        .branch("exp/wf-2f353e88-review-EXP-1068-r2")
+                        .at("2026-09-01T11:00:00Z"),
+                    run("r2")
+                        .resuming("r1")
+                        .member("w", Some("n1"), "review")
+                        .branch("exp/wf-2f353e88-review-EXP-1068-r2")
+                        .at("2026-09-01T12:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a(r2))");
+            let reviewer = session_at(&nodes, &[0, 0, 0]);
+            assert_eq!(
+                reviewer.chain.iter().map(|run| run.id).collect::<Vec<_>>(),
+                ["r1", "r2"]
+            );
+            assert_eq!(reviewer.review_round, Some(2));
+            // ONE live reviewer: no duplicate flag on the node.
+            assert!(!session_at(&nodes, &[0, 0]).duplicate_live);
+        }
+
+        #[test]
+        fn nests_a_review_under_the_live_author_not_an_ended_one() {
+            let nodes = membership_tree(
+                vec![
+                    run("a0").on("i1").ended().member("w", Some("n1"), "author").at("2026-09-01T12:00:00Z"),
+                    run("a1").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("r").member("w", Some("n1"), "review").at("2026-09-01T11:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a0 a1(r))");
+        }
+
+        #[test]
+        fn lists_a_review_whose_node_has_no_author_as_a_child_of_the_group() {
+            let nodes = membership_tree(vec![run("r").member("w", Some("n1"), "review")], &[]);
+            assert_eq!(shape(&nodes), "workflow:w(r)");
+        }
+
+        #[test]
+        fn lists_a_base_merge_as_a_child_of_the_group() {
+            // `base_merge`, `plan` and `replan` name no node: each is a plain
+            // child of the group, never under a node's author run. The
+            // group's children sort newest activity first.
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("m").member("w", None, "base_merge").at("2026-09-01T11:00:00Z"),
+                    run("p").member("w", None, "plan").at("2026-09-01T08:00:00Z"),
+                    run("rp").member("w", None, "replan").at("2026-09-01T12:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(rp m a p)");
+        }
+
+        #[test]
+        fn names_a_plan_only_group_after_the_plan() {
+            // A draft whose only row is its `plan` run still draws a group,
+            // named after the plan's working name (the workflow row's name).
+            let workflows = vec![workflow_in("w", Some("Checkout rewrite"), "draft")];
+            let nodes = tree(
+                vec![run("p").member("w", None, "plan")],
+                &SessionTreeContext {
+                    workflows: &workflows,
+                    ..SessionTreeContext::default()
+                },
+            );
+            assert_eq!(shape(&nodes), "workflow:w(p)");
+            assert_eq!(group(&nodes).name, "Checkout rewrite");
+            assert_eq!(group(&nodes).status, "draft");
+        }
+
+        #[test]
+        fn keeps_a_foreign_chat_that_resumed_a_workflow_run_inside_the_group() {
+            // A resume performed from a chat: its row names the chat as its
+            // parent but keeps the workflow membership (EXP-906 inherits it),
+            // so the succession stays in the group, not under the chat.
+            let nodes = membership_tree(
+                vec![
+                    run("c").at("2026-09-01T11:00:00Z"),
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("a2")
+                        .resuming("a")
+                        .under("c")
+                        .on("i1")
+                        .member("w", Some("n1"), "author")
+                        .at("2026-09-01T12:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a2) c");
+        }
+
+        #[test]
+        fn nests_a_child_of_a_node_run_under_it_inside_the_group() {
+            // A `sessions_start` child inherits the membership and nests under
+            // its parent as before; a child with NO workflow of its own nests
+            // too.
+            let mut kid = run("kid")
+                .under("a")
+                .member("w", Some("n1"), "author")
+                .at("2026-09-01T10:30:00Z");
+            kid.workflow_role = None;
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    kid,
+                    run("plain").under("a").at("2026-09-01T10:40:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a(kid plain))");
+        }
+
+        #[test]
+        fn groups_a_persons_run_on_a_compound_nodes_sub_issue() {
+            // Compound node n1 = parent i1 + sub-issue i2; only the parent
+            // has a `workflow_nodes` row. A person's fresh run on i2, stamped
+            // `author` of n1 by the server, joins the node's group.
+            let workflow_nodes = vec![workflow_node_in("n1", "w", "i1", Some("running"))];
+            let nodes = membership_tree(
+                vec![
+                    run("mine").on("i2").member("w", Some("n1"), "author").at("2026-09-01T11:00:00Z"),
+                    run("b").on("i3").member("w", Some("n2"), "author").at("2026-09-01T10:00:00Z"),
+                ],
+                &workflow_nodes,
+            );
+            assert_eq!(shape(&nodes), "workflow:w(mine b)");
+        }
+
+        #[test]
+        fn flags_a_node_with_two_live_author_runs() {
+            // Two live `author` rows on one node (a double start): BOTH are
+            // listed, neither nested under the other, and both carry the
+            // warning.
+            let nodes = membership_tree(
+                vec![
+                    run("a1").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("a2").on("i1").member("w", Some("n1"), "author").at("2026-09-01T11:00:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a2 a1)");
+            assert!(session_at(&nodes, &[0, 0]).duplicate_live);
+            assert!(session_at(&nodes, &[0, 1]).duplicate_live);
+        }
+
+        #[test]
+        fn flags_a_node_with_two_live_reviewers_on_its_author_row() {
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("r1").member("w", Some("n1"), "review").at("2026-09-01T11:00:00Z"),
+                    run("r2").member("w", Some("n1"), "review").at("2026-09-01T11:30:00Z"),
+                ],
+                &[],
+            );
+            assert_eq!(shape(&nodes), "workflow:w(a(r1 r2))");
+            assert!(session_at(&nodes, &[0, 0]).duplicate_live);
+            assert!(!session_at(&nodes, &[0, 0, 0]).duplicate_live);
+        }
+
+        #[test]
+        fn does_not_flag_a_node_whose_second_author_run_has_ended() {
+            let nodes = membership_tree(
+                vec![
+                    run("a1").on("i1").ended().member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("a2").on("i1").member("w", Some("n1"), "author").at("2026-09-01T11:00:00Z"),
+                ],
+                &[],
+            );
+            assert!(!session_at(&nodes, &[0, 0]).duplicate_live);
+        }
+
+        #[test]
+        fn counts_the_groups_live_runs_and_landed_nodes() {
+            let workflow_nodes = vec![
+                workflow_node_in("n1", "w", "i1", Some("running")),
+                workflow_node_in("n2", "w", "i2", Some("landed")),
+                workflow_node_in("n3", "w", "i3", Some("blocked")),
+                workflow_node_in("other", "w2", "i4", Some("landed")),
+            ];
+            let nodes = membership_tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author").at("2026-09-01T10:00:00Z"),
+                    run("r").member("w", Some("n1"), "review").at("2026-09-01T11:00:00Z"),
+                    run("d").on("i2").ended().member("w", Some("n2"), "author").at("2026-09-01T09:00:00Z"),
+                ],
+                &workflow_nodes,
+            );
+            let node = group(&nodes);
+            assert_eq!(node.live_runs, 2);
+            assert_eq!(node.nodes_done, 1);
+            assert_eq!(node.nodes_total, 3);
+            assert_eq!(
+                workflow_group_caption(node.live_runs, node.nodes_done, node.nodes_total),
+                "2 running · 1 of 3 done"
+            );
+        }
+
+        #[test]
+        fn still_groups_a_stack_beside_a_workflow_from_the_leftover_top_level() {
+            let workflows = vec![workflow("w", Some("Checkout rewrite"))];
+            let issues = vec![
+                crate::pr_stack::tests::issue("APP-2", Some("exp/APP-2"), Some("exp/APP-1")),
+                crate::pr_stack::tests::issue("APP-1", Some("exp/APP-1"), None),
+            ];
+            let nodes = tree(
+                vec![
+                    run("a").on("i1").member("w", Some("n1"), "author"),
+                    run("s-low").on("id-APP-1"),
+                    run("s-top").on("id-APP-2").at("2026-09-01T11:00:00Z"),
+                ],
+                &SessionTreeContext {
+                    workflows: &workflows,
+                    workflow_nodes: &[],
+                    issues: &issues,
+                },
+            );
+            assert_eq!(shape(&nodes), "stack:id-APP-1(s-low s-top) workflow:w(a)");
+        }
+    }
+
+    // EXP-1068: the strings every client draws off the tree, byte-identical ×4.
+    mod workflow_group_caption {
+        use super::super::workflow_group_caption;
+
+        #[test]
+        fn says_running_and_done() {
+            assert_eq!(workflow_group_caption(3, 5, 8), "3 running · 5 of 8 done");
+        }
+        #[test]
+        fn drops_the_running_part_with_nothing_live() {
+            assert_eq!(workflow_group_caption(0, 5, 8), "5 of 8 done");
+        }
+        #[test]
+        fn drops_the_done_part_before_the_nodes_synced() {
+            assert_eq!(workflow_group_caption(1, 0, 0), "1 running");
+        }
+        #[test]
+        fn is_empty_with_neither() {
+            assert_eq!(workflow_group_caption(0, 0, 0), "");
+        }
+    }
+
+    mod review_branch_round {
+        use super::super::review_branch_round;
+
+        #[test]
+        fn reads_the_round_off_a_review_branch() {
+            assert_eq!(review_branch_round(Some("exp/wf-2f353e88-review-EXP-1068-r3")), Some(3));
+            assert_eq!(review_branch_round(Some("exp/wf-2f353e88-review-EXP-10-r12")), Some(12));
+        }
+        #[test]
+        fn is_null_for_every_other_branch() {
+            assert_eq!(review_branch_round(Some("exp/EXP-1068")), None);
+            assert_eq!(review_branch_round(Some("exp/wf-2f353e88-review-EXP-1068-r")), None);
+            assert_eq!(review_branch_round(Some("exp/wf-2f353e88-review-EXP-1068-r0")), None);
+            assert_eq!(review_branch_round(None), None);
+            assert_eq!(review_branch_round(Some("")), None);
+        }
+    }
+
+    mod review_round_verdict {
+        use super::super::{review_round_verdict, ReviewRowVerdict};
+
+        const NODE: (i64, Option<(i64, &str)>) = (2, Some((2, "request_changes")));
+
+        #[test]
+        fn reads_the_latest_verdict_for_its_round() {
+            assert_eq!(review_round_verdict(Some(2), Some(NODE)), ReviewRowVerdict::ChangesRequested);
+            assert_eq!(
+                review_round_verdict(Some(2), Some((2, Some((2, "approve"))))),
+                ReviewRowVerdict::Approved
+            );
+        }
+        #[test]
+        fn calls_an_older_submitted_round_submitted() {
+            assert_eq!(review_round_verdict(Some(1), Some(NODE)), ReviewRowVerdict::Submitted);
+        }
+        #[test]
+        fn has_no_verdict_for_the_pending_round_or_without_a_node() {
+            assert_eq!(review_round_verdict(Some(3), Some(NODE)), ReviewRowVerdict::None);
+            assert_eq!(review_round_verdict(None, Some(NODE)), ReviewRowVerdict::None);
+            assert_eq!(review_round_verdict(Some(1), None), ReviewRowVerdict::None);
+            assert_eq!(review_round_verdict(Some(1), Some((0, None))), ReviewRowVerdict::None);
+        }
+    }
+
+    mod review_row_caption {
+        use super::super::{review_row_caption, ReviewRowVerdict};
+
+        #[test]
+        fn names_the_round_and_the_verdict() {
+            assert_eq!(review_row_caption(Some(2), ReviewRowVerdict::Approved, false), "Review r2 · approved");
+            assert_eq!(
+                review_row_caption(Some(2), ReviewRowVerdict::ChangesRequested, false),
+                "Review r2 · changes requested"
+            );
+            assert_eq!(review_row_caption(Some(1), ReviewRowVerdict::Submitted, false), "Review r1 · submitted");
+        }
+        #[test]
+        fn says_no_verdict_only_once_the_run_ended() {
+            assert_eq!(review_row_caption(Some(3), ReviewRowVerdict::None, true), "Review r3");
+            assert_eq!(review_row_caption(Some(3), ReviewRowVerdict::None, false), "Review r3 · no verdict");
+        }
+        #[test]
+        fn falls_back_to_a_bare_review_without_a_round() {
+            assert_eq!(review_row_caption(None, ReviewRowVerdict::None, true), "Review");
+            assert_eq!(review_row_caption(None, ReviewRowVerdict::None, false), "Review · no verdict");
+        }
     }
 }

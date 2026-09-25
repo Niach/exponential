@@ -50,6 +50,14 @@ export function mcpServerInstructions(gates: {
           : ``)
     )
   }
+  // EXP-1089: an attended run (a person's chat, a planner run pressed from
+  // the workflow page) may ask its owner too — the tool is registered for
+  // every run now, and the paragraph above only rides the close-out.
+  if (gates.askParent && !gates.sessionsEnd) {
+    paragraphs.push(
+      `A question only the person who owns this run can answer: exponential_sessions_ask_parent with to 'user' notifies them and parks this run as needing input; stop and wait, the answer arrives as a user message.`
+    )
+  }
   // EXP-879: LAST, so it is the thing a truncating client keeps least — but
   // present, because a run that is never asked for a picture never takes one.
   if (gates.sessionResults) {

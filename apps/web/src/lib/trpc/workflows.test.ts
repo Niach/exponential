@@ -33,6 +33,16 @@ const h = vi.hoisted(() => ({
   // EXP-1032 — the completion path.
   openWorkflowFinalPr: vi.fn(async (..._args: unknown[]) => ({ url: `https://gh/pr/9` })),
   applyWorkflowFinalPrState: vi.fn(async (..._args: unknown[]) => true),
+  // EXP-1059 — the final PR's lifecycle helpers.
+  reopenWorkflowFinalPr: vi.fn(
+    async (
+      ..._args: unknown[]
+    ): Promise<
+      | { reopened: true; url: string }
+      | { reopened: false; reason: string; gaveUp: boolean }
+    > => ({ reopened: true, url: `https://gh/pr/9` })
+  ),
+  recordWorkflowEventInTx: vi.fn(async (..._args: unknown[]) => {}),
   loadRepository: vi.fn(async (..._args: unknown[]) => ({
     id: `repo-1`,
     // = TEAM below: `mergeFinalPr` refuses another team's repository.
@@ -65,6 +75,9 @@ vi.mock(`@/lib/workflow-final-pr`, () => ({
   retargetReleasedDependents: h.retargetReleasedDependents,
   openWorkflowFinalPr: h.openWorkflowFinalPr,
   applyWorkflowFinalPrState: h.applyWorkflowFinalPrState,
+  reopenWorkflowFinalPr: h.reopenWorkflowFinalPr,
+  recordWorkflowEventInTx: h.recordWorkflowEventInTx,
+  NOTHING_SHIPPED_DECISION: `nothing shipped: every node was skipped`,
 }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepository: h.loadRepository,
@@ -179,6 +192,7 @@ beforeEach(() => {
   h.loadWorkflowEdges.mockResolvedValue({ nodes: [], edges: [] })
   h.openWorkflowFinalPr.mockResolvedValue({ url: `https://gh/pr/9` })
   h.applyWorkflowFinalPrState.mockResolvedValue(true)
+  h.reopenWorkflowFinalPr.mockResolvedValue({ reopened: true, url: `https://gh/pr/9` })
   h.mergeRepositoryPull.mockResolvedValue({ merged: true as const })
 })
 
@@ -192,10 +206,8 @@ describe(`workflows.create`, () => {
     // is BORN with no runner, so the contract defaults stand — binding a
     // device is what re-seeds them. compat: the legacy pins ride beside the
     // two models for the 0.14.49/0.14.50 engines (`stored`).
-    expect(written[0]!.values).toMatchObject({
-      launch: stored(claudeDefaults),
-      startOn: `contract`,
-    })
+    expect(written[0]!.values).toMatchObject({ launch: stored(claudeDefaults) })
+    expect(written[0]!.values).not.toHaveProperty(`startOn`)
     expect(
       Object.keys((written[0]!.values as { launch: object }).launch).sort()
     ).toEqual([
@@ -300,68 +312,26 @@ describe(`workflows.update`, () => {
     expect(error?.code).toBe(`PRECONDITION_FAILED`)
   })
 
-  // EXP-1029: `startOn` is fixed to `contract`; an old client still sends it.
-  it(`ignores startOn at any status, writing nothing`, async () => {
+  // EXP-1066/1090: `startOn` and `launch` are no inputs; an old client still
+  // sends them and they are stripped, nothing written.
+  it(`ignores startOn and launch at any status, writing nothing`, async () => {
     for (const status of [`draft`, `running`]) {
       const row = workflow({ status })
       selectQueue.push([row], [row])
-      const result = await caller.update({ id: WF, startOn: `landed` })
+      const result = await caller.update({
+        id: WF,
+        startOn: `landed`,
+        launch: { model: `gpt-nope` },
+      } as never)
       expect(result.workflow).toEqual(row)
     }
     expect(fakeDb.update).not.toHaveBeenCalled()
     expect(written).toEqual([])
   })
 
-  it(`validates the NORMALIZED launch against the agent's vocabulary`, async () => {
-    selectQueue.push([workflow()])
-    const model = await rejection(caller.update({ id: WF, launch: { model: `gpt-nope` } }))
-    expect(model?.message).toBe(`Unknown claude model`)
-
-    selectQueue.push([workflow()])
-    const strong = await rejection(
-      caller.update({ id: WF, launch: { agent: `codex`, strongModel: `opus` } })
-    )
-    expect(strong?.message).toBe(`Unknown codex model`)
-
-  })
-
-  // compat: iOS 0.14.42, Android 0.14.43 and desktop 0.14.50 offer the CLAUDE
-  // list for the review model whatever the agent and re-send the whole launch
-  // on every save; the base server never validated `reviewModel`. A folded
-  // pin outside the agent's vocabulary heals to the agent's default strong
-  // model; an explicit `strongModel` is still held to the vocabulary.
-  it(`heals a deprecated pin outside the vocabulary instead of refusing the save`, async () => {
-    selectQueue.push([workflow()])
-    await caller.update({ id: WF, launch: { riskModel: `nope` } })
-    expect(written[0]!.values).toEqual({ launch: stored(claudeDefaults) })
-
-    written.length = 0
-    selectQueue.push([workflow()])
-    await caller.update({
-      id: WF,
-      launch: { agent: `codex`, model: `gpt-5.6-sol`, reviewModel: `opus` },
-    })
-    expect(written[0]!.values).toEqual({ launch: stored(codexDefaults) })
-
-    // A pin INSIDE the vocabulary still folds in as before.
-    written.length = 0
-    selectQueue.push([workflow()])
-    await caller.update({ id: WF, launch: { agent: `codex`, reviewModel: `gpt-5.6-terra` } })
-    expect(written[0]!.values).toEqual({
-      launch: stored({ ...codexDefaults, strongModel: `gpt-5.6-terra` }),
-    })
-
-    // The heal never covers an explicit strongModel.
-    selectQueue.push([workflow()])
-    const explicit = await rejection(
-      caller.update({ id: WF, launch: { agent: `codex`, strongModel: `opus`, reviewModel: `opus` } })
-    )
-    expect(explicit?.message).toBe(`Unknown codex model`)
-  })
-
   it(`checks a runner against the workflows capability`, async () => {
     selectQueue.push([workflow()])
-    await caller.update({ id: WF, deviceId: `dev-1`, launch: { agent: `claude` } })
+    await caller.update({ id: WF, deviceId: `dev-1` })
     expect(h.assertDeviceUsable).toHaveBeenCalledWith(
       `dev-1`,
       TEAM,
@@ -384,43 +354,6 @@ describe(`workflows.update`, () => {
     }
     expect(fakeDb.update).not.toHaveBeenCalled()
     expect(written).toEqual([])
-  })
-
-  // EXP-1029: a launch is stored as the NORMALIZED one, whatever vintage the
-  // client that sent it is: the deprecated pins fold into `strongModel`, and
-  // (compat) are written back OUT of it for the 0.14.49/0.14.50 engines, so a
-  // pin never survives on its own.
-  describe(`the stored launch is the NORMALIZED one`, () => {
-    it(`folds an old client's phase pins into strongModel and re-derives the rest from it`, async () => {
-      selectQueue.push([workflow()])
-      await caller.update({
-        id: WF,
-        launch: {
-          agent: `claude`,
-          model: `sonnet`,
-          // `riskModel` outranks the phase pins in the fold.
-          riskModel: `fable`,
-          contractModel: `opus`,
-          integrationModel: `opus`,
-          subagentModel: `fable`,
-          effort: `high`,
-          maxParallel: 5,
-        },
-      })
-      expect(written[0]!.values).toEqual({
-        launch: stored({ agent: `claude`, model: `sonnet`, strongModel: `fable` }),
-      })
-    })
-
-    it(`never carries a stored pin forward: the launch is replaced WHOLE`, async () => {
-      selectQueue.push([
-        workflow({ launch: { agent: `claude`, model: `opus`, riskModel: `sonnet` } }),
-      ])
-      await caller.update({ id: WF, launch: { agent: `claude`, model: `sonnet` } })
-      expect(written[0]!.values).toEqual({
-        launch: stored({ agent: `claude`, model: `sonnet`, strongModel: `fable` }),
-      })
-    })
   })
 
   // EXP-1032: binding the runner IS the launch choice — the workflow screen
@@ -484,16 +417,6 @@ describe(`workflows.update`, () => {
       const error = await rejection(caller.update({ id: WF, deviceId: `dev-none` }))
       expect(error?.message).toBe(`claude is not available on that device`)
       expect(fakeDb.transaction).not.toHaveBeenCalled()
-      h.assertDeviceUsable.mockReset()
-    })
-
-    it(`never re-seeds when the caller sent a launch of their own`, async () => {
-      h.assertDeviceUsable.mockImplementation(codexOnly)
-      selectQueue.push([workflow({ launch: claudeLaunch })])
-      const error = await rejection(
-        caller.update({ id: WF, deviceId: `dev-codex`, launch: { agent: `claude` } })
-      )
-      expect(error?.message).toBe(`claude is not available on that device`)
       h.assertDeviceUsable.mockReset()
     })
   })
@@ -578,7 +501,7 @@ describe(`workflows.delete`, () => {
 
 // EXP-982 — running a workflow.
 describe(`workflows.start`, () => {
-  const ready = { deviceId: `dev-1`, startOn: `landed`, decisions: `` }
+  const ready = { deviceId: `dev-1`, decisions: `` }
 
   it(`refuses a workflow with no runner or a cycle`, async () => {
     selectQueue.push([workflow({ ...ready, deviceId: null })])
@@ -675,22 +598,6 @@ describe(`the engine's write path`, () => {
     expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
   })
 
-  it(`a person's approval drops the reviewer's head so the engine never reads it as stale`, async () => {
-    selectQueue.push([node({ approvedAt: null })], [workflow()], [{ since: new Date() }])
-    await caller.approveNode({ nodeId: NODE, approved: true } as never)
-    const write = written.find((w) => w.op === `update`)
-    expect(write?.values).toMatchObject({ approvedAt: expect.any(Date) })
-    expect(typeof (write?.values as { review: unknown }).review).toBe(`object`)
-    expect((write?.values as { review: unknown }).review).not.toBeNull()
-  })
-
-  it(`withdrawing an approval leaves the review alone`, async () => {
-    selectQueue.push([node()], [workflow()])
-    await caller.approveNode({ nodeId: NODE, approved: false } as never)
-    const write = written.find((w) => w.op === `update`)
-    expect(write?.values).toEqual({ approvedAt: null })
-  })
-
   it(`holds an unapproved node at the gate, server-side`, async () => {
     selectQueue.push(
       [node()],
@@ -699,7 +606,7 @@ describe(`the engine's write path`, () => {
     )
     expect(await caller.landNode({ nodeId: NODE })).toEqual({
       merged: false,
-      reason: `Waiting for a person to approve`,
+      reason: `Waiting for the agent review to clear it`,
       retargeted: [],
     })
   })
@@ -713,23 +620,6 @@ describe(`the engine's write path`, () => {
     expect(error?.code).toBe(`FORBIDDEN`)
     expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
     expect(fakeDb.update).not.toHaveBeenCalled()
-  })
-
-  // Zod 4's `record` over an enum key is exhaustive; the daemon sends one or
-  // two counters per call.
-  it(`reportMetrics accepts a partial set of counters`, async () => {
-    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
-    expect(await caller.reportMetrics({ id: WF, deltas: { mergeIns: 1 } })).toEqual({ ok: true })
-    expect(written).toHaveLength(1)
-    expect(written[0]!.op).toBe(`update`)
-  })
-
-  it(`reportMetrics still refuses an unknown counter`, async () => {
-    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
-    const error = await rejection(
-      caller.reportMetrics({ id: WF, deltas: { nodes: 1 } as never })
-    )
-    expect(error?.code).toBe(`BAD_REQUEST`)
   })
 
   // EXP-983: a speculative dependent's PR can be up before its blocker landed.
@@ -873,7 +763,7 @@ describe(`the engine's write path`, () => {
       [{ id: `device-row` }],
       [{ prState: `merged`, prMergedAt: new Date(`2026-09-01T10:00:00Z`) }]
     )
-    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for a person to approve`)
+    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for the agent review to clear it`)
     expect(written).toEqual([])
   })
 
@@ -917,6 +807,8 @@ describe(`the engine's write path`, () => {
       review: null,
       reviewRound: 0,
       mergedInto: null,
+      // EXP-1066: the old attempt's contract announcement releases nobody.
+      checkpointAt: null,
       retriedAt: expect.any(Date),
     })
     expect(h.retargetReleasedDependents).not.toHaveBeenCalled()
@@ -1308,19 +1200,36 @@ describe(`reviewOutcome`, () => {
     expect(reviewOutcome({ verdict: `approve`, oraclePassed: null, round: 1 }).approve).toBe(true)
   })
 
-  it(`keeps an approval its own checks contradict advisory`, () => {
+  it(`sends an approval its own checks contradict back to the author`, () => {
     const outcome = reviewOutcome({ verdict: `approve`, oraclePassed: false, round: 1 })
     expect(outcome.approve).toBe(false)
-    expect(outcome.note).toContain(`needs a person`)
+    expect(outcome.state).toBe(`updating`)
+    expect(outcome.note).toContain(`back to the author`)
   })
 
-  it(`bounces to the author up to the round cap, then waits for a person`, () => {
+  // EXP-1065: the cap is a bound on bouncing, never a hand-off to a person.
+  it(`bounces to the author up to the round cap, then lands with the findings carried`, () => {
     expect(
-      reviewOutcome({ verdict: `request_changes`, oraclePassed: false, round: 2 }).state
-    ).toBe(`updating`)
+      reviewOutcome({ verdict: `request_changes`, oraclePassed: false, round: 2 })
+    ).toMatchObject({ state: `updating`, note: `Changes requested by the agent review (round 2 of 3)` })
     expect(
       reviewOutcome({ verdict: `request_changes`, oraclePassed: null, round: 3 })
-    ).toMatchObject({ state: `waiting`, note: `Review did not converge after 3 rounds` })
+    ).toMatchObject({
+      approve: false,
+      state: `updating`,
+      note: `Review round 3 of 3: findings go to the author once more, then it lands with them carried`,
+    })
+    expect(reviewOutcome({ verdict: `approve`, oraclePassed: false, round: 3 })).toMatchObject({
+      approve: false,
+      state: `updating`,
+    })
+    for (const verdict of [`approve`, `request_changes`] as const) {
+      for (const round of [1, 2, 3, 4]) {
+        for (const oraclePassed of [true, false, null]) {
+          expect(reviewOutcome({ verdict, oraclePassed, round }).state).not.toBe(`waiting`)
+        }
+      }
+    }
   })
 })
 
@@ -1416,5 +1325,319 @@ describe(`workflow completion (EXP-1032)`, () => {
     ])
     await caller.mergeFinalPr({ id: WF })
     expect(h.applyWorkflowFinalPrState).toHaveBeenCalledWith(fakeDb, `https://gh/pr/9`, `merged`)
+  })
+})
+
+// EXP-1082 §3 — the engine's event log.
+describe(`workflows.appendEvent`, () => {
+  it(`refuses a caller that does not own the runner`, async () => {
+    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [])
+    const error = await rejection(
+      caller.appendEvent({ workflowId: WF, kind: `node_started`, message: `Started APP-6` })
+    )
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.insert).not.toHaveBeenCalled()
+    expect(fakeDb.delete).not.toHaveBeenCalled()
+  })
+
+  it(`appends and trims to the newest 50`, async () => {
+    const { PgDialect } = await import(`drizzle-orm/pg-core`)
+    const wheres: unknown[] = []
+    fakeDb.delete.mockImplementationOnce(() => {
+      const p = chain([])
+      p.where = (arg?: unknown) => {
+        wheres.push(arg)
+        return p
+      }
+      return p
+    })
+    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
+    const NODE = `55555555-5555-4555-8555-555555555555`
+    await caller.appendEvent({
+      workflowId: WF,
+      nodeId: NODE,
+      kind: `landed`,
+      message: `Landed APP-6`,
+    })
+    expect(written).toContainEqual({
+      op: `insert`,
+      values: {
+        workflowId: WF,
+        teamId: TEAM,
+        nodeId: NODE,
+        sessionId: null,
+        kind: `landed`,
+        message: `Landed APP-6`,
+      },
+    })
+    expect(wheres).toHaveLength(1)
+    const query = new PgDialect().sqlToQuery(wheres[0] as never)
+    expect(query.sql).toMatch(/NOT IN/)
+    expect(query.sql).toMatch(/ORDER BY "workflow_events"\."at" DESC, "workflow_events"\."id" DESC/)
+    expect(query.params).toContain(50)
+    expect(query.params.filter((p) => p === WF)).toHaveLength(2)
+  })
+
+  it(`refuses an unknown kind`, async () => {
+    const error = await rejection(
+      caller.appendEvent({ workflowId: WF, kind: `exploded` as never, message: `` })
+    )
+    expect(error?.code).toBe(`BAD_REQUEST`)
+  })
+})
+
+// EXP-1082 §4 / EXP-1065 — node states + questions: the review cap clears a
+// node without anyone's approval and CARRIES what it left open; an open
+// question is a badge, never a state.
+describe(`node states (EXP-1082 §4)`, () => {
+  const NODE = `55555555-5555-4555-8555-555555555555`
+  const capped = (review: Record<string, unknown>) => ({
+    id: NODE,
+    workflowId: WF,
+    issueId: A,
+    kind: `leaf`,
+    state: `in_review`,
+    approvedAt: null,
+    sessionId: `66666666-6666-4666-8666-666666666666`,
+    reviewRound: 3,
+    review: { round: 3, findings: ``, oracle: null, model: null, at: ``, ...review },
+  })
+  const land = async (node: Record<string, unknown>) => {
+    selectQueue.push(
+      [node],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ prState: `open` }],
+      // the landed write's decisions-log update
+      [{ identifier: `APP-6` }],
+      [{ decisions: `2026-09-19: ship the API first` }]
+    )
+    return caller.landNode({ nodeId: NODE })
+  }
+  const decisionsWritten = () =>
+    written
+      .filter((w) => w.op === `update`)
+      .map((w) => (w.values as { decisions?: string }).decisions)
+      .find((d) => typeof d === `string`)
+
+  it(`a node at the review cap lands after the author's last push and carries its findings`, async () => {
+    expect(
+      await land(capped({ verdict: `request_changes`, findings: `src/a.ts:4 off by one\nsrc/b.ts: no test` }))
+    ).toEqual({ merged: true, reason: null, retargeted: [] })
+    expect(h.mergePr).toHaveBeenCalledWith({ issueId: A, endSessions: true })
+    expect(written[0]!.values).toEqual({ state: `landed`, note: null })
+    expect(decisionsWritten()).toBe(
+      `2026-09-19: ship the API first\n${new Date().toISOString().slice(0, 10)}: Unresolved review findings (APP-6, round 3): src/a.ts:4 off by one src/b.ts: no test`
+    )
+    expect(written).toContainEqual({
+      op: `insert`,
+      values: expect.objectContaining({ kind: `cleared_at_cap`, nodeId: NODE, workflowId: WF }),
+    })
+  })
+
+  it(`a failed oracle at the cap lands and carries the failure`, async () => {
+    expect(
+      await land(
+        capped({ verdict: `approve`, findings: `flaky`, oracle: { command: `bun test`, passed: false } })
+      )
+    ).toMatchObject({ merged: true })
+    expect(decisionsWritten()).toContain(
+      `Unresolved review findings (APP-6, round 3): flaky Checks failed: bun test`
+    )
+  })
+
+  it(`a node below the cap, or one whose checks passed, still waits for its review`, async () => {
+    expect(
+      (await land(capped({ verdict: `request_changes`, round: 2 }))).reason
+    ).toBe(`Waiting for the agent review to clear it`)
+    expect(h.mergePr).not.toHaveBeenCalled()
+  })
+
+  it(`an open question never changes the node state, only the badge`, async () => {
+    const { workflowOpenQuestions } = await vi.importActual<
+      typeof import("@/lib/workflows/open-questions")
+    >(`@/lib/workflows/open-questions`)
+    const askedAt = `2026-09-25T10:00:00Z`
+    // The badge comes off the run's own row …
+    expect(
+      workflowOpenQuestions(
+        [
+          {
+            id: `run-1`,
+            workflowId: WF,
+            workflowNodeId: NODE,
+            pendingQuestion: { question: `Proposal: keep the enum?`, askedAt },
+            status: `running`,
+          },
+        ],
+        WF
+      )
+    ).toEqual([{ nodeId: NODE, sessionId: `run-1`, question: `Proposal: keep the enum?`, askedAt }])
+    // … and nothing the server writes to a node ever reads `waiting`.
+    expect(reviewOutcome({ verdict: `request_changes`, oraclePassed: null, round: 3 }).state).toBe(
+      `updating`
+    )
+  })
+})
+
+// EXP-1082 §7 — the final PR (EXP-1072 / EXP-1059 implement these; the body
+// is EXP-1065's). The GitHub half (`reopenWorkflowFinalPr`, the event rows)
+// is locked in workflow-final-pr.test.ts; these prove the router's gates
+// and what each path asks of it.
+describe(`final PR (EXP-1082 §7)`, () => {
+  const closed = (over: Record<string, unknown> = {}) =>
+    workflow({
+      status: `running`,
+      deviceId: `dev-1`,
+      decisions: ``,
+      finalPrUrl: `https://gh/pr/9`,
+      finalPrNumber: 9,
+      finalPrState: `closed`,
+      ...over,
+    })
+
+  it(`a closed final PR is reopened once`, async () => {
+    // The engine's beat: the ONE reopen — a `final_pr_reopened` event, the PR
+    // back to open.
+    selectQueue.push([closed()], [{ id: `device-row` }])
+    expect(await caller.reopenFinalPr({ id: WF })).toEqual({
+      reopened: true,
+      url: `https://gh/pr/9`,
+    })
+    expect(h.reopenWorkflowFinalPr).toHaveBeenCalledWith(fakeDb, WF, `user-1`, { once: true })
+
+    // Closed AGAIN: the reopen was spent. The helper says so (`gaveUp`) and
+    // the engine remembers; the PR stays closed.
+    h.reopenWorkflowFinalPr.mockResolvedValueOnce({
+      reopened: false,
+      reason: `The final pull request #9 was closed again after one reopen`,
+      gaveUp: true,
+    })
+    selectQueue.push([closed()], [{ id: `device-row` }])
+    expect(await caller.reopenFinalPr({ id: WF })).toMatchObject({ reopened: false, gaveUp: true })
+
+    // Only the runner may ask: a member without the device is refused.
+    selectQueue.push([closed()], [])
+    const error = await rejection(caller.reopenFinalPr({ id: WF }))
+    expect(error?.code).toBe(`FORBIDDEN`)
+  })
+
+  it(`a member opens a closed final PR again from the workflow page: reopened, else a fresh one`, async () => {
+    // GitHub reopens it: the same PR comes back, nothing new is created.
+    selectQueue.push([closed()])
+    expect(await caller.openFinalPr({ id: WF })).toEqual({ url: `https://gh/pr/9` })
+    expect(h.reopenWorkflowFinalPr).toHaveBeenCalledWith(fakeDb, WF, `user-1`, { once: false })
+    expect(h.openWorkflowFinalPr).not.toHaveBeenCalled()
+
+    // GitHub refuses (head branch gone): a NEW final PR from the branch.
+    h.reopenWorkflowFinalPr.mockResolvedValueOnce({
+      reopened: false,
+      reason: `Validation Failed`,
+      gaveUp: true,
+    })
+    selectQueue.push([closed()])
+    expect(await caller.openFinalPr({ id: WF })).toEqual({ url: `https://gh/pr/9` })
+    expect(h.openWorkflowFinalPr).toHaveBeenCalledWith(fakeDb, WF, `user-1`)
+
+    // An OPEN final PR is simply answered — no reopen, no new PR.
+    h.openWorkflowFinalPr.mockClear()
+    h.reopenWorkflowFinalPr.mockClear()
+    selectQueue.push([closed({ finalPrState: `open` })])
+    expect(await caller.openFinalPr({ id: WF })).toEqual({ url: `https://gh/pr/9` })
+    expect(h.reopenWorkflowFinalPr).not.toHaveBeenCalled()
+    expect(h.openWorkflowFinalPr).not.toHaveBeenCalled()
+  })
+
+  it(`an all-skipped workflow is cancelled with a note`, async () => {
+    // Every node skipped = nothing to ship: status `cancelled` + a decision line.
+    selectQueue.push(
+      [workflow({ status: `running`, deviceId: `dev-1`, decisions: `` })],
+      [{ id: `device-row` }],
+      [
+        { id: `node-1`, state: `skipped` },
+        { id: `node-2`, state: `skipped` },
+        // A proposed node was never admitted: it does not count.
+        { id: `node-3`, state: `proposed` },
+      ]
+    )
+    expect(await caller.cancelUnshipped({ id: WF })).toMatchObject({ cancelled: true })
+    const update = written.find((w) => w.op === `update`)!.values as Record<string, unknown>
+    expect(update.status).toBe(`cancelled`)
+    expect(update.endedAt).toBeInstanceOf(Date)
+    expect(update.decisions).toMatch(/^\d{4}-\d{2}-\d{2}: nothing shipped: every node was skipped$/)
+    expect(h.recordWorkflowEventInTx).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({ workflowId: WF, kind: `cancelled` })
+    )
+
+    // One landed node = something shipped: the final PR path, never this.
+    written.length = 0
+    h.recordWorkflowEventInTx.mockClear()
+    selectQueue.push(
+      [workflow({ status: `running`, deviceId: `dev-1`, decisions: `` })],
+      [{ id: `device-row` }],
+      [
+        { id: `node-1`, state: `skipped` },
+        { id: `node-2`, state: `landed` },
+      ]
+    )
+    const error = await rejection(caller.cancelUnshipped({ id: WF }))
+    expect(error?.code).toBe(`PRECONDITION_FAILED`)
+    expect(written).toEqual([])
+    expect(h.recordWorkflowEventInTx).not.toHaveBeenCalled()
+
+    // Idempotent: a cancelled workflow answers without writing.
+    selectQueue.push(
+      [workflow({ status: `cancelled`, deviceId: `dev-1` })],
+      [{ id: `device-row` }]
+    )
+    expect(await caller.cancelUnshipped({ id: WF })).toEqual({ cancelled: true })
+    expect(written).toEqual([])
+  })
+
+  it(`final merge flips member issues through the PR-merge helper`, async () => {
+    // mergeFinalPr → GitHub's acceptance → `applyWorkflowFinalPrState(merged)`,
+    // whose covered-issue fan-out is `applyPrLifecycleStatusInTx` — the very
+    // status writer the linked-PR merge path (`applyPrMergeState`) uses —
+    // locked in workflow-final-pr.test.ts (`moves only the issues of landed
+    // nodes on merge`). No second status codepath exists.
+    selectQueue.push([
+      workflow({
+        status: `running`,
+        deviceId: `dev-1`,
+        finalPrUrl: `https://gh/pr/9`,
+        finalPrNumber: 9,
+        finalPrState: `open`,
+      }),
+    ])
+    expect(await caller.mergeFinalPr({ id: WF })).toEqual({ merged: true })
+    expect(h.mergeRepositoryPull).toHaveBeenCalledWith(
+      expect.objectContaining({ prNumber: 9, prUrl: `https://gh/pr/9` })
+    )
+    expect(h.applyWorkflowFinalPrState).toHaveBeenCalledWith(fakeDb, `https://gh/pr/9`, `merged`)
+    // The router writes no issue status itself.
+    expect(written.filter((w) => w.op === `update`)).toEqual([])
+  })
+  it(`the final PR body carries findings, decisions and results`, async () => {
+    const { finalPrBody } = await vi.importActual<typeof import("@/lib/workflow-final-pr")>(
+      `@/lib/workflow-final-pr`
+    )
+    const body = finalPrBody({
+      name: `Login rework`,
+      nodes: [{ identifier: `APP-6`, title: `Leaf`, prUrl: null, kind: `leaf` }],
+      audit: [],
+      decisions: `2026-09-25: Unresolved review findings (APP-6, round 3): src/a.ts:4 off by one`,
+      findings: [
+        { identifier: `APP-6`, round: 3, findings: `src/a.ts:4 off by one`, oracleCommand: `bun test` },
+      ],
+      results: [
+        { identifier: `APP-6`, topic: `login`, label: `web`, url: `https://app.test/api/attachments/a1` },
+      ],
+    })
+    expect(body).toContain(`## Unresolved review findings\n`)
+    expect(body).toContain(`- [ ] #APP-6 (review round 3)\n  src/a.ts:4 off by one\n  Checks failed: bun test`)
+    expect(body).toContain(`## Decisions\n2026-09-25: Unresolved review findings`)
+    expect(body).toContain(`## Results\n`)
+    expect(body).toContain(`### APP-6 · login\n- [web](https://app.test/api/attachments/a1)`)
   })
 })

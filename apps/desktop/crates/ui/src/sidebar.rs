@@ -582,8 +582,6 @@ enum NavRow {
         status: Box<ResolvedStatus>,
         count: usize,
         collapsed: bool,
-        /// EXP-998: the blocks rail's lanes crossing this band.
-        rail: domain::issue_rail::RailRow,
     },
     Issue {
         /// The issue's ordinal across the WHOLE list, folded groups included
@@ -594,8 +592,8 @@ enum NavRow {
         /// EXP-980: the sub-issue connector (the big list's `ListRow::Issue`
         /// carries the same), off the group's visible depth sequence.
         guides: domain::tree_guides::Guides,
-        /// EXP-998: the row's slice of the blocks rail — its node (labelled
-        /// by the query's `blocks` numbers) and lanes.
+        /// EXP-998: the row's slice of the blocks rail — its node, labelled
+        /// by the query's `blocks` numbers.
         rail: domain::issue_rail::RailRow,
     },
 }
@@ -1224,6 +1222,8 @@ impl RailView {
             }
             crate::run_rows::SessionGroupKind::Stack => None,
         };
+        let status_dot = facts.status_dot(muted);
+        let trailing = facts.trailing();
         crate::surface::flat_row_compact()
             .id(("rail-running-group", index))
             .w_full()
@@ -1254,15 +1254,18 @@ impl RailView {
                     .text_color(muted)
                     .child(facts.label.clone()),
             )
-            // A group IS its children, so how many there are is what the reader
-            // is deciding to fold away — the ×4 trailing cell.
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(facts.members.to_string()),
-            )
+            // EXP-1068: the workflow's status dot, then the ×4 trailing cell
+            // (`3 running · 5 of 8 done`; a stack's member count).
+            .children(status_dot.map(|tone| crate::surface::live_dot(tone, false)))
+            .when(!trailing.is_empty(), |this| {
+                this.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(trailing),
+                )
+            })
             .when_some(open, |this, workflow_id| {
                 this.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                     // EXP-851: a rail row opens its detail with no list beside
@@ -1318,9 +1321,11 @@ impl RailView {
             .into_any_element();
         // The compact square has no room for two texts: the tooltip is the
         // whole label the expanded row splits into identifier + title.
+        // EXP-1068: a review chain is titled by its round and verdict.
+        let title = run.marks.review_title.clone().unwrap_or_else(|| run.title.clone());
         let label: SharedString = match &run.identifier {
-            Some(identifier) => format!("{identifier} {}", run.title).into(),
-            None => run.title.clone(),
+            Some(identifier) => format!("{identifier} {title}").into(),
+            None => title.clone(),
         };
         let open = {
             let session_id = session_id.clone();
@@ -1351,7 +1356,12 @@ impl RailView {
             .into_any_element();
         }
         let fold = self.rail_run_fold(index, &row.key, row.has_children, cx);
-        let device_label = run.device_label.clone();
+        // EXP-1068: the rail row has no caption line, so a non-default account
+        // rides the device glyph's tooltip.
+        let device_label: Option<SharedString> = match (run.device_label.clone(), run.marks.account.clone()) {
+            (Some(device), Some(account)) => Some(format!("{device} · {account}").into()),
+            (device, account) => device.or(account),
+        };
         let device = div()
             .id(("rail-running-device", index))
             .flex_shrink_0()
@@ -1387,6 +1397,7 @@ impl RailView {
             ))
             .children(fold)
             .child(lead)
+            .children(crate::run_rows::needs_you_dot(run.marks.needs_you))
             .children(run.identifier.clone().map(|identifier| {
                 div()
                     .flex_shrink_0()
@@ -1395,7 +1406,12 @@ impl RailView {
                     .font_family(theme::terminal::FONT_FAMILY)
                     .child(identifier)
             }))
-            .child(div().flex_1().min_w_0().truncate().child(run.title.clone()))
+            .child(div().flex_1().min_w_0().truncate().child(title))
+            .children(crate::run_rows::duplicate_live_warning(
+                "rail-running",
+                index,
+                run.marks.duplicate_live,
+            ))
             .child(device)
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| open(window, cx)));
         // EXP-874: the kill rides the row's right-click menu, not a trailing
@@ -2218,6 +2234,10 @@ impl Render for RailView {
                     || !queries::review_runs(cx, &id).is_empty()
             })
             .unwrap_or(false);
+        // EXP-1085: a workflow of the team waits on a person.
+        let workflows_badge = active_team_id(&self.nav, cx)
+            .filter(|id| crate::workflow_view::team_has_open_question(id, cx))
+            .map(|_| RailBadge::Dot(theme::tokens::RED.to_hsla()));
         // Inbox badge (EXP-699): any unread renderable notification — the
         // primary-tinted dot the mobile tab bars show.
         let inbox_badge = queries::inbox_unread(cx)
@@ -2465,7 +2485,7 @@ impl Render for RailView {
                             Icon::from(icons::registry::NAV_WORKFLOWS),
                             domain::workflow_view::WORKFLOWS_TITLE,
                             Screen::Workflows,
-                            None,
+                            workflows_badge.clone(),
                             cx,
                         ))
                         .child(self.rail_screen_entry(
@@ -2603,7 +2623,7 @@ impl Render for RailView {
                         Icon::from(icons::registry::NAV_WORKFLOWS),
                         domain::workflow_view::WORKFLOWS_TITLE,
                         Screen::Workflows,
-                        None,
+                        workflows_badge.clone(),
                         cx,
                     ))
                     // EXP-706: Reviews is a full-page screen like the three
@@ -2785,13 +2805,9 @@ pub struct ListPanel {
     /// EXP-915: the flattened rows of the CURRENT render, read by the virtual
     /// list's range closure afterwards (the big list's `rows`).
     nav_rows: Rc<Vec<NavRow>>,
-    /// EXP-998: the `ListNav` issue list's blocks rail — the column width
-    /// (0 = none), the open edges its lanes name, the row indices whose
-    /// rail strip is hovered (any = the arrows show) and the hovered node.
+    /// EXP-998: the `ListNav` issue list's blocks rail column width (0 =
+    /// none). EXP-1057: dots only; each dot owns its hover card.
     nav_rail_width: f32,
-    nav_block_edges: Rc<Vec<domain::issue_rail::BlockEdge>>,
-    nav_rail_hovered: HashSet<usize>,
-    nav_rail_hot: Option<String>,
     /// Per-render snapshots the row builders read instead of re-resolving
     /// navigation once per row: the vocabulary, the open detail's issue and
     /// the origin a row pins.
@@ -2935,9 +2951,6 @@ impl ListPanel {
             nav_statuses: queries::Memo::default(),
             nav_rows: Rc::new(Vec::new()),
             nav_rail_width: 0.,
-            nav_block_edges: Rc::new(Vec::new()),
-            nav_rail_hovered: HashSet::new(),
-            nav_rail_hot: None,
             nav_row_statuses: Rc::new(Vec::new()),
             nav_active_issue_id: None,
             nav_row_origin: None,
@@ -4288,16 +4301,6 @@ impl ListPanel {
                     .id(scroll_id)
                     .relative()
                     .size_full()
-                    // EXP-998: a strip scrolled out from under the pointer
-                    // never reports `hovered=false` (gpui fires `on_hover`
-                    // on a mouse MOVE only) — a wheel scroll closes the rail.
-                    .on_scroll_wheel(cx.listener(|this, _, _, cx| {
-                        if !this.nav_rail_hovered.is_empty() || this.nav_rail_hot.is_some() {
-                            this.nav_rail_hovered.clear();
-                            this.nav_rail_hot = None;
-                            cx.notify();
-                        }
-                    }))
                     .child(
                         v_virtual_list(
                             cx.entity().clone(),
@@ -4336,8 +4339,7 @@ impl ListPanel {
                 status,
                 count,
                 collapsed,
-                rail,
-            } => self.nav_group_header(status, *count, *collapsed, rail, cx),
+            } => self.nav_group_header(status, *count, *collapsed, cx),
             NavRow::Issue {
                 index,
                 issue,
@@ -4347,7 +4349,7 @@ impl ListPanel {
                 let statuses = self.nav_row_statuses.clone();
                 let any_selected = !self.nav_selected.is_empty();
                 let guides = guides.clone();
-                self.nav_issue_row(*index, ix, issue, &statuses, any_selected, &guides, rail, cx)
+                self.nav_issue_row(*index, issue, &statuses, any_selected, &guides, rail, cx)
             }
         };
         div()
@@ -4408,7 +4410,6 @@ impl ListPanel {
                 status: Box::new(group.status.clone()),
                 count: group.issues.len(),
                 collapsed,
-                rail: domain::issue_rail::RailRow::default(),
             });
             if collapsed {
                 index += group.issues.len();
@@ -4435,45 +4436,14 @@ impl ListPanel {
                 NavRow::Issue { issue, .. } => domain::issue_rail::RailEntry::Row(issue.id.as_str()),
             })
             .collect();
-        let rail = domain::issue_rail::issue_rail(&entries, &data.block_edges, counts);
+        let rail = domain::issue_rail::issue_rail(&entries, counts);
         self.nav_rail_width = rail.width();
         for (row, slice) in rows.iter_mut().zip(rail.entries) {
-            match row {
-                NavRow::Header { rail, .. } | NavRow::Issue { rail, .. } => *rail = slice,
-            }
-        }
-        self.nav_block_edges = data.block_edges.clone();
-        self.nav_rail_hovered.retain(|&ix| ix < rows.len());
-        // DEV-ONLY: `EXP_DEV_RAIL_HOT=<issue uuid>` photographs the rail open
-        // (the big list's hook, for the column) — pinned every render.
-        if let Some(hot) = crate::issue_list::dev_rail_hot() {
-            if rows.iter().any(|row| matches!(row, NavRow::Issue { issue, .. } if issue.id == hot)) {
-                self.nav_rail_hovered.insert(usize::MAX);
-                self.nav_rail_hot = Some(hot.to_string());
+            if let NavRow::Issue { rail, .. } = row {
+                *rail = slice;
             }
         }
         self.nav_rows = Rc::new(rows);
-    }
-
-    /// EXP-998: one `ListNav` entry's lanes of the rail, painted only while
-    /// the pointer is on the rail.
-    fn nav_rail_lanes(
-        &self,
-        rail: &domain::issue_rail::RailRow,
-        cx: &App,
-    ) -> Option<gpui::AnyElement> {
-        crate::issue_rail::rail_lanes_layer(
-            &crate::issue_rail::RailPaint {
-                row: rail,
-                edges: &self.nav_block_edges,
-                width: self.nav_rail_width,
-                right_pad: NAV_ROW_PAD,
-                gap: NAV_ROW_GAP,
-                open: !self.nav_rail_hovered.is_empty(),
-                hot: self.nav_rail_hot.as_deref(),
-            },
-            cx,
-        )
     }
 
     /// One `ListNav` status band — the big list's group header
@@ -4486,7 +4456,6 @@ impl ListPanel {
         status: &domain::statuses::ResolvedStatus,
         count: usize,
         collapsed: bool,
-        rail: &domain::issue_rail::RailRow,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let group_key = status.group_key.clone();
@@ -4496,21 +4465,6 @@ impl ListPanel {
             .w_full()
             .h(px(24.))
             .px_1p5()
-            // EXP-998: the rail's lanes cross the band (the band's own 6px
-            // side padding is what the layer sits inside).
-            .relative()
-            .children({
-                let paint = crate::issue_rail::RailPaint {
-                    row: rail,
-                    edges: &self.nav_block_edges,
-                    width: self.nav_rail_width,
-                    right_pad: 6.,
-                    gap: NAV_ROW_GAP,
-                    open: !self.nav_rail_hovered.is_empty(),
-                    hot: self.nav_rail_hot.as_deref(),
-                };
-                crate::issue_rail::rail_lanes_layer(&paint, cx)
-            })
             .gap_1p5()
             .items_center()
             .rounded(cx.theme().radius)
@@ -4570,7 +4524,6 @@ impl ListPanel {
     fn nav_issue_row(
         &self,
         index: usize,
-        ix: usize,
         issue: &Rc<Issue>,
         statuses: &Rc<Vec<ResolvedStatus>>,
         any_selected: bool,
@@ -4651,43 +4604,17 @@ impl ListPanel {
             NAV_ROW_GAP,
         ))
         // EXP-998: the blocks rail (the pill's successor) — the reserved
-        // column, the hover strip, the lanes and the node.
+        // column and the node; EXP-1057: hovering the dot opens the graph.
         .when(self.nav_rail_width > 0., |row| {
             row.child(div().flex_shrink_0().w(px(self.nav_rail_width)))
         })
-        .children(crate::issue_rail::rail_strip(
-            row_id("nav-rail-strip", &issue.id),
-            self.nav_rail_width,
+        .children(crate::issue_rail::rail_node(
+            format!("nav-rail-node-{}", issue.id),
+            &issue.id,
+            rail,
             NAV_ROW_PAD,
-            cx.listener(move |this, hovered: &bool, _, cx| {
-                let changed = if *hovered {
-                    this.nav_rail_hovered.insert(ix)
-                } else {
-                    this.nav_rail_hovered.remove(&ix)
-                };
-                if changed {
-                    cx.notify();
-                }
-            }),
+            cx,
         ))
-        .children(self.nav_rail_lanes(rail, cx))
-        .children({
-            let hot_id = issue.id.clone();
-            crate::issue_rail::rail_node(
-                format!("nav-rail-node-{}", issue.id),
-                &issue.id,
-                rail,
-                NAV_ROW_PAD,
-                cx.listener(move |this, hovered: &bool, _, cx| {
-                    let next = hovered.then(|| hot_id.clone());
-                    if this.nav_rail_hot != next {
-                        this.nav_rail_hot = next;
-                        cx.notify();
-                    }
-                }),
-                cx,
-            )
-        })
         .group(NAV_ROW_GROUP)
         .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
             let modifiers = event.modifiers();

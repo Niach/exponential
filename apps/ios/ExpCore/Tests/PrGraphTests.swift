@@ -211,4 +211,64 @@ final class PrGraphTests: XCTestCase {
         XCTAssertNil(result.positionLabel)
         XCTAssertTrue(result.isEmpty)
     }
+
+    // EXP-1058: the stacked chip that replaced the pill — the subject PR's
+    // representative in front, every other issue of the stack/batch behind.
+    func testNamesTheRepresentativeIssueAndTheCountOnTheStackedChip() {
+        let url = "pr/9"
+        let lower = issue(
+            "lower", identifier: "EXP-1", prUrl: "pr/1", branch: "exp/LOWER", base: "main"
+        )
+        let one = issue(
+            "one", identifier: "EXP-2", prUrl: url, branch: "exp/batch-abcd1234",
+            base: "exp/LOWER", createdAt: "2026-09-16T10:00:00Z"
+        )
+        let two = issue(
+            "two", identifier: "EXP-3", prUrl: url, branch: "exp/batch-abcd1234",
+            base: "exp/LOWER"
+        )
+        // A batch inside a stack: the subject PR's representative, every other
+        // issue on the stack behind it.
+        let both = graph(two, [lower, one, two])
+        XCTAssertEqual(PrGraph.badgeChip(both, face: .issue)?.issue?.id, "one")
+        XCTAssertEqual(PrGraph.badgeChip(both, face: .issue)?.count, 2)
+        // A plain batch: the others of the batch.
+        let plainTwo = issue(
+            "two", identifier: "EXP-3", prUrl: url, branch: "exp/batch-abcd1234", base: nil
+        )
+        let oneAlone = issue(
+            "one", identifier: "EXP-2", prUrl: url, branch: "exp/batch-abcd1234",
+            base: nil, createdAt: "2026-09-16T10:00:00Z"
+        )
+        let batch = graph(oneAlone, [oneAlone, plainTwo])
+        XCTAssertEqual(PrGraph.badgeChip(batch, face: .changes)?.count, 1)
+        // A run family with no issue: no front issue, the other runs behind.
+        let root = treeRun("root", parent: nil)
+        let child = treeRun("child", parent: "root")
+        let family = PrGraph.build(
+            issue: nil, session: child, issues: [], sessions: [child, root], relations: []
+        )
+        let chip = PrGraph.badgeChip(family, face: .run)
+        XCTAssertNil(chip?.issue)
+        XCTAssertEqual(chip?.count, 1)
+        XCTAssertEqual(PrGraph.badgeChip(family, face: .results)?.count, 1)
+        // No badge = no chip.
+        XCTAssertNil(PrGraph.badgeChip(family, face: .issue))
+    }
+
+    private func treeRun(_ id: String, parent: String?) -> CodingSessionEntity {
+        CodingSessionEntity(
+            id: id,
+            issueId: nil,
+            teamId: "team-1",
+            userId: "me",
+            deviceLabel: "macbook",
+            status: "running",
+            parentSessionId: parent,
+            startedAt: "2026-09-16T09:00:00Z",
+            endedAt: nil,
+            createdAt: "2026-09-16T09:00:00Z",
+            updatedAt: "2026-09-16T09:00:00Z"
+        )
+    }
 }

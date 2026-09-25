@@ -28,6 +28,7 @@ use std::time::Duration;
 
 use gpui::{App, AppContext as _, Global};
 
+use coding::workflows::events::{self, Outcome, TrpcEventSink, WorkflowEventSink as _};
 use coding::workflows::{
     self, Decision, IssueFacts, NodeFacts, SessionFacts, Snapshot, WorkflowFacts,
 };
@@ -276,9 +277,6 @@ struct Pass {
     /// EXP-984: `node id → its latest review`, whose findings the author is
     /// handed verbatim.
     review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
-    /// EXP-984: `node id → whether its run announced a contract`, the input
-    /// to the `contractChanges` metric.
-    checkpointed: HashSet<String>,
     /// EXP-984: `reviewer session id → live` off the synced rows, for every
     /// reviewer run this device recorded; a row that has not synced is
     /// absent. What settles a review that ended without a verdict.
@@ -295,9 +293,7 @@ struct StartOrder {
     workflow_id: String,
     workflow_name: String,
     decisions: String,
-    /// EXP-983: the workflow's start mode and the issues this node builds
-    /// on — the two extra prompt lines.
-    start_on: String,
+    /// EXP-983: the issues this node builds on — the prompt's upstream line.
     blockers: Vec<String>,
     /// The branch this node is cut from: the integration branch, a blocker's
     /// own branch, or a synthetic base of several (EXP-983).
@@ -312,6 +308,29 @@ struct StartOrder {
     options: LaunchOptions,
     trpc: Arc<api::TrpcClient>,
     in_flight: Option<Arc<InFlight>>,
+    audit: LaunchAudit,
+}
+
+/// EXP-1082 — the audit line a FOREGROUND launch still owes. The pass records
+/// `Done` for a start/review decision once its order is QUEUED; whether the
+/// launch itself came up is only known where the order executes
+/// (`launch_node` / `launch_review`), which records it here: `Done` on a
+/// launch, `Failed(msg)` on a failed prepare/launch.
+#[derive(Clone)]
+struct LaunchAudit {
+    decision: Decision,
+    sink: TrpcEventSink,
+}
+
+impl LaunchAudit {
+    /// Off the foreground: the sink is a blocking tRPC call.
+    fn record(self, outcome: Outcome, executor: &gpui::BackgroundExecutor) {
+        let Some(event) = events::launch_event_for(&self.decision, &outcome) else {
+            return;
+        };
+        let sink = self.sink;
+        executor.spawn(async move { sink.record(event) }).detach();
+    }
 }
 
 /// One node whose PR would not merge and whose run has ENDED: the resume
@@ -350,6 +369,7 @@ struct ReviewOrder {
     settings_path: PathBuf,
     device_id: String,
     in_flight: Option<Arc<InFlight>>,
+    audit: LaunchAudit,
 }
 
 /// What one pass hands back to the foreground.
@@ -370,8 +390,9 @@ fn snapshot_for(
         return None;
     }
     let auth = crate::session::AuthContext::global(cx);
-    let device_id = steer::persistent_device_id(&auth.data_dir);
-    let settings_path = coding::Settings::default_path(&auth.data_dir);
+    let data_dir = auth.data_dir.clone();
+    let device_id = steer::persistent_device_id(&data_dir);
+    let settings_path = coding::Settings::default_path(&data_dir);
     let trpc = Arc::new(queries::trpc_client(cx)?);
     let collections = sync::Store::try_global(cx)?.collections().clone();
     let hub = CodingHub::global(cx);
@@ -429,7 +450,6 @@ fn snapshot_for(
         let mut edge_nodes = Vec::new();
         let mut board_id = None;
         let mut review_of: HashMap<String, domain::rows::WorkflowNodeReview> = HashMap::new();
-        let mut checkpointed: HashSet<String> = HashSet::new();
         // EXP-984: a REVIEWER run still up keeps its node out of the review
         // rule — its session id is the one this device recorded when it
         // started that review.
@@ -461,9 +481,6 @@ fn snapshot_for(
             }
             if let Some(review) = node.review_facts() {
                 review_of.insert(node.id.clone(), review);
-            }
-            if node.checkpoint_at.is_some() {
-                checkpointed.insert(node.id.clone());
             }
             let members = node.member_ids();
             // A plain node's head is its issue's branch; a COMPOUND one runs
@@ -536,11 +553,15 @@ fn snapshot_for(
                     verdict: review.verdict,
                     round: review.round,
                     head: review.head,
+                    oracle: Some(workflows::OracleFacts {
+                        passed: review.oracle_passed,
+                    }),
                 }),
                 updated_at_ms: node
                     .updated_at
                     .as_deref()
                     .and_then(workflows::parse_wire_timestamp_ms),
+                note: node.note.clone(),
             });
         }
         if nodes.is_empty() {
@@ -592,12 +613,9 @@ fn snapshot_for(
                     status: status.to_string(),
                     integration_branch,
                     final_pr_url: workflow.final_pr_url.clone(),
+                    final_pr_state: workflow.final_pr_state.clone(),
                     // EXP-1029: not a launch field any more.
                     max_parallel: domain::contract::WORKFLOW_MAX_PARALLEL_DEFAULT,
-                    start_on: workflow
-                        .start_on
-                        .clone()
-                        .unwrap_or_else(|| workflows::START_ON_LANDED.to_string()),
                     launch: launch.clone(),
                 },
                 nodes,
@@ -609,6 +627,13 @@ fn snapshot_for(
                 integration_branch_exists: false,
                 in_flight: claimed.clone(),
                 final_pr_in_flight: final_claimed.contains(&workflow.id),
+                // EXP-1059: cleared by the read itself once the PR reads open.
+                final_pr_close_handled: workflows::final_pr_close_handled(
+                    &settings_path,
+                    &device_id,
+                    &workflow.id,
+                    workflow.final_pr_state.as_deref() == Some("closed"),
+                ),
                 nudged: engine_state.nudged.clone(),
                 // EXP-983: the git facts are filled on the background pass,
                 // where the clone and the token live.
@@ -634,7 +659,6 @@ fn snapshot_for(
             branch_of,
             team_id: workflow.team_id.clone().unwrap_or_default(),
             review_of,
-            checkpointed,
             review_session_live,
             review_live_on_branch,
         });
@@ -778,6 +802,7 @@ fn run_pass(
         .iter()
         .map(|node| (node.id.clone(), node.review_round))
         .collect();
+    let sink = TrpcEventSink::new(Arc::clone(&pass.trpc));
     for outcome in workflows::settle_review_runs(
         &mut state,
         &review_round_of,
@@ -785,6 +810,7 @@ fn run_pass(
         |session_id| pass.review_session_live.get(session_id).copied(),
         snapshot.now_ms,
     ) {
+        let event = events::event_for_review_end(&workflow_id, &outcome);
         match outcome {
             workflows::ReviewRunEnd::Verdict { .. } => {}
             workflows::ReviewRunEnd::Followed { node_id, session_id } => log::info!(
@@ -802,6 +828,9 @@ fn run_pass(
                 report.note = api::patch::Patch::Set(one_line(&note));
                 report_node(&pass.trpc, &report);
             }
+        }
+        if let Some(event) = event {
+            sink.record(event);
         }
     }
     snapshot.reviewed_head = state.reviewed_head.clone();
@@ -825,11 +854,6 @@ fn run_pass(
         });
     }
 
-    // EXP-984: the counters only this device can see, batched into ONE
-    // report at the end of the pass.
-    let mut metrics: std::collections::BTreeMap<String, u32> = Default::default();
-    tally_contract_changes(&pass, &snapshot, &workflow_id, &mut metrics);
-
     let decisions = workflows::evaluate(&snapshot);
     let mut orders = PassOrders::default();
     let mut resumes: Vec<ResumeOrder> = Vec::new();
@@ -837,365 +861,424 @@ fn run_pass(
     // node waits for the next beat rather than starting on a wrong base.
     let mut unbuilt: HashSet<String> = HashSet::new();
     for decision in decisions {
-        match decision {
-            // Already done above — the engine still emits it when the host
-            // could not confirm the branch, and then there is nothing else.
-            Decision::EnsureIntegrationBranch => {}
-            Decision::SetNodeState {
-                node_id,
-                state,
-                note,
-            } => {
-                let mut report = api::workflows::NodeReport::new(&node_id, &state);
-                report.note = match note {
-                    Some(note) => api::patch::Patch::Set(note),
-                    None => api::patch::Patch::Null,
-                };
-                report_node(&pass.trpc, &report);
-            }
-            // EXP-983: the synthetic base a speculative start needs, built
-            // (or merged forward) in the engine's own scratch worktree.
-            Decision::BuildBase {
-                node_id,
-                base_branch,
-                sources,
-            } => {
-                let Some(repo) = repo.as_ref() else {
-                    unbuilt.insert(base_branch);
-                    continue;
-                };
-                if !build_base(&pass, repo, &workflow_id, &node_id, &base_branch, &sources) {
-                    unbuilt.insert(base_branch);
-                }
-            }
-            Decision::StartNode {
-                node_id,
-                attempt,
-                base_branch,
-                model,
-            } => {
-                // The base did not go up this pass: never cut from it.
-                if unbuilt.contains(&base_branch) {
-                    continue;
-                }
-                let Some(issue_id) = pass.issue_of_node.get(&node_id).cloned() else {
-                    continue;
-                };
-                let members = pass
-                    .members_of_node
-                    .get(&node_id)
-                    .cloned()
-                    .unwrap_or_default();
-                // A COMPOUND node runs as one batch, which needs the
-                // repository's full name the way the launcher resolves it.
-                let repo = if members.is_empty() {
-                    None
-                } else {
-                    match api::repositories::for_issue(&pass.trpc, &issue_id) {
-                        Ok(Some(repo)) => Some(repo),
-                        Ok(None) | Err(_) => {
-                            log::warn!(
-                                "[workflows] {workflow_id}: node {node_id} has no repository"
-                            );
-                            continue;
-                        }
-                    }
-                };
-                let Some(claim) = InFlight::claim(in_flight, &node_id) else {
-                    continue;
-                };
-                // Persist BEFORE the launch (the automations rule): a crash
-                // between here and the spawn leaves a `running` node the
-                // next pass re-decides, never a silent double start.
-                let mut report = api::workflows::NodeReport::new(&node_id, "running");
-                report.attempt = Some(attempt);
-                report.base_branch = api::patch::Patch::Set(base_branch.clone());
-                report.note = api::patch::Patch::Null;
-                if !report_node(&pass.trpc, &report) {
-                    continue;
-                }
-                // EXP-983: the run is cut AT this tip, so it already has it —
-                // recording that is what keeps the first beat quiet.
-                if let Some(sha) = snapshot.tips.get(&base_branch).cloned() {
-                    remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
-                }
-                // EXP-1002: the node's PHASE picks the model; everything
-                // else (agent, effort, account, subagent model) is the
-                // workflow's own launch configuration — the review's rule.
-                let mut options = pass.options.clone();
-                if let Some(model) = model {
-                    options.model = model;
-                }
-                orders.starts.push(StartOrder {
-                    workflow_id: workflow_id.clone(),
-                    workflow_name: pass.name.clone(),
-                    decisions: pass.decisions.clone(),
-                    start_on: snapshot.workflow.start_on.clone(),
-                    blockers: blocker_identifiers(&snapshot, &node_id),
-                    integration_branch: base_branch,
+        // EXP-1082: what the host did with it, for the audit trail.
+        let decided = decision.clone();
+        let outcome: Outcome = 'decision: {
+            match decision {
+                // Already done above — the engine still emits it when the host
+                // could not confirm the branch, and then there is nothing else.
+                Decision::EnsureIntegrationBranch => {}
+                Decision::SetNodeState {
                     node_id,
-                    issue_id,
-                    member_issue_ids: members,
-                    repo,
-                    options,
-                    trpc: Arc::clone(&pass.trpc),
-                    in_flight: Some(Arc::new(claim)),
-                });
-            }
-            Decision::LandNode { node_id } => {
-                let Some(claim) = InFlight::claim(in_flight, &node_id) else {
-                    continue;
-                };
-                land(&pass, &snapshot, &node_id, &branch, claim, &mut resumes);
-            }
-            // EXP-983: the branch under a run moved. A live run takes the
-            // text where it stands; an ended one is resumed with it.
-            Decision::MergeUpstream {
-                node_id,
-                session_id,
-                base_branch,
-                sha,
-            } => {
-                let note = match repo.as_ref() {
-                    Some(repo) => movement_note(repo, &pass, &snapshot, &node_id, &base_branch, &sha),
-                    None => sha.clone(),
-                };
-                let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
-                remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
-                // EXP-984: a merge-in is counted when it is DELIVERED, not
-                // when it is decided.
-                let mut delivered = || {
-                    *metrics
-                        .entry(api::workflows::COUNTER_MERGE_INS.to_string())
-                        .or_default() += 1;
-                };
-                if let Some(engine) = pass.engines.get(&session_id) {
-                    engine.steer(text);
-                    delivered();
-                    continue;
+                    state,
+                    note,
+                } => {
+                    let mut report = api::workflows::NodeReport::new(&node_id, &state);
+                    report.note = match note {
+                        Some(note) => api::patch::Patch::Set(note),
+                        None => api::patch::Patch::Null,
+                    };
+                    report_node(&pass.trpc, &report);
                 }
-                if pass.session_is_local.contains(&session_id) {
-                    continue; // a live run this app hosts but cannot reach
+                // EXP-983: the synthetic base a speculative start needs, built
+                // (or merged forward) in the engine's own scratch worktree.
+                Decision::BuildBase {
+                    node_id,
+                    base_branch,
+                    sources,
+                    ..
+                } => {
+                    let Some(repo) = repo.as_ref() else {
+                        unbuilt.insert(base_branch);
+                        break 'decision Outcome::Skipped;
+                    };
+                    if !build_base(&pass, repo, &workflow_id, &node_id, &base_branch, &sources) {
+                        unbuilt.insert(base_branch);
+                        break 'decision Outcome::Failed("the base did not build".to_string());
+                    }
                 }
-                delivered();
-                remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
-                resumes.push(ResumeOrder {
+                Decision::StartNode {
+                    node_id,
+                    attempt,
+                    base_branch,
+                    model,
+                    workflow_id: member_workflow_id,
+                    role,
+                    account,
+                } => {
+                    // The base did not go up this pass: never cut from it.
+                    if unbuilt.contains(&base_branch) {
+                        break 'decision Outcome::Skipped;
+                    }
+                    let Some(issue_id) = pass.issue_of_node.get(&node_id).cloned() else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    let members = pass
+                        .members_of_node
+                        .get(&node_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    // A COMPOUND node runs as one batch, which needs the
+                    // repository's full name the way the launcher resolves it.
+                    let repo = if members.is_empty() {
+                        None
+                    } else {
+                        match api::repositories::for_issue(&pass.trpc, &issue_id) {
+                            Ok(Some(repo)) => Some(repo),
+                            Ok(None) | Err(_) => {
+                                log::warn!(
+                                    "[workflows] {workflow_id}: node {node_id} has no repository"
+                                );
+                                break 'decision Outcome::Skipped;
+                            }
+                        }
+                    };
+                    let Some(claim) = InFlight::claim(in_flight, &node_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    // Persist BEFORE the launch (the automations rule): a crash
+                    // between here and the spawn leaves a `running` node the
+                    // next pass re-decides, never a silent double start.
+                    let mut report = api::workflows::NodeReport::new(&node_id, "running");
+                    report.attempt = Some(attempt);
+                    report.base_branch = api::patch::Patch::Set(base_branch.clone());
+                    report.note = api::patch::Patch::Null;
+                    if !report_node(&pass.trpc, &report) {
+                        break 'decision Outcome::Skipped;
+                    }
+                    // EXP-983: the run is cut AT this tip, so it already has it —
+                    // recording that is what keeps the first beat quiet.
+                    if let Some(sha) = snapshot.tips.get(&base_branch).cloned() {
+                        remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
+                    }
+                    // EXP-1002: the node's PHASE picks the model; everything
+                    // else (agent, effort, account, subagent model) is the
+                    // workflow's own launch configuration — the review's rule.
+                    let mut options = pass.options.clone();
+                    if let Some(model) = model {
+                        options.model = model;
+                    }
+                    // EXP-1082: the row names its workflow, node and role;
+                    // EXP-1005's rotation may pick the account.
+                    workflows::apply_engine_start(
+                        &mut options,
+                        workflows::WorkflowMembership {
+                            workflow_id: member_workflow_id,
+                            node_id: Some(node_id.clone()),
+                            role,
+                        },
+                        account,
+                    );
+                    // EXP-1082: `Done` here = the order was QUEUED. The launch
+                    // itself runs on the foreground, and `launch_node` records
+                    // its own outcome (Done on a launch, Failed on a failed
+                    // prepare/launch) through the order's `audit`.
+                    orders.starts.push(StartOrder {
+                        workflow_id: workflow_id.clone(),
+                        workflow_name: pass.name.clone(),
+                        decisions: pass.decisions.clone(),
+                        blockers: blocker_identifiers(&snapshot, &node_id),
+                        integration_branch: base_branch,
+                        node_id,
+                        issue_id,
+                        member_issue_ids: members,
+                        repo,
+                        options,
+                        trpc: Arc::clone(&pass.trpc),
+                        in_flight: Some(Arc::new(claim)),
+                        audit: LaunchAudit {
+                            decision: decided.clone(),
+                            sink: sink.clone(),
+                        },
+                    });
+                    // EXP-1082: the order was QUEUED; `launch_node` is the
+                    // ONE recorder of this decision (its `audit`), so the
+                    // pass records nothing — the CLI daemon records once too.
+                    break 'decision Outcome::Queued;
+                }
+                Decision::LandNode { node_id } => {
+                    let Some(claim) = InFlight::claim(in_flight, &node_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    land(&pass, &snapshot, &node_id, &branch, claim, &mut resumes);
+                }
+                // EXP-983: the branch under a run moved. A live run takes the
+                // text where it stands; an ended one is resumed with it.
+                Decision::MergeUpstream {
+                    node_id,
                     session_id,
-                    prompt: text,
-                    in_flight: None,
-                });
-            }
-            // EXP-984: the agent review of one node — an ACTION run in a
-            // throwaway worktree, launched on the foreground.
-            Decision::StartReview {
-                node_id,
-                model,
-                adversarial,
-            } => {
-                let Some(order) =
-                    review_order(&pass, &snapshot, &node_id, model, adversarial, in_flight)
-                else {
-                    continue;
-                };
-                // The head this review runs against is recorded NOW: the
-                // next beat must not start a second review of the same push
-                // while this one is still coming up.
-                if let Some(sha) = snapshot.pr_head.get(&node_id).cloned() {
-                    update_state(&pass, &workflow_id, |state| {
-                        state.reviewed_head.insert(node_id.clone(), sha.clone());
+                    base_branch,
+                    sha,
+                } => {
+                    let note = match repo.as_ref() {
+                        Some(repo) => movement_note(repo, &pass, &snapshot, &node_id, &base_branch, &sha),
+                        None => sha.clone(),
+                    };
+                    let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
+                    remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
+                    if let Some(engine) = pass.engines.get(&session_id) {
+                        engine.steer(text);
+                        break 'decision Outcome::Done;
+                    }
+                    if pass.session_is_local.contains(&session_id) {
+                        break 'decision Outcome::Skipped; // a live run this app hosts but cannot reach
+                    }
+                    remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
+                    resumes.push(ResumeOrder {
+                        session_id,
+                        prompt: text,
+                        in_flight: None,
                     });
                 }
-                orders.reviews.push(order);
-            }
-            // EXP-984: the review asked for changes — its findings go to the
-            // node's AUTHOR verbatim, once per round.
-            Decision::SendFindings {
-                node_id,
-                session_id,
-            } => {
-                let Some(review) = pass.review_of.get(&node_id) else {
-                    continue;
-                };
-                let text = coding::prompt::review_findings_prompt(review.round, &review.findings);
-                match session_id {
-                    // The engine only names a session that is LIVE: steer it
-                    // where it stands, or say nothing at all this pass (a
-                    // live run must never be resumed into a second one).
-                    Some(session_id) => match pass.engines.get(&session_id) {
-                        Some(engine) => engine.steer(text),
-                        None => continue,
-                    },
-                    // Its run ENDED: re-enter it with the findings as its
-                    // first message, exactly like the conflict path.
-                    None => {
-                        let Some(session_id) = pass
-                            .snapshot
-                            .nodes
-                            .iter()
-                            .find(|node| node.id == node_id)
-                            .and_then(|node| node.session_id.clone())
-                        else {
-                            continue;
-                        };
-                        remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
-                        resumes.push(ResumeOrder {
-                            session_id,
-                            prompt: text,
-                            in_flight: None,
+                // EXP-984: the agent review of one node — an ACTION run in a
+                // throwaway worktree, launched on the foreground.
+                Decision::StartReview {
+                    node_id,
+                    model,
+                    adversarial,
+                    workflow_id: member_workflow_id,
+                    role,
+                    account,
+                } => {
+                    let audit = LaunchAudit {
+                        decision: decided.clone(),
+                        sink: sink.clone(),
+                    };
+                    let Some(order) = review_order(
+                        &pass,
+                        &snapshot,
+                        &node_id,
+                        model,
+                        adversarial,
+                        member_workflow_id,
+                        role,
+                        account,
+                        in_flight,
+                        audit,
+                    ) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    // The head this review runs against is recorded NOW: the
+                    // next beat must not start a second review of the same push
+                    // while this one is still coming up.
+                    if let Some(sha) = snapshot.pr_head.get(&node_id).cloned() {
+                        update_state(&pass, &workflow_id, |state| {
+                            state.reviewed_head.insert(node_id.clone(), sha.clone());
                         });
                     }
+                    // EXP-1082: the order was QUEUED; `launch_review` is the
+                    // ONE recorder of this decision (its `audit`), so the
+                    // pass records nothing.
+                    orders.reviews.push(order);
+                    break 'decision Outcome::Queued;
                 }
-                let round = review.round;
-                update_state(&pass, &workflow_id, |state| {
-                    state.findings_sent.insert(node_id.clone(), round);
-                });
-            }
-            // EXP-983: the collision the engine decided to serialize. The
-            // state rides along unchanged — `reportNode` always takes one.
-            Decision::SetSerialEdge {
-                node_id,
-                state,
-                after,
-            } => {
-                let mut report = api::workflows::NodeReport::new(&node_id, state);
-                report.after_node_ids = Some(after);
-                report_node(&pass.trpc, &report);
-            }
-            Decision::Nudge {
-                session_id,
-                key,
-                text,
-            } => {
-                if let Some(engine) = pass.engines.get(&session_id) {
+                // EXP-984: the review asked for changes — its findings go to the
+                // node's AUTHOR verbatim, once per round.
+                Decision::SendFindings {
+                    node_id,
+                    session_id,
+                } => {
+                    let Some(review) = pass.review_of.get(&node_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    let text = coding::prompt::review_findings_prompt(review.round, &review.findings);
+                    match session_id {
+                        // The engine only names a session that is LIVE: steer it
+                        // where it stands, or say nothing at all this pass (a
+                        // live run must never be resumed into a second one).
+                        Some(session_id) => match pass.engines.get(&session_id) {
+                            Some(engine) => engine.steer(text),
+                            None => break 'decision Outcome::Skipped,
+                        },
+                        // Its run ENDED: re-enter it with the findings as its
+                        // first message, exactly like the conflict path.
+                        None => {
+                            let Some(session_id) = pass
+                                .snapshot
+                                .nodes
+                                .iter()
+                                .find(|node| node.id == node_id)
+                                .and_then(|node| node.session_id.clone())
+                            else {
+                                break 'decision Outcome::Skipped;
+                            };
+                            remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
+                            resumes.push(ResumeOrder {
+                                session_id,
+                                prompt: text,
+                                in_flight: None,
+                            });
+                        }
+                    }
+                    let round = review.round;
+                    update_state(&pass, &workflow_id, |state| {
+                        state.findings_sent.insert(node_id.clone(), round);
+                    });
+                }
+                // EXP-983: the collision the engine decided to serialize. The
+                // state rides along unchanged — `reportNode` always takes one.
+                Decision::SetSerialEdge {
+                    node_id,
+                    state,
+                    after,
+                } => {
+                    let mut report = api::workflows::NodeReport::new(&node_id, state);
+                    report.after_node_ids = Some(after);
+                    report_node(&pass.trpc, &report);
+                }
+                Decision::Nudge {
+                    session_id,
+                    key,
+                    text,
+                } => {
+                    let Some(engine) = pass.engines.get(&session_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
                     engine.steer(text);
                     remember_nudge(&pass, &workflow_id, &session_id, &key);
                 }
-            }
-            Decision::OpenFinalPr => {
-                let Some(claim) = InFlight::claim(final_pr_in_flight, &workflow_id) else {
-                    continue;
-                };
-                match api::workflows::open_final_pr(&pass.trpc, &workflow_id) {
-                    Ok(url) => log::info!("[workflows] {workflow_id}: final pull request {url}"),
-                    Err(err) => log::warn!("[workflows] {workflow_id}: final PR — {err}"),
-                }
-                drop(claim);
-            }
-            Decision::KillSession { session_id } => {
-                if let Some(engine) = pass.engines.get(&session_id) {
-                    engine.kill("ended");
-                }
-            }
-            Decision::DeleteIntegrationBranch => {
-                if already_deleted(&pass, &workflow_id) {
-                    continue;
-                }
-                match workflows::delete_integration_branch(
-                    &pass.trpc,
-                    &pass.repos_root,
-                    pass.repository_id.as_deref().unwrap_or_default(),
-                    pass.board_id.as_deref(),
-                    &branch,
-                ) {
-                    Ok(()) => {
-                        log::info!("[workflows] {workflow_id}: deleted {branch}");
-                        remember_branch_deleted(&pass, &workflow_id);
+                Decision::OpenFinalPr => {
+                    let Some(claim) = InFlight::claim(final_pr_in_flight, &workflow_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    match api::workflows::open_final_pr(&pass.trpc, &workflow_id) {
+                        Ok(url) => log::info!("[workflows] {workflow_id}: final pull request {url}"),
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: final PR — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
                     }
-                    Err(err) => log::warn!("[workflows] {workflow_id}: delete {branch} — {err}"),
+                    drop(claim);
                 }
-            }
-            // EXP-983: a synthetic base nothing builds on any more.
-            Decision::DeleteBase { base_branch } => {
-                let Some(repo) = repo.as_ref() else {
-                    continue;
-                };
-                if read_state(&pass, &workflow_id)
-                    .bases_deleted
-                    .contains(&base_branch)
-                {
-                    continue;
-                }
-                match workflows::delete_remote_branch(
-                    &repo.clone_path,
-                    &base_branch,
-                    Some(&repo.url),
-                ) {
-                    Ok(()) => {
-                        log::info!("[workflows] {workflow_id}: deleted {base_branch}");
+                // EXP-1059: this closed episode goes to the server ONCE it
+                // answered (reopened, or recorded as a person's decision);
+                // a transport failure is retried next pass, like OpenFinalPr.
+                Decision::ReopenFinalPr => {
+                    let Some(claim) = InFlight::claim(final_pr_in_flight, &workflow_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    let result = api::workflows::reopen_final_pr(&pass.trpc, &workflow_id);
+                    if result.is_ok() {
                         update_state(&pass, &workflow_id, |state| {
-                            state.bases_deleted.insert(base_branch.clone());
-                            state.synthetic.remove(&base_branch);
+                            state.final_pr_close_handled = true;
                         });
                     }
-                    Err(err) => {
-                        log::warn!("[workflows] {workflow_id}: delete {base_branch} — {err}")
+                    drop(claim);
+                    match result {
+                        Ok(outcome) if outcome.reopened => {
+                            log::info!("[workflows] {workflow_id}: final pull request reopened");
+                        }
+                        Ok(outcome) => {
+                            log::warn!(
+                                "[workflows] {workflow_id}: final PR not reopened — {}",
+                                outcome.reason.unwrap_or_default()
+                            );
+                            break 'decision Outcome::Skipped;
+                        }
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: final PR reopen — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                    }
+                }
+                // EXP-1059: nothing shipped — the server ends the workflow.
+                Decision::CancelUnshipped => {
+                    match api::workflows::cancel_unshipped(&pass.trpc, &workflow_id) {
+                        Ok(()) => log::info!("[workflows] {workflow_id}: nothing shipped, cancelled"),
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: cancel unshipped — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                    }
+                }
+                Decision::KillSession { session_id } => {
+                    let Some(engine) = pass.engines.get(&session_id) else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    engine.kill("ended");
+                }
+                Decision::DeleteIntegrationBranch => {
+                    if already_deleted(&pass, &workflow_id) {
+                        break 'decision Outcome::Skipped;
+                    }
+                    match workflows::delete_integration_branch(
+                        &pass.trpc,
+                        &pass.repos_root,
+                        pass.repository_id.as_deref().unwrap_or_default(),
+                        pass.board_id.as_deref(),
+                        &branch,
+                    ) {
+                        Ok(()) => {
+                            log::info!("[workflows] {workflow_id}: deleted {branch}");
+                            remember_branch_deleted(&pass, &workflow_id);
+                        }
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: delete {branch} — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                    }
+                }
+                // EXP-983: a synthetic base nothing builds on any more.
+                Decision::DeleteBase { base_branch } => {
+                    let Some(repo) = repo.as_ref() else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    if read_state(&pass, &workflow_id)
+                        .bases_deleted
+                        .contains(&base_branch)
+                    {
+                        break 'decision Outcome::Skipped;
+                    }
+                    match workflows::delete_remote_branch(
+                        &repo.clone_path,
+                        &base_branch,
+                        Some(&repo.url),
+                    ) {
+                        Ok(()) => {
+                            log::info!("[workflows] {workflow_id}: deleted {base_branch}");
+                            update_state(&pass, &workflow_id, |state| {
+                                state.bases_deleted.insert(base_branch.clone());
+                                state.synthetic.remove(&base_branch);
+                            });
+                        }
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: delete {base_branch} — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
                     }
                 }
             }
+            Outcome::Done
+        };
+        // A queued order is recorded at its launch site, never here.
+        if matches!(outcome, Outcome::Queued) {
+            continue;
+        }
+        if let Some(event) = events::event_for(&workflow_id, &decided, &outcome) {
+            sink.record(event);
         }
     }
     // A conflicted node whose run ENDED needs the foreground to relaunch it.
     for resume in resumes {
         RESUME_QUEUE.with_lock(resume);
     }
-    // EXP-984: one metrics report per beat, never one per decision.
-    if !metrics.is_empty() {
-        if let Err(err) = api::workflows::report_metrics(&pass.trpc, &workflow_id, &metrics) {
-            log::warn!("[workflows] {workflow_id}: reportMetrics — {err}");
-        }
-    }
     orders
-}
-
-/// EXP-984 — the `contractChanges` counter: a node that ALREADY announced its
-/// contract moved its branch again, which is what every dependent then has to
-/// merge in. The first tip seen after a checkpoint is the checkpoint itself,
-/// so it is recorded and not counted.
-fn tally_contract_changes(
-    pass: &Pass,
-    snapshot: &Snapshot,
-    workflow_id: &str,
-    metrics: &mut std::collections::BTreeMap<String, u32>,
-) {
-    let mut seen = read_state(pass, workflow_id).checkpoint_tips;
-    let mut changed = 0_u32;
-    let mut dirty = false;
-    for node in &snapshot.nodes {
-        if !pass.checkpointed.contains(&node.id) {
-            continue;
-        }
-        let Some(sha) = snapshot.pr_head.get(&node.id) else {
-            continue;
-        };
-        match seen.get(&node.id) {
-            Some(previous) if previous == sha => continue,
-            Some(_) => changed += 1,
-            None => {}
-        }
-        seen.insert(node.id.clone(), sha.clone());
-        dirty = true;
-    }
-    if changed > 0 {
-        *metrics
-            .entry(api::workflows::COUNTER_CONTRACT_CHANGES.to_string())
-            .or_default() += changed;
-    }
-    if dirty {
-        update_state(pass, workflow_id, |state| {
-            state.checkpoint_tips = seen.clone()
-        });
-    }
 }
 
 /// EXP-984 — everything one review start needs, resolved on the background
 /// pass. `None` = something has not synced yet; the next beat re-decides.
+#[allow(clippy::too_many_arguments)]
 fn review_order(
     pass: &Pass,
     snapshot: &Snapshot,
     node_id: &str,
     model: Option<String>,
     adversarial: bool,
+    member_workflow_id: String,
+    role: workflows::WfSessionRole,
+    account: Option<String>,
     in_flight: &Arc<Mutex<HashSet<String>>>,
+    audit: LaunchAudit,
 ) -> Option<ReviewOrder> {
     let node = snapshot.nodes.iter().find(|node| node.id == node_id)?;
     let identifier = snapshot.identifier.get(node_id)?.clone();
@@ -1215,6 +1298,16 @@ fn review_order(
     if let Some(model) = model {
         options.model = model;
     }
+    // EXP-1082: the reviewer's row names its workflow node.
+    workflows::apply_engine_start(
+        &mut options,
+        workflows::WorkflowMembership {
+            workflow_id: member_workflow_id,
+            node_id: Some(node_id.to_string()),
+            role,
+        },
+        account,
+    );
     Some(ReviewOrder {
         workflow_id: snapshot.workflow.id.clone(),
         node_id: node_id.to_string(),
@@ -1233,7 +1326,32 @@ fn review_order(
         settings_path: pass.settings_path.clone(),
         device_id: pass.device_id.clone(),
         in_flight: Some(Arc::new(claim)),
+        audit,
     })
+}
+
+/// EXP-1005 — `coding::prepare` moved an engine start off its launch
+/// account (`PreparedLaunch::account_pick`): say so in the workflow's event
+/// trail (`account_picked`), beside the launcher's own log line.
+fn note_account_pick(
+    trpc: &Arc<api::TrpcClient>,
+    workflow_id: &str,
+    node_id: &str,
+    pick: coding::account_rotation::StartPick,
+) {
+    log::info!(
+        "[workflows] {workflow_id} node {node_id}: {} ({} → {})",
+        pick.message,
+        pick.from,
+        pick.to
+    );
+    TrpcEventSink::new(Arc::clone(trpc)).record(api::workflows::WorkflowEvent {
+        workflow_id: workflow_id.to_string(),
+        node_id: Some(node_id.to_string()),
+        session_id: None,
+        kind: "account_picked".to_string(),
+        message: pick.message,
+    });
 }
 
 fn ensure_branch(
@@ -1313,18 +1431,28 @@ fn build_base(
             true
         }
         Ok(workflows::BaseOutcome::Conflict { left, right }) => {
-            let mut report = api::workflows::NodeReport::new(node_id, "waiting");
-            report.note = api::patch::Patch::Set(one_line(&conflicting_blockers_note(
-                pass, &left, &right,
-            )));
-            report_node(&pass.trpc, &report);
+            // EXP-1065/EXP-1071: the engine's mirror carries the conflict
+            // note on the node's OWN state (never `waiting`); writing it
+            // here too was the beat-to-beat flap.
+            log::info!(
+                "[workflows] {workflow_id}: base {base_branch} waits — {}",
+                conflicting_blockers_note(pass, &left, &right)
+            );
             false
         }
         Err(err) => {
             // Visible on the node, like a conflict: a `ready` node whose
             // base never comes up would otherwise sit there without a word.
+            // The node keeps its state; only the note says what happened.
             log::warn!("[workflows] {workflow_id}: base {base_branch} — {err}");
-            let mut report = api::workflows::NodeReport::new(node_id, "waiting");
+            let state = pass
+                .snapshot
+                .nodes
+                .iter()
+                .find(|node| node.id == node_id)
+                .map(|node| node.state.clone())
+                .unwrap_or_else(|| "blocked".to_string());
+            let mut report = api::workflows::NodeReport::new(node_id, &state);
             report.note = api::patch::Patch::Set(one_line(&format!(
                 "Its base {base_branch} could not be built: {err}"
             )));
@@ -1654,7 +1782,6 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         workflow_id,
         workflow_name,
         decisions,
-        start_on,
         blockers,
         integration_branch,
         node_id,
@@ -1664,12 +1791,12 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         options,
         trpc,
         in_flight,
+        audit,
     } = order;
     let run = coding::WorkflowRun {
         workflow_id: workflow_id.clone(),
         name: workflow_name,
         decisions,
-        start_on,
         blockers,
     };
     // A compound node is ONE batch run over its parent plus its members;
@@ -1688,14 +1815,19 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         ),
     };
     let Some((request, deps, subject)) = prepared else {
-        fail_node_async(&trpc, &node_id, "The run could not be prepared on this machine", cx);
+        let reason = "The run could not be prepared on this machine";
+        audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
+        fail_node_async(&trpc, &node_id, reason, cx);
         return;
     };
     let Some(window) = crate::steer_wiring::find_team_window(cx) else {
-        fail_node_async(&trpc, &node_id, "No Exponential window is open on the runner", cx);
+        let reason = "No Exponential window is open on the runner";
+        audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
+        fail_node_async(&trpc, &node_id, reason, cx);
         return;
     };
     let node = node_id.clone();
+    let audit_for_lost_window = audit.clone();
     cx.spawn(async move |cx| {
         let mut hold = in_flight;
         let prepared = cx
@@ -1711,12 +1843,16 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
+                if let Some(pick) = ready.account_pick.clone() {
+                    note_account_pick(&trpc, &workflow_id, &node_id, pick);
+                }
                 let subject = match subject {
                     SessionSubject::Issue(id) => SessionSubject::Issue(id),
                     other => other,
                 };
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
+                        audit.record(Outcome::Done, cx.background_executor());
                         let trpc = Arc::clone(&trpc);
                         let node = node.clone();
                         // The in-flight claim rides along until the node
@@ -1733,15 +1869,30 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                             })
                             .detach();
                     }
-                    Err(err) => fail_node_async(&trpc, &node, &err, cx),
+                    Err(err) => {
+                        audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
+                        fail_node_async(&trpc, &node, &err, cx)
+                    }
                 }
             }
             Ok(coding::Prepared::Disabled(reason)) => {
-                fail_node_async(&trpc, &node, &reason.message(), cx)
+                let reason = reason.message();
+                audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
+                fail_node_async(&trpc, &node, &reason, cx)
             }
-            Err(err) => fail_node_async(&trpc, &node, &err.to_string(), cx),
+            Err(err) => {
+                let reason = err.to_string();
+                audit.record(Outcome::Failed(reason.clone()), cx.background_executor());
+                fail_node_async(&trpc, &node, &reason, cx)
+            }
         });
         if updated.is_err() {
+            audit_for_lost_window.record(
+                Outcome::Failed(
+                    "The Exponential window closed before the run could start".to_string(),
+                ),
+                cx.background_executor(),
+            );
             cx.background_executor()
                 .spawn(async move {
                     fail_node(
@@ -1764,10 +1915,17 @@ fn launch_node(order: StartOrder, cx: &mut App) {
 fn launch_review(order: ReviewOrder, cx: &mut App) {
     let Some(deps) = coding_flow::build_action_deps(cx) else {
         log::warn!("[workflows] review of {}: not signed in", order.node_id);
+        order
+            .audit
+            .record(Outcome::Failed("not signed in".to_string()), cx.background_executor());
         return;
     };
     let Some(window) = crate::steer_wiring::find_team_window(cx) else {
         log::warn!("[workflows] review of {}: no window open", order.node_id);
+        order.audit.record(
+            Outcome::Failed("no Exponential window is open on the runner".to_string()),
+            cx.background_executor(),
+        );
         return;
     };
     let ReviewOrder {
@@ -1785,6 +1943,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
         settings_path,
         device_id,
         in_flight,
+        audit,
     } = order;
     let request = coding::PrepareRequest::Action(coding::ActionLaunchRequest {
         action_id: domain::contract::BUILTIN_REVIEW_NODE_ID.to_string(),
@@ -1827,21 +1986,31 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
             .background_executor()
             .spawn(async move { coding::prepare(&request, &deps) })
             .await;
-        let _ = window.update(cx, |_, window, cx| match prepared {
+        let audit_for_lost_window = audit.clone();
+        let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
+                if let Some(pick) = ready.account_pick.clone() {
+                    if let Some(trpc) = crate::queries::trpc_client(cx) {
+                        note_account_pick(&Arc::new(trpc), &workflow_id, &node_id, pick);
+                    }
+                }
                 let subject = SessionSubject::Action(session_id.clone());
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
-                    Ok(()) => remember_review_run(
-                        &settings_path,
-                        &device_id,
-                        &workflow_id,
-                        &node_id,
-                        &session_id,
-                        round_at_launch,
-                    ),
+                    Ok(()) => {
+                        audit.record(Outcome::Done, cx.background_executor());
+                        remember_review_run(
+                            &settings_path,
+                            &device_id,
+                            &workflow_id,
+                            &node_id,
+                            &session_id,
+                            round_at_launch,
+                        )
+                    }
                     Err(err) => {
                         log::warn!("[workflows] review of {node_id} — {err}");
+                        audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
                         forget_reviewed_head(
                             &failed_settings,
                             &failed_device,
@@ -1853,6 +2022,10 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
             }
             Ok(coding::Prepared::Disabled(reason)) => {
                 log::warn!("[workflows] review of {node_id} — {}", reason.message());
+                audit.record(
+                    Outcome::Failed(reason.message().to_string()),
+                    cx.background_executor(),
+                );
                 forget_reviewed_head(
                     &failed_settings,
                     &failed_device,
@@ -1862,6 +2035,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
             }
             Err(err) => {
                 log::warn!("[workflows] review of {node_id} — {err}");
+                audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
                 forget_reviewed_head(
                     &failed_settings,
                     &failed_device,
@@ -1870,6 +2044,14 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                 );
             }
         });
+        if updated.is_err() {
+            audit_for_lost_window.record(
+                Outcome::Failed(
+                    "The Exponential window closed before the review could start".to_string(),
+                ),
+                cx.background_executor(),
+            );
+        }
         drop(hold);
     })
     .detach();
@@ -1999,7 +2181,7 @@ fn build_batch_start(
 }
 
 /// A node whose run never reached the agent: the state says so, in one
-/// sentence, so the node panel can offer Retry or Skip.
+/// sentence, so the chip's menu can offer Retry or Skip.
 fn fail_node(trpc: &Arc<api::TrpcClient>, node_id: &str, reason: &str) {
     let mut report = api::workflows::NodeReport::new(node_id, "failed");
     report.note = api::patch::Patch::Set(one_line(reason));

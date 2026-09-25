@@ -1506,6 +1506,8 @@ pub fn spawn_into_window(
             SessionSubject::Batch(_) | SessionSubject::Action(_) => None,
         },
         foreign_host: crate::steer_wiring::foreign_host(started_by_id.as_deref(), cx),
+        // EXP-1005: the desktop runs the account-rotation beat.
+        rotation_host: true,
         publish: true,
         kill,
         // The session screen reads the feed through `EngineSession::subscribe`

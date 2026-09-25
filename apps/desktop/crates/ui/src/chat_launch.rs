@@ -493,6 +493,7 @@ mod tests {
 
     fn options() -> LaunchOptions {
         LaunchOptions {
+            workflow: None,
             agent: CodingAgent::Claude,
             model: "opus".to_string(),
             effort: String::new(),

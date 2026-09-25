@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { Issue, Board } from "@/db/schema"
 
 // EXP-897: the PHONE header of a Work face carries the same stack / batch
-// pill the md+ work header wears — tapping it opens the overlay as a sheet.
+// chip (EXP-1058: the stacked issue chip) the md+ work header wears — tapping it opens the overlay as a sheet.
 // The pill is absent whenever the issue is part of nothing, so a lone issue's
 // header keeps the EXP-893 layout exactly as it was.
 
@@ -96,11 +96,12 @@ function renderHeader(subject: Issue, face?: `issue` | `run` | `changes`) {
 }
 
 describe(`IssueMobileHeader`, () => {
-  it(`wears the stack pill when the issue's pull request is stacked`, () => {
+  it(`wears the stacked chip when the issue's pull request is stacked`, () => {
     rows.value = [lower, upper]
     renderHeader(upper)
     expect(screen.getByTestId(`pr-graph-badge`)).toBeTruthy()
-    expect(screen.getByText(`2 of 2`)).toBeTruthy()
+    // The other member of the stack rides behind the front chip.
+    expect(screen.getByText(`+1`)).toBeTruthy()
   })
 
   it(`wears no pill when the issue is part of nothing`, () => {

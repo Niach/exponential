@@ -89,6 +89,9 @@ pub(crate) struct RailRunRow {
     /// Web `ownsLiveRow`: a paused host is never killed (it resumes when the
     /// lid opens), so its row offers no Stop.
     pub(crate) paused: bool,
+    /// EXP-1068: the tree's review title, duplicate warning, needs-you dot and
+    /// non-default account.
+    pub(crate) marks: run_rows::RunTreeMarks,
 }
 
 /// EXP-996 — one flattened row of a session TREE: a built run row, or the
@@ -135,7 +138,13 @@ impl<T> SessionTreeRow<T> {
 fn live_run_tree<T>(
     nav: &Entity<Navigation>,
     cx: &mut App,
-    build: impl Fn(&domain::rows::CodingSession, Option<&LocalSessionHost>, i64, &App) -> T,
+    build: impl Fn(
+        &domain::rows::CodingSession,
+        run_rows::RunTreeMarks,
+        Option<&LocalSessionHost>,
+        i64,
+        &App,
+    ) -> T,
 ) -> Vec<SessionTreeRow<T>> {
     // Everything that needs `&mut App` first — the collection reads below
     // borrow it immutably for the rest of the function.
@@ -198,12 +207,13 @@ fn live_run_tree<T>(
     // collection's iteration order.
     rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
     let inputs = queries::session_tree_inputs(cx, &rows);
-    flatten_session_tree(rows, inputs, |session| {
+    flatten_session_tree(rows, inputs, |node| {
+        let session: &domain::rows::CodingSession = node.session();
         let host = hosts
             .iter()
             .find(|(id, _)| id == &session.id)
             .map(|(_, host)| host);
-        build(session, host, now, cx)
+        build(session, run_rows::RunTreeMarks::derive(node, cx), host, now, cx)
     })
 }
 
@@ -211,10 +221,10 @@ fn live_run_tree<T>(
 /// ([`domain::session_tree::session_tree`]), flattened with their depths, each
 /// row turned into whatever the list draws. The collapsed set is applied
 /// LATER, in the render ([`drop_collapsed`]), so folding costs no re-derive.
-fn flatten_session_tree<T>(
+pub(crate) fn flatten_session_tree<T>(
     rows: Vec<&domain::rows::CodingSession>,
     inputs: queries::SessionTreeInputs,
-    mut build_run: impl FnMut(&domain::rows::CodingSession) -> T,
+    mut build_run: impl FnMut(&domain::session_tree::SessionNode<&domain::rows::CodingSession>) -> T,
 ) -> Vec<SessionTreeRow<T>> {
     let tree = domain::session_tree::session_tree(
         rows,
@@ -227,9 +237,11 @@ fn flatten_session_tree<T>(
             key: flat.key,
             depth: flat.depth,
             has_children: flat.has_children,
-            kind: match flat.node.session() {
-                Some(session) => SessionTreeRowKind::Run(build_run(session)),
-                None => SessionTreeRowKind::Group(
+            kind: match flat.node {
+                domain::session_tree::SessionTreeNode::Session(node) => {
+                    SessionTreeRowKind::Run(build_run(node))
+                }
+                _ => SessionTreeRowKind::Group(
                     run_rows::SessionGroupFacts::from_node(flat.node)
                         .expect("a node that is not a session is a group"),
                 ),
@@ -245,7 +257,7 @@ pub(crate) fn rail_running_rows(
     nav: &Entity<Navigation>,
     cx: &mut App,
 ) -> Vec<SessionTreeRow<RailRunRow>> {
-    live_run_tree(nav, cx, |session, host, now, cx| {
+    live_run_tree(nav, cx, |session, marks, host, now, cx| {
         let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
         let issue = collections.as_ref().and_then(|collections| {
             session
@@ -297,6 +309,7 @@ pub(crate) fn rail_running_rows(
             device_label: presentation.label.clone().map(SharedString::from),
             local: host.cloned(),
             paused: queries::session_is_paused(display, &presentation),
+            marks,
         }
     })
 }
@@ -382,8 +395,9 @@ impl PastSessionsSection {
         // under the run that started it, a resume succession as one row, the
         // runs of one workflow or stack under a group row.
         let inputs = queries::session_tree_inputs(cx, &rows);
-        flatten_session_tree(rows, inputs, |session| {
-            run_rows::past_run_facts(session, now, cx)
+        flatten_session_tree(rows, inputs, |node| run_rows::PastRunFacts {
+            marks: run_rows::RunTreeMarks::derive(node, cx),
+            ..run_rows::past_run_facts(node.session(), now, cx)
         })
         .into_iter()
         .map(|row| PastRow {

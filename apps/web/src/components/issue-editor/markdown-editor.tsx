@@ -722,6 +722,24 @@ export const MarkdownEditor = forwardRef<
 
     keyHandlerRef.current = (event) => typeahead.handleKeyDown(event)
 
+    // EXP-966: inside a dialog, the shell's Radix Escape listener (document,
+    // CAPTURE) preventDefaults the key to keep the dialog open while the menu
+    // is up, and ProseMirror drops every defaultPrevented event before ANY of
+    // its handlers (`eventBelongsToView`, handleDOMEvents included) — so the
+    // menu never heard its Escape. Catch exactly that skipped Escape here.
+    const menuOpen = autocomplete !== null
+    useEffect(() => {
+      if (!editor || !menuOpen) return
+      const dom = editor.view.dom
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key === `Escape` && event.defaultPrevented) {
+          setAutocomplete(null)
+        }
+      }
+      dom.addEventListener(`keydown`, onKeyDown)
+      return () => dom.removeEventListener(`keydown`, onKeyDown)
+    }, [editor, menuOpen])
+
     // The menu hangs off the trigger char through `TypeaheadMenu`'s anchored
     // arm (EXP-959): the caret rect in VIEWPORT coordinates goes in, and the
     // arm portals to document.body at fixed coordinates — inside the

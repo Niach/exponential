@@ -7,7 +7,7 @@
 // nodes, `risk: high` nodes and EVERY agent review). The per-phase pins of
 // EXP-1002, `subagentModel` and `reviewModel` are deprecated; the gate choice
 // is gone (the agent reviews every node, the one human review is the final
-// PR); `startOn` is fixed to `contract`.
+// PR); dependents always start on the blockers' contract (EXP-1066).
 //
 // Mirrored in Rust as `coding::workflows::launch` (the same three functions,
 // same test names), so the desktop engine and the CLI daemon pick models from

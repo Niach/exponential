@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react"
+import { useEffect, useRef, useState, type ReactElement } from "react"
 import {
   conceptIcon,
   MobilePopover,
@@ -19,6 +19,13 @@ import { TeamIssueGraph } from "@/components/issue-graph"
 // EXP-998: at md+ the web list draws the blocks RAIL instead (`issue-rail.tsx`)
 // and the badge stays the phone's affordance — the same pill the natives
 // draw. Both open the same popover, `IssueBlocksPopover`.
+//
+// EXP-1057: hover opens it on BOTH (the rail's dot no longer reveals arrows),
+// and leaving closes it after a short grace, so the pointer can travel from
+// the trigger into the graph and follow a chip.
+
+/** How long the popover lingers after the pointer leaves trigger or graph. */
+const HOVER_CLOSE_DELAY_MS = 150
 
 const BlockedByIcon = conceptIcon(`relation-blocked-by`)
 const BlocksIcon = conceptIcon(`relation-blocks`)
@@ -41,20 +48,33 @@ export function IssueBlocksPopover({
   /** The overlay's sheet title on a phone. */
   label: string
   trigger: ReactElement
-  /** Pointer hover opens it (the badge); `false` = click only (the rail's
-   *  node, whose hover already reveals the arrows). */
+  /** Pointer hover opens it; `false` = click only. */
   openOnHover?: boolean
 }) {
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    closeTimer.current = null
+  }
+  const closeSoon = () => {
+    if (isMobile || !openOnHover) return
+    cancelClose()
+    closeTimer.current = setTimeout(() => setOpen(false), HOVER_CLOSE_DELAY_MS)
+  }
+  useEffect(() => cancelClose, [])
 
   return (
     <MobilePopover open={open} onOpenChange={setOpen}>
       <MobilePopoverTrigger
         asChild
         onMouseEnter={() => {
-          if (!isMobile && openOnHover) setOpen(true)
+          if (isMobile || !openOnHover) return
+          cancelClose()
+          setOpen(true)
         }}
+        onMouseLeave={closeSoon}
       >
         {trigger}
       </MobilePopoverTrigger>
@@ -65,9 +85,8 @@ export function IssueBlocksPopover({
         className="w-auto max-w-[min(36rem,90vw)] p-3"
         data-testid="issue-blocks-overlay"
         onClick={(event) => event.stopPropagation()}
-        onMouseLeave={() => {
-          if (!isMobile) setOpen(false)
-        }}
+        onMouseEnter={cancelClose}
+        onMouseLeave={closeSoon}
       >
         {open && (
           <TeamIssueGraph

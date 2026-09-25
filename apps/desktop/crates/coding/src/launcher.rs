@@ -171,6 +171,48 @@ fn started_reason<'a>(
     }
 }
 
+/// EXP-1005 — the start-time account pick for one launch: rewrite
+/// `options.account` to the profile with the most headroom when the device
+/// rotates accounts. Off the usage cache only (never a probe: a launch must
+/// not wait on a fetch), so a machine that has never read its logins' usage
+/// keeps the launch's own account.
+fn apply_start_pick(
+    options: &mut LaunchOptions,
+    deps: &CodingDeps,
+) -> Option<crate::account_rotation::StartPick> {
+    let profiles = crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir);
+    let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
+    crate::account_rotation::apply_start_pick(
+        &mut options.account,
+        &profiles,
+        deps.settings.auto_rotate_accounts,
+        options.agent,
+        model,
+        chrono::Utc::now().timestamp_millis(),
+    )
+}
+
+fn note_start_pick(pick: Option<&crate::account_rotation::StartPick>) {
+    if let Some(pick) = pick {
+        log::info!(
+            "coding: account rotation at start — {} ({} → {})",
+            pick.message,
+            pick.from,
+            pick.to
+        );
+    }
+}
+
+/// EXP-1005 — the pick's line, prefixed to the run's seed prompt: the hop
+/// is visible in the transcript, and the agent reads that nothing about the
+/// task changed.
+fn with_start_note(prompt: String, pick: Option<&crate::account_rotation::StartPick>) -> String {
+    match pick {
+        Some(pick) => format!("{}\n\n{prompt}", pick.run_note()),
+        None => prompt,
+    }
+}
+
 /// The machine's hostname — §7.1's `device_label` (also the server-side
 /// `coding_sessions.device_label`). Env vars first (cheap), then the
 /// ubiquitous `hostname` binary; never fails (falls back to a placeholder).
@@ -344,11 +386,32 @@ pub struct WorkflowRun {
     pub name: String,
     /// `workflows.decisions` as synced — the answers every sibling shares.
     pub decisions: String,
-    /// EXP-983: contract `wfStartOn` — under `contract` the run is asked to
-    /// announce one with `exponential_workflows_checkpoint`.
-    pub start_on: String,
     /// EXP-983: the identifiers of the issues this node builds on.
     pub blockers: Vec<String>,
+}
+
+/// EXP-1082 — the `codingSessions.start` membership keys of a launch; the
+/// default (every key omitted) when it is not a workflow run.
+fn workflow_start(
+    membership: Option<&crate::workflows::WorkflowMembership>,
+) -> coding_sessions::WorkflowStart<'_> {
+    membership.map(|m| m.wire()).unwrap_or_default()
+}
+
+/// EXP-1068 — the same membership as OWNED strings for the heartbeat scope
+/// (`workflow_id`, `workflow_node_id`, `workflow_role`), all `None` outside
+/// a workflow so the ping's wire stays byte-identical.
+fn workflow_echo(
+    membership: Option<&crate::workflows::WorkflowMembership>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    match membership {
+        Some(m) => (
+            Some(m.workflow_id.clone()),
+            m.node_id.clone(),
+            Some(m.role.as_str().to_string()),
+        ),
+        None => (None, None, None),
+    }
 }
 
 /// EXP-982: a run the workflow engine started for one node. Unattended like
@@ -391,8 +454,15 @@ pub enum ActionRunKind {
         /// `exponential_pr_merge` argument).
         identifier: String,
         /// The representative issue's UUID — the `issues.prepareConflictFix`
-        /// argument (EXP-324).
+        /// argument (EXP-324). EXP-1072: the WORKFLOW's id when the pull
+        /// request is a workflow's final PR (the procedure accepts both).
         issue_id: String,
+        /// EXP-1072: the pull request is a WORKFLOW's final PR — the prompt
+        /// merges it as a chore PR (`exponential_pr_merge({ repositoryId,
+        /// prNumber })`, completing the workflow) and never retargets it: its
+        /// base is the repository's default branch. `identifier` then reads
+        /// like the PR's title (`Workflow: <name>`).
+        workflow_final_pr: bool,
     },
     /// The hidden "Plan workflow" builtin (EXP-981): the planner run of ONE
     /// draft workflow. Like [`Self::CreateAction`] it is REPO-LESS by
@@ -1048,6 +1118,15 @@ pub struct PreparedLaunch {
     /// (trunk-clone and scratch-dir action runs — the prune skips the clone
     /// root itself).
     pub launch_hold: Option<crate::launch_gate::LaunchHold>,
+    /// EXP-1005: the start-time account pick that moved this launch off the
+    /// account its options named (`None` = it runs on that account). The
+    /// hosts say so in a workflow's event trail; the seed prompt already
+    /// carries the note.
+    pub account_pick: Option<crate::account_rotation::StartPick>,
+    /// EXP-1082: the workflow membership the launch was stamped with, for
+    /// the host's audit lines. `None` for every run outside a workflow (a
+    /// resume inherits its membership server-side).
+    pub workflow: Option<crate::workflows::WorkflowMembership>,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -1499,6 +1578,12 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // but the invariant belongs here so every caller (remote resume included)
     // inherits it.
     options.plan_mode &= !resume_prompt;
+    // EXP-1005: every fresh launch on this device starts on the signed-in
+    // profile of its agent with the MOST headroom, read off the usage cache
+    // (`Settings.auto_rotate_accounts`, default on, turns it off; codex
+    // never moves). The launch's own account stands on a tie.
+    let account_pick = apply_start_pick(&mut options, deps);
+    note_start_pick(account_pick.as_ref());
     let options = &options;
     let agent = options.agent;
     // EXP-909: the LOGIN this run spends, in the vocabulary the server column
@@ -1694,7 +1779,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         name: &workflow.name,
         base_branch: &base_branch,
         decisions: &workflow.decisions,
-        start_on: &workflow.start_on,
         blockers: &workflow.blockers,
     });
     let rendered = match req {
@@ -1753,6 +1837,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // LAST, after the requester's own additions — an engine start carries
     // none of those, and the node must read its workflow's rules last.
     let rendered = crate::prompt::append_workflow_section(rendered, workflow_args.as_ref());
+    // EXP-1005: the account hop, said in the run.
+    let rendered = with_start_note(rendered, account_pick.as_ref());
 
     // Step 6 — the session row, BEFORE spawn (the id keys everything).
     // EXP-825: the composer text's image embeds name pre-session uploads;
@@ -1777,6 +1863,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             agent.wire_id(),
             Some(agent_account.as_str()),
             &attachment_ids,
+            // EXP-1082: a workflow run's membership, stamped on the row.
+            workflow_start(issue_req.options.workflow.as_ref()),
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
             &deps.trpc,
@@ -1795,6 +1883,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 .iter()
                 .map(|issue| issue.issue_id.clone())
                 .collect::<Vec<_>>(),
+
+            workflow_start(batch_req.options.workflow.as_ref()),
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
@@ -2008,10 +2098,12 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // EXP-792: the server pick, for a resume to re-resolve.
             // EXP-897: plus the stack, so the resume knows its base is a
             // foundation branch rather than the board's own.
+            // EXP-1083: plus the workflow membership, so a resume echoes it.
             extra: {
                 let mut extra =
                     launch_extra(&options.mcp_server_ids, options.account.as_deref());
                 extra.extend(crate::run_registry::stack_extra(stack));
+                extra.extend(crate::run_registry::workflow_extra(options.workflow.as_ref()));
                 extra
             },
         },
@@ -2064,6 +2156,10 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 batch_issue_ids: Vec::new(),
                 agent: agent.wire_id().map(str::to_string),
                 agent_account: Some(agent_account.clone()),
+                // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+                workflow_id: workflow_echo(issue_req.options.workflow.as_ref()).0,
+                workflow_node_id: workflow_echo(issue_req.options.workflow.as_ref()).1,
+                workflow_role: workflow_echo(issue_req.options.workflow.as_ref()).2,
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -2090,6 +2186,10 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                     .collect(),
                 agent: agent.wire_id().map(str::to_string),
                 agent_account: Some(agent_account.clone()),
+                // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+                workflow_id: workflow_echo(batch_req.options.workflow.as_ref()).0,
+                workflow_node_id: workflow_echo(batch_req.options.workflow.as_ref()).1,
+                workflow_role: workflow_echo(batch_req.options.workflow.as_ref()).2,
             }
         }
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -2114,6 +2214,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
+        account_pick: account_pick.clone(),
+        workflow: options.workflow.clone(),
         issue_identifier,
         worktree,
         clone,
@@ -2191,7 +2293,10 @@ fn prepare_action(
 ) -> Result<Prepared, CodingError> {
     // EXP-257: options apply AS-IS — same per-agent vocabulary as an issue
     // run (the server validates remote starts identically).
-    let options = req.options.clone();
+    let mut options = req.options.clone();
+    // EXP-1005: the same start-time account pick an issue launch takes.
+    let account_pick = apply_start_pick(&mut options, deps);
+    note_start_pick(account_pick.as_ref());
     let agent = options.agent;
     // EXP-909: the LOGIN this run spends — hoisted once so the row, the
     // heartbeat and the account env can never name different accounts.
@@ -2302,6 +2407,9 @@ fn prepare_action(
     // repo-backed arm below (None for every other kind); consumed by the
     // prompt render in step 3.
     let mut fix_rebase_onto: Option<String> = None;
+    // EXP-1072: the pull request's number as `issues.prepareConflictFix`
+    // read it — what a workflow's final PR is merged by.
+    let mut fix_pr_number: Option<i64> = None;
     // EXP-478/EXP-637: every repo-backed run now works in its OWN worktree
     // (fix-conflicts on the PR branch, Team/Chat on a fresh run branch), so
     // it gates the clone for the launch's whole flight like an issue/batch
@@ -2342,7 +2450,10 @@ fn prepare_action(
                     default_branch,
                     ..
                 } => match issues::prepare_conflict_fix(&deps.trpc, issue_id) {
-                    Ok(resolved) => Some(resolved.rebase_onto),
+                    Ok(resolved) => {
+                        fix_pr_number = Some(resolved.pr_number);
+                        Some(resolved.rebase_onto)
+                    }
                     Err(ApiError::Http { status: 404, .. }) => Some(default_branch.clone()),
                     Err(err) => {
                         return Err(CodingError::Io(format!(
@@ -2605,6 +2716,7 @@ fn prepare_action(
             branch,
             default_branch,
             identifier,
+            workflow_final_pr,
             ..
         } => Some(fix_pr_conflicts_prompt(
             identifier,
@@ -2612,6 +2724,17 @@ fn prepare_action(
             // The live base resolved above; the repo default only when the
             // server predates issues.prepareConflictFix (EXP-324).
             fix_rebase_onto.as_deref().unwrap_or(default_branch),
+            // EXP-1072: a workflow's final PR merges as a chore PR — by the
+            // repository and the number the server just read.
+            match (workflow_final_pr, req.repo.as_ref(), fix_pr_number) {
+                (true, Some(repo), Some(number)) => {
+                    Some(crate::action_prompt::ChorePrMerge {
+                        repository_id: repo.repository_id.clone(),
+                        pr_number: number,
+                    })
+                }
+                _ => None,
+            },
             unattended,
             req.prompt.as_deref(),
         )),
@@ -2625,6 +2748,9 @@ fn prepare_action(
             req.prompt.as_deref(),
         )),
     };
+    // EXP-1005: the account hop, said in the run (a promptless chat stays
+    // promptless — the hop is still on its row and in the log).
+    let rendered = rendered.map(|body| with_start_note(body, account_pick.as_ref()));
     // EXP-825: pre-session image uploads named by the composer text's
     // embeds, bound to the row below.
     let attachment_ids = prompt_attachment_ids(req.prompt.as_deref());
@@ -2646,6 +2772,8 @@ fn prepare_action(
             agent_account: Some(agent_account.as_str()),
             attribution: attribution(&req.origin, deps),
             attachment_ids: &attachment_ids,
+            // EXP-1082: a reviewer run names its workflow node.
+            workflow: workflow_start(req.options.workflow.as_ref()),
         },
     ) {
         Ok(session) => session,
@@ -2826,7 +2954,13 @@ fn prepare_action(
             host_pid: None,
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
-            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
+            // EXP-1083: plus the workflow membership (a reviewer, a base
+            // merge, a planner), so a resume echoes it.
+            extra: {
+                let mut extra = launch_extra(&options.mcp_server_ids, options.account.as_deref());
+                extra.extend(crate::run_registry::workflow_extra(options.workflow.as_ref()));
+                extra
+            },
         },
     );
 
@@ -2845,6 +2979,8 @@ fn prepare_action(
     );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
+        account_pick: account_pick.clone(),
+        workflow: options.workflow.clone(),
         issue_identifier: req.action_name.clone(),
         worktree: cwd.clone(),
         clone: trunk_clone.unwrap_or(cwd),
@@ -2881,6 +3017,10 @@ fn prepare_action(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+            workflow_id: workflow_echo(req.options.workflow.as_ref()).0,
+            workflow_node_id: workflow_echo(req.options.workflow.as_ref()).1,
+            workflow_role: workflow_echo(req.options.workflow.as_ref()).2,
         },
         acp: AcpLaunch {
             prompt: rendered.clone(),
@@ -3052,6 +3192,10 @@ fn prepare_resume_run(
     // however the caller spelled it.
     let switching = requested_account.is_some() && resume_account != recorded_account;
     let options = LaunchOptions {
+        // EXP-1083: the recorded membership, so the re-created row's
+        // heartbeat echoes it (the server-side inheritance stamps the row
+        // either way; the echo is what a swept row resurrects with).
+        workflow: record.workflow_membership(),
         agent,
         model: req.model.clone().unwrap_or_else(|| record.model.clone()),
         effort: req.effort.clone().unwrap_or_else(|| record.effort.clone()),
@@ -3421,6 +3565,8 @@ fn prepare_resume_run(
             agent.wire_id(),
             Some(agent_account.as_str()),
             &attachment_ids,
+            // A resume inherits its membership server-side (EXP-906).
+            coding_sessions::WorkflowStart::default(),
         ),
         RunKind::Batch => coding_sessions::start_batch(
             &deps.trpc,
@@ -3439,6 +3585,8 @@ fn prepare_resume_run(
                 .iter()
                 .map(|issue| issue.issue_id.clone())
                 .collect::<Vec<_>>(),
+
+            coding_sessions::WorkflowStart::default(),
         ),
         _ => coding_sessions::start_action(
             &deps.trpc,
@@ -3456,6 +3604,7 @@ fn prepare_resume_run(
                 agent_account: Some(agent_account.as_str()),
                 attribution: attribution(&req.origin, deps),
                 attachment_ids: &attachment_ids,
+                workflow: coding_sessions::WorkflowStart::default(),
             },
         ),
     };
@@ -3595,6 +3744,10 @@ fn prepare_resume_run(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+            workflow_id: workflow_echo(options.workflow.as_ref()).0,
+            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
+            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
         RunKind::Batch => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3614,6 +3767,10 @@ fn prepare_resume_run(
                 .collect(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+            workflow_id: workflow_echo(options.workflow.as_ref()).0,
+            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
+            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
         _ => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3628,6 +3785,10 @@ fn prepare_resume_run(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
+            workflow_id: workflow_echo(options.workflow.as_ref()).0,
+            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
+            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
     };
     let issue_identifier = match record.kind {
@@ -3672,6 +3833,8 @@ fn prepare_resume_run(
     );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
+        account_pick: None,
+        workflow: options.workflow.clone(),
         issue_identifier,
         worktree: cwd.clone(),
         clone: record.clone.clone().unwrap_or(cwd),
@@ -4135,6 +4298,7 @@ mod tests {
             // The dialog defaults: claude, fable, no effort, no ultracode,
             // plan mode ON.
             options: LaunchOptions {
+                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: "".to_string(),
@@ -4710,6 +4874,7 @@ mod tests {
 
     fn batch_options() -> LaunchOptions {
         LaunchOptions {
+            workflow: None,
             agent: CodingAgent::Claude,
             model: "opus".to_string(),
             effort: "high".to_string(),
@@ -4885,6 +5050,7 @@ mod tests {
             device_label: "box".to_string(),
             origin: LaunchOrigin::Local,
             options: LaunchOptions {
+                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: String::new(),
@@ -5101,6 +5267,7 @@ mod tests {
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = action_request();
         req.options = LaunchOptions {
+            workflow: None,
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
             effort: "high".to_string(),
@@ -5344,6 +5511,7 @@ mod tests {
             board_id: None,
             identifier: "EXP-42".to_string(),
             issue_id: "issue-1".to_string(),
+            workflow_final_pr: false,
         };
         req.repo = None;
 
@@ -6401,6 +6569,7 @@ mod tests {
             board_id: None,
             identifier: "EXP-42".to_string(),
             issue_id: "issue-fix-1".to_string(),
+            workflow_final_pr: false,
         };
         req.repo = Some(RepoGroup {
             repository_id: repository_id.to_string(),
@@ -7233,6 +7402,74 @@ mod tests {
         assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
     }
 
+    /// EXP-1083 (EXP-1068's finding): a resume of a WORKFLOW run re-enters
+    /// with the recorded membership — `LaunchOptions::workflow` is rebuilt
+    /// from the record's `extra` keys, the heartbeat scope echoes it and the
+    /// resumed record carries it on for the next resume.
+    #[test]
+    fn prepare_resume_run_carries_the_recorded_workflow_membership() {
+        let dir = temp_dir("resume-issue-workflow");
+        let (base, captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-1","teamId":"ws-1","status":"running"}}}}"#
+                    .to_string(),
+            ),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut record = issue_resume_record(&dir.0, "sess-old", "repo-resume-workflow");
+        let membership = crate::workflows::WorkflowMembership {
+            workflow_id: "wf-1".to_string(),
+            node_id: Some("node-1".to_string()),
+            role: crate::workflows::WfSessionRole::Review,
+        };
+        record
+            .extra
+            .extend(crate::run_registry::workflow_extra(Some(&membership)));
+        assert_eq!(record.workflow_membership(), Some(membership.clone()));
+
+        let prepared = match prepare(
+            &PrepareRequest::ResumeRun(resume_request(record)),
+            &deps,
+        )
+        .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.workflow, Some(membership.clone()));
+        assert_eq!(prepared.heartbeat_scope.workflow_id.as_deref(), Some("wf-1"));
+        assert_eq!(
+            prepared.heartbeat_scope.workflow_node_id.as_deref(),
+            Some("node-1")
+        );
+        assert_eq!(prepared.heartbeat_scope.workflow_role.as_deref(), Some("review"));
+
+        // The start call still relies on the server-side inheritance
+        // (`resolveWorkflowMembership` reads the predecessor); the echo is
+        // the heartbeat's.
+        let requests = captured.lock().unwrap();
+        assert!(
+            requests.iter().any(|r| r.contains(r#""resumedFromId":"sess-old""#)),
+            "{requests:?}"
+        );
+        drop(requests);
+
+        // A resume of the resume finds the same membership.
+        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
+        assert_eq!(fresh.workflow_membership(), Some(membership));
+
+        // A record without the keys (recorded before them) resumes plain.
+        let plain = issue_resume_record(&dir.0, "sess-plain", "repo-resume-workflow");
+        assert_eq!(plain.workflow_membership(), None);
+        assert!(crate::run_registry::workflow_extra(None).is_empty());
+    }
+
     /// The issue fallback: the recorded transcript is gone, so the resume
     /// seeds the ISSUE-shaped resume prompt (PR contract + comment thread),
     /// not the run-shaped one.
@@ -7475,6 +7712,7 @@ mod tests {
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = request("EXP-42");
         req.options = LaunchOptions {
+            workflow: None,
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
             effort: "high".to_string(),
@@ -7800,6 +8038,7 @@ mod tests {
     fn agent_shell_request(cwd_override: Option<PathBuf>) -> AgentShellRequest {
         AgentShellRequest {
             options: LaunchOptions {
+                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: String::new(),

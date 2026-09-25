@@ -958,6 +958,68 @@ describe(`steer relay end-to-end`, () => {
     desktop.close()
   })
 
+  test(`workflow membership rides /start on every subject incl. resume; malformed is 400 (EXP-1082)`, async () => {
+    const desktop = await connect(ticket({ role: `control`, sub: `owner-8` }))
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-8` }))
+    const membership = {
+      workflowId: `wf-1`,
+      workflowNodeId: `node-1`,
+      workflowRole: `review`,
+    }
+
+    const start = await startWhenOnline({
+      userId: `owner-8`,
+      deviceId: `dev-8`,
+      issueId: `issue-80`,
+      ...membership,
+    })
+    expect(start.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-80`,
+      ...membership,
+    })
+
+    const post = (body: Record<string, unknown>) =>
+      fetch(`${base}/start`, {
+        method: `POST`,
+        headers: {
+          "x-relay-secret": `integration-secret`,
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify({ userId: `owner-8`, deviceId: `dev-8`, ...body }),
+      })
+
+    const resume = await post({
+      resumeSessionId: `sess-80`,
+      teamId: `team-8`,
+      startedReason: `agent`,
+      ...membership,
+    })
+    expect(resume.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      resumeSessionId: `sess-80`,
+      teamId: `team-8`,
+      startedReason: `agent`,
+      ...membership,
+    })
+
+    for (const bad of [
+      { workflowId: 7 },
+      { workflowId: `` },
+      { workflowNodeId: `x`.repeat(129) },
+      { workflowRole: `x`.repeat(17) },
+      { workflowRole: null },
+    ]) {
+      const res = await post({ issueId: `issue-81`, ...bad })
+      expect(res.status, JSON.stringify(bad)).toBe(400)
+      await res.text()
+    }
+    desktop.close()
+  })
+
   test(`mcpServerIds + account ride /start; malformed ones are 400 (EXP-792)`, async () => {
     const desktop = await connect(ticket({ role: `control`, sub: `owner-7` }))
     const desktopIn = collector(desktop)

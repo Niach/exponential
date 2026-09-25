@@ -185,6 +185,13 @@ pub struct RemoteStart {
     /// own launch default; a BLANK string is the deliberate "the CLI's own
     /// default" pick. Dropped on a resume, like the other launch options.
     pub subagent_model: Option<String>,
+    /// EXP-1082: the frame's `workflowId` / `workflowNodeId` /
+    /// `workflowRole` — a workflow run started through the relay names its
+    /// node, and the launcher stamps it on the row. `None` unless the
+    /// workflow id and a known role arrived; the node may be absent (a
+    /// planner run, `WorkflowMembership::from_wire`). Never on a resume,
+    /// which inherits server-side.
+    pub workflow: Option<coding::workflows::WorkflowMembership>,
 }
 
 /// EXP-897 — the launcher's view of an inbound [`StartStack`]: the same plan
@@ -266,6 +273,7 @@ pub(crate) fn remote_start_from_frame(
             // included — a stack on the frame would say nothing new.
             stack: None,
             subagent_model: None,
+            workflow: None,
         });
     }
     let subject = match (issue_id, issue_ids, action_id) {
@@ -301,7 +309,22 @@ pub(crate) fn remote_start_from_frame(
         prompt,
         stack,
         subagent_model,
+        workflow: None,
     })
+}
+
+/// EXP-1082 — the membership a `start_session` frame names, decoded; a
+/// resume never takes one (the server makes a resume inherit it).
+pub(crate) fn with_workflow(
+    subject: &RemoteStartSubject,
+    workflow_id: Option<&str>,
+    workflow_node_id: Option<&str>,
+    workflow_role: Option<&str>,
+) -> Option<coding::workflows::WorkflowMembership> {
+    if matches!(subject, RemoteStartSubject::Resume { .. }) {
+        return None;
+    }
+    coding::workflows::WorkflowMembership::from_wire(workflow_id, workflow_node_id, workflow_role)
 }
 
 /// The launcher trigger (§8.3 #4): receives an inbound `start_session`.
@@ -675,13 +698,22 @@ async fn connect_and_listen(
                             prompt,
                             stack,
                             subagent_model,
+                            workflow_id,
+                            workflow_node_id,
+                            workflow_role,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
                             plan_mode, resume, resume_session_id, mcp_server_ids, account, prompt,
                             stack, subagent_model,
                         ) {
-                            Some(start) => {
+                            Some(mut start) => {
+                                start.workflow = with_workflow(
+                                    &start.subject,
+                                    workflow_id.as_deref(),
+                                    workflow_node_id.as_deref(),
+                                    workflow_role.as_deref(),
+                                );
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
                                 on_start_session(start);
                             }
@@ -764,6 +796,26 @@ async fn sleep_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_frame_names_its_workflow_membership_except_on_a_resume() {
+        // EXP-1082: a workflow id + a role make a membership (the node is
+        // optional: the Plan-workflow frame has none); a resume inherits
+        // server-side and never takes one.
+        let issue = RemoteStartSubject::Issue("issue-1".to_string());
+        let membership = with_workflow(&issue, Some("wf"), Some("n"), Some("review")).unwrap();
+        assert_eq!(membership.workflow_id, "wf");
+        assert_eq!(membership.node_id.as_deref(), Some("n"));
+        assert_eq!(membership.role, coding::workflows::WfSessionRole::Review);
+        let plan = with_workflow(&issue, Some("wf"), None, Some("plan")).unwrap();
+        assert_eq!(plan.node_id, None);
+        assert_eq!(plan.role, coding::workflows::WfSessionRole::Plan);
+        assert_eq!(with_workflow(&issue, Some("wf"), Some("n"), None), None);
+        let resume = RemoteStartSubject::Resume {
+            session_id: "s".to_string(),
+        };
+        assert_eq!(with_workflow(&resume, Some("wf"), Some("n"), Some("author")), None);
+    }
 
     fn repo() -> StartRepoGroup {
         StartRepoGroup {
@@ -960,6 +1012,7 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow: None,
             })
         );
 
@@ -1007,6 +1060,7 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow: None,
             })
         );
     }
@@ -1063,6 +1117,7 @@ mod tests {
                 prompt: Some("what does trunk_sync do?".into()),
                 stack: None,
                 subagent_model: None,
+                workflow: None,
             })
         );
     }
@@ -1224,6 +1279,7 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow: None,
             })
         );
     }
@@ -1458,6 +1514,7 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow: None,
             })
         );
         // Repo-less action: repo simply absent.
@@ -1561,6 +1618,7 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow: None,
             })
         );
     }

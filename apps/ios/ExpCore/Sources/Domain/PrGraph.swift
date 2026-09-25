@@ -168,6 +168,39 @@ public enum PrGraph {
         return nil
     }
 
+    /// EXP-1058: what the header's STACKED issue chip draws in place of the
+    /// old pill — the front chip's issue and how many ride behind it (`+N`).
+    public struct BadgeChip: Equatable {
+        /// The subject PR's representative row; nil only for a run family
+        /// with no issue (the front chip names the run instead).
+        public let issue: IssueEntity?
+        /// Every OTHER issue on the stack (all entries) or batch, or every
+        /// other run of the tree for a runs-only family.
+        public let count: Int
+
+        public static func == (a: BadgeChip, b: BadgeChip) -> Bool {
+            a.issue?.id == b.issue?.id && a.count == b.count
+        }
+    }
+
+    /// The stacked chip for `face`, nil exactly when there is no badge: a
+    /// stack/batch on every face, else a run tree (2+ runs) on the Run face
+    /// (Results = the run's face). Mirrors web `badgeChip` (`pr-graph.ts`),
+    /// desktop `pr_graph::badge_chip`, Android `PrGraph.badgeChip`.
+    public static func badgeChip(_ graph: Graph, face: WorkFaceKind) -> BadgeChip? {
+        let issue = graph.entry?.representative
+        guard badgeKind(graph) != nil else {
+            let runFace = face == .run || face == .results
+            guard runFace, graph.tree.count > 1 else { return nil }
+            return BadgeChip(issue: issue, count: graph.tree.count - 1)
+        }
+        if graph.stack.count >= 2 {
+            let total = graph.stack.reduce(0) { $0 + $1.entry.issues.count }
+            return BadgeChip(issue: issue, count: total - 1)
+        }
+        return BadgeChip(issue: issue, count: (graph.batch?.issues.count ?? 1) - 1)
+    }
+
     // MARK: - Pieces
 
     /// Every pull request among `issues`, one entry per distinct `prUrl`

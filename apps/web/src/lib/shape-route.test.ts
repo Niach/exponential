@@ -581,6 +581,11 @@ describe(`shape column + trash contracts`, () => {
       `ended_by`,
       `resumed_from_id`,
       `parent_session_id`,
+      // EXP-1082: workflow membership + the parked question, synced.
+      `workflow_id`,
+      `workflow_node_id`,
+      `workflow_role`,
+      `pending_question`,
       `needs_input`,
       `agent_busy`,
       `agent_caption`,

@@ -393,6 +393,7 @@ fn spec_env(
         agent: coding::CodingAgent::Claude,
         spawn,
         options: coding::LaunchOptions {
+            workflow: None,
             agent: coding::CodingAgent::Claude,
             model: "opus".to_string(),
             effort: String::new(),

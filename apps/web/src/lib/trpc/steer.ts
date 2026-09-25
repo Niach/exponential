@@ -8,6 +8,7 @@ import {
   MAX_ACTION_INPUT_KEY,
   MAX_ACTION_INPUT_TEXT,
   startPromptSchema,
+  wfSessionRoleValues,
   type ActionInputDef,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -29,6 +30,7 @@ import {
   getIssueTeamContext,
 } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
+import { workflowFinalPrIdentifier } from "@/lib/workflow-final-pr-identity"
 import {
   effectiveBoardBranch,
   effectiveDefaultBranch,
@@ -296,8 +298,15 @@ export const steerRouter = router({
             .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
             .optional(),
           // EXP-981: the draft workflow a Plan-workflow start is about.
-          // Required iff actionId is that builtin.
+          // Required when actionId is that builtin. EXP-1082 §1: on any
+          // other subject (resume included) it is the run's workflow
+          // MEMBERSHIP, with `workflowNodeId` / `workflowRole`, forwarded
+          // verbatim on the relay frame; the device hands them to
+          // codingSessions.start, which honours them only from the
+          // workflow's runner device.
           workflowId: z.string().uuid().optional(),
+          workflowNodeId: z.string().uuid().optional(),
+          workflowRole: z.enum(wfSessionRoleValues).optional(),
           // Required iff actionId is the builtin (there is no DB row to
           // derive the team from); forbidden otherwise.
           teamId: z.string().uuid().optional(),
@@ -446,13 +455,23 @@ export const steerRouter = router({
             })
           }
           if (
-            (value.actionId === BUILTIN_PLAN_WORKFLOW_ID) !==
-            (value.workflowId !== undefined)
+            value.actionId === BUILTIN_PLAN_WORKFLOW_ID &&
+            value.workflowId === undefined
           ) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: [`workflowId`],
-              message: `workflowId goes with the Plan workflow builtin, and only with it`,
+              message: `workflowId is required for the Plan workflow builtin`,
+            })
+          }
+          if (
+            (value.workflowNodeId !== undefined || value.workflowRole !== undefined) &&
+            value.workflowId === undefined
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`workflowId`],
+              message: `workflowNodeId and workflowRole go with a workflowId`,
             })
           }
           if (value.inputs && !value.actionId) {
@@ -576,6 +595,33 @@ export const steerRouter = router({
         }
         agentStarted.startedReason = `agent`
       }
+
+      // EXP-1082 §1: only the workflow HOST may name a membership — a RUN
+      // (`ctx.viaMcp`; the MCP tool has already checked the calling run
+      // belongs to that workflow), never a browser or a phone: the device
+      // executes every start under its owner's login, so the runner-device
+      // gate in `codingSessions.start` alone would let any member brand a
+      // row. A person's keys are IGNORED, never refused. The Plan builtin's
+      // `plan` role is the server's own derivation and always rides. Absent
+      // keys stay off the wire.
+      const hostNamed = ctx.viaMcp === true
+      const membershipFrame: {
+        workflowId?: string
+        workflowNodeId?: string
+        workflowRole?: string
+      } = hostNamed
+        ? {
+            ...(input.workflowId ? { workflowId: input.workflowId } : {}),
+            ...(input.workflowNodeId ? { workflowNodeId: input.workflowNodeId } : {}),
+            ...(input.workflowRole
+              ? { workflowRole: input.workflowRole }
+              : input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID
+                ? { workflowRole: `plan` }
+                : {}),
+          }
+        : input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID
+          ? { workflowId: input.workflowId, workflowRole: `plan` }
+          : {}
 
       // EXP-485: the persisted devices row (written by devices.register at
       // every daemon/control-channel start) is the ONLY source of a
@@ -945,6 +991,7 @@ export const steerRouter = router({
           ...(shared ? { startedBy: userId } : {}),
           ...inheritedAgentStart,
           ...agentStarted,
+          ...membershipFrame,
           resumeSessionId: session.id,
           teamId: session.teamId!,
           ...(session.issueId ? { issueId: session.issueId } : {}),
@@ -1066,8 +1113,31 @@ export const steerRouter = router({
                 .from(issues)
                 .where(eq(issues.id, issueId))
                 .limit(1)
-              return row && row.teamId === teamId && row.prState === `open`
-                ? { identifier: row.identifier, prNumber: row.prNumber }
+              if (row) {
+                return row.teamId === teamId && row.prState === `open`
+                  ? { identifier: row.identifier, prNumber: row.prNumber }
+                  : null
+              }
+              // EXP-1072: a WORKFLOW id names its final pull request — the
+              // workflow's own PR, fix-conflicts included. The chip reads
+              // like the PR's title on GitHub.
+              const [workflow] = await db
+                .select({
+                  teamId: workflows.teamId,
+                  name: workflows.name,
+                  finalPrNumber: workflows.finalPrNumber,
+                  finalPrState: workflows.finalPrState,
+                })
+                .from(workflows)
+                .where(eq(workflows.id, issueId))
+                .limit(1)
+              return workflow &&
+                workflow.teamId === teamId &&
+                workflow.finalPrState === `open`
+                ? {
+                    identifier: workflowFinalPrIdentifier(workflow.name),
+                    prNumber: workflow.finalPrNumber,
+                  }
                 : null
             },
           }
@@ -1080,8 +1150,11 @@ export const steerRouter = router({
         }
         // EXP-981: the planner's prompt NAMES its workflow on the first line;
         // the server writes that line, so the id is one it has just checked.
+        // EXP-1082: a MEMBERSHIP workflowId on any other action start (a
+        // review-node run, a team action started from inside a workflow
+        // run) is not a plan and must never become one.
         let promptText = input.prompt
-        if (input.workflowId) {
+        if (input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID) {
           const [workflow] = await db
             .select({ teamId: workflows.teamId, status: workflows.status })
             .from(workflows)
@@ -1139,20 +1212,46 @@ export const steerRouter = router({
                 .where(eq(boards.id, issueRow.boardId))
                 .limit(1)
             : []
-          if (!repoRow) {
+          // EXP-1072: a workflow's FINAL pull request lives in the
+          // workflow's ONE repository and targets its default branch.
+          const [workflowRepo] =
+            prIssueId && !issueRow
+              ? await db
+                  .select({
+                    id: repositories.id,
+                    fullName: repositories.fullName,
+                    defaultBranch: repositories.defaultBranch,
+                    defaultBranchOverride: repositories.defaultBranchOverride,
+                  })
+                  .from(workflows)
+                  .innerJoin(
+                    repositories,
+                    eq(repositories.id, workflows.repositoryId)
+                  )
+                  .where(eq(workflows.id, prIssueId))
+                  .limit(1)
+              : []
+          if (workflowRepo) {
+            repo = {
+              repositoryId: workflowRepo.id,
+              fullName: workflowRepo.fullName,
+              defaultBranch: effectiveDefaultBranch(workflowRepo),
+            }
+          } else if (!repoRow) {
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
               message: `The pull request's board has no linked repository`,
             })
-          }
-          repo = {
-            repositoryId: repoRow.id,
-            fullName: repoRow.fullName,
-            // The board's branch (EXP-712) is the rebase target for its PRs.
-            defaultBranch: effectiveBoardBranch(
-              { defaultBranch: repoRow.boardDefaultBranch },
-              repoRow
-            ),
+          } else {
+            repo = {
+              repositoryId: repoRow.id,
+              fullName: repoRow.fullName,
+              // The board's branch (EXP-712) is the rebase target for its PRs.
+              defaultBranch: effectiveBoardBranch(
+                { defaultBranch: repoRow.boardDefaultBranch },
+                repoRow
+              ),
+            }
           }
         } else if (input.actionId === BUILTIN_CHAT_ID) {
           // The chat builtin's repo is its OPTIONAL `repo` input (EXP-739) —
@@ -1234,7 +1333,11 @@ export const steerRouter = router({
         requireStartPromptCap(device, prompt)
         // An older build has no Plan-workflow kind: it would fall through to
         // the Create-action prompt and author an ACTION instead.
-        if (input.workflowId && !device.caps.includes(PLAN_WORKFLOW_CAP)) {
+        if (
+          input.workflowId &&
+          input.actionId === BUILTIN_PLAN_WORKFLOW_ID &&
+          !device.caps.includes(PLAN_WORKFLOW_CAP)
+        ) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `That machine runs an older Exponential app that cannot plan workflows. Update it first.`,
@@ -1246,6 +1349,7 @@ export const steerRouter = router({
           deviceId: input.deviceId,
           ...(shared ? { startedBy: userId } : {}),
           ...agentStarted,
+          ...membershipFrame,
           actionId: action.id,
           actionName: action.name,
           teamId: action.teamId,
@@ -1432,6 +1536,7 @@ export const steerRouter = router({
             deviceId: input.deviceId,
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
+            ...membershipFrame,
             issueId: input.issueId,
             ...(prompt ? { prompt } : {}),
             ...(stackFrame ? { stack: stackFrame } : {}),
@@ -1442,6 +1547,7 @@ export const steerRouter = router({
             deviceId: input.deviceId,
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
+            ...membershipFrame,
             issueIds: ids,
             teamId,
             repo: repo!,

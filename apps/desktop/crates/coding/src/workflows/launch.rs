@@ -10,7 +10,7 @@
 //! `risk: high` nodes and EVERY agent review). The EXP-1002 per-phase pins,
 //! `subagentModel` and `reviewModel` are deprecated (folded in here); the
 //! gate choice is gone (the agent reviews every node, the one human review
-//! is the final PR); `start_on` is fixed to `contract` for new workflows.
+//! is the final PR); dependents always start on the blockers' contract.
 //!
 //! The tests below are the acceptance table, case for case the same as web
 //! `workflow-launch.test.ts`.

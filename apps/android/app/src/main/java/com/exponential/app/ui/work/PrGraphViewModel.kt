@@ -10,7 +10,11 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.domain.IssueGraph
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.batchRunIssues
@@ -73,6 +77,22 @@ class PrGraphViewModel @Inject constructor(
             relations = relations,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PrGraph.Graph(emptyList(), null, emptyList()))
+
+    /**
+     * EXP-1058: the header chip's front issue ([PrGraph.Graph.lead]) resolved
+     * against ITS team's statuses (its board's team) — the glyph the stacked
+     * chip leads with. Null when there is no front issue.
+     */
+    val leadStatus: StateFlow<ResolvedIssueStatus?> = combine(
+        graph,
+        dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+        dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() },
+    ) { current, boards, statuses ->
+        val lead = current.lead ?: return@combine null
+        val teamId = boards.firstOrNull { it.id == lead.boardId }?.teamId
+        val team = statuses.filter { it.teamId == teamId }
+        IssueStatusResolver.resolve(lead, IssueStatusResolver.teamStatuses(team))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-980: the subject's BLOCKS graph — the transitive chain the overlay's

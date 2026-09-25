@@ -123,10 +123,6 @@
       "reason": "EXP-851: one helpdesk conversation on its own route. Captured by support-thread, whose openFirstThread recipe navigates here from /support; the id is whatever the seed minted, so the route is not addressable by the catalog."
     },
     {
-      "route": "/t/$teamSlug/workflows/$workflowId",
-      "reason": "EXP-981: one workflow's graph and configuration. Described by the workflow-detail view, but uncapturable: the screenshot seed files no workflow, so the route has no id to open and would photograph an empty page."
-    },
-    {
       "route": "/admin",
       "reason": "Global admin console. Operator surface, not a product view; gated by INITIAL_ADMIN_EMAILS."
     },
@@ -1315,19 +1311,24 @@
       "id": "workflows-list",
       "group": "actions",
       "title": "Workflows",
-      "blurb": "The Workflows surface (EXP-981): Running, Draft and Done bands over the team's parallel runs. The seeded instance has none, so this is the empty state a fresh team meets.",
+      "blurb": "The Workflows surface (EXP-981): Running, Draft and Done bands over the team's parallel runs. EXP-986: the seed files one draft, Offline editing (three backlog issues of the demo repo, one blocks edge), so the Draft band carries a real row.",
       "order": 6,
       "web": {
         "route": "/t/$teamSlug/workflows",
         "anchor": {
-          "text": "No workflows yet",
+          "text": "Offline editing",
           "timeoutMs": 30000
         },
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "workflows"
+        }
+      },
       "notes": {
-        "desktop": "EXP-981: the IDE's Workflows screen lands with the desktop lane's own drive value; until then the web capture carries the view.",
         "ios": "EXP-981: the phone reaches Workflows through the Agent page's button rather than a tab, and the styleguide lane has no shot for it yet.",
         "android": "EXP-981: the phone reaches Workflows through the Agent page's button rather than a tab, and the styleguide lane has no shot for it yet."
       }
@@ -1336,12 +1337,24 @@
       "id": "workflow-detail",
       "group": "actions",
       "title": "Workflow detail",
-      "blurb": "One workflow (EXP-981/982): the wave graph of its issues as chips (EXP-1014: stacked for a batch, scaled to the column) closed by the final-PR chip, the runner pick in the header, the selected node's panel and the merge train under it; nothing to configure.",
+      "blurb": "One workflow (EXP-1069): a header with its name, status and the one primary action, the node chip strip as the picker (All, then each node), and the Issue · Runs · Changes · Results face toggle over the picked nodes. EXP-986: photographed on the seeded draft, Offline editing.",
       "order": 7,
+      "web": {
+        "route": "/t/$teamSlug/workflows/4e7a2c91-8d35-4b6f-a1c0-5f9e3b2d7a18",
+        "anchor": {
+          "text": "Offline queue for issue edits",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "workflow:4e7a2c91-8d35-4b6f-a1c0-5f9e3b2d7a18"
+        }
+      },
       "notes": {
-        "web": "EXP-981: the route needs a seeded workflow id, and the screenshot seed files none — the graph would photograph as an empty page.",
-        "web-mobile": "EXP-981: same missing seed as the web capture; the phone form is the same page with the node panel in a sheet.",
-        "desktop": "EXP-981: the IDE's workflow screen lands with the desktop lane's own drive value.",
         "ios": "EXP-981: the phone form is the wave-grouped list; no styleguide shot for it yet.",
         "android": "EXP-981: the phone form is the wave-grouped list; no styleguide shot for it yet."
       }
