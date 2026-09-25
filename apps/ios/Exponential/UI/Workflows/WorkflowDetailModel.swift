@@ -2,28 +2,12 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// EXP-982 — one node's coding run as the graph and the sheet read it: where a
-/// tap goes, and what the dot says (the ONE session tone table, the same one
-/// every session list paints with).
-struct WorkflowNodeRun: Equatable {
-    let sessionId: String
-    /// Still up — what the Running strip lists.
-    let live: Bool
-    let tone: SessionDotTone
-    /// The agent is mid-turn: the dot pulses (EXP-848).
-    let busy: Bool
-}
-
-/// EXP-981 — one workflow's detail: the synced row, its nodes (the server's
-/// `wave`/`lane` layout), the issues they cover and the `blocks` relations that
-/// ARE the edges, all LIVE off the two new shapes, plus the member-gated writes
-/// (`workflows.update` / `.updateNode` / `.delete`).
-///
-/// EXP-1014: the screen configures NOTHING about the run any more. The stored
-/// launch (EXP-1029: one agent, a cheap model and a strong one) is CARRIED —
-/// read to say what a node runs on, never written — and the only settable
-/// field left is the runner machine, which a draft needs before it can start.
-/// Only the name is typed, so only the name is drafted.
+/// EXP-1086 — one workflow's page: the synced row, its nodes (the server's
+/// `wave`/`lane` layout), the issues they cover, the relations among them, the
+/// workflow's RUNS and its event log, all LIVE off the synced store, plus the
+/// member-gated writes. What the page SAYS comes out of the shared view model
+/// (`WorkflowView.headerCaption` / `nodeStrip` / `primaryAction` /
+/// `nodeChipMenu`, ×4); which chip is picked is `WorkflowSelection`.
 @MainActor @Observable
 final class WorkflowDetailModel {
     let workflowId: String
@@ -35,23 +19,33 @@ final class WorkflowDetailModel {
     /// The covered issues by id — a node whose row has not synced renders
     /// without one rather than disappearing.
     private(set) var issues: [String: IssueEntity] = [:]
-    /// The `blocks` relations between covered issues — the graph's EDGES, and
-    /// the only dependency a phone can draw (`Blocked by` chips under a node).
+    /// `blocks` + `parent` relations among the covered issues: the mini-graph
+    /// and the nested issue list.
     private(set) var relations: [IssueRelationEntity] = []
-    /// The nodes' coding sessions by SESSION id — what the graph's live dots
-    /// and the Running strip read. A session that has not synced is absent.
-    private(set) var sessions: [String: CodingSessionEntity] = [:]
-    /// EVERY machine of the team, offline included: a workflow BINDS its runner
-    /// the way an automation does — a sleeping box still owns the binding.
+    /// The workflow's runs (`coding_sessions.workflow_id`, plus every node's
+    /// own run).
+    private(set) var sessions: [CodingSessionEntity] = []
+    private(set) var events: [WorkflowEventEntity] = []
+    /// The synced machine rows — what a run row's device line resolves from.
+    private(set) var deviceRows: [DeviceEntity] = []
+    /// Own + team-shared machines (offline included: a bound runner keeps its
+    /// name while it sleeps).
     private(set) var devices: [SteerDevice] = []
     /// The first emission has landed (an absent row then means deleted).
     private(set) var loaded = false
     /// A write is in flight; the synced row echoes the result back.
     var busy = false
-    /// The server's refusal, verbatim.
+    /// The server's refusal, verbatim (a notice toast).
     var error: String?
+    /// The chip strip's pick: All, or the picked nodes (the page shows the
+    /// cursor's).
+    var selection = WorkflowSelection()
 
     private var observationTask: Task<Void, Never>?
+    /// The asking runs that are MINE, attached while the banner shows so an
+    /// answer goes out on the run's own steer socket — how a `needs_input`
+    /// run is answered everywhere else. Keyed by session id.
+    private var answerModels: [String: AgentSessionModel] = [:]
 
     init(workflowId: String, accountId: String, deps: AppDependencies) {
         self.workflowId = workflowId
@@ -61,92 +55,152 @@ final class WorkflowDetailModel {
 
     // MARK: - Derived
 
-    var metrics: WorkflowMetrics { workflow?.parsedMetrics ?? WorkflowMetrics() }
-
-    /// The stored launch, CARRIED (EXP-1029): the phone reads it to say which
-    /// model a node's run takes and never writes a byte of it back.
-    var launch: WorkflowLaunch { workflow?.parsedLaunch ?? WorkflowLaunch() }
-
-    /// The runner machine is DRAFT-only server-side; the picker says so by
-    /// going inert rather than by bouncing on submit.
-    var isDraft: Bool { workflow?.status == DomainContract.wfStatusDraft }
-
     var status: String { workflow?.status ?? DomainContract.wfStatusDraft }
-
-    /// Why Start is disabled, or nil when the draft can start — the shared
-    /// rule, so the caption says exactly what the server would refuse with.
-    var startBlocker: String? {
-        workflow.flatMap(WorkflowView.startBlocker)
+    var isDraft: Bool { status == DomainContract.wfStatusDraft }
+    var isLive: Bool {
+        status == DomainContract.wfStatusRunning || status == DomainContract.wfStatusPaused
     }
 
-    /// The merge train: the nodes whose PR is up, in landing order. Empty on a
-    /// draft — the strip is hidden there anyway.
-    var mergeTrain: [WorkflowView.TrainEntry] {
-        WorkflowView.mergeTrain(nodes)
-    }
-
-    /// EXP-984 — the run's counters as the detail's Metrics rows. Empty-ish on
-    /// a draft, where the section is hidden anyway.
-    var metricRows: [WorkflowView.MetricRow] {
-        WorkflowView.metricRows(metrics)
-    }
-
-    /// The final-PR node's caption, or nil while that node is not drawn.
-    var finalPrCaption: String? {
-        WorkflowView.finalPrCaption(
-            states: nodes.map(\.state),
-            finalPrState: workflow?.finalPrState,
-            finalPrNumber: workflow?.finalPrNumber
-        )
-    }
-
-    /// The edges between the nodes, from the synced `blocks` relations — the
-    /// shared rule, cycle edges included.
-    var edges: [WorkflowView.Edge] {
-        WorkflowView.edges(
-            nodes: nodes, relations: relations, cycleEdges: metrics.cycleEdges
-        )
-    }
-
-    var boundDevice: SteerDevice? {
+    private var boundDevice: SteerDevice? {
         guard let deviceId = workflow?.deviceId else { return nil }
         return devices.first { $0.deviceId == deviceId }
     }
 
-    /// The node covering [issueId] — a member's id resolves to its compound
-    /// node, exactly as the router addresses one.
+    /// The runner's plain name; its id while its row has not synced.
+    var deviceLabel: String? {
+        guard let deviceId = workflow?.deviceId, !deviceId.isEmpty else { return nil }
+        if let label = boundDevice?.deviceLabel, !label.isEmpty { return label }
+        return deviceId
+    }
+
+    /// The machines a draft may bind: own + team-shared, online.
+    var runnerChoices: [SteerDevice] { devices.filter(\.isOnline) }
+
+    var caption: String {
+        WorkflowView.headerCaption(
+            status: status,
+            nodes: nodes.map { HeaderNode(state: $0.state, members: $0.memberIssueIds.count) },
+            deviceLabel: deviceLabel
+        )
+    }
+
+    var primaryAction: WorkflowPrimaryAction? {
+        WorkflowView.primaryAction(
+            status: status, deviceLabel: deviceLabel, finalPrState: workflow?.finalPrState
+        )
+    }
+
+    /// Why Start is disabled — the server's own sentence.
+    var startBlocker: String? { workflow.flatMap(WorkflowView.startBlocker) }
+
+    var openQuestions: [WorkflowOpenQuestion] {
+        WorkflowQuestions.open(sessions, workflowId: workflowId)
+    }
+
+    private var sessionsById: [String: CodingSessionEntity] {
+        Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    func session(_ id: String?) -> CodingSessionEntity? {
+        guard let id else { return nil }
+        return sessions.first { $0.id == id }
+    }
+
+    func identifier(of node: WorkflowNodeEntity) -> String {
+        issues[node.issueId]?.identifier ?? String(node.issueId.prefix(8))
+    }
+
+    var strip: [StripWave] {
+        let byId = sessionsById
+        let asking = Set(openQuestions.map(\.nodeId))
+        return WorkflowView.nodeStrip(
+            nodes: nodes.map { node in
+                StripNodeInput(
+                    id: node.id,
+                    identifier: identifier(of: node),
+                    state: node.state,
+                    wave: node.wave,
+                    lane: node.lane,
+                    members: node.memberIssueIds.count,
+                    live: node.sessionId.flatMap { byId[$0] }?.agentBusy ?? false,
+                    needsYou: asking.contains(node.id),
+                    note: node.note
+                )
+            }
+        )
+    }
+
+    var order: [String] { WorkflowSelection.order(strip) }
+
+    var selectedNode: WorkflowNodeEntity? {
+        guard let id = selection.nodeId else { return nil }
+        return nodes.first { $0.id == id }
+    }
+
+    func node(_ id: String) -> WorkflowNodeEntity? { nodes.first { $0.id == id } }
+
+    /// Every covered issue in strip order, nested under its parent (the ×4
+    /// `IssueNesting` rule).
+    var nestedIssues: [(issue: IssueEntity, depth: Int)] {
+        let byNode = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var ids: [String] = []
+        for id in order {
+            for issueId in byNode[id]?.coveredIssueIds ?? [] where !ids.contains(issueId) {
+                ids.append(issueId)
+            }
+        }
+        let rows = IssueNesting.nestIssueRows(
+            groups: [ids.filter { issues[$0] != nil }],
+            relations: relations,
+            identifierOf: { self.issues[$0]?.identifier ?? $0 }
+        ).first ?? []
+        return rows.compactMap { row in issues[row.id].map { ($0, row.depth) } }
+    }
+
+    /// The node an issue belongs to (a member resolves to its compound node).
     func node(coveringIssue issueId: String) -> WorkflowNodeEntity? {
         nodes.first { $0.coveredIssueIds.contains(issueId) }
     }
 
-    /// EXP-982 — `node id → its run`, for every node whose session row has
-    /// synced. A node's marker and the Running strip both read this, so the
-    /// graph never invents a liveness the session row does not claim.
-    var runs: [String: WorkflowNodeRun] {
-        var runs: [String: WorkflowNodeRun] = [:]
-        for node in nodes {
-            guard let sessionId = node.sessionId, let session = sessions[sessionId] else {
-                continue
-            }
-            // The row's status alone — a run the engine lost is reported by
-            // the NODE's own state, never by a stale dot. The same rule ×4.
-            let live = session.status == DomainContract.codingSessionStatusRunning
-                || session.status == DomainContract.codingSessionStatusInReview
-            let state = CodingSessionDisplayState.of(
-                session: session, prState: issues[node.issueId]?.prState
-            )
-            runs[node.id] = WorkflowNodeRun(
-                sessionId: sessionId,
-                live: live,
-                // An ended run keeps its row (Open run still works) but never a
-                // live tone: the strip lists what is up, nothing else.
-                tone: live ? SessionStateDot.tone(of: state) : .muted,
-                busy: CodingSessionDisplayState.pulses(
-                    state: state, agentBusy: session.agentBusy, live: live
-                )
-            )
-        }
-        return runs
+    /// The mini-graph a chip's long-press opens.
+    func blockGraph(for node: WorkflowNodeEntity) -> IssueGraph.Graph {
+        IssueGraph.blockGraph(
+            subjectIds: node.coveredIssueIds, relations: relations, issues: Array(issues.values)
+        )
+    }
+
+    /// The picked node's embedded Work screen (its subject) and the faces it
+    /// will offer, by the SAME run lookup the screen uses: the page opens it
+    /// on its face only when that face can show (a missing one falls back
+    /// like the Work screen's own switch).
+    func work(for node: WorkflowNodeEntity) -> WorkflowNodeWork {
+        let issue = issues[node.issueId]
+        return WorkflowView.nodeWork(
+            issueId: node.issueId,
+            sessionId: node.sessionId,
+            issuePushed: issue?.prUrl?.isEmpty == false || issue?.branch?.isEmpty == false,
+            sessions: sessions,
+            me: deps.auth.userId,
+            now: Date()
+        )
+    }
+
+    /// The nodes in the page's scope, in strip (DAG) order.
+    var orderedNodes: [WorkflowNodeEntity] {
+        order.compactMap { id in nodes.first { $0.id == id } }
+    }
+
+    /// Every run's published screenshots, by topic.
+    var resultGroups: [SessionResultGroup] {
+        groupSessionResults(sessions.flatMap { parseSessionResults($0.results) })
+    }
+
+    func devicePresentation(_ session: CodingSessionEntity) -> SessionDevicePresentation {
+        SessionDevicePresentation.resolve(session: session, devices: deviceRows)
+    }
+
+    func batchIssues(_ session: CodingSessionEntity) -> [IssueEntity] {
+        BatchRun.issueIds(session.batchIssueIds).compactMap { issues[$0] }
     }
 
     // MARK: - Observation
@@ -155,51 +209,45 @@ final class WorkflowDetailModel {
         guard observationTask == nil, let pool = try? deps.db.pool(forAccountId: accountId)
         else { return }
         let id = workflowId
-        let observation = ValueObservation.tracking {
-            db -> (
-                WorkflowEntity?, [WorkflowNodeEntity], [IssueEntity], [IssueRelationEntity],
-                [CodingSessionEntity]
-            ) in
+        let observation = ValueObservation.tracking { db -> Snapshot in
             let workflow = try WorkflowEntity.fetchOne(db, key: id)
-            let nodes = try WorkflowNodeEntity
-                .filter(Column("workflow_id") == id)
-                .fetchAll(db)
-            // EXP-982: the run each started node is in — the graph marks a node
-            // that is up with its session's own dot, and the Running strip
-            // opens it.
+            let nodes = try WorkflowNodeEntity.filter(Column("workflow_id") == id).fetchAll(db)
             let sessionIds = Array(Set(nodes.compactMap(\.sessionId)))
-            let sessions = sessionIds.isEmpty
-                ? []
-                : try CodingSessionEntity.filter(sessionIds.contains(Column("id"))).fetchAll(db)
+            let sessions = try CodingSessionEntity
+                .filter(Column("workflow_id") == id || sessionIds.contains(Column("id")))
+                .fetchAll(db)
+            let events = try WorkflowEventEntity
+                .filter(Column("workflow_id") == id)
+                .order(Column("at").desc)
+                .fetchAll(db)
+            let deviceRows = try DeviceEntity.fetchAll(db)
             let covered = Array(Set(nodes.flatMap(\.coveredIssueIds)))
-            guard !covered.isEmpty else { return (workflow, nodes, [], [], sessions) }
+            guard !covered.isEmpty else {
+                return Snapshot(
+                    workflow: workflow, nodes: nodes, issues: [], relations: [],
+                    sessions: sessions, events: events, deviceRows: deviceRows
+                )
+            }
             let issues = try IssueEntity.filter(covered.contains(Column("id"))).fetchAll(db)
-            // Only the relations between COVERED issues can be edges; the rule
-            // drops the rest anyway, so they never need reading.
             let relations = try IssueRelationEntity
-                .filter(Column("type") == IssueRelationType.blocks.rawValue)
+                .filter([IssueRelationType.blocks.rawValue, IssueRelationType.parent.rawValue]
+                    .contains(Column("type")))
                 .filter(covered.contains(Column("issue_id")))
                 .filter(covered.contains(Column("related_issue_id")))
                 .fetchAll(db)
-            return (workflow, nodes, issues, relations, sessions)
+            return Snapshot(
+                workflow: workflow, nodes: nodes, issues: issues, relations: relations,
+                sessions: sessions, events: events, deviceRows: deviceRows
+            )
         }
         observationTask = Task { [weak self] in
             do {
-                for try await (workflow, nodes, issues, relations, sessions)
-                    in observation.values(in: pool)
-                {
+                for try await snapshot in observation.values(in: pool) {
                     guard let self, !Task.isCancelled else { return }
-                    self.workflow = workflow
-                    self.nodes = nodes.sorted { ($0.wave, $0.lane) < ($1.wave, $1.lane) }
-                    self.issues = Dictionary(
-                        issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
-                    )
-                    self.relations = relations
-                    self.sessions = Dictionary(
-                        sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
-                    )
-                    self.loaded = true
-                    await self.loadDevices()
+                    self.apply(snapshot)
+                    // The machine list follows the team; the picker refreshes
+                    // it on open, so a session tick never re-reads it.
+                    if self.devices.isEmpty { await self.loadDevices() }
                 }
             } catch {
                 self?.loaded = true
@@ -207,75 +255,122 @@ final class WorkflowDetailModel {
         }
     }
 
+    private struct Snapshot {
+        let workflow: WorkflowEntity?
+        let nodes: [WorkflowNodeEntity]
+        let issues: [IssueEntity]
+        let relations: [IssueRelationEntity]
+        let sessions: [CodingSessionEntity]
+        let events: [WorkflowEventEntity]
+        let deviceRows: [DeviceEntity]
+    }
+
+    private func apply(_ snapshot: Snapshot) {
+        workflow = snapshot.workflow
+        nodes = snapshot.nodes
+        issues = Dictionary(snapshot.issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        relations = snapshot.relations
+        sessions = snapshot.sessions
+        events = snapshot.events
+        deviceRows = snapshot.deviceRows
+        loaded = true
+        selection.prune(with: order)
+        syncAnswerChannel()
+    }
+
     func stop() {
         observationTask?.cancel()
         observationTask = nil
+        releaseAnswerChannel()
     }
 
     /// The machine pool follows the workflow's TEAM (it arrives with the row).
-    private func loadDevices() async {
-        guard let teamId = workflow?.teamId, devices.isEmpty else { return }
+    func loadDevices() async {
+        guard let teamId = workflow?.teamId else { return }
         devices = await DeviceQueries.devices(
             db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
         )
     }
 
+    // MARK: - The open questions
+
+    /// Every open question renders; only the ones whose run is MINE take an
+    /// answer — a live run is steerable only by its owner (EXP-312), and a
+    /// teammate's question never hides mine.
+    func isAnswerable(_ question: WorkflowOpenQuestion) -> Bool {
+        guard let run = session(question.sessionId) else { return false }
+        return CodingSessionOwnership.isOwn(run, userId: deps.auth.userId)
+    }
+
+    private func syncAnswerChannel() {
+        let wanted = Set(openQuestions.filter(isAnswerable).map(\.sessionId))
+        for id in answerModels.keys where !wanted.contains(id) {
+            deps.steerSessions.detach(accountId: accountId, sessionId: id)
+            answerModels[id] = nil
+        }
+        for id in wanted where answerModels[id] == nil {
+            guard let run = session(id) else { continue }
+            answerModels[id] = deps.steerSessions.attach(accountId: accountId, sessionId: id) {
+                AgentSessionModel(
+                    accountId: accountId,
+                    session: run,
+                    currentUserId: deps.auth.userId,
+                    steerApi: deps.steerApi,
+                    attachmentsApi: deps.attachmentsApi,
+                    issuesApi: deps.issuesApi,
+                    db: deps.db
+                )
+            }
+        }
+    }
+
+    private func releaseAnswerChannel() {
+        for id in answerModels.keys {
+            deps.steerSessions.detach(accountId: accountId, sessionId: id)
+        }
+        answerModels = [:]
+    }
+
+    /// Send the answer as a message to the asking run. False while its socket
+    /// is still connecting.
+    func answer(_ text: String, to sessionId: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let answerModel = answerModels[sessionId] else { return false }
+        let sent = answerModel.sendMessage(trimmed)
+        if !sent { error = "The run is not connected yet. Try again in a moment." }
+        return sent
+    }
+
     // MARK: - Writes
 
-    /// Rename (a label, allowed at any status). Blank or unchanged is a no-op
-    /// rather than a server refusal.
+    /// Save the edited name (commit or blur); blank or unchanged = nothing.
+    /// A rename never conflicts with a start/pause, so it goes out even while
+    /// another write is in flight (the `busy` guard would drop it silently)
+    /// and never flips `busy` itself.
     func rename(_ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != workflow?.name else { return }
-        update(WorkflowPatch(name: trimmed))
+        let accountId = accountId
+        let workflowId = workflowId
+        Task {
+            do {
+                _ = try await self.deps.workflowsApi.update(
+                    accountId: accountId, id: workflowId, patch: WorkflowPatch(name: trimmed)
+                )
+            } catch {
+                self.error = error.userFacingMessage
+            }
+        }
     }
 
-    /// Bind (or unbind) the runner machine — EXP-1014: the ONE thing this
-    /// screen still sets. The launch itself is carried, never written.
     func setDevice(_ deviceId: String?) {
-        update(WorkflowPatch(deviceId: .some(deviceId)))
-    }
-
-    private func update(_ patch: WorkflowPatch) {
-        guard !busy else { return }
-        busy = true
-        error = nil
-        Task {
-            do {
-                try await deps.workflowsApi.update(
-                    accountId: accountId, id: workflowId, patch: patch
-                )
-            } catch {
-                self.error = error.userFacingMessage
-            }
-            busy = false
+        run { accountId, id in
+            _ = try await self.deps.workflowsApi.update(
+                accountId: accountId, id: id, patch: WorkflowPatch(deviceId: .some(deviceId))
+            )
         }
     }
 
-    /// What the plan declares per node — addressed by ISSUE, like the router.
-    func updateNode(issueId: String, patch: WorkflowNodePatch) {
-        guard !busy else { return }
-        busy = true
-        error = nil
-        Task {
-            do {
-                try await deps.workflowsApi.updateNode(
-                    accountId: accountId,
-                    workflowId: workflowId,
-                    issueId: issueId,
-                    patch: patch
-                )
-            } catch {
-                self.error = error.userFacingMessage
-            }
-            busy = false
-        }
-    }
-
-    // MARK: - Running it (EXP-982)
-
-    /// Start the run. The server only flips intent: the deterministic engine on
-    /// the bound machine picks the row up off Electric and runs the nodes.
     func start() {
         run { accountId, id in
             _ = try await self.deps.workflowsApi.start(accountId: accountId, id: id)
@@ -294,42 +389,33 @@ final class WorkflowDetailModel {
         run { try await self.deps.workflowsApi.cancel(accountId: $0, id: $1) }
     }
 
-    /// EXP-1033 — squash-merge the workflow's ONE final pull request, the one
-    /// human review of the whole run: the server completes the workflow in the
-    /// same call and the synced row carries that back, so a phone finishes a
-    /// workflow without leaving for GitHub. A refusal lands in `error`.
     func mergeFinalPr() {
         run { accountId, id in
             _ = try await self.deps.workflowsApi.mergeFinalPr(accountId: accountId, id: id)
         }
     }
 
-    /// The human gate: clear a node's open PR for the merge train, or take the
-    /// approval back while the node has not landed.
-    func approveNode(_ nodeId: String, approved: Bool) {
+    func perform(_ action: NodeChipAction, on nodeId: String) {
         run { accountId, _ in
-            try await self.deps.workflowsApi.approveNode(
-                accountId: accountId, nodeId: nodeId, approved: approved
-            )
+            let api = self.deps.workflowsApi
+            switch action {
+            case .retry:
+                try await api.resolveNode(accountId: accountId, nodeId: nodeId, action: .retry)
+            case .skip:
+                try await api.resolveNode(accountId: accountId, nodeId: nodeId, action: .skip)
+            case .admit:
+                try await api.admitNode(accountId: accountId, nodeId: nodeId, admit: true)
+            case .dismiss:
+                try await api.admitNode(accountId: accountId, nodeId: nodeId, admit: false)
+            }
         }
     }
 
-    /// Unstick a failed node: a fresh attempt, or out of the run entirely.
-    func resolveNode(_ nodeId: String, action: WorkflowNodeResolution) {
-        run { accountId, _ in
-            try await self.deps.workflowsApi.resolveNode(
-                accountId: accountId, nodeId: nodeId, action: action
-            )
-        }
-    }
-
-    /// EXP-984 — decide a `proposed` node: admit it into the run (the server
-    /// re-plans) or dismiss it, which deletes the row.
-    func admitNode(_ nodeId: String, admit: Bool) {
-        run { accountId, _ in
-            try await self.deps.workflowsApi.admitNode(
-                accountId: accountId, nodeId: nodeId, admit: admit
-            )
+    /// Delete the whole workflow; `onDeleted` pops back to the list.
+    func delete(onDeleted: @escaping () -> Void) {
+        run { accountId, id in
+            try await self.deps.workflowsApi.delete(accountId: accountId, id: id)
+            onDeleted()
         }
     }
 
@@ -342,23 +428,6 @@ final class WorkflowDetailModel {
         Task {
             do {
                 try await body(accountId, workflowId)
-            } catch {
-                self.error = error.userFacingMessage
-            }
-            busy = false
-        }
-    }
-
-    /// Delete the whole workflow; `onDeleted` pops back to the list. A live
-    /// workflow has to be cancelled first and the server says so.
-    func delete(onDeleted: @escaping () -> Void) {
-        guard !busy else { return }
-        busy = true
-        error = nil
-        Task {
-            do {
-                try await deps.workflowsApi.delete(accountId: accountId, id: workflowId)
-                onDeleted()
             } catch {
                 self.error = error.userFacingMessage
             }

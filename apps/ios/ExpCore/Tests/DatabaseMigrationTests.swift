@@ -120,7 +120,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v51_automation_account",
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
-             "v55_workflow_session_membership_events"]
+             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped"]
         )
     }
 
@@ -167,8 +167,34 @@ final class DatabaseMigrationTests: XCTestCase {
              "v51_automation_account",
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
-             "v55_workflow_session_membership_events"]
+             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped"]
         )
+    }
+
+    // v56 (EXP-1066/EXP-1090): a store migrated through v55 whose
+    // `workflows` still carries the dead `start_on` column (every pre-v56
+    // install) drops it, keeping its rows; a second pass is a no-op.
+    func testWorkflowStartOnDroppedFromExistingStore() throws {
+        let pool = try makePool("workflow-start-on-drop")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v55_workflow_session_membership_events")
+        try pool.write { db in
+            try db.alter(table: "workflows") { t in
+                t.add(column: "start_on", .text).notNull().defaults(to: "contract")
+            }
+            try db.execute(sql: """
+                INSERT INTO "workflows" ("id", "team_id", "name", "start_on")
+                VALUES ('wf-1', 't1', 'Ship it', 'pr_open')
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertFalse(try columnNames(pool, "workflows").contains("start_on"))
+        let name = try pool.read { db in
+            try String.fetchOne(db, sql: #"SELECT "name" FROM "workflows" WHERE "id" = 'wf-1'"#)
+        }
+        XCTAssertEqual(name, "Ship it")
+        XCTAssertNoThrow(try migrator.migrate(pool))
     }
 
     // v51 (EXP-995): a store migrated through v50 carries an `automations`
@@ -491,7 +517,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v51_automation_account",
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
-             "v55_workflow_session_membership_events"]
+             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -586,7 +612,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v51_automation_account",
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
-             "v55_workflow_session_membership_events"]
+             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1302,7 +1328,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try columnNames(pool, "workflows"),
             ["id", "team_id", "repository_id", "name", "status", "device_id",
-             "launch", "gate", "start_on", "integration_branch", "final_pr_url",
+             "launch", "gate", "integration_branch", "final_pr_url",
              "final_pr_number", "final_pr_state", "decisions", "metrics",
              "started_at", "ended_at", "created_at", "updated_at"]
         )

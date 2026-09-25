@@ -20,8 +20,6 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
     public let status: String
     public let deviceId: String?
     public let launch: WorkflowLaunch
-    /// contract `wfStartOn`.
-    public let startOn: String
     public let integrationBranch: String
     public let finalPrUrl: String?
     public let finalPrNumber: Int?
@@ -41,7 +39,6 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
         status: String = "draft",
         deviceId: String? = nil,
         launch: WorkflowLaunch = WorkflowLaunch(),
-        startOn: String = "contract",
         integrationBranch: String = "",
         finalPrUrl: String? = nil,
         finalPrNumber: Int? = nil,
@@ -60,7 +57,6 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
         self.status = status
         self.deviceId = deviceId
         self.launch = launch
-        self.startOn = startOn
         self.integrationBranch = integrationBranch
         self.finalPrUrl = finalPrUrl
         self.finalPrNumber = finalPrNumber
@@ -76,7 +72,7 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
 
 extension WorkflowDto: Decodable {
     enum CodingKeys: String, CodingKey {
-        case id, teamId, repositoryId, name, status, deviceId, launch, startOn
+        case id, teamId, repositoryId, name, status, deviceId, launch
         case integrationBranch, finalPrUrl, finalPrNumber, finalPrState, decisions
         case metrics, startedAt, endedAt, createdAt, updatedAt
     }
@@ -92,7 +88,6 @@ extension WorkflowDto: Decodable {
         // The two jsonb columns: objects over tRPC, pre-stringified from
         // fixtures — both go through the tolerant parse.
         launch = WorkflowLaunch.parse(c.decodeWireJsonString(forKey: .launch))
-        startOn = (try? c.decodeIfPresent(String.self, forKey: .startOn)) ?? "contract"
         integrationBranch =
             (try? c.decodeIfPresent(String.self, forKey: .integrationBranch)) ?? ""
         finalPrUrl = try c.decodeIfPresent(String.self, forKey: .finalPrUrl)
@@ -118,7 +113,6 @@ public extension WorkflowDto {
             status: entity.status,
             deviceId: entity.deviceId,
             launch: entity.parsedLaunch,
-            startOn: entity.startOn,
             integrationBranch: entity.integrationBranch,
             finalPrUrl: entity.finalPrUrl,
             finalPrNumber: entity.finalPrNumber,
@@ -152,8 +146,7 @@ private struct CreateInput: Encodable {
 /// workflow screen configures no run any more — binding a runner to a draft
 /// re-seeds the launch from THAT machine's defaults server-side, and every
 /// model is derived from the two the launch carries — so the launch never
-/// rides this patch. `startOn` is gone with it: the server ignores the field
-/// (`contract` is fixed).
+/// rides this patch (EXP-1090: nor any start rule — there is only one).
 public struct WorkflowPatch: Sendable, Equatable {
     public var name: String?
     public var deviceId: String??
@@ -195,43 +188,6 @@ private struct SetIssuesInput: Encodable {
     let removeIssueIds: [String]
 }
 
-/// A partial `workflows.updateNode`, addressed by ISSUE (a member's id
-/// resolves to its compound node).
-public struct WorkflowNodePatch: Sendable, Equatable {
-    public var kind: String?
-    public var risk: String?
-    public var touches: [String]?
-
-    public init(
-        kind: String? = nil,
-        risk: String? = nil,
-        touches: [String]? = nil
-    ) {
-        self.kind = kind
-        self.risk = risk
-        self.touches = touches
-    }
-}
-
-struct WorkflowNodeUpdateInput: Encodable {
-    let workflowId: String
-    let issueId: String
-    let patch: WorkflowNodePatch
-
-    enum CodingKeys: String, CodingKey {
-        case workflowId, issueId, kind, risk, touches
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(workflowId, forKey: .workflowId)
-        try c.encode(issueId, forKey: .issueId)
-        try c.encodeIfPresent(patch.kind, forKey: .kind)
-        try c.encodeIfPresent(patch.risk, forKey: .risk)
-        try c.encodeIfPresent(patch.touches, forKey: .touches)
-    }
-}
-
 private struct IdInput: Encodable {
     let id: String
 }
@@ -239,11 +195,6 @@ private struct IdInput: Encodable {
 /// `workflows.mergeFinalPr` answers `{ merged: true }`.
 private struct MergeFinalPrResult: Decodable {
     let merged: Bool
-}
-
-private struct ApproveNodeInput: Encodable {
-    let nodeId: String
-    let approved: Bool
 }
 
 private struct ResolveNodeInput: Encodable {
@@ -311,25 +262,6 @@ public final class WorkflowsApi: Sendable {
             path: "workflows.setIssues",
             input: SetIssuesInput(
                 id: id, addIssueIds: addIssueIds, removeIssueIds: removeIssueIds
-            )
-        )
-    }
-
-    /// Member-gated `workflows.updateNode` — what the plan declares per node.
-    /// Kind and touches shape the PLAN, so the server takes them on a DRAFT
-    /// only; RISK rides at any status (it is the one lever onto the launch's
-    /// strong model, and a running workflow still has nodes to raise).
-    public func updateNode(
-        accountId: String,
-        workflowId: String,
-        issueId: String,
-        patch: WorkflowNodePatch
-    ) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "workflows.updateNode",
-            input: WorkflowNodeUpdateInput(
-                workflowId: workflowId, issueId: issueId, patch: patch
             )
         )
     }
@@ -408,19 +340,6 @@ public final class WorkflowsApi: Sendable {
             input: IdInput(id: id)
         )
         return result.merged
-    }
-
-    /// The human gate: `workflows.approveNode` clears a node's open PR for the
-    /// merge train. `approved: false` takes it back while the node has not
-    /// landed.
-    public func approveNode(
-        accountId: String, nodeId: String, approved: Bool = true
-    ) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "workflows.approveNode",
-            input: ApproveNodeInput(nodeId: nodeId, approved: approved)
-        )
     }
 
     /// `workflows.resolveNode` — a person unsticks a node: `retry` gives it a

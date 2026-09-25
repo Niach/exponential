@@ -360,14 +360,9 @@ export async function replanWorkflow(
     ...layout.metrics,
     cycleEdges: [...layout.cycleEdges].sort(),
   }
-  // Counters the engine wrote (P3+) survive a re-layout: shape keys win,
-  // everything else is kept.
-  await tx
-    .update(workflows)
-    .set({
-      metrics: sql`${workflows.metrics} || ${JSON.stringify(metrics)}::jsonb`,
-    })
-    .where(eq(workflows.id, workflowId))
+  // EXP-1066: `metrics` holds the layout facts and nothing else — written
+  // whole, so a key an older engine wrote does not survive the next replan.
+  await tx.update(workflows).set({ metrics }).where(eq(workflows.id, workflowId))
   return metrics
 }
 

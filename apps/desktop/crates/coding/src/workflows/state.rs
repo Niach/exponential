@@ -15,7 +15,6 @@
 //!       "reviewedHead": { "<nodeId>": "<sha>" },
 //!       "findingsSent": { "<nodeId>": 2 },
 //!       "reviewRuns": { "<nodeId>": "<sessionId>" },
-//!       "checkpointTips": { "<nodeId>": "<sha>" },
 //!       "landRefused": { "<nodeId>": "<sha>" },
 //!       "resuming": { "<sessionId>": 1726000000000 },
 //!       "reviewRounds": { "<nodeId>": 1 },
@@ -82,9 +81,6 @@ pub struct WorkflowState {
     /// review is never started twice (its liveness comes off the synced
     /// `coding_sessions` row).
     pub review_runs: HashMap<String, String>,
-    /// EXP-984: `node id → the branch tip last counted as a contract
-    /// change`, the input to the `contractChanges` metric.
-    pub checkpoint_tips: HashMap<String, String>,
     /// `node id → the head of its pull request when GitHub last refused to
     /// merge it`; the node holds `updating` until that head moves.
     pub land_refused: HashMap<String, String>,
@@ -271,7 +267,6 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Wor
                     reviewed_head: read_string_map(entry.get("reviewedHead")),
                     findings_sent: read_round_map(entry.get("findingsSent")),
                     review_runs: read_string_map(entry.get("reviewRuns")),
-                    checkpoint_tips: read_string_map(entry.get("checkpointTips")),
                     land_refused: read_string_map(entry.get("landRefused")),
                     resuming: read_round_map(entry.get("resuming")),
                     review_rounds: read_round_map(entry.get("reviewRounds")),
@@ -307,9 +302,8 @@ fn read_propagated(value: Option<&Value>) -> HashMap<String, HashMap<String, Str
         .unwrap_or_default()
 }
 
-/// EXP-984: a flat `key → string` map (`reviewedHead`, `reviewRuns`,
-/// `checkpointTips`); anything malformed is dropped, which at worst re-runs
-/// one review or re-counts one metric.
+/// EXP-984: a flat `key → string` map (`reviewedHead`, `reviewRuns`);
+/// anything malformed is dropped, which at worst re-runs one review.
 fn read_string_map(value: Option<&Value>) -> HashMap<String, String> {
     value
         .and_then(Value::as_object)
@@ -398,7 +392,6 @@ pub fn write_states(
                 "reviewedHead": state.reviewed_head,
                 "findingsSent": state.findings_sent,
                 "reviewRuns": state.review_runs,
-                "checkpointTips": state.checkpoint_tips,
                 "landRefused": state.land_refused,
                 "resuming": state.resuming,
                 "reviewRounds": state.review_rounds,
@@ -642,8 +635,6 @@ mod tests {
         mine.findings_sent.insert("node-1".to_string(), 2);
         mine.review_runs
             .insert("node-1".to_string(), "sess-r1".to_string());
-        mine.checkpoint_tips
-            .insert("node-1".to_string(), "sha-a2".to_string());
         // The refusal hold, the resume grace and the verdict-less run count.
         mine.land_refused
             .insert("node-1".to_string(), "sha-a2".to_string());

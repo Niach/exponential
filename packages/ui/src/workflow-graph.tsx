@@ -22,9 +22,9 @@ import { cn } from "./cn"
 // small graph keeps its true size — and the container takes the scaled
 // height. Phones get the same scaled graph; a wide graph simply draws small.
 //
-// Pure props: no live query, no router, no team. The app's
-// `components/workflow-graph.tsx` resolves the issues, the runs and the edges
-// and feeds them in; the styleguide island feeds a fixture.
+// Pure props: no live query, no router, no team. EXP-1069: the web page no
+// longer mounts it (the node strip is the picker, the mini-graph popover the
+// graph); the styleguide island feeds it a fixture.
 
 const MergedIcon = conceptIcon(`notification-pr-merged`)
 

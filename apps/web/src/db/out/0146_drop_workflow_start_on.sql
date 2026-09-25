@@ -1,0 +1,2 @@
+ALTER TABLE "workflows" DROP COLUMN "start_on";--> statement-breakpoint
+UPDATE "workflows" SET "metrics" = "metrics" - '{landed,mergeIns,contractChanges,escalations,duplicateEscalations,operatorMinutes,reviewRounds,defectsByOracle,defectsByAgentReview,admitted}'::text[];

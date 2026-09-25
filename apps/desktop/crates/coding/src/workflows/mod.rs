@@ -15,7 +15,7 @@
 //! reviewed PRs into the integration branch in order (the merge train), then
 //! opens ONE final PR integration → default.
 //!
-//! EXP-983 makes the starts SPECULATIVE: all three `start_on` modes are live,
+//! EXP-983 makes the starts SPECULATIVE: dependents start on their blockers' contract,
 //! so a dependent may start before its blockers landed. It then bases on
 //! THEIR work — one unlanded blocker means that blocker's branch, several
 //! mean a synthetic base the host merges them into — upstream movement
@@ -151,17 +151,6 @@ pub struct WorkflowFacts {
     /// here and it normalizes the same way.
     #[serde(default, deserialize_with = "deserialize_launch")]
     pub launch: launch::WorkflowLaunch,
-    /// contract `wfStartOn` (`contract|pr_open|landed`). New workflows are
-    /// all `contract` (EXP-1029); an older row keeps what it was started
-    /// with, and an absent or unknown word reads as `landed`: the
-    /// conservative mode, which never starts a node on work that is not in
-    /// yet.
-    #[serde(default = "start_on_landed")]
-    pub start_on: String,
-}
-
-fn start_on_landed() -> String {
-    START_ON_LANDED.to_string()
 }
 
 /// The stored `launch` jsonb of ANY vintage → the strict launch.
@@ -182,18 +171,10 @@ impl Default for WorkflowFacts {
             final_pr_url: None,
             final_pr_state: None,
             max_parallel: 0,
-            start_on: start_on_landed(),
             launch: launch::WorkflowLaunch::default(),
         }
     }
 }
-
-/// contract `wfStartOn` — a dependent starts once its blockers LANDED.
-pub const START_ON_LANDED: &str = "landed";
-/// A dependent starts once its blockers' pull requests are OPEN.
-pub const START_ON_PR_OPEN: &str = "pr_open";
-/// A dependent starts once its blockers announced their CONTRACT.
-pub const START_ON_CONTRACT: &str = "contract";
 
 /// One `workflow_nodes` row, as plain data.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -225,7 +206,7 @@ pub struct NodeFacts {
     pub approved_at: Option<String>,
     /// EXP-983: only its PRESENCE matters — the run announced its contract
     /// (`exponential_workflows_checkpoint`), which releases its dependents
-    /// under `start_on: contract`.
+    /// (EXP-1066: the one start rule).
     #[serde(default)]
     pub checkpoint_at: Option<String>,
     /// The branch this node's run was cut from, as reported at its start.
@@ -739,19 +720,16 @@ fn is_synthetic(workflow_id: &str, branch: &str) -> bool {
     branch.starts_with(&synthetic_prefix(workflow_id))
 }
 
-/// A blocker satisfies the workflow's start mode (EXP-983 rule 1). `skipped`
-/// releases under every mode: there is nothing left to wait for.
-fn blocker_releases(start_on: &str, blocker: &NodeFacts) -> bool {
-    if blocker.state == "skipped" || blocker.state == "landed" {
-        return true;
-    }
-    match start_on {
-        START_ON_PR_OPEN => matches!(blocker.state.as_str(), "in_review" | "updating"),
-        START_ON_CONTRACT => {
-            blocker.checkpoint_at.is_some()
-                || matches!(blocker.state.as_str(), "in_review" | "updating")
-        }
-        // `landed` and anything a newer server invents: landed only.
+/// A blocker releases its dependents (EXP-983 rule 1) once it announced its
+/// CONTRACT, put its pull request up, landed or was skipped. EXP-1066: this
+/// is the ONE start rule — the `start_on` modes are gone, dependents always
+/// start on the blockers' contract. A checkpoint counts only while the
+/// blocker is AT WORK: a retried or failed blocker's old announcement
+/// releases nothing (the server nulls it on retry too).
+fn blocker_releases(blocker: &NodeFacts) -> bool {
+    match blocker.state.as_str() {
+        "in_review" | "updating" | "landed" | "skipped" => true,
+        "running" | "waiting" => blocker.checkpoint_at.is_some(),
         _ => false,
     }
 }
@@ -764,8 +742,8 @@ fn is_unlanded(state: &str) -> bool {
 
 /// The rule cascade, in order (the module doc names the hosts that run it):
 /// 0. no integration branch → create it, and NOTHING else this pass;
-/// 1. mirror every node's state off its session, PR and blockers, the
-///    blockers read through the workflow's START MODE (also while `paused`);
+/// 1. mirror every node's state off its session, PR and blockers, a blocker
+///    releasing on its contract, its PR or its landing (also while `paused`);
 /// 2. start `ready` nodes up to `max_parallel`, each on the base its
 ///    unlanded blockers dictate (building a synthetic one first);
 /// 3. refresh a synthetic base whose sources moved; 4. tell a run that the
@@ -1623,9 +1601,8 @@ fn desired_state(
         if node.state == "failed" && retry_in_backoff(snapshot, node) {
             return Some(state("failed"));
         }
-        // Not started yet: the blockers decide, read through the workflow's
-        // START MODE (EXP-983 — `landed` waits for the merge, `pr_open` for
-        // the pull request, `contract` for the announcement).
+        // Not started yet: the blockers decide (EXP-983 — a blocker releases
+        // on its contract announcement, its pull request or its landing).
         let ready = blockers
             .get(node.id.as_str())
             .map(|ids| {
@@ -1634,9 +1611,7 @@ fn desired_state(
                         .nodes
                         .iter()
                         .find(|candidate| candidate.id == *id)
-                        .is_some_and(|candidate| {
-                            blocker_releases(&snapshot.workflow.start_on, candidate)
-                        })
+                        .is_some_and(blocker_releases)
                 })
             })
             .unwrap_or(true);
@@ -2095,7 +2070,6 @@ mod tests {
                 final_pr_url: None,
                 final_pr_state: None,
                 max_parallel: 3,
-                start_on: START_ON_LANDED.to_string(),
                 launch: launch::WorkflowLaunch::default(),
             },
             nodes,

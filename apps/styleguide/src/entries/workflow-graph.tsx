@@ -125,7 +125,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `WorkflowGraphView`,
       file: `packages/ui/src/workflow-graph.tsx`,
-      note: `Bound by apps/web/src/components/workflow-graph.tsx.`,
+      note: `EXP-1069: the web page mounts the node strip in components/workflow-detail.tsx instead.`,
     },
     desktop: {
       state: `ok`,
@@ -134,13 +134,13 @@ export const entry: StyleguideEntry = {
     },
     ios: {
       state: `ok`,
-      symbol: `WorkflowGraphView`,
-      file: `apps/ios/Exponential/UI/Workflows/WorkflowGraphView.swift`,
+      symbol: `WorkflowDetailView`,
+      file: `apps/ios/Exponential/UI/Workflows/WorkflowDetailView.swift`,
     },
     android: {
       state: `ok`,
-      symbol: `WorkflowGraphList`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/workflows/WorkflowGraphList.kt`,
+      symbol: `WorkflowDetailScreen`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/workflows/WorkflowDetailScreen.kt`,
     },
   },
   island: () => (

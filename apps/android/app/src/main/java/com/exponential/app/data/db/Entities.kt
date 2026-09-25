@@ -535,8 +535,6 @@ data class WorkflowEntity(
     // agent review); the server still syncs the column for older engines and
     // it stays here only so the Room schema does not move. Nothing reads it.
     val gate: String = "agent",
-    // contract `wfStartOn`.
-    @ColumnInfo(name = "start_on") @SerialName("start_on") @JsonNames("startOn") val startOn: String = DomainContract.wfStartOnContract,
     @ColumnInfo(name = "integration_branch") @SerialName("integration_branch") @JsonNames("integrationBranch") val integrationBranch: String = "",
     @ColumnInfo(name = "final_pr_url") @SerialName("final_pr_url") @JsonNames("finalPrUrl") val finalPrUrl: String? = null,
     @ColumnInfo(name = "final_pr_number")

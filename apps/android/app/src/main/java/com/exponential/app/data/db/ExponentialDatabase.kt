@@ -351,9 +351,13 @@ import androidx.room.TypeConverters
     //      workflow_role / pending_question (workflow membership + the open
     //      question) + the workflow_events table (the 25th shape). New on the
     //      shape allowlists; destructive fallback wipes + resyncs.
+    // v76 (EXP-1066): workflows.start_on dropped from the entity (and the
+    //      shape server-side): one start rule for every node now. Removing a
+    //      column is decode-safe (ignoreUnknownKeys); destructive fallback
+    //      wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 75,
+    version = 76,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

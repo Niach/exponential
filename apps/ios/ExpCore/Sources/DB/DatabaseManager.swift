@@ -1788,7 +1788,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 // The launch jsonb, stored as stringified JSON.
                 t.column("launch", .text)
                 t.column("gate", .text).notNull().defaults(to: "human")
-                t.column("start_on", .text).notNull().defaults(to: "contract")
                 t.column("integration_branch", .text).notNull().defaults(to: "")
                 t.column("final_pr_url", .text)
                 t.column("final_pr_number", .integer)
@@ -2046,6 +2045,21 @@ public final class DatabaseManager: @unchecked Sendable {
                 }
             }
             try Self.createWorkflowEventsTable(db)
+        }
+
+        // v56 (EXP-1066/EXP-1090): the workflows shape no longer carries
+        // `start_on` (every node starts on its blocker's PR). Drop the dead
+        // column from the cache (the v5/v7 precedent); guarded on presence so
+        // fresh installs (which never create it in v47 any more) and re-runs
+        // are no-ops. Rows keep their cursor: nothing else changed.
+        migrator.registerMigration("v56_workflow_start_on_dropped") { db in
+            guard try db.tableExists("workflows") else { return }
+            let existing = Set(try db.columns(in: "workflows").map(\.name))
+            if existing.contains("start_on") {
+                try db.alter(table: "workflows") { t in
+                    t.drop(column: "start_on")
+                }
+            }
         }
 
         return migrator

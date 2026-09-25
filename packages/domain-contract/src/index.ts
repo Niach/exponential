@@ -56,7 +56,6 @@ export interface DomainContract {
   wfStatus: { values: readonly string[] }
   wfNodeState: { values: readonly string[] }
   wfNodeKind: { values: readonly string[] }
-  wfStartOn: { values: readonly string[] }
   wfRisk: { values: readonly string[] }
   wfReviewVerdict: { values: readonly string[] }
   /** EXP-1082: which workflow node a session belongs to and as what. */

@@ -248,9 +248,6 @@
   "wfNodeKind": {
     "values": ["contract", "leaf", "integration"]
   },
-  "wfStartOn": {
-    "values": ["contract", "pr_open", "landed"]
-  },
   "wfRisk": {
     "values": ["low", "medium", "high"]
   },

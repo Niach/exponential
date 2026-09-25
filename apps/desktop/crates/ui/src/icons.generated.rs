@@ -305,6 +305,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "panel-left-close" => ExpIcon::PanelLeftClose,
         "panel-left-open" => ExpIcon::PanelLeftOpen,
         "paperclip" => ExpIcon::Paperclip,
+        "pause" => ExpIcon::Pause,
         "pen-tool" => ExpIcon::PenTool,
         "pencil" => ExpIcon::Pencil,
         "phone" => ExpIcon::Phone,
@@ -596,6 +597,8 @@ pub const RELATION_RELATED: ExpIcon = ExpIcon::Link;
 pub const RELATION_SECTION: ExpIcon = ExpIcon::Link2;
 /// Registry concept `relation-sub-issue` -> Lucide `corner-down-right`.
 pub const RELATION_SUB_ISSUE: ExpIcon = ExpIcon::CornerDownRight;
+/// Registry concept `run-pause` -> Lucide `pause`.
+pub const RUN_PAUSE: ExpIcon = ExpIcon::Pause;
 /// Registry concept `run-resume` -> Lucide `rotate-ccw`.
 pub const RUN_RESUME: ExpIcon = ExpIcon::RotateCcw;
 /// Registry concept `sc-push` -> Lucide `upload`.

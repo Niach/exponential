@@ -84,8 +84,6 @@ pub struct Workflow {
     #[serde(default)]
     pub launch: WorkflowLaunch,
     #[serde(default)]
-    pub start_on: Option<String>,
-    #[serde(default)]
     pub integration_branch: Option<String>,
     /// EXP-1072: the ONE final PR (integration branch → default branch) —
     /// the workflow's own linked PR. `None` until the engine opens it.
@@ -166,7 +164,9 @@ pub fn create(
 
 /// `workflows.update` input. Omitted fields stay unchanged; `device_id` is
 /// the server's `.nullable().optional()` tri-state ([`Patch`]): `Null` unbinds
-/// the runner machine. Everything but `name` is draft-only server-side.
+/// the runner machine. Binding one is draft-only server-side and re-seeds the
+/// launch from that machine (EXP-1066: `launch` and `start_on` are no inputs
+/// any more).
 #[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowUpdate {
@@ -175,12 +175,6 @@ pub struct WorkflowUpdate {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub device_id: Patch<String>,
-    /// A WHOLE-object replace (the server's `workflowLaunchSchema` is
-    /// `.strict()`), so senders read the current launch first and edit it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub launch: Option<WorkflowLaunch>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_on: Option<String>,
 }
 
 impl WorkflowUpdate {
@@ -314,8 +308,7 @@ fn workflow_command(trpc: &TrpcClient, proc: &str, id: &str) -> Result<(), ApiEr
 
 /// `workflows.start` — draft → running. The server re-plans first and
 /// refuses a cycle or a missing repository/device with the sentence
-/// `domain::workflow_view::workflow_start_blocker` shows. EXP-983: every
-/// `start_on` runs, so the mode is never a refusal.
+/// `domain::workflow_view::workflow_start_blocker` shows.
 pub fn start(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
     workflow_command(trpc, "workflows.start", id)
 }
@@ -334,24 +327,6 @@ pub fn resume(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
 /// integration branch. Nothing reached the default branch.
 pub fn cancel(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
     workflow_command(trpc, "workflows.cancel", id)
-}
-
-/// `workflows.approveNode` — the human gate. `approved: false` takes the
-/// approval back while the node has not landed.
-pub fn approve_node(trpc: &TrpcClient, node_id: &str, approved: bool) -> Result<(), ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        node_id: &'a str,
-        approved: bool,
-    }
-    #[derive(Deserialize)]
-    struct Ignored {}
-    let _: Ignored = trpc.mutation(
-        "workflows.approveNode",
-        &Input { node_id, approved },
-    )?;
-    Ok(())
 }
 
 /// `workflows.resolveNode` — a person unsticks a node: `retry` gives it a
@@ -382,31 +357,6 @@ pub fn admit_node(trpc: &TrpcClient, node_id: &str, admit: bool) -> Result<(), A
     #[derive(Deserialize)]
     struct Ignored {}
     let _: Ignored = trpc.mutation("workflows.admitNode", &Input { node_id, admit })?;
-    Ok(())
-}
-
-/// EXP-984: the counters only the DEVICE can see — one merge-in per upstream
-/// movement actually delivered, one contract change per checkpointed node
-/// whose branch moved again. Everything else is counted by the server.
-pub const COUNTER_MERGE_INS: &str = "mergeIns";
-pub const COUNTER_CONTRACT_CHANGES: &str = "contractChanges";
-
-/// ENGINE: `workflows.reportMetrics` — add `deltas` to the synced
-/// `workflows.metrics` counters, batched once per beat. A key the server does
-/// not know is refused whole, so only the two constants above are ever sent.
-pub fn report_metrics(
-    trpc: &TrpcClient,
-    id: &str,
-    deltas: &std::collections::BTreeMap<String, u32>,
-) -> Result<(), ApiError> {
-    #[derive(Serialize)]
-    struct Input<'a> {
-        id: &'a str,
-        deltas: &'a std::collections::BTreeMap<String, u32>,
-    }
-    #[derive(Deserialize)]
-    struct Ignored {}
-    let _: Ignored = trpc.mutation("workflows.reportMetrics", &Input { id, deltas })?;
     Ok(())
 }
 
@@ -615,7 +565,6 @@ pub fn from_row(row: &domain::rows::WorkflowRow) -> Workflow {
         status: row.status_wire().to_string(),
         device_id: row.device_id.clone(),
         launch,
-        start_on: row.start_on.clone(),
         integration_branch: row.integration_branch.clone(),
         final_pr_url: row.final_pr_url.clone(),
         final_pr_number: row.final_pr_number,
@@ -664,7 +613,7 @@ mod tests {
             200,
             r#"{"result":{"data":{"workflow":{"id":"wf-1","teamId":"team-1",
                 "repositoryId":"repo-1","name":"EXP-1 +2","status":"draft",
-                "deviceId":null,"launch":{},"startOn":"contract",
+                "deviceId":null,"launch":{},
                 "integrationBranch":"exp/wf-abcdef12",
                 "metrics":{"nodes":3,"edges":0,"depth":1,"width":3,"cycles":[]}},
                 "txId":"1"}}}"#,
@@ -720,7 +669,7 @@ mod tests {
             r#"{"result":{"data":{"workflow":{"id":"wf-1","teamId":"team-1",
                 "repositoryId":"repo-1","name":"EXP-1","status":"draft",
                 "deviceId":"dev-1","launch":{"agent":"claude","model":"sonnet",
-                "strongModel":"opus"},"startOn":"contract",
+                "strongModel":"opus"},
                 "integrationBranch":"exp/wf-abcdef12",
                 "metrics":{"nodes":1,"edges":0,"depth":1,"width":1,"cycles":[]}},
                 "txId":"1"}}}"#,
@@ -734,34 +683,14 @@ mod tests {
     }
 
     #[test]
-    fn update_serializes_the_device_tristate_and_the_whole_launch() {
+    fn update_serializes_the_device_tristate_and_nothing_else() {
         let mut input = WorkflowUpdate::new("wf-1");
         input.device_id = Patch::Set("dev-1".to_string());
-        input.launch = Some(WorkflowLaunch {
-            agent: Some("claude".to_string()),
-            model: Some("opus".to_string()),
-            subagent_model: Some("sonnet".to_string()),
-            max_parallel: Some(4),
-            ..WorkflowLaunch::default()
-        });
         let json = serde_json::to_string(&input).unwrap();
-        assert!(json.contains(r#""deviceId":"dev-1""#));
-        assert!(json.contains(r#""subagentModel":"sonnet""#));
-        assert!(json.contains(r#""maxParallel":4"#));
-        // The launch object is `.strict()` server-side: absent fields stay off.
-        assert!(!json.contains(r#""effort""#));
-        assert!(!json.contains(r#""name""#));
-
-        // Null unbinds the runner machine; Omit leaves it.
-        let mut unbound = WorkflowUpdate::new("wf-1");
-        unbound.device_id = Patch::Null;
-        assert!(serde_json::to_string(&unbound)
-            .unwrap()
-            .contains(r#""deviceId":null"#));
-        let untouched = WorkflowUpdate::new("wf-1");
-        assert!(!serde_json::to_string(&untouched)
-            .unwrap()
-            .contains("deviceId"));
+        assert_eq!(json, r#"{"id":"wf-1","deviceId":"dev-1"}"#);
+        let mut unbind = WorkflowUpdate::new("wf-1");
+        unbind.device_id = Patch::Null;
+        assert_eq!(serde_json::to_string(&unbind).unwrap(), r#"{"id":"wf-1","deviceId":null}"#);
     }
 
     #[test]
@@ -814,56 +743,14 @@ mod tests {
         assert!(waiting.is_waiting());
     }
 
-    /// EXP-1002: the three phase pins are ALWAYS on the wire, `null` when
-    /// unset — the server keeps a stored pin whose key is absent, so an
-    /// omitted key could never clear one.
+    /// The launch is a DECODED shape only (the synced row's jsonb of any
+    /// vintage): absent and null both read as unset.
     #[test]
-    fn the_phase_pins_serialize_as_explicit_nulls() {
-        let mut input = WorkflowUpdate::new("wf-1");
-        input.launch = Some(WorkflowLaunch {
-            model: Some("opus".to_string()),
-            integration_model: Some("fable".to_string()),
-            ..WorkflowLaunch::default()
-        });
-        let json = serde_json::to_value(&input).unwrap();
-        assert_eq!(
-            json["launch"],
-            serde_json::json!({
-                "model": "opus",
-                "contractModel": null,
-                "integrationModel": "fable",
-                "riskModel": null,
-            }),
-            "every other unset field stays off the strict launch object"
-        );
-        // An empty launch still names all three.
-        let bare = serde_json::to_value(WorkflowLaunch::default()).unwrap();
-        assert_eq!(
-            bare,
-            serde_json::json!({
-                "contractModel": null,
-                "integrationModel": null,
-                "riskModel": null,
-            })
-        );
-        // Decoding stays tolerant: absent and null both read as unset.
+    fn the_launch_decodes_tolerantly() {
         for raw in [r#"{}"#, r#"{"contractModel":null,"riskModel":null}"#] {
             let launch: WorkflowLaunch = serde_json::from_str(raw).unwrap();
             assert_eq!(launch, WorkflowLaunch::default(), "{raw}");
         }
-    }
-
-    /// EXP-984 — the review model rides the launch object.
-    #[test]
-    fn the_review_model_serializes() {
-        let mut input = WorkflowUpdate::new("wf-1");
-        input.launch = Some(WorkflowLaunch {
-            model: Some("opus".to_string()),
-            review_model: Some("fable".to_string()),
-            ..WorkflowLaunch::default()
-        });
-        let json = serde_json::to_string(&input).unwrap();
-        assert!(json.contains(r#""reviewModel":"fable""#));
     }
 
     #[test]
@@ -877,7 +764,6 @@ mod tests {
             "status": "draft",
             "device_id": "dev-1",
             "launch": r#"{"agent":"claude","subagentModel":"sonnet","maxParallel":5}"#,
-            "start_on": "pr_open",
             "metrics": r#"{"nodes":3,"edges":2,"depth":2,"width":2,"cycles":[]}"#,
         }))
         .unwrap();

@@ -10,8 +10,8 @@ import com.exponential.app.domain.IssueGraph
  * EXP-1082 STUB: THE mini-graph as a popover — one drawing for the blocks
  * badge/rail and the workflow detail. Takes the same inputs [IssueGraphList]
  * draws from today and renders nothing yet. EXP-1057 fills it by COPYING
- * (not moving) the drawing out of `IssueGraphList.kt` /
- * `ui/workflows/WorkflowGraphList.kt`; the old files keep working meanwhile.
+ * (not moving) the drawing out of `IssueGraphList.kt`, which keeps working
+ * meanwhile.
  */
 @Suppress("UNUSED_PARAMETER")
 @Composable

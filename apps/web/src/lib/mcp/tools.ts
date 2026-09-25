@@ -97,7 +97,7 @@ import {
 } from "@/lib/issue-relations"
 import { findRelationCycle } from "@/lib/relation-cycles"
 import { liveWorkflowBaseForIssue } from "@/lib/workflows"
-import { appendDecisionLine, bumpMetrics } from "@/lib/trpc/workflows"
+import { appendDecisionLine } from "@/lib/trpc/workflows"
 import { resolveWorkflowMembership } from "@/lib/sessions/workflow-membership"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import {
@@ -3191,19 +3191,6 @@ export function registerExponentialTools(
             const duplicate =
               workflowNode !== null &&
               (await siblingAlreadyAsked(workflowNode.workflowId, sessionId, caption))
-            if (workflowNode) {
-              // EXP-984 metrics: escalations per workflow + how many were
-              // duplicates a sibling had already asked.
-              await db
-                .update(workflows)
-                .set({
-                  metrics: bumpMetrics({
-                    escalations: 1,
-                    ...(duplicate && { duplicateEscalations: 1 }),
-                  }),
-                })
-                .where(eq(workflows.id, workflowNode.workflowId))
-            }
             if (duplicate) {
               return ok({
                 delivered: true,
@@ -4805,6 +4792,8 @@ export function registerExponentialTools(
         teamId: uuidString,
         issueIds: z.array(z.string().min(1)).min(1).max(WORKFLOW_MAX_ISSUES),
         name: z.string().min(1).max(255).optional(),
+        // EXP-1090: accepted and IGNORED for one release (old CLIs send it).
+        startOn: z.string().optional(),
       }),
     },
     async ({ teamId, issueIds, name }) => {
@@ -5019,6 +5008,8 @@ export function registerExponentialTools(
         removeIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
         nodes: z.array(z.record(z.string(), z.unknown())).max(WORKFLOW_MAX_ISSUES).optional(),
         decision: z.string().min(1).max(2000).optional(),
+        // EXP-1090: accepted and IGNORED for one release (old CLIs send it).
+        startOn: z.string().optional(),
       }),
     },
     async (input) => {

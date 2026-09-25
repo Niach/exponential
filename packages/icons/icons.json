@@ -357,6 +357,7 @@
     "support-resolved": "circle-check",
 
     "run-resume": "rotate-ccw",
+    "run-pause": "pause",
     "work-faces": "layers-2",
     "work-results": "images"
   },
