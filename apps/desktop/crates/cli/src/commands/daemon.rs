@@ -547,6 +547,19 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // makes SCHEDULES fire — and the catch-up beat after a sleep/offline
     // stretch, where no delta ever arrives.
     let mut last_automation_tick = Instant::now();
+    // EXP-1005: the account-rotation wall beat (every ROTATION_BEAT).
+    let mut rotation = RotationHost {
+        ctx: Arc::clone(&ctx),
+        runtime: runtime.clone(),
+        sessions: Arc::clone(&sessions),
+        personal_key: personal_key.clone(),
+        device_id: device_id.clone(),
+        sync_manager: sync_manager.clone(),
+        tracker: Arc::new(Mutex::new(coding::account_rotation::RotationTracker::new())),
+        inflight: Arc::new(Mutex::new(HashSet::new())),
+        holds: HoldLog::default(),
+        last_beat: Instant::now(),
+    };
     while !shutdown_requested() {
         match inbox_rx.recv_timeout(Duration::from_secs(1)) {
             // REV-9: claim the frame's subject BEFORE spawning its thread —
@@ -667,6 +680,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 };
             }
         }
+        // EXP-1005: walled runs rotate to another account between turns.
+        rotation.tick(&doctor);
         let live_now = lock_sessions(&sessions).len();
         let session_change = reported_sessions != Some(live_now);
         // EXP-481: a relay check_in nudge means "the server persisted new
@@ -1289,6 +1304,290 @@ fn reconcile_stale_sessions(ctx: &Ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// EXP-1005: the account-rotation wall beat
+// ---------------------------------------------------------------------------
+
+/// How often the loop reads its live runs' usage walls. The switch itself
+/// waits for the turn slot, so a finer beat would buy nothing.
+const ROTATION_BEAT: Duration = Duration::from_secs(5);
+
+/// One live run's wall in the rotation's vocabulary — `None` unless the
+/// wall is a rate limit. `account` = the run registry's recorded login
+/// (`None` = the ambient one, `system`).
+fn walled_run(
+    session_id: &str,
+    worktree: &Path,
+    agent: coding::CodingAgent,
+    blocked: &steer::SessionBlocked,
+    account: Option<&str>,
+    idle: bool,
+) -> Option<coding::account_rotation::WalledRun> {
+    (blocked.kind == "rate_limit").then(|| coding::account_rotation::WalledRun {
+        session_id: session_id.to_string(),
+        chain_key: worktree.to_string_lossy().into_owned(),
+        agent,
+        account: coding::profile_id(account),
+        window: blocked.window.clone(),
+        resets_at_ms: blocked
+            .resets_at
+            .as_deref()
+            .and_then(coding::agent_accounts::unix_millis_from_iso),
+        idle,
+    })
+}
+
+/// The log-once key of a hold: its variant, never its timestamps (a
+/// cooldown's `until_ms` does not move, but a re-parked wait's does).
+fn hold_key(hold: &coding::account_rotation::Hold) -> &'static str {
+    use coding::account_rotation::Hold;
+    match hold {
+        Hold::Off => "off",
+        Hold::AgentNeverRotates => "agent_never_rotates",
+        Hold::MidTurn => "mid_turn",
+        Hold::CoolingDown { .. } => "cooling_down",
+        Hold::Capped => "capped",
+        Hold::WaitingForReset { .. } => "waiting_for_reset",
+    }
+}
+
+/// Which hold each walled session was last logged under, so a hold is
+/// logged once per change instead of every beat.
+#[derive(Default)]
+struct HoldLog(HashMap<String, &'static str>);
+
+impl HoldLog {
+    /// Record `key` for `session_id`; `true` = it changed (log it).
+    fn changed(&mut self, session_id: &str, key: &'static str) -> bool {
+        self.0.insert(session_id.to_string(), key) != Some(key)
+    }
+
+    fn clear(&mut self, session_id: &str) {
+        self.0.remove(session_id);
+    }
+
+    /// Forget sessions no longer walled.
+    fn retain(&mut self, walled: &HashSet<String>) {
+        self.0.retain(|session_id, _| walled.contains(session_id));
+    }
+}
+
+/// The workflow a synced run belongs to: `(workflow_id, node_id)`.
+fn session_workflow(
+    store: &sync::store::ShapeStore,
+    session_id: &str,
+) -> Option<(String, Option<String>)> {
+    read_shape_rows::<domain::rows::CodingSession>(store, "coding_sessions")
+        .into_iter()
+        .find(|row| row.id == session_id)
+        .and_then(|row| Some((row.workflow_id?, row.workflow_node_id)))
+}
+
+/// The daemon's half of EXP-1005: every [`ROTATION_BEAT`] it reads each live
+/// run's wall, asks the ONE [`coding::account_rotation::RotationTracker`]
+/// what to do, and — on a probe — spends the forced usage read OFF the loop
+/// (one HTTPS GET per profile), then switches the run (a resume naming the
+/// target, the same path a remote "switch account" takes) or parks it.
+struct RotationHost {
+    ctx: Arc<Ctx>,
+    runtime: Option<Arc<steer::SteerRuntime>>,
+    sessions: Sessions,
+    personal_key: Option<String>,
+    device_id: String,
+    sync_manager: Option<Arc<sync::SyncManager>>,
+    tracker: Arc<Mutex<coding::account_rotation::RotationTracker>>,
+    /// Chains with a probe (and its switch) in flight: never probed twice,
+    /// and kept in the tracker while the switch has ended the old run but
+    /// not yet registered the new one.
+    inflight: Arc<Mutex<HashSet<String>>>,
+    holds: HoldLog,
+    last_beat: Instant,
+}
+
+impl RotationHost {
+    fn tick(&mut self, doctor: &coding::DoctorReport) {
+        if self.last_beat.elapsed() < ROTATION_BEAT {
+            return;
+        }
+        self.last_beat = Instant::now();
+        self.beat(doctor);
+    }
+
+    fn beat(&mut self, doctor: &coding::DoctorReport) {
+        let (live_chains, candidates) = {
+            let guard = lock_sessions(&self.sessions);
+            let live_chains: Vec<String> = guard
+                .iter()
+                .map(|live| live.session.worktree.to_string_lossy().into_owned())
+                .collect();
+            let candidates: Vec<_> = guard
+                .iter()
+                .filter(|live| !live.session.is_done())
+                .filter_map(|live| {
+                    let blocked = live.session.blocked()?;
+                    Some((
+                        live.session.session_id.clone(),
+                        live.session.worktree.clone(),
+                        live.session.coding_agent(),
+                        blocked,
+                        live.session.is_idle(),
+                    ))
+                })
+                .collect();
+            (live_chains, candidates)
+        };
+        let inflight: HashSet<String> = lock_or_recover(&self.inflight).clone();
+        let mut keep = live_chains;
+        keep.extend(inflight.iter().cloned());
+        lock_or_recover(&self.tracker).retain_chains(&keep);
+
+        let walled: Vec<_> = candidates
+            .into_iter()
+            .filter_map(|(session_id, worktree, agent, blocked, idle)| {
+                let account = coding::run_registry::get(&self.ctx.data_dir, &session_id)
+                    .and_then(|record| record.account());
+                walled_run(&session_id, &worktree, agent, &blocked, account.as_deref(), idle)
+            })
+            .collect();
+        self.holds
+            .retain(&walled.iter().map(|run| run.session_id.clone()).collect());
+        if walled.is_empty() {
+            return;
+        }
+        // Re-read at beat time: the toggle moves at runtime (remote_admin).
+        let settings = coding::Settings::load(&coding::Settings::default_path(&self.ctx.data_dir));
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        for run in walled {
+            if inflight.contains(&run.chain_key) {
+                continue;
+            }
+            let step = lock_or_recover(&self.tracker).step(&run, settings.auto_rotate_accounts, now_ms);
+            match step {
+                coding::account_rotation::Step::Hold(hold) => {
+                    if self.holds.changed(&run.session_id, hold_key(&hold)) {
+                        log::info!(
+                            "account rotation [{}]: walled on {} ({}), holding: {hold:?}",
+                            run.session_id,
+                            run.account,
+                            run.window
+                        );
+                    }
+                }
+                coding::account_rotation::Step::Probe => {
+                    self.holds.clear(&run.session_id);
+                    lock_or_recover(&self.inflight).insert(run.chain_key.clone());
+                    self.spawn_probe(run, doctor.clone(), settings.clone());
+                }
+            }
+        }
+    }
+
+    fn spawn_probe(
+        &self,
+        run: coding::account_rotation::WalledRun,
+        doctor: coding::DoctorReport,
+        settings: coding::Settings,
+    ) {
+        let ctx = Arc::clone(&self.ctx);
+        let runtime = self.runtime.clone();
+        let sessions = Arc::clone(&self.sessions);
+        let personal_key = self.personal_key.clone();
+        let device_id = self.device_id.clone();
+        let store = self
+            .sync_manager
+            .as_ref()
+            .and_then(|manager| manager.store(&ctx.account.id));
+        let tracker = Arc::clone(&self.tracker);
+        let inflight = Arc::clone(&self.inflight);
+        std::thread::spawn(move || {
+            log::info!(
+                "account rotation [{}]: {} hit its {} wall between turns — reading every profile's usage",
+                run.session_id,
+                run.account,
+                run.window
+            );
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_secs())
+                .unwrap_or(0);
+            let profiles =
+                coding::agent_usage::collect_now(run.agent, &ctx.data_dir, &settings, &doctor, now_secs);
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let decision = lock_or_recover(&tracker).decide(&run, &profiles, now_ms);
+            let workflow = store
+                .as_deref()
+                .and_then(|store| session_workflow(store, &run.session_id));
+            let record = |kind: &str, message: String| {
+                if let Some((workflow_id, node_id)) = workflow.clone() {
+                    TrpcEventSink::new(Arc::clone(&ctx.trpc)).record(api::workflows::WorkflowEvent {
+                        workflow_id,
+                        node_id,
+                        session_id: Some(run.session_id.clone()),
+                        kind: kind.to_string(),
+                        message,
+                    });
+                }
+            };
+            match decision {
+                coding::account_rotation::Decision::Switch {
+                    target,
+                    target_label,
+                    prompt,
+                    event_message,
+                } => {
+                    log::info!(
+                        "account rotation [{}]: switching {} -> {target} ({target_label})",
+                        run.session_id,
+                        run.account
+                    );
+                    // The server inherits started_reason, the parent and the
+                    // workflow membership from the predecessor (EXP-1082 §1).
+                    let origin = coding::LaunchOrigin::Relay {
+                        device_id: device_id.clone(),
+                        claimant: ctx.account.id.clone(),
+                        started_by: None,
+                        started_reason: None,
+                    };
+                    match remote_resume_start(
+                        &ctx,
+                        runtime.as_ref(),
+                        &sessions,
+                        personal_key,
+                        origin,
+                        run.session_id.clone(),
+                        Some(target),
+                        Some(prompt),
+                        NodeHold { store: store.as_deref(), device_id: &device_id },
+                    ) {
+                        Ok(()) => record("account_switched", event_message),
+                        // The tracker already counted the rotation: its
+                        // cooldown keeps the next beat from retrying at once.
+                        Err(err) => log::warn!(
+                            "account rotation [{}]: switch failed: {err:#}",
+                            run.session_id
+                        ),
+                    }
+                }
+                coding::account_rotation::Decision::Wait { until_ms, event_message } => {
+                    log::info!(
+                        "account rotation [{}]: no profile has headroom — waiting until {until_ms}: {event_message}",
+                        run.session_id
+                    );
+                    record("waiting_reset", event_message);
+                }
+            }
+            lock_or_recover(&inflight).remove(&run.chain_key);
+        });
+    }
+}
+
+fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Remote-start dispatch (steer_wiring's handle_remote_start, headless)
 // ---------------------------------------------------------------------------
 
@@ -1362,6 +1661,7 @@ fn handle_remote_start(
         RemoteStartSubject::Resume { session_id } => remote_resume_start(
             ctx, runtime, sessions, personal_key, origin, session_id,
             start.account.clone(),
+            None,
             NodeHold { store, device_id },
         ),
     };
@@ -1783,6 +2083,7 @@ fn remote_resume_start(
     origin: coding::LaunchOrigin,
     session_id: String,
     account: Option<String>,
+    prompt: Option<String>,
     hold: NodeHold<'_>,
 ) -> anyhow::Result<()> {
     let Some(record) = coding::run_registry::get(&ctx.data_dir, &session_id) else {
@@ -1851,8 +2152,10 @@ run (purged when it ends), or was removed by this machine's session history sett
         origin,
         model: None,
         effort: None,
-        // The server never sends a prompt on a resume frame (EXP-825).
-        prompt: None,
+        // The server never sends a prompt on a resume frame (EXP-825);
+        // EXP-1005's rotation passes its switch note (the launcher appends
+        // the continue prompt after it).
+        prompt,
         // EXP-849: the frame's account pick — absent keeps the recorded login.
         account,
     };
@@ -3676,7 +3979,16 @@ impl AutomationHost {
         }
         // EXP-1082: the row names its workflow, node and role; EXP-1005's
         // rotation may pick the account.
-        apply_workflow_start(&mut options, plan, node_id, role, account);
+        apply_workflow_start(
+            &mut options,
+            plan,
+            node_id,
+            role,
+            account,
+            &self.ctx.data_dir,
+            settings,
+            &TrpcEventSink::new(Arc::clone(&self.ctx.trpc)),
+        );
         match self.prepare_workflow_node(plan, node, run, options, branch) {
             Ok(Some(session_id)) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "running");
@@ -3886,7 +4198,16 @@ impl AutomationHost {
             options.model = model;
         }
         // EXP-1082: the reviewer's row names its workflow node.
-        apply_workflow_start(&mut options, plan, node_id, role, account);
+        apply_workflow_start(
+            &mut options,
+            plan,
+            node_id,
+            role,
+            account,
+            &self.ctx.data_dir,
+            settings,
+            &TrpcEventSink::new(Arc::clone(&self.ctx.trpc)),
+        );
         let request = PrepareRequest::Action(coding::ActionLaunchRequest {
             action_id: api::actions::BUILTIN_REVIEW_NODE_ID.to_string(),
             run_id: coding::new_run_id(),
@@ -4489,38 +4810,61 @@ again."
     )
 }
 
-/// One line, bounded by the `note` column's 500 chars.
 /// EXP-1082 — stamp an ENGINE start's workflow membership onto its launch,
-/// and give the account-rotation seam its say: the decision's own account,
-/// else [`coding::account_rotation::pick_start_account`]'s pick, else the
-/// workflow's launch account as before. EXP-1005: feed the picker
-/// `agent_usage::collect_now` — the daemon holds no per-profile usage here
-/// yet, so the slice is empty.
+/// and give the account-rotation seam its say: the decision's own account
+/// wins; else EXP-1005's [`coding::account_rotation::start_pick`] off the
+/// usage CACHE (no probe on the workflow pass) moves the launch to the
+/// profile with the most headroom, recorded as an `account_picked` event;
+/// else the workflow's launch account stands.
+#[allow(clippy::too_many_arguments)]
 fn apply_workflow_start(
     options: &mut coding::LaunchOptions,
     plan: &WorkflowPlan,
     node_id: &str,
     role: coding::workflows::WfSessionRole,
     account: Option<String>,
+    data_dir: &Path,
+    settings: &coding::Settings,
+    sink: &impl coding::workflows::events::WorkflowEventSink,
 ) {
     options.workflow = Some(coding::workflows::WorkflowMembership {
         workflow_id: plan.snapshot.workflow.id.clone(),
         node_id: node_id.to_string(),
         role,
     });
-    let picked = account.or_else(|| {
-        coding::account_rotation::pick_start_account(
-            &[],
-            options.agent,
-            Some(options.model.as_str()).filter(|model| !model.is_empty()),
-            plan.snapshot.now_ms,
-        )
-    });
-    if let Some(account) = picked {
+    if let Some(account) = account {
         options.account = Some(account);
+        return;
+    }
+    let pick = coding::account_rotation::start_pick(
+        &coding::agent_usage::profile_usage_snapshot(options.agent, data_dir),
+        settings.auto_rotate_accounts,
+        options.agent,
+        Some(options.model.as_str()).filter(|model| !model.is_empty()),
+        options.account.as_deref(),
+        plan.snapshot.now_ms,
+    );
+    if let Some(pick) = pick {
+        log::info!(
+            "workflow {} node {node_id}: {} ({} -> {})",
+            plan.snapshot.workflow.id,
+            pick.message,
+            pick.from,
+            pick.to
+        );
+        options.account =
+            (!coding::agent_profiles::is_system(Some(&pick.to))).then(|| pick.to.clone());
+        sink.record(api::workflows::WorkflowEvent {
+            workflow_id: plan.snapshot.workflow.id.clone(),
+            node_id: Some(node_id.to_string()),
+            session_id: None,
+            kind: "account_picked".to_string(),
+            message: pick.message,
+        });
     }
 }
 
+/// One line, bounded by the `note` column's 500 chars.
 fn one_line_note(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(500).collect()
 }

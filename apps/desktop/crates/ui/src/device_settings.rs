@@ -440,6 +440,8 @@ pub struct DeviceSettingsView {
     sub_shell_back_focus: gpui::FocusHandle,
     claude_ultracode: bool,
     claude_plan_mode: bool,
+    /// EXP-1005: `Settings.auto_rotate_accounts` (claude-only).
+    claude_auto_rotate: bool,
     /// EXP-872: the machine's DEFAULT ACCOUNT — the profile id of
     /// `default_agent`'s logins it launches as. It rides beside the agent
     /// select (a pick writes both) rather than in one, because an account is
@@ -690,6 +692,7 @@ impl DeviceSettingsView {
             sub_shell_back_focus: cx.focus_handle(),
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
+            claude_auto_rotate: seeded.auto_rotate_accounts,
             default_account: seeded.default_account.clone(),
             agent_tab: seeded.default_agent,
             editor_agents,
@@ -884,6 +887,7 @@ impl DeviceSettingsView {
         }
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
+        self.claude_auto_rotate = baseline.auto_rotate_accounts;
         self.default_account = baseline.default_account.clone();
         if !self.editor_agents.contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
@@ -910,6 +914,7 @@ impl DeviceSettingsView {
         drafted.workflow_strong_model = selected(&workflow_strong, cx);
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
+        drafted.auto_rotate_accounts = self.claude_auto_rotate;
         drafted.default_account = self.default_account.clone();
         drafted
     }
@@ -1777,6 +1782,17 @@ impl DeviceSettingsView {
                     self.claude_plan_mode,
                     |this: &mut Self, on, cx| {
                         this.claude_plan_mode = on;
+                        this.save_defaults(cx);
+                    },
+                ))
+                // EXP-1005: start on the login with the most headroom and
+                // move a rate-limited run to another one between turns.
+                .toggle(DefaultsToggle::new(
+                    "device-claude-auto-rotate",
+                    "Auto-rotate accounts",
+                    self.claude_auto_rotate,
+                    |this: &mut Self, on, cx| {
+                        this.claude_auto_rotate = on;
                         this.save_defaults(cx);
                     },
                 ));

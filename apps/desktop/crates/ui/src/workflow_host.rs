@@ -243,6 +243,10 @@ fn watch_flag<T: 'static>(
 struct Pass {
     trpc: Arc<api::TrpcClient>,
     settings_path: PathBuf,
+    /// EXP-1005: where the usage cache lives — the start pick reads it.
+    data_dir: PathBuf,
+    /// EXP-1005: `Settings.auto_rotate_accounts` at snapshot time.
+    auto_rotate_accounts: bool,
     repos_root: PathBuf,
     device_id: String,
     /// The workflow's repository and the board its token mint resolves the
@@ -571,6 +575,8 @@ fn snapshot_for(
         passes.push(Pass {
             trpc: Arc::clone(&trpc),
             settings_path: settings_path.clone(),
+            data_dir: auth.data_dir.clone(),
+            auto_rotate_accounts: settings.auto_rotate_accounts,
             repos_root: repos_root.clone(),
             device_id: device_id.clone(),
             repository_id: workflow.repository_id.clone(),
@@ -943,7 +949,7 @@ fn run_pass(
                         node_id: node_id.clone(),
                         role,
                     });
-                    if let Some(account) = account.or_else(|| start_account(&options, snapshot.now_ms)) {
+                    if let Some(account) = account.or_else(|| start_account(&pass, &options, snapshot.now_ms)) {
                         options.account = Some(account);
                     }
                     orders.starts.push(StartOrder {
@@ -1266,7 +1272,7 @@ fn review_order(
         node_id: node_id.to_string(),
         role,
     });
-    if let Some(account) = account.or_else(|| start_account(&options, snapshot.now_ms)) {
+    if let Some(account) = account.or_else(|| start_account(pass, &options, snapshot.now_ms)) {
         options.account = Some(account);
     }
     Some(ReviewOrder {
@@ -1292,15 +1298,37 @@ fn review_order(
 
 /// EXP-1082 — the account-rotation seam before every ENGINE start: the
 /// profile with the most headroom, or `None` (the workflow's own launch
-/// account stands). EXP-1005: feed it `agent_usage::collect_now` — this host
-/// holds no per-profile usage today, so the slice is empty.
-fn start_account(options: &LaunchOptions, now_ms: i64) -> Option<String> {
-    coding::account_rotation::pick_start_account(
-        &[],
+/// account stands). EXP-1005: read off the usage CACHE
+/// (`agent_usage::profile_usage_snapshot`, no probe — this runs on the
+/// background pass), gated by `Settings.auto_rotate_accounts`; a pick that
+/// moves the run off its launch account is recorded as an `account_picked`
+/// workflow event.
+fn start_account(pass: &Pass, options: &LaunchOptions, now_ms: i64) -> Option<String> {
+    let profiles = coding::agent_usage::profile_usage_snapshot(options.agent, &pass.data_dir);
+    let pick = coding::account_rotation::start_pick(
+        &profiles,
+        pass.auto_rotate_accounts,
         options.agent,
         Some(options.model.as_str()).filter(|model| !model.is_empty()),
+        options.account.as_deref(),
         now_ms,
-    )
+    )?;
+    log::info!(
+        "[workflows] start pick: {} → {} ({})",
+        pick.from,
+        pick.to,
+        pick.message
+    );
+    if let Some(membership) = options.workflow.as_ref() {
+        TrpcEventSink::new(Arc::clone(&pass.trpc)).record(api::workflows::WorkflowEvent {
+            workflow_id: membership.workflow_id.clone(),
+            node_id: Some(membership.node_id.clone()),
+            session_id: None,
+            kind: "account_picked".to_string(),
+            message: pick.message.clone(),
+        });
+    }
+    Some(pick.to)
 }
 
 fn ensure_branch(

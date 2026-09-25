@@ -1,4 +1,14 @@
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -6,6 +16,7 @@ import {
   issueSubscribers,
   issues,
   boards,
+  notifications,
   supportMessages,
   supportThreads,
   users,
@@ -904,6 +915,21 @@ async function sessionRunName(session: {
   return session.actionName?.trim() || `Agent run`
 }
 
+// EXP-1005: the per-profile wall-notification window.
+const SESSION_BLOCKED_THROTTLE_MS = 60 * 60 * 1000
+
+function blockedProfileKey(row: {
+  deviceId: string | null
+  agent: string | null
+  agentAccount: string | null
+}): string {
+  return JSON.stringify([
+    row.deviceId ?? null,
+    row.agent ?? null,
+    row.agentAccount ?? `system`,
+  ])
+}
+
 /**
  * EXP-980: a coding run hit a wall (`coding_sessions.blocked` went null →
  * set). EVERY run tells its OWNER: a walled run still reads `running`, so
@@ -925,12 +951,48 @@ export async function notifySessionBlocked(
         issueId: codingSessions.issueId,
         batchIssueIds: codingSessions.batchIssueIds,
         actionName: codingSessions.actionName,
+        deviceId: codingSessions.deviceId,
+        agent: codingSessions.agent,
+        agentAccount: codingSessions.agentAccount,
       })
       .from(codingSessions)
       .innerJoin(teams, eq(teams.id, codingSessions.teamId))
       .where(eq(codingSessions.id, sessionId))
       .limit(1)
     if (!session) return
+
+    // EXP-1005 throttle: at most ONE wall notification per PROFILE (device ×
+    // agent × account, `system` = the ambient login) per hour — parallel runs
+    // on one login hit the same wall together, and one row says it all.
+    const since = new Date(Date.now() - SESSION_BLOCKED_THROTTLE_MS)
+    const recent = await db
+      .select({
+        createdAt: notifications.createdAt,
+        deviceId: codingSessions.deviceId,
+        agent: codingSessions.agent,
+        agentAccount: codingSessions.agentAccount,
+      })
+      .from(notifications)
+      .innerJoin(codingSessions, eq(notifications.sessionId, codingSessions.id))
+      .where(
+        and(
+          eq(notifications.userId, session.userId),
+          eq(notifications.type, `session_blocked`),
+          gte(notifications.createdAt, since)
+        )
+      )
+    const profile = blockedProfileKey(session)
+    const throttled = recent.some(
+      (row) =>
+        new Date(row.createdAt).getTime() >= since.getTime() &&
+        blockedProfileKey(row) === profile
+    )
+    if (throttled) {
+      console.debug(
+        `[notify] session_blocked throttled for ${sessionId} (profile ${profile})`
+      )
+      return
+    }
 
     const name = await sessionRunName(session)
     const rateLimited = (blocked.kind ?? `rate_limit`) === `rate_limit`

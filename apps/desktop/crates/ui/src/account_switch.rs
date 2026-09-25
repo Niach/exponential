@@ -486,8 +486,14 @@ pub(crate) fn switch_to(
         return;
     }
     let target = Some(window.window_handle());
-    if !end_then_resume_on_account(session_id, profile_id, target, coding::LaunchOrigin::Local, cx)
-    {
+    if !end_then_resume_on_account(
+        session_id,
+        profile_id,
+        target,
+        coding::LaunchOrigin::Local,
+        None,
+        cx,
+    ) {
         window.push_notification(Notification::error(SharedString::from(REASON_BUSY)), cx);
     }
 }
@@ -507,11 +513,18 @@ pub(crate) fn switch_to(
 /// `false` = refused because the agent is MID-TURN; a switch then would truncate
 /// exactly the output the reader is waiting for. The caller says so ([
 /// `REASON_BUSY`] is the ×4 sentence).
+///
+/// EXP-1005: `prompt` = the resume's own first message. A person's switch and
+/// the relay frame pass `None` (the launcher's continue prompt alone); the
+/// account-rotation host (`account_rotation_host`) passes the rotation's
+/// "moved this run from … to …" line, which the launcher prefixes to the
+/// continue prompt.
 pub(crate) fn end_then_resume_on_account(
     session_id: String,
     profile_id: String,
     target: Option<gpui::AnyWindowHandle>,
     origin: coding::LaunchOrigin,
+    prompt: Option<String>,
     cx: &mut App,
 ) -> bool {
     let live = crate::coding_flow::LocalSessions::global(cx)
@@ -525,7 +538,7 @@ pub(crate) fn end_then_resume_on_account(
             false,
             origin,
             Some(profile_id),
-            None,
+            prompt,
             cx,
         );
         return true;
@@ -564,7 +577,7 @@ pub(crate) fn end_then_resume_on_account(
                         false,
                         origin,
                         Some(profile_id.clone()),
-                        None,
+                        prompt.clone(),
                         cx,
                     );
                 });
