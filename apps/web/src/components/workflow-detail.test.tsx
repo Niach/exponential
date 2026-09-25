@@ -46,6 +46,7 @@ const state = vi.hoisted(() => ({
   sessions: [] as unknown[],
   questions: [] as unknown[],
   devices: [] as unknown[],
+  reviewFiles: (_issueId: string | null): unknown => ({ kind: `files`, files: [] }),
 }))
 const navigate = vi.hoisted(() => vi.fn())
 const openComposer = vi.hoisted(() => vi.fn())
@@ -141,7 +142,9 @@ vi.mock(`@/hooks/use-agents-data`, () => ({
   },
 }))
 vi.mock(`@/hooks/use-review-files`, () => ({
-  useReviewFiles: () => ({ state: { kind: `files`, files: [] } }),
+  useReviewFiles: (issue: { id: string } | null) => ({
+    state: state.reviewFiles(issue?.id ?? null),
+  }),
 }))
 vi.mock(`@/lib/session-identity`, () => ({
   sessionIdentity: () => ({ identifier: null, subject: `Run` }),
@@ -167,7 +170,22 @@ vi.mock(`@/components/changes-view`, () => ({
   ChangesView: () => <div data-testid="changes-view" />,
 }))
 vi.mock(`@/components/issue-blocks-badge`, () => ({
-  IssueBlocksPopover: ({ trigger }: { trigger: React.ReactNode }) => trigger,
+  IssueBlocksPopover: ({
+    trigger,
+    issueId,
+    openOnHover,
+  }: {
+    trigger: React.ReactNode
+    issueId: string
+    openOnHover?: boolean
+  }) => (
+    <span
+      data-testid={`blocks-popover-${issueId}`}
+      data-open-on-hover={String(openOnHover ?? true)}
+    >
+      {trigger}
+    </span>
+  ),
 }))
 vi.mock(`@/components/issue-detail-view`, () => ({
   IssueDetailView: ({ issue }: { issue: { identifier: string } }) => (
@@ -276,6 +294,7 @@ beforeEach(() => {
     } as unknown as CodingSession,
   ]
   state.questions = []
+  state.reviewFiles = () => ({ kind: `files`, files: [] })
   state.devices = [
     { deviceId: `mac`, deviceLabel: `MacBook`, caps: [`workflows`], online: true },
   ]
@@ -738,7 +757,7 @@ describe(`WorkflowDetail`, () => {
     renderPage({ status: `draft` })
     expect(await openOverflow()).toEqual([
       PLAN_WORKFLOW_LABEL,
-      RUNS_ON_LABEL,
+      `${RUNS_ON_LABEL} · MacBook`,
       DELETE_WORKFLOW_LABEL,
     ])
     fireEvent.click(screen.getByText(PLAN_WORKFLOW_LABEL))
@@ -748,11 +767,18 @@ describe(`WorkflowDetail`, () => {
     })
   })
 
-  it(`Runs on opens the device picker`, async () => {
+  it(`Runs on opens the device picker, anchored under the overflow`, async () => {
     renderPage({ status: `draft` })
     await openOverflow()
-    fireEvent.click(screen.getByText(RUNS_ON_LABEL))
+    fireEvent.click(screen.getByText(`${RUNS_ON_LABEL} · MacBook`))
     expect(await screen.findByText(`MacBook`)).toBeTruthy()
+    const anchor = screen.getByTestId(`workflow-runs-on-anchor`)
+    expect(anchor.closest(`span.relative`)?.contains(screen.getByTestId(`workflow-more`))).toBe(true)
+  })
+
+  it(`Runs on reads bare while no device is bound`, async () => {
+    renderPage({ status: `draft`, deviceId: null })
+    expect(await openOverflow()).toContain(RUNS_ON_LABEL)
   })
 
   it.each([`running`, `paused`])(`a %s overflow: Stop only, cancelling after the confirm`, async (status) => {
@@ -815,7 +841,7 @@ describe(`WorkflowDetail`, () => {
       <WorkflowDetail workflow={workflow({ status: `draft` })} teamSlug="acme" />
     )
     await openOverflow()
-    fireEvent.click(screen.getByText(RUNS_ON_LABEL))
+    fireEvent.click(screen.getByText(`${RUNS_ON_LABEL} · MacBook`))
     expect(await screen.findByText(`MacBook`)).toBeTruthy()
     // The workflow starts while the picker is open: it closes, and nothing
     // on the page can write the runner any more.
@@ -850,6 +876,103 @@ describe(`WorkflowDetail`, () => {
       )
     )
     expect(mutates.update).toHaveBeenCalledTimes(1)
+  })
+
+  it(`Escape discards the edited name without saving`, async () => {
+    renderPage({ status: `draft` })
+    const name = screen.getByTestId(`workflow-name`) as HTMLInputElement
+    name.focus()
+    fireEvent.focus(name)
+    fireEvent.change(name, { target: { value: `Renamed` } })
+    act(() => {
+      fireEvent.keyDown(name, { key: `Escape` })
+    })
+    expect(document.activeElement).not.toBe(name)
+    await act(async () => {})
+    expect(mutates.update).not.toHaveBeenCalled()
+    expect(name.value).toBe(`Checkout`)
+    // The next edit saves again.
+    name.focus()
+    fireEvent.change(name, { target: { value: `Renamed` } })
+    act(() => {
+      name.blur()
+    })
+    await vi.waitFor(() =>
+      expect(mutates.update).toHaveBeenCalledWith(
+        { id: `wf`, name: `Renamed` },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`a key inside a chip's menu or a popover never steps the strip`, () => {
+    renderPage()
+    const strip = screen.getByTestId(`workflow-strip`)
+    const menu = document.createElement(`div`)
+    menu.setAttribute(`role`, `menu`)
+    const item = document.createElement(`div`)
+    menu.appendChild(item)
+    strip.appendChild(menu)
+    act(() => {
+      fireEvent.keyDown(item, { key: `ArrowRight` })
+      fireEvent.keyDown(item, { key: `j` })
+    })
+    expect(pressed(`all`)).toBe(`true`)
+    const popper = document.createElement(`div`)
+    popper.setAttribute(`data-radix-popper-content-wrapper`, ``)
+    const inner = document.createElement(`button`)
+    popper.appendChild(inner)
+    strip.appendChild(popper)
+    act(() => {
+      fireEvent.keyDown(inner, { key: `ArrowRight` })
+    })
+    expect(pressed(`all`)).toBe(`true`)
+    strip.removeChild(menu)
+    strip.removeChild(popper)
+  })
+
+  it(`a chip's hover opens no mini-graph while the name is being edited`, () => {
+    renderPage()
+    const popover = screen.getByTestId(`blocks-popover-i-a`)
+    expect(popover.getAttribute(`data-open-on-hover`)).toBe(`true`)
+    const name = screen.getByTestId(`workflow-name`)
+    act(() => {
+      name.focus()
+    })
+    expect(popover.getAttribute(`data-open-on-hover`)).toBe(`false`)
+    fireEvent.mouseEnter(screen.getByTestId(`workflow-node-a`))
+    expect(document.activeElement).toBe(name)
+    act(() => {
+      name.blur()
+    })
+    expect(popover.getAttribute(`data-open-on-hover`)).toBe(`true`)
+  })
+
+  it(`All × Changes keeps every node's row; one without a PR reads No changes yet`, () => {
+    state.nodes = [node(`a`, { wave: 0, lane: 0 }), node(`b`, { wave: 1, lane: 0 })]
+    state.issues = [
+      { ...issue(`i-a`, `EXP-1`), prNumber: 7 } as Issue,
+      issue(`i-b`, `EXP-2`),
+    ]
+    state.reviewFiles = (issueId) =>
+      issueId === `i-a`
+        ? { kind: `files`, files: [{ path: `a.ts` }] }
+        : { kind: `none` }
+    renderPage({}, { initialFace: `changes` })
+    expect(screen.getByTestId(`workflow-changes-a`).textContent).toContain(`EXP-1`)
+    expect(screen.getByTestId(`workflow-changes-b`).textContent).toContain(`EXP-2`)
+    expect(screen.queryByTestId(`workflow-changes-a-empty`)).toBeNull()
+    expect(screen.getByTestId(`workflow-changes-b-empty`).textContent).toBe(
+      `No changes yet`
+    )
+  })
+
+  it(`All × Changes shows a loading node's row with a skeleton`, () => {
+    state.reviewFiles = (issueId) =>
+      issueId === `i-a` ? { kind: `loading` } : { kind: `files`, files: [] }
+    renderPage({}, { initialFace: `changes` })
+    expect(screen.getByTestId(`workflow-changes-a-loading`)).toBeTruthy()
+    expect(screen.getByTestId(`workflow-changes-a`).textContent).toContain(`EXP-1`)
   })
 
   it(`merges the final pull request after the confirm`, async () => {

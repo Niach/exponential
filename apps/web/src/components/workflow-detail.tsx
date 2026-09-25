@@ -35,6 +35,7 @@ import {
   parseSessionResults,
   PrGithubButton,
   SessionResultsView,
+  Skeleton,
   StatusGlyph,
   WorkflowEventList,
   type DevicePickerDevice,
@@ -151,6 +152,7 @@ import {
   workflowNodeStrip,
   workflowPrimaryAction,
   workflowStartBlocker,
+  workflowStatusGlyph,
   type NodeChip,
   type NodeChipMenuItem,
   type WfNodeDisplayState,
@@ -167,6 +169,10 @@ import {
 const MoreIcon = conceptIcon(`ui-more`)
 const StartIcon = conceptIcon(`action-run`)
 const ResumeIcon = conceptIcon(`run-resume`)
+const PauseIcon = conceptIcon(`run-pause`)
+
+/** A node with no changes to show (× Changes). Byte-identical ×4. */
+const NO_CHANGES_LABEL = `No changes yet`
 
 
 type WorkflowIntent = `start` | `pause` | `resume` | `cancel`
@@ -215,15 +221,6 @@ export function nodeDisplayGlyph(display: WfNodeDisplayState): StatusGlyphProps 
   }
 }
 
-/** The header's workflow status glyph, in the same vocabulary. */
-function workflowStatusGlyph(status: string): StatusGlyphProps {
-  if (status === `running` || status === `paused`) return nodeDisplayGlyph(`running`)
-  if (status === `done`) return nodeDisplayGlyph(`done`)
-  if (status === `failed`) return nodeDisplayGlyph(`failed`)
-  if (status === `cancelled`) return nodeDisplayGlyph(`skipped`)
-  return nodeDisplayGlyph(`queued`)
-}
-
 /** The issues a node covers: its representative, then a compound node's
  *  sub-issues. */
 function nodeIssueIds(node: WorkflowNode): string[] {
@@ -257,6 +254,19 @@ function isKeyOwningTarget(target: EventTarget | null): boolean {
   return (
     target.closest(
       `input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="tab"], [role="tablist"], [data-workflow-body], [data-testid="workflow-strip"]`
+    ) !== null
+  )
+}
+
+/** A keydown the STRIP must leave alone: typing, or inside a menu, a dialog
+ *  or a popover (a chip's `…` menu, the mini-graph) — portaled, but their
+ *  events still bubble through the React tree to the strip. */
+export function isStripForeignTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  return (
+    target.closest(
+      `input, textarea, select, [contenteditable="true"], [role="menu"], [role="dialog"], [data-radix-popper-content-wrapper]`
     ) !== null
   )
 }
@@ -353,6 +363,10 @@ export function WorkflowDetail({
   const [face, setFace] = useState<WorkflowFace>(initialFace)
   const [error, setError] = useState<string | null>(null)
   const [runsOnOpenState, setRunsOnOpen] = useState(false)
+  // While the name is being edited a chip's hover must not open the
+  // mini-graph: the popover takes focus and the blur would save the name.
+  const [nameEditing, setNameEditing] = useState(false)
+  const runsOnRequested = useRef(false)
   // The runner is frozen once the workflow started: the picker can never
   // write `deviceId` on a running workflow, even if it was open at the flip.
   const isDraft = workflow.status === `draft`
@@ -417,6 +431,9 @@ export function WorkflowDetail({
    *  alone (no preventDefault), so Tab, Enter and scrolling keep working. */
   const onStripKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.defaultPrevented) return
+    // A chip's portaled menu and the mini-graph popover bubble their keys
+    // here through the React tree: they own them.
+    if (isStripForeignTarget(event.target)) return
     const direction = stripStepKey(event)
     if (direction === null) return
     event.preventDefault()
@@ -560,12 +577,13 @@ export function WorkflowDetail({
         <header className="flex flex-col gap-0.5">
           <div className="flex min-w-0 items-center gap-2">
             <StatusGlyph
-              {...workflowStatusGlyph(workflow.status)}
+              {...nodeDisplayGlyph(workflowStatusGlyph(workflow.status))}
               className="size-4 shrink-0"
             />
             <WorkflowNameField
               name={workflow.name}
               onRename={(name) => void save({ name })}
+              onEditingChange={setNameEditing}
             />
             <PrimaryAction
               action={primary}
@@ -581,78 +599,104 @@ export function WorkflowDetail({
                 setFace(`changes`)
               }}
             />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="More"
-                  data-testid="workflow-more"
+            <span className="relative inline-flex shrink-0">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="More"
+                    data-testid="workflow-more"
+                  >
+                    <MoreIcon className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  onCloseAutoFocus={(event) => {
+                    // Runs on hands focus to its picker, not back to `…`
+                    // (the refocus would dismiss the just-opened popover).
+                    if (runsOnRequested.current) event.preventDefault()
+                    runsOnRequested.current = false
+                  }}
                 >
-                  <MoreIcon className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {workflowOverflowMenu(workflow.status).map((item) =>
-                  item === `plan` ? (
-                    <DropdownMenuItem
-                      key={item}
-                      data-testid="workflow-plan"
-                      onSelect={() =>
-                        openComposer({
-                          actionId: BUILTIN_PLAN_WORKFLOW_ID,
-                          workflowId: workflow.id,
-                        })
-                      }
-                    >
-                      {PLAN_WORKFLOW_LABEL}
-                    </DropdownMenuItem>
-                  ) : item === `runs_on` ? (
-                    <DropdownMenuItem
-                      key={item}
-                      data-testid="workflow-runs-on"
-                      onSelect={() => setRunsOnOpen(true)}
-                    >
-                      {RUNS_ON_LABEL}
-                    </DropdownMenuItem>
-                  ) : item === `stop` ? (
-                    <DropdownMenuItem
-                      key={item}
-                      variant="destructive"
-                      data-testid="workflow-cancel"
-                      onSelect={() => setDialog(`cancel`)}
-                    >
-                      {STOP_WORKFLOW_LABEL}
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem
-                      key={item}
-                      variant="destructive"
-                      data-testid="workflow-delete"
-                      onSelect={() => setDialog(`delete`)}
-                    >
-                      {DELETE_WORKFLOW_LABEL}
-                    </DropdownMenuItem>
-                  )
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {runsOnOpen && (
-              <DevicePicker
-                mobileTitle={RUNS_ON_LABEL}
-                value={workflow.deviceId}
-                devices={runnerDevices}
-                open
-                onOpenChange={setRunsOnOpen}
-                hideTrigger
-                trigger={null}
-                data-testid="workflow-runs-on-picker"
-                onChange={(deviceId) => {
-                  setRunsOnOpen(false)
-                  if (isDraft) void save({ deviceId })
-                }}
-              />
-            )}
+                  {workflowOverflowMenu(workflow.status).map((item) =>
+                    item === `plan` ? (
+                      <DropdownMenuItem
+                        key={item}
+                        data-testid="workflow-plan"
+                        onSelect={() =>
+                          openComposer({
+                            actionId: BUILTIN_PLAN_WORKFLOW_ID,
+                            workflowId: workflow.id,
+                          })
+                        }
+                      >
+                        {PLAN_WORKFLOW_LABEL}
+                      </DropdownMenuItem>
+                    ) : item === `runs_on` ? (
+                      <DropdownMenuItem
+                        key={item}
+                        data-testid="workflow-runs-on"
+                        onSelect={() => {
+                          runsOnRequested.current = true
+                          setRunsOnOpen(true)
+                        }}
+                      >
+                        {deviceLabel
+                          ? `${RUNS_ON_LABEL} · ${deviceLabel}`
+                          : RUNS_ON_LABEL}
+                      </DropdownMenuItem>
+                    ) : item === `stop` ? (
+                      <DropdownMenuItem
+                        key={item}
+                        variant="destructive"
+                        data-testid="workflow-cancel"
+                        onSelect={() => setDialog(`cancel`)}
+                      >
+                        {STOP_WORKFLOW_LABEL}
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem
+                        key={item}
+                        variant="destructive"
+                        data-testid="workflow-delete"
+                        onSelect={() => setDialog(`delete`)}
+                      >
+                        {DELETE_WORKFLOW_LABEL}
+                      </DropdownMenuItem>
+                    )
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {runsOnOpen && (
+                <DevicePicker
+                  mobileTitle={RUNS_ON_LABEL}
+                  value={workflow.deviceId}
+                  devices={runnerDevices}
+                  open
+                  onOpenChange={setRunsOnOpen}
+                  align="end"
+                  // The overflow item opens it; this zero-size span under the
+                  // `…` button is only the popover's ANCHOR, so the picker
+                  // hangs off the overflow on a pointer device (the phone
+                  // renders the sheet and ignores it).
+                  trigger={
+                    <span
+                      aria-hidden
+                      tabIndex={-1}
+                      className="pointer-events-none absolute right-0 bottom-0 size-0"
+                      data-testid="workflow-runs-on-anchor"
+                    />
+                  }
+                  data-testid="workflow-runs-on-picker"
+                  onChange={(deviceId) => {
+                    setRunsOnOpen(false)
+                    if (isDraft) void save({ deviceId })
+                  }}
+                />
+              )}
+            </span>
           </div>
           <p
             className="truncate pl-7 text-xs text-muted-foreground"
@@ -687,6 +731,7 @@ export function WorkflowDetail({
           teamId={teamId}
           selection={selection}
           onKeyDown={onStripKeyDown}
+          hoverOpensGraph={!nameEditing}
           onSelect={(id, modifiers) =>
             setSelection((current) => selectNode(current, id, order, modifiers))
           }
@@ -855,12 +900,17 @@ export function WorkflowDetail({
 function WorkflowNameField({
   name,
   onRename,
+  onEditingChange,
 }: {
   name: string
   onRename: (name: string) => void
+  onEditingChange: (editing: boolean) => void
 }) {
   const [draft, setDraft] = useState(name)
   const [editing, setEditing] = useState(false)
+  // Escape = discard: the blur it triggers reads this and never saves (the
+  // blur handler's closure still holds the edited draft).
+  const discard = useRef(false)
   useEffect(() => {
     if (!editing) setDraft(name)
   }, [name, editing])
@@ -870,17 +920,24 @@ function WorkflowNameField({
       aria-label="Workflow name"
       data-testid="workflow-name"
       className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-base font-semibold shadow-none focus-visible:ring-0"
-      onFocus={() => setEditing(true)}
+      onFocus={() => {
+        discard.current = false
+        setEditing(true)
+        onEditingChange(true)
+      }}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => {
         setEditing(false)
+        onEditingChange(false)
         const next = draft.trim()
-        if (next && next !== name) onRename(next)
+        if (!discard.current && next && next !== name) onRename(next)
         else setDraft(name)
+        discard.current = false
       }}
       onKeyDown={(event) => {
         if (event.key === `Enter`) event.currentTarget.blur()
         if (event.key === `Escape`) {
+          discard.current = true
           setDraft(name)
           event.currentTarget.blur()
         }
@@ -940,6 +997,7 @@ function PrimaryAction({
           data-testid="workflow-pause"
           onClick={() => onIntent(`pause`)}
         >
+          <PauseIcon className="size-4" />
           {PAUSE_WORKFLOW_LABEL}
         </Button>
       )
@@ -1028,6 +1086,7 @@ function NodeStrip({
   teamId,
   selection,
   onKeyDown,
+  hoverOpensGraph,
   onSelect,
   onMenu,
 }: {
@@ -1037,6 +1096,8 @@ function NodeStrip({
   teamId: string
   selection: StripSelection
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void
+  /** False while a text field of the page is being edited. */
+  hoverOpensGraph: boolean
   onSelect: (id: string | null, modifiers: { toggle: boolean; extend: boolean }) => void
   onMenu: (nodeId: string, item: NodeChipMenuItem) => void
 }) {
@@ -1152,6 +1213,7 @@ function NodeStrip({
                     teamId={teamId}
                     label={chip.title}
                     trigger={trigger}
+                    openOnHover={hoverOpensGraph}
                   />
                 ) : (
                   trigger
@@ -1532,7 +1594,10 @@ function EmbeddedRun({
   )
 }
 
-/** × Changes for one node: its pull request's files (or its pushed branch). */
+/** × Changes for one node: its pull request's files (or its pushed branch).
+ *  With several nodes in scope EVERY node keeps its row (chip + state): a
+ *  node with nothing to show reads `No changes yet`, a loading one a
+ *  skeleton. */
 function NodeChanges({
   node,
   issue,
@@ -1544,11 +1609,11 @@ function NodeChanges({
 }) {
   const { state } = useReviewFiles(issue ?? null, { enabled: Boolean(issue) })
   const [selected, setSelected] = useState<string | null>(null)
-  if (!issue) return null
-  if (!single && state.kind !== `files`) return null
+  const files = state.kind === `files` ? state.files : []
+  const empty = !issue || state.kind === `none` || (state.kind === `files` && files.length === 0)
   return (
     <section className="flex flex-col gap-2 py-2" data-testid={`workflow-changes-${node.id}`}>
-      {!single && (
+      {!single && issue && (
         <div className="flex">
           <IssueChipView
             identifier={issue.identifier}
@@ -1557,15 +1622,27 @@ function NodeChanges({
           />
         </div>
       )}
-      {state.kind === `error` ? (
+      {state.kind === `error` && issue ? (
         <p className="text-sm text-destructive">{state.message}</p>
-      ) : state.kind === `loading` ? null : (
+      ) : empty ? (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid={`workflow-changes-${node.id}-empty`}
+        >
+          {NO_CHANGES_LABEL}
+        </p>
+      ) : state.kind === `loading` ? (
+        <Skeleton
+          className="h-16 w-full"
+          data-testid={`workflow-changes-${node.id}-loading`}
+        />
+      ) : (
         <ChangesView
-          files={state.kind === `files` ? state.files : []}
+          files={files}
           nav={single ? `auto` : `none`}
           selected={selected}
           onSelect={setSelected}
-          emptyLabel="No changes yet."
+          emptyLabel={NO_CHANGES_LABEL}
         />
       )}
     </section>

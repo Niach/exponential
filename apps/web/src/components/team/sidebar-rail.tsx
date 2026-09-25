@@ -1,5 +1,5 @@
 import type * as React from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, isNull, not, useLiveQuery } from "@tanstack/react-db"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   conceptIcon,
@@ -184,21 +184,24 @@ export function ReviewsOpenBadge({
   return <NavDot className="bg-green-500" placement={placement} />
 }
 
-/** EXP-1084: a workflow run of the team asks the person something — the
- *  Workflows entry's red dot (`workflowOpenQuestions`). */
-export function WorkflowsQuestionBadge({
-  teamId,
-  placement,
-}: {
-  teamId?: string
-  placement: BadgePlacement
-}) {
+/** EXP-1084: does a workflow run of the team ask the person something
+ *  (`workflowOpenQuestions`)? Computed ONCE per sidebar (`TeamSidebar`) and
+ *  handed to both the rail icon and the expanded row. The live query only
+ *  carries workflow runs with a pending question, so the per-workflow fold
+ *  stays small. */
+export function useWorkflowsAsking(teamId: string | undefined): boolean {
   const { data: rows } = useLiveQuery(
     (query) =>
       teamId
         ? query
             .from({ s: codingSessionCollection })
-            .where(({ s }) => eq(s.teamId, teamId))
+            .where(({ s }) =>
+              and(
+                eq(s.teamId, teamId),
+                not(isNull(s.workflowId)),
+                not(isNull(s.pendingQuestion))
+              )
+            )
         : undefined,
     [teamId]
   )
@@ -208,9 +211,19 @@ export function WorkflowsQuestionBadge({
       .map((session) => session.workflowId)
       .filter((id): id is string => id != null)
   )
-  const asking = [...workflowIds].some(
+  return [...workflowIds].some(
     (workflowId) => workflowOpenQuestions(sessions, workflowId).length > 0
   )
+}
+
+/** The Workflows entry's red dot while `useWorkflowsAsking`. */
+export function WorkflowsQuestionBadge({
+  asking,
+  placement,
+}: {
+  asking: boolean
+  placement: BadgePlacement
+}) {
   if (!asking) return null
   return <NavDot className="bg-red-500" placement={placement} />
 }
@@ -358,11 +371,14 @@ export function TeamSidebarRail({
   team,
   boards,
   onWhatsNew,
+  workflowsAsking,
 }: {
   teamSlug: string
   team: Team | null | undefined
   boards: Board[] | undefined
   onWhatsNew: () => void
+  /** `useWorkflowsAsking`, computed once by the sidebar. */
+  workflowsAsking: boolean
 }) {
   const params = { teamSlug }
   const { data: session } = useSession()
@@ -411,7 +427,7 @@ export function TeamSidebarRail({
           link={{ to: `/t/$teamSlug/workflows`, params }}
         >
           <NavWorkflowsIcon className="size-4" />
-          <WorkflowsQuestionBadge teamId={team?.id} placement="icon" />
+          <WorkflowsQuestionBadge asking={workflowsAsking} placement="icon" />
         </RailItem>
         <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
           <NavReviewsIcon className="size-4" />
