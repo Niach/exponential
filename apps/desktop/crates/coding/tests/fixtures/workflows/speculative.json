@@ -7,7 +7,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -20,17 +23,49 @@
           "sessionId": "s-a",
           "branch": "exp/EXP-1"
         },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
       ],
-      "edges": [["a", "b"]],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true } },
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "ready"
+      },
+      {
+        "kind": "startNode",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author",
+        "nodeId": "b",
+        "attempt": 1,
+        "baseBranch": "exp/EXP-1",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -41,7 +76,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -55,16 +93,44 @@
           "branch": "exp/EXP-1",
           "checkpointAt": "2026-09-19T10:00:00.000Z"
         },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
       ],
-      "edges": [["a", "b"]],
-      "sessions": { "s-a": { "live": true } },
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "sessions": {
+        "s-a": {
+          "live": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "ready"
+      },
+      {
+        "kind": "startNode",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author",
+        "nodeId": "b",
+        "attempt": 1,
+        "baseBranch": "exp/EXP-1",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -75,7 +141,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -88,14 +157,36 @@
           "sessionId": "s-a",
           "checkpointAt": "2026-09-19T10:00:00.000Z"
         },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "ready", "wave": 1, "lane": 0 }
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "ready",
+          "wave": 1,
+          "lane": 0
+        }
       ],
-      "edges": [["a", "b"]],
-      "sessions": { "s-a": { "live": true } },
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "sessions": {
+        "s-a": {
+          "live": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "setNodeState", "nodeId": "b", "state": "blocked" }]
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "blocked"
+      }
+    ]
   },
   {
     "name": "rule 2: a landed blocker puts its dependent back on the integration branch",
@@ -105,7 +196,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -117,15 +211,39 @@
           "lane": 0,
           "branch": "exp/EXP-1"
         },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
       ],
-      "edges": [["a", "b"]],
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "ready"
+      },
+      {
+        "kind": "startNode",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author",
+        "nodeId": "b",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -136,7 +254,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -161,38 +282,79 @@
           "branch": "exp/EXP-2",
           "baseBranch": "exp/wf-abcdef12"
         },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
-      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/wf-abcdef12": "sha-i1"
+      },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/wf-abcdef12": "sha-i1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/wf-abcdef12": "sha-i1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
+      {
+        "kind": "setNodeState",
+        "nodeId": "c",
+        "state": "ready"
+      },
       {
         "kind": "buildBase",
         "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
         "role": "base_merge",
         "nodeId": "c",
         "baseBranch": "exp/wf-abcdef12-base-EXP-3",
-        "sources": ["exp/EXP-1", "exp/EXP-2", "exp/wf-abcdef12"]
+        "sources": [
+          "exp/EXP-1",
+          "exp/EXP-2",
+          "exp/wf-abcdef12"
+        ]
       },
       {
         "kind": "startNode",
@@ -213,7 +375,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -238,21 +403,46 @@
           "branch": "exp/EXP-2",
           "baseBranch": "exp/wf-abcdef12"
         },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
       "tips": {
         "exp/EXP-1": "sha-a1",
         "exp/EXP-2": "sha-b1",
@@ -261,20 +451,37 @@
       },
       "synthetic": {
         "exp/wf-abcdef12-base-EXP-3": [
-          ["exp/EXP-1", "sha-a1"],
-          ["exp/EXP-2", "sha-b1"],
-          ["exp/wf-abcdef12", "sha-i1"]
+          [
+            "exp/EXP-1",
+            "sha-a1"
+          ],
+          [
+            "exp/EXP-2",
+            "sha-b1"
+          ],
+          [
+            "exp/wf-abcdef12",
+            "sha-i1"
+          ]
         ]
       },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/wf-abcdef12": "sha-i1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/wf-abcdef12": "sha-i1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
+      {
+        "kind": "setNodeState",
+        "nodeId": "c",
+        "state": "ready"
+      },
       {
         "kind": "startNode",
         "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
@@ -294,7 +501,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -332,19 +542,39 @@
         }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true },
-        "s-c": { "live": true }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        },
+        "s-c": {
+          "live": true
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
       "tips": {
         "exp/EXP-1": "sha-a2",
         "exp/EXP-2": "sha-b1",
@@ -353,15 +583,30 @@
       },
       "synthetic": {
         "exp/wf-abcdef12-base-EXP-3": [
-          ["exp/EXP-1", "sha-a1"],
-          ["exp/EXP-2", "sha-b1"],
-          ["exp/wf-abcdef12", "sha-i1"]
+          [
+            "exp/EXP-1",
+            "sha-a1"
+          ],
+          [
+            "exp/EXP-2",
+            "sha-b1"
+          ],
+          [
+            "exp/wf-abcdef12",
+            "sha-i1"
+          ]
         ]
       },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/wf-abcdef12": "sha-i1" },
-        "c": { "exp/wf-abcdef12-base-EXP-3": "sha-s1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "c": {
+          "exp/wf-abcdef12-base-EXP-3": "sha-s1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -373,7 +618,11 @@
         "role": "base_merge",
         "nodeId": "c",
         "baseBranch": "exp/wf-abcdef12-base-EXP-3",
-        "sources": ["exp/EXP-1", "exp/EXP-2", "exp/wf-abcdef12"]
+        "sources": [
+          "exp/EXP-1",
+          "exp/EXP-2",
+          "exp/wf-abcdef12"
+        ]
       }
     ]
   },
@@ -385,7 +634,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -410,14 +662,33 @@
           "baseBranch": "exp/EXP-1"
         }
       ],
-      "edges": [["a", "b"]],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
       },
-      "tips": { "exp/EXP-1": "sha-a2" },
-      "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
+      "sessions": {
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
+      },
+      "tips": {
+        "exp/EXP-1": "sha-a2"
+      },
+      "propagated": {
+        "b": {
+          "exp/EXP-1": "sha-a1"
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -429,7 +700,11 @@
         "baseBranch": "exp/EXP-1",
         "sha": "sha-a2"
       },
-      { "kind": "setNodeState", "nodeId": "b", "state": "updating" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "updating"
+      }
     ]
   },
   {
@@ -440,7 +715,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -465,14 +743,33 @@
           "baseBranch": "exp/EXP-1"
         }
       ],
-      "edges": [["a", "b"]],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
       },
-      "tips": { "exp/EXP-1": "sha-a2" },
-      "propagated": { "b": { "exp/EXP-1": "sha-a2" } },
+      "sessions": {
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
+      },
+      "tips": {
+        "exp/EXP-1": "sha-a2"
+      },
+      "propagated": {
+        "b": {
+          "exp/EXP-1": "sha-a2"
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -486,7 +783,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -511,14 +811,34 @@
           "baseBranch": "exp/EXP-1"
         }
       ],
-      "edges": [["a", "b"]],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true, "agentBusy": true }
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
       },
-      "tips": { "exp/EXP-1": "sha-a2" },
-      "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
+      "sessions": {
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true,
+          "agentBusy": true
+        }
+      },
+      "tips": {
+        "exp/EXP-1": "sha-a2"
+      },
+      "propagated": {
+        "b": {
+          "exp/EXP-1": "sha-a1"
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -532,7 +852,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -557,17 +880,36 @@
           "baseBranch": "exp/EXP-1"
         }
       ],
-      "edges": [["a", "b"]],
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": false }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": false
+        }
       },
-      "tips": { "exp/EXP-1": "sha-a2" },
-      "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
+      "tips": {
+        "exp/EXP-1": "sha-a2"
+      },
+      "propagated": {
+        "b": {
+          "exp/EXP-1": "sha-a1"
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -579,7 +921,11 @@
         "baseBranch": "exp/EXP-1",
         "sha": "sha-a2"
       },
-      { "kind": "setNodeState", "nodeId": "b", "state": "updating" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "updating"
+      }
     ]
   },
   {
@@ -590,7 +936,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -615,28 +964,69 @@
           "branch": "exp/EXP-2",
           "baseBranch": "exp/wf-abcdef12"
         },
-        { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 1, "lane": 0 }
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "integration",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
-      "conflicts": [["a", "b"]],
-      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
+      "conflicts": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/wf-abcdef12": "sha-i1"
+      },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/wf-abcdef12": "sha-i1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/wf-abcdef12": "sha-i1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setSerialEdge", "nodeId": "b", "state": "running", "after": ["a"] },
+      {
+        "kind": "setSerialEdge",
+        "nodeId": "b",
+        "state": "running",
+        "after": [
+          "a"
+        ]
+      },
       {
         "kind": "mergeUpstream",
         "nodeId": "b",
@@ -654,7 +1044,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -681,15 +1074,35 @@
         }
       ],
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2" },
-      "conflicts": [["a", "b"]],
-      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2"
+      },
+      "conflicts": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/wf-abcdef12": "sha-i1"
+      },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/wf-abcdef12": "sha-i1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/wf-abcdef12": "sha-i1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -704,7 +1117,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -728,24 +1144,61 @@
           "sessionId": "s-b",
           "branch": "exp/EXP-2",
           "baseBranch": "exp/wf-abcdef12",
-          "afterNodeIds": ["a"]
+          "afterNodeIds": [
+            "a"
+          ]
         },
-        { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 1, "lane": 0 }
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "integration",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
-      "conflicts": [["b", "a"]],
-      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
+      "conflicts": [
+        [
+          "b",
+          "a"
+        ]
+      ],
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/wf-abcdef12": "sha-i1"
+      },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/wf-abcdef12": "sha-i1", "exp/EXP-1": "sha-a1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/wf-abcdef12": "sha-i1",
+          "exp/EXP-1": "sha-a1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -760,7 +1213,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -772,7 +1228,9 @@
           "lane": 0,
           "sessionId": "s-b",
           "branch": "exp/EXP-2",
-          "afterNodeIds": ["a"],
+          "afterNodeIds": [
+            "a"
+          ],
           "approvedAt": "2026-09-19T10:00:00.000Z"
         },
         {
@@ -788,17 +1246,30 @@
         }
       ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": false },
-        "s-b": { "live": false }
+        "s-a": {
+          "live": false
+        },
+        "s-b": {
+          "live": false
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "a"
+      }
+    ]
   },
   {
     "name": "rule 7: a speculative node waits for its blocker to land, however cleared it is",
@@ -808,7 +1279,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -833,14 +1307,27 @@
           "approvedAt": "2026-09-19T10:00:00.000Z"
         }
       ],
-      "edges": [["a", "b"]],
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": false },
-        "s-b": { "live": false }
+        "s-a": {
+          "live": false
+        },
+        "s-b": {
+          "live": false
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -855,7 +1342,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -889,23 +1379,55 @@
         }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
-      "issues": { "i-c": { "prState": "open" } },
-      "sessions": { "s-c": { "live": false } },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "issues": {
+        "i-c": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-c": {
+          "live": false
+        }
+      },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
       "synthetic": {
         "exp/wf-abcdef12-base-EXP-3": [
-          ["exp/EXP-1", "sha-a1"],
-          ["exp/EXP-2", "sha-b1"],
-          ["exp/wf-abcdef12", "sha-i1"]
+          [
+            "exp/EXP-1",
+            "sha-a1"
+          ],
+          [
+            "exp/EXP-2",
+            "sha-b1"
+          ],
+          [
+            "exp/wf-abcdef12",
+            "sha-i1"
+          ]
         ]
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "deleteBase", "baseBranch": "exp/wf-abcdef12-base-EXP-3" }]
+    "expected": [
+      {
+        "kind": "deleteBase",
+        "baseBranch": "exp/wf-abcdef12-base-EXP-3"
+      }
+    ]
   },
   {
     "name": "cancel: the synthetic bases go with the integration branch",
@@ -915,7 +1437,10 @@
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -939,23 +1464,43 @@
           "baseBranch": "exp/wf-abcdef12-base-EXP-3"
         }
       ],
-      "edges": [["a", "c"]],
+      "edges": [
+        [
+          "a",
+          "c"
+        ]
+      ],
       "sessions": {
-        "s-a": { "live": false },
-        "s-c": { "live": false }
+        "s-a": {
+          "live": false
+        },
+        "s-c": {
+          "live": false
+        }
       },
       "synthetic": {
         "exp/wf-abcdef12-base-EXP-3": [
-          ["exp/EXP-1", "sha-a1"],
-          ["exp/wf-abcdef12", "sha-i1"]
+          [
+            "exp/EXP-1",
+            "sha-a1"
+          ],
+          [
+            "exp/wf-abcdef12",
+            "sha-i1"
+          ]
         ]
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "deleteBase", "baseBranch": "exp/wf-abcdef12-base-EXP-3" },
-      { "kind": "deleteIntegrationBranch" }
+      {
+        "kind": "deleteBase",
+        "baseBranch": "exp/wf-abcdef12-base-EXP-3"
+      },
+      {
+        "kind": "deleteIntegrationBranch"
+      }
     ]
   },
   {
@@ -966,7 +1511,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -991,14 +1539,34 @@
           "baseBranch": "exp/EXP-1"
         }
       ],
-      "edges": [["a", "b"]],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true, "needsInput": true }
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
       },
-      "tips": { "exp/EXP-1": "sha-a2" },
-      "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
+      "sessions": {
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true,
+          "needsInput": true
+        }
+      },
+      "tips": {
+        "exp/EXP-1": "sha-a2"
+      },
+      "propagated": {
+        "b": {
+          "exp/EXP-1": "sha-a1"
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -1012,7 +1580,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -1037,24 +1608,65 @@
           "branch": "exp/EXP-2",
           "baseBranch": "exp/EXP-1"
         },
-        { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 2, "lane": 0 }
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "integration",
+          "state": "blocked",
+          "wave": 2,
+          "lane": 0
+        }
       ],
       "edges": [
-        ["a", "b"],
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "b"
+        ],
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
-      "conflicts": [["a", "b"]],
-      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "sessions": {
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
+      },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
+      "conflicts": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/wf-abcdef12": "sha-i1"
+      },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/EXP-1": "sha-a1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/EXP-1": "sha-a1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -1069,7 +1681,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -1094,28 +1709,69 @@
           "branch": "exp/EXP-2",
           "baseBranch": "exp/wf-abcdef12"
         },
-        { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 2, "lane": 0 }
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "integration",
+          "state": "blocked",
+          "wave": 2,
+          "lane": 0
+        }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
-      "conflicts": [["a", "b"]],
-      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
+      "conflicts": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/wf-abcdef12": "sha-i1"
+      },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/wf-abcdef12": "sha-i1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/wf-abcdef12": "sha-i1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setSerialEdge", "nodeId": "b", "state": "running", "after": ["a"] },
+      {
+        "kind": "setSerialEdge",
+        "nodeId": "b",
+        "state": "running",
+        "after": [
+          "a"
+        ]
+      },
       {
         "kind": "mergeUpstream",
         "nodeId": "b",
@@ -1133,7 +1789,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -1157,28 +1816,69 @@
           "sessionId": "s-b",
           "branch": "exp/EXP-2",
           "baseBranch": "exp/wf-abcdef12",
-          "afterNodeIds": ["a"]
+          "afterNodeIds": [
+            "a"
+          ]
         },
-        { "id": "c", "issueId": "i-c", "kind": "integration", "state": "ready", "wave": 1, "lane": 0 }
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "integration",
+          "state": "ready",
+          "wave": 1,
+          "lane": 0
+        }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true
+        }
       },
-      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
-      "conflicts": [["a", "b"]],
-      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "identifier": {
+        "a": "EXP-1",
+        "b": "EXP-2",
+        "c": "EXP-3"
+      },
+      "conflicts": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/EXP-2": "sha-b1",
+        "exp/wf-abcdef12": "sha-i1"
+      },
       "propagated": {
-        "a": { "exp/wf-abcdef12": "sha-i1" },
-        "b": { "exp/wf-abcdef12": "sha-i1", "exp/EXP-1": "sha-a1" }
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        },
+        "b": {
+          "exp/wf-abcdef12": "sha-i1",
+          "exp/EXP-1": "sha-a1"
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -1200,7 +1900,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -1215,12 +1918,31 @@
           "baseBranch": "exp/wf-abcdef12"
         }
       ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": false } },
-      "tips": { "exp/EXP-1": "sha-a1", "exp/wf-abcdef12": "sha-i1" },
-      "prHead": { "a": "sha-a1" },
-      "landRefused": { "a": "sha-a1" },
-      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" } },
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": false
+        }
+      },
+      "tips": {
+        "exp/EXP-1": "sha-a1",
+        "exp/wf-abcdef12": "sha-i1"
+      },
+      "prHead": {
+        "a": "sha-a1"
+      },
+      "landRefused": {
+        "a": "sha-a1"
+      },
+      "propagated": {
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -1234,7 +1956,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -1250,18 +1975,170 @@
           "approvedAt": "2026-09-19T10:00:00.000Z"
         }
       ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": false } },
-      "tips": { "exp/EXP-1": "sha-a2", "exp/wf-abcdef12": "sha-i1" },
-      "prHead": { "a": "sha-a2" },
-      "landRefused": { "a": "sha-a1" },
-      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" } },
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": false
+        }
+      },
+      "tips": {
+        "exp/EXP-1": "sha-a2",
+        "exp/wf-abcdef12": "sha-i1"
+      },
+      "prHead": {
+        "a": "sha-a2"
+      },
+      "landRefused": {
+        "a": "sha-a1"
+      },
+      "propagated": {
+        "a": {
+          "exp/wf-abcdef12": "sha-i1"
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "a", "state": "in_review" },
-      { "kind": "landNode", "nodeId": "a" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "in_review"
+      },
+      {
+        "kind": "landNode",
+        "nodeId": "a"
+      }
+    ]
+  },
+  {
+    "name": "rule 1: a retried blocker restarts itself; its stale checkpoint releases no dependent",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "blocked",
+          "wave": 0,
+          "lane": 0,
+          "branch": "exp/EXP-1",
+          "checkpointAt": "2026-09-19T10:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
+      ],
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "sessions": {},
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "ready"
+      },
+      {
+        "kind": "startNode",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author",
+        "nodeId": "a",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "fable"
+      }
+    ]
+  },
+  {
+    "name": "rule 1: a failed blocker is retried; its checkpoint releases no dependent",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "failed",
+          "wave": 0,
+          "lane": 0,
+          "branch": "exp/EXP-1",
+          "checkpointAt": "2026-09-19T10:00:00.000Z",
+          "sessionId": "s-a",
+          "attempt": 1
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
+      ],
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "sessions": {
+        "s-a": {
+          "live": false
+        }
+      },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "ready"
+      },
+      {
+        "kind": "startNode",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author",
+        "nodeId": "a",
+        "attempt": 2,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "fable"
+      }
     ]
   }
 ]

@@ -809,6 +809,8 @@ describe(`the engine's write path`, () => {
       review: null,
       reviewRound: 0,
       mergedInto: null,
+      // EXP-1066: the old attempt's contract announcement releases nobody.
+      checkpointAt: null,
       retriedAt: expect.any(Date),
     })
     expect(h.retargetReleasedDependents).not.toHaveBeenCalled()

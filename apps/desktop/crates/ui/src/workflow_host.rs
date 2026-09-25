@@ -277,9 +277,6 @@ struct Pass {
     /// EXP-984: `node id → its latest review`, whose findings the author is
     /// handed verbatim.
     review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
-    /// EXP-984: `node id → whether its run announced a contract`, the input
-    /// to the `contractChanges` metric.
-    checkpointed: HashSet<String>,
     /// EXP-984: `reviewer session id → live` off the synced rows, for every
     /// reviewer run this device recorded; a row that has not synced is
     /// absent. What settles a review that ended without a verdict.
@@ -452,7 +449,6 @@ fn snapshot_for(
         let mut edge_nodes = Vec::new();
         let mut board_id = None;
         let mut review_of: HashMap<String, domain::rows::WorkflowNodeReview> = HashMap::new();
-        let mut checkpointed: HashSet<String> = HashSet::new();
         // EXP-984: a REVIEWER run still up keeps its node out of the review
         // rule — its session id is the one this device recorded when it
         // started that review.
@@ -484,9 +480,6 @@ fn snapshot_for(
             }
             if let Some(review) = node.review_facts() {
                 review_of.insert(node.id.clone(), review);
-            }
-            if node.checkpoint_at.is_some() {
-                checkpointed.insert(node.id.clone());
             }
             let members = node.member_ids();
             // A plain node's head is its issue's branch; a COMPOUND one runs
@@ -653,7 +646,6 @@ fn snapshot_for(
             branch_of,
             team_id: workflow.team_id.clone().unwrap_or_default(),
             review_of,
-            checkpointed,
             review_session_live,
             review_live_on_branch,
         });

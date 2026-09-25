@@ -116,6 +116,10 @@ export const workflowNodeProcedures = {
                   // EXP-1010: a PR that merged before now is the old
                   // attempt's; it lands nothing.
                   mergedInto: null,
+                  // EXP-1066: the one start rule reads a checkpoint in any
+                  // state; the old attempt's announcement must not release
+                  // dependents onto a branch the new attempt replaces.
+                  checkpointAt: null,
                   retriedAt: new Date(),
                 }
           )

@@ -15,7 +15,6 @@
 //!       "reviewedHead": { "<nodeId>": "<sha>" },
 //!       "findingsSent": { "<nodeId>": 2 },
 //!       "reviewRuns": { "<nodeId>": "<sessionId>" },
-//!       "checkpointTips": { "<nodeId>": "<sha>" },
 //!       "landRefused": { "<nodeId>": "<sha>" },
 //!       "resuming": { "<sessionId>": 1726000000000 },
 //!       "reviewRounds": { "<nodeId>": 1 },
@@ -266,9 +265,8 @@ fn read_propagated(value: Option<&Value>) -> HashMap<String, HashMap<String, Str
         .unwrap_or_default()
 }
 
-/// EXP-984: a flat `key → string` map (`reviewedHead`, `reviewRuns`,
-/// `checkpointTips`); anything malformed is dropped, which at worst re-runs
-/// one review or re-counts one metric.
+/// EXP-984: a flat `key → string` map (`reviewedHead`, `reviewRuns`);
+/// anything malformed is dropped, which at worst re-runs one review.
 fn read_string_map(value: Option<&Value>) -> HashMap<String, String> {
     value
         .and_then(Value::as_object)

@@ -188,43 +188,6 @@ private struct SetIssuesInput: Encodable {
     let removeIssueIds: [String]
 }
 
-/// A partial `workflows.updateNode`, addressed by ISSUE (a member's id
-/// resolves to its compound node).
-public struct WorkflowNodePatch: Sendable, Equatable {
-    public var kind: String?
-    public var risk: String?
-    public var touches: [String]?
-
-    public init(
-        kind: String? = nil,
-        risk: String? = nil,
-        touches: [String]? = nil
-    ) {
-        self.kind = kind
-        self.risk = risk
-        self.touches = touches
-    }
-}
-
-struct WorkflowNodeUpdateInput: Encodable {
-    let workflowId: String
-    let issueId: String
-    let patch: WorkflowNodePatch
-
-    enum CodingKeys: String, CodingKey {
-        case workflowId, issueId, kind, risk, touches
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(workflowId, forKey: .workflowId)
-        try c.encode(issueId, forKey: .issueId)
-        try c.encodeIfPresent(patch.kind, forKey: .kind)
-        try c.encodeIfPresent(patch.risk, forKey: .risk)
-        try c.encodeIfPresent(patch.touches, forKey: .touches)
-    }
-}
-
 private struct IdInput: Encodable {
     let id: String
 }
@@ -232,11 +195,6 @@ private struct IdInput: Encodable {
 /// `workflows.mergeFinalPr` answers `{ merged: true }`.
 private struct MergeFinalPrResult: Decodable {
     let merged: Bool
-}
-
-private struct ApproveNodeInput: Encodable {
-    let nodeId: String
-    let approved: Bool
 }
 
 private struct ResolveNodeInput: Encodable {
@@ -304,25 +262,6 @@ public final class WorkflowsApi: Sendable {
             path: "workflows.setIssues",
             input: SetIssuesInput(
                 id: id, addIssueIds: addIssueIds, removeIssueIds: removeIssueIds
-            )
-        )
-    }
-
-    /// Member-gated `workflows.updateNode` — what the plan declares per node.
-    /// Kind and touches shape the PLAN, so the server takes them on a DRAFT
-    /// only; RISK rides at any status (it is the one lever onto the launch's
-    /// strong model, and a running workflow still has nodes to raise).
-    public func updateNode(
-        accountId: String,
-        workflowId: String,
-        issueId: String,
-        patch: WorkflowNodePatch
-    ) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "workflows.updateNode",
-            input: WorkflowNodeUpdateInput(
-                workflowId: workflowId, issueId: issueId, patch: patch
             )
         )
     }
@@ -401,19 +340,6 @@ public final class WorkflowsApi: Sendable {
             input: IdInput(id: id)
         )
         return result.merged
-    }
-
-    /// The human gate: `workflows.approveNode` clears a node's open PR for the
-    /// merge train. `approved: false` takes it back while the node has not
-    /// landed.
-    public func approveNode(
-        accountId: String, nodeId: String, approved: Bool = true
-    ) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "workflows.approveNode",
-            input: ApproveNodeInput(nodeId: nodeId, approved: approved)
-        )
     }
 
     /// `workflows.resolveNode` — a person unsticks a node: `retry` gives it a

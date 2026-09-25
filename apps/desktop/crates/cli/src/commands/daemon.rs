@@ -7,7 +7,7 @@
 //! action). `daemon install|uninstall|status` manage a systemd user unit
 //! (Linux) / launchd agent (macOS).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -4098,10 +4098,8 @@ struct WorkflowPlan {
     candidates: Vec<(String, String)>,
     branch_of: HashMap<String, String>,
     /// EXP-984: `node id → its latest review` (the findings the author is
-    /// handed verbatim) and the nodes that announced a contract (the
-    /// `contractChanges` metric).
+    /// handed verbatim).
     review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
-    checkpointed: HashSet<String>,
     /// EXP-984: `reviewer session id → live` off the synced rows, for every
     /// reviewer run this device recorded (a row that has not synced is
     /// absent) — what settles a review that ended without a verdict.
@@ -4146,9 +4144,8 @@ fn workflow_plan(
     // branches + globs feed the collision pre-filter.
     let mut identifier: HashMap<String, String> = HashMap::new();
     let mut git_nodes: Vec<coding::workflows::NodeGit> = Vec::new();
-    // EXP-984: the latest verdicts and the nodes that announced a contract.
+    // EXP-984: the latest verdicts.
     let mut review_of: HashMap<String, domain::rows::WorkflowNodeReview> = HashMap::new();
-    let mut checkpointed: HashSet<String> = HashSet::new();
     // The workflow's team — a batch launch's subject.
     let team_id = workflow.team_id.clone().unwrap_or_default();
     for row in node_rows {
@@ -4163,9 +4160,6 @@ fn workflow_plan(
         let members = row.member_ids();
         if let Some(review) = row.review_facts() {
             review_of.insert(row.id.clone(), review);
-        }
-        if row.checkpoint_at.is_some() {
-            checkpointed.insert(row.id.clone());
         }
         // A plain node's head is its issue's branch; a COMPOUND one runs as
         // a batch, whose branch only the session row knows.
@@ -4317,7 +4311,6 @@ fn workflow_plan(
         candidates,
         branch_of,
         review_of,
-        checkpointed,
         review_session_live: review_session_liveness(&engine_state, session_rows),
         review_live_on_branch,
         name: workflow.name.clone().unwrap_or_default(),

@@ -698,13 +698,15 @@ fn is_synthetic(workflow_id: &str, branch: &str) -> bool {
 /// A blocker releases its dependents (EXP-983 rule 1) once it announced its
 /// CONTRACT, put its pull request up, landed or was skipped. EXP-1066: this
 /// is the ONE start rule — the `start_on` modes are gone, dependents always
-/// start on the blockers' contract.
+/// start on the blockers' contract. A checkpoint counts only while the
+/// blocker is AT WORK: a retried or failed blocker's old announcement
+/// releases nothing (the server nulls it on retry too).
 fn blocker_releases(blocker: &NodeFacts) -> bool {
-    blocker.checkpoint_at.is_some()
-        || matches!(
-            blocker.state.as_str(),
-            "in_review" | "updating" | "landed" | "skipped"
-        )
+    match blocker.state.as_str() {
+        "in_review" | "updating" | "landed" | "skipped" => true,
+        "running" | "waiting" => blocker.checkpoint_at.is_some(),
+        _ => false,
+    }
 }
 
 /// A blocker whose work is not in the integration branch yet — what a

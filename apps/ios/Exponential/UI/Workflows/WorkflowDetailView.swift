@@ -55,6 +55,24 @@ struct WorkflowDetailView: View {
         }
         .navigationTitle(model?.workflow?.name ?? WorkflowView.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // The name with the workflow's status glyph beside it (the chip
+            // vocabulary, as web's header).
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    if let model, model.workflow != nil {
+                        let display = Self.display(status: model.status)
+                        AppIcon(Self.glyph(display), size: AppIcon.Size.small)
+                            .foregroundStyle(Self.color(display))
+                            .accessibilityIdentifier("workflow-status-glyph")
+                    }
+                    Text(model?.workflow?.name ?? WorkflowView.title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+            }
+        }
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workflow-detail")
@@ -127,6 +145,7 @@ struct WorkflowDetailView: View {
             questionBanner(model)
             header(model)
             strip(model)
+            stepper(model)
             if let node = model.selectedNode {
                 // One node = that issue's Work screen, in place.
                 WorkScreen(subject: .issue(id: node.issueId))
@@ -341,6 +360,38 @@ struct WorkflowDetailView: View {
         .accessibilityIdentifier("workflow-strip")
     }
 
+    /// One node picked: step along the strip in DAG order, All at position 0
+    /// (`WorkflowSelection.step`). The Work screen's own switcher belongs to
+    /// the issue, so the stepping sits here, under the strip.
+    @ViewBuilder
+    private func stepper(_ model: WorkflowDetailModel) -> some View {
+        let order = model.order
+        if !model.selection.isAll, !order.isEmpty {
+            HStack(spacing: 8) {
+                GlassPill(
+                    "Previous",
+                    icon: AppIcons.uiChevronLeft,
+                    mode: .action { model.selection.step(-1, in: order) }
+                )
+                .accessibilityIdentifier("workflow-step-previous")
+                Spacer(minLength: 8)
+                Text("\(model.selection.position(in: order)) of \(order.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Spacer(minLength: 8)
+                GlassPill(
+                    "Next",
+                    icon: AppIcons.uiChevronRight,
+                    mode: .action { model.selection.step(1, in: order) },
+                    enabled: model.selection.position(in: order) < order.count
+                )
+                .accessibilityIdentifier("workflow-step-next")
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+        }
+    }
+
     private func allChip(_ model: WorkflowDetailModel) -> some View {
         GlassPill(
             WorkflowView.allNodesLabel,
@@ -429,6 +480,16 @@ struct WorkflowDetailView: View {
             }
         }
         .offset(x: 3, y: -3)
+    }
+
+    /// The workflow's status in the chip vocabulary (web `workflowStatusGlyph`).
+    static func display(status: String) -> WorkflowNodeDisplayState {
+        switch status {
+        case DomainContract.wfStatusRunning, DomainContract.wfStatusPaused: .running
+        case DomainContract.wfStatusDone: .done
+        case DomainContract.wfStatusCancelled: .skipped
+        default: .queued
+        }
     }
 
     static func glyph(_ display: WorkflowNodeDisplayState) -> String {

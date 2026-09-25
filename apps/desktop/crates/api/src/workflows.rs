@@ -306,24 +306,6 @@ pub fn cancel(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
     workflow_command(trpc, "workflows.cancel", id)
 }
 
-/// `workflows.approveNode` — the human gate. `approved: false` takes the
-/// approval back while the node has not landed.
-pub fn approve_node(trpc: &TrpcClient, node_id: &str, approved: bool) -> Result<(), ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        node_id: &'a str,
-        approved: bool,
-    }
-    #[derive(Deserialize)]
-    struct Ignored {}
-    let _: Ignored = trpc.mutation(
-        "workflows.approveNode",
-        &Input { node_id, approved },
-    )?;
-    Ok(())
-}
-
 /// `workflows.resolveNode` — a person unsticks a node: `retry` gives it a
 /// fresh attempt, `skip` takes it out so its dependents go on without it.
 pub fn resolve_node(trpc: &TrpcClient, node_id: &str, action: &str) -> Result<(), ApiError> {
