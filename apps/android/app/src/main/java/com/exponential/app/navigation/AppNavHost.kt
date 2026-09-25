@@ -592,6 +592,7 @@ private fun AuthenticatedNav(
             WorkflowDetailScreen(
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenAgent = openAgent,
                 // A run outside every node (the planner), and a PR's diff.
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },

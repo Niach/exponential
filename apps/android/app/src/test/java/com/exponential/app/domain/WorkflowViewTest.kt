@@ -633,4 +633,31 @@ class WorkflowViewTest {
             )
         }
     }
+
+    @Test
+    fun `the header overflow follows the status`() {
+        val cases = fixture.getValue("overflowMenus").jsonArray
+        assertTrue(cases.size >= 7)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val status = case.getValue("status").jsonPrimitive.content
+            assertEquals(
+                status,
+                case.getValue("menu").jsonArray.map { it.jsonPrimitive.content },
+                WorkflowView.overflowMenu(status).map { it.wire },
+            )
+        }
+    }
+
+    @Test
+    fun `the page labels are byte exact`() {
+        val labels = fixture.getValue("pageLabels").jsonObject
+        fun label(key: String) = labels.getValue(key).jsonPrimitive.content
+        assertEquals(label("allNodes"), WorkflowView.ALL_NODES_LABEL)
+        assertEquals(label("decisions"), WorkflowView.DECISIONS_LABEL)
+        assertEquals(label("stop"), WorkflowView.STOP_WORKFLOW_LABEL)
+        assertEquals(label("pickDevice"), WorkflowView.PICK_DEVICE_LABEL)
+        assertEquals(label("runsOn"), WorkflowView.RUNS_ON_LABEL)
+        assertEquals(label("reviewFinalPr"), WorkflowView.REVIEW_FINAL_PR_LABEL)
+    }
 }

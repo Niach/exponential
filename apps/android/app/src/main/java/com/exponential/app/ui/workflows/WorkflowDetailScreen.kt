@@ -51,6 +51,7 @@ import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueGraph
@@ -65,6 +66,7 @@ import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.WorkflowNodeDisplayState
 import com.exponential.app.domain.WorkflowOpenQuestion
+import com.exponential.app.domain.WorkflowOverflowItem
 import com.exponential.app.domain.WorkflowPrimaryAction
 import com.exponential.app.domain.WorkflowSelection
 import com.exponential.app.domain.WorkflowView
@@ -126,8 +128,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * EXP-1087: ONE workflow on the phone. The header carries the name, the ONE
- * primary action ([WorkflowView.primaryAction]) and an overflow (Stop,
- * Delete), the caption line ([WorkflowView.headerCaption]), the open question
+ * primary action ([WorkflowView.primaryAction]) and the overflow
+ * ([WorkflowView.overflowMenu]: Plan / Runs on / Delete, or Stop), the caption line ([WorkflowView.headerCaption]), the open question
  * while there is one, and the node STRIP — `All` first, then one row per
  * wave. Under it the Work screen's faces behind the existing switcher: one
  * node = that issue's Issue / Run / Changes / Results in place; All = the
@@ -140,6 +142,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 fun WorkflowDetailScreen(
     onBack: () -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
+    /** Plan: the Agent composer, seeded with the plan-workflow builtin. */
+    onOpenAgent: (AgentComposerSeed) -> Unit,
     /** A run that belongs to no node (the planner), opened the usual way. */
     onOpenSession: (sessionId: String) -> Unit,
     /** The standalone Changes route — for a PR the face cannot show. */
@@ -234,26 +238,39 @@ fun WorkflowDetailScreen(
                                         borderless = true,
                                     )
                                     GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                        if (row.status == DomainContract.wfStatusRunning ||
-                                            row.status == DomainContract.wfStatusPaused
-                                        ) {
+                                        WorkflowView.overflowMenu(row.status).forEach { item ->
+                                            val (label, icon) = when (item) {
+                                                WorkflowOverflowItem.PLAN ->
+                                                    WorkflowView.PLAN_WORKFLOW_LABEL to ExpIcons.uiChecklist
+                                                WorkflowOverflowItem.RUNS_ON ->
+                                                    WorkflowView.RUNS_ON_LABEL to ExpIcons.uiDevice
+                                                WorkflowOverflowItem.STOP ->
+                                                    WorkflowView.STOP_WORKFLOW_LABEL to ExpIcons.uiStop
+                                                WorkflowOverflowItem.DELETE ->
+                                                    WorkflowView.DELETE_WORKFLOW_LABEL to ExpIcons.uiDelete
+                                            }
                                             GlassMenuItem(
-                                                leadingIcon = { Icon(ExpIcons.uiStop, contentDescription = null) },
-                                                text = { Text(STOP_WORKFLOW_LABEL) },
-                                                destructive = true,
+                                                leadingIcon = { Icon(icon, contentDescription = null) },
+                                                text = { Text(label) },
+                                                destructive = item == WorkflowOverflowItem.STOP ||
+                                                    item == WorkflowOverflowItem.DELETE,
+                                                modifier = Modifier.testTag("workflow-overflow-${item.wire}"),
                                                 onClick = {
                                                     menuOpen = false
-                                                    confirmStop = true
-                                                },
-                                            )
-                                        } else {
-                                            GlassMenuItem(
-                                                leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                                                text = { Text(WorkflowView.DELETE_WORKFLOW_LABEL) },
-                                                destructive = true,
-                                                onClick = {
-                                                    menuOpen = false
-                                                    confirmDelete = true
+                                                    when (item) {
+                                                        // The planner run: the Agent composer seeded
+                                                        // with the plan-workflow builtin + this workflow.
+                                                        WorkflowOverflowItem.PLAN -> onOpenAgent(
+                                                            AgentComposerSeed(
+                                                                actionId = DomainContract.builtinPlanWorkflowId,
+                                                                workflowId = row.id,
+                                                                deviceId = row.deviceId,
+                                                            ),
+                                                        )
+                                                        WorkflowOverflowItem.RUNS_ON -> pickerOpen = true
+                                                        WorkflowOverflowItem.STOP -> confirmStop = true
+                                                        WorkflowOverflowItem.DELETE -> confirmDelete = true
+                                                    }
                                                 },
                                             )
                                         }
@@ -401,13 +418,13 @@ fun WorkflowDetailScreen(
     if (confirmStop) {
         AlertDialog(
             onDismissRequest = { confirmStop = false },
-            title = { Text(STOP_WORKFLOW_LABEL) },
+            title = { Text(WorkflowView.STOP_WORKFLOW_LABEL) },
             text = { Text(WorkflowView.CANCEL_WORKFLOW_CONFIRM) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmStop = false
                     viewModel.cancel()
-                }) { Text(STOP_WORKFLOW_LABEL, color = MaterialTheme.colorScheme.error) }
+                }) { Text(WorkflowView.STOP_WORKFLOW_LABEL, color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmStop = false }) { Text("Cancel") } },
         )
@@ -429,20 +446,14 @@ fun WorkflowDetailScreen(
     }
 }
 
-/** The overflow's word for ending a live workflow — the ONE ending verb ×4. */
-private const val STOP_WORKFLOW_LABEL = "Stop"
-private const val ALL_CHIP_LABEL = "All"
-private const val PICK_DEVICE_LABEL = "Pick device"
-private const val REVIEW_FINAL_PR_LABEL = "Review"
-
 @Composable
 private fun PrimaryActionPill(action: WorkflowPrimaryAction, enabled: Boolean, onClick: () -> Unit) {
     val (label, icon) = when (action) {
-        WorkflowPrimaryAction.PICK_DEVICE -> PICK_DEVICE_LABEL to ExpIcons.uiDevice
+        WorkflowPrimaryAction.PICK_DEVICE -> WorkflowView.PICK_DEVICE_LABEL to ExpIcons.uiDevice
         WorkflowPrimaryAction.START -> WorkflowView.START_WORKFLOW_LABEL to ExpIcons.actionRun
         WorkflowPrimaryAction.PAUSE -> WorkflowView.PAUSE_WORKFLOW_LABEL to ExpIcons.uiStop
         WorkflowPrimaryAction.RESUME -> WorkflowView.RESUME_WORKFLOW_LABEL to ExpIcons.actionRun
-        WorkflowPrimaryAction.REVIEW_FINAL_PR -> REVIEW_FINAL_PR_LABEL to ExpIcons.navReviews
+        WorkflowPrimaryAction.REVIEW_FINAL_PR -> WorkflowView.REVIEW_FINAL_PR_LABEL to ExpIcons.navReviews
     }
     GlassPill(
         label,
@@ -529,7 +540,7 @@ private fun NodeStrip(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         GlassPill(
-            ALL_CHIP_LABEL,
+            WorkflowView.ALL_NODES_LABEL,
             size = PillSize.Sm,
             selected = selectedId == null,
             onClick = onSelectAll,

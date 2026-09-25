@@ -499,6 +499,27 @@ object WorkflowView {
         else -> null
     }
 
+    // ── EXP-1087: the page's own words + the header overflow ─────────────
+    // Fixture sections `pageLabels` / `overflowMenus`; byte-identical ×4.
+
+    const val ALL_NODES_LABEL = "All"
+    const val DECISIONS_LABEL = "Decisions"
+    const val STOP_WORKFLOW_LABEL = "Stop"
+    const val PICK_DEVICE_LABEL = "Pick device"
+    const val RUNS_ON_LABEL = "Runs on"
+    const val REVIEW_FINAL_PR_LABEL = "Review final PR"
+
+    /**
+     * The header overflow: a draft is planned, re-bound or deleted; a live
+     * (running or paused) one is stopped; anything else is deleted.
+     */
+    fun overflowMenu(status: String): List<WorkflowOverflowItem> = when (status) {
+        DomainContract.wfStatusDraft ->
+            listOf(WorkflowOverflowItem.PLAN, WorkflowOverflowItem.RUNS_ON, WorkflowOverflowItem.DELETE)
+        DomainContract.wfStatusRunning, DomainContract.wfStatusPaused -> listOf(WorkflowOverflowItem.STOP)
+        else -> listOf(WorkflowOverflowItem.DELETE)
+    }
+
     /**
      * What a node chip's overflow offers: Retry / Skip on a `failed` node,
      * Admit / Dismiss on a `proposed` one, nothing else anywhere.
@@ -563,4 +584,12 @@ enum class NodeChipAction(val wire: String) {
     SKIP("skip"),
     ADMIT("admit"),
     DISMISS("dismiss"),
+}
+
+/** EXP-1087: one entry of the workflow header's overflow (fixture `overflowMenus`). */
+enum class WorkflowOverflowItem(val wire: String) {
+    PLAN("plan"),
+    RUNS_ON("runs_on"),
+    STOP("stop"),
+    DELETE("delete"),
 }
