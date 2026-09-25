@@ -131,7 +131,7 @@ export function AssigneeSubmenu({
             }}
           />
         ) : (
-          <UnassignedIcon className="size-4" />
+          <UnassignedIcon />
         )}
         Assignee
         <DropdownMenuShortcut className={topLevelValueClass}>
@@ -179,7 +179,7 @@ export function PrioritySubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
-        <PriorityIcon className={`size-4 ${priorityConfig.color}`} />
+        <PriorityIcon className={priorityConfig.color} />
         Priority
         <DropdownMenuShortcut className={topLevelValueClass}>
           {priorityConfig.label}
@@ -233,7 +233,7 @@ export function BoardSubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
-        <NavBoardsIcon className="size-4" />
+        <NavBoardsIcon />
         Move to board
         <DropdownMenuShortcut className={topLevelValueClass}>
           {currentName ?? `Board`}
@@ -276,7 +276,7 @@ export function LabelsSubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
-        <LabelsIcon className="size-4" />
+        <LabelsIcon />
         Labels
         <DropdownMenuShortcut className={topLevelValueClass}>
           {labelsLabel}
@@ -338,7 +338,7 @@ export function EstimateSubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
-        <EstimateIcon className="size-4" />
+        <EstimateIcon />
         Estimate
         <DropdownMenuShortcut className={topLevelValueClass}>
           {estimate === null ? `None` : estimateShortLabel(estimate, estimation)}

@@ -37,6 +37,9 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  MENU_HEADER_CLASS,
+  MENU_VALUE_CLASS,
+  MenuHeaderBody,
   conceptIcon,
 } from "@exp/ui"
 import type { IssueMenuTarget } from "./gestures"
@@ -54,7 +57,9 @@ import {
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const RelationSectionIcon = conceptIcon(`relation-section`)
 
-const TOP_LEVEL_VALUE_CLASS = `w-[5.75rem] shrink-0 text-right normal-case tracking-normal truncate`
+// The item ORDER is `@exp/ui` ISSUE_MENU_LAYOUT's (provider.test.tsx locks
+// it); the value beside a submenu label is the shared MENU_VALUE_CLASS.
+const TOP_LEVEL_VALUE_CLASS = MENU_VALUE_CLASS
 
 /** A right-click opens the menu on the mouse DOWN (macOS, and the keyboard
  *  key), beside the cursor; a Radix item selects on a pointer-UP it did not
@@ -201,7 +206,7 @@ export function IssueMenuSession({
             align="start"
             sideOffset={2}
             collisionPadding={12}
-            className="w-[17.5rem] p-1.5"
+            className="w-(--menu-max-width)"
             onCloseAutoFocus={(event) => {
               // Never the invisible anchor: keyboard users go back to the
               // row (a sidebar link, a chip); a plain div takes no focus.
@@ -214,15 +219,8 @@ export function IssueMenuSession({
               }
             }}
           >
-            <DropdownMenuLabel className="rounded-lg bg-accent/40 px-3 py-2.5">
-              <div className="min-w-0">
-                <div className="truncate font-mono text-xs text-foreground/50">
-                  {issue.identifier}
-                </div>
-                <div className="truncate text-sm font-medium text-foreground">
-                  {issue.title}
-                </div>
-              </div>
+            <DropdownMenuLabel className={MENU_HEADER_CLASS}>
+              <MenuHeaderBody identifier={issue.identifier} title={issue.title} />
             </DropdownMenuLabel>
 
             <DropdownMenuSeparator />
@@ -232,7 +230,7 @@ export function IssueMenuSession({
                 issueRefs?.open(issue.identifier, { from: target.from })
               }
             >
-              <SquarePen className="size-4" />
+              <SquarePen />
               Open issue
             </DropdownMenuItem>
 
@@ -248,9 +246,9 @@ export function IssueMenuSession({
               }}
             >
               {isCompleted ? (
-                <ListTodo className="size-4" />
+                <ListTodo />
               ) : (
-                <CheckCheck className="size-4" />
+                <CheckCheck />
               )}
               {isCompleted ? `Move to backlog` : `Mark as done`}
             </DropdownMenuItem>
@@ -260,7 +258,7 @@ export function IssueMenuSession({
                 void copyText(issue.identifier)
               }}
             >
-              <Copy className="size-4" />
+              <Copy />
               Copy issue ID
             </DropdownMenuItem>
 
@@ -272,7 +270,7 @@ export function IssueMenuSession({
                 className="md:hidden"
                 onSelect={() => selection.toggle(issue.id)}
               >
-                <SquareCheckBig className="size-4" />
+                <SquareCheckBig />
                 {selection.isSelected(issue.id) ? `Deselect` : `Select`}
               </DropdownMenuItem>
             )}
@@ -284,7 +282,7 @@ export function IssueMenuSession({
                   void updateIssue({ duplicateOfId: null })
                 }}
               >
-                <Undo2 className="size-4" />
+                <Undo2 />
                 Unmark duplicate
               </DropdownMenuItem>
             )}
@@ -350,7 +348,7 @@ export function IssueMenuSession({
 
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
-                <RelationSectionIcon className="size-4" />
+                <RelationSectionIcon />
                 Add relation
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-[12rem]">
@@ -362,7 +360,7 @@ export function IssueMenuSession({
                         key={entry.side}
                         onSelect={() => addRelation.pick(entry)}
                       >
-                        <Icon className="size-4" />
+                        <Icon />
                         {pickLabel(entry.type, entry.direction)}
                       </DropdownMenuItem>
                     )
@@ -375,7 +373,7 @@ export function IssueMenuSession({
                 the divider, on every client. */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger variant="destructive">
-                <UiDeleteIcon className="size-4" />
+                <UiDeleteIcon />
                 Delete issue
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-[14rem]">
@@ -385,7 +383,7 @@ export function IssueMenuSession({
                     void trpc.issues.delete.mutate({ id: issueId })
                   }}
                 >
-                  <UiDeleteIcon className="size-4" />
+                  <UiDeleteIcon />
                   Confirm delete
                 </DropdownMenuItem>
               </DropdownMenuSubContent>

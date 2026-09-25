@@ -28,6 +28,11 @@ interface Tokens {
   diff: Record<string, string>
   radius: Record<string, number>
   size: Record<string, number>
+  // EXP-1074: menu row geometry, two density classes (flat px integers each).
+  menu: {
+    pointer: Record<string, number>
+    touch: Record<string, number>
+  }
   // EXP-787: the transcript's measure, gap ladder and type scale (flat
   // integers, px ≡ dp ≡ pt).
   transcript: Record<string, number>
@@ -235,6 +240,13 @@ function emitKotlin(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        val ${pascalCase(k)}: Dp = ${v}.dp`)
     .join(`\n`)
+  const menuDensity = (density: Record<string, number>) =>
+    Object.entries(density)
+      .filter(([k]) => !k.startsWith(`$`))
+      .map(([k, v]) => `            val ${pascalCase(k)}: Dp = ${v}.dp`)
+      .join(`\n`)
+  const menuPointer = menuDensity(tokens.menu.pointer)
+  const menuTouch = menuDensity(tokens.menu.touch)
   // Plain Ints, not Dp: the type-scale entries are sp and the gaps are dp,
   // so the call site picks the unit.
   const transcript = Object.entries(tokens.transcript)
@@ -302,6 +314,18 @@ ${radius}
 ${size}
     }
 
+    // Menu row geometry (EXP-1074), two density classes. Android draws the
+    // TOUCH set (GlassMenuDefaults / M3's 48dp rows); Pointer is web at md+.
+    object Menu {
+        object Pointer {
+${menuPointer}
+        }
+
+        object Touch {
+${menuTouch}
+        }
+    }
+
     // The agent transcript's measure, gap ladder and type scale (EXP-787) —
     // gaps and widths in dp, the type entries in sp; the call site adds the
     // unit. The gap is chosen by domain/AgentFeed.kt \`transcriptGap\`.
@@ -364,6 +388,13 @@ function emitSwift(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: CGFloat = ${v}`)
     .join(`\n`)
+  const menuDensity = (density: Record<string, number>) =>
+    Object.entries(density)
+      .filter(([k]) => !k.startsWith(`$`))
+      .map(([k, v]) => `            public static let ${k}: CGFloat = ${v}`)
+      .join(`\n`)
+  const menuPointer = menuDensity(tokens.menu.pointer)
+  const menuTouch = menuDensity(tokens.menu.touch)
   const transcript = Object.entries(tokens.transcript)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: CGFloat = ${v}`)
@@ -423,6 +454,18 @@ ${radius}
     // Control geometry, matching the web control heights.
     public enum Size {
 ${size}
+    }
+
+    // Menu row geometry (EXP-1074), two density classes. iOS draws the TOUCH
+    // set (GlassMenuTokens); pointer is web at md+.
+    public enum Menu {
+        public enum Pointer {
+${menuPointer}
+        }
+
+        public enum Touch {
+${menuTouch}
+        }
     }
 
     // The agent transcript's measure, gap ladder and type scale (EXP-787),
@@ -489,6 +532,13 @@ function emitRust(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustF32(k, v)}`)
     .join(`\n`)
+  const menuDensity = (density: Record<string, number>) =>
+    Object.entries(density)
+      .filter(([k]) => !k.startsWith(`$`))
+      .map(([k, v]) => `        ${rustF32(k, v)}`)
+      .join(`\n`)
+  const menuPointer = menuDensity(tokens.menu.pointer)
+  const menuTouch = menuDensity(tokens.menu.touch)
   const transcript = Object.entries(tokens.transcript)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustF32(k, v)}`)
@@ -542,6 +592,19 @@ ${radius}
 // Control geometry in px, matching the web control heights.
 pub mod size {
 ${size}
+}
+
+// Menu row geometry (EXP-1074), two density classes: \`pointer\` is web at md+,
+// \`touch\` the phones. The IDE's own PopupMenu (gpui-component, 26px rows)
+// reads NEITHER — its geometry is the crate's; these are the record.
+pub mod menu {
+    pub mod pointer {
+${menuPointer}
+    }
+
+    pub mod touch {
+${menuTouch}
+    }
 }
 
 // The agent transcript's measure, gap ladder and type scale (EXP-787), in px.

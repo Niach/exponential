@@ -103,6 +103,31 @@ pub mod size {
     pub const ROW_HEIGHT: f32 = 32.0;
 }
 
+// Menu row geometry (EXP-1074), two density classes: `pointer` is web at md+,
+// `touch` the phones. The IDE's own PopupMenu (gpui-component, 26px rows)
+// reads NEITHER — its geometry is the crate's; these are the record.
+pub mod menu {
+    pub mod pointer {
+        pub const ITEM_HEIGHT: f32 = 36.0;
+        pub const ITEM_PADDING_X: f32 = 8.0;
+        pub const ITEM_GAP: f32 = 8.0;
+        pub const ICON_SIZE: f32 = 16.0;
+        pub const SURFACE_PADDING: f32 = 4.0;
+        pub const MIN_WIDTH: f32 = 180.0;
+        pub const MAX_WIDTH: f32 = 280.0;
+    }
+
+    pub mod touch {
+        pub const ITEM_HEIGHT: f32 = 48.0;
+        pub const ITEM_PADDING_X: f32 = 12.0;
+        pub const ITEM_GAP: f32 = 12.0;
+        pub const ICON_SIZE: f32 = 16.0;
+        pub const SURFACE_PADDING: f32 = 4.0;
+        pub const MIN_WIDTH: f32 = 180.0;
+        pub const MAX_WIDTH: f32 = 280.0;
+    }
+}
+
 // The agent transcript's measure, gap ladder and type scale (EXP-787), in px.
 // The gap is chosen by `steer::feed::transcript_gap`.
 pub mod transcript {

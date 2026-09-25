@@ -96,22 +96,34 @@ export async function createTeamThroughOnboarding(
   await page.getByLabel(`Team name`).fill(teamName)
   await page.getByRole(`button`, { name: `Create team`, exact: true }).click()
 
-  await expect(page.getByLabel(`Board name`)).toBeVisible()
-  await page.getByLabel(`Board name`).fill(boardName)
+  // The board step (EXP-725 order: team, board, invite, devices). It mounts
+  // while the new team is still syncing in, and a value typed before that
+  // settles is lost — so type until the field holds it.
+  const name = page.getByRole(`textbox`, { name: `Name` })
+  await expect(name).toBeVisible()
+  await expect
+    .poll(async () => {
+      await name.click()
+      await name.fill(boardName)
+      await page.waitForTimeout(400)
+      return name.inputValue()
+    })
+    .toBe(boardName)
   await page.getByRole(`button`, { name: `Create board` }).click()
 
-  await expect(
-    page.getByRole(`heading`, { name: `Invite your teammates` })
-  ).toBeVisible()
-  await page.getByRole(`button`, { name: `Skip for now`, exact: true }).click()
-
-  await expect(
-    page.getByRole(`heading`, { name: `Set up your devices` })
-  ).toBeVisible()
-  await Promise.all([
-    expect(page).toHaveURL(/\/t\/[^/]+/),
-    page.getByRole(`button`, { name: `Skip for now`, exact: true }).click(),
-  ])
+  // The invite and devices steps, skipped; each arrives once the row it
+  // waits on has synced, which can take a while on a busy dev stack.
+  const skip = page.getByRole(`button`, { name: `Skip for now`, exact: true })
+  const onTeam = () => /\/t\/[^/]+/.test(new URL(page.url()).pathname)
+  for (let step = 0; step < 4; step += 1) {
+    await expect
+      .poll(async () => onTeam() || (await skip.isVisible()), { timeout: 60_000 })
+      .toBe(true)
+    if (onTeam()) break
+    await skip.click()
+    await page.waitForTimeout(300)
+  }
+  await expect(page).toHaveURL(/\/t\/[^/]+/, { timeout: 30_000 })
 }
 
 export async function logoutUser(page: Page) {

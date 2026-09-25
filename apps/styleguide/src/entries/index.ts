@@ -15,8 +15,10 @@ import { entry as pickerStatus } from "./picker-status.tsx"
 import { entry as pickerPriority } from "./picker-priority.tsx"
 import { entry as pickerLabel } from "./picker-label.tsx"
 import { entry as subShell } from "./sub-shell.tsx"
+import { entry as menu } from "./menu.tsx"
 import { entry as toast } from "./toast.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
+import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionTree } from "./session-tree.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
 import { entry as workflowGraph } from "./workflow-graph.tsx"
@@ -37,8 +39,10 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   pickerPriority,
   pickerLabel,
   subShell,
+  menu,
   toast,
   composerDialog,
+  issueContextMenu,
   sessionTree,
   deviceSettings,
   workflowGraph,

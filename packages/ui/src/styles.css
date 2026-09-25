@@ -224,6 +224,50 @@ html {
   --transcript-body-line-height: 22px;
   --transcript-tool-size: 12px;
   --transcript-tool-line-height: 18px;
+  /* EXP-1074 menu row geometry, BOTH density classes, mirroring
+     packages/design-tokens/tokens.json `menu` (design-tokens.test.ts guards
+     the parity). px on purpose, like --radius: the ≥768px root font would
+     inflate a rem row 1.16×, which is exactly how the web menu grew to 55px
+     rows. The live --menu-* set below points at `touch` here and flips to
+     `pointer` in the md+ media block after this rule — every menu-like row in
+     this package (context/dropdown items, select, command, typeahead) reads
+     the live set, so one change moves every web menu. */
+  --menu-pointer-item-height: 36px;
+  --menu-pointer-item-padding-x: 8px;
+  --menu-pointer-item-gap: 8px;
+  --menu-pointer-icon-size: 16px;
+  --menu-pointer-surface-padding: 4px;
+  --menu-pointer-min-width: 180px;
+  --menu-pointer-max-width: 280px;
+  --menu-touch-item-height: 48px;
+  --menu-touch-item-padding-x: 12px;
+  --menu-touch-item-gap: 12px;
+  --menu-touch-icon-size: 16px;
+  --menu-touch-surface-padding: 4px;
+  --menu-touch-min-width: 180px;
+  --menu-touch-max-width: 280px;
+  --menu-item-height: var(--menu-touch-item-height);
+  --menu-item-padding-x: var(--menu-touch-item-padding-x);
+  --menu-item-gap: var(--menu-touch-item-gap);
+  --menu-icon-size: var(--menu-touch-icon-size);
+  --menu-surface-padding: var(--menu-touch-surface-padding);
+  --menu-min-width: var(--menu-touch-min-width);
+  --menu-max-width: var(--menu-touch-max-width);
+}
+
+/* EXP-1074: a pointer device's menu density from md up (the breakpoint the
+   root font size and the phone/desktop layouts already switch at). */
+@media (min-width: 768px) {
+  :root,
+  :host {
+    --menu-item-height: var(--menu-pointer-item-height);
+    --menu-item-padding-x: var(--menu-pointer-item-padding-x);
+    --menu-item-gap: var(--menu-pointer-item-gap);
+    --menu-icon-size: var(--menu-pointer-icon-size);
+    --menu-surface-padding: var(--menu-pointer-surface-padding);
+    --menu-min-width: var(--menu-pointer-min-width);
+    --menu-max-width: var(--menu-pointer-max-width);
+  }
 }
 
 .dark {

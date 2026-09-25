@@ -118,6 +118,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`picker-priority`]: `Inputs & pickers`,
   [`picker-label`]: `Inputs & pickers`,
   [`sub-shell`]: `Surfaces`,
+  menu: `Surfaces`,
+  [`issue-context-menu`]: `Surfaces`,
   [`composer-dialog`]: `Surfaces`,
   [`device-settings`]: `Surfaces`,
   toast: `Feedback`,

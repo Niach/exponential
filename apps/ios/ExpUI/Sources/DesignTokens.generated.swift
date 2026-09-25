@@ -106,6 +106,30 @@ public enum DesignTokens {
         public static let rowHeight: CGFloat = 32
     }
 
+    // Menu row geometry (EXP-1074), two density classes. iOS draws the TOUCH
+    // set (GlassMenuTokens); pointer is web at md+.
+    public enum Menu {
+        public enum Pointer {
+            public static let itemHeight: CGFloat = 36
+            public static let itemPaddingX: CGFloat = 8
+            public static let itemGap: CGFloat = 8
+            public static let iconSize: CGFloat = 16
+            public static let surfacePadding: CGFloat = 4
+            public static let minWidth: CGFloat = 180
+            public static let maxWidth: CGFloat = 280
+        }
+
+        public enum Touch {
+            public static let itemHeight: CGFloat = 48
+            public static let itemPaddingX: CGFloat = 12
+            public static let itemGap: CGFloat = 12
+            public static let iconSize: CGFloat = 16
+            public static let surfacePadding: CGFloat = 4
+            public static let minWidth: CGFloat = 180
+            public static let maxWidth: CGFloat = 280
+        }
+    }
+
     // The agent transcript's measure, gap ladder and type scale (EXP-787),
     // all in pt. The gap is chosen by ExpCore `AgentFeed.transcriptGap`.
     public enum Transcript {

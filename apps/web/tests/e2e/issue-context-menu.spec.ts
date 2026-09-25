@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test"
 import { eq } from "drizzle-orm"
 import { db } from "../../src/db/connection"
 import { boards, issues } from "../../src/db/schema"
-import { registerUser } from "./helpers/auth"
+import { createTeamThroughOnboarding, registerUser } from "./helpers/auth"
 import { expect, test, type AppFixture } from "./fixtures"
 
 // EXP-1074 — the issue context menu's four gestures, each one a way it used
@@ -36,48 +36,9 @@ async function seedIssues(app: AppFixture, count: number) {
   )
 }
 
-// The first-run wizard (`lib/auth/onboarding.ts`): team, board, then the
-// invite + devices steps skipped.
-async function onboard(page: Page, app: AppFixture) {
-  await expect(page).toHaveURL(/\/onboarding\/?$/)
-  await page.getByRole(`button`, { name: /Create a team/ }).click()
-  await page.getByLabel(`Team name`).fill(`${app.namespace} team`)
-  await page.getByRole(`button`, { name: `Create team`, exact: true }).click()
-  const name = page.getByRole(`textbox`, { name: `Name` })
-  await expect(name).toBeVisible()
-  // The step mounts while the new team is still syncing in; a value typed
-  // before that settles was lost, so type once the field holds it.
-  await expect
-    .poll(async () => {
-      await name.click()
-      await name.fill(app.boardName)
-      await page.waitForTimeout(400)
-      return name.inputValue()
-    })
-    .toBe(app.boardName)
-  await page.getByRole(`button`, { name: `Create board` }).click()
-  // The invite and devices steps, skipped; each step arrives when the row
-  // it waits on has synced, which can take a while on a busy dev stack.
-  const skip = page.getByRole(`button`, { name: `Skip for now`, exact: true })
-  for (let step = 0; step < 4; step += 1) {
-    await expect
-      .poll(
-        async () =>
-          /\/t\/[^/]+/.test(new URL(page.url()).pathname) ||
-          (await skip.isVisible()),
-        { timeout: 60_000 }
-      )
-      .toBe(true)
-    if (/\/t\/[^/]+/.test(new URL(page.url()).pathname)) break
-    await skip.click()
-    await page.waitForTimeout(300)
-  }
-  await expect(page).toHaveURL(/\/t\/[^/]+/, { timeout: 30_000 })
-}
-
 async function boardWithIssues(page: Page, app: AppFixture, count = 24) {
   await registerUser(page, app.owner)
-  await onboard(page, app)
+  await createTeamThroughOnboarding(page, `${app.namespace} team`, app.boardName)
   await seedIssues(app, count)
   const teamSlug = new URL(page.url()).pathname.split(`/`)[2]
   await page.goto(`/t/${teamSlug}/boards/${app.boardSlug}`)

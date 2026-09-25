@@ -5,10 +5,11 @@
     { "id": "general", "order": 2, "title": "2 General components", "blurb": "The glass control set every screen is built from.", "entries": [
       "picker", "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label",
       "sub-shell",
+      "menu",
       "toast"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
-      "composer-dialog", "session-tree", "device-settings"
+      "composer-dialog", "issue-context-menu", "session-tree", "device-settings"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [
       "workflow-graph"
@@ -27,6 +28,8 @@
     "picker-priority": "EXP-1021",
     "picker-label": "EXP-1021",
     "sub-shell": "EXP-1020",
+    "menu": "EXP-1074",
+    "issue-context-menu": "EXP-1074",
     "toast": "EXP-1031",
     "composer-dialog": "EXP-1019",
     "session-tree": "EXP-996",

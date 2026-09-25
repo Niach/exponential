@@ -15,8 +15,10 @@ pub(crate) mod picker_status;
 pub(crate) mod picker_priority;
 pub(crate) mod picker_label;
 pub(crate) mod sub_shell;
+pub(crate) mod menu;
 pub(crate) mod toast;
 pub(crate) mod composer_dialog;
+pub(crate) mod issue_context_menu;
 pub(crate) mod session_tree;
 pub(crate) mod device_settings;
 pub(crate) mod workflow_graph;
@@ -50,8 +52,10 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_priority::ID, owner: picker_priority::OWNER, render: picker_priority::render },
     Entry { id: picker_label::ID, owner: picker_label::OWNER, render: picker_label::render },
     Entry { id: sub_shell::ID, owner: sub_shell::OWNER, render: sub_shell::render },
+    Entry { id: menu::ID, owner: menu::OWNER, render: menu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
+    Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_tree::ID, owner: session_tree::OWNER, render: session_tree::render },
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
     Entry { id: workflow_graph::ID, owner: workflow_graph::OWNER, render: workflow_graph::render },

@@ -32,7 +32,7 @@ export function DueDateSubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
-        <CalendarDays className="size-4" />
+        <CalendarDays />
         Set due date
         <DropdownMenuShortcut className={`${topLevelValueClass} tabular-nums`}>
           {dueDateLabel}

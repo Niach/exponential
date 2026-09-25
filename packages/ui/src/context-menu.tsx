@@ -5,7 +5,17 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 
 import { cn } from "./cn"
-import { MENU_SURFACE_CLASS } from "./menu-surface"
+import {
+  MENU_CHECK_ITEM_CLASS,
+  MENU_CHEVRON_CLASS,
+  MENU_CONTENT_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_LABEL_CLASS,
+  MENU_SEPARATOR_CLASS,
+  MENU_SHORTCUT_CLASS,
+  MENU_SUB_TRIGGER_CLASS,
+  MENU_SURFACE_CLASS,
+} from "./menu-surface"
 
 function ContextMenu({
   ...props
@@ -39,7 +49,8 @@ function ContextMenuContent({
         data-slot="context-menu-content"
         className={cn(
           MENU_SURFACE_CLASS,
-          `max-h-(--radix-context-menu-content-available-height) min-w-[180px] max-w-[280px] origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto p-1`,
+          MENU_CONTENT_CLASS,
+          `max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto`,
           className
         )}
         {...props}
@@ -71,7 +82,7 @@ function ContextMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        `relative flex min-h-12 cursor-default items-center gap-3 rounded-sm px-3 py-1.5 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!`,
+        MENU_ITEM_CLASS,
         className
       )}
       {...props}
@@ -89,7 +100,7 @@ function ContextMenuCheckboxItem({
     <ContextMenuPrimitive.CheckboxItem
       data-slot="context-menu-checkbox-item"
       className={cn(
-        `relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none focus:bg-glass-active data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
+        MENU_CHECK_ITEM_CLASS,
         className
       )}
       checked={checked}
@@ -125,7 +136,7 @@ function ContextMenuRadioItem({
     <ContextMenuPrimitive.RadioItem
       data-slot="context-menu-radio-item"
       className={cn(
-        `relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none focus:bg-glass-active data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
+        MENU_CHECK_ITEM_CLASS,
         className
       )}
       {...props}
@@ -152,7 +163,7 @@ function ContextMenuLabel({
       data-slot="context-menu-label"
       data-inset={inset}
       className={cn(
-        `px-2 py-1.5 text-sm font-medium data-[inset]:pl-8`,
+        MENU_LABEL_CLASS,
         className
       )}
       {...props}
@@ -167,7 +178,7 @@ function ContextMenuSeparator({
   return (
     <ContextMenuPrimitive.Separator
       data-slot="context-menu-separator"
-      className={cn(`-mx-1 my-1 h-px bg-border`, className)}
+      className={cn(MENU_SEPARATOR_CLASS, className)}
       {...props}
     />
   )
@@ -181,7 +192,7 @@ function ContextMenuShortcut({
     <span
       data-slot="context-menu-shortcut"
       className={cn(
-        `ml-auto text-xs tracking-widest text-muted-foreground`,
+        MENU_SHORTCUT_CLASS,
         className
       )}
       {...props}
@@ -213,13 +224,13 @@ function ContextMenuSubTrigger({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        `flex min-h-12 cursor-default items-center gap-3 rounded-sm px-3 py-1.5 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active data-[inset]:pl-8 data-[state=open]:bg-glass-active data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:data-[state=open]:bg-destructive/10 data-[variant=destructive]:data-[state=open]:text-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!`,
+        MENU_SUB_TRIGGER_CLASS,
         className
       )}
       {...props}
     >
       {children}
-      <ChevronRightIcon className="ml-2 size-4 shrink-0" />
+      <ChevronRightIcon className={MENU_CHEVRON_CLASS} />
     </ContextMenuPrimitive.SubTrigger>
   )
 }
@@ -238,7 +249,8 @@ function ContextMenuSubContent({
         data-slot="context-menu-sub-content"
         className={cn(
           MENU_SURFACE_CLASS,
-          `min-w-[180px] max-w-[280px] origin-(--radix-context-menu-content-transform-origin) overflow-hidden p-1`,
+          MENU_CONTENT_CLASS,
+          `origin-(--radix-context-menu-content-transform-origin) overflow-hidden`,
           className
         )}
         {...props}

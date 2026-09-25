@@ -5,6 +5,7 @@ import { IssueContextMenuProvider } from "@/components/issue-context-menu/provid
 import { issueMenuProps } from "@/components/issue-context-menu/attr"
 import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
 import type { Team } from "@/db/schema"
+import { issueMenuLabels } from "@exp/ui"
 
 // EXP-1074 — THE issue context menu: one host, opened by a right-click (or a
 // touch long-press) on any element carrying `data-issue-menu`, resolving the
@@ -169,7 +170,8 @@ vi.mock(`@tanstack/react-db`, () => ({
     // `undefined` is the skipped query.
     if (build(query) === undefined) return { data: [], isReady: false }
     const rows = table ? (liveRows.byTable[table] ?? []) : []
-    const active = filter
+    // Assigned inside the `where` callback, which the narrowing cannot see.
+    const active = filter as { column: string; value: unknown } | null
     return {
       data: active ? rows.filter((row) => row[active.column] === active.value) : rows,
       isReady: true,
@@ -536,6 +538,46 @@ describe(`IssueContextMenuProvider`, () => {
 
     openOn(`row-issue-2`)
     expect(screen.getByText(`Deselect`)).not.toBeNull()
+  })
+
+  // The ONE layout (`@exp/ui` ISSUE_MENU_LAYOUT): what the styleguide draws
+  // at rest and the IDE mirrors is what this host draws, top to bottom.
+  it(`draws the items in the shared layout's order`, () => {
+    function List({ children }: { children: ReactNode }) {
+      const root = useRef<HTMLDivElement>(null)
+      useIssueMenuSelection({ root, isSelected: () => false, toggle: () => {} })
+      return <div ref={root}>{children}</div>
+    }
+    render(
+      <Host>
+        <List>{row()}</List>
+      </Host>
+    )
+    openOn()
+
+    const labels = issueMenuLabels(new Set([`phone`, `estimation`, `boards`]))
+    expect(labels).toEqual([
+      `Open issue`,
+      `Mark as done`,
+      `Copy issue ID`,
+      `Select`,
+      `Status`,
+      `Assignee`,
+      `Priority`,
+      `Labels`,
+      `Estimate`,
+      `Set due date`,
+      `Move to board`,
+      `Add relation`,
+      `Delete issue`,
+    ])
+    const text = screen.getByRole(`menu`).textContent ?? ``
+    let at = -1
+    for (const label of labels) {
+      const next = text.indexOf(label, at + 1)
+      expect(next, `${label} after position ${at}`).toBeGreaterThan(at)
+      at = next
+    }
   })
 
   it(`opens on a touch long-press, not on a tap`, () => {
