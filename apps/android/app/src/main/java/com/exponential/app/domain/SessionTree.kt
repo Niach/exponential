@@ -114,50 +114,100 @@ object SessionTree {
         }
         return out
     }
+
+    // ── EXP-1068: the strings every client draws off the tree, byte-identical
+    //    ×4 (web `sessionRowIsLive`, `reviewBranchRound`, `reviewRoundVerdict`,
+    //    `reviewRowCaption`, `workflowGroupCaption`).
+
+    /** A row is LIVE until the server ends it. */
+    fun sessionRowIsLive(status: String?): Boolean = status != DomainContract.codingSessionStatusEnded
+
+    private val REVIEW_ROUND = Regex("-r(\\d+)$")
+
+    /** The round a review branch carries (`…-review-<IDENT>-r<n>` → n); null
+     *  for any other branch. Only the SUFFIX is read. */
+    fun reviewBranchRound(branch: String?): Int? {
+        if (branch.isNullOrEmpty()) return null
+        val round = REVIEW_ROUND.find(branch)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+        return round.takeIf { it > 0 }
+    }
+
+    /** What a review row says about its verdict. `Submitted` = an older round
+     *  whose verdict the node no longer carries (only the latest is stored). */
+    enum class ReviewRowVerdict { Approved, ChangesRequested, Submitted, None }
+
+    /** The verdict of the review of [round], from the node's `review_round`
+     *  ([nodeReviewRound]; null = no node) and its latest `review` cell. */
+    fun reviewRoundVerdict(
+        round: Int?,
+        nodeReviewRound: Int?,
+        latestRound: Int?,
+        latestVerdict: String?,
+    ): ReviewRowVerdict {
+        if (round == null || nodeReviewRound == null) return ReviewRowVerdict.None
+        if (latestRound != null && latestVerdict != null && latestRound == round) {
+            return if (latestVerdict == "approve") ReviewRowVerdict.Approved else ReviewRowVerdict.ChangesRequested
+        }
+        return if (round <= nodeReviewRound) ReviewRowVerdict.Submitted else ReviewRowVerdict.None
+    }
+
+    /** A review row's title: `Review r2 · approved`, `… · changes requested`,
+     *  `… · submitted`, `… · no verdict` (ended), `Review r2` (still live),
+     *  `Review` without a round. */
+    fun reviewRowCaption(round: Int?, verdict: ReviewRowVerdict, live: Boolean): String {
+        val title = if (round == null) "Review" else "Review r$round"
+        return when (verdict) {
+            ReviewRowVerdict.Approved -> "$title · approved"
+            ReviewRowVerdict.ChangesRequested -> "$title · changes requested"
+            ReviewRowVerdict.Submitted -> "$title · submitted"
+            ReviewRowVerdict.None -> if (live) title else "$title · no verdict"
+        }
+    }
+
+    /** The workflow group row's trailing caption: `3 running · 5 of 8 done`. */
+    fun workflowGroupCaption(liveRuns: Int, nodesDone: Int, nodesTotal: Int): String {
+        val parts = ArrayList<String>(2)
+        if (liveRuns > 0) parts.add("$liveRuns running")
+        if (nodesTotal > 0) parts.add("$nodesDone of $nodesTotal done")
+        return parts.joinToString(" · ")
+    }
 }
 
 // ── the node tree ──────────────────────────────────────────────────────
-// EXP-996/EXP-1050: the NODE-based session tree — the second, richer selector
-// over the same synced rows, and the one every sessions list draws now. The
-// flat [SessionTree.nest] above stays: `PrGraph` and the Recent sheet nest a
-// plain parent/child list and have no groups to draw.
+// EXP-996/EXP-1050/EXP-1068: the NODE-based session tree every sessions list
+// draws. The flat [SessionTree.nest] above stays for `PrGraph` and the Recent
+// sheet, which have no groups to draw.
 //
-// THE CONTRACT is web `lib/sessions/session-tree.ts`; these are its rules, in
-// this order (same names, same tests ×4 — desktop `domain::session_tree`, iOS
-// `SessionTree.swift`):
+// THE CONTRACT is web `lib/sessions/session-tree.ts` (same rules, same test
+// names ×4 — desktop `domain::session_tree`, iOS `SessionTree.swift`):
 //
-//   1. Resumed runs COLLAPSE: every resume succession ([runChain], EXP-974) is
-//      ONE node, keyed by its newest row, `chain` oldest-first. Rows are
-//      walked oldest first, so the PRIMARY succession claims its members and
-//      an older fork sibling becomes its own node.
-//   2. Children nest under their `parentSessionId` (EXP-679/818), following
-//      the parent's whole succession (EXP-906: a resume inherits it).
-//   3. The sessions of ONE workflow group under a [SessionTreeNode.Workflow]
-//      row — resolved through `workflow_nodes` by session, then issue, then a
-//      batch row's covered issues, and only for a workflow the caller synced
-//      (that row is where the NAME comes from). `startedReason = workflow`
-//      alone never groups.
-//   4. A stack ([PrStack.stackChain], `issues.pr_base_branch`) groups under
-//      [SessionTreeNode.Stack] in LINEAR order, lowest first — only when TWO+
-//      of its members are listed. Workflow grouping wins.
+//   1. Resume successions ([runChain]) COLLAPSE into ONE node keyed by the
+//      newest row, `chain` oldest-first; the primary succession claims first.
+//   2. Children nest under their `parentSessionId`'s succession — UNLESS the
+//      child has a workflow membership the parent does not share (a chat that
+//      resumed a node run stays in the group). No membership = always nests.
+//   3. A chain's membership = its NEWEST row with a `workflowId` (EXP-1082,
+//      server-stamped). Runs group under [SessionTreeNode.Workflow] ONLY by
+//      that stamp and only for a workflow listed in the context (the NAME
+//      source). Inside: one row per `author` chain; `review` chains nest under
+//      their node's head author (live first, then newest), else sit as plain
+//      children; everything else is a plain child. Two live authors or two
+//      live reviewers on a node flag every author row `duplicateLive`.
+//   4. A stack ([PrStack.stackChain]) groups under [SessionTreeNode.Stack] in
+//      LINEAR order, lowest first, from the leftover top level (2+ members).
 //   5. Groups and top-level nodes sort by last activity, newest first;
-//      children keep creation order, and a parent's activity counts its whole
-//      subtree, so folding one never moves it.
-//   6. An orphan child whose parent is gone (swept, not synced) sits at top
-//      level; so does a cycle's closing row.
+//      children keep creation order; activity rolls up the subtree.
+//   6. An orphan child (parent gone) or a cycle's closing row sits at top.
 //
-// CONCRETE, not generic (the choice this file makes): the two walks it reuses
-// are entity-typed here — [runChain] over `CodingSessionEntity` and
-// [PrStack.stackChain] over `IssueEntity` — and a generic tree would have to
-// carry its own copy of both. The web version is generic only because its
-// helpers are; nobody on Android feeds this anything but the synced rows.
+// CONCRETE, not generic: [runChain] and [PrStack.stackChain] are entity-typed
+// here, and nobody on Android feeds this anything but the synced rows.
 
-/** What the rows alone cannot say: which workflow an issue belongs to, and
- *  which issues stack on which. Every list is optional — a caller with no
- *  workflows synced still gets the session/parent tree. */
+/** What the rows alone cannot say: the workflows' names/status, their nodes'
+ *  states (the group caption) and the stack edges. Every list is optional. */
 data class SessionTreeContext(
     val workflows: List<WorkflowEntity> = emptyList(),
-    /** `workflow_nodes` rows: which issue sits in which workflow. */
+    /** `workflow_nodes` rows: group NOTHING since EXP-1068; `state` feeds the
+     *  group's `5 of 8 done`. */
     val workflowNodes: List<WorkflowNodeEntity> = emptyList(),
     /** The issues the sessions name, for the stack edges. */
     val issues: List<IssueEntity> = emptyList(),
@@ -176,6 +226,10 @@ sealed interface SessionTreeNode {
         val chain: List<CodingSessionEntity>,
         override val children: List<SessionTreeNode> = emptyList(),
         override val lastActivityAt: Long = 0L,
+        /** A review chain's round, off its branch; null on every other row. */
+        val reviewRound: Int? = null,
+        /** An author row whose node has 2+ live authors or reviewers. */
+        val duplicateLive: Boolean = false,
     ) : SessionTreeNode
 
     data class Workflow(
@@ -184,6 +238,13 @@ sealed interface SessionTreeNode {
         /** The node runs, newest first. */
         override val children: List<SessionTreeNode> = emptyList(),
         override val lastActivityAt: Long = 0L,
+        /** contract `wfStatus` — the group row's dot. */
+        val status: String = DomainContract.wfStatusRunning,
+        /** Live session nodes in the whole subtree. */
+        val liveRuns: Int = 0,
+        /** The workflow's nodes in state `landed`, of [nodesTotal]. */
+        val nodesDone: Int = 0,
+        val nodesTotal: Int = 0,
     ) : SessionTreeNode
 
     data class Stack(
@@ -217,22 +278,42 @@ private fun treeStamp(value: String?): Long {
     return WireTimestamps.parseEpochMs(text) ?: 0L
 }
 
+/** A chain's EXP-1082 membership (its newest stamped row's). */
+private data class TreeMembership(val workflowId: String, val nodeId: String?, val role: String?)
+
+private fun membershipOf(chain: List<CodingSessionEntity>): TreeMembership? {
+    val row = chain.lastOrNull { it.workflowId != null } ?: return null
+    return TreeMembership(row.workflowId!!, row.workflowNodeId, row.workflowRole)
+}
+
 /** A session node under construction: its children and its rolled-up activity
  *  are only known once every row has been placed. */
 private class TreeBuild(
     val session: CodingSessionEntity,
     val chain: List<CodingSessionEntity>,
     var lastActivityAt: Long,
+    val reviewRound: Int?,
 ) {
     val children = mutableListOf<TreeBuild>()
+    var duplicateLive = false
+
+    val live: Boolean get() = SessionTree.sessionRowIsLive(session.status)
 
     fun freeze(): SessionTreeNode.Session = SessionTreeNode.Session(
         session = session,
         chain = chain,
         children = children.map { it.freeze() },
         lastActivityAt = lastActivityAt,
+        reviewRound = reviewRound,
+        duplicateLive = duplicateLive,
     )
 }
+
+/** Rule 5: CREATION order, ties on the id. */
+private val byCreation = compareBy<TreeBuild>({ treeStamp(it.session.createdAt) }, { it.session.id })
+
+/** Newest activity first, ties on the id. */
+private val byActivity = compareByDescending<TreeBuild> { it.lastActivityAt }.thenBy { it.session.id }
 
 /**
  * The sessions list as a tree. Pure: no clock, no IO; sort ties break on the
@@ -242,10 +323,7 @@ fun sessionTree(
     sessions: List<CodingSessionEntity>,
     context: SessionTreeContext = SessionTreeContext(),
 ): List<SessionTreeNode> {
-    // 1. Resume successions collapse. Oldest row first, so the primary
-    //    succession ([runChain]'s newest-successor walk) claims its members
-    //    before an older fork sibling does; whatever is left becomes its own
-    //    node. Without a fork this is exactly [runChain].
+    // 1. Resume successions collapse, oldest row first.
     val ordered = sessions.sortedWith(
         compareBy<CodingSessionEntity>({ treeStamp(it.createdAt) }, { it.id }),
     )
@@ -258,53 +336,49 @@ fun sessionTree(
         for (member in chain) canonicalOf[member.id] = canonical.id
         chainOf[canonical.id] = chain.ifEmpty { listOf(row) }
     }
+    val memberships = chainOf.mapValues { (_, chain) -> membershipOf(chain) }
 
-    // 2. Children nest under their parent's SUCCESSION (EXP-906: a resume
-    //    inherits `parentSessionId`, so the whole chain answers for it).
+    // 2. Children nest under their parent's SUCCESSION (EXP-906) — unless the
+    //    child is a workflow's and the parent is not that workflow's.
     val parentOf = HashMap<String, String>()
     for ((canonicalId, chain) in chainOf) {
-        var named: String? = null
-        var index = chain.size - 1
-        while (index >= 0 && named == null) {
-            named = chain[index].parentSessionId
-            index -= 1
-        }
+        val named = chain.asReversed().firstNotNullOfOrNull { it.parentSessionId }
         val parent = named?.let { canonicalOf[it] }
-        // Rule 6: a parent that is gone (swept, another team, not synced)
-        // leaves the child at top level; so does a row naming itself.
-        if (parent != null && parent != canonicalId) parentOf[canonicalId] = parent
+        // Rule 6: a gone parent (or a row naming itself) leaves it at top.
+        if (parent == null || parent == canonicalId) continue
+        val own = memberships[canonicalId]
+        if (own != null && own.workflowId != memberships[parent]?.workflowId) continue
+        parentOf[canonicalId] = parent
     }
 
     val builds = LinkedHashMap<String, TreeBuild>()
     for ((canonicalId, chain) in chainOf) {
+        val session = chain.last()
         builds[canonicalId] = TreeBuild(
-            session = chain.last(),
+            session = session,
             chain = chain,
             lastActivityAt = chain.maxOfOrNull { treeStamp(it.updatedAt) } ?: 0L,
+            reviewRound = if (memberships[canonicalId]?.role == DomainContract.wfSessionRoleReview) {
+                SessionTree.reviewBranchRound(session.branch)
+            } else {
+                null
+            },
         )
     }
 
-    // A cycle (never written by the server, but a synced row is a synced row)
-    // leaves the row it closes on at top level.
+    // A cycle leaves the row it closes on at top level.
     val roots = ArrayList<TreeBuild>()
     for ((canonicalId, build) in builds) {
         val parent = treeAncestor(canonicalId, parentOf, builds.keys)?.let { builds[it] }
         if (parent != null && parent !== build) parent.children.add(build) else roots.add(build)
     }
 
-    // 3. Children keep CREATION order (rule 5); a parent's activity counts its
-    //    subtree's, so folding one never moves it.
-    for (build in builds.values) {
-        build.children.sortWith(
-            compareBy<TreeBuild>({ treeStamp(it.session.createdAt) }, { it.session.id }),
-        )
-    }
+    // 3. Children keep CREATION order; a parent's activity counts its subtree.
+    for (build in builds.values) build.children.sortWith(byCreation)
     for (root in roots) rollUpActivity(root)
 
-    // 4. Workflow groups, then stack groups — over the TOP-LEVEL nodes only
-    //    (a child run stays under its parent wherever the parent lands).
-    val frozen = roots.map { it.freeze() }
-    val grouped = groupSessionStacks(groupSessionWorkflows(frozen, context), context)
+    // 4. Workflow groups, then stack groups — over the TOP-LEVEL nodes only.
+    val grouped = groupSessionStacks(groupSessionWorkflows(roots, memberships, context), context)
 
     // 5. Groups and lone nodes sort by last activity, newest first.
     return grouped.sortedWith(
@@ -339,67 +413,84 @@ private fun rollUpActivity(build: TreeBuild): Long {
     return build.lastActivityAt
 }
 
-/** Rule 3: the sessions of ONE workflow under one group row. A node belongs to
- *  the workflow that lists its issue (or the node run itself) — the name comes
- *  from [SessionTreeContext.workflows], so a workflow the caller did not sync
- *  leaves its runs ungrouped. */
+/** How many session nodes of a subtree are live. */
+private fun liveCount(builds: List<TreeBuild>): Int =
+    builds.sumOf { (if (it.live) 1 else 0) + liveCount(it.children) }
+
+/** Rule 3: the sessions of ONE workflow under one group row, by the rows' own
+ *  stamped `workflowId`; a workflow the caller did not list stays ungrouped. */
 private fun groupSessionWorkflows(
-    roots: List<SessionTreeNode.Session>,
+    roots: List<TreeBuild>,
+    memberships: Map<String, TreeMembership?>,
     context: SessionTreeContext,
 ): List<SessionTreeNode> {
     val workflows = context.workflows.associateBy { it.id }
-    if (workflows.isEmpty() || context.workflowNodes.isEmpty()) return roots
-    val byIssue = HashMap<String, String>()
-    val bySession = HashMap<String, String>()
-    for (entry in context.workflowNodes) {
-        if (entry.workflowId !in workflows) continue
-        if (entry.issueId.isNotEmpty() && entry.issueId !in byIssue) byIssue[entry.issueId] = entry.workflowId
-        val sessionId = entry.sessionId
-        if (sessionId != null && sessionId !in bySession) bySession[sessionId] = entry.workflowId
-    }
-    fun workflowOf(node: SessionTreeNode.Session): String? {
-        for (row in node.chain) {
-            bySession[row.id]?.let { return it }
-            row.issueId?.let { issueId -> byIssue[issueId]?.let { return it } }
-            // A batch node run covers several workflow issues (EXP-978).
-            for (issueId in batchRunIssueIds(row.batchIssueIds)) {
-                byIssue[issueId]?.let { return it }
-            }
-        }
-        return null
-    }
+    if (workflows.isEmpty()) return roots.map { it.freeze() }
 
-    val out = ArrayList<SessionTreeNode>(roots.size)
-    // The group rows, in first-encounter order, each with its members.
-    val members = LinkedHashMap<String, MutableList<SessionTreeNode>>()
-    val slotOf = HashMap<String, Int>()
-    for (node in roots) {
-        val workflowId = workflowOf(node)
-        val workflow = workflowId?.let { workflows[it] }
-        if (workflowId == null || workflow == null) {
-            out.add(node)
+    class Part {
+        val authors = LinkedHashMap<String, MutableList<TreeBuild>>()
+        val reviews = LinkedHashMap<String, MutableList<TreeBuild>>()
+        val plain = mutableListOf<TreeBuild>()
+    }
+    // Ungrouped roots stay as builds; a group is a placeholder until filled.
+    val out = ArrayList<Any>(roots.size)
+    val parts = LinkedHashMap<String, Part>()
+    for (build in roots) {
+        val membership = memberships[build.session.id]
+        val workflow = membership?.let { workflows[it.workflowId] }
+        if (membership == null || workflow == null) {
+            out.add(build)
             continue
         }
-        if (workflowId !in members) {
-            members[workflowId] = mutableListOf()
-            slotOf[workflowId] = out.size
-            out.add(SessionTreeNode.Workflow(workflowId = workflowId, name = workflow.name))
+        val part = parts.getOrPut(workflow.id) {
+            out.add(workflow)
+            Part()
         }
-        members.getValue(workflowId).add(node)
+        val nodeId = membership.nodeId
+        when {
+            nodeId != null && membership.role == DomainContract.wfSessionRoleAuthor ->
+                part.authors.getOrPut(nodeId) { mutableListOf() }.add(build)
+            nodeId != null && membership.role == DomainContract.wfSessionRoleReview ->
+                part.reviews.getOrPut(nodeId) { mutableListOf() }.add(build)
+            else -> part.plain.add(build)
+        }
     }
-    for ((workflowId, children) in members) {
-        // The node runs, newest first.
-        val sorted = children.sortedWith(
-            compareByDescending<SessionTreeNode> { it.lastActivityAt }
-                .thenBy { sessionTreeNodeKey(it) },
-        )
-        val slot = slotOf.getValue(workflowId)
-        out[slot] = (out[slot] as SessionTreeNode.Workflow).copy(
-            children = sorted,
-            lastActivityAt = sorted.maxOfOrNull { it.lastActivityAt } ?: 0L,
+
+    return out.map { entry ->
+        if (entry is TreeBuild) return@map entry.freeze()
+        val workflow = entry as WorkflowEntity
+        val part = parts.getValue(workflow.id)
+        val children = mutableListOf<TreeBuild>()
+        for ((nodeId, authors) in part.authors) {
+            // The node's HEAD author: live first, then newest activity.
+            authors.sortWith(compareByDescending<TreeBuild> { it.live }.then(byActivity))
+            val reviews = part.reviews.remove(nodeId).orEmpty()
+            val duplicate = authors.count { it.live } > 1 || reviews.count { it.live } > 1
+            for (author in authors) author.duplicateLive = duplicate
+            if (reviews.isNotEmpty()) {
+                val head = authors.first()
+                head.children.addAll(reviews)
+                head.children.sortWith(byCreation)
+                rollUpActivity(head)
+            }
+            children.addAll(authors)
+        }
+        // A review whose node has no author listed, then everything else.
+        for (reviews in part.reviews.values) children.addAll(reviews)
+        children.addAll(part.plain)
+        children.sortWith(byActivity)
+        val nodes = context.workflowNodes.filter { it.workflowId == workflow.id }
+        SessionTreeNode.Workflow(
+            workflowId = workflow.id,
+            name = workflow.name,
+            children = children.map { it.freeze() },
+            lastActivityAt = children.maxOfOrNull { it.lastActivityAt } ?: 0L,
+            status = workflow.status,
+            liveRuns = liveCount(children),
+            nodesDone = nodes.count { it.state == DomainContract.wfNodeStateLanded },
+            nodesTotal = nodes.size,
         )
     }
-    return out
 }
 
 /** Rule 4: a stack (`issues.pr_base_branch`) under one group row in LINEAR

@@ -40,9 +40,9 @@ export interface WorkflowEventListProps {
 export const WORKFLOW_EVENT_GLYPH: Record<string, IconConcept> = {
   node_started: `action-run`,
   retrying: `run-resume`,
-  review_started: `nav-reviews`,
-  review_verdict: `nav-reviews`,
-  review_no_verdict: `nav-reviews`,
+  review_started: `coding-in-review`,
+  review_verdict: `coding-in-review`,
+  review_no_verdict: `coding-in-review`,
   gave_up: `ui-warning`,
   failed: `ui-warning`,
   following_resume: `ui-info`,

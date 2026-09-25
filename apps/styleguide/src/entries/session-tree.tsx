@@ -69,7 +69,7 @@ function run(
 export const entry: StyleguideEntry = {
   id: `session-tree`,
   section: `special`,
-  owner: `EXP-1068`,
+  owner: `EXP-996`,
   title: `Session tree`,
   blurb: `Runs nested under their parent, workflow and stack groups, resumes collapsed. ONE selector over the synced coding_sessions rows (\`sessionTree\`) that every sessions list draws: a resume succession is ONE row keyed by its newest, a \`sessions_start\` child nests under its parent's succession, and a stack sits under its own group row in linear order, lowest first. EXP-1068: a workflow's runs group by the row's server-stamped \`workflow_id\` (no heuristics), under a group row that wears the workflow's NAME, its status dot and \`3 running · 5 of 8 done\`; inside it one row per node's author run, the node's review runs nested under it as \`Review r2 · approved\`, base merges and plan runs as plain children; a node with two live runs wears the warning glyph, an open question the red dot. Stacks and workflows are not unified — the icon is the whole difference: nav-workflows for the graph, pr-stack for the chain. Groups and top-level rows sort by last activity, newest first; children keep creation order; a group is its children, so folding one takes them with it and a childless group never draws.`,
   status: {

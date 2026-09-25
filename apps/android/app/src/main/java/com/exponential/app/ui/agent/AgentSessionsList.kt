@@ -1,25 +1,42 @@
 package com.exponential.app.ui.agent
 
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.db.WorkflowNodeEntity
+import com.exponential.app.domain.AccountOptions
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SessionTreeContext
 import com.exponential.app.domain.SessionTreeNode
 import com.exponential.app.domain.TreeGuides
+import com.exponential.app.domain.parseAgentAccounts
+import com.exponential.app.domain.parseAgentUsage
+import com.exponential.app.domain.parseLaunchDefaults
 import com.exponential.app.domain.sessionTree
 import com.exponential.app.domain.visibleSessionTreeRows
+import com.exponential.app.domain.workflowNodeReview
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.session.AgentRow
 import com.exponential.app.ui.session.RunningSessionRow
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
@@ -44,6 +61,11 @@ internal val AGENT_LIST_ROW_GAP = 6.dp
  * — resumes collapse into one row, children keep nesting under their parent,
  * and a workflow's or a stack's runs sit under one group row ([treeContext] is
  * what tells them apart). Every group folds by the same key.
+ *
+ * EXP-1068: a review run is titled by its round + verdict
+ * ([SessionTree.reviewRowCaption]), a node with two live runs warns on its
+ * author row, an open question adds a red "needs you" dot, and a run on a
+ * non-default account says so in its byline ([AgentRow.accountLabel]).
  */
 internal fun LazyListScope.agentSessionsList(
     rows: List<AgentRow>,
@@ -81,6 +103,7 @@ internal fun LazyListScope.agentSessionsList(
             collapsedRunning,
         )
         val rowsBySessionId = rows.associateBy { it.session.id }
+        val nodesById = treeContext.workflowNodes.associateBy { it.id }
         // EXP-965: the indent alone made a child read as a shifted stranger.
         val guides = TreeGuides.compute(tree.map { it.depth })
         itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->
@@ -118,6 +141,27 @@ internal fun LazyListScope.agentSessionsList(
                             expandable = entry.hasChildren,
                             expanded = entry.key !in collapsedRunning,
                             onToggle = { onToggleRunning(entry.key) },
+                            titleOverride = reviewRowTitle(node, nodesById),
+                            accountLabel = row?.accountLabel,
+                            dotAccessory = if (node.duplicateLive || node.session.pendingQuestion != null) {
+                                {
+                                    if (node.session.pendingQuestion != null) {
+                                        Spacer(Modifier.width(4.dp))
+                                        StaticDot(NeedsYouRed, size = 6.dp)
+                                    }
+                                    if (node.duplicateLive) {
+                                        Spacer(Modifier.width(4.dp))
+                                        Icon(
+                                            ExpIcons.uiWarning,
+                                            contentDescription = DUPLICATE_LIVE_LABEL,
+                                            modifier = Modifier.size(12.dp).testTag("session-duplicate-live"),
+                                            tint = NeedsInputAmber,
+                                        )
+                                    }
+                                }
+                            } else {
+                                null
+                            },
                         )
                     }
                     // EXP-978: the workflow the runs below belong to — the row
@@ -130,6 +174,8 @@ internal fun LazyListScope.agentSessionsList(
                         expanded = entry.key !in collapsedRunning,
                         onToggle = { onToggleRunning(entry.key) },
                         onClick = { onOpenWorkflow(node.workflowId) },
+                        workflowStatus = node.status,
+                        caption = SessionTree.workflowGroupCaption(node.liveRuns, node.nodesDone, node.nodesTotal),
                     )
                     // EXP-897: the stack, lowest first. There is no stack
                     // screen to open — its members are the rows below.
@@ -145,4 +191,55 @@ internal fun LazyListScope.agentSessionsList(
             }
         }
     }
+}
+
+/** EXP-1068: what the duplicate-live warning glyph announces. */
+internal const val DUPLICATE_LIVE_LABEL = "Two live runs on this node"
+
+/** EXP-1068: the "needs you" dot of a run with an open question. */
+private val NeedsYouRed = DesignTokens.Semantic.Red
+
+/** EXP-1068: a REVIEW chain's title (`Review r2 · approved`) off its node's
+ *  `review_round` + latest `review` cell; null on every other row. */
+private fun reviewRowTitle(
+    node: SessionTreeNode.Session,
+    nodesById: Map<String, WorkflowNodeEntity>,
+): String? {
+    val stamped = node.chain.lastOrNull { it.workflowId != null } ?: return null
+    if (stamped.workflowRole != DomainContract.wfSessionRoleReview) return null
+    val wfNode = stamped.workflowNodeId?.let(nodesById::get)
+    val review = workflowNodeReview(wfNode?.review)
+    val verdict = SessionTree.reviewRoundVerdict(
+        round = node.reviewRound,
+        nodeReviewRound = wfNode?.let { it.reviewRound ?: 0 },
+        latestRound = review?.round,
+        latestVerdict = review?.verdict,
+    )
+    return SessionTree.reviewRowCaption(
+        node.reviewRound,
+        verdict,
+        SessionTree.sessionRowIsLive(node.session.status),
+    )
+}
+
+/**
+ * EXP-1068: the account a run spends, when it is NOT its machine's default for
+ * the run's agent (the default = the device's default account when it is of
+ * that agent, else that agent's first login — `AccountOptions.flatten`). The
+ * option's email names it, else the profile id. Null when unset, when the
+ * machine is not synced, or when it is the default.
+ */
+internal fun runAccountLabel(session: CodingSessionEntity, devices: List<DeviceEntity>): String? {
+    val account = session.agentAccount?.takeIf { it.isNotBlank() } ?: return null
+    val agent = session.agent ?: return null
+    val device = devices.firstOrNull { it.deviceId == session.deviceId } ?: return null
+    val options = AccountOptions.flatten(
+        parseAgentAccounts(device.agentAccounts),
+        parseAgentUsage(device.agentUsage),
+        parseLaunchDefaults(device.launchDefaults),
+    ).filter { it.agent == agent }
+    if (options.isEmpty()) return account.takeIf { it != "system" }
+    val default = options.firstOrNull { it.isDeviceDefault } ?: options.first()
+    if (default.id == account) return null
+    return options.firstOrNull { it.id == account }?.email?.takeIf { it.isNotBlank() } ?: account
 }

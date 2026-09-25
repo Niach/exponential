@@ -94,6 +94,9 @@ data class AgentRow(
     // batch PR's representative) or, for an action/chat run that opened a PR
     // of its own, the SESSION. Null = nothing to merge.
     val mergeTarget: MergeTarget? = null,
+    // EXP-1068: the run's account when it is not its machine's default for
+    // the agent (`runAccountLabel`); null = default, unset or unknown.
+    val accountLabel: String? = null,
 )
 
 /**
@@ -650,6 +653,7 @@ fun agentRows(
             // EXP-734: an action or chat run can carry a PR of its OWN (one
             // that links no issue), merged through codingSessions.mergePr.
             mergeTarget = resolveMergeTarget(session, issue, batchPrIssue),
+            accountLabel = com.exponential.app.ui.agent.runAccountLabel(session, devices),
         )
     }
 }
