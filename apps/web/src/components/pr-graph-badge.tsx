@@ -2,7 +2,10 @@ import { useMemo, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
+  CHIP_GLYPH_CLASS,
+  ChipBox,
   conceptIcon,
+  IssueChipStack,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
@@ -21,17 +24,11 @@ import {
   issueRelationCollection,
 } from "@/lib/collections"
 import {
-  badgeLabel,
+  badgeChip,
   badgeShape,
   prGraph,
   type PrGraphFace,
 } from "@/lib/pr-graph"
-import {
-  PLACEMENT_GLYPH,
-  PLACEMENT_SIZE,
-  placementClass,
-  type RunPillPlacement,
-} from "@/components/run-action-pills"
 import { blockGraph, type GraphRelation } from "@/lib/issue-graph"
 import { IssueGraphView } from "@/components/issue-graph"
 import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
@@ -56,10 +53,11 @@ const STACK_ROW_GAP = 7
 // sharing one `pr_url`), a session TREE (`parent_session_id`) — and until now
 // each of those was visible on a different screen, if at all.
 //
-// The badge is a small pill in the work header (the Issue, Run and Changes
-// faces share `WorkHeader`, EXP-877) plus, in the Reviews queue, the glyph on
-// a batch row. Hover on ≥md, tap everywhere: the SAME overlay opens, with the
-// section that belongs to the face showing. Same rows, same copy, on all four
+// EXP-1058: in the work header (the Issue, Run and Changes faces share
+// `WorkHeader`, EXP-877) it is the STACKED issue chip (`IssueChipStack`): the
+// representative issue in front, `+N` for the rest (`badgeChip`); in the
+// Reviews queue, the glyph on a batch row. Hover on ≥md, tap everywhere: the
+// SAME overlay opens, with the section that belongs to the face showing. Same rows, same copy, on all four
 // clients (`pr_graph.rs`, `PrGraphBadge.swift`, `PrGraphBadge.kt`).
 //
 // Everything it draws is already synced — `lib/pr-graph.ts` is the pure model.
@@ -74,20 +72,6 @@ const TreeIcon = conceptIcon(`session-tree`)
 
 export type { PrGraphFace } from "@/lib/pr-graph"
 
-/** EXP-1079 — where the pill stands, which is the ONLY thing that sizes it:
- *  `header` = the md+ work header's right cluster, beside the face toggle, so
- *  it wears the toggle's rung exactly like Stop / Resume / Merge
- *  (`run-action-pills.tsx` `placement="header"`); `chip` = the phone bars and
- *  list headers, the 24px chip. A 24px badge next to a 36px Stop read as a
- *  stray — the desktop `pr_graph::badge_size` is the same rule. */
-export type PrGraphBadgePlacement = `header` | `chip`
-
-/** The badge's own name for the run-pill recipe it borrows. */
-const PLACEMENT_RECIPE: Record<PrGraphBadgePlacement, RunPillPlacement> = {
-  header: `header`,
-  chip: `tray`,
-}
-
 /** Byte-identical with the desktop tooltip (`pr_graph::badge_tooltip`). */
 export const RUNS_BADGE_NAME = `The runs around this one`
 
@@ -97,8 +81,7 @@ export function PrGraphBadge({
   face,
   issue = null,
   session = null,
-  variant = `pill`,
-  placement = `chip`,
+  variant = `chip`,
   fallback = null,
   onMergeStack,
   className,
@@ -108,10 +91,9 @@ export function PrGraphBadge({
   face: PrGraphFace
   issue?: Issue | null
   session?: CodingSession | null
-  /** `pill` = the work header's glyph + `2 of 3`; `glyph` = a list row's
+  /** `chip` = the work header's stacked issue chip; `glyph` = a list row's
    *  lead icon (the Reviews queue's batch rows). */
-  variant?: `pill` | `glyph`
-  placement?: PrGraphBadgePlacement
+  variant?: `chip` | `glyph`
   /** EXP-916: what to draw when the graph has NO badge (a batch row whose
    *  siblings have not synced yet). A `glyph` badge sits in a fixed lead cell
    *  of a grid row, and returning nothing shifted the whole row one column. */
@@ -184,8 +166,8 @@ export function PrGraphBadge({
   )
 
   const kind = badgeShape(graph, face)
-  if (!kind) return fallback
-  const label = kind === `runs` ? null : badgeLabel(graph)
+  const chipSpec = badgeChip(graph, face)
+  if (!kind || !chipSpec) return fallback
   const name =
     kind === `runs`
       ? RUNS_BADGE_NAME
@@ -194,8 +176,12 @@ export function PrGraphBadge({
         : kind === `stack`
           ? `Pull request stack`
           : `Batch pull request`
-  const recipe = PLACEMENT_RECIPE[placement]
-  const glyphClass = PLACEMENT_GLYPH[recipe]
+  // The runs-only shape of an issue-less run: the front chip names the run.
+  const runIdentity = chipSpec.issue
+    ? null
+    : session
+      ? sessionIdentity({ session, issue: undefined, batchIssues: issues })
+      : null
 
   const trigger =
     variant === `glyph` ? (
@@ -218,28 +204,46 @@ export function PrGraphBadge({
         <BatchIcon className="size-4" />
       </button>
     ) : (
-      <Pill
-        size={PLACEMENT_SIZE[recipe]}
-        mode="action"
+      // One trigger: the front chip is inert, the whole stack opens the
+      // overlay (a chip that jumped to the issue would hide what it stands for).
+      <button
+        type="button"
         aria-label={name}
         title={name}
         data-testid="pr-graph-badge"
-        data-placement={placement}
-        className={cn(`shrink-0`, placementClass(recipe), className)}
+        className={cn(
+          `inline-flex min-w-0 max-w-[18rem] shrink-0 cursor-pointer items-center rounded-md p-1.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+          className
+        )}
         onClick={(event) => event.stopPropagation()}
         onMouseEnter={() => {
           if (!isMobile) setOpen(true)
         }}
       >
-        {kind === `runs` && <TreeIcon className={glyphClass} />}
-        {(kind === `stack` || kind === `stack+batch`) && (
-          <StackIcon className={glyphClass} />
-        )}
-        {(kind === `batch` || kind === `stack+batch`) && (
-          <BatchIcon className={glyphClass} />
-        )}
-        {label}
-      </Pill>
+        <IssueChipStack count={chipSpec.count} testId="pr-graph-chip">
+          {chipSpec.issue ? (
+            <IssueChip issue={chipSpec.issue} preview={false} />
+          ) : (
+            <ChipBox
+              slot="issue-chip"
+              openLabel={name}
+              body={
+                <>
+                  <TreeIcon className={cn(CHIP_GLYPH_CLASS, `text-muted-foreground`)} />
+                  {runIdentity?.identifier && (
+                    <span className="shrink-0 font-mono text-muted-foreground">
+                      {runIdentity.identifier}
+                    </span>
+                  )}
+                  <span className="min-w-0 truncate text-[0.8125rem] font-medium text-foreground">
+                    {runIdentity?.subject ?? name}
+                  </span>
+                </>
+              }
+            />
+          )}
+        </IssueChipStack>
+      </button>
     )
 
   return (

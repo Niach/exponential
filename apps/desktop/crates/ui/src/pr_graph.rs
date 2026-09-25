@@ -1,15 +1,15 @@
 //! EXP-897 §4 — the ONE stack/batch badge and its overlay.
 //!
 //! Every face of a top tab (Issue · Run · Changes) shares one work header, so
-//! it shares ONE badge: a glass pill carrying the stack glyph, the batch
-//! glyph or both, plus `2 of 3` when the pull request is stacked — or, on the
-//! Run face of a run with no pull-request relation at all, the `session-tree`
-//! glyph alone (EXP-1079). It stands BESIDE the face toggle, so it wears the
-//! toggle's rung like every other header action ([`badge_size`], EXP-926):
-//! the 24px chip it used to be read as a stray next to a 36px Stop. Clicking
-//! it opens a popover whose SECTION depends on the face that is up, built
-//! from the same row primitives and the same copy so the three read as one
-//! thing:
+//! it shares ONE badge. EXP-1058: the badge IS a STACKED issue chip
+//! ([`crate::issue_chip`], the workflow graph's deck of ghosts) naming the
+//! subject pull request's representative issue, with `+N` for every other
+//! issue riding the stack or batch ([`domain::pr_graph::badge_chip`], ×4) —
+//! or, on the Run face of a run with no issue, the same chip box with the
+//! `session-tree` concept and the run's own title, `+N` = the other runs. The
+//! chip is INERT: hovering it (desktop = a pointer platform) or clicking it
+//! opens a popover whose SECTION depends on the face that is up, built from
+//! the same row primitives and the same copy so the three read as one thing:
 //!
 //! * **Issue** — "Blocked by" (EXP-980: the transitive `blocks` GRAPH around
 //!   this issue, `crate::issue_graph`, where a flat chip list used to sit)
@@ -21,27 +21,27 @@
 //!
 //! The model is [`domain::pr_graph`] — this module is presentation only.
 
+use std::time::Duration;
+
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, ClickEvent, Hsla,
-    InteractiveElement as _, IntoElement, ParentElement, SharedString,
+    InteractiveElement as _, IntoElement, ParentElement, RenderOnce, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::pr_graph::{self, BadgeKind, PrGraph};
+use domain::pr_graph::{self, BadgeChip, PrGraph};
 use domain::pr_stack;
 use domain::rows::{CodingSession, Issue};
+use domain::statuses::ResolvedStatus;
 
-use crate::icons::{registry, ExpIcon};
+use crate::icons::registry;
+use crate::issue_chip::{issue_chip, ISSUE_CHIP_ICON_MAX, ISSUE_CHIP_STACK_STEP};
 use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
 
-/// Which face the badge is rendered on — it decides the overlay's sections.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BadgeFace {
-    Issue,
-    Run,
-    Changes,
-}
+/// Which face the badge is rendered on — it decides the overlay's sections
+/// (the domain's `PrGraphFace`, which the chip rule reads too).
+pub(crate) use domain::pr_graph::PrGraphFace as BadgeFace;
 
 /// Everything one badge draws: the graph, the face, and the blocked-by
 /// relations (the only part of the Issue face that is not in the graph).
@@ -54,21 +54,27 @@ pub(crate) struct BadgeSpec {
     /// Issue face draws THIS where a flat chip list used to sit. Empty on the
     /// Run and Changes faces (and for an issue-less run).
     pub blocks_graph: domain::issue_graph::IssueGraph,
+    /// The subject run's own title — what the front chip names when there is
+    /// no issue to name (an issue-less run's family). `None` on issue faces.
+    pub run_title: Option<SharedString>,
 }
 
 impl BadgeSpec {
-    /// Whether the badge has anything at all to say on its face. A stack or a
-    /// batch always shows; the Issue face also shows for blockers alone, and
-    /// the Run face for a run that has a family.
-    fn is_visible(&self) -> bool {
-        if pr_graph::badge_kind(&self.graph).is_some() {
-            return true;
+    /// What the chip draws on this face — [`pr_graph::badge_chip`], plus the
+    /// desktop's Issue face for blockers alone (the overlay's "Blocked by"),
+    /// which names the subject issue with nothing behind it.
+    fn chip(&self) -> Option<BadgeChip> {
+        if let Some(chip) = pr_graph::badge_chip(&self.graph, self.face) {
+            return Some(chip);
         }
-        match self.face {
-            BadgeFace::Issue => !self.blocked_by.is_empty(),
-            BadgeFace::Run => !self.graph.tree.is_empty(),
-            BadgeFace::Changes => false,
-        }
+        (self.face == BadgeFace::Issue && !self.blocked_by.is_empty()).then(|| BadgeChip {
+            issue: self
+                .graph
+                .entry
+                .as_ref()
+                .map(|entry| entry.representative().clone()),
+            count: 0,
+        })
     }
 }
 
@@ -152,6 +158,7 @@ pub(crate) fn issue_spec(
             BadgeFace::Issue => crate::issue_graph::graph_for(&[issue.id.as_str()], cx),
             _ => domain::issue_graph::IssueGraph::default(),
         },
+        run_title: None,
     }
 }
 
@@ -173,6 +180,11 @@ pub(crate) fn session_spec(session: &CodingSession, face: BadgeFace, cx: &App) -
         face,
         blocked_by: Vec::new(),
         blocks_graph: domain::issue_graph::IssueGraph::default(),
+        run_title: Some(crate::run_rows::run_title(
+            session,
+            None,
+            &crate::run_rows::batch_run_issues(session, cx),
+        )),
     }
 }
 
@@ -180,108 +192,230 @@ pub(crate) fn session_spec(session: &CodingSession, face: BadgeFace, cx: &App) -
 // The badge
 // ---------------------------------------------------------------------------
 
-/// EXP-1079 — the rung the header badge wears: it stands beside the face
-/// toggle, so it is a header action and takes the header action's size
-/// (`work_header::header_action_size`, EXP-926) — never a size of its own.
-/// The Reviews list's [`batch_glyph`] and the overlay's rows stay chips: they
-/// sit in lists, not beside the toggle.
-pub(crate) fn badge_size() -> PillSize {
-    crate::work_header::header_action_size(false)
+/// The front chip's title cap — a header cluster, not a row.
+const CHIP_TITLE_MAX_W: f32 = 160.;
+/// The deck's ghosts step up and to the right by two steps; `+N` clears them.
+const CHIP_DECK_OFFSET: f32 = 2. * ISSUE_CHIP_STACK_STEP;
+/// The pointer rests this long on the chip before the overlay opens, so a
+/// sweep across the header opens nothing (the hover-preview's habit).
+const HOVER_OPEN_DELAY: Duration = Duration::from_millis(200);
+/// The grace the pointer gets to cross from the chip into the overlay (and
+/// back) before it closes.
+const HOVER_CLOSE_DELAY: Duration = Duration::from_millis(150);
+
+/// What the header chip SHOWS — plain data, so the styleguide draws the very
+/// same element without a synced row.
+pub(crate) struct ChipFace {
+    /// `EXP-12` of the front issue; empty for a run's chip.
+    pub identifier: SharedString,
+    /// The front issue's title, or the run's own title.
+    pub title: SharedString,
+    /// The front issue's resolved status; `None` = the plain issues glyph.
+    pub status: Option<ResolvedStatus>,
+    /// A run family without an issue: the `session-tree` concept leads.
+    pub runs: bool,
+    /// How many ride behind the front chip (`+N`, a deck when > 0).
+    pub count: usize,
 }
 
-/// The header pill: the glyph(s) and, when the pull request is stacked, its
-/// position. `None` when there is nothing to show on this face.
-pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyElement> {
-    if !spec.is_visible() {
-        return None;
+/// The stacked chip itself: the front [`issue_chip`] (INERT — the caller
+/// owns what a click means), ghosts behind it when anything rides along, and
+/// a muted `+N` after the deck.
+pub(crate) fn chip_face(id: &str, face: ChipFace, muted: Hsla) -> gpui::Div {
+    let mut front = issue_chip(
+        SharedString::from(format!("{id}-front")),
+        face.identifier,
+        face.title,
+    )
+    .max_title_width(px(CHIP_TITLE_MAX_W));
+    if let Some(status) = face.status {
+        front = front.status(status);
     }
-    let kind = pr_graph::badge_kind(&spec.graph);
-    let muted = cx.theme().muted_foreground;
-    let size = badge_size();
-    let glyphs: Vec<ExpIcon> = badge_glyphs(kind, &spec)
-        .into_iter()
-        .map(glyph_icon)
-        .collect();
-    let label = spec
-        .graph
-        .position()
-        .map(|position| format!("{} of {}", position.position, position.size))
-        .or_else(|| {
-            spec.graph
-                .batch
-                .as_ref()
-                .map(|batch| format!("{} issues", batch.issues.len()))
-        });
-    let tooltip = badge_tooltip(&spec, kind);
-    let mut pill = glass_pill_button(id, size, cx)
-        .icon(
-            Icon::new(glyphs[0].clone())
-                .with_size(px(size.glyph()))
+    if face.runs {
+        front = front.slot(
+            Icon::new(registry::SESSION_TREE)
+                .with_size(px(ISSUE_CHIP_ICON_MAX))
                 .text_color(muted),
-        )
-        .tooltip(tooltip);
-    // A batch INSIDE a stack wears both concepts (EXP-897 §4).
-    for glyph in glyphs.iter().skip(1) {
-        pill = pill.child(
-            Icon::new(glyph.clone())
-                .with_size(px(size.glyph()))
-                .text_color(muted)
-                .into_any_element(),
         );
     }
-    if let Some(label) = label {
-        pill = pill.label(SharedString::from(label));
+    if face.count > 0 {
+        front = front.stacked();
     }
-    let content_spec = spec;
+    h_flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(CHIP_DECK_OFFSET + 4.))
+        .child(front)
+        .when(face.count > 0, |row| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(format!("+{}", face.count))),
+            )
+        })
+}
+
+/// The header chip: the stacked issue chip for this face, opening the
+/// face's overlay on hover or click. `None` when there is nothing to show.
+pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyElement> {
+    let chip = spec.chip()?;
+    let face = ChipFace {
+        status: chip
+            .issue
+            .as_ref()
+            .map(|issue| crate::queries::resolve_issue_status(cx, issue)),
+        identifier: chip
+            .issue
+            .as_ref()
+            .map(|issue| SharedString::from(issue.identifier.clone()))
+            .unwrap_or_default(),
+        title: match chip.issue.as_ref() {
+            Some(issue) => SharedString::from(issue.title.clone()),
+            None => spec.run_title.clone().unwrap_or_else(|| "Run".into()),
+        },
+        runs: chip.issue.is_none(),
+        count: chip.count,
+    };
+    let element = chip_face(id, face, cx.theme().muted_foreground).into_any_element();
     Some(
-        gpui_component::popover::Popover::new(SharedString::from(format!("{id}-popover")))
-            .p_2()
-            .trigger(pill)
-            .content(move |_, window, cx| overlay(&content_spec, window, cx))
-            .into_any_element(),
+        HeaderChip {
+            id,
+            element: Some(element),
+            spec,
+        }
+        .into_any_element(),
     )
 }
 
-/// The glyph(s) the pill wears — never a raw lucide import, always the
-/// `pr-stack` / `pr-batch` / `session-tree` CONCEPTS (EXP-273).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BadgeGlyph {
-    Stack,
-    Batch,
-    /// EXP-1079: the run's session tree — the `session-tree` concept (the
-    /// workflow glyph the tree's group rows wear), not the agent's robot.
-    Runs,
+/// The overlay's hover bookkeeping, one per chip (keyed window state): open
+/// on a rest over the chip, stay open while the pointer is on the chip OR
+/// the overlay, close a grace after it leaves both.
+#[derive(Default)]
+struct HoverState {
+    open: bool,
+    over_chip: bool,
+    over_card: bool,
+    timer: Option<gpui::Task<()>>,
 }
 
-fn badge_glyphs(kind: Option<BadgeKind>, spec: &BadgeSpec) -> Vec<BadgeGlyph> {
-    match kind {
-        Some(BadgeKind::Stack) => vec![BadgeGlyph::Stack],
-        Some(BadgeKind::Batch) => vec![BadgeGlyph::Batch],
-        Some(BadgeKind::StackAndBatch) => vec![BadgeGlyph::Stack, BadgeGlyph::Batch],
-        // No PR relationship, but the face still has something to say.
-        None => match spec.face {
-            BadgeFace::Run => vec![BadgeGlyph::Runs],
-            _ => vec![BadgeGlyph::Stack],
-        },
+impl HoverState {
+    fn hover(&mut self, chip: bool, hovered: bool, cx: &mut gpui::Context<Self>) {
+        if chip {
+            self.over_chip = hovered;
+        } else {
+            self.over_card = hovered;
+        }
+        let delay = if hovered {
+            if self.open {
+                self.timer = None;
+                return;
+            }
+            HOVER_OPEN_DELAY
+        } else {
+            HOVER_CLOSE_DELAY
+        };
+        self.timer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = this.update(cx, |this, cx| {
+                let inside = this.over_chip || this.over_card;
+                if this.open != inside {
+                    this.open = inside;
+                    cx.notify();
+                }
+            });
+        }));
     }
 }
 
-/// The CONCEPT behind each glyph — never a raw lucide import (EXP-273).
-fn glyph_icon(glyph: BadgeGlyph) -> ExpIcon {
-    match glyph {
-        BadgeGlyph::Stack => registry::PR_STACK,
-        BadgeGlyph::Batch => registry::PR_BATCH,
-        BadgeGlyph::Runs => registry::SESSION_TREE,
+#[derive(IntoElement)]
+struct HeaderChip {
+    id: &'static str,
+    element: Option<AnyElement>,
+    spec: BadgeSpec,
+}
+
+impl RenderOnce for HeaderChip {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = self.id;
+        let state = window.use_keyed_state(
+            SharedString::from(format!("{id}-hover")),
+            cx,
+            |_, _| HoverState::default(),
+        );
+        let open = state.read(cx).open;
+        let chip_state = state.clone();
+        let trigger = ChipTrigger {
+            base: div()
+                .id(SharedString::from(format!("{id}-chip")))
+                .flex()
+                .items_center()
+                // The header rung (EXP-926): the chip is shorter than the
+                // toggle beside it, so it centres in the toggle's height.
+                .h(px(crate::work_header::header_action_size(false).height()))
+                .pr(px(CHIP_DECK_OFFSET))
+                .cursor_pointer()
+                .on_hover(move |hovered, _window, cx| {
+                    chip_state.update(cx, |state, cx| state.hover(true, *hovered, cx));
+                }),
+            element: self.element.take(),
+            selected: false,
+        };
+        let change_state = state.clone();
+        let spec = self.spec;
+        gpui_component::popover::Popover::new(SharedString::from(format!("{id}-popover")))
+            .p_2()
+            .open(open)
+            .on_open_change(move |open, _window, cx| {
+                change_state.update(cx, |state, cx| {
+                    // A click on a chip the hover already opened keeps it up.
+                    if !*open && state.over_chip {
+                        return;
+                    }
+                    state.open = *open;
+                    state.timer = None;
+                    cx.notify();
+                });
+            })
+            .trigger(trigger)
+            .content(move |_, window, cx| {
+                let card_state = state.clone();
+                div()
+                    .id("pr-graph-overlay")
+                    .on_hover(move |hovered, _window, cx| {
+                        card_state.update(cx, |state, cx| state.hover(false, *hovered, cx));
+                    })
+                    .child(overlay(&spec, window, cx))
+            })
     }
 }
 
-fn badge_tooltip(spec: &BadgeSpec, kind: Option<BadgeKind>) -> SharedString {
-    SharedString::from(match (kind, spec.face) {
-        (Some(BadgeKind::Batch), _) => "This pull request closes several issues".to_string(),
-        (Some(_), _) => "This pull request is part of a stack".to_string(),
-        (None, BadgeFace::Run) => "The runs around this one".to_string(),
-        (None, _) => "What this issue waits on".to_string(),
-    })
+/// The chip wrapped so `Popover::trigger` takes it (a `Selectable`): the
+/// wrapper paints nothing of its own (the picker's `PickerTrigger` recipe).
+#[derive(IntoElement)]
+struct ChipTrigger {
+    base: gpui::Stateful<gpui::Div>,
+    element: Option<AnyElement>,
+    selected: bool,
+}
+
+impl gpui_component::Selectable for ChipTrigger {
+    fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    fn is_selected(&self) -> bool {
+        self.selected
+    }
+}
+
+impl RenderOnce for ChipTrigger {
+    fn render(mut self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let element = self.element.take();
+        self.base.children(element)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -663,7 +797,6 @@ pub(crate) fn batch_glyph(id: SharedString, issues: Vec<Issue>, cx: &App) -> Any
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui_component::IconNamed as _;
 
     fn issue(identifier: &str, head: Option<&str>, base: Option<&str>) -> Issue {
         serde_json::from_value(serde_json::json!({
@@ -687,6 +820,7 @@ mod tests {
             face,
             blocked_by: Vec::new(),
             blocks_graph: domain::issue_graph::IssueGraph::default(),
+            run_title: None,
         }
     }
 
@@ -695,63 +829,34 @@ mod tests {
     #[test]
     fn the_badge_hides_when_a_face_has_nothing_to_say() {
         let lone = vec![issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
-        assert!(!spec(BadgeFace::Changes, &lone).is_visible());
-        assert!(!spec(BadgeFace::Issue, &lone).is_visible());
+        assert!(!spec(BadgeFace::Changes, &lone).chip().is_some());
+        assert!(!spec(BadgeFace::Issue, &lone).chip().is_some());
         let mut blocked = spec(BadgeFace::Issue, &lone);
         blocked.blocked_by = vec![issue("EXP-29", None, None)];
-        assert!(blocked.is_visible());
+        assert!(blocked.chip().is_some());
         let stacked = vec![
             issue("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
             issue("EXP-11", Some("exp/EXP-11"), Some("master")),
         ];
-        assert!(spec(BadgeFace::Changes, &stacked).is_visible());
+        assert!(spec(BadgeFace::Changes, &stacked).chip().is_some());
     }
 
-    /// The pill wears the CONCEPT glyphs, both of them for a batch inside a
-    /// stack — never a raw lucide import (EXP-273).
+    /// EXP-1058 — the chip names the subject PR's representative issue and
+    /// counts the rest; blockers alone still earn the Issue face a chip.
     #[test]
-    fn the_badge_glyphs_follow_the_badge_kind() {
-        assert_eq!(
-            badge_glyphs(Some(BadgeKind::Stack), &spec(BadgeFace::Changes, &[issue("A", None, None)])),
-            vec![BadgeGlyph::Stack]
-        );
-        assert_eq!(
-            badge_glyphs(Some(BadgeKind::Batch), &spec(BadgeFace::Changes, &[issue("A", None, None)])),
-            vec![BadgeGlyph::Batch]
-        );
-        assert_eq!(
-            badge_glyphs(
-                Some(BadgeKind::StackAndBatch),
-                &spec(BadgeFace::Changes, &[issue("A", None, None)])
-            ),
-            vec![BadgeGlyph::Stack, BadgeGlyph::Batch]
-        );
-    }
-
-    /// EXP-1079 — a run with no pull-request relation still has a family:
-    /// the Run face wears the `session-tree` concept for it, never the
-    /// agent's robot (`ui-agent-source`), which said "an agent" where the
-    /// popover says "the runs around this one".
-    #[test]
-    fn the_run_face_wears_the_session_tree_concept_without_a_pr_relation() {
-        let lone = [issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
-        assert_eq!(
-            badge_glyphs(None, &spec(BadgeFace::Run, &lone)),
-            vec![BadgeGlyph::Runs]
-        );
-        let path = |icon: ExpIcon| icon.path().to_string();
-        assert_eq!(path(glyph_icon(BadgeGlyph::Runs)), path(registry::SESSION_TREE));
-        assert_ne!(path(glyph_icon(BadgeGlyph::Runs)), path(registry::UI_AGENT_SOURCE));
-    }
-
-    /// EXP-1079 — the badge stands beside the face toggle, so it wears the
-    /// header action's rung (EXP-926): the toggle's own 36px, with the 16px
-    /// glyph that rung draws — not the 24px chip that read as a stray next to
-    /// Stop.
-    #[test]
-    fn the_badge_wears_the_header_action_rung() {
-        assert_eq!(badge_size(), crate::work_header::header_action_size(false));
-        assert_eq!(badge_size().height(), theme::tokens::size::CONTROL_LG);
-        assert_eq!(badge_size().glyph(), 16.);
+    fn the_chip_names_the_front_issue_and_the_rest() {
+        let stacked = vec![
+            issue("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
+            issue("EXP-11", Some("exp/EXP-11"), Some("master")),
+        ];
+        let chip = spec(BadgeFace::Changes, &stacked).chip().unwrap();
+        assert_eq!(chip.issue.unwrap().identifier, "EXP-12");
+        assert_eq!(chip.count, 1);
+        let lone = vec![issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
+        let mut blocked = spec(BadgeFace::Issue, &lone);
+        blocked.blocked_by = vec![issue("EXP-29", None, None)];
+        let chip = blocked.chip().unwrap();
+        assert_eq!(chip.issue.unwrap().identifier, "EXP-30");
+        assert_eq!(chip.count, 0);
     }
 }

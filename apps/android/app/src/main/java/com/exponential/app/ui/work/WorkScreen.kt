@@ -394,6 +394,8 @@ fun WorkScreen(
     val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
+    // EXP-1058: the header chip's front issue, resolved against its team.
+    val graphLeadStatus by graphVm.leadStatus.collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
@@ -436,7 +438,16 @@ fun WorkScreen(
                     action = changesPrUrl?.takeIf { face == WorkFaceKind.Changes }?.let { url ->
                         { GithubHeaderAction(url) }
                     },
-                    badge = { PrGraphBadge(graph) { graphSheetOpen = true } },
+                    // EXP-1058: the STACKED issue chip; a run with no issue
+                    // fronts it with the run's own name.
+                    badge = {
+                        PrGraphBadge(
+                            graph = graph,
+                            face = face,
+                            leadStatus = graphLeadStatus,
+                            runTitle = shownSession?.let { sessionRowTitle(it, issue, batchIssues) },
+                        ) { graphSheetOpen = true }
+                    },
                     // EXP-934: the `…` belongs to the ISSUE, so it shows on the
                     // Issue face alone (`faceShowsContextMenu`) — Run, Changes
                     // and Results keep only the run's own verb. A Delete issue

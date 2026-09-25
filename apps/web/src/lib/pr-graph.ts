@@ -1,6 +1,6 @@
 // EXP-897 Part 4: the ONE model behind the stack/batch BADGE and its overlay.
 // A piece of work can be related to other work three ways, and every client
-// draws the same pill and the same three sections off this one function
+// draws the same stacked chip and the same three sections off this one function
 // (iOS `PrGraph.swift`, Android `PrGraph.kt`, desktop `pr_graph.rs`):
 //
 //   · a STACK   — pull requests based on each other (`issues.pr_base_branch`)
@@ -241,7 +241,7 @@ export function prGraph<
   return { entry: subjectEntry, stack, batch, tree, blockedBy, position, size }
 }
 
-/** Which glyph(s) the pill wears — `null` = no pill at all. */
+/** Which relation(s) the subject has — `null` = no chip at all. */
 export function badgeKind<I, S>(graph: PrGraph<I, S>): BadgeKind {
   const stacked = graph.stack.length >= 2
   const batched = graph.batch !== null
@@ -272,13 +272,30 @@ export function badgeShape<I, S>(
   return face === `run` && graph.tree.length > 1 ? `runs` : null
 }
 
-/** The pill's own label: the stack position when there is one, else the
- *  batch's size. Byte-identical ×4. */
-export function badgeLabel<I, S>(graph: PrGraph<I, S>): string | null {
-  if (graph.stack.length >= 2) return `${graph.position} of ${graph.size}`
-  if (graph.batch) {
-    const count = graph.batch.issues.length
-    return count === 1 ? `1 issue` : `${count} issues`
+/** EXP-1058: what the header's STACKED issue chip draws in place of the old
+ *  pill — the front chip's issue and how many ride behind it (`+N`).
+ *  `issue` = the subject's pull request's representative row; `null` only on
+ *  the Run face of a run with no issue (the tree alone), where the front chip
+ *  names the run instead. `count` = every OTHER issue on the stack (all its
+ *  entries' issues) or batch, or every other run of the tree for `runs`.
+ *  `null` = no chip, exactly when `badgeShape` is null. Byte-identical ×4
+ *  (`pr_graph::badge_chip`, `PrGraph.badgeChip` ×2). */
+export interface BadgeChip<I> {
+  issue: I | null
+  count: number
+}
+
+export function badgeChip<I, S>(
+  graph: PrGraph<I, S>,
+  face: PrGraphFace
+): BadgeChip<I> | null {
+  const shape = badgeShape(graph, face)
+  if (!shape) return null
+  const issue = graph.entry?.issue ?? null
+  if (shape === `runs`) return { issue, count: graph.tree.length - 1 }
+  if (graph.stack.length >= 2) {
+    const total = graph.stack.reduce((sum, row) => sum + row.entry.issues.length, 0)
+    return { issue, count: total - 1 }
   }
-  return null
+  return { issue, count: (graph.batch?.issues.length ?? 1) - 1 }
 }

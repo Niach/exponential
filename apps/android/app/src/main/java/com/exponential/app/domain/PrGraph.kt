@@ -67,6 +67,13 @@ object PrGraph {
         val blockedBy: List<IssueEntity> = emptyList(),
         /** The issue the graph was built for — what `subject` matches on. */
         val subjectIssueId: String? = null,
+        /**
+         * EXP-1058: the subject pull request's representative in POOL order —
+         * the first synced issue on its `pr_url` (web's `entry.issue`), which
+         * is not always the subject: [Entry.representative] leads with what
+         * the reader opened. Null for a run with no issue at all.
+         */
+        val lead: IssueEntity? = null,
     ) {
         /** The subject's own entry — the one the badge counts from. */
         val subject: StackEntry?
@@ -108,6 +115,11 @@ object PrGraph {
             tree = runRows(familyOf(session, sessions), issues),
             blockedBy = issue?.let { StackStart.openBlockers(it.id, relations, issues) }.orEmpty(),
             subjectIssueId = anchor?.id,
+            lead = anchor?.let { first ->
+                first.prUrl?.takeIf { it.isNotEmpty() }
+                    ?.let { url -> issues.firstOrNull { it.prUrl == url } }
+                    ?: first
+            },
         )
     }
 
@@ -124,6 +136,42 @@ object PrGraph {
             batched -> BadgeKind.BATCH
             else -> null
         }
+    }
+
+    /**
+     * EXP-1079: whether the header chip shows at all — a PR relation
+     * ([badgeKind]), or, on the Run face (and its Results sub-face) of a run
+     * with a family, the session tree alone. The tree carries the subject
+     * run itself, so "a family" is more than one row. Web `badgeShape`.
+     */
+    fun badgeShows(graph: Graph, face: WorkFaceKind): Boolean =
+        badgeKind(graph) != null || (runsFace(face) && graph.tree.size > 1)
+
+    private fun runsFace(face: WorkFaceKind): Boolean =
+        face == WorkFaceKind.Run || face == WorkFaceKind.Results
+
+    /**
+     * EXP-1058: what the header's STACKED issue chip draws — the front chip's
+     * [issue] and how many ride behind it ([count], the `+N`).
+     */
+    data class BadgeChip(val issue: IssueEntity?, val count: Int)
+
+    /**
+     * EXP-1058: the stacked chip, or null exactly when [badgeShows] is false.
+     * `issue` = the subject pull request's representative ([Graph.lead]);
+     * null only for a run with no issue (the tree alone), whose front chip
+     * names the run instead. `count` = every OTHER issue on the stack (all
+     * its entries' issues) or batch, or every other run of the tree when only
+     * the tree earns the chip. Web `badgeChip`, byte-identical in meaning ×4.
+     */
+    fun badgeChip(graph: Graph, face: WorkFaceKind): BadgeChip? {
+        if (!badgeShows(graph, face)) return null
+        val issue = graph.lead
+        if (badgeKind(graph) == null) return BadgeChip(issue, graph.tree.size - 1)
+        if (graph.stack.size >= 2) {
+            return BadgeChip(issue, graph.stack.sumOf { it.entry.issues.size } - 1)
+        }
+        return BadgeChip(issue, (graph.batch?.issues?.size ?: 1) - 1)
     }
 
     /**
