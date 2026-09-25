@@ -8,21 +8,18 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, px, relative, size, AnyElement, App, AppContext as _, Hsla, InteractiveElement as _,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
-    Window,
+    div, px, relative, AnyElement, App, Hsla, InteractiveElement as _, IntoElement as _, ParentElement,
+    SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     progress::ProgressCircle,
-    text::TextView,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
 use crate::controls::{WebControl as _, WebText as _};
 use crate::icons::registry;
-use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 /// EXP-863/EXP-909/EXP-1051 — the usage sheet, the SAME layout on all four
 /// clients:
@@ -284,12 +281,6 @@ pub(crate) fn device_usage(
 // EXP-1051 — the context window block (section 0)
 // ---------------------------------------------------------------------------
 
-/// The read-only playbook viewer's title and blurb — the web's words
-/// (`context-window-block.tsx`), so a person reading the same row on two
-/// clients opens the same thing under the same name.
-const PLAYBOOK_DIALOG_TITLE: &str = "Run playbook";
-const PLAYBOOK_DIALOG_BLURB: &str = "Appended to every coding run's system prompt.";
-
 /// The legend swatch's side, and the bar's height.
 const SWATCH: f32 = 10.;
 const BAR_H: f32 = 4.;
@@ -419,10 +410,9 @@ fn render_context_window(
     Some(block.into_any_element())
 }
 
-/// One legend row: swatch · label · `≈`-prefixed tokens · share. Two of them
-/// ACT rather than report — the playbook every run is handed (opened
-/// read-only, rather than "somewhere in the repo") and the team prompt, the
-/// one layer in here a person can shorten, which is Settings → General.
+/// One legend row: swatch · label · `≈`-prefixed tokens · share. Only the
+/// team prompt ACTS rather than reports: the one layer in here a person can
+/// shorten, which is Settings → General.
 fn render_legend_row(index: usize, row: &crate::context_layout::ContextLegendRow, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let line = h_flex()
@@ -483,12 +473,6 @@ fn render_legend_row(index: usize, row: &crate::context_layout::ContextLegendRow
         .py_0p5()
         .rounded_sm();
     match row.key {
-        "playbook" => shell
-            .cursor_pointer()
-            .hover(|this| this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
-            .on_click(|_, window, cx| open_playbook(window, cx))
-            .child(body)
-            .into_any_element(),
         "team" => shell
             .cursor_pointer()
             .hover(|this| this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
@@ -506,39 +490,3 @@ fn render_legend_row(index: usize, row: &crate::context_layout::ContextLegendRow
     }
 }
 
-/// The playbook, read-only: the 6 KiB `coding::skill::RUN_SKILL` every run's
-/// system prompt is appended with, in the same GFM renderer the issue
-/// description and What's new use.
-fn open_playbook(window: &mut Window, cx: &mut App) {
-    let spec = DialogSpec::new(PLAYBOOK_DIALOG_TITLE, size(px(640.), px(560.)))
-        .resizable(size(px(360.), px(240.)));
-    native_dialog::open_dialog_window(window, cx, spec, move |_window, cx| {
-        DialogContent::new(cx.new(|_| PlaybookView))
-    });
-}
-
-/// The playbook dialog's body — a pure read-only render of the shipped
-/// playbook.
-struct PlaybookView;
-
-impl Render for PlaybookView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        v_flex()
-            .size_full()
-            .gap_2()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(PLAYBOOK_DIALOG_BLURB),
-            )
-            .child(
-                div().flex_1().min_h_0().text_sm().child(
-                    TextView::markdown("run-playbook-body", SharedString::from(coding::skill::RUN_SKILL))
-                        .style(crate::surface::markdown_style())
-                        .selectable(true)
-                        .scrollable(true),
-                ),
-            )
-    }
-}

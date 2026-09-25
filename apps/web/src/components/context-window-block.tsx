@@ -17,17 +17,10 @@ import { Link } from "@tanstack/react-router"
 import {
   Collapsible,
   CollapsibleContent,
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
   DisclosureHeader,
   SegmentedBar,
   segmentToneClass,
 } from "@exp/ui"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useTeamById } from "@/hooks/use-team-data"
 import {
   CONTEXT_WINDOW_TITLE,
@@ -35,20 +28,14 @@ import {
   type ContextLegendRow,
   type ContextSegment,
 } from "@/lib/context-layout"
-import { RUN_PLAYBOOK } from "@/lib/run-playbook.generated"
 import type { SessionUsageState } from "@/lib/agent-feed"
 import { cn } from "@/lib/utils"
-
-/** The read-only viewer's title. Web-only: the natives open the playbook in
- *  their own markdown sheet under the same words. */
-export const PLAYBOOK_DIALOG_TITLE = `Run playbook`
-export const PLAYBOOK_DIALOG_BLURB = `Appended to every coding run's system prompt.`
 
 /** The overlay's section-title style — the same 11px caps the account and
  *  windows sections carry. */
 const TITLE_CLASS = `text-[11px] uppercase tracking-wide text-muted-foreground`
 
-/** The legend row's inside, shared by the static rows and the two that act. */
+/** The legend row's inside, shared by the static rows and the one that acts. */
 function LegendRowBody({ row }: { row: ContextLegendRow }) {
   return (
     <>
@@ -98,7 +85,6 @@ export function ContextWindowBlock({
   className?: string
 }) {
   const [open, setOpen] = useState(false)
-  const [playbookOpen, setPlaybookOpen] = useState(false)
   const team = useTeamById(teamId)
   const view = contextWindowView(sessionUsage, contextLayout)
   // No usage yet, or a window of unknown size: there is no scale to draw on.
@@ -135,22 +121,6 @@ export function ContextWindowBlock({
         <CollapsibleContent className="mt-1.5 flex flex-col">
           {view.legend.map((row) => {
             const body = <LegendRowBody row={row} />
-            // The playbook: the 6 KiB every run is handed. Readable here
-            // rather than "somewhere in the repo".
-            if (row.key === `playbook`) {
-              return (
-                <button
-                  key={row.key}
-                  type="button"
-                  data-testid="context-legend-row"
-                  data-key={row.key}
-                  className={cn(ROW_CLASS, ACTION_ROW_CLASS)}
-                  onClick={() => setPlaybookOpen(true)}
-                >
-                  {body}
-                </button>
-              )
-            }
             // The team prompt: the one layer in here a person can shorten,
             // and Settings → General is where they do it.
             if (row.key === `team` && team) {
@@ -180,28 +150,6 @@ export function ContextWindowBlock({
           })}
         </CollapsibleContent>
       </Collapsible>
-      <Dialog open={playbookOpen} onOpenChange={setPlaybookOpen}>
-        <DialogContent
-          mobile="sheet-full"
-          className="sm:max-h-[85dvh] sm:max-w-3xl"
-          data-testid="run-playbook-dialog"
-        >
-          <DialogHeader>
-            <DialogTitle>{PLAYBOOK_DIALOG_TITLE}</DialogTitle>
-            <DialogDescription>{PLAYBOOK_DIALOG_BLURB}</DialogDescription>
-          </DialogHeader>
-          <DialogBody className="text-sm text-foreground">
-            {/* The same read-only TipTap renderer descriptions, comments and
-                What's new use — the playbook IS GFM. */}
-            <MarkdownEditor
-              editable={false}
-              markdown={RUN_PLAYBOOK}
-              onChange={() => {}}
-              ariaLabel={PLAYBOOK_DIALOG_TITLE}
-            />
-          </DialogBody>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
