@@ -276,6 +276,11 @@ public enum WorkflowView {
     public static let mergeTrainTitle = "Merge train"
     public static let mergeTrainEmpty = "Nothing is waiting to land."
     public static let finalPrTitle = "Final pull request"
+    /// EXP-1033: the ONE human review of the whole run — squash-merging the
+    /// workflow's final pull request from the workflow screen.
+    public static let mergeFinalPrLabel = "Merge"
+    public static let mergeFinalPrConfirm =
+        "The workflow's branch is squash-merged into the default branch and the run is done."
     /// The strip over the graph that lists the runs that are up, one tap away.
     public static let runningNowLabel = "Running now"
 
@@ -495,6 +500,13 @@ public enum WorkflowView {
     public static let proposedNodeNote =
         "Filed during the run. Admit it into the workflow or dismiss it."
     public static let agentReviewTitle = "Agent review"
+    /// The node panel's read-only line: what THIS node's run spawns on
+    /// (`modelForNode`).
+    public static let nodeModelLabel = "Model"
+    /// EXP-1014: the chip of a node whose issue row has not synced yet — the
+    /// identifier slot shows the first 8 characters of the issue id, the title
+    /// this line. Byte-identical ×4.
+    public static let nodeUnsyncedTitle = "Not synced yet"
     public static let metricsTitle = "Metrics"
 
     /// The node panel's one line about the latest agent review:

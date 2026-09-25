@@ -41,12 +41,25 @@ struct WorkflowGraphView: View {
     /// not drawn (a wave of its own after the last one).
     let finalPrCaption: String?
     let finalPrUrl: String?
+    /// contract `prState` — while it is `open` the final-PR row carries the
+    /// Merge control (EXP-1033).
+    var finalPrState: String? = nil
     /// EXP-982 — `node id → its run`. A node that is UP wears its session's own
     /// dot instead of the state glyph, and the strip above the waves opens it.
     var runs: [String: WorkflowNodeRun] = [:]
+    /// A write is in flight upstairs; the Merge control goes inert rather than
+    /// double-firing.
+    var busy = false
     let onSelect: (WorkflowNodeEntity) -> Void
     /// Steer the node's run — the Running strip's tap.
     var onOpenRun: (String) -> Void = { _ in }
+    /// Squash-merge the final pull request (`workflows.mergeFinalPr`), once
+    /// the confirmation is through.
+    var onMergeFinalPr: () -> Void = {}
+
+    /// The final-PR merge asks first: it is the one irreversible step of the
+    /// whole run, so it confirms like Cancel workflow does.
+    @State private var showMergeConfirm = false
 
     /// The nodes by id — an edge names NODES, so a blocker chip resolves its
     /// issue through this.
@@ -112,10 +125,7 @@ struct WorkflowGraphView: View {
                     HStack(spacing: 6) {
                         ForEach(live, id: \.0.id) { node, run in
                             GlassPill(
-                                WorkflowView.nodeTitle(
-                                    identifier: issues[node.issueId]?.identifier ?? node.issueId,
-                                    memberCount: node.memberIssueIds.count
-                                ),
+                                Self.nodeIdentifier(node, issue: issues[node.issueId]),
                                 mode: .action { onOpenRun(run.sessionId) }
                             ) {
                                 SessionStateDot(tone: run.tone, pulsing: run.busy, size: 8)
@@ -135,9 +145,14 @@ struct WorkflowGraphView: View {
     /// The final-PR node — one more chip after the last wave, reading like
     /// every other row. It links out to the pull request once there is one;
     /// until then it is the caption alone ("Opening the pull request").
+    ///
+    /// EXP-1033 — while that pull request is OPEN the row also carries the one
+    /// human review of the whole run: Merge, confirmed, which squash-merges the
+    /// workflow's branch into the default branch and completes the run. A phone
+    /// finishes a workflow without leaving for GitHub.
     @ViewBuilder
     private func finalPrRow(_ caption: String) -> some View {
-        let row = HStack(spacing: 8) {
+        let body = HStack(spacing: 8) {
             IssueChip(
                 identifier: nil,
                 title: WorkflowView.finalPrTitle,
@@ -150,17 +165,39 @@ struct WorkflowGraphView: View {
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
         }
+
+        HStack(spacing: 8) {
+            if let url = finalPrUrl.flatMap(URL.init(string:)) {
+                Link(destination: url) { body.contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+            } else {
+                body
+            }
+            if finalPrState == DomainContract.prStateOpen {
+                GlassPill(
+                    WorkflowView.mergeFinalPrLabel,
+                    icon: AppIcons.notificationPrMerged,
+                    mode: .action { showMergeConfirm = true },
+                    primary: true,
+                    enabled: !busy
+                )
+                .accessibilityIdentifier("workflow-final-pr-merge")
+            }
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .flatRow()
-
-        if let url = finalPrUrl.flatMap(URL.init(string:)) {
-            Link(destination: url) { row.contentShape(Rectangle()) }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("workflow-final-pr-row")
-        } else {
-            row.accessibilityIdentifier("workflow-final-pr-row")
+        .accessibilityIdentifier("workflow-final-pr-row")
+        .confirmationDialog(
+            WorkflowView.mergeFinalPrLabel,
+            isPresented: $showMergeConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(WorkflowView.mergeFinalPrLabel) { onMergeFinalPr() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(WorkflowView.mergeFinalPrConfirm)
         }
     }
 
@@ -247,17 +284,14 @@ struct WorkflowGraphView: View {
         _ node: WorkflowNodeEntity, cycle: Bool, style: WorkflowView.EdgeStyle
     ) -> some View {
         let issue = issues[node.issueId]
-        let status = IssueStatus.from(issue?.status)
+        let status = issue.map { IssueStatus.from($0.status) }
         IssueChip(
-            identifier: WorkflowView.nodeTitle(
-                identifier: issue?.identifier ?? node.issueId,
-                memberCount: node.memberIssueIds.count
-            ),
-            title: issue?.title,
-            iconName: status.iconName,
+            identifier: Self.nodeIdentifier(node, issue: issue),
+            title: Self.nodeChipTitle(issue),
+            iconName: status?.iconName,
             statusColor: cycle
                 ? DesignTokens.Semantic.red
-                : (Self.edgeColor(style) ?? status.color)
+                : (Self.edgeColor(style) ?? status?.color)
         )
         // The dashed hairline says "speculative" the way a dashed edge does.
         .overlay {
@@ -307,30 +341,36 @@ struct WorkflowGraphView: View {
         _ node: WorkflowNodeEntity, tone: WorkflowView.Tone, run: WorkflowNodeRun?
     ) -> some View {
         let issue = issues[node.issueId]
-        // A node whose issue has not synced still names itself.
-        let identifier = WorkflowView.nodeTitle(
-            identifier: issue?.identifier ?? node.issueId,
-            memberCount: node.memberIssueIds.count
-        )
-        let status = IssueStatus.from(issue?.status)
+        // A node whose issue has not synced still names itself — by the head
+        // of its issue id, over the line that says why there is no title.
+        let identifier = Self.nodeIdentifier(node, issue: issue)
+        let title = Self.nodeChipTitle(issue)
+        // No row, no status: an unsynced node leaves the glyph slot EMPTY
+        // rather than inventing a backlog circle (×4).
+        let status = issue.map { IssueStatus.from($0.status) }
+        // A DRAFT's nodes have not run, so they keep the issue's own status
+        // glyph whatever their state says — the same guard ×4.
+        let stateIcon = workflowStatus == DomainContract.wfStatusDraft
+            ? nil
+            : Self.stateIcon(node.state)
         if let run {
-            ChipBox(identifier: identifier, title: Self.chipTitle(issue?.title)) {
+            ChipBox(identifier: identifier, title: Self.chipTitle(title)) {
                 SessionStateDot(tone: run.tone, pulsing: run.busy, size: 8)
                     .accessibilityIdentifier("workflow-node-run-dot")
             }
-        } else if let icon = Self.stateIcon(node.state) {
+        } else if let icon = stateIcon {
             IssueChip(
                 identifier: identifier,
-                title: issue?.title,
+                title: title,
                 iconName: icon,
                 statusColor: Self.color(tone)
             )
         } else {
             IssueChip(
                 identifier: identifier,
-                title: issue?.title,
-                iconName: status.iconName,
-                statusColor: status.color
+                title: title,
+                iconName: status?.iconName,
+                statusColor: status?.color
             )
         }
     }
@@ -341,6 +381,23 @@ struct WorkflowGraphView: View {
         guard let title else { return nil }
         let cut = IssueRefs.chipTitle(title)
         return cut.isEmpty ? nil : cut
+    }
+
+    /// What a node's chip is CALLED: the issue's own identifier once its row
+    /// has synced, else the first 8 characters of the issue id — never the
+    /// bare 36-character uuid (EXP-1014, ×4). The compound suffix rides
+    /// either, so an unsynced batch reads `abcd1234 +2`.
+    static func nodeIdentifier(_ node: WorkflowNodeEntity, issue: IssueEntity?) -> String {
+        WorkflowView.nodeTitle(
+            identifier: issue?.identifier ?? String(node.issueId.prefix(8)),
+            memberCount: node.memberIssueIds.count
+        )
+    }
+
+    /// The chip's title: the issue's own, or the ONE line that says why there
+    /// is none yet (`WorkflowView.nodeUnsyncedTitle`, byte-identical ×4).
+    static func nodeChipTitle(_ issue: IssueEntity?) -> String {
+        issue?.title ?? WorkflowView.nodeUnsyncedTitle
     }
 
     /// The ring a node's chip wears, or nothing at all: a `proposed` node is
