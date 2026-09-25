@@ -1158,21 +1158,18 @@ struct BlockTextEditor: UIViewRepresentable {
                 return false
             }
 
-            // A thematic break deletes as one atom: a partial `──` would save
-            // as literal text.
-            if text.isEmpty, range.length > 0, range.location < storage.length {
-                var run = NSRange()
-                if storage.attribute(.markdownThematicBreak, at: range.location, effectiveRange: &run) as? Bool == true,
-                   NSUnionRange(run, range) != range {
-                    let atom = NSUnionRange(run, range)
-                    storage.beginEditing()
-                    storage.replaceCharacters(in: atom, with: "")
-                    storage.endEditing()
-                    tv.selectedRange = NSRange(location: atom.location, length: 0)
-                    tv.typingAttributes = MarkdownStyle.baseAttributes
-                    textViewDidChange(tv)
-                    return false
-                }
+            // A thematic break deletes as one atom (EXP-1018): a partial `──`,
+            // or a neighbour joined onto the glyph line, would save as literal
+            // text.
+            if text.isEmpty,
+               let atom = MarkdownFormatOps.thematicBreakDeletionRange(in: storage, deleting: range) {
+                storage.beginEditing()
+                storage.replaceCharacters(in: atom, with: "")
+                storage.endEditing()
+                tv.selectedRange = NSRange(location: atom.location, length: 0)
+                tv.typingAttributes = MarkdownStyle.baseAttributes
+                textViewDidChange(tv)
+                return false
             }
 
             // Backspace on an empty list item → exit list mode.

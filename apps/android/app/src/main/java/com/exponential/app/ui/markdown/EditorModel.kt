@@ -265,7 +265,14 @@ class EditorModel {
         val (start, end) = ParaRemap.paragraphBounds(old, breakIndex)
         val atomStart: Int
         val atomEnd: Int
-        if (end < old.length) {
+        // The line leaves with exactly ONE of its newlines: the one the
+        // deletion touched (joining it to the line above keeps the line below
+        // separate), else the one after it, else, as the run's last line, the
+        // one before it.
+        if (diff.removedEnd <= start && start > 0) {
+            atomStart = start - 1
+            atomEnd = end
+        } else if (end < old.length) {
             atomStart = start
             atomEnd = end + 1
         } else {

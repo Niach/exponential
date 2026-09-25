@@ -181,6 +181,25 @@ class EditorModelTest {
     }
 
     @Test
+    fun backspaceAtTheBreakLineStartRemovesOnlyTheBreak() {
+        val m = model("A\n\n---\n\nB")
+        val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH
+        // Backspace at the glyph's start deletes the newline joining it to "A".
+        m.updateRun(run(m).id, "A${glyph}\nB", 1)
+        assertEquals("A\nB", run(m).text)
+        assertEquals("A\n\nB", m.currentMarkdown())
+        assertEquals(run(m).id to 1, m.desiredSelection)
+    }
+
+    @Test
+    fun deletingAGlyphCharRemovesTheBreakAndOneNewline() {
+        val m = model("A\n\n---\n\nB")
+        val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH
+        m.updateRun(run(m).id, "A\n${glyph.drop(1)}\nB", 2)
+        assertEquals("A\nB", run(m).text)
+    }
+
+    @Test
     fun deletingPartOfATrailingBreakRemovesIt() {
         val m = model("A\n\n---")
         val glyph = MarkdownParser.THEMATIC_BREAK_GLYPH

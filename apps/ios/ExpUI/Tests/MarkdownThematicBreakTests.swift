@@ -69,4 +69,40 @@ final class MarkdownThematicBreakTests: XCTestCase {
         heading[.markdownHeadingLevel] = 2
         XCTAssertFalse(fires("--", attrs: heading))
     }
+
+    // MARK: - Deleting a break (one atom, exactly one newline)
+
+    private func editorText(_ markdown: String) -> NSMutableAttributedString {
+        let blocks = MarkdownConversion.markdownToBlocks(markdown)
+        guard case .text(_, let content) = blocks[0] else { return NSMutableAttributedString() }
+        return NSMutableAttributedString(attributedString: content)
+    }
+
+    private func delete(_ range: NSRange, from markdown: String) -> String {
+        let text = editorText(markdown)
+        let atom = MarkdownFormatOps.thematicBreakDeletionRange(in: text, deleting: range) ?? range
+        text.replaceCharacters(in: atom, with: "")
+        return MarkdownConversion.attributedStringToMarkdown(text)
+    }
+
+    func testBackspaceAtTheGlyphStartJoinsNothing() {
+        // "A\n───\nB": the newline before the glyph is at 1.
+        XCTAssertEqual(delete(NSRange(location: 1, length: 1), from: "A\n\n---\n\nB"), "A\n\nB")
+    }
+
+    func testBackspaceAtTheLineBelowRemovesTheBreak() {
+        let after = 2 + (MarkdownStyle.thematicBreakGlyph as NSString).length
+        XCTAssertEqual(delete(NSRange(location: after, length: 1), from: "A\n\n---\n\nB"), "A\n\nB")
+    }
+
+    func testDeletingAGlyphCharRemovesTheBreak() {
+        XCTAssertEqual(delete(NSRange(location: 3, length: 1), from: "A\n\n---\n\nB"), "A\n\nB")
+        XCTAssertEqual(delete(NSRange(location: 3, length: 1), from: "A\n\n---"), "A")
+    }
+
+    func testDeletionsAwayFromABreakAreUntouched() {
+        let text = editorText("Ab\n\n---")
+        XCTAssertNil(MarkdownFormatOps.thematicBreakDeletionRange(
+            in: text, deleting: NSRange(location: 1, length: 1)))
+    }
 }

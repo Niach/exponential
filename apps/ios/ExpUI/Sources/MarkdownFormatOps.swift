@@ -577,6 +577,47 @@ public enum MarkdownFormatOps {
         return after + 1
     }
 
+    /// The span a deletion of `range` really removes when it touches a
+    /// thematic break (a glyph char, or the newline joining the break to a
+    /// neighbour): the whole break line plus exactly ONE of its newlines, the
+    /// one the deletion touched, else the one after it, else the one before.
+    /// A partial `──` or a neighbour merged onto the glyph line would save as
+    /// literal text. `nil` when no break is touched.
+    public static func thematicBreakDeletionRange(
+        in text: NSAttributedString,
+        deleting range: NSRange
+    ) -> NSRange? {
+        guard range.length > 0, NSMaxRange(range) <= text.length else { return nil }
+        let window = NSRange(
+            location: max(0, range.location - 1),
+            length: min(text.length, NSMaxRange(range) + 1) - max(0, range.location - 1))
+        var found: NSRange?
+        text.enumerateAttribute(.markdownThematicBreak, in: window) { value, run, stop in
+            guard value as? Bool == true else { return }
+            var full = NSRange()
+            _ = text.attribute(.markdownThematicBreak, at: run.location,
+                               longestEffectiveRange: &full,
+                               in: NSRange(location: 0, length: text.length))
+            if range.location <= NSMaxRange(full), NSMaxRange(range) >= full.location {
+                found = full
+                stop.pointee = true
+            }
+        }
+        guard let line = found else { return nil }
+        let ns = text.string as NSString
+        let atom: NSRange
+        if NSMaxRange(range) <= line.location, line.location > 0 {
+            atom = NSRange(location: line.location - 1, length: line.length + 1)
+        } else if NSMaxRange(line) < ns.length, ns.character(at: NSMaxRange(line)) == 0x0A {
+            atom = NSRange(location: line.location, length: line.length + 1)
+        } else if line.location > 0 {
+            atom = NSRange(location: line.location - 1, length: line.length + 1)
+        } else {
+            atom = line
+        }
+        return NSUnionRange(atom, range)
+    }
+
     private static func fontRemovingBold(_ font: PlatformFont) -> PlatformFont {
         fontRemoving(.traitBold, from: font)
     }
