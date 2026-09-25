@@ -344,6 +344,21 @@ impl EngineSession {
         self.0.ctx.turn_signal.clone()
     }
 
+    /// EXP-1005: the agent's usage wall as the engine last saw it (`None` =
+    /// not blocked) — what a host's account-rotation beat reads, together
+    /// with the turn slot, to decide whether this run may move to another
+    /// account right now. An expired wall (its own reset stamp passed)
+    /// reads as `None`, by the same rule the synced row follows.
+    pub fn blocked(&self) -> Option<steer::SessionBlocked> {
+        self.0
+            .ctx
+            .blocked
+            .lock()
+            .ok()
+            .and_then(|wall| wall.clone())
+            .filter(|wall| !steer::blocked_wall_expired(wall, steer::now_unix_millis()))
+    }
+
     /// EXP-850 §8: the in-process workflow caption of THIS run — the second
     /// line a session row hosted here renders, with no round trip through the
     /// `agent_caption` column this process is writing (the `turn_signal`

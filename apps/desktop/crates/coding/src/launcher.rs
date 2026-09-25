@@ -171,6 +171,38 @@ fn started_reason<'a>(
     }
 }
 
+/// EXP-1005 — the start-time account pick for one launch: rewrite
+/// `options.account` to the profile with the most headroom when the device
+/// rotates accounts. Off the usage cache only (never a probe: a launch must
+/// not wait on a fetch), so a machine that has never read its logins' usage
+/// keeps the launch's own account.
+fn apply_start_pick(
+    options: &mut LaunchOptions,
+    deps: &CodingDeps,
+) -> Option<crate::account_rotation::StartPick> {
+    let profiles = crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir);
+    let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
+    crate::account_rotation::apply_start_pick(
+        &mut options.account,
+        &profiles,
+        deps.settings.auto_rotate_accounts,
+        options.agent,
+        model,
+        chrono::Utc::now().timestamp_millis(),
+    )
+}
+
+fn note_start_pick(pick: Option<crate::account_rotation::StartPick>) {
+    if let Some(pick) = pick {
+        log::info!(
+            "coding: account rotation at start — {} ({} → {})",
+            pick.message,
+            pick.from,
+            pick.to
+        );
+    }
+}
+
 /// The machine's hostname — §7.1's `device_label` (also the server-side
 /// `coding_sessions.device_label`). Env vars first (cheap), then the
 /// ubiquitous `hostname` binary; never fails (falls back to a placeholder).
@@ -1507,6 +1539,11 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // but the invariant belongs here so every caller (remote resume included)
     // inherits it.
     options.plan_mode &= !resume_prompt;
+    // EXP-1005: every fresh launch on this device starts on the signed-in
+    // profile of its agent with the MOST headroom, read off the usage cache
+    // (`Settings.auto_rotate_accounts`, default on, turns it off; codex
+    // never moves). The launch's own account stands on a tie.
+    note_start_pick(apply_start_pick(&mut options, deps));
     let options = &options;
     let agent = options.agent;
     // EXP-909: the LOGIN this run spends, in the vocabulary the server column
@@ -2203,7 +2240,9 @@ fn prepare_action(
 ) -> Result<Prepared, CodingError> {
     // EXP-257: options apply AS-IS — same per-agent vocabulary as an issue
     // run (the server validates remote starts identically).
-    let options = req.options.clone();
+    let mut options = req.options.clone();
+    // EXP-1005: the same start-time account pick an issue launch takes.
+    note_start_pick(apply_start_pick(&mut options, deps));
     let agent = options.agent;
     // EXP-909: the LOGIN this run spends — hoisted once so the row, the
     // heartbeat and the account env can never name different accounts.

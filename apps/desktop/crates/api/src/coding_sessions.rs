@@ -791,6 +791,12 @@ pub struct BlockedInput<'a> {
     pub window: &'a str,
     pub resets_at: Option<&'a str>,
     pub since: &'a str,
+    /// EXP-1005: `true` = this device handles the wall itself (rotates the
+    /// run to another account, or waits the reset out), so the server sends
+    /// the owner no rate-limit notification. Absent = an older device; the
+    /// server then notifies, throttled to one per profile per hour.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handled: Option<bool>,
 }
 
 #[derive(Serialize)]
