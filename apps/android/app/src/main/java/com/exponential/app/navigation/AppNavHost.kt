@@ -637,6 +637,7 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
                 onOpenAgent = openAgent,
+                onOpenWorkflow = openWorkflow,
             )
         }
         composable("settings") {

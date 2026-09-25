@@ -5,15 +5,19 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.CHAT_RUN_NAME
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrStack
+import com.exponential.app.domain.WorkflowFinalPr
 import com.exponential.app.domain.chatRunSubject
 import com.exponential.app.domain.sortableTimestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -101,6 +105,41 @@ fun buildRunEntries(sessions: List<CodingSessionEntity>): List<RunReviewEntry> {
 }
 
 /**
+ * EXP-1072: a workflow's ONE final pull request (integration branch → the
+ * default branch). The workflow row carries its url/number/state, so it is
+ * the workflow's OWN PR here — never an unlinked one — and merges through
+ * `workflows.mergeFinalPr`, which completes the workflow and its issues.
+ */
+data class WorkflowReviewEntry(
+    val groupKey: String,
+    val workflow: WorkflowEntity,
+    val prUrl: String?,
+    val prNumber: Int?,
+    val branch: String?,
+    /** The workflow's name — the row's title. */
+    val title: String,
+)
+
+/**
+ * The team's workflows → review entries: only an OPEN final pull request with
+ * a url, newest workflow first. Pure so it can be tested without a database.
+ */
+fun buildWorkflowEntries(workflows: List<WorkflowEntity>): List<WorkflowReviewEntry> =
+    workflows
+        .filter { it.finalPrState == DomainContract.prStateOpen && !it.finalPrUrl.isNullOrEmpty() }
+        .sortedByDescending { sortableTimestamp(it.createdAt) }
+        .map { workflow ->
+            WorkflowReviewEntry(
+                groupKey = WorkflowFinalPr.reviewKey(workflow.id),
+                workflow = workflow,
+                prUrl = workflow.finalPrUrl,
+                prNumber = workflow.finalPrNumber,
+                branch = workflow.integrationBranch.takeIf { it.isNotBlank() },
+                title = workflow.name,
+            )
+        }
+
+/**
  * EXP-897: one row of the Reviews list — a pull request and where it sits in
  * its STACK. The stack edge is synced (`pr_base_branch` → the lower entry's
  * `branch`), so the nesting is pure client work like the batch collapsing
@@ -184,9 +223,12 @@ data class ReviewsState(
     // EXP-734: issueless runs whose OWN pull request is open — listed under
     // their own header, after the board groups.
     val runs: List<RunReviewEntry> = emptyList(),
+    // EXP-1072: workflows whose FINAL pull request is open — listed under
+    // their own header, between the board groups and the runs.
+    val workflows: List<WorkflowReviewEntry> = emptyList(),
     val loaded: Boolean = false,
 ) {
-    val isEmpty: Boolean get() = groups.isEmpty() && runs.isEmpty()
+    val isEmpty: Boolean get() = groups.isEmpty() && runs.isEmpty() && workflows.isEmpty()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -196,6 +238,7 @@ class ReviewsViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
+    private val workflowsApi: WorkflowsApi,
     selection: TeamSelection,
 ) : ViewModel() {
 
@@ -211,8 +254,9 @@ class ReviewsViewModel @Inject constructor(
                         db.issueDao().observeOpenPrsByTeam(teamId),
                         db.boardDao().observeByTeam(teamId),
                         db.codingSessionDao().observeOpenPrRunsByTeam(teamId),
-                    ) { issues, boards, runs ->
-                        buildState(issues, boards, runs)
+                        db.workflowDao().observeByTeam(teamId),
+                    ) { issues, boards, runs, workflows ->
+                        buildState(issues, boards, runs, workflows)
                     }
                 }
             }
@@ -222,6 +266,7 @@ class ReviewsViewModel @Inject constructor(
         issues: List<IssueEntity>,
         boards: List<BoardEntity>,
         runs: List<CodingSessionEntity>,
+        workflows: List<WorkflowEntity>,
     ): ReviewsState {
         val boardsById = boards.associateBy { it.id }
 
@@ -266,6 +311,7 @@ class ReviewsViewModel @Inject constructor(
         return ReviewsState(
             groups = groups,
             runs = buildRunEntries(runs),
+            workflows = buildWorkflowEntries(workflows),
             loaded = true,
         )
     }
@@ -284,6 +330,29 @@ class ReviewsViewModel @Inject constructor(
             _mergeErrors.value = _mergeErrors.value - key
             _merging.value = _merging.value + key
             runCatching { codingSessionsApi.mergePr(accountId, entry.session.id) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _mergeErrors.value = _mergeErrors.value +
+                        (key to MergeFailure.from(t, "The pull request could not be merged"))
+                }
+            _merging.value = _merging.value - key
+        }
+    }
+
+    /**
+     * EXP-1072: squash-merge a workflow's FINAL pull request via
+     * `workflows.mergeFinalPr`. The server completes the workflow and moves
+     * every landed issue to the team's PR-merge status; the synced row's
+     * `final_pr_state` leaving `open` drops the entry. Shares the merging /
+     * mergeErrors maps, keyed by [WorkflowReviewEntry.groupKey].
+     */
+    fun mergeWorkflow(entry: WorkflowReviewEntry) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            val key = entry.groupKey
+            _mergeErrors.value = _mergeErrors.value - key
+            _merging.value = _merging.value + key
+            runCatching { workflowsApi.mergeFinalPr(accountId, entry.workflow.id) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     _mergeErrors.value = _mergeErrors.value +
