@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
@@ -63,6 +70,7 @@ import { SessionTree } from "@/components/session-tree"
 import { SteerComposer } from "@/components/steer-composer"
 import {
   ALL_SELECTION,
+  isLetterStepKey,
   pruneSelection,
   selectNode,
   stepSelection,
@@ -138,7 +146,6 @@ import {
   START_WORKFLOW_LABEL,
   nodeChipMenu,
   workflowCycleNote,
-  workflowEdges,
   workflowHeaderCaption,
   workflowNodeDisplayState,
   workflowNodeStrip,
@@ -240,12 +247,17 @@ export function scopeSessions(
   )
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
+/** Where a DOCUMENT-level j/k must not step: typing, a dialog or menu, the
+ *  face toggle's tabs (Radix owns their keys), and the body (the diff, the
+ *  transcript and the issue have their own keys and focusables). The strip
+ *  handles its own keys, so it is skipped here too. */
+function isKeyOwningTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   if (target.isContentEditable) return true
   return (
-    target.closest(`input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]`) !==
-    null
+    target.closest(
+      `input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="tab"], [role="tablist"], [data-workflow-body], [data-testid="workflow-strip"]`
+    ) !== null
   )
 }
 
@@ -300,9 +312,10 @@ export function WorkflowDetail({
   const runner = (remote.devices ?? []).find(
     (device) => device.deviceId === workflow.deviceId
   )
-  const deviceLabel = workflow.deviceId
-    ? runner?.deviceLabel || workflow.deviceId
-    : null
+  // Only a RESOLVED device names the runner: while devices load (or for a
+  // device the viewer cannot see) the caption drops its `on …` part rather
+  // than print a raw uuid. The primary action keys on the id's presence.
+  const deviceLabel = runner?.deviceLabel || null
 
   const strip = useMemo(
     () =>
@@ -322,11 +335,10 @@ export function WorkflowDetail({
             note: node.note,
           }
         }),
-        workflowEdges(nodes, graph.relations).map(
-          (edge) => [edge.from, edge.to] as [string, string]
-        )
+        // The strip only orders; the edges are the mini-graph popover's.
+        []
       ),
-    [nodes, sessionById, issueById, questions, graph.relations]
+    [nodes, sessionById, issueById, questions]
   )
   const order = useMemo(
     () => strip.flatMap((wave) => wave.nodes.map((chip) => chip.id)),
@@ -340,10 +352,22 @@ export function WorkflowDetail({
   )
   const [face, setFace] = useState<WorkflowFace>(initialFace)
   const [error, setError] = useState<string | null>(null)
-  const [runsOnOpen, setRunsOnOpen] = useState(false)
+  const [runsOnOpenState, setRunsOnOpen] = useState(false)
+  // The runner is frozen once the workflow started: the picker can never
+  // write `deviceId` on a running workflow, even if it was open at the flip.
+  const isDraft = workflow.status === `draft`
+  const runsOnOpen = runsOnOpenState && isDraft
+  useEffect(() => {
+    if (!isDraft) setRunsOnOpen(false)
+  }, [isDraft])
   const openComposer = useOpenComposer()
   const [dialog, setDialog] = useState<
-    `cancel` | `delete` | `merge` | { skip: string } | null
+    | `cancel`
+    | `delete`
+    | `merge`
+    | { skip: string }
+    | { dismiss: string }
+    | null
   >(null)
 
   // A node a replan folded away must not stay picked. Only once the nodes
@@ -352,18 +376,52 @@ export function WorkflowDetail({
     if (order.length > 0) setSelection((current) => pruneSelection(current, order))
   }, [order])
 
-  // ←/→ and j/k step through All + the nodes, keeping the face.
+  // The pick + face live in the URL (`?node=` for a single pick, `?face=`
+  // off Issue), so a link to a node × face is shareable. `replace`: stepping
+  // through the strip must not spam history. Skips the unchanged first run.
+  const urlNode = selection.ids.length === 1 ? selection.ids[0] : undefined
+  const urlFace = face === `issue` ? undefined : face
+  const written = useRef(
+    `${initialNodeId ?? ``}|${initialFace === `issue` ? `` : initialFace}`
+  )
+  useEffect(() => {
+    const key = `${urlNode ?? ``}|${urlFace ?? ``}`
+    if (written.current === key) return
+    written.current = key
+    void navigate({
+      to: `/t/$teamSlug/workflows/$workflowId`,
+      params: { teamSlug, workflowId: workflow.id },
+      search: { node: urlNode, face: urlFace },
+      replace: true,
+    })
+  }, [urlNode, urlFace, navigate, teamSlug, workflow.id])
+
+  // j/k step from anywhere that does not own its keys (letters never scroll).
+  // ←/→ are the STRIP's own (`onStripKeyDown`): at document level they would
+  // steal arrow scrolling from the diff and the transcript, and fight the
+  // face toggle's Radix tabs.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isEditableTarget(event.target)) return
-      const step = stripStepKey(event)
-      if (step === null) return
+      if (event.defaultPrevented || !isLetterStepKey(event.key)) return
+      if (isKeyOwningTarget(event.target)) return
+      const direction = stripStepKey(event)
+      if (direction === null) return
       event.preventDefault()
-      setSelection((current) => stepSelection(current, step, order))
+      setSelection((current) => stepSelection(current, direction, order))
     }
     document.addEventListener(`keydown`, onKey)
     return () => document.removeEventListener(`keydown`, onKey)
   }, [order])
+
+  /** ←/→ and j/k while focus is inside the strip; an unconsumed key is left
+   *  alone (no preventDefault), so Tab, Enter and scrolling keep working. */
+  const onStripKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.defaultPrevented) return
+    const direction = stripStepKey(event)
+    if (direction === null) return
+    event.preventDefault()
+    setSelection((current) => stepSelection(current, direction, order))
+  }
 
   const picked = selection.ids
     .map((id) => nodeById.get(id))
@@ -416,6 +474,10 @@ export function WorkflowDetail({
       setDialog({ skip: nodeId })
       return
     }
+    if (item === `dismiss`) {
+      setDialog({ dismiss: nodeId })
+      return
+    }
     if (item === `retry`) {
       void run(`The node could not be retried`, () =>
         trpc.workflows.resolveNode.mutate({ nodeId, action: `retry` }, quiet)
@@ -423,11 +485,11 @@ export function WorkflowDetail({
       return
     }
     void run(`The node could not be admitted`, () =>
-      trpc.workflows.admitNode.mutate({ nodeId, admit: item === `admit` }, quiet)
+      trpc.workflows.admitNode.mutate({ nodeId, admit: true }, quiet)
     )
   }
 
-  const primary = workflowPrimaryAction(workflow.status, deviceLabel)
+  const primary = workflowPrimaryAction(workflow.status, workflow.deviceId)
   const cycleNote = workflowCycleNote(workflow.metrics)
   const startBlocker =
     workflow.status === `draft` && primary === `start`
@@ -468,7 +530,11 @@ export function WorkflowDetail({
   const scopeNodes = picked.length > 0 ? picked : nodes
   const scopedSessions = scopeSessions(sessions, picked)
   const skipNodeId =
-    dialog && typeof dialog === `object` ? dialog.skip : null
+    dialog && typeof dialog === `object` && `skip` in dialog ? dialog.skip : null
+  const dismissNodeId =
+    dialog && typeof dialog === `object` && `dismiss` in dialog
+      ? dialog.dismiss
+      : null
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="workflow-detail">
@@ -504,9 +570,12 @@ export function WorkflowDetail({
               deviceId={workflow.deviceId}
               onPickDevice={(deviceId) => void save({ deviceId })}
               onIntent={(which) => void intent(which)}
-              onReview={() =>
-                void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
-              }
+              onReview={() => {
+                // The final PR lives on this page (All × Changes: its link,
+                // and Merge while open); the Reviews queue never lists it.
+                setSelection(ALL_SELECTION)
+                setFace(`changes`)
+              }}
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -576,7 +645,7 @@ export function WorkflowDetail({
                 data-testid="workflow-runs-on-picker"
                 onChange={(deviceId) => {
                   setRunsOnOpen(false)
-                  void save({ deviceId })
+                  if (isDraft) void save({ deviceId })
                 }}
               />
             )}
@@ -613,6 +682,7 @@ export function WorkflowDetail({
           issueById={issueById}
           teamId={teamId}
           selection={selection}
+          onKeyDown={onStripKeyDown}
           onSelect={(id, modifiers) =>
             setSelection((current) => selectNode(current, id, order, modifiers))
           }
@@ -622,7 +692,11 @@ export function WorkflowDetail({
         <WorkFaceToggle face={toggleFace} items={faceItems} />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col" data-testid={`workflow-body-${body}`}>
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        data-workflow-body=""
+        data-testid={`workflow-body-${body}`}
+      >
         {body === `issue-detail` && picked[0] ? (
           <NodeIssueFace
             issue={issueById.get(picked[0].issueId)}
@@ -740,6 +814,26 @@ export function WorkflowDetail({
             void run(`The node could not be skipped`, () =>
               trpc.workflows.resolveNode.mutate(
                 { nodeId: skipNodeId, action: `skip` },
+                quiet
+              )
+            )
+          }
+        }}
+      />
+      <ConfirmDialog
+        open={dismissNodeId !== null}
+        onClose={() => setDialog(null)}
+        title={DISMISS_NODE_LABEL}
+        description="The node is removed from the workflow."
+        confirm={DISMISS_NODE_LABEL}
+        destructive
+        testId="workflow-node-dismiss-confirm"
+        onConfirm={() => {
+          setDialog(null)
+          if (dismissNodeId) {
+            void run(`The node could not be dismissed`, () =>
+              trpc.workflows.admitNode.mutate(
+                { nodeId: dismissNodeId, admit: false },
                 quiet
               )
             )
@@ -929,6 +1023,7 @@ function NodeStrip({
   issueById,
   teamId,
   selection,
+  onKeyDown,
   onSelect,
   onMenu,
 }: {
@@ -937,19 +1032,43 @@ function NodeStrip({
   issueById: ReadonlyMap<string, Issue>
   teamId: string
   selection: StripSelection
+  onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void
   onSelect: (id: string | null, modifiers: { toggle: boolean; extend: boolean }) => void
   onMenu: (nodeId: string, item: NodeChipMenuItem) => void
 }) {
   const picked = new Set(selection.ids)
+  // Roving tabindex: ONE chip of the strip is in the tab order — the one the
+  // keyboard steps from (the cursor, else the last pick, else `All`).
+  const current =
+    selection.ids.length === 0
+      ? null
+      : selection.cursor && picked.has(selection.cursor)
+        ? selection.cursor
+        : selection.ids[selection.ids.length - 1]!
+  const ref = useRef<HTMLDivElement>(null)
+  // Focus follows a keyboard step while focus is in the strip.
+  useEffect(() => {
+    const root = ref.current
+    if (!root || !root.contains(document.activeElement)) return
+    const target = root.querySelector<HTMLElement>(
+      `[data-testid="workflow-node-${current ?? `all`}"]`
+    )
+    if (target && target !== document.activeElement) target.focus()
+  }, [current])
   return (
     <div
+      ref={ref}
+      role="toolbar"
+      aria-label="Nodes"
       className="-mx-4 flex items-start gap-4 overflow-x-auto px-4 pt-1.5 pb-1"
       data-testid="workflow-strip"
+      onKeyDown={onKeyDown}
     >
       <Button
         size="xs"
         variant={picked.size === 0 ? `secondary` : `ghost`}
         aria-pressed={picked.size === 0}
+        tabIndex={current === null ? 0 : -1}
         data-testid="workflow-node-all"
         className="shrink-0"
         onClick={() => onSelect(null, { toggle: false, extend: false })}
@@ -968,25 +1087,39 @@ function NodeStrip({
             const menu = node ? nodeChipMenu(node.state) : []
             const selected = picked.has(chip.id)
             const trigger = (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="inline"
                 aria-pressed={selected}
                 aria-label={`${chip.title} ${chip.caption}`}
                 title={chip.caption}
+                tabIndex={current === chip.id ? 0 : -1}
                 data-testid={`workflow-node-${chip.id}`}
                 data-display={chip.display}
                 className={cn(
-                  `inline-flex max-w-[18rem] min-w-0 items-center gap-1.5 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+                  `max-w-[18rem] min-w-0 gap-1.5 rounded-md text-sm font-normal hover:bg-transparent aria-pressed:bg-transparent dark:hover:bg-transparent`,
                   selected && `ring-1 ring-primary`
                 )}
                 onClick={(event) => {
-                  // Keeps the mini-graph popover (the trigger's own toggle)
-                  // out of a pick: hover opens it, a click selects.
-                  event.preventDefault()
-                  onSelect(chip.id, {
+                  const modifiers = {
                     toggle: event.metaKey || event.ctrlKey,
                     extend: event.shiftKey,
-                  })
+                  }
+                  // The chip is BOTH the pick and the mini-graph popover's
+                  // trigger (`IssueBlocksPopover` opens on hover on a pointer
+                  // device and toggles on click everywhere). A click that
+                  // CHANGES the pick keeps the popover shut (preventDefault
+                  // skips Radix's toggle); a plain click on the chip that is
+                  // already the one pick lets the toggle through. So on a
+                  // phone (no hover) the first tap selects and a second tap
+                  // on the selected chip opens the mini-graph.
+                  const alreadyPicked =
+                    selected && selection.ids.length === 1
+                  if (alreadyPicked && !modifiers.toggle && !modifiers.extend) {
+                    return
+                  }
+                  event.preventDefault()
+                  onSelect(chip.id, modifiers)
                 }}
               >
                 <NodeChipView chip={chip} issue={issue} />
@@ -1005,7 +1138,7 @@ function NodeStrip({
                     label={NEEDS_YOU_LABEL}
                   />
                 )}
-              </button>
+              </Button>
             )
             return (
               <div key={chip.id} className="flex items-center gap-0.5">

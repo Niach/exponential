@@ -11,6 +11,9 @@ import {
 } from "@/components/workflow-detail-selection"
 import {
   DELETE_WORKFLOW_LABEL,
+  DISMISS_NODE_LABEL,
+  MERGE_FINAL_PR_CONFIRM,
+  NODE_UNSYNCED_TITLE,
   PICK_DEVICE_LABEL,
   PLAN_WORKFLOW_LABEL,
   REVIEW_FINAL_PR_LABEL,
@@ -278,8 +281,10 @@ beforeEach(() => {
   ]
 })
 
-const renderPage = (over: Partial<SyncedWorkflow> = {}) =>
-  render(<WorkflowDetail workflow={workflow(over)} teamSlug="acme" />)
+const renderPage = (
+  over: Partial<SyncedWorkflow> = {},
+  seed: { initialFace?: `issue` | `runs` | `changes` | `results`; initialNodeId?: string } = {}
+) => render(<WorkflowDetail workflow={workflow(over)} teamSlug="acme" {...seed} />)
 
 const pressed = (id: string) =>
   screen.getByTestId(`workflow-node-${id}`).getAttribute(`aria-pressed`)
@@ -334,6 +339,9 @@ describe(`strip selection model`, () => {
     expect(stripStepKey({ key: `ArrowLeft` })).toBe(-1)
     expect(stripStepKey({ key: `k` })).toBe(-1)
     expect(stripStepKey({ key: `j`, metaKey: true })).toBeNull()
+    expect(stripStepKey({ key: `ArrowRight`, shiftKey: true })).toBeNull()
+    expect(stripStepKey({ key: `ArrowLeft`, ctrlKey: true })).toBeNull()
+    expect(stripStepKey({ key: `ArrowLeft`, altKey: true })).toBeNull()
     expect(stripStepKey({ key: `x` })).toBeNull()
   })
 
@@ -395,26 +403,115 @@ describe(`WorkflowDetail`, () => {
     expect(screen.getByTestId(`issue-detail-EXP-2`)).toBeTruthy()
   })
 
-  it(`the keyboard steps the pick and keeps the face`, () => {
+  it(`the strip steps the pick on ←/→ and j/k and keeps the face`, () => {
     renderPage()
     fireEvent.mouseDown(screen.getByText(CHANGES_FACE_LABEL))
     fireEvent.click(screen.getByText(CHANGES_FACE_LABEL))
     expect(screen.getByTestId(`workflow-body-changes`)).toBeTruthy()
+    const strip = screen.getByTestId(`workflow-strip`)
     act(() => {
-      fireEvent.keyDown(document, { key: `ArrowRight` })
+      fireEvent.keyDown(strip, { key: `ArrowRight` })
     })
     expect(pressed(`a`)).toBe(`true`)
     act(() => {
-      fireEvent.keyDown(document, { key: `j` })
+      fireEvent.keyDown(strip, { key: `j` })
     })
     expect(pressed(`b`)).toBe(`true`)
     expect(screen.getByTestId(`workflow-body-changes`)).toBeTruthy()
     act(() => {
-      fireEvent.keyDown(document, { key: `k` })
-      fireEvent.keyDown(document, { key: `ArrowLeft` })
+      fireEvent.keyDown(strip, { key: `k` })
+      fireEvent.keyDown(strip, { key: `ArrowLeft` })
     })
     expect(pressed(`all`)).toBe(`true`)
     expect(screen.getByTestId(`workflow-body-changes`)).toBeTruthy()
+  })
+
+  it(`never steps on a modified key, and leaves unconsumed keys alone`, () => {
+    renderPage()
+    const strip = screen.getByTestId(`workflow-strip`)
+    // fireEvent returns false when the handler called preventDefault.
+    expect(fireEvent.keyDown(strip, { key: `ArrowRight`, shiftKey: true })).toBe(true)
+    expect(fireEvent.keyDown(strip, { key: `ArrowRight`, metaKey: true })).toBe(true)
+    expect(fireEvent.keyDown(strip, { key: `ArrowDown` })).toBe(true)
+    expect(pressed(`all`)).toBe(`true`)
+  })
+
+  it(`a face tab keeps its arrows; j/k still step from the page`, () => {
+    renderPage()
+    const tab = screen.getByRole(`tab`, { name: CHANGES_FACE_LABEL })
+    fireEvent.mouseDown(tab)
+    fireEvent.click(tab)
+    tab.focus()
+    act(() => {
+      fireEvent.keyDown(tab, { key: `ArrowRight` })
+      fireEvent.keyDown(tab, { key: `j` })
+    })
+    expect(pressed(`all`)).toBe(`true`)
+    // A document-level arrow never steps (it scrolls the diff/transcript).
+    act(() => {
+      fireEvent.keyDown(document.body, { key: `ArrowRight` })
+    })
+    expect(pressed(`all`)).toBe(`true`)
+    act(() => {
+      fireEvent.keyDown(document.body, { key: `j` })
+    })
+    expect(pressed(`a`)).toBe(`true`)
+    // Typing never steps.
+    const name = screen.getByTestId(`workflow-name`)
+    act(() => {
+      fireEvent.keyDown(name, { key: `j` })
+    })
+    expect(pressed(`a`)).toBe(`true`)
+  })
+
+  it(`roves the strip's one tab stop with the pick`, () => {
+    renderPage()
+    expect(screen.getByTestId(`workflow-node-all`).tabIndex).toBe(0)
+    expect(screen.getByTestId(`workflow-node-a`).tabIndex).toBe(-1)
+    fireEvent.click(screen.getByTestId(`workflow-node-b`))
+    expect(screen.getByTestId(`workflow-node-all`).tabIndex).toBe(-1)
+    expect(screen.getByTestId(`workflow-node-b`).tabIndex).toBe(0)
+  })
+
+  it(`the first click picks a chip, a second click lets its mini-graph open`, () => {
+    renderPage()
+    // false = preventDefault: the popover's toggle is skipped on a pick.
+    expect(fireEvent.click(screen.getByTestId(`workflow-node-a`))).toBe(false)
+    expect(pressed(`a`)).toBe(`true`)
+    expect(fireEvent.click(screen.getByTestId(`workflow-node-a`))).toBe(true)
+    expect(pressed(`a`)).toBe(`true`)
+  })
+
+  it(`writes the pick and the face back to the URL, replacing history`, () => {
+    renderPage()
+    expect(navigate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId(`workflow-node-b`))
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: { node: `b`, face: undefined },
+        replace: true,
+      })
+    )
+    fireEvent.mouseDown(screen.getByText(CHANGES_FACE_LABEL))
+    fireEvent.click(screen.getByText(CHANGES_FACE_LABEL))
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: { node: `b`, face: `changes` } })
+    )
+  })
+
+  it(`seeds the pick and the face from ?node= and ?face=`, () => {
+    renderPage({}, { initialNodeId: `b`, initialFace: `changes` })
+    expect(pressed(`b`)).toBe(`true`)
+    expect(screen.getByTestId(`workflow-body-changes`)).toBeTruthy()
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it(`falls back to All for a ?node= that is not in the strip`, () => {
+    renderPage({}, { initialNodeId: `gone` })
+    expect(pressed(`all`)).toBe(`true`)
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: { node: undefined, face: undefined } })
+    )
   })
 
   it(`one node × Runs opens its run in place`, () => {
@@ -473,12 +570,21 @@ describe(`WorkflowDetail`, () => {
     fireEvent.click(screen.getByText(RESUME_WORKFLOW_LABEL))
     expect(mutates.resume).toHaveBeenCalled()
     paused.unmount()
-    renderPage({ status: `done` })
-    fireEvent.click(screen.getByTestId(`workflow-review`))
-    expect(navigate).toHaveBeenCalledWith({
-      to: `/t/$teamSlug/reviews`,
-      params: { teamSlug: `acme` },
+    renderPage({
+      status: `done`,
+      finalPrUrl: `https://github.com/acme/app/pull/42`,
+      finalPrNumber: 42,
+      finalPrState: `merged`,
     })
+    fireEvent.click(screen.getByTestId(`workflow-node-a`))
+    fireEvent.click(screen.getByTestId(`workflow-review`))
+    // Review = All × Changes on this page, where the final PR row lives.
+    expect(pressed(`all`)).toBe(`true`)
+    expect(screen.getByTestId(`workflow-body-changes`)).toBeTruthy()
+    expect(screen.getByTestId(`workflow-final-pr`)).toBeTruthy()
+    expect(navigate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ to: `/t/$teamSlug/reviews` })
+    )
   })
 
   it(`failed and cancelled offer no primary action`, () => {
@@ -535,6 +641,67 @@ describe(`WorkflowDetail`, () => {
     )
   })
 
+  it(`dismisses a proposed chip only after the confirm`, async () => {
+    state.nodes = [node(`p`, { state: `proposed` })]
+    renderPage()
+    fireEvent.pointerDown(screen.getByTestId(`workflow-node-p-menu`), {
+      button: 0,
+      pointerType: `mouse`,
+    })
+    fireEvent.click(await screen.findByTestId(`workflow-node-p-dismiss`))
+    const confirm = await screen.findByTestId(`workflow-node-dismiss-confirm`)
+    expect(confirm.textContent).toBe(DISMISS_NODE_LABEL)
+    expect(mutates.admitNode).not.toHaveBeenCalled()
+    fireEvent.click(confirm)
+    await vi.waitFor(() =>
+      expect(mutates.admitNode).toHaveBeenCalledWith(
+        { nodeId: `p`, admit: false },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`skips a failed chip only after the confirm`, async () => {
+    renderPage()
+    fireEvent.pointerDown(screen.getByTestId(`workflow-node-c-menu`), {
+      button: 0,
+      pointerType: `mouse`,
+    })
+    fireEvent.click(await screen.findByTestId(`workflow-node-c-skip`))
+    const confirm = await screen.findByTestId(`workflow-node-skip-confirm`)
+    expect(mutates.resolveNode).not.toHaveBeenCalled()
+    fireEvent.click(confirm)
+    await vi.waitFor(() =>
+      expect(mutates.resolveNode).toHaveBeenCalledWith(
+        { nodeId: `c`, action: `skip` },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`draws a compound node as a stacked chip titled with its members`, () => {
+    state.nodes = [node(`a`), node(`n`, { memberIssueIds: [`i-x`, `i-y`] })]
+    state.issues = [issue(`i-a`, `EXP-1`), issue(`i-n`, `EXP-9`)]
+    renderPage()
+    const chip = screen.getByTestId(`workflow-node-n`)
+    expect(chip.querySelector(`[data-slot="issue-chip-stack"]`)).toBeTruthy()
+    expect(chip.textContent).toContain(`EXP-9 +2`)
+    expect(
+      screen.getByTestId(`workflow-node-a`).querySelector(`[data-slot="issue-chip-stack"]`)
+    ).toBeNull()
+  })
+
+  it(`keeps a node whose issue has not synced`, () => {
+    state.nodes = [
+      node(`n`, { state: `ready`, issueId: `abcd1234-5e6f-4a7b-8c9d-0e1f2a3b4c5d` }),
+    ]
+    state.issues = []
+    renderPage()
+    const chip = screen.getByTestId(`workflow-node-n`)
+    expect(chip.textContent).toContain(`abcd1234`)
+    expect(chip.textContent).toContain(NODE_UNSYNCED_TITLE)
+  })
+
   it(`never offers Approve`, () => {
     renderPage({ status: `running` })
     expect(screen.queryByText(/Approve/)).toBeNull()
@@ -588,16 +755,132 @@ describe(`WorkflowDetail`, () => {
     expect(await screen.findByText(`MacBook`)).toBeTruthy()
   })
 
-  it.each([`running`, `paused`])(`a %s overflow: Stop only`, async (status) => {
+  it.each([`running`, `paused`])(`a %s overflow: Stop only, cancelling after the confirm`, async (status) => {
     renderPage({ status })
     expect(await openOverflow()).toEqual([STOP_WORKFLOW_LABEL])
     fireEvent.click(screen.getByText(STOP_WORKFLOW_LABEL))
-    fireEvent.click(await screen.findByTestId(`workflow-cancel-confirm`))
+    const confirm = await screen.findByTestId(`workflow-cancel-confirm`)
+    expect(mutates.cancel).not.toHaveBeenCalled()
+    fireEvent.click(confirm)
     expect(mutates.cancel).toHaveBeenCalledWith({ id: `wf` }, expect.anything())
   })
 
   it.each([`done`, `failed`, `cancelled`])(`a %s overflow: Delete only`, async (status) => {
     renderPage({ status })
     expect(await openOverflow()).toEqual([DELETE_WORKFLOW_LABEL])
+  })
+
+  it(`Delete asks first, then deletes and returns to the list`, async () => {
+    renderPage({ status: `done` })
+    await openOverflow()
+    fireEvent.click(screen.getByText(DELETE_WORKFLOW_LABEL))
+    const confirm = await screen.findByTestId(`workflow-delete-confirm`)
+    expect(mutates.delete).not.toHaveBeenCalled()
+    fireEvent.click(confirm)
+    await vi.waitFor(() =>
+      expect(mutates.delete).toHaveBeenCalledWith({ id: `wf` }, expect.anything())
+    )
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ to: `/t/$teamSlug/workflows` })
+      )
+    )
+  })
+
+  it(`disables Start and says why while a draft is not ready`, () => {
+    renderPage({ status: `draft`, repositoryId: null })
+    expect((screen.getByTestId(`workflow-start`) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId(`workflow-notice`).textContent).toBe(
+      `The workflow's repository is gone.`
+    )
+  })
+
+  it(`disables Start and spells out a blocking cycle`, () => {
+    renderPage({
+      status: `draft`,
+      metrics: { nodes: 2, edges: 2, depth: 1, width: 2, cycles: [[`EXP-1`, `EXP-2`]] },
+    } as Partial<SyncedWorkflow>)
+    expect((screen.getByTestId(`workflow-start`) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId(`workflow-notice`).textContent).toContain(`EXP-1, EXP-2`)
+  })
+
+  it(`starts a ready draft, with no notice`, () => {
+    renderPage({ status: `draft` })
+    expect((screen.getByTestId(`workflow-start`) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByTestId(`workflow-notice`)).toBeNull()
+  })
+
+  it(`freezes the runner device once the workflow started`, async () => {
+    const view = render(
+      <WorkflowDetail workflow={workflow({ status: `draft` })} teamSlug="acme" />
+    )
+    await openOverflow()
+    fireEvent.click(screen.getByText(RUNS_ON_LABEL))
+    expect(await screen.findByText(`MacBook`)).toBeTruthy()
+    // The workflow starts while the picker is open: it closes, and nothing
+    // on the page can write the runner any more.
+    view.rerender(
+      <WorkflowDetail workflow={workflow({ status: `running` })} teamSlug="acme" />
+    )
+    expect(screen.queryByText(`MacBook`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-device`)).toBeNull()
+    expect(await openOverflow()).toEqual([STOP_WORKFLOW_LABEL])
+    expect(mutates.update).not.toHaveBeenCalled()
+  })
+
+  it(`names no runner it cannot resolve (never a raw device id)`, () => {
+    state.devices = []
+    renderPage({ status: `running`, deviceId: `3f2a9c1e-uuid` })
+    expect(screen.getByTestId(`workflow-caption`).textContent).toBe(
+      `0 of 3 done · 1 running`
+    )
+  })
+
+  it(`saves the name on blur, and nothing but the name`, async () => {
+    renderPage({ status: `draft` })
+    const name = screen.getByTestId(`workflow-name`) as HTMLInputElement
+    fireEvent.focus(name)
+    fireEvent.change(name, { target: { value: `Renamed` } })
+    expect(mutates.update).not.toHaveBeenCalled()
+    fireEvent.blur(name)
+    await vi.waitFor(() =>
+      expect(mutates.update).toHaveBeenCalledWith(
+        { id: `wf`, name: `Renamed` },
+        expect.anything()
+      )
+    )
+    expect(mutates.update).toHaveBeenCalledTimes(1)
+  })
+
+  it(`merges the final pull request after the confirm`, async () => {
+    renderPage({
+      status: `running`,
+      finalPrUrl: `https://github.com/acme/app/pull/42`,
+      finalPrNumber: 42,
+      finalPrState: `open`,
+    })
+    fireEvent.mouseDown(screen.getByText(CHANGES_FACE_LABEL))
+    fireEvent.click(screen.getByText(CHANGES_FACE_LABEL))
+    fireEvent.click(screen.getByTestId(`workflow-final-pr-merge`))
+    expect(await screen.findByText(MERGE_FINAL_PR_CONFIRM)).toBeTruthy()
+    expect(mutates.mergeFinalPr).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId(`workflow-final-pr-merge-confirm`))
+    await vi.waitFor(() =>
+      expect(mutates.mergeFinalPr).toHaveBeenCalledWith({ id: `wf` }, expect.anything())
+    )
+  })
+
+  it(`offers no Merge on a merged final pull request`, () => {
+    renderPage(
+      {
+        status: `done`,
+        finalPrUrl: `https://github.com/acme/app/pull/42`,
+        finalPrNumber: 42,
+        finalPrState: `merged`,
+      },
+      { initialFace: `changes` }
+    )
+    expect(screen.getByTestId(`workflow-final-pr`)).toBeTruthy()
+    expect(screen.queryByTestId(`workflow-final-pr-merge`)).toBeNull()
   })
 })

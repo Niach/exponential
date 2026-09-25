@@ -97,14 +97,16 @@ export function pruneSelection(
   }
 }
 
-/** The key a keydown steps with, or null. Modified keys never step. */
+/** The key a keydown steps with, or null. Modified keys (shift included:
+ *  shift-arrow selects text / extends elsewhere) never step. */
 export function stripStepKey(event: {
   key: string
   metaKey?: boolean
   ctrlKey?: boolean
   altKey?: boolean
+  shiftKey?: boolean
 }): 1 | -1 | null {
-  if (event.metaKey || event.ctrlKey || event.altKey) return null
+  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null
   if (event.key === `ArrowRight` || event.key === `j`) return 1
   if (event.key === `ArrowLeft` || event.key === `k`) return -1
   return null
@@ -128,6 +130,13 @@ export type WorkflowBody =
 export function workflowBody(face: WorkflowFace, selected: number): WorkflowBody {
   if (face === `issue`) return selected === 1 ? `issue-detail` : `issue-list`
   return face
+}
+
+/** The letter keys a DOCUMENT-level listener may step with: letters never
+ *  scroll, so j/k work from anywhere that is not typing. ←/→ step only while
+ *  focus is inside the strip (they scroll the diff and the transcript). */
+export function isLetterStepKey(key: string): boolean {
+  return key === `j` || key === `k`
 }
 
 export function parseWorkflowFace(value: unknown): WorkflowFace | undefined {

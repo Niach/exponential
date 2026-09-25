@@ -12,7 +12,8 @@ import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 // EXP-981/EXP-1084: ONE workflow — every issue, run, change and result of it
 // behind the node strip and the face toggle. The row is read from the synced
 // shape, so the page settles on its own as Electric catches up. `?face=` and
-// `?node=` seed the page's first face and pick (deep links from elsewhere).
+// `?node=` seed the page's first face and pick, and the page writes them back
+// (`replace`) as they change, so a node × face URL is shareable.
 
 type WorkflowSearch = { face?: WorkflowFace; node?: string }
 
