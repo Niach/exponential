@@ -1116,8 +1116,11 @@ export const steerRouter = router({
         }
         // EXP-981: the planner's prompt NAMES its workflow on the first line;
         // the server writes that line, so the id is one it has just checked.
+        // EXP-1082: a MEMBERSHIP workflowId on any other action start (a
+        // review-node run, a team action started from inside a workflow
+        // run) is not a plan and must never become one.
         let promptText = input.prompt
-        if (input.workflowId) {
+        if (input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID) {
           const [workflow] = await db
             .select({ teamId: workflows.teamId, status: workflows.status })
             .from(workflows)
@@ -1270,7 +1273,11 @@ export const steerRouter = router({
         requireStartPromptCap(device, prompt)
         // An older build has no Plan-workflow kind: it would fall through to
         // the Create-action prompt and author an ACTION instead.
-        if (input.workflowId && !device.caps.includes(PLAN_WORKFLOW_CAP)) {
+        if (
+          input.workflowId &&
+          input.actionId === BUILTIN_PLAN_WORKFLOW_ID &&
+          !device.caps.includes(PLAN_WORKFLOW_CAP)
+        ) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `That machine runs an older Exponential app that cannot plan workflows. Update it first.`,

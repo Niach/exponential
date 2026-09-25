@@ -940,7 +940,7 @@ fn run_pass(
                     // EXP-1005's rotation may pick the account.
                     options.workflow = Some(workflows::WorkflowMembership {
                         workflow_id: workflow_id.clone(),
-                        node_id: node_id.clone(),
+                        node_id: Some(node_id.clone()),
                         role,
                     });
                     if let Some(account) = account.or_else(|| start_account(&options, snapshot.now_ms)) {
@@ -1263,7 +1263,7 @@ fn review_order(
     // EXP-1082: the reviewer's row names its workflow node.
     options.workflow = Some(workflows::WorkflowMembership {
         workflow_id: snapshot.workflow.id.clone(),
-        node_id: node_id.to_string(),
+        node_id: Some(node_id.to_string()),
         role,
     });
     if let Some(account) = account.or_else(|| start_account(&options, snapshot.now_ms)) {

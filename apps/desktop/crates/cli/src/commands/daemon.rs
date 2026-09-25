@@ -4505,7 +4505,7 @@ fn apply_workflow_start(
 ) {
     options.workflow = Some(coding::workflows::WorkflowMembership {
         workflow_id: plan.snapshot.workflow.id.clone(),
-        node_id: node_id.to_string(),
+        node_id: Some(node_id.to_string()),
         role,
     });
     let picked = account.or_else(|| {
