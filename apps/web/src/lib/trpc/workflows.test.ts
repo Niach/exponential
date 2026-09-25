@@ -481,6 +481,22 @@ describe(`the engine's write path`, () => {
     expect((written[0]!.values as { attempt?: unknown }).attempt).toBeDefined()
   })
 
+  it(`a person's approval drops the reviewer's head so the engine never reads it as stale`, async () => {
+    selectQueue.push([node({ approvedAt: null })], [workflow()], [{ since: new Date() }])
+    await caller.approveNode({ nodeId: NODE, approved: true } as never)
+    const write = written.find((w) => w.op === `update`)
+    expect(write?.values).toMatchObject({ approvedAt: expect.any(Date) })
+    expect(typeof (write?.values as { review: unknown }).review).toBe(`object`)
+    expect((write?.values as { review: unknown }).review).not.toBeNull()
+  })
+
+  it(`withdrawing an approval leaves the review alone`, async () => {
+    selectQueue.push([node()], [workflow()])
+    await caller.approveNode({ nodeId: NODE, approved: false } as never)
+    const write = written.find((w) => w.op === `update`)
+    expect(write?.values).toEqual({ approvedAt: null })
+  })
+
   it(`holds an unapproved node at the gate, server-side`, async () => {
     selectQueue.push(
       [node()],
@@ -768,6 +784,57 @@ describe(`workflows.submitReview`, () => {
     const error = await rejection(submit(REVIEW_RUN))
     expect(error?.code).toBe(`FORBIDDEN`)
     expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  // FEED-51: an account switch resumes the reviewer through the MCP path,
+  // which re-brands the successor `agent` under the switching chat. The
+  // successor is still the workflow's reviewer: the guard walks back.
+  const RESUMED_RUN = `88888888-8888-4888-8888-888888888888`
+  const resumed = (over: Record<string, unknown> = {}) =>
+    reviewer({ id: RESUMED_RUN, startedReason: `agent`, resumedFromId: REVIEW_RUN, ...over })
+
+  it(`accepts a reviewer resumed after an account switch`, async () => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [resumed()], [reviewer()])
+    updateQueue.push([{ round: 2 }])
+    const result = await submit(RESUMED_RUN, { head: `e39378c61d3` })
+    expect(result).toMatchObject({ round: 2, approve: true, state: `in_review` })
+    expect(written[1]!.values).toMatchObject({
+      approvedAt: expect.any(Date),
+      review: expect.objectContaining({ head: `e39378c61d3`, round: 2 }),
+    })
+  })
+
+  it(`follows a chain of resumes to the run the workflow started`, async () => {
+    const MIDDLE = `99999999-9999-4999-8999-999999999999`
+    selectQueue.push(
+      [node()],
+      [running()],
+      [{ id: `device-row` }],
+      [resumed({ resumedFromId: MIDDLE })],
+      [resumed({ id: MIDDLE })],
+      [reviewer()]
+    )
+    updateQueue.push([{ round: 1 }])
+    await expect(submit(RESUMED_RUN)).resolves.toMatchObject({ round: 1 })
+  })
+
+  it.each([
+    [`a resume chain that never reaches a workflow-started review run`, [resumed()], [reviewer({ startedReason: null })]],
+    [`a resume of the node's own run`, [resumed({ resumedFromId: AUTHOR_RUN })], [reviewer({ id: AUTHOR_RUN })]],
+    [`a resume whose predecessor is not the review builtin`, [resumed()], [reviewer({ actionName: `Chat` })]],
+    [`a resume whose predecessor vanished`, [resumed()], []],
+  ])(`refuses %s`, async (_name, ...rows) => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], ...rows)
+    const error = await rejection(submit(RESUMED_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  it(`stops on a resume loop instead of spinning`, async () => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [resumed({ resumedFromId: RESUMED_RUN })])
+    const error = await rejection(submit(RESUMED_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.select).toHaveBeenCalledTimes(4)
   })
 
   it(`claims the round in SQL, stores the reviewed head and approves on evidence`, async () => {

@@ -448,6 +448,50 @@ export function reviewOutcome(args: {
   return { approve: false, state: `updating`, note: `Changes requested by the agent review` }
 }
 
+/** Every hop a resume chain may take before the guard gives up: a reviewer
+ *  is resumed a handful of times at most (each account switch is one). */
+type Db = typeof import("@/db/connection").db
+
+const REVIEW_RESUME_CHAIN_MAX = 16
+
+/** `sessionId` is the review run the workflow started for the node, or a
+ *  resume of it: every row on the chain must be the review builtin, none
+ *  may be the node's own run, and the chain must reach a row the workflow
+ *  started (`started_reason = workflow`). A person's resume inherits that
+ *  reason; the MCP resume path re-brands its successor `agent`, which is
+ *  why the calling row alone does not decide (FEED-51). */
+async function isReviewRunOfNode(
+  db: Db,
+  sessionId: string,
+  nodeSessionId: string | null
+): Promise<boolean> {
+  let cursor: string | null = sessionId
+  const seen = new Set<string>()
+  while (cursor && !seen.has(cursor) && seen.size < REVIEW_RESUME_CHAIN_MAX) {
+    seen.add(cursor)
+    const [row] = await db
+      .select({
+        id: codingSessions.id,
+        actionName: codingSessions.actionName,
+        startedReason: codingSessions.startedReason,
+        resumedFromId: codingSessions.resumedFromId,
+      })
+      .from(codingSessions)
+      .where(eq(codingSessions.id, cursor))
+      .limit(1)
+    if (
+      !row ||
+      row.actionName !== BUILTIN_REVIEW_NODE_NAME ||
+      row.id === nodeSessionId
+    ) {
+      return false
+    }
+    if (row.startedReason === `workflow`) return true
+    cursor = row.resumedFromId ?? null
+  }
+  return false
+}
+
 export const workflowsRouter = router({
   /** Member-gated read for MCP; clients read the synced shapes. */
   list: authedProcedure
@@ -939,7 +983,18 @@ export const workflowsRouter = router({
         const txId = await generateTxId(tx)
         await tx
           .update(workflowNodes)
-          .set({ approvedAt: input.approved ? new Date() : null })
+          .set({
+            approvedAt: input.approved ? new Date() : null,
+            // A person approves the pull request as it IS. The engine reads
+            // an approval as stale while the stored review names a head the
+            // PR has moved past (`approval_is_stale`), which after a
+            // request_changes round is always the case once the author
+            // pushed its fixes: the reviewer's head goes, the verdict and
+            // findings stay on record.
+            ...(input.approved && {
+              review: sql`CASE WHEN ${workflowNodes.review} IS NULL THEN NULL ELSE ${workflowNodes.review} - 'head' END`,
+            }),
+          })
           .where(eq(workflowNodes.id, input.nodeId))
         if (input.approved) {
           // EXP-984 metric: how long the node sat waiting for a person. The
@@ -1013,7 +1068,10 @@ export const workflowsRouter = router({
    *  `exponential_workflows_review_submit`). Only the runner's owner may
    *  submit, and only FROM the reviewer run the engine started for the node
    *  (`sessionId` = the calling run): the author's own run, or any other,
-   *  cannot approve the node. */
+   *  cannot approve the node. A reviewer RESUMED by a person (an account
+   *  switch, a Resume) is still that reviewer: the calling row may be a
+   *  successor re-branded `agent` by the MCP resume path, so the check walks
+   *  `resumed_from_id` back to the run the workflow started (FEED-51). */
   submitReview: authedProcedure
     .input(
       z.object({
@@ -1035,21 +1093,7 @@ export const workflowsRouter = router({
       if (node.state === `landed` || node.state === `skipped`) {
         throw bad(`That node is already settled`)
       }
-      const [reviewer] = await ctx.db
-        .select({
-          id: codingSessions.id,
-          actionName: codingSessions.actionName,
-          startedReason: codingSessions.startedReason,
-        })
-        .from(codingSessions)
-        .where(eq(codingSessions.id, input.sessionId))
-        .limit(1)
-      if (
-        !reviewer ||
-        reviewer.actionName !== BUILTIN_REVIEW_NODE_NAME ||
-        reviewer.startedReason !== `workflow` ||
-        reviewer.id === node.sessionId
-      ) {
+      if (!(await isReviewRunOfNode(ctx.db, input.sessionId, node.sessionId))) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the review run the workflow started for this node may submit its verdict; the node's own run cannot review itself`,
