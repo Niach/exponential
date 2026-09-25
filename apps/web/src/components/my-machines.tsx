@@ -23,7 +23,6 @@
 // way to start a run), no ⋯ menu, no inline update controls, and no spacers
 // standing in for them. A team device row has no control at all.
 import { useCallback, useMemo, useState } from "react"
-import { inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   conceptIcon,
   getDeviceIcon,
@@ -41,22 +40,14 @@ import {
 import { relativeTime } from "@/components/comment-rows/format"
 import { cn } from "@/lib/utils"
 import {
-  describeUpdateBlockers,
   deviceCanRefreshUsage,
   deviceHasRunnableAgent,
   deviceIsMine,
   deviceIsOnline,
   deviceUpdateAvailable,
-  liveUpdateBlockers,
   type SteerDevice,
-  type UpdateBlockerSession,
+  UPDATE_QUEUED_LINE,
 } from "@/lib/steer-devices"
-import {
-  codingSessionCollection,
-  issueCollection,
-  userCollection,
-} from "@/lib/collections"
-import type { CodingSession, Issue, User } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
@@ -82,57 +73,6 @@ const CheckIcon = conceptIcon(`ui-check`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 
-/** FEED-36: the caller's LIVE sessions per machine (`running`/`in_review`
- * off the synced coding_sessions shape), with the issue identifier joined
- * for the blocker line. One query for the whole list, not one per row. */
-function useUpdateBlockers(
-  teamId: string | undefined
-): (device: SteerDevice) => UpdateBlockerSession[] {
-  const { data: sessionRows } = useLiveQuery(
-    (q) =>
-      q
-        .from({ s: codingSessionCollection })
-        .where(({ s }) => inArray(s.status, [`running`, `in_review`])),
-    []
-  )
-  const sessions = (sessionRows ?? []) as CodingSession[]
-  const issueIds = useMemo(
-    () =>
-      [...new Set(sessions.map((s) => s.issueId).filter((id): id is string => !!id))].sort(),
-    [sessions]
-  )
-  const issueKey = issueIds.join(`,`)
-  const { data: issueRows } = useLiveQuery(
-    (q) =>
-      issueIds.length > 0
-        ? q
-            .from({ i: issueCollection })
-            .where(({ i }) => inArray(i.id, issueIds))
-        : undefined,
-    [issueKey]
-  )
-  const identifierById = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const issue of (issueRows ?? []) as Issue[]) {
-      map.set(issue.id, issue.identifier)
-    }
-    return map
-  }, [issueRows])
-  return (device) =>
-    sessions
-      .filter((s) => s.deviceId === device.deviceId)
-      .map((s) => ({
-        issueIdentifier: s.issueId ? (identifierById.get(s.issueId) ?? null) : null,
-        actionName: s.actionName,
-        userId: s.userId,
-        startedAt: s.startedAt,
-        updatedAt: s.updatedAt,
-        // EXP-1075: the shape spans every team the caller syncs, and one
-        // machine runs them all — a blocker from elsewhere is counted but
-        // never named.
-        foreignTeam: s.teamId !== teamId,
-      }))
-}
 
 // The install script is served by the CLOUD marketing site for every
 // instance — self-hosted deployments ship only the web app (no marketing
@@ -223,16 +163,6 @@ export function MyMachines({
   // EXP-909: 30 s, not the default minute — the login rows under each device
   // age their "as of …" captions on this clock, and so does the refresh loop.
   const now = useNow(30_000)
-  const blockersFor = useUpdateBlockers(teamId)
-  const { data: userRows } = useLiveQuery(
-    (q) => q.from({ u: userCollection }),
-    []
-  )
-  const usersById = useMemo(() => {
-    const map = new Map<string, Pick<User, `name` | `email`>>()
-    for (const user of (userRows ?? []) as User[]) map.set(user.id, user)
-    return map
-  }, [userRows])
 
   // EXP-875: real memos, keyed on `devices`. A fresh array per render made
   // every memo below miss, so the refresh loop's effects re-fired on every
@@ -282,11 +212,6 @@ export function MyMachines({
   // Re-resolved each render so the dialog always edits the LIVE synced row.
   const settingsTarget =
     mine?.find((device) => device.deviceId === settingsTargetId) ?? null
-  // FEED-36: the dialog's "Update now" confirmation counts the caller's live
-  // sessions on that machine — one query for the page, not one per row.
-  const settingsLiveSessions = settingsTarget
-    ? liveUpdateBlockers(blockersFor(settingsTarget), now).length
-    : 0
 
   const origin = useMemo(
     () =>
@@ -332,14 +257,14 @@ export function MyMachines({
                 ? latestVersions?.cli
                 : latestVersions?.desktop
             const outdated = deviceUpdateAvailable(device.version, latest)
-            // FEED-36: a queued update parked behind live sessions says
-            // WHICH ones, and a capable daemon offers to end them now.
+            // FEED-36 / EXP-1075: a queued update parked behind live
+            // sessions says so in one sentence (no count, no names — the
+            // machine serves every team), and a capable daemon offers to
+            // end them now.
             const updateQueued = Boolean(
               device.updateRequested && device.updateBlocked
             )
-            const blockerLine = updateQueued
-              ? describeUpdateBlockers(blockersFor(device), usersById, now)
-              : null
+            const blockerLine = updateQueued ? UPDATE_QUEUED_LINE : null
             // EXP-849: the worst health of the accounts this device holds —
             // "needs re-login" is a DIFFERENT problem from "signed out", and
             // the chips below say which account it is. Null when every login
@@ -561,7 +486,6 @@ export function MyMachines({
           if (!open) setSettingsTargetId(null)
         }}
         latestVersions={latestVersions}
-        liveSessionCount={settingsLiveSessions}
         onChanged={onChanged}
       />
     </div>

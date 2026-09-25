@@ -127,7 +127,6 @@ export function DeviceSettingsDialog({
   open,
   onOpenChange,
   latestVersions,
-  liveSessionCount = 0,
   onChanged,
 }: {
   /** The row being edited (must be one of the caller's own machines). */
@@ -136,9 +135,6 @@ export function DeviceSettingsDialog({
   onOpenChange: (open: boolean) => void
   /** EXP-420: what the Update section compares the device's version against. */
   latestVersions?: { desktop: string | null; cli: string | null } | null
-  /** FEED-36: the caller's live sessions on this device — the "Update now"
-   * confirmation counts them (the list owns the query, one for the page). */
-  liveSessionCount?: number
   /** Refresh the caller's device list after an update request or a remove. */
   onChanged?: () => void
 }) {
@@ -1169,11 +1165,9 @@ export function DeviceSettingsDialog({
                 {`Update ${label || deviceId || `this device`} now?`}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {liveSessionCount > 0
-                  ? `Ends the ${liveSessionCount} live ${
-                      liveSessionCount === 1 ? `session` : `sessions`
-                    } on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`
-                  : `Ends every live session on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`}
+                Ends every live session on this device (repo-backed runs can
+                be resumed from their session page) and restarts it on the new
+                version.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
