@@ -308,8 +308,7 @@ export interface NodeChip {
  * Admit / Dismiss), else its display label.
  */
 export function workflowNodeStrip(
-  nodes: readonly StripNodeInput[],
-  _edges: readonly [string, string][]
+  nodes: readonly StripNodeInput[]
 ): { wave: number; nodes: NodeChip[] }[] {
   const byWave = new Map<number, StripNodeInput[]>()
   for (const node of nodes) {
@@ -434,6 +433,10 @@ export const RUNS_ON_LABEL = `Runs on`
 export const REVIEW_FINAL_PR_LABEL = `Review final PR`
 /** A node (or the workflow) with no pull request yet, on the Changes face. */
 export const NO_CHANGES_LABEL = `No changes yet`
+/** The Runs face of a workflow nothing ran for yet (a draft). */
+export const NO_RUNS_LABEL = `No runs yet`
+/** The Results face while no run published a screenshot. */
+export const NO_RESULTS_LABEL = `No results yet`
 /** The Dismiss confirm's one sentence (a proposed node leaves the workflow). */
 export const DISMISS_NODE_CONFIRM = `The node is removed from the workflow.`
 

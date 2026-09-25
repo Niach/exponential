@@ -595,20 +595,6 @@
           "needsYou": false
         }
       ],
-      "edges": [
-        [
-          "c",
-          "a"
-        ],
-        [
-          "c",
-          "b"
-        ],
-        [
-          "a",
-          "d"
-        ]
-      ],
       "strip": [
         {
           "wave": 0,
@@ -682,7 +668,6 @@
           "note": "Waiting for EXP-996 to land: its branch conflicts with EXP-1021"
         }
       ],
-      "edges": [],
       "strip": [
         {
           "wave": 0,
@@ -724,12 +709,6 @@
           "live": false,
           "needsYou": false
         }
-      ],
-      "edges": [
-        [
-          "r",
-          "p"
-        ]
       ],
       "strip": [
         {
@@ -1109,7 +1088,9 @@
     "runsOn": "Runs on",
     "reviewFinalPr": "Review final PR",
     "noChanges": "No changes yet",
-    "dismissNodeConfirm": "The node is removed from the workflow."
+    "dismissNodeConfirm": "The node is removed from the workflow.",
+    "noRuns": "No runs yet",
+    "noResults": "No results yet"
   },
   "statusGlyphs": [
     {

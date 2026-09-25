@@ -20,6 +20,8 @@ import {
   RUNS_ON_LABEL,
   REVIEW_FINAL_PR_LABEL,
   NO_CHANGES_LABEL,
+  NO_RUNS_LABEL,
+  NO_RESULTS_LABEL,
   DISMISS_NODE_CONFIRM,
   workflowHeaderCaption,
   workflowNodeDisplayLabel,
@@ -107,10 +109,7 @@ describe(`workflow node display states (EXP-1082)`, () => {
 describe(`workflow page view model (EXP-1082)`, () => {
   it(`lays the node strip out by wave and lane`, () => {
     for (const c of fixture.nodeStrips) {
-      expect(
-        workflowNodeStrip(c.nodes, c.edges as [string, string][]),
-        c.name
-      ).toEqual(c.strip)
+      expect(workflowNodeStrip(c.nodes), c.name).toEqual(c.strip)
     }
   })
 
@@ -157,6 +156,8 @@ describe(`workflow page view model (EXP-1082)`, () => {
       runsOn: RUNS_ON_LABEL,
       reviewFinalPr: REVIEW_FINAL_PR_LABEL,
       noChanges: NO_CHANGES_LABEL,
+      noRuns: NO_RUNS_LABEL,
+      noResults: NO_RESULTS_LABEL,
       dismissNodeConfirm: DISMISS_NODE_CONFIRM,
     }).toEqual(fixture.pageLabels)
   })

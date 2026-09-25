@@ -1025,7 +1025,7 @@ export type WorkflowLaunchAgent = (typeof workflowLaunchAgentValues)[number]
  * subagents inside every node run), `strongModel` the capable one (contract
  * nodes, integration nodes, `risk: high` nodes and EVERY agent review). The
  * gate choice is gone — the agent reviews every node and the one human
- * review is the final PR — and `startOn` is fixed to `contract`. A new
+ * review is the final PR — and dependents start on the blockers' contract. A new
  * workflow takes both models from the creating device's agent defaults
  * (`DeviceWorkflowDefaults`); the workflow screen shows no settings panel.
  */

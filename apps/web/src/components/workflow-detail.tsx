@@ -346,7 +346,6 @@ export function WorkflowDetail({
           }
         }),
         // The strip only orders; the edges are the mini-graph popover's.
-        []
       ),
     [nodes, sessionById, issueById, questions]
   )

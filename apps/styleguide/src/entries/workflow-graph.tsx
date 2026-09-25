@@ -134,13 +134,13 @@ export const entry: StyleguideEntry = {
     },
     ios: {
       state: `ok`,
-      symbol: `WorkflowGraphView`,
-      file: `apps/ios/Exponential/UI/Workflows/WorkflowGraphView.swift`,
+      symbol: `WorkflowDetailView`,
+      file: `apps/ios/Exponential/UI/Workflows/WorkflowDetailView.swift`,
     },
     android: {
       state: `ok`,
-      symbol: `WorkflowGraphList`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/workflows/WorkflowGraphList.kt`,
+      symbol: `WorkflowDetailScreen`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/workflows/WorkflowDetailScreen.kt`,
     },
   },
   island: () => (
