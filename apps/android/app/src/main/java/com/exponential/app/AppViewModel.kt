@@ -20,6 +20,8 @@ import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.defaultTeamId
+import com.exponential.app.domain.TeamLiveRuns
+import com.exponential.app.domain.liveRunsByTeam
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -312,6 +314,27 @@ class AppViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // EXP-1075: the caller's LIVE runs grouped by team — the board switcher's
+    // "another team has your live runs" dot. Every session surface here is
+    // selected-team scoped (agentRows, [agentsRunning]), so a run started in
+    // another team goes dark the moment the switcher moves; this is the one
+    // pointer back to it. No team enters the combine — the selected one is
+    // subtracted at the draw site (`otherTeamsLive`), so the same map serves
+    // the switcher control and the sheet's per-team dots.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val liveRunsByTeam: StateFlow<Map<String, TeamLiveRuns>> =
+        accountDatabaseFlow(auth, databaseHolder)
+            .flatMapLatest { db ->
+                if (db == null) flowOf(emptyMap())
+                else combine(
+                    db.codingSessionDao()
+                        .observeByStatuses(CodingSessionLiveness.liveStatuses),
+                    CodingSessionLiveness.minuteTicker(),
+                    auth.userId,
+                ) { sessions, now, me -> liveRunsByTeam(sessions, me, now) }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     // True while the active team has any open pull request — the Reviews
     // tab's green "stuff to do" dot (EXP-214). Same queries the Reviews screen

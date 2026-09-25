@@ -909,6 +909,13 @@ struct MainNavigator: View {
             CodingSessionLiveness.isLive($0)
                 && CodingSessionDisplayState.of(session: $0, prState: nil) == .needsInput
         }
+        // EXP-1075: the same live/own rule WITHOUT the active-team narrowing —
+        // the board switcher's dot is exactly the runs this method just refused
+        // to count. `observedSessions` is already own-only; liveByTeam filters
+        // again anyway.
+        teamState.liveRunsByTeam = CodingSessionOwnership.liveByTeam(
+            observedSessions, userId: deps.auth.userId
+        )
     }
 
     // MARK: - Current board (Issues tab)

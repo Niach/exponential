@@ -630,6 +630,20 @@ fn land(route: Route, window: &mut Window, cx: &mut App) {
         }
         Route::Inbox => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
         Route::Session { session_id } => {
+            // EXP-1075: a live run belongs to ONE team's rail now, so land in
+            // its team first — otherwise the run opens with another team's
+            // board behind it and its own rail row nowhere. A row that has not
+            // synced yet (or whose `team_id` did not decode) still opens, on
+            // whatever team is active.
+            let team_id = match Store::try_global(cx) {
+                Some(store) => {
+                    let sessions = store.collections().coding_sessions.clone();
+                    let row = sessions.read(cx).get(&session_id).cloned();
+                    row.and_then(|row| row.team_id)
+                }
+                None => None,
+            };
+            switch_team_if_needed(team_id, window, cx);
             crate::session_screen::open_session(&session_id, window, cx)
         }
     }

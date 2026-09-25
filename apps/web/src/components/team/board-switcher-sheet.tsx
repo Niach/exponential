@@ -23,6 +23,8 @@ import { useOpenSession } from "@/hooks/use-open-session"
 import { usePinnedEntries } from "@/hooks/use-pins"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
+import { TeamLiveDot } from "@/components/team/sidebar-rail"
+import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 
 interface BoardSwitcherSheetProps {
   open: boolean
@@ -72,6 +74,10 @@ export function BoardSwitcherSheet({
   const [createBoardTeam, setCreateBoardTeam] = useState<Team | null>(null)
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
+  // EXP-1075: my live runs per team — the sheet IS the phone's team list, so
+  // a foreign team's header says a run of mine is alive there. The active
+  // team is skipped: its runs are the Agent screen one tap away.
+  const teamLive = useTeamLiveRuns(session?.user?.id)
 
   // The active team leads; the rest keep their membership order.
   const orderedTeams = useMemo(() => {
@@ -127,6 +133,13 @@ export function BoardSwitcherSheet({
                       <span className="min-w-0 truncate text-sm font-medium">
                         {row.name}
                       </span>
+                      {row.slug !== teamSlug && (
+                        <TeamLiveDot
+                          live={teamLive.get(row.id)}
+                          placement="trailing"
+                          title="Runs in this team"
+                        />
+                      )}
                     </div>
                     {teamBoards.length === 0 && (
                       <div className="flex h-11 items-center gap-3 px-3 text-sm text-muted-foreground">

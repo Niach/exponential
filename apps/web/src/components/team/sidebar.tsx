@@ -54,11 +54,14 @@ import {
   InboxUnreadBadge,
   ReviewsOpenBadge,
   SupportUnreadBadge,
+  TeamLiveDot,
   TeamSidebarRail,
   UserAvatar,
   UserMenuItems,
 } from "@/components/team/sidebar-rail"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
+import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
+import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { panelOffset } from "@/lib/detail-origin"
 import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
@@ -136,6 +139,10 @@ export function TeamSidebar({
   // reserves room under its last row only while the card floats over it.
   const whatsNew = useWhatsNew()
   const { myTeams } = useTeamMemberships(session?.user?.id)
+  // EXP-1075: session lists are team-scoped, so the picker carries the only
+  // hint that a run of mine is alive in a team I am not looking at.
+  const teamLive = useTeamLiveRuns(session?.user?.id)
+  const otherLive = otherTeamsLive(teamLive, team?.id)
   // EXP-878: the Drafts entry exists only while there IS a draft.
   const draftCount = useDraftEntries(team?.id).length
   // The guarded /t/$teamSlug layout is the only render site, so a session is
@@ -225,7 +232,17 @@ export function TeamSidebar({
                     <span className="text-sm font-semibold truncate">
                       {team?.name ?? teamSlug}
                     </span>
-                    <NavTeamSwitcherIcon className="ml-auto h-4 w-4 shrink-0" />
+                    {/* `overflow-visible!`: the menu button truncates its LAST
+                        span, which would clip the corner dot. */}
+                    <span className="relative ml-auto flex shrink-0 items-center overflow-visible!">
+                      <NavTeamSwitcherIcon className="h-4 w-4" />
+                      <TeamLiveDot
+                        live={otherLive.any ? otherLive : undefined}
+                        placement="corner"
+                        title="Runs in other teams"
+                        data-testid="team-switcher-live-dot"
+                      />
+                    </span>
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
@@ -241,8 +258,14 @@ export function TeamSidebar({
                     >
                       <TeamAvatar name={ws.name} size={20} />
                       <span className="truncate">{ws.name}</span>
-                      {ws.slug === teamSlug && (
+                      {ws.slug === teamSlug ? (
                         <UiCheckIcon className="ml-auto h-4 w-4" />
+                      ) : (
+                        <TeamLiveDot
+                          live={teamLive.get(ws.id)}
+                          placement="trailing"
+                          title="Runs in this team"
+                        />
                       )}
                     </DropdownMenuItem>
                   ))}

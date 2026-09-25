@@ -47,6 +47,7 @@ import com.exponential.app.AppConstants
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
@@ -259,6 +260,9 @@ fun AppNavHost() {
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
             val agentsNeedInput by viewModel.agentsNeedInput.collectAsStateWithLifecycle()
+            // EXP-1075: the board switcher's other-team dot — my live runs in
+            // teams the switcher is NOT on.
+            val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
             val reviewsOpen by viewModel.reviewsOpen.collectAsStateWithLifecycle()
             val helpdeskEnabled by viewModel.helpdeskEnabled.collectAsStateWithLifecycle()
             val supportUnread by viewModel.supportUnread.collectAsStateWithLifecycle()
@@ -275,6 +279,7 @@ fun AppNavHost() {
                 unreadCount = unreadCount,
                 agentsRunning = agentsRunning,
                 agentsNeedInput = agentsNeedInput,
+                liveRunsByTeam = liveRunsByTeam,
                 reviewsOpen = reviewsOpen,
                 helpdeskEnabled = helpdeskEnabled,
                 supportUnread = supportUnread,
@@ -327,6 +332,7 @@ private fun AuthenticatedNav(
     unreadCount: Int,
     agentsRunning: Boolean,
     agentsNeedInput: Boolean,
+    liveRunsByTeam: Map<String, TeamLiveRuns>,
     reviewsOpen: Boolean,
     helpdeskEnabled: Boolean,
     supportUnread: Boolean,
@@ -479,9 +485,14 @@ private fun AuthenticatedNav(
         composable("home") {
             // The Issues tab root: the current board's list with the inline
             // switcher; picking another board swaps it in place (no push).
+            val selectedTeamId by teamSelection.selectedId.collectAsStateWithLifecycle()
             IssueListScreen(
                 boardId = currentBoardId,
                 mode = IssueListMode.Root,
+                // EXP-1075: the switcher wears a dot when MY live runs sit in
+                // a team this screen isn't showing.
+                liveRunsByTeam = liveRunsByTeam,
+                selectedTeamId = selectedTeamId,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenAgent = openAgent,
