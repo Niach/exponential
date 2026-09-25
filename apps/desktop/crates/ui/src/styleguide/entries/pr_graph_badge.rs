@@ -10,7 +10,7 @@
 //! never a size of its own. The demo is static on purpose: it documents the
 //! glyph-per-relation rule and the rung, never live rows.
 
-use gpui::{div, px, Div, ParentElement as _, Styled as _};
+use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::{Icon, Sizable as _};
 
 use crate::icons::{registry, ExpIcon};
@@ -25,8 +25,8 @@ struct State {
 }
 
 /// The capsule at the header rung: the glyphs at the rung's own glyph size,
-/// the label after them — the shape `glass_pill_button` draws, without the
-/// theme a static demo has no `App` for.
+/// the label after them — the shape `glass_pill_button` draws. Calling
+/// `crate::pr_graph::badge` itself instead is EXP-1092.
 fn capsule(state: &State) -> Div {
     let size = crate::pr_graph::badge_size();
     let muted = theme::tokens::MUTED_FOREGROUND.to_hsla();
@@ -54,7 +54,7 @@ fn capsule(state: &State) -> Div {
     pill
 }
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     let states = vec![
         // The Run face of a run with a family and no pull-request relation.
         State {

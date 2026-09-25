@@ -2,14 +2,14 @@
 //!
 //! Filled by EXP-1021; never edits `entries/mod.rs` nor the index.
 
-use gpui::Div;
+use gpui::{App, Div, Window};
 
 use super::picker::{chip, column, demo, inert};
 
 pub(crate) const ID: &str = "picker-status";
 pub(crate) const OWNER: &str = "EXP-1021";
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     column(vec![
         demo("status — single; vocabulary order, Backlog leads (EXP-448)", |window, cx| {
             let statuses = domain::statuses::default_resolved_statuses();

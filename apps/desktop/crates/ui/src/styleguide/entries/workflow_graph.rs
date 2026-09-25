@@ -10,23 +10,11 @@
 //! is open (EXP-1032). The running node is the picked one — the accent ring
 //! outside its chip.
 
-use gpui::{div, App, Div, IntoElement, ParentElement as _, RenderOnce, Window};
+use gpui::{div, App, Div, ParentElement as _, Window};
 
 pub(crate) const ID: &str = "workflow-graph";
 pub(crate) const OWNER: &str = "EXP-1014";
 
-/// The entry's demo. The section API hands an entry no `App`, and a themed
-/// element needs one, so the sample is a component: gpui gives it the app at
-/// render time.
-pub(crate) fn render() -> Div {
-    div().child(WorkflowGraphSample)
-}
-
-#[derive(IntoElement)]
-struct WorkflowGraphSample;
-
-impl RenderOnce for WorkflowGraphSample {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::workflow_view::styleguide_sample_graph(cx)
-    }
+pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
+    div().child(crate::workflow_view::styleguide_sample_graph(cx))
 }

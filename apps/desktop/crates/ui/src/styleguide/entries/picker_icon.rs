@@ -2,14 +2,14 @@
 //!
 //! Filled by EXP-1021; never edits `entries/mod.rs` nor the index.
 
-use gpui::Div;
+use gpui::{App, Div, Window};
 
 use super::picker::{chip, column, demo, inert};
 
 pub(crate) const ID: &str = "picker-icon";
 pub(crate) const OWNER: &str = "EXP-1021";
 
-pub(crate) fn render() -> Div {
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     column(vec![
         demo("icon — the board set (96 glyphs), the grid inside the popover", |window, cx| {
             crate::picker::icon_picker::icon_picker(
