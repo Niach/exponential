@@ -602,6 +602,10 @@ extension WorkflowView {
     public static let pickDeviceLabel = "Pick device"
     public static let runsOnLabel = "Runs on"
     public static let reviewFinalPrLabel = "Review final PR"
+    /// All × Changes: a node with nothing pushed yet.
+    public static let noChangesLabel = "No changes yet"
+    /// The Dismiss confirm's one sentence (a `proposed` node's chip menu).
+    public static let dismissNodeConfirm = "The node is removed from the workflow."
 
     /// The header's overflow: a draft plans, re-binds its runner or is
     /// deleted; a live workflow stops; anything else is deleted.

@@ -174,7 +174,7 @@ struct WorkflowDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The node is removed from the workflow.")
+            Text(WorkflowView.dismissNodeConfirm)
         }
         .alert(WorkflowView.mergeFinalPrLabel, isPresented: $showMergeConfirm) {
             Button(WorkflowView.mergeFinalPrLabel) { model?.mergeFinalPr() }
@@ -882,7 +882,7 @@ struct WorkflowDetailView: View {
 
     /// A node's PR state (`#12 · Open`), its pushed branch, or nothing yet.
     static func changesLabel(_ issue: IssueEntity?) -> String {
-        guard let issue else { return "No changes yet" }
+        guard let issue else { return WorkflowView.noChangesLabel }
         if issue.prUrl?.isEmpty == false {
             let state = switch issue.prState {
             case DomainContract.prStateMerged: "Merged"
@@ -892,7 +892,7 @@ struct WorkflowDetailView: View {
             return issue.prNumber.map { "#\($0) · \(state)" } ?? state
         }
         if let branch = issue.branch, !branch.isEmpty { return branch }
-        return "No changes yet"
+        return WorkflowView.noChangesLabel
     }
 
     /// The ONE final pull request: its state and GitHub.

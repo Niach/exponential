@@ -837,12 +837,14 @@ final class WorkflowContractViewTests: XCTestCase {
 
     func testPageLabelsAreByteLocked() throws {
         let labels = try fixture().pageLabels
-        XCTAssertEqual(labels.count, 6)
+        XCTAssertEqual(labels.count, 8)
         XCTAssertEqual(labels["allNodes"], WorkflowView.allNodesLabel)
         XCTAssertEqual(labels["decisions"], WorkflowView.decisionsLabel)
         XCTAssertEqual(labels["stop"], WorkflowView.stopWorkflowLabel)
         XCTAssertEqual(labels["pickDevice"], WorkflowView.pickDeviceLabel)
         XCTAssertEqual(labels["runsOn"], WorkflowView.runsOnLabel)
         XCTAssertEqual(labels["reviewFinalPr"], WorkflowView.reviewFinalPrLabel)
+        XCTAssertEqual(labels["noChanges"], WorkflowView.noChangesLabel)
+        XCTAssertEqual(labels["dismissNodeConfirm"], WorkflowView.dismissNodeConfirm)
     }
 }
