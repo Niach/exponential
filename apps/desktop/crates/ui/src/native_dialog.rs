@@ -169,8 +169,25 @@ pub(crate) fn raise_existing_dialog(window: &mut Window, cx: &mut App) -> bool {
 }
 
 fn opener_of(window: &Window, cx: &App) -> Option<AnyWindowHandle> {
-    let id = window.window_handle().window_id();
-    registry(cx).and_then(|registry| registry.read(cx).openers.get(&id).map(|row| row.opener))
+    opener_of_window(window.window_handle().window_id(), cx)
+}
+
+/// The window `window_id`'s dialog was opened FROM — `None` when it is not a
+/// dialog window at all.
+///
+/// EXP-1037: a dialog window hosts no screens panel, so a navigation raised
+/// inside one (the composer dialog starting a run, which opens the session
+/// screen) has to land in the surface that opened it — the same shape
+/// [`crate::undock::owner_shell_for_window`] gives undocked screens. See
+/// `navigation::owner_window_for`.
+pub(crate) fn opener_of_window(window_id: WindowId, cx: &App) -> Option<AnyWindowHandle> {
+    registry(cx).and_then(|registry| {
+        registry
+            .read(cx)
+            .openers
+            .get(&window_id)
+            .map(|row| row.opener)
+    })
 }
 
 /// EXP-287: a shell window is going away — close the dialogs it opened.

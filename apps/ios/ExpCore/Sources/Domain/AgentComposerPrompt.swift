@@ -50,20 +50,33 @@ public enum AgentComposerPrompt {
         }
     }
 
+    /// EXP-1038: the composer's HEADLINE verb, above the field and beside the
+    /// subject chips — the contract's `composerUi*` copy ×4: "Run" for an
+    /// action, "Implement" for issue chips, "Ask the agent" for a subjectless
+    /// chat (which has no chips, so the verb stands alone).
+    public static func headline(for subject: Subject) -> String {
+        switch subject {
+        case .none: DomainContract.composerUiChatHeadline
+        case .issues: DomainContract.composerUiImplementHeadline
+        case .action: DomainContract.composerUiRunHeadline
+        }
+    }
+
     /// The field's placeholder — web `composerPlaceholder` byte for byte
-    /// (EXP-825): a chat asks for the message; a picked action with a
-    /// non-blank `promptPlaceholder` (`actionHint`, trimmed) shows it; every
-    /// other subject asks for what is optional next to it. Issue chips never
-    /// read an action's hint.
+    /// (EXP-825, the contract's `composerUi*` copy since EXP-1038): a chat
+    /// asks for the message; a picked action with a non-blank
+    /// `promptPlaceholder` (`actionHint`, trimmed) shows it; every other
+    /// subject asks for what is optional next to it. Issue chips never read
+    /// an action's hint.
     public static func placeholder(for subject: Subject, actionHint: String?) -> String {
         switch subject {
         case .none:
-            return "Ask the agent…"
+            return DomainContract.composerUiChatPlaceholder
         case .action:
             let hint = actionHint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return hint.isEmpty ? "Additional instructions (optional)…" : hint
+            return hint.isEmpty ? DomainContract.composerUiInstructionsPlaceholder : hint
         case .issues:
-            return "Additional instructions (optional)…"
+            return DomainContract.composerUiInstructionsPlaceholder
         }
     }
 }

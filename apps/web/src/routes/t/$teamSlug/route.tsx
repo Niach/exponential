@@ -15,6 +15,7 @@ import { SidebarProvider, useIsMobile } from "@exp/ui"
 import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { AgentLoginDialogHost } from "@/components/agent-login-dialog"
+import { LaunchDialogHost } from "@/components/launch-dialog/launch-dialog"
 import { TeamSidebar } from "@/components/team/sidebar"
 import {
   MAIN_COLUMN_CLASS,
@@ -236,6 +237,10 @@ function TeamLayout() {
             {/* EXP-792 (EXP-747 A2): the one "Sign in to <agent>" dialog a
                 failed remote start's toast or a machine row opens. */}
             <AgentLoginDialogHost />
+            {/* EXP-1019: the ONE launcher every play button opens — the
+                composer in a dialog over whatever the person was looking at,
+                mounted here so a start from any surface reaches it. */}
+            <LaunchDialogHost team={team} />
 
             {team && (
               <IssueSearchSheet

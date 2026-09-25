@@ -185,6 +185,23 @@ export interface DomainContract {
     inlineDiffMaxHeight: number
   }
   /**
+   * EXP-1019: the launcher's shared copy — the ONE wording every composer
+   * uses ×4 (web dialog + agent page, the IDE's start-coding dialog, the two
+   * native composers). `runHeadline`/`implementHeadline` are the VERB in
+   * front of the subject chips ("Run <action>", "Implement <issues>"); the
+   * chips themselves are each client's own. `chatHeadline` is the subjectless
+   * case, and the two placeholders are what the text field asks for once the
+   * subject — not the prompt — is the main thing.
+   */
+  composerUi: {
+    runHeadline: string
+    implementHeadline: string
+    chatHeadline: string
+    chatPlaceholder: string
+    instructionsPlaceholder: string
+    dialogTitle: string
+  }
+  /**
    * EXP-785: ACP's tool-call kinds, carried on the `tool` steer event so
    * clients can bucket a call (an `edit` folds its diff, an `execute` is a
    * command) without parsing its name. Byte-equal to ACP's `ToolKind`.

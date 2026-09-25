@@ -28,6 +28,19 @@ pub(crate) enum SubjectKind {
     Action { id: String },
 }
 
+/// EXP-1019/EXP-1037 — the composer's HEADLINE verb, the launcher's main
+/// element above the (now secondary) text field: `Run` beside an action's
+/// chip, `Implement` beside the issue chips, `Ask the agent` with no subject
+/// at all. The three strings are the shared contract's
+/// (`domain::contract::COMPOSER_UI_*_HEADLINE`, ×4), never local literals.
+pub(crate) fn headline(subject: &SubjectKind) -> &'static str {
+    match subject {
+        SubjectKind::Chat => domain::contract::COMPOSER_UI_CHAT_HEADLINE,
+        SubjectKind::Issues { .. } => domain::contract::COMPOSER_UI_IMPLEMENT_HEADLINE,
+        SubjectKind::Action { .. } => domain::contract::COMPOSER_UI_RUN_HEADLINE,
+    }
+}
+
 /// The submit pill's label (the web `submitLabel`, byte-identical).
 pub(crate) fn submit_label(subject: &SubjectKind) -> String {
     match subject {
@@ -489,6 +502,21 @@ mod tests {
             mcp_server_ids: Vec::new(),
             account: None,
         }
+    }
+
+    /// EXP-1019: the headline verb per subject kind — the contract's three
+    /// strings, byte for byte.
+    #[test]
+    fn headlines_follow_the_subject_kind() {
+        assert_eq!(headline(&SubjectKind::Chat), "Ask the agent");
+        assert_eq!(headline(&SubjectKind::Issues { count: 1 }), "Implement");
+        assert_eq!(headline(&SubjectKind::Issues { count: 4 }), "Implement");
+        assert_eq!(
+            headline(&SubjectKind::Action {
+                id: "act-1".into()
+            }),
+            "Run"
+        );
     }
 
     /// The four labels of the shared contract, byte for byte.

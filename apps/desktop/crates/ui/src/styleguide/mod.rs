@@ -6,12 +6,15 @@
 //! index the web page reads (`apps/styleguide/src/sections/sections.json`,
 //! embedded at compile time), and one placeholder entry file per registered
 //! id (`entries/`), so a leaf fills its file on both platforms and never
-//! edits an index. EXP-1019 owns the structure from here (a debug screen
-//! behind `EXP_DEV_STYLEGUIDE=1`, the existing entries moved in); the drift
-//! test below keeps the two indexes one.
+//! edits an index. EXP-1039 gave it its screen ([`screen`], a debug-only
+//! `Screen::Styleguide` behind `EXP_DEV_STYLEGUIDE=1`) and the IDE's own
+//! starting set of live entries ([`native`], filed under the same four
+//! sections); the drift test below keeps the two indexes one.
 #![allow(dead_code)]
 
 pub(crate) mod entries;
+pub(crate) mod native;
+pub(crate) mod screen;
 
 use serde::Deserialize;
 

@@ -34,6 +34,13 @@ export interface AgentSearch {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** EXP-1019: the seed carries a SUBJECT — issues or an action. That is the
+ *  one thing that decides whether a start opens the launcher as a DIALOG
+ *  (`use-open-composer.ts`) or travels to the Agent page as a plain chat. */
+export function seedHasSubject(seed: Partial<LaunchSeed>): boolean {
+  return (seed.issueIds?.length ?? 0) > 0 || Boolean(seed.actionId)
+}
+
 /** The search params as a seed, or null when none of them is set. Bad
  * issue ids are dropped rather than refused — a link is a shortcut, not a
  * guarantee. */
