@@ -14,7 +14,7 @@ import {
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
 import { authedProcedure } from "@/lib/trpc"
-import { workflowNodes, workflows } from "@/db/schema"
+import { workflowNodes } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
 import {
   bad,
