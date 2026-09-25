@@ -54,6 +54,8 @@
       { "kind": "setNodeState", "nodeId": "right", "state": "ready" },
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "left",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -61,6 +63,8 @@
       },
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "right",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -97,7 +101,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -125,7 +129,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startNode", "nodeId": "a", "attempt": 3, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "a", "attempt": 3, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -603,6 +607,8 @@
     "expected": [
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "head",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -610,6 +616,8 @@
       },
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "leaf",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -617,6 +625,8 @@
       },
       {
         "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
         "nodeId": "tail",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",

@@ -347,6 +347,13 @@ data class CodingSessionEntity(
     // (FK SET NULL); null on a top-level run. The session lists nest a child
     // under its parent (SessionTree).
     @ColumnInfo(name = "parent_session_id") @SerialName("parent_session_id") @JsonNames("parentSessionId") val parentSessionId: String? = null,
+    // EXP-1082: WORKFLOW MEMBERSHIP — the workflow (and node) a run works for,
+    // and its role there (contract `wfSessionRole`: author | review |
+    // base_merge | plan | replan). All NULL on a run outside any workflow;
+    // the session tree groups by `workflowId` before any heuristic.
+    @ColumnInfo(name = "workflow_id") @SerialName("workflow_id") @JsonNames("workflowId") val workflowId: String? = null,
+    @ColumnInfo(name = "workflow_node_id") @SerialName("workflow_node_id") @JsonNames("workflowNodeId") val workflowNodeId: String? = null,
+    @ColumnInfo(name = "workflow_role") @SerialName("workflow_role") @JsonNames("workflowRole") val workflowRole: String? = null,
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,
@@ -373,6 +380,11 @@ data class CodingSessionEntity(
     // walled run as healthy. Parsed for display by AgentUsagePresentation.
     @ColumnInfo(name = "blocked") @SerialName("blocked")
     @Serializable(with = JsonAsStringSerializer::class) val blocked: String? = null,
+    // EXP-1082: the question the run asked its starter and still waits on
+    // (`{question, askedAt}`), raw jsonb TEXT like `blocked`; NULL = none open.
+    // Read by WorkflowQuestions (EXP-1065).
+    @ColumnInfo(name = "pending_question") @SerialName("pending_question") @JsonNames("pendingQuestion")
+    @Serializable(with = JsonAsStringSerializer::class) val pendingQuestion: String? = null,
     // EXP-879: the run's published RESULTS — the screenshots the agent filed
     // with `exponential_sessions_results` while it worked, kept as the raw
     // jsonb TEXT off the wire exactly like `blocked`. A FLAT, ORDERED array of
@@ -910,4 +922,24 @@ data class ElectricOffsetEntity(
     // when this is set: the next poll requests offset=-1 and prepends the wipe
     // to its own batch, so the swap is one transaction and the UI never blanks.
     @ColumnInfo(name = "needs_refetch") val needsRefetch: Boolean = false,
+)
+
+// EXP-1082: one line of a workflow's EVENT LOG (the `workflow_events` shape):
+// what the orchestrator did and when (contract `wfEventKind`). `node_id` /
+// `session_id` are NULL on workflow-level events. `team_id` is denormalized
+// server-side for the shape's team scoping, like `workflow_nodes`.
+@Entity(
+    tableName = "workflow_events",
+    indices = [Index("workflow_id"), Index("team_id")],
+)
+@Serializable
+data class WorkflowEventEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workflow_id") @SerialName("workflow_id") @JsonNames("workflowId") val workflowId: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @ColumnInfo(name = "node_id") @SerialName("node_id") @JsonNames("nodeId") val nodeId: String? = null,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    val at: String = "",
+    val kind: String = "",
+    val message: String = "",
 )

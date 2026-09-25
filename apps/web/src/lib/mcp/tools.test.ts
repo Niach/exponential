@@ -3809,6 +3809,61 @@ describe(`exponential_sessions_start`, () => {
     )
   })
 
+  // EXP-1082 §1 rule (c): a child started from inside a workflow run joins
+  // the parent's workflow + node; its role is its own.
+  it(`stamps the calling workflow run's membership on its child`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    const WF = `77777777-7777-4777-8777-777777777777`
+    const NODE = `88888888-8888-4888-8888-888888888888`
+    const builder = db.select()
+    db.select.mockClear()
+    let call = 0
+    const sets: Array<Record<string, unknown>> = []
+    db.update.mockImplementation(() => ({
+      set: (values: Record<string, unknown>) => {
+        sets.push(values)
+        return { where: async () => undefined }
+      },
+    }))
+    // 1 = the poll, 2 = the parent's membership, 3 = the child's row.
+    db.select.mockImplementation(() => {
+      call += 1
+      dbRows.current =
+        call === 1
+          ? [{ ...startedRow }]
+          : call === 2
+            ? [{ workflowId: WF, workflowNodeId: NODE }]
+            : [{ workflowId: null, issueId: UUID, batchIssueIds: null, startedReason: `agent` }]
+      return builder
+    })
+    try {
+      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+        deviceId: `mac-1`,
+        issueId: UUID,
+      })
+    } finally {
+      db.select.mockImplementation(() => builder)
+    }
+    expect(sets).toEqual([
+      { parentSessionId: RUN, workflowId: WF, workflowNodeId: NODE, workflowRole: `author` },
+    ])
+  })
+
+  it(`forwards explicit workflow membership to the steer start`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    dbRows.current = [{ ...startedRow }]
+    const WF = `77777777-7777-4777-8777-777777777777`
+    await tool(`exponential_sessions_start`)({
+      deviceId: `mac-1`,
+      issueId: UUID,
+      workflowId: WF,
+      workflowRole: `review`,
+    })
+    expect(caller.steer.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ workflowId: WF, workflowRole: `review` })
+    )
+  })
+
   // EXP-906: the profile rides the start like every other option — an
   // orchestrator whose default profile is walled no longer has to route
   // around this tool (and lose the parent link) to launch elsewhere.

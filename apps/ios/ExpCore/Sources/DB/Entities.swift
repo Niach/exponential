@@ -467,6 +467,18 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // `exponential_sessions_start` (FK SET NULL); nil on a top-level run. The
     // session lists nest a child under its parent (SessionTree).
     public let parentSessionId: String?
+    // EXP-1082 (workflow contract): the run's WORKFLOW MEMBERSHIP, stamped by
+    // the server — the workflow and node it works for and its role there
+    // (contract `wfSessionRole`: author|review|base_merge|plan|replan). All
+    // three nil on a run outside any workflow. The session tree groups by
+    // these before any heuristic (EXP-1068 implements).
+    public let workflowId: String?
+    public let workflowNodeId: String?
+    public let workflowRole: String?
+    // EXP-1082: the run's open question to a person (`{question, askedAt}`),
+    // the raw jsonb TEXT off the wire like `blocked`; nil = none pending.
+    // Read by `WorkflowQuestions.open` (EXP-1065 implements).
+    public let pendingQuestion: String?
     public let startedAt: String
     public let endedAt: String?
     public let createdAt: String
@@ -512,6 +524,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         endedBy: String? = nil,
         resumedFromId: String? = nil,
         parentSessionId: String? = nil,
+        workflowId: String? = nil,
+        workflowNodeId: String? = nil,
+        workflowRole: String? = nil,
+        pendingQuestion: String? = nil,
         startedAt: String,
         endedAt: String?,
         createdAt: String,
@@ -545,6 +561,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.endedBy = endedBy
         self.resumedFromId = resumedFromId
         self.parentSessionId = parentSessionId
+        self.workflowId = workflowId
+        self.workflowNodeId = workflowNodeId
+        self.workflowRole = workflowRole
+        self.pendingQuestion = pendingQuestion
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.createdAt = createdAt
@@ -577,6 +597,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case endedBy = "ended_by"
         case resumedFromId = "resumed_from_id"
         case parentSessionId = "parent_session_id"
+        case workflowId = "workflow_id"
+        case workflowNodeId = "workflow_node_id"
+        case workflowRole = "workflow_role"
+        case pendingQuestion = "pending_question"
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case createdAt = "created_at"
@@ -637,6 +661,12 @@ extension CodingSessionEntity: Codable {
         resumedFromId = try c.decodeIfPresent(String.self, forKey: .resumedFromId)
         // Pre-EXP-818 snapshots omit the key — decode permissively.
         parentSessionId = try c.decodeIfPresent(String.self, forKey: .parentSessionId)
+        // EXP-1082: pre-EXP-1082 snapshots omit these — decode permissively;
+        // `pending_question` is jsonb, same treatment as `blocked`.
+        workflowId = try c.decodeIfPresent(String.self, forKey: .workflowId)
+        workflowNodeId = try c.decodeIfPresent(String.self, forKey: .workflowNodeId)
+        workflowRole = try c.decodeIfPresent(String.self, forKey: .workflowRole)
+        pendingQuestion = c.decodeWireJsonString(forKey: .pendingQuestion)
         startedAt = try c.decode(String.self, forKey: .startedAt)
         endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
@@ -2420,6 +2450,68 @@ extension WorkflowNodeEntity: Codable {
         note = try c.decodeIfPresent(String.self, forKey: .note)
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
+    }
+}
+
+// MARK: - WorkflowEvent
+
+/// EXP-1082: one line of a workflow's EVENT LOG (`workflow_events`, the 25th
+/// Electric shape `workflow-events`) — what happened to the run and when,
+/// optionally about one node and/or one session. `kind` = contract
+/// `wfEventKind`; `message` = the server's human sentence. Rendered by
+/// `WorkflowEventList` (EXP-1068 implements).
+public struct WorkflowEventEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "workflow_events"
+
+    public let id: String
+    public let workflowId: String
+    public let teamId: String
+    public let nodeId: String?
+    public let sessionId: String?
+    public let at: String
+    public let kind: String
+    public let message: String
+
+    public init(
+        id: String,
+        workflowId: String,
+        teamId: String,
+        nodeId: String? = nil,
+        sessionId: String? = nil,
+        at: String,
+        kind: String,
+        message: String = ""
+    ) {
+        self.id = id
+        self.workflowId = workflowId
+        self.teamId = teamId
+        self.nodeId = nodeId
+        self.sessionId = sessionId
+        self.at = at
+        self.kind = kind
+        self.message = message
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, at, kind, message
+        case workflowId = "workflow_id"
+        case teamId = "team_id"
+        case nodeId = "node_id"
+        case sessionId = "session_id"
+    }
+}
+
+extension WorkflowEventEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        workflowId = try c.decode(String.self, forKey: .workflowId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        nodeId = try c.decodeIfPresent(String.self, forKey: .nodeId)
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        at = (try? c.decode(String.self, forKey: .at)) ?? ""
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? ""
+        message = (try? c.decodeIfPresent(String.self, forKey: .message)) ?? ""
     }
 }
 

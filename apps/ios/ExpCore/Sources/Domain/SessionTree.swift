@@ -134,6 +134,10 @@ public enum SessionTree {
 ///   6. An orphan child whose parent is gone (swept, not synced) sits at top
 ///      level.
 ///
+/// EXP-1082: the rows now carry their server-stamped workflow membership
+/// (`workflowId`/`workflowNodeId`/`workflowRole`); grouping by it before any
+/// heuristic is EXP-1068 — the rules above are unchanged until then.
+///
 /// CONCRETE over `CodingSessionEntity`, not generic like `nest` above: rule 1
 /// is `RunChain.chain`, which is entity-typed, and going generic would mean a
 /// second copy of its backwards/forwards walk. A view whose row wraps a

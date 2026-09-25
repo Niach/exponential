@@ -11,6 +11,7 @@ import {
   workflowReviewOracleSchema,
   workflowTouchesSchema,
   type WfReviewVerdict,
+  type WfSessionRole,
   CATEGORY_ANCHOR,
   customizableStatusCategoryValues,
   dateOnlySchema,
@@ -97,6 +98,7 @@ import {
 import { findRelationCycle } from "@/lib/relation-cycles"
 import { liveWorkflowBaseForIssue } from "@/lib/workflows"
 import { appendDecisionLine, bumpMetrics } from "@/lib/trpc/workflows"
+import { resolveWorkflowMembership } from "@/lib/sessions/workflow-membership"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import {
   issueWireColumns,
@@ -496,6 +498,61 @@ const sessionColumns = {
   endedAt: codingSessions.endedAt,
   createdAt: codingSessions.createdAt,
   updatedAt: codingSessions.updatedAt,
+}
+
+/**
+ * EXP-679 + EXP-1082 §1 rule (c): the device creates a child's row, so its
+ * links are stamped after `exponential_sessions_start`'s poll: the parent
+ * (when the row has none) and, when the row joined no workflow itself and
+ * the calling run belongs to one, the parent's workflow + node through
+ * `resolveWorkflowMembership` (role `author` for an issue or batch child,
+ * else none). History only: the caller swallows a failure.
+ */
+async function stampChildOfRun(
+  row: { id: unknown; parentSessionId?: unknown },
+  sessionId: string
+): Promise<void> {
+  const rowId = row.id as string
+  const patch: {
+    parentSessionId?: string
+    workflowId?: string | null
+    workflowNodeId?: string | null
+    workflowRole?: string | null
+  } = {}
+  if (!row.parentSessionId) patch.parentSessionId = sessionId
+  const [parent] = await db
+    .select({
+      workflowId: codingSessions.workflowId,
+      workflowNodeId: codingSessions.workflowNodeId,
+    })
+    .from(codingSessions)
+    .where(eq(codingSessions.id, sessionId))
+    .limit(1)
+  const [child] = parent?.workflowId
+    ? await db
+        .select({
+          workflowId: codingSessions.workflowId,
+          issueId: codingSessions.issueId,
+          batchIssueIds: codingSessions.batchIssueIds,
+          startedReason: codingSessions.startedReason,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, rowId))
+        .limit(1)
+    : []
+  if (child && !child.workflowId && parent?.workflowId) {
+    const membership = resolveWorkflowMembership({
+      parent,
+      startedReason: child.startedReason,
+      issueIds: child.issueId ? [child.issueId] : (child.batchIssueIds ?? []),
+    })
+    patch.workflowId = membership.workflowId
+    patch.workflowNodeId = membership.workflowNodeId
+    patch.workflowRole = membership.workflowRole
+  }
+  if (Object.keys(patch).length === 0) return
+  await db.update(codingSessions).set(patch).where(eq(codingSessions.id, rowId))
+  if (patch.parentSessionId) row.parentSessionId = sessionId
 }
 
 // How long exponential_sessions_start waits for the device to report the
@@ -3743,7 +3800,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on an ONLINE device (exponential_devices_list, agents includes it); offline = refused, never queued. One subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from the device's agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId stacks it on that issue's PR. Track it with exponential_sessions_get. Started from inside a run, the child is unattended: its question, finish or usage wall (wait it out) lands here as '[Exponential child run ...]' user input; answer with exponential_sessions_message. Read its report before merging.`,
+      description: `Start a coding session on an ONLINE device (exponential_devices_list); offline = refused. One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId = stack on that issue's PR. Track it with exponential_sessions_get. A child started from a run is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -3766,6 +3823,13 @@ export function registerExponentialTools(
         // whose default profile is walled had to route around this tool
         // (and lose the parent link) to launch on another account.
         account: z.string().min(1).max(64).optional(),
+        // EXP-1082: workflow membership for the frame (honoured only from
+        // the workflow's runner device, see codingSessions.start).
+        workflowId: uuidString.optional(),
+        workflowNodeId: uuidString.optional(),
+        // Validated against contract `wfSessionRole` by steer.startSession
+        // (a plain string keeps this tool inside its context budget).
+        workflowRole: z.string().optional(),
       }),
     },
     async (input) => {
@@ -3854,9 +3918,11 @@ export function registerExponentialTools(
           assertBoardGranted(access, lowerCtx.boardId, lowerCtx.teamId)
           stackOn = { issueId: lowerId }
         }
-        const { stackOnIssueId: _stackOnIssueId, ...startInput } = input
+        const { stackOnIssueId: _stackOnIssueId, workflowRole, ...startInput } = input
         await caller(user, request).steer.startSession({
           ...startInput,
+          // The router validates the contract role (a plain string here).
+          ...(workflowRole ? { workflowRole: workflowRole as WfSessionRole } : {}),
           issueId,
           issueIds,
           ...(stackOn ? { stackOn } : {}),
@@ -3888,13 +3954,9 @@ export function registerExponentialTools(
           if (row) {
             // EXP-679: the device creates the row, so the parent link is
             // stamped here — history only, never worth failing the start.
-            if (sessionId && !row.parentSessionId) {
+            if (sessionId) {
               try {
-                await db
-                  .update(codingSessions)
-                  .set({ parentSessionId: sessionId })
-                  .where(eq(codingSessions.id, row.id))
-                row.parentSessionId = sessionId
+                await stampChildOfRun(row, sessionId)
               } catch {
                 // ignored
               }

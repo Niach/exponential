@@ -587,3 +587,167 @@ public enum WorkflowView {
         return rows
     }
 }
+
+// MARK: - EXP-1082 workflow contract: display states, strip, header, actions
+
+/// EXP-1082: the FIVE states a node chip shows — the engine's ten internal
+/// `wfNodeState`s fold into these (contract `wfNodeDisplayState`), locked by
+/// the fixture's `displayStates` ×4 (web `lib/workflow-view.ts`).
+public enum WorkflowNodeDisplayState: String, Sendable, CaseIterable {
+    case queued
+    case running
+    case done
+    case failed
+    case skipped
+
+    /// The chip's caption, byte-identical ×4.
+    public var label: String {
+        switch self {
+        case .queued: "Queued"
+        case .running: "Running"
+        case .done: "Done"
+        case .failed: "Failed"
+        case .skipped: "Skipped"
+        }
+    }
+}
+
+/// EXP-1082: a node as the strip reads it (EXP-1066 implements the strip).
+public struct StripNodeInput: Sendable, Equatable {
+    public let id: String
+    public let identifier: String
+    public let state: String
+    public let wave: Int
+    public let lane: Int
+    public let members: Int
+    public let live: Bool
+    public let needsYou: Bool
+    public let note: String?
+
+    public init(
+        id: String, identifier: String, state: String, wave: Int, lane: Int,
+        members: Int = 0, live: Bool = false, needsYou: Bool = false, note: String? = nil
+    ) {
+        self.id = id
+        self.identifier = identifier
+        self.state = state
+        self.wave = wave
+        self.lane = lane
+        self.members = members
+        self.live = live
+        self.needsYou = needsYou
+        self.note = note
+    }
+}
+
+/// One chip of the strip.
+public struct NodeChip: Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let display: WorkflowNodeDisplayState
+    public let caption: String
+    /// A compound node (members > 0) draws as a stacked chip.
+    public let stacked: Bool
+    public let members: Int
+    public let live: Bool
+    public let needsYou: Bool
+
+    public init(
+        id: String, title: String, display: WorkflowNodeDisplayState, caption: String,
+        stacked: Bool, members: Int, live: Bool, needsYou: Bool
+    ) {
+        self.id = id
+        self.title = title
+        self.display = display
+        self.caption = caption
+        self.stacked = stacked
+        self.members = members
+        self.live = live
+        self.needsYou = needsYou
+    }
+}
+
+/// One column of the strip: the chips of one wave, lane order.
+public struct StripWave: Sendable, Equatable {
+    public let wave: Int
+    public let nodes: [NodeChip]
+
+    public init(wave: Int, nodes: [NodeChip]) {
+        self.wave = wave
+        self.nodes = nodes
+    }
+}
+
+/// A node as the header caption counts it.
+public struct HeaderNode: Sendable, Equatable {
+    public let state: String
+    public let members: Int
+
+    public init(state: String, members: Int = 0) {
+        self.state = state
+        self.members = members
+    }
+}
+
+/// The workflow page's ONE primary button (fixture `primaryActions`).
+public enum WorkflowPrimaryAction: String, Sendable {
+    case pickDevice = "pick_device"
+    case start
+    case pause
+    case resume
+    case reviewFinalPr = "review_final_pr"
+}
+
+/// What a node chip's menu offers (fixture `chipMenus`).
+public enum NodeChipAction: String, Sendable {
+    case retry
+    case skip
+}
+
+extension WorkflowView {
+    /// The badge a node that waits on a person wears, byte-identical ×4.
+    public static let needsYouLabel = "needs you"
+
+    /// Fold an internal `wfNodeState` into what the chip shows; an unknown
+    /// state (a newer server) reads queued rather than vanishing.
+    public static func nodeDisplayState(_ state: String) -> WorkflowNodeDisplayState {
+        switch state {
+        case DomainContract.wfNodeStateProposed,
+             DomainContract.wfNodeStateBlocked,
+             DomainContract.wfNodeStateReady:
+            return .queued
+        case DomainContract.wfNodeStateRunning,
+             DomainContract.wfNodeStateWaiting,
+             DomainContract.wfNodeStateInReview,
+             DomainContract.wfNodeStateUpdating:
+            return .running
+        case DomainContract.wfNodeStateLanded: return .done
+        case DomainContract.wfNodeStateFailed: return .failed
+        case DomainContract.wfNodeStateSkipped: return .skipped
+        default: return .queued
+        }
+    }
+
+    /// STUB (EXP-1066 implements): the node strip — waves left to right, lanes
+    /// top to bottom (fixture `nodeStrips`).
+    public static func nodeStrip(nodes: [StripNodeInput], edges: [(String, String)]) -> [StripWave] {
+        []
+    }
+
+    /// STUB (EXP-1066 implements): the header's one-line caption (fixture
+    /// `headerCaptions`).
+    public static func headerCaption(status: String, nodes: [HeaderNode], deviceLabel: String?) -> String {
+        ""
+    }
+
+    /// STUB (EXP-1066 implements): the page's primary button, nil = none
+    /// (fixture `primaryActions`).
+    public static func primaryAction(status: String, deviceLabel: String?) -> WorkflowPrimaryAction? {
+        nil
+    }
+
+    /// STUB (EXP-1066 implements): a node chip's menu (fixture `chipMenus`).
+    public static func nodeChipMenu(state: String) -> [NodeChipAction] {
+        []
+    }
+}

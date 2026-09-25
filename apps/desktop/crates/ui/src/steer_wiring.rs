@@ -626,7 +626,9 @@ fn remote_action_start(
     .with_mcp_servers(start.mcp_server_ids.clone())
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref());
+    .with_subagent_model(start.subagent_model.as_deref())
+    // EXP-1082: a workflow run's membership, stamped on its row.
+    .with_workflow(start.workflow.clone());
     let repo_group = repo.map(|repo| RepoGroup {
         repository_id: repo.repository_id,
         full_name: repo.full_name,
@@ -765,7 +767,9 @@ fn remote_issue_start(
     .with_mcp_servers(start.mcp_server_ids.clone())
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref());
+    .with_subagent_model(start.subagent_model.as_deref())
+    // EXP-1082: a workflow run's membership, stamped on its row.
+    .with_workflow(start.workflow.clone());
     // EXP-481/EXP-662: honor the remote resume flag against the RUN REGISTRY
     // — the newest resumable record for this issue on this account relaunches
     // that exact transcript; with no record the flag degrades to a fresh
@@ -956,7 +960,9 @@ fn remote_batch_start(
     .with_mcp_servers(start.mcp_server_ids.clone())
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref());
+    .with_subagent_model(start.subagent_model.as_deref())
+    // EXP-1082: a workflow run's membership, stamped on its row.
+    .with_workflow(start.workflow.clone());
 
     // Same field construction the dialog's `batch_request` uses (device_label
     // from `coding::default_device_label()`, a fresh `coding::new_batch_id()`).

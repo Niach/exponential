@@ -63,7 +63,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
+      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
     ]
   },
   {
@@ -98,7 +98,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
+      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/EXP-1", "model": "opus" }
     ]
   },
   {
@@ -193,7 +193,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -257,12 +257,16 @@
       { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
       {
         "kind": "buildBase",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "base_merge",
         "nodeId": "c",
         "baseBranch": "exp/wf-abcdef12-base-EXP-3",
         "sources": ["exp/EXP-1", "exp/EXP-2", "exp/wf-abcdef12"]
       },
       {
         "kind": "startNode",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author",
         "nodeId": "c",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12-base-EXP-3",
@@ -343,6 +347,8 @@
       { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
       {
         "kind": "startNode",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author",
         "nodeId": "c",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12-base-EXP-3",
@@ -434,6 +440,8 @@
     "expected": [
       {
         "kind": "buildBase",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "base_merge",
         "nodeId": "c",
         "baseBranch": "exp/wf-abcdef12-base-EXP-3",
         "sources": ["exp/EXP-1", "exp/EXP-2", "exp/wf-abcdef12"]

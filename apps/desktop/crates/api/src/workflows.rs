@@ -400,6 +400,29 @@ pub fn append_decision(trpc: &TrpcClient, id: &str, decision: &str) -> Result<()
     Ok(())
 }
 
+/// EXP-1082 — one line of a workflow's audit trail (`workflow_events`,
+/// synced): what the ENGINE host did, and why. `kind` = a contract
+/// `wfEventKind` value. Declared here (the wire) and re-exported as
+/// `coding::workflows::events::WorkflowEvent` (the host sink's type).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowEvent {
+    pub workflow_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub kind: String,
+    pub message: String,
+}
+
+/// ENGINE: `workflows.appendEvent` `{ workflowId, nodeId?, sessionId?, kind,
+/// message }` — the runner device appends one audit line.
+pub fn append_event(trpc: &TrpcClient, event: &WorkflowEvent) -> Result<(), ApiError> {
+    let _: serde_json::Value = trpc.mutation("workflows.appendEvent", event)?;
+    Ok(())
+}
+
 /// ENGINE: `workflows.reportNode` input. Omitted fields stay unchanged; the
 /// server NEVER makes or unmakes `landed`/`skipped` from here.
 #[derive(Default, Serialize)]
@@ -543,6 +566,26 @@ pub fn from_row(row: &domain::rows::WorkflowRow) -> Workflow {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn append_event_serializes_the_camel_case_wire() {
+        let event = super::WorkflowEvent {
+            workflow_id: "wf".to_string(),
+            node_id: Some("n".to_string()),
+            session_id: None,
+            kind: "node_started".to_string(),
+            message: "Started".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            serde_json::json!({
+                "workflowId": "wf",
+                "nodeId": "n",
+                "kind": "node_started",
+                "message": "Started"
+            })
+        );
+    }
+
     use super::*;
     use crate::trpc::tests::one_shot_server;
     use crate::StaticToken;

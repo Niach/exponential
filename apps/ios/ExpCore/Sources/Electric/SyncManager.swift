@@ -532,6 +532,12 @@ public final class SyncManager: @unchecked Sendable {
             type: WorkflowNodeEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
+        // EXP-1082: the workflow event log — the 25th shape, team-scoped.
+        tasks.append(makeShapeTask(
+            name: "workflow-events", path: "/api/shapes/workflow-events", table: "workflow_events",
+            type: WorkflowEventEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
 
         lock.withLock { pipelines[accountId] = tasks }
     }

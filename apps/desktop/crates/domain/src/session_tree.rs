@@ -166,6 +166,12 @@ pub struct SessionFacts {
     /// `""` = unknown, which sorts OLDEST — the web's `stamp` of 0.
     pub created_at: String,
     pub updated_at: String,
+    /// EXP-1082: the run's workflow membership (`coding_sessions.workflow_id`
+    /// / `workflow_node_id` / `workflow_role`). Declared only — EXP-1068
+    /// groups on it ahead of every heuristic.
+    pub workflow_id: Option<String>,
+    pub workflow_node_id: Option<String>,
+    pub workflow_role: Option<String>,
 }
 
 /// The facts of a synced `coding_sessions` row — every desktop caller's
@@ -179,6 +185,9 @@ pub fn coding_session_facts(session: &crate::rows::CodingSession) -> SessionFact
         batch_issue_ids: crate::batch_run::parse_batch_issue_ids(session.batch_issue_ids.as_ref()),
         created_at: session.created_at.clone().unwrap_or_default(),
         updated_at: session.updated_at.clone().unwrap_or_default(),
+        workflow_id: session.workflow_id.clone(),
+        workflow_node_id: session.workflow_node_id.clone(),
+        workflow_role: session.workflow_role.clone(),
     }
 }
 
@@ -904,6 +913,10 @@ mod tree_tests {
         batch_issue_ids: Vec<&'static str>,
         /// `created_at` == `updated_at`, like the web fixture's `at()`.
         at: &'static str,
+        /// EXP-1082: the workflow membership columns.
+        workflow_id: Option<&'static str>,
+        workflow_node_id: Option<&'static str>,
+        workflow_role: Option<&'static str>,
     }
 
     fn run(id: &'static str) -> Run {
@@ -914,6 +927,9 @@ mod tree_tests {
             issue_id: None,
             batch_issue_ids: Vec::new(),
             at: "2026-09-01T10:00:00Z",
+            workflow_id: None,
+            workflow_node_id: None,
+            workflow_role: None,
         }
     }
 
@@ -949,6 +965,9 @@ mod tree_tests {
             batch_issue_ids: run.batch_issue_ids.iter().map(|id| id.to_string()).collect(),
             created_at: run.at.to_string(),
             updated_at: run.at.to_string(),
+            workflow_id: run.workflow_id.map(str::to_string),
+            workflow_node_id: run.workflow_node_id.map(str::to_string),
+            workflow_role: run.workflow_role.map(str::to_string),
         }
     }
 
@@ -1390,5 +1409,73 @@ mod tree_tests {
         assert_eq!(STACK_GROUP_LABEL, "Stacked pull requests");
         assert_eq!(COLLAPSE_GROUP_LABEL, "Collapse these runs");
         assert_eq!(EXPAND_GROUP_LABEL, "Expand these runs");
+    }
+}
+
+/// EXP-1082 — the workflow-membership rules EXP-1068 implements. Declared
+/// here (same names as the web twin, snake_cased) so the four clients land
+/// them together; each body states the expectation.
+#[cfg(test)]
+mod workflow_membership_tests {
+    #[test]
+    #[ignore = "EXP-1068"]
+    fn groups_by_workflow_id_before_any_heuristic() {
+        // A run whose row names `workflow_id` folds under that workflow's
+        // group row even when no node/issue heuristic would place it.
+        assert!(true);
+    }
+
+    #[test]
+    #[ignore = "EXP-1068"]
+    fn nests_a_review_run_under_its_nodes_author_row() {
+        // `workflow_role = review` on node N nests under N's author run.
+        assert!(true);
+    }
+
+    #[test]
+    #[ignore = "EXP-1068"]
+    fn keeps_a_switched_reviewer_under_its_node() {
+        // A reviewer resumed on another account (a new row, same node) stays
+        // nested under the same node's author row.
+        assert!(true);
+    }
+
+    #[test]
+    #[ignore = "EXP-1068"]
+    fn lists_a_base_merge_as_a_child_of_the_group() {
+        // `workflow_role = base_merge` sits directly under the group row,
+        // not under any node.
+        assert!(true);
+    }
+
+    #[test]
+    #[ignore = "EXP-1068"]
+    fn names_a_plan_only_group_after_the_plan() {
+        // A workflow whose only run is its `plan` run still gets a group row,
+        // named after the workflow the plan belongs to.
+        assert!(true);
+    }
+
+    #[test]
+    #[ignore = "EXP-1068"]
+    fn keeps_a_foreign_chat_that_resumed_a_workflow_run_inside_the_group() {
+        // A chat that resumed a workflow run (resumed_from_id) inherits the
+        // membership and stays inside the group.
+        assert!(true);
+    }
+
+    #[test]
+    #[ignore = "EXP-1068"]
+    fn groups_a_persons_run_on_a_compound_nodes_sub_issue() {
+        // A person's own run on a sub-issue of a compound node groups under
+        // that workflow.
+        assert!(true);
+    }
+
+    #[test]
+    #[ignore = "EXP-1068"]
+    fn flags_a_node_with_two_live_author_runs() {
+        // Two LIVE `author` runs on one node are flagged (a double start).
+        assert!(true);
     }
 }

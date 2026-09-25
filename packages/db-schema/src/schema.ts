@@ -1204,6 +1204,10 @@ export interface DeviceAgentLaunchDefaults {
   subagentModel?: string
   ultracode?: boolean
   planMode?: boolean
+  /** EXP-1082 §6: rotate to another logged-in account of this agent when
+   * the active one hits its usage wall (claude only in practice; the
+   * schema just allows the key). Absent = off. Seam only: no UI yet. */
+  autoRotateAccounts?: boolean
 }
 export interface DeviceLaunchDefaults {
   defaultAgent?: string
@@ -1240,6 +1244,8 @@ export const deviceLaunchDefaultsSchema = z.object({
         subagentModel: z.string().max(64).nullish(),
         ultracode: z.boolean().nullish(),
         planMode: z.boolean().nullish(),
+        // EXP-1082 §6: see DeviceAgentLaunchDefaults.autoRotateAccounts.
+        autoRotateAccounts: z.boolean().nullish(),
       })
     )
     .refine((agents) => Object.keys(agents).length <= 16)

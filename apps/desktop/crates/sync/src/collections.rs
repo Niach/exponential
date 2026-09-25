@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (24 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (25 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -47,7 +47,7 @@ use domain::rows::{
     ActionRow, Attachment, AutomationRow, Board, CodingSession, Comment, DeviceRow,
     DeviceWorktreeRow, Issue, IssueDraftRow, IssueEvent, IssueLabel, IssueRelation,
     IssueStatusRow, IssueSubscriber, Label, Notification, Pin, Team, TeamInvite, TeamMember,
-    User, WorkflowNodeRow, WorkflowRow,
+    User, WorkflowEventRow, WorkflowNodeRow, WorkflowRow,
 };
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ pub fn derive_active_health(
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 24
+/// A typed row hydratable from the store's snake_case JSON objects. The 25
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -199,6 +199,7 @@ id_shape_row!(Pin, "pins");
 id_shape_row!(IssueDraftRow, "issue_drafts");
 id_shape_row!(WorkflowRow, "workflows");
 id_shape_row!(WorkflowNodeRow, "workflow_nodes");
+id_shape_row!(WorkflowEventRow, "workflow_events");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -348,7 +349,7 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
         .collect()
 }
 
-/// The 24 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 25 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub teams: Entity<Collection<Team>>,
@@ -391,10 +392,13 @@ pub struct Collections {
     /// EXP-981 workflow nodes (the 24th shape) — `wave`/`lane`/`on_cycle`
     /// carry the SERVER-computed layout; no client lays a graph out.
     pub workflow_nodes: Entity<Collection<WorkflowNodeRow>>,
+    /// EXP-1082 workflow events (the 25th shape) — the engine host's audit
+    /// trail, appended through `workflows.appendEvent`.
+    pub workflow_events: Entity<Collection<WorkflowEventRow>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 24-way fan-out in one
+/// entity — the single dispatch point that keeps the 25-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -446,6 +450,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.workflow_nodes;
         $body;
+        let $entity = &$collections.workflow_events;
+        $body;
     }};
 }
 
@@ -476,6 +482,7 @@ impl Collections {
             issue_drafts: cx.new(|_| Collection::new()),
             workflows: cx.new(|_| Collection::new()),
             workflow_nodes: cx.new(|_| Collection::new()),
+            workflow_events: cx.new(|_| Collection::new()),
         }
     }
 
@@ -524,11 +531,14 @@ impl Collections {
             "workflow_nodes" => {
                 apply_to(&self.workflow_nodes, keys, full_replace, sqlite, cx)
             }
+            "workflow_events" => {
+                apply_to(&self.workflow_events, keys, full_replace, sqlite, cx)
+            }
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
 
-    /// Full hydrate of all 24 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 25 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -838,7 +848,7 @@ pub struct Store {
 impl Global for Store {}
 
 impl Store {
-    /// Build the store: the shared-state entity, the 24 collection entities,
+    /// Build the store: the shared-state entity, the 25 collection entities,
     /// the [`SyncManager`], and the single foreground delta-drain task
     /// (§5.8). `on_unauthorized` is the §5.6b hook the app shell wires to
     /// `AuthStore::unauthorized_handler_fn()` — it deletes the dead token
@@ -906,7 +916,7 @@ impl Store {
         self.state.read(cx).session.clone()
     }
 
-    /// The 24 reactive collections.
+    /// The 25 reactive collections.
     pub fn collections(&self) -> &Collections {
         &self.collections
     }
@@ -1331,7 +1341,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 24 ShapeRow impls cover the registry exactly (a 25th shape
+        // The 25 ShapeRow impls cover the registry exactly (a 26th shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -1358,6 +1368,7 @@ mod tests {
             IssueDraftRow::spec().name,
             WorkflowRow::spec().name,
             WorkflowNodeRow::spec().name,
+            WorkflowEventRow::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

@@ -5,11 +5,16 @@
 // `domain::workflow_view`) and locked by the contract fixture
 // `domain-contract/fixtures/workflow-view.json`. All strings byte-identical.
 
-// EXP-1033: the only import this domain file has, and a TYPE — the edge style
-// union belongs to the drawing half (`@exp/ui` `wave-graph.tsx`, one stroke
-// per value) and is re-exported below so callers keep reading it beside
-// `workflowEdgeStyle`, the function that decides it.
+// EXP-1033: a TYPE import — the edge style union belongs to the drawing half
+// (`@exp/ui` `wave-graph.tsx`, one stroke per value) and is re-exported below
+// so callers keep reading it beside `workflowEdgeStyle`, the function that
+// decides it. EXP-1082: the display-state map is the domain's own table.
 import type { WorkflowEdgeStyle } from "@exp/ui"
+import {
+  WF_NODE_DISPLAY_STATE,
+  type WfNodeDisplayState,
+  type WfNodeState,
+} from "@exp/db-schema/domain"
 
 export type WorkflowBand = `running` | `draft` | `done`
 
@@ -451,4 +456,101 @@ export function workflowMetricRows(metrics: Record<string, unknown>): MetricRow[
     })
   }
   return rows
+}
+
+// ── EXP-1082 §4: five display states + the `needs you` badge ───────────────
+// A person sees FIVE node states (`wfNodeDisplayState`); the stored
+// `wfNodeState` stays the engine's internal vocabulary. An unknown state (a
+// newer server) reads `queued`. An open question is a BADGE beside the chip,
+// never a state. Locked by the fixture's `displayStates` + `needsYouLabel`.
+
+export type { WfNodeDisplayState }
+
+export const NEEDS_YOU_LABEL = `needs you`
+
+const DISPLAY_LABELS: Record<WfNodeDisplayState, string> = {
+  queued: `Queued`,
+  running: `Running`,
+  done: `Done`,
+  failed: `Failed`,
+  skipped: `Skipped`,
+}
+
+export function workflowNodeDisplayState(state: string): WfNodeDisplayState {
+  return (
+    (WF_NODE_DISPLAY_STATE as Record<string, WfNodeDisplayState | undefined>)[
+      state as WfNodeState
+    ] ?? `queued`
+  )
+}
+
+export function workflowNodeDisplayLabel(state: string): string {
+  return DISPLAY_LABELS[workflowNodeDisplayState(state)]
+}
+
+// ── EXP-1082 §5: the workflow page view model — DECLARED only ──────────────
+// Typed stubs returning the empty value; the fixture sections `nodeStrips`,
+// `headerCaptions`, `primaryActions` and `chipMenus` lock them (skipped in
+// workflow-view.test.ts until the page lands ×4).
+
+export interface StripNodeInput {
+  id: string
+  identifier: string
+  state: string
+  wave: number
+  lane: number
+  members: number
+  live: boolean
+  needsYou: boolean
+  note?: string | null
+}
+
+export interface NodeChip {
+  id: string
+  /** `workflowNodeTitle`. */
+  title: string
+  display: WfNodeDisplayState
+  /** The node's note while one is set, else the display label. */
+  caption: string
+  stacked: boolean
+  members: number
+  live: boolean
+  needsYou: boolean
+}
+
+/** Waves left to right, lanes top to bottom within a wave. STUB. */
+export function workflowNodeStrip(
+  _nodes: StripNodeInput[],
+  _edges: readonly [string, string][]
+): { wave: number; nodes: NodeChip[] }[] {
+  return []
+}
+
+/** The one-line header under the workflow's name. STUB. */
+export function workflowHeaderCaption(
+  _status: string,
+  _nodes: readonly { state: string; members: number }[],
+  _deviceLabel: string | null
+): string {
+  return ``
+}
+
+export type WorkflowPrimaryAction =
+  | `pick_device`
+  | `start`
+  | `pause`
+  | `resume`
+  | `review_final_pr`
+
+/** The header's ONE primary button. STUB. */
+export function workflowPrimaryAction(
+  _status: string,
+  _deviceLabel: string | null
+): WorkflowPrimaryAction | null {
+  return null
+}
+
+/** What a node chip's menu offers. STUB. */
+export function nodeChipMenu(_node: { state: string }): (`retry` | `skip`)[] {
+  return []
 }

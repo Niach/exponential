@@ -1418,3 +1418,94 @@ describe(`workflow completion (EXP-1032)`, () => {
     expect(h.applyWorkflowFinalPrState).toHaveBeenCalledWith(fakeDb, `https://gh/pr/9`, `merged`)
   })
 })
+
+// EXP-1082 §3 — the engine's event log.
+describe(`workflows.appendEvent`, () => {
+  it(`refuses a caller that does not own the runner`, async () => {
+    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [])
+    const error = await rejection(
+      caller.appendEvent({ workflowId: WF, kind: `node_started`, message: `Started APP-6` })
+    )
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.insert).not.toHaveBeenCalled()
+    expect(fakeDb.delete).not.toHaveBeenCalled()
+  })
+
+  it(`appends and trims to the newest 50`, async () => {
+    const { PgDialect } = await import(`drizzle-orm/pg-core`)
+    const wheres: unknown[] = []
+    fakeDb.delete.mockImplementationOnce(() => {
+      const p = chain([])
+      p.where = (arg?: unknown) => {
+        wheres.push(arg)
+        return p
+      }
+      return p
+    })
+    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
+    const NODE = `55555555-5555-4555-8555-555555555555`
+    await caller.appendEvent({
+      workflowId: WF,
+      nodeId: NODE,
+      kind: `landed`,
+      message: `Landed APP-6`,
+    })
+    expect(written).toContainEqual({
+      op: `insert`,
+      values: {
+        workflowId: WF,
+        teamId: TEAM,
+        nodeId: NODE,
+        sessionId: null,
+        kind: `landed`,
+        message: `Landed APP-6`,
+      },
+    })
+    expect(wheres).toHaveLength(1)
+    const query = new PgDialect().sqlToQuery(wheres[0] as never)
+    expect(query.sql).toMatch(/NOT IN/)
+    expect(query.sql).toMatch(/ORDER BY "workflow_events"\."at" DESC, "workflow_events"\."id" DESC/)
+    expect(query.params).toContain(50)
+    expect(query.params.filter((p) => p === WF)).toHaveLength(2)
+  })
+
+  it(`refuses an unknown kind`, async () => {
+    const error = await rejection(
+      caller.appendEvent({ workflowId: WF, kind: `exploded` as never, message: `` })
+    )
+    expect(error?.code).toBe(`BAD_REQUEST`)
+  })
+})
+
+// EXP-1082 §4 — node states + questions (EXP-1065 implements these).
+describe(`node states (EXP-1082 §4)`, () => {
+  it.skip(`a node at the review cap lands after the author's last push and carries its findings`, () => {
+    // After WORKFLOW_MAX_REVIEW_ROUNDS a node LANDS (no `waiting`) once the
+    // author's last push is on its branch, the findings on the node's note.
+  })
+  it.skip(`a failed oracle at the cap lands and carries the failure`, () => {
+    // A FAILED oracle at the cap still lands; the note names the failure.
+  })
+  it.skip(`an open question never changes the node state, only the badge`, () => {
+    // `pending_question` set on a node's run leaves `workflow_nodes.state`
+    // untouched; only the `needs you` badge appears.
+  })
+})
+
+// EXP-1082 §7 — the final PR (EXP-1072 / EXP-1065 implement these).
+describe(`final PR (EXP-1082 §7)`, () => {
+  it.skip(`a closed final PR is reopened once`, () => {
+    // A final PR closed unmerged is reopened ONCE (`final_pr_reopened`),
+    // a second close leaves it closed.
+  })
+  it.skip(`an all-skipped workflow is cancelled with a note`, () => {
+    // Every node skipped = nothing to ship: status `cancelled` + a decision line.
+  })
+  it.skip(`final merge flips member issues through the PR-merge helper`, () => {
+    // mergeFinalPr → every member issue moves via the team's PR-merge target.
+  })
+  it.skip(`the final PR body carries findings, decisions and results`, () => {
+    // openFinalPr's body lists each node's review findings, the decisions
+    // log and the run results.
+  })
+})

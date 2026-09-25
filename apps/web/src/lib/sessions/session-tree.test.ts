@@ -238,3 +238,38 @@ describe(`visibleSessionTreeRows (EXP-996)`, () => {
     ).toBe(`stack:i-low`)
   })
 })
+
+// EXP-1082 §2 — membership-first grouping, DECLARED for EXP-1068. Each case
+// states the expectation; EXP-1068 fills the rows and un-skips.
+describe(`sessionTree — workflow membership (EXP-1082 → EXP-1068)`, () => {
+  it.skip(`groups by workflow id before any heuristic`, () => {
+    // A row with `workflowId` lands in that workflow's group even when no
+    // `workflow_nodes` row names its session or issue.
+  })
+  it.skip(`nests a review run under its node's author row`, () => {
+    // `workflowRole: review` + `workflowNodeId` = N sits as a child of N's
+    // `author` run inside the group.
+  })
+  it.skip(`keeps a switched reviewer under its node`, () => {
+    // An account-switch resume of the reviewer (a new row, same membership)
+    // collapses into the same chain under N's author row.
+  })
+  it.skip(`lists a base merge as a child of the group`, () => {
+    // `workflowRole: base_merge` (no node) is a direct child of the group.
+  })
+  it.skip(`names a plan-only group after the plan`, () => {
+    // A workflow whose only row is its `plan` run still draws a group,
+    // named after the workflow.
+  })
+  it.skip(`keeps a foreign chat that resumed a workflow run inside the group`, () => {
+    // A resume performed from a chat (parent = the chat, startedReason kept
+    // `workflow`) stays in the workflow group, not under the chat.
+  })
+  it.skip(`groups a person's run on a compound node's sub-issue`, () => {
+    // A person's fresh run on a member issue (stamped author of the compound
+    // node by the server) joins the node's group.
+  })
+  it.skip(`flags a node with two live author runs`, () => {
+    // Two live `author` rows on one node: both listed, the node flagged.
+  })
+})

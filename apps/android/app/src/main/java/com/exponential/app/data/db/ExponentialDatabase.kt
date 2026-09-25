@@ -30,6 +30,7 @@ import androidx.room.TypeConverters
         IssueDraftEntity::class,
         WorkflowEntity::class,
         WorkflowNodeEntity::class,
+        WorkflowEventEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -346,9 +347,13 @@ import androidx.room.TypeConverters
     //      Members list badges "Not invited" instead of "Invite expired".
     //      Nullable, new on the team-invites shape allowlist; destructive
     //      fallback wipes + resyncs so every invite row arrives carrying it.
+    // v75 (EXP-1082): coding_sessions.workflow_id / workflow_node_id /
+    //      workflow_role / pending_question (workflow membership + the open
+    //      question) + the workflow_events table (the 25th shape). New on the
+    //      shape allowlists; destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 74,
+    version = 75,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -377,5 +382,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun issueDraftDao(): IssueDraftDao
     abstract fun workflowDao(): WorkflowDao
     abstract fun workflowNodeDao(): WorkflowNodeDao
+    abstract fun workflowEventDao(): WorkflowEventDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

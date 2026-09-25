@@ -843,6 +843,22 @@ pub fn collect_if_due(
     collect_inner(data_dir, settings, report, now, None)
 }
 
+/// EXP-1082 — the per-profile usage of ONE agent, NOW, in the shape
+/// [`crate::account_rotation`] weighs. STUB: the conversion from
+/// [`collect_if_due`]'s wire payload (window kinds, ISO resets, the
+/// model-scoped weeklies) is not trivial, so this returns empty and probes
+/// nothing. EXP-1005 makes it bypass the poll floors while still respecting
+/// the fan-out cap ([`MAX_USAGE_PROFILES`]).
+pub fn collect_now(
+    _agent: CodingAgent,
+    _data_dir: &Path,
+    _settings: &Settings,
+    _report: &DoctorReport,
+    _now: u64,
+) -> Vec<crate::account_rotation::ProfileUsage> {
+    Vec::new()
+}
+
 /// [`collect_if_due`], plus the ONE login a forced refresh
 /// ([`force_collect`]) puts past the stagger.
 fn collect_inner(

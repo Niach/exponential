@@ -762,3 +762,138 @@ private func makeWorkflowRelation(
         createdAt: "2026-09-19T09:00:00Z", updatedAt: "2026-09-19T09:00:00Z"
     )
 }
+
+// EXP-1082 — the workflow contract's display states, locked ×4 against the
+// same fixture. The strip, header, primary action and chip menu cases decode
+// here already and SKIP until EXP-1066 implements them.
+final class WorkflowContractViewTests: XCTestCase {
+    private struct Fixture: Decodable {
+        let displayStates: [DisplayStateCase]
+        let needsYouLabel: String
+        let nodeStrips: [NodeStripCase]
+        let headerCaptions: [HeaderCaptionCase]
+        let primaryActions: [PrimaryActionCase]
+        let chipMenus: [ChipMenuCase]
+    }
+
+    private struct DisplayStateCase: Decodable {
+        let state: String
+        let display: String
+        let caption: String
+    }
+
+    private struct StripNode: Decodable {
+        let id: String
+        let identifier: String
+        let state: String
+        let wave: Int
+        let lane: Int
+        let members: Int
+        let live: Bool
+        let needsYou: Bool
+        let note: String?
+    }
+
+    private struct StripChip: Decodable {
+        let id: String
+        let title: String
+        let display: String
+        let caption: String
+        let stacked: Bool
+        let members: Int
+        let live: Bool
+        let needsYou: Bool
+    }
+
+    private struct StripColumn: Decodable {
+        let wave: Int
+        let nodes: [StripChip]
+    }
+
+    private struct NodeStripCase: Decodable {
+        let name: String
+        let skip: Bool?
+        let nodes: [StripNode]
+        let edges: [[String]]
+        let strip: [StripColumn]
+    }
+
+    private struct HeaderNodeCase: Decodable {
+        let state: String
+        let members: Int
+    }
+
+    private struct HeaderCaptionCase: Decodable {
+        let name: String
+        let skip: Bool?
+        let status: String
+        let device: String?
+        let nodes: [HeaderNodeCase]
+        let caption: String
+    }
+
+    private struct PrimaryActionCase: Decodable {
+        let status: String
+        let device: String?
+        let action: String?
+    }
+
+    private struct ChipMenuCase: Decodable {
+        let state: String
+        let menu: [String]
+    }
+
+    private func fixture() throws -> Fixture {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/workflow-view.json")
+        return try JSONDecoder().decode(Fixture.self, from: try Data(contentsOf: url))
+    }
+
+    func testDisplayStatesFixtureCases() throws {
+        let fixture = try fixture()
+        XCTAssertFalse(fixture.displayStates.isEmpty)
+        for testCase in fixture.displayStates {
+            let display = WorkflowView.nodeDisplayState(testCase.state)
+            XCTAssertEqual(display.rawValue, testCase.display, "display of \(testCase.state)")
+            XCTAssertEqual(display.label, testCase.caption, "caption of \(testCase.state)")
+        }
+        // Every contract display value has a case.
+        XCTAssertEqual(
+            WorkflowNodeDisplayState.allCases.map(\.rawValue),
+            DomainContract.wfNodeDisplayStateValues
+        )
+    }
+
+    func testTheNeedsYouLabelIsByteLocked() throws {
+        XCTAssertEqual(WorkflowView.needsYouLabel, try fixture().needsYouLabel)
+    }
+
+    func testNodeStripFixtureCases() throws {
+        let fixture = try fixture()
+        XCTAssertFalse(fixture.nodeStrips.isEmpty)
+        throw XCTSkip("EXP-1066")
+    }
+
+    func testHeaderCaptionFixtureCases() throws {
+        let fixture = try fixture()
+        XCTAssertFalse(fixture.headerCaptions.isEmpty)
+        throw XCTSkip("EXP-1066")
+    }
+
+    func testPrimaryActionFixtureCases() throws {
+        let fixture = try fixture()
+        XCTAssertFalse(fixture.primaryActions.isEmpty)
+        throw XCTSkip("EXP-1066")
+    }
+
+    func testChipMenuFixtureCases() throws {
+        let fixture = try fixture()
+        XCTAssertFalse(fixture.chipMenus.isEmpty)
+        throw XCTSkip("EXP-1066")
+    }
+}

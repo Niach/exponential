@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Ignore
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -592,5 +593,122 @@ class WorkflowViewTest {
             listOf("Contract", "Leaf", "Integration"),
             DomainContract.wfNodeKindValues.map(WorkflowView::nodeKindLabel),
         )
+    }
+
+    // ── EXP-1082: display states, the strip, the header, the actions ──────
+
+    @Test
+    fun `every internal state folds into the display state the fixture names`() {
+        val cases = fixture.getValue("displayStates").jsonArray
+        assertTrue(cases.size >= 10)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val state = case.getValue("state").jsonPrimitive.content
+            val display = WorkflowView.nodeDisplayState(state)
+            assertEquals(state, case.getValue("display").jsonPrimitive.content, display.wire)
+            assertEquals(state, case.getValue("caption").jsonPrimitive.content, display.label)
+        }
+        assertEquals(WorkflowNodeDisplayState.QUEUED, WorkflowView.nodeDisplayState("something-new"))
+    }
+
+    @Test
+    fun `the needs-you label is byte exact`() {
+        assertEquals(fixture.getValue("needsYouLabel").jsonPrimitive.content, WorkflowView.NEEDS_YOU_LABEL)
+    }
+
+    @Ignore("EXP-1066")
+    @Test
+    fun `the node strip lays waves out as the fixture draws them`() {
+        fixture.getValue("nodeStrips").jsonArray.forEach { element ->
+            val case = element.jsonObject
+            val nodes = case.getValue("nodes").jsonArray.map { raw ->
+                val n = raw.jsonObject
+                StripNodeInput(
+                    id = n.getValue("id").jsonPrimitive.content,
+                    identifier = n.getValue("identifier").jsonPrimitive.content,
+                    state = n.getValue("state").jsonPrimitive.content,
+                    wave = n.getValue("wave").jsonPrimitive.int,
+                    lane = n.getValue("lane").jsonPrimitive.int,
+                    members = n.getValue("members").jsonPrimitive.int,
+                    live = n.getValue("live").jsonPrimitive.boolean,
+                    needsYou = n.getValue("needsYou").jsonPrimitive.boolean,
+                    note = n["note"]?.stringOrNull(),
+                )
+            }
+            val edges = case.getValue("edges").jsonArray.map { edge ->
+                val pair = edge.jsonArray
+                pair[0].jsonPrimitive.content to pair[1].jsonPrimitive.content
+            }
+            val expected = case.getValue("strip").jsonArray.map { raw ->
+                val w = raw.jsonObject
+                StripWave(
+                    wave = w.getValue("wave").jsonPrimitive.int,
+                    nodes = w.getValue("nodes").jsonArray.map { chipRaw ->
+                        val c = chipRaw.jsonObject
+                        val display = c.getValue("display").jsonPrimitive.content
+                        NodeChip(
+                            id = c.getValue("id").jsonPrimitive.content,
+                            title = c.getValue("title").jsonPrimitive.content,
+                            display = WorkflowNodeDisplayState.entries.first { it.wire == display },
+                            caption = c.getValue("caption").jsonPrimitive.content,
+                            stacked = c.getValue("stacked").jsonPrimitive.boolean,
+                            members = c.getValue("members").jsonPrimitive.int,
+                            live = c.getValue("live").jsonPrimitive.boolean,
+                            needsYou = c.getValue("needsYou").jsonPrimitive.boolean,
+                        )
+                    },
+                )
+            }
+            assertEquals(case.getValue("name").jsonPrimitive.content, expected, WorkflowView.nodeStrip(nodes, edges))
+        }
+    }
+
+    @Ignore("EXP-1066")
+    @Test
+    fun `the header caption is byte exact`() {
+        fixture.getValue("headerCaptions").jsonArray.forEach { element ->
+            val case = element.jsonObject
+            val nodes = case.getValue("nodes").jsonArray.map { raw ->
+                val n = raw.jsonObject
+                HeaderNode(n.getValue("state").jsonPrimitive.content, n.getValue("members").jsonPrimitive.int)
+            }
+            assertEquals(
+                case.getValue("name").jsonPrimitive.content,
+                case.getValue("caption").jsonPrimitive.content,
+                WorkflowView.headerCaption(
+                    case.getValue("status").jsonPrimitive.content,
+                    nodes,
+                    case["device"]?.stringOrNull(),
+                ),
+            )
+        }
+    }
+
+    @Ignore("EXP-1066")
+    @Test
+    fun `the primary action follows status and runner`() {
+        fixture.getValue("primaryActions").jsonArray.forEach { element ->
+            val case = element.jsonObject
+            val status = case.getValue("status").jsonPrimitive.content
+            assertEquals(
+                status,
+                case["action"]?.stringOrNull(),
+                WorkflowView.primaryAction(status, case["device"]?.stringOrNull())?.wire,
+            )
+        }
+    }
+
+    @Ignore("EXP-1066")
+    @Test
+    fun `a node chip menu offers only what its state allows`() {
+        fixture.getValue("chipMenus").jsonArray.forEach { element ->
+            val case = element.jsonObject
+            val state = case.getValue("state").jsonPrimitive.content
+            assertEquals(
+                state,
+                case.getValue("menu").jsonArray.map { it.jsonPrimitive.content },
+                WorkflowView.nodeChipMenu(state).map { it.wire },
+            )
+        }
     }
 }

@@ -35,6 +35,7 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.TeamInviteEntity
 import com.exponential.app.data.db.TeamMemberEntity
 import com.exponential.app.data.db.WorkflowEntity
+import com.exponential.app.data.db.WorkflowEventEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
@@ -443,6 +444,7 @@ class SyncManager @Inject constructor(
         val issueDraftDao = db.issueDraftDao()
         val workflowDao = db.workflowDao()
         val workflowNodeDao = db.workflowNodeDao()
+        val workflowEventDao = db.workflowEventDao()
 
         val shapes = listOf(
             launchShape(
@@ -667,6 +669,15 @@ class SyncManager @Inject constructor(
                 onInsert = { workflowNodeDao.upsert(it) },
                 onDelete = { workflowNodeDao.deleteById(it.id) },
                 onRefetch = { workflowNodeDao.clear() },
+            ),
+            launchShape(
+                shape = "workflow_events", path = "/api/shapes/workflow-events", tableName = "workflow_events",
+                serializer = WorkflowEventEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("workflow_events"),
+                onInsert = { workflowEventDao.upsert(it) },
+                onDelete = { workflowEventDao.deleteById(it.id) },
+                onRefetch = { workflowEventDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

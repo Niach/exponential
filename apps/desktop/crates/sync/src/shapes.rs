@@ -1,4 +1,4 @@
-//! The 24 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 25 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 24 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 25 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`, and no `creator_id` on `workflows`).
-pub const SHAPES: [ShapeSpec; 24] = [
+pub const SHAPES: [ShapeSpec; 25] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -468,6 +468,13 @@ pub const SHAPES: [ShapeSpec; 24] = [
             // EXP-818: the run that spawned this one (`sessions_start`) —
             // the session lists nest a child under its parent.
             "parent_session_id",
+            // EXP-1082: the workflow membership (workflow, node, role) and
+            // the question the run is parked on (jsonb). Heal onto existing
+            // store tables like the rest.
+            "workflow_id",
+            "workflow_node_id",
+            "workflow_role",
+            "pending_question",
             "started_at",
             "ended_at",
             "created_at",
@@ -765,6 +772,24 @@ pub const SHAPES: [ShapeSpec; 24] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "workflow_events",
+        path: "/api/shapes/workflow-events",
+        // EXP-1082: the audit trail of every workflow of the member's teams,
+        // appended by the runner device (`workflows.appendEvent`). Byte-equal
+        // to the server allowlist (apps/web routes/api/shapes/).
+        columns: &[
+            "id",
+            "workflow_id",
+            "team_id",
+            "node_id",
+            "session_id",
+            "at",
+            "kind",
+            "message",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -777,8 +802,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_24_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 24);
+    fn registry_has_25_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 25);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -935,6 +960,41 @@ mod tests {
     fn coding_sessions_syncs_the_agent_title() {
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"agent_title"));
+    }
+
+    /// EXP-1082: the workflow membership and the open question. Dropping
+    /// any of them silently unhooks this client's runs from their workflow.
+    #[test]
+    fn coding_sessions_syncs_the_workflow_membership() {
+        let spec = shape_by_name("coding_sessions").unwrap();
+        for column in [
+            "workflow_id",
+            "workflow_node_id",
+            "workflow_role",
+            "pending_question",
+        ] {
+            assert!(spec.columns.contains(&column), "coding_sessions needs {column}");
+        }
+    }
+
+    /// EXP-1082: the audit trail syncs exactly the server's allowlist.
+    #[test]
+    fn workflow_events_sync_the_server_allowlist() {
+        let spec = shape_by_name("workflow_events").unwrap();
+        assert_eq!(spec.path, "/api/shapes/workflow-events");
+        assert_eq!(
+            spec.columns,
+            &[
+                "id",
+                "workflow_id",
+                "team_id",
+                "node_id",
+                "session_id",
+                "at",
+                "kind",
+                "message"
+            ]
+        );
     }
 
     #[test]

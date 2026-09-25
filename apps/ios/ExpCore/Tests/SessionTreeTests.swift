@@ -96,6 +96,9 @@ final class SessionTreeNodeTests: XCTestCase {
         resumedFrom: String? = nil,
         batchIssueIds: String? = nil,
         startedReason: String? = nil,
+        workflowId: String? = nil,
+        workflowNodeId: String? = nil,
+        workflowRole: String? = nil,
         at stamp: String = "2026-09-01T10:00:00Z"
     ) -> CodingSessionEntity {
         CodingSessionEntity(
@@ -109,6 +112,9 @@ final class SessionTreeNodeTests: XCTestCase {
             startedReason: startedReason,
             resumedFromId: resumedFrom,
             parentSessionId: parent,
+            workflowId: workflowId,
+            workflowNodeId: workflowNodeId,
+            workflowRole: workflowRole,
             startedAt: stamp,
             endedAt: nil,
             createdAt: stamp,
@@ -361,5 +367,42 @@ final class SessionTreeNodeTests: XCTestCase {
             )
         ]
         XCTAssertEqual(SessionTree.visibleRows(nodes).count, 0)
+    }
+
+    // MARK: - EXP-1082 workflow contract: grouping by the session's own
+    // workflow membership (`workflow_id`/`workflow_node_id`/`workflow_role`).
+    // Pending until EXP-1068 implements the rules (web
+    // `lib/sessions/session-tree.test.ts` carries the same names).
+
+    func testGroupsByWorkflowIdBeforeAnyHeuristic() throws {
+        throw XCTSkip("EXP-1068")
+    }
+
+    func testNestsAReviewRunUnderItsNodesAuthorRow() throws {
+        throw XCTSkip("EXP-1068")
+    }
+
+    func testKeepsASwitchedReviewerUnderItsNode() throws {
+        throw XCTSkip("EXP-1068")
+    }
+
+    func testListsABaseMergeAsAChildOfTheGroup() throws {
+        throw XCTSkip("EXP-1068")
+    }
+
+    func testNamesAPlanOnlyGroupAfterThePlan() throws {
+        throw XCTSkip("EXP-1068")
+    }
+
+    func testKeepsAForeignChatThatResumedAWorkflowRunInsideTheGroup() throws {
+        throw XCTSkip("EXP-1068")
+    }
+
+    func testGroupsAPersonsRunOnACompoundNodesSubIssue() throws {
+        throw XCTSkip("EXP-1068")
+    }
+
+    func testFlagsANodeWithTwoLiveAuthorRuns() throws {
+        throw XCTSkip("EXP-1068")
     }
 }

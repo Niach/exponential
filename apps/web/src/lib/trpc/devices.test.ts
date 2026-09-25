@@ -920,6 +920,45 @@ describe(`devices.setLaunchDefaults`, () => {
     })
   })
 
+  // EXP-1082 §6: the auto-rotate seam — a boolean passes, an absent key
+  // keeps the stored value, an explicit null clears it.
+  it(`passes autoRotateAccounts through and keeps it when the save omits the KEY`, async () => {
+    h.state.selectQueue = deviceRow()
+    let result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { agents: { claude: { model: `fable`, autoRotateAccounts: true } } },
+    })
+    expect(result.launchDefaults).toEqual({
+      agents: { claude: { model: `fable`, autoRotateAccounts: true } },
+    })
+
+    const stored = { agents: { claude: { model: `fable`, autoRotateAccounts: true } } }
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { agents: { claude: { model: `opus` } } },
+    })
+    expect(result.launchDefaults).toEqual({
+      agents: { claude: { model: `opus`, autoRotateAccounts: true } },
+    })
+
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { agents: { claude: { model: `opus`, autoRotateAccounts: false } } },
+    })
+    expect(result.launchDefaults).toEqual({
+      agents: { claude: { model: `opus`, autoRotateAccounts: false } },
+    })
+
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { agents: { claude: { model: `opus`, autoRotateAccounts: null } } },
+    })
+    expect(result.launchDefaults).toEqual({ agents: { claude: { model: `opus` } } })
+  })
+
   // compat: clients before 0.14.46 never send subagentModel; delete once
   // CLIENT_MIN_VERSION_* >= 0.14.46 on every platform.
   it(`carries a stored claude subagentModel forward when the save omits the KEY`, async () => {

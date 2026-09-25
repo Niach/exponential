@@ -806,6 +806,13 @@ export interface StartSessionOptions {
    * steer-image-message shape. Pass-through (the web server validated it);
    * never on a resume. */
   prompt?: string
+  /** EXP-1082 §1: the run's workflow MEMBERSHIP (workflow id, node id,
+   * contract `wfSessionRole`), on every subject incl. a resume. Verbatim
+   * pass-through: the device hands them to `codingSessions.start`, which
+   * honours them only from the workflow's runner device. */
+  workflowId?: string
+  workflowNodeId?: string
+  workflowRole?: string
   /** EXP-897: START STACKED, the server-resolved chain the run's branch is
    * cut into. Single-issue starts only (a batch/action/resume start never
    * carries one); ABSENT on an unstacked start, so that frame stays
@@ -920,6 +927,10 @@ export type ServerFrame =
        * option a resume carries (naming another profile is the mid-run
        * account switch). Pass-through. */
       account?: string
+      /** EXP-1082 §1: workflow membership, verbatim (see StartSessionOptions). */
+      workflowId?: string
+      workflowNodeId?: string
+      workflowRole?: string
     }
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher

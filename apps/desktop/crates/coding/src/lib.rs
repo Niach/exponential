@@ -36,6 +36,8 @@
 //! [`launcher`] / [`git_worktree`].
 
 pub mod account_option;
+// EXP-1082: the account-rotation seams EXP-1005 fills.
+pub mod account_rotation;
 pub mod action_prompt;
 pub mod agent;
 pub mod agent_accounts;

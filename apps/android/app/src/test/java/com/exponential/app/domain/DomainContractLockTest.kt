@@ -206,4 +206,20 @@ class DomainContractLockTest {
             }
         }
     }
+
+    // EXP-1082: the workflow contract's enums — the display-state enum IS the
+    // generated list, in order, and the role/event lists hold what clients read.
+    @Test
+    fun workflowContractValuesMatchGeneratedContract() {
+        assertEquals(
+            DomainContract.wfNodeDisplayStateValues,
+            WorkflowNodeDisplayState.entries.map { it.wire },
+        )
+        assertEquals(
+            listOf("author", "review", "base_merge", "plan", "replan"),
+            DomainContract.wfSessionRoleValues,
+        )
+        assertTrue(DomainContract.wfEventKindNodeStarted in DomainContract.wfEventKindValues)
+        assertTrue(DomainContract.workflowEventsMax > 0)
+    }
 }

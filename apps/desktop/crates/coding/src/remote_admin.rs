@@ -50,7 +50,10 @@ pub struct AgentDefaultsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ultracode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan_mode: Option<bool>,
+    pub plan_mode: Option<bool>,    /// EXP-1082: `Settings.auto_rotate_accounts` — claude-only, so it is
+    /// OMITTED for every other agent and applied only from claude's entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_rotate_accounts: Option<bool>,
 }
 
 /// The wire form of the devices row's `launch_defaults` column — the SAME
@@ -209,6 +212,11 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
                 CodingAgent::Codex => {}
             }
         }
+        if let Some(auto_rotate) = entry.auto_rotate_accounts {
+            if agent == CodingAgent::Claude {
+                set_bool(&mut settings.auto_rotate_accounts, auto_rotate, &mut changed);
+            }
+        }
     }
     changed
 }
@@ -241,6 +249,7 @@ pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
     onto.codex_effort = from.codex_effort.clone();
     onto.claude_ultracode = from.claude_ultracode;
     onto.claude_plan_mode = from.claude_plan_mode;
+    onto.auto_rotate_accounts = from.auto_rotate_accounts;
 }
 
 /// The PUSH direction: this machine's launch defaults as the full wire
@@ -264,6 +273,8 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
                 plan_mode: agent
                     .supports_plan_mode()
                     .then_some(settings.plan_mode_for(agent)),
+                auto_rotate_accounts: (agent == CodingAgent::Claude)
+                    .then_some(settings.auto_rotate_accounts),
             },
         );
     }
@@ -472,6 +483,28 @@ mod tests {
         assert!(!apply_defaults_patch(&mut fresh, &codex_only));
         assert!(!fresh.claude_ultracode);
         assert!(fresh.claude_plan_mode, "codex planMode never lands anywhere");
+    }
+
+    #[test]
+    fn auto_rotate_accounts_is_claude_only() {
+        // EXP-1082: the wire carries it on claude's entry alone …
+        let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
+        assert_eq!(wire["agents"]["claude"]["autoRotateAccounts"], true);
+        assert!(wire["agents"]["codex"].get("autoRotateAccounts").is_none());
+        // … a claude patch flips it, a codex one never lands.
+        let mut settings = Settings::default();
+        let codex_only: DefaultsPatch = serde_json::from_value(serde_json::json!({
+            "agents": { "codex": { "autoRotateAccounts": false } }
+        }))
+        .unwrap();
+        assert!(!apply_defaults_patch(&mut settings, &codex_only));
+        assert!(settings.auto_rotate_accounts);
+        let claude: DefaultsPatch = serde_json::from_value(serde_json::json!({
+            "agents": { "claude": { "autoRotateAccounts": false } }
+        }))
+        .unwrap();
+        assert!(apply_defaults_patch(&mut settings, &claude));
+        assert!(!settings.auto_rotate_accounts);
     }
 
     #[test]
@@ -710,6 +743,7 @@ mod tests {
             codex_effort: "high".into(),
             claude_ultracode: true,
             claude_plan_mode: false,
+            auto_rotate_accounts: false,
             terminal_shell: Some("/bin/zsh".into()),
             changelog_seen_id: Some("2026-09-24".into()),
             emoji_recents: vec!["🎉".into()],

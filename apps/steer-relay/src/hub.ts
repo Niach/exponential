@@ -943,6 +943,12 @@ export class Hub {
               ? { startedReason: options.startedReason }
               : {}),
             ...(options.account ? { account: options.account } : {}),
+            // EXP-1082 §1: a resume keeps its workflow membership keys.
+            ...(options.workflowId ? { workflowId: options.workflowId } : {}),
+            ...(options.workflowNodeId
+              ? { workflowNodeId: options.workflowNodeId }
+              : {}),
+            ...(options.workflowRole ? { workflowRole: options.workflowRole } : {}),
           }
         : `issueId` in subject
           ? { t: `start_session`, issueId: subject.issueId, ...options }

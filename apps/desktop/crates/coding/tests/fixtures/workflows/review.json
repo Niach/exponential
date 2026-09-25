@@ -20,7 +20,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -114,7 +114,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": false }]
   },
   {
     "name": "rule 7: the same head is never reviewed twice",
@@ -268,7 +268,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": true }]
   },
   {
     "name": "rule 7: a high-risk node's review says so, and runs on the strong model like every other",
@@ -298,7 +298,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": true }]
   },
   {
     "name": "rule 7: the workflow's strong model IS the review model, whatever the author ran on",
@@ -328,7 +328,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "sonnet", "adversarial": true }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "sonnet", "adversarial": true }]
   },
   {
     "name": "rule 7: a review on the same model as the author is no longer swapped away",
@@ -358,7 +358,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": true }]
   },
   {
     "name": "rule 7: an adversarial review with NO launch at all runs on the claude default strong model",
@@ -387,7 +387,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": true }]
   },
   {
     "name": "rule 7: an ordinary review with an EMPTY launch runs on the claude default strong model",
@@ -416,7 +416,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": false }]
   },
   {
     "name": "rule 7: a codex workflow reviews on its own strong codex model",
@@ -446,7 +446,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
   },
   {
     "name": "rule 7: a PARTIAL codex launch (the agent alone) reviews on the codex default strong model",
@@ -476,7 +476,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
   },
   {
     "name": "rule 7: a codex author on sol is reviewed on luna, adversarial or not",
@@ -506,7 +506,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
   },
   {
     "name": "rule 7: ONE review start per pass, in landing order",
@@ -550,7 +550,7 @@
       "prHead": { "a": "sha-a1", "b": "sha-b1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": false }]
   },
   {
     "name": "rule 7: the findings of a round go to the live author once",
@@ -716,7 +716,7 @@
       "findingsSent": { "a": 1 },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": false }]
   },
   {
     "name": "rule 7: an approval of an older head is stale, the current head is reviewed instead of landed",
@@ -749,7 +749,7 @@
       "reviewedHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": false }]
   },
   {
     "name": "rule 7: an approval of the current head clears the node for the train",
@@ -833,7 +833,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startNode", "nodeId": "a", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "a", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -855,6 +855,8 @@
     "expected": [
       {
         "kind": "startNode",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author",
         "nodeId": "a",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
@@ -888,8 +890,8 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startNode", "nodeId": "a", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "fable" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "sonnet" }
+      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "a", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "fable" },
+      { "kind": "startNode", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "author", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "sonnet" }
     ]
   },
   {
@@ -919,6 +921,6 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
+    "expected": [{ "kind": "startReview", "workflowId": "abcdef12-3456-7890-abcd-ef1234567890", "role": "review", "nodeId": "a", "model": "fable", "adversarial": false }]
   }
 ]

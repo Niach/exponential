@@ -119,7 +119,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v50_workflow_node_review",
              "v51_automation_account",
              "v52_issue_estimate",
-             "v53_invite_placeholder", "v54_invite_sent_at"]
+             "v53_invite_placeholder", "v54_invite_sent_at",
+             "v55_workflow_session_membership_events"]
         )
     }
 
@@ -165,7 +166,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v50_workflow_node_review",
              "v51_automation_account",
              "v52_issue_estimate",
-             "v53_invite_placeholder", "v54_invite_sent_at"]
+             "v53_invite_placeholder", "v54_invite_sent_at",
+             "v55_workflow_session_membership_events"]
         )
     }
 
@@ -488,7 +490,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v50_workflow_node_review",
              "v51_automation_account",
              "v52_issue_estimate",
-             "v53_invite_placeholder", "v54_invite_sent_at"]
+             "v53_invite_placeholder", "v54_invite_sent_at",
+             "v55_workflow_session_membership_events"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -582,7 +585,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v50_workflow_node_review",
              "v51_automation_account",
              "v52_issue_estimate",
-             "v53_invite_placeholder", "v54_invite_sent_at"]
+             "v53_invite_placeholder", "v54_invite_sent_at",
+             "v55_workflow_session_membership_events"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1183,7 +1187,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
                       "automations", "issue_statuses", "pins", "issue_drafts",
-                      "workflows", "workflow_nodes",
+                      "workflows", "workflow_nodes", "workflow_events",
                       "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
@@ -2286,6 +2290,49 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(reset, true)
         // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v55 (EXP-1082 workflow contract): a store created before the session
+    // membership columns + `pending_question` and the `workflow_events` table
+    // must gain all of them and reset the coding-sessions offset.
+    func testWorkflowSessionMembershipAndEventsAddedToExistingStore() throws {
+        let pool = try makePool("workflow-session-membership")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v54_invite_sent_at")
+        let columns = ["workflow_id", "workflow_node_id", "workflow_role", "pending_question"]
+        try pool.write { db in
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            for column in columns where existing.contains(column) {
+                try db.alter(table: "coding_sessions") { t in t.drop(column: column) }
+            }
+            if try db.tableExists("workflow_events") { try db.drop(table: "workflow_events") }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let cols = try columnNames(pool, "coding_sessions")
+        for column in columns {
+            XCTAssertTrue(cols.contains(column), "missing coding_sessions.\(column)")
+        }
+        XCTAssertTrue(try pool.read { db in try db.tableExists("workflow_events") })
+        let eventCols = try columnNames(pool, "workflow_events")
+        for column in ["id", "workflow_id", "team_id", "node_id", "session_id", "at", "kind", "message"] {
+            XCTAssertTrue(eventCols.contains(column), "missing workflow_events.\(column)")
+        }
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'coding-sessions'"
+            )
+        }
+        XCTAssertEqual(reset, true)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

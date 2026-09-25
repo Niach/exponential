@@ -327,6 +327,11 @@ export async function relayPostStart(
     deviceId: string
     startedBy?: string
     startedReason?: `agent`
+    // EXP-1082 §1: the run's workflow membership, forwarded verbatim by the
+    // relay on every subject (resume included).
+    workflowId?: string
+    workflowNodeId?: string
+    workflowRole?: string
   } &
     SteerStartSubject &
     SteerStartOptions,

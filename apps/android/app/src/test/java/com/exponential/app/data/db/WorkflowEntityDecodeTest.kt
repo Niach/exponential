@@ -333,4 +333,61 @@ class WorkflowEntityDecodeTest {
         // The camelCase tRPC twin of the contract stamp.
         assertEquals("2026-09-19 12:00:00+00", nodeWith("[]").checkpointAt)
     }
+
+    @Test
+    fun `the snake_case workflow event row decodes with every column`() {
+        val row = """
+            {
+              "id": "ev-1",
+              "workflow_id": "wf-1",
+              "team_id": "team-1",
+              "node_id": "node-1",
+              "session_id": "sess-1",
+              "at": "2026-09-25 10:00:00+00",
+              "kind": "${DomainContract.wfEventKindNodeStarted}",
+              "message": "EXP-14 started"
+            }
+        """.trimIndent()
+        val event = json.decodeFromString(WorkflowEventEntity.serializer(), row)
+        assertEquals("ev-1", event.id)
+        assertEquals("wf-1", event.workflowId)
+        assertEquals("team-1", event.teamId)
+        assertEquals("node-1", event.nodeId)
+        assertEquals("sess-1", event.sessionId)
+        assertEquals("2026-09-25 10:00:00+00", event.at)
+        assertEquals(DomainContract.wfEventKindNodeStarted, event.kind)
+        assertEquals("EXP-14 started", event.message)
+    }
+
+    @Test
+    fun `the workflow membership columns decode on a session row and default to null`() {
+        val withMembership = json.decodeFromString(
+            CodingSessionEntity.serializer(),
+            """
+                {
+                  "id": "sess-1",
+                  "team_id": "team-1",
+                  "user_id": "user-1",
+                  "started_at": "2026-09-25 10:00:00+00", "created_at": "2026-09-25 10:00:00+00", "updated_at": "2026-09-25 10:00:00+00",
+                  "workflow_id": "wf-1",
+                  "workflow_node_id": "node-1",
+                  "workflow_role": "${DomainContract.wfSessionRoleAuthor}",
+                  "pending_question": {"question": "Which API?", "askedAt": "2026-09-25T10:00:00Z"}
+                }
+            """.trimIndent(),
+        )
+        assertEquals("wf-1", withMembership.workflowId)
+        assertEquals("node-1", withMembership.workflowNodeId)
+        assertEquals(DomainContract.wfSessionRoleAuthor, withMembership.workflowRole)
+        assertTrue(withMembership.pendingQuestion!!.contains("Which API?"))
+
+        val bare = json.decodeFromString(
+            CodingSessionEntity.serializer(),
+            """{"id": "sess-2", "team_id": "team-1", "user_id": "user-1", "started_at": "2026-09-25 10:00:00+00", "created_at": "2026-09-25 10:00:00+00", "updated_at": "2026-09-25 10:00:00+00"}""",
+        )
+        assertNull(bare.workflowId)
+        assertNull(bare.workflowNodeId)
+        assertNull(bare.workflowRole)
+        assertNull(bare.pendingQuestion)
+    }
 }

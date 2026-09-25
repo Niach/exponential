@@ -176,6 +176,17 @@ function clampLaunchDefaults(
       if (typeof d.planMode === `boolean` && agentSupportsPlanMode(agent)) {
         entry.planMode = d.planMode
       }
+      // EXP-1082 §6: a boolean passes, an ABSENT key keeps the stored value
+      // (a client that predates the key must not clear it on a full-object
+      // save), anything else (an explicit null) is dropped.
+      if (typeof d.autoRotateAccounts === `boolean`) {
+        entry.autoRotateAccounts = d.autoRotateAccounts
+      } else if (
+        d.autoRotateAccounts === undefined &&
+        typeof existing?.agents?.[agent]?.autoRotateAccounts === `boolean`
+      ) {
+        entry.autoRotateAccounts = existing.agents[agent].autoRotateAccounts
+      }
       if (Object.keys(entry).length > 0) agents[agent] = entry
     }
     if (Object.keys(agents).length > 0) out.agents = agents

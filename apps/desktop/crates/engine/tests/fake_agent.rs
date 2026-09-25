@@ -662,6 +662,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         acp: coding::AcpLaunch {
             prompt: None,
             options: coding::LaunchOptions {
+                workflow: None,
                 agent: coding::CodingAgent::Claude,
                 model: String::new(),
                 effort: String::new(),

@@ -35,6 +35,8 @@
 
 pub mod base;
 pub mod branch;
+// EXP-1082: the host's audit-trail sink (`workflow_events`).
+pub mod events;
 pub mod facts;
 // EXP-1029: the two-model launch every node run and review reads from.
 pub mod launch;
@@ -369,6 +371,81 @@ pub struct Snapshot {
     pub now_ms: i64,
 }
 
+/// EXP-1082 — contract `wfSessionRole`: what a workflow run is FOR,
+/// stamped onto `coding_sessions.workflow_role` at start.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum WfSessionRole {
+    Author,
+    Review,
+    BaseMerge,
+    Plan,
+    Replan,
+}
+
+impl WfSessionRole {
+    /// The contract wire value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WfSessionRole::Author => "author",
+            WfSessionRole::Review => "review",
+            WfSessionRole::BaseMerge => "base_merge",
+            WfSessionRole::Plan => "plan",
+            WfSessionRole::Replan => "replan",
+        }
+    }
+    /// The inverse of [`Self::as_str`]; `None` for a value this build does
+    /// not know.
+    pub fn parse(value: &str) -> Option<Self> {
+        [
+            WfSessionRole::Author,
+            WfSessionRole::Review,
+            WfSessionRole::BaseMerge,
+            WfSessionRole::Plan,
+            WfSessionRole::Replan,
+        ]
+        .into_iter()
+        .find(|role| role.as_str() == value)
+    }
+}
+
+/// EXP-1082 — the workflow membership a launch carries into its session row
+/// (`LaunchOptions::workflow` → `codingSessions.start({workflowId,
+/// workflowNodeId, workflowRole})`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowMembership {
+    pub workflow_id: String,
+    pub node_id: String,
+    pub role: WfSessionRole,
+}
+
+impl WorkflowMembership {
+    /// Decode the three optional wire keys (the relay's `start_session`
+    /// frame); all three are required for a membership, and an unknown role
+    /// drops it.
+    pub fn from_wire(
+        workflow_id: Option<&str>,
+        node_id: Option<&str>,
+        role: Option<&str>,
+    ) -> Option<Self> {
+        let role = WfSessionRole::parse(role?)?;
+        Some(Self {
+            workflow_id: workflow_id.filter(|id| !id.is_empty())?.to_string(),
+            node_id: node_id.filter(|id| !id.is_empty())?.to_string(),
+            role,
+        })
+    }
+
+    /// The `codingSessions.start` keys.
+    pub fn wire(&self) -> api::coding_sessions::WorkflowStart<'_> {
+        api::coding_sessions::WorkflowStart {
+            workflow_id: Some(&self.workflow_id),
+            workflow_node_id: Some(&self.node_id),
+            workflow_role: Some(self.role.as_str()),
+        }
+    }
+}
+
 /// What one pass asks the host to do. Every side effect lives in the host.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -392,6 +469,16 @@ pub enum Decision {
         node_id: String,
         base_branch: String,
         sources: Vec<String>,
+        /// EXP-1082: the workflow this run belongs to, stamped onto its
+        /// `coding_sessions` row (`workflow_id`) at start.
+        workflow_id: String,
+        /// EXP-1082: contract `wfSessionRole` — what the run is FOR.
+        role: WfSessionRole,
+        /// EXP-1082 (EXP-1005 fills it): the agent profile the host starts
+        /// on, from `account_rotation::pick_start_account`; `None` = the
+        /// device's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
     },
     /// Report `running` FIRST, then launch the node's run locally, cut from
     /// `base_branch` (EXP-983: the integration branch only when no blocker
@@ -408,6 +495,16 @@ pub enum Decision {
         /// device's own default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// EXP-1082: the workflow this run belongs to, stamped onto its
+        /// `coding_sessions` row (`workflow_id`) at start.
+        workflow_id: String,
+        /// EXP-1082: contract `wfSessionRole` — what the run is FOR.
+        role: WfSessionRole,
+        /// EXP-1082 (EXP-1005 fills it): the agent profile the host starts
+        /// on, from `account_rotation::pick_start_account`; `None` = the
+        /// device's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
     },
     /// EXP-983: tell a live (or resume an ended) run that the branch it
     /// builds on moved to `sha`, so it merges it in. The host writes the
@@ -440,6 +537,16 @@ pub enum Decision {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
         adversarial: bool,
+        /// EXP-1082: the workflow this run belongs to, stamped onto its
+        /// `coding_sessions` row (`workflow_id`) at start.
+        workflow_id: String,
+        /// EXP-1082: contract `wfSessionRole` — what the run is FOR.
+        role: WfSessionRole,
+        /// EXP-1082 (EXP-1005 fills it): the agent profile the host starts
+        /// on, from `account_rotation::pick_start_account`; `None` = the
+        /// device's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
     },
     /// EXP-984: hand the latest review's findings to the node's AUTHOR, once
     /// per round. `session_id` = the live run to steer; `None` = its run
@@ -738,6 +845,9 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
                 node_id: entry.node.id.clone(),
                 sources: synthetic_sources(snapshot, entry.node, &blockers),
                 base_branch: base.clone(),
+                workflow_id: snapshot.workflow.id.clone(),
+                role: WfSessionRole::BaseMerge,
+                account: None,
             });
         }
         decisions.push(Decision::StartNode {
@@ -745,6 +855,9 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             attempt: entry.node.attempt + 1,
             base_branch: base,
             model: node_model(&snapshot.workflow, &entry.node.kind, &entry.node.risk),
+            workflow_id: snapshot.workflow.id.clone(),
+            role: WfSessionRole::Author,
+            account: None,
         });
         active += 1;
     }
@@ -778,6 +891,9 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             node_id: entry.node.id.clone(),
             base_branch: base.to_string(),
             sources,
+            workflow_id: snapshot.workflow.id.clone(),
+            role: WfSessionRole::BaseMerge,
+            account: None,
         });
     }
 
@@ -1244,6 +1360,9 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
             node_id: node.id.clone(),
             model: review_model(snapshot),
             adversarial,
+            workflow_id: snapshot.workflow.id.clone(),
+            role: WfSessionRole::Review,
+            account: None,
         });
         break;
     }
@@ -1838,6 +1957,42 @@ fn blockers_by_node(snapshot: &Snapshot) -> HashMap<&str, Vec<&str>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn wf_session_role_matches_the_contract() {
+        let ours: Vec<&str> = [
+            WfSessionRole::Author,
+            WfSessionRole::Review,
+            WfSessionRole::BaseMerge,
+            WfSessionRole::Plan,
+            WfSessionRole::Replan,
+        ]
+        .into_iter()
+        .map(WfSessionRole::as_str)
+        .collect();
+        assert_eq!(ours, domain::contract::WF_SESSION_ROLE_VALUES);
+        for value in domain::contract::WF_SESSION_ROLE_VALUES {
+            let role = WfSessionRole::parse(value).expect("known role");
+            assert_eq!(
+                serde_json::to_value(role).unwrap(),
+                serde_json::json!(value)
+            );
+        }
+    }
+
+    #[test]
+    fn membership_needs_all_three_wire_keys() {
+        assert_eq!(
+            WorkflowMembership::from_wire(Some("wf"), Some("n"), Some("review")),
+            Some(WorkflowMembership {
+                workflow_id: "wf".to_string(),
+                node_id: "n".to_string(),
+                role: WfSessionRole::Review,
+            })
+        );
+        assert_eq!(WorkflowMembership::from_wire(Some("wf"), None, Some("author")), None);
+        assert_eq!(WorkflowMembership::from_wire(Some("wf"), Some("n"), Some("boss")), None);
+    }
+
     fn node(id: &str, state: &str, wave: i64, lane: i64) -> NodeFacts {
         NodeFacts {
             id: id.to_string(),
@@ -2041,6 +2196,9 @@ mod tests {
                 attempt: 2,
                 base_branch: "exp/wf-abcdef12".to_string(),
                 model: Some("opus".to_string()),
+                workflow_id: snapshot.workflow.id.clone(),
+                role: WfSessionRole::Author,
+                account: None,
             }),
             "past the grace the start is retried: {decisions:?}"
         );
@@ -2081,6 +2239,9 @@ mod tests {
                 attempt: 2,
                 base_branch: "exp/wf-abcdef12".to_string(),
                 model: Some("opus".to_string()),
+                workflow_id: snapshot.workflow.id.clone(),
+                role: WfSessionRole::Author,
+                account: None,
             }),
             "one free retry: {decisions:?}"
         );

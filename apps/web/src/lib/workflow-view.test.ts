@@ -17,6 +17,14 @@ import {
   workflowNodeTitle,
   workflowNodeTone,
   workflowShapeLine,
+  NEEDS_YOU_LABEL,
+  nodeChipMenu,
+  workflowHeaderCaption,
+  workflowNodeDisplayLabel,
+  workflowNodeDisplayState,
+  workflowNodeStrip,
+  workflowPrimaryAction,
+  type WorkflowPrimaryAction,
 } from "./workflow-view"
 
 // EXP-981: what a client says about a workflow, locked ×4 (Android
@@ -102,6 +110,52 @@ describe(`workflow view (contract fixture)`, () => {
   it(`lists the metrics that have something to say`, () => {
     for (const c of fixture.metricRows) {
       expect(workflowMetricRows(c.metrics as Record<string, unknown>)).toEqual(c.rows)
+    }
+  })
+})
+
+// EXP-1082 §4: five display states, locked ×4.
+describe(`workflow node display states (EXP-1082)`, () => {
+  it(`maps every stored state to one of five, an unknown one to queued`, () => {
+    for (const c of fixture.displayStates) {
+      expect(workflowNodeDisplayState(c.state), c.state).toBe(c.display)
+      expect(workflowNodeDisplayLabel(c.state), c.state).toBe(c.caption)
+    }
+  })
+
+  it(`labels an open question as a badge`, () => {
+    expect(NEEDS_YOU_LABEL).toBe(fixture.needsYouLabel)
+  })
+})
+
+// EXP-1082 §5: the page view model, DECLARED — un-skipped when it lands.
+describe(`workflow page view model (EXP-1082, declared)`, () => {
+  it.skip(`lays the node strip out by wave and lane`, () => {
+    for (const c of fixture.nodeStrips) {
+      expect(
+        workflowNodeStrip(c.nodes, c.edges as [string, string][]),
+        c.name
+      ).toEqual(c.strip)
+    }
+  })
+
+  it.skip(`captions the header`, () => {
+    for (const c of fixture.headerCaptions) {
+      expect(workflowHeaderCaption(c.status, c.nodes, c.device), c.name).toBe(c.caption)
+    }
+  })
+
+  it.skip(`picks the one primary action`, () => {
+    for (const c of fixture.primaryActions) {
+      expect(workflowPrimaryAction(c.status, c.device)).toBe(
+        c.action as WorkflowPrimaryAction | null
+      )
+    }
+  })
+
+  it.skip(`offers retry and skip on a failed chip only`, () => {
+    for (const c of fixture.chipMenus) {
+      expect(nodeChipMenu({ state: c.state })).toEqual(c.menu)
     }
   })
 })

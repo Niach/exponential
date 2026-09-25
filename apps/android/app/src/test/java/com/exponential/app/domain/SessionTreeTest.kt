@@ -5,6 +5,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
 import org.junit.Assert.assertEquals
+import org.junit.Ignore
 import org.junit.Test
 
 // EXP-818 — the session tree's four rules, the same four tests web
@@ -94,6 +95,9 @@ class SessionTreeNodeTest {
         issueId: String? = null,
         batchIssueIds: String? = null,
         startedReason: String? = null,
+        workflowId: String? = null,
+        workflowNodeId: String? = null,
+        workflowRole: String? = null,
     ) = CodingSessionEntity(
         id = id,
         teamId = "team-1",
@@ -103,6 +107,9 @@ class SessionTreeNodeTest {
         parentSessionId = parentSessionId,
         batchIssueIds = batchIssueIds,
         startedReason = startedReason,
+        workflowId = workflowId,
+        workflowNodeId = workflowNodeId,
+        workflowRole = workflowRole,
         startedAt = at,
         createdAt = at,
         updatedAt = at,
@@ -344,5 +351,56 @@ class SessionTreeNodeTest {
     fun `drops a childless group row`() {
         val empty = SessionTreeNode.Workflow(workflowId = "w", name = "W")
         assertEquals(emptyList<String>(), visibleSessionTreeRows(listOf(empty)).map { it.key })
+    }
+
+    // ── EXP-1082: workflow membership (`workflow_id` / `workflow_node_id` /
+    //    `workflow_role`) — the cases EXP-1068 implements, ×4 same names.
+
+    @Ignore("EXP-1068")
+    @Test
+    fun `groups by workflow id before any heuristic`() {
+        TODO("EXP-1068")
+    }
+
+    @Ignore("EXP-1068")
+    @Test
+    fun `nests a review run under its node's author row`() {
+        TODO("EXP-1068")
+    }
+
+    @Ignore("EXP-1068")
+    @Test
+    fun `keeps a switched reviewer under its node`() {
+        TODO("EXP-1068")
+    }
+
+    @Ignore("EXP-1068")
+    @Test
+    fun `lists a base merge as a child of the group`() {
+        TODO("EXP-1068")
+    }
+
+    @Ignore("EXP-1068")
+    @Test
+    fun `names a plan-only group after the plan`() {
+        TODO("EXP-1068")
+    }
+
+    @Ignore("EXP-1068")
+    @Test
+    fun `keeps a foreign chat that resumed a workflow run inside the group`() {
+        TODO("EXP-1068")
+    }
+
+    @Ignore("EXP-1068")
+    @Test
+    fun `groups a person's run on a compound node's sub-issue`() {
+        TODO("EXP-1068")
+    }
+
+    @Ignore("EXP-1068")
+    @Test
+    fun `flags a node with two live author runs`() {
+        TODO("EXP-1068")
     }
 }

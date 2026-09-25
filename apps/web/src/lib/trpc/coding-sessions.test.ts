@@ -135,8 +135,11 @@ const fakeDb = {
       }
     },
   }),
-  select: () => ({
-    from: () => ({
+  select: () => {
+    const from = {
+      // EXP-1082: the membership lookups join (workflow ⋈ device, node ⋈
+      // workflow); the fake ignores the join and reads the queue.
+      innerJoin: () => from,
       where: (cond: unknown) => {
         selectWheres.push(cond)
         // Awaited WITHOUT `.limit()` by the unbounded reads (EXP-876's batch
@@ -147,8 +150,9 @@ const fakeDb = {
             Promise.resolve(selectResults.shift() ?? []).then(resolve),
         }
       },
-    }),
-  }),
+    }
+    return { from: () => from }
+  },
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => ({
       where: (cond: unknown) => {
@@ -340,6 +344,10 @@ describe(`codingSessions.start — issue path`, () => {
       startedReason: null,
       // EXP-906: nor a parent — this start resumes nothing.
       parentSessionId: null,
+      // EXP-1082: nor a workflow — no node names this subject.
+      workflowId: null,
+      workflowNodeId: null,
+      workflowRole: null,
       userId: `actor`,
       // EXP-432: an unattributed start is host-less — the row is the
       // caller's own.
@@ -385,6 +393,10 @@ describe(`codingSessions.start — batch path`, () => {
       startedReason: null,
       // EXP-906: nor a parent — this start resumes nothing.
       parentSessionId: null,
+      // EXP-1082: nor a workflow — no node names this subject.
+      workflowId: null,
+      workflowNodeId: null,
+      workflowRole: null,
       userId: `actor`,
       hostUserId: null,
       deviceId: null,
@@ -538,6 +550,10 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       startedReason: null,
       // EXP-906: nor a parent — this start resumes nothing.
       parentSessionId: null,
+      // EXP-1082: nor a workflow — no node names this subject.
+      workflowId: null,
+      workflowNodeId: null,
+      workflowRole: null,
       automationId: null,
       userId: `actor`,
       hostUserId: null,
@@ -1684,9 +1700,9 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
       startedById: `actor`,
     })
 
-    // The only select is EXP-549's device-label stamp (below) — never the
-    // share verification.
-    expect(selectWheres).toHaveLength(1)
+    // The only selects are EXP-549's device-label stamp (below) and
+    // EXP-1082's workflow-node match — never the share verification.
+    expect(selectWheres).toHaveLength(2)
     expect(inserts[0]!.values).toMatchObject({
       userId: `actor`,
       hostUserId: null,
@@ -1754,7 +1770,8 @@ describe(`codingSessions — device stamp (EXP-549)`, () => {
   it(`start without a deviceId stamps NULL and never probes the registry`, async () => {
     await caller.start({ issueId: ISSUE_ID, deviceLabel: `old-host` })
 
-    expect(selectWheres).toHaveLength(0)
+    // The one select is EXP-1082's workflow-node match, never the registry.
+    expect(selectWheres).toHaveLength(1)
     expect(inserts[0]!.values).toMatchObject({
       deviceId: null,
       deviceLabel: null,
@@ -2323,5 +2340,170 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
     expect(updates).toHaveLength(0)
     // EXP-700: the idempotent no-op end never re-notifies.
     expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1082 §1: every start stamps workflow membership through the ONE rule
+// (`lib/sessions/workflow-membership.ts`, table-tested there).
+describe(`codingSessions.start — workflow membership (EXP-1082)`, () => {
+  const WF = `77777777-7777-4777-8777-777777777777`
+  const NODE = `88888888-8888-4888-8888-888888888888`
+  const RESUMED_FROM = `55555555-5555-4555-8555-555555555555`
+
+  it(`joins a person's issue run to the node of a running workflow as author`, async () => {
+    selectResults.push([
+      {
+        workflowId: WF,
+        nodeId: NODE,
+        issueId: ISSUE_ID,
+        memberIssueIds: [],
+        workflowStatus: `running`,
+        workflowCreatedAt: new Date(),
+      },
+    ])
+
+    await caller.start({ issueId: ISSUE_ID })
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+      startedReason: null,
+    })
+    // Scoped to the run's team and the joinable statuses.
+    expect(whereShape(selectWheres[0])).toEqual([
+      `col:team_id`,
+      `ws-issue`,
+      `col:status`,
+      `draft`,
+      `running`,
+    ])
+  })
+
+  it(`joins a batch whose covered issues are one compound node`, async () => {
+    const SUB = `99999999-9999-4999-8999-999999999999`
+    selectResults.push([{ id: ISSUE_ID }, { id: SUB }]) // batch scoping
+    selectResults.push([
+      {
+        workflowId: WF,
+        nodeId: NODE,
+        issueId: ISSUE_ID,
+        memberIssueIds: [SUB],
+        workflowStatus: `draft`,
+        workflowCreatedAt: new Date(),
+      },
+    ])
+
+    await caller.start({ teamId: TEAM_ID, batchIssueIds: [ISSUE_ID, SUB] })
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+  })
+
+  it(`honours explicit values from the workflow's runner device`, async () => {
+    selectResults.push([{ label: `mac` }]) // device label
+    selectResults.push([{ id: WF }]) // workflow hosted by this caller's device
+    selectResults.push([{ id: NODE }]) // node in the workflow
+
+    await caller.start({
+      actionId: `builtin:review-node`,
+      teamId: TEAM_ID,
+      deviceId: `dev-1`,
+      startedReason: `workflow`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    } as never)
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+      startedReason: `workflow`,
+    })
+    expect(whereShape(selectWheres[1])).toEqual([
+      `col:id`,
+      WF,
+      `col:team_id`,
+      TEAM_ID,
+      `col:device_id`,
+      `dev-1`,
+      `col:user_id`,
+      `actor`,
+    ])
+  })
+
+  it(`ignores explicit values from anyone but the runner, without refusing`, async () => {
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not this caller's runner device
+
+    await caller.start({
+      issueId: ISSUE_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: null,
+      workflowNodeId: null,
+      workflowRole: null,
+    })
+  })
+
+  it(`ignores an explicit node outside the named workflow`, async () => {
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([{ id: WF }])
+    selectResults.push([]) // node not in the workflow
+
+    await caller.start({
+      teamId: TEAM_ID,
+      deviceId: `dev-1`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({ workflowId: null, workflowNodeId: null })
+  })
+
+  it(`ignores explicit values without a deviceId`, async () => {
+    await caller.start({ teamId: TEAM_ID, workflowId: WF, workflowRole: `plan` })
+    expect(inserts[0]!.values).toMatchObject({ workflowId: null, workflowRole: null })
+    expect(selectWheres).toHaveLength(0)
+  })
+
+  it(`keeps a resumed workflow run's membership and reason under an agent frame`, async () => {
+    selectResults.push([
+      {
+        id: RESUMED_FROM,
+        userId: `actor`,
+        parentSessionId: null,
+        startedReason: `workflow`,
+        workflowId: WF,
+        workflowNodeId: NODE,
+        workflowRole: `author`,
+      },
+    ])
+
+    await caller.start({
+      issueId: ISSUE_ID,
+      resumedFromId: RESUMED_FROM,
+      startedReason: `agent`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `author`,
+      startedReason: `workflow`,
+      resumedFromId: RESUMED_FROM,
+    })
+    // The resume decides: no node lookup.
+    expect(selectWheres).toHaveLength(1)
   })
 })

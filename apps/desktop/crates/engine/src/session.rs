@@ -148,6 +148,7 @@ impl EngineSession {
                 env: Vec::new(),
             },
             options: coding::LaunchOptions {
+                workflow: None,
                 agent,
                 model: String::new(),
                 effort: String::new(),

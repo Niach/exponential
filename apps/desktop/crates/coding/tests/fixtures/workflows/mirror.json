@@ -81,7 +81,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
-      { "kind": "startNode", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {
@@ -484,7 +484,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "nodeId": "b", "attempt": 2, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "b", "attempt": 2, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
     ]
   },
   {

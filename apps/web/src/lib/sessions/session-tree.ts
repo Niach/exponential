@@ -46,7 +46,11 @@ export type SessionTreeRow = RunChainRow &
     | `startedReason`
     | `status`
     | `updatedAt`
-  >
+  > &
+  // EXP-1082 §1: the server-stamped workflow membership. DECLARED only:
+  // EXP-1068 groups by `workflowId` first (the skipped table in
+  // session-tree.test.ts); optional so callers' rows need not carry it yet.
+  Partial<Pick<CodingSession, `workflowId` | `workflowNodeId` | `workflowRole`>>
 
 /** What the rows alone cannot say: which workflow an issue belongs to, and
  *  which issues stack on which. Every list is optional — a caller with no

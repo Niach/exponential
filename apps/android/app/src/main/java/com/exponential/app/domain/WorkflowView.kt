@@ -519,4 +519,93 @@ object WorkflowView {
     /** One decimal, dot-separated in every locale (web's `toFixed(1)`). */
     private fun ratio(numerator: Int, denominator: Int): String =
         String.format(java.util.Locale.US, "%.1f", numerator.toDouble() / denominator)
+
+    // ── EXP-1082: the workflow contract's display layer ────────────────────
+    // The fixture sections `displayStates` / `needsYouLabel` (implemented)
+    // and `nodeStrips` / `headerCaptions` / `primaryActions` / `chipMenus`
+    // (STUBS until EXP-1066 — they return the empty value, their tests are
+    // ignored). Byte-identical ×4 with web `lib/workflow-view.ts`.
+
+    /** The chip suffix a node whose run waits on a person wears. */
+    const val NEEDS_YOU_LABEL = "needs you"
+
+    /** The FIVE states a person sees, folded from the internal `wfNodeState`.
+     *  An unknown state reads as queued, never nothing. */
+    fun nodeDisplayState(state: String): WorkflowNodeDisplayState = when (state) {
+        "proposed", "blocked", "ready" -> WorkflowNodeDisplayState.QUEUED
+        "running", "waiting", "in_review", "updating" -> WorkflowNodeDisplayState.RUNNING
+        "landed" -> WorkflowNodeDisplayState.DONE
+        "failed" -> WorkflowNodeDisplayState.FAILED
+        "skipped" -> WorkflowNodeDisplayState.SKIPPED
+        else -> WorkflowNodeDisplayState.QUEUED
+    }
+
+    /** STUB (EXP-1066): the node strip — one column per wave, lanes in order. */
+    @Suppress("UNUSED_PARAMETER")
+    fun nodeStrip(nodes: List<StripNodeInput>, edges: List<Pair<String, String>>): List<StripWave> = emptyList()
+
+    /** STUB (EXP-1066): the workflow header's one-line caption. */
+    @Suppress("UNUSED_PARAMETER")
+    fun headerCaption(status: String, nodes: List<HeaderNode>, deviceLabel: String?): String = ""
+
+    /** STUB (EXP-1066): the header's ONE primary action for a status. */
+    @Suppress("UNUSED_PARAMETER")
+    fun primaryAction(status: String, deviceLabel: String?): WorkflowPrimaryAction? = null
+
+    /** STUB (EXP-1066): a node chip's menu by internal state. */
+    @Suppress("UNUSED_PARAMETER")
+    fun nodeChipMenu(state: String): List<NodeChipAction> = emptyList()
+}
+
+/** EXP-1082: contract `wfNodeDisplayState` — `wire` = the value, `label` the caption. */
+enum class WorkflowNodeDisplayState(val wire: String, val label: String) {
+    QUEUED("queued", "Queued"),
+    RUNNING("running", "Running"),
+    DONE("done", "Done"),
+    FAILED("failed", "Failed"),
+    SKIPPED("skipped", "Skipped"),
+}
+
+/** One node as the strip reads it (fixture `nodeStrips[].nodes[]`). */
+data class StripNodeInput(
+    val id: String,
+    val identifier: String,
+    val state: String,
+    val wave: Int,
+    val lane: Int,
+    val members: Int,
+    val live: Boolean,
+    val needsYou: Boolean,
+    val note: String? = null,
+)
+
+/** One wave column of the strip. */
+data class StripWave(val wave: Int, val nodes: List<NodeChip>)
+
+/** One drawn node chip (fixture `nodeStrips[].strip[].nodes[]`). */
+data class NodeChip(
+    val id: String,
+    val title: String,
+    val display: WorkflowNodeDisplayState,
+    val caption: String,
+    val stacked: Boolean,
+    val members: Int,
+    val live: Boolean,
+    val needsYou: Boolean,
+)
+
+/** One node as the header caption counts it. */
+data class HeaderNode(val state: String, val members: Int)
+
+enum class WorkflowPrimaryAction(val wire: String) {
+    PICK_DEVICE("pick_device"),
+    START("start"),
+    PAUSE("pause"),
+    RESUME("resume"),
+    REVIEW_FINAL_PR("review_final_pr"),
+}
+
+enum class NodeChipAction(val wire: String) {
+    RETRY("retry"),
+    SKIP("skip"),
 }

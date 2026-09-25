@@ -351,6 +351,14 @@ pub struct WorkflowRun {
     pub blockers: Vec<String>,
 }
 
+/// EXP-1082 — the `codingSessions.start` membership keys of a launch; the
+/// default (every key omitted) when it is not a workflow run.
+fn workflow_start(
+    membership: Option<&crate::workflows::WorkflowMembership>,
+) -> coding_sessions::WorkflowStart<'_> {
+    membership.map(|m| m.wire()).unwrap_or_default()
+}
+
 /// EXP-982: a run the workflow engine started for one node. Unattended like
 /// `agent` (it reports through `exponential_sessions_end`), but it has NO
 /// parent run — its questions go to the person who started the workflow.
@@ -1777,6 +1785,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             agent.wire_id(),
             Some(agent_account.as_str()),
             &attachment_ids,
+            // EXP-1082: a workflow run's membership, stamped on the row.
+            workflow_start(issue_req.options.workflow.as_ref()),
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
             &deps.trpc,
@@ -1795,6 +1805,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 .iter()
                 .map(|issue| issue.issue_id.clone())
                 .collect::<Vec<_>>(),
+
+            workflow_start(batch_req.options.workflow.as_ref()),
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
@@ -2646,6 +2658,8 @@ fn prepare_action(
             agent_account: Some(agent_account.as_str()),
             attribution: attribution(&req.origin, deps),
             attachment_ids: &attachment_ids,
+            // EXP-1082: a reviewer run names its workflow node.
+            workflow: workflow_start(req.options.workflow.as_ref()),
         },
     ) {
         Ok(session) => session,
@@ -3052,6 +3066,7 @@ fn prepare_resume_run(
     // however the caller spelled it.
     let switching = requested_account.is_some() && resume_account != recorded_account;
     let options = LaunchOptions {
+        workflow: None,
         agent,
         model: req.model.clone().unwrap_or_else(|| record.model.clone()),
         effort: req.effort.clone().unwrap_or_else(|| record.effort.clone()),
@@ -3421,6 +3436,8 @@ fn prepare_resume_run(
             agent.wire_id(),
             Some(agent_account.as_str()),
             &attachment_ids,
+            // A resume inherits its membership server-side (EXP-906).
+            coding_sessions::WorkflowStart::default(),
         ),
         RunKind::Batch => coding_sessions::start_batch(
             &deps.trpc,
@@ -3439,6 +3456,8 @@ fn prepare_resume_run(
                 .iter()
                 .map(|issue| issue.issue_id.clone())
                 .collect::<Vec<_>>(),
+
+            coding_sessions::WorkflowStart::default(),
         ),
         _ => coding_sessions::start_action(
             &deps.trpc,
@@ -3456,6 +3475,7 @@ fn prepare_resume_run(
                 agent_account: Some(agent_account.as_str()),
                 attribution: attribution(&req.origin, deps),
                 attachment_ids: &attachment_ids,
+                workflow: coding_sessions::WorkflowStart::default(),
             },
         ),
     };
@@ -4135,6 +4155,7 @@ mod tests {
             // The dialog defaults: claude, fable, no effort, no ultracode,
             // plan mode ON.
             options: LaunchOptions {
+                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: "".to_string(),
@@ -4710,6 +4731,7 @@ mod tests {
 
     fn batch_options() -> LaunchOptions {
         LaunchOptions {
+            workflow: None,
             agent: CodingAgent::Claude,
             model: "opus".to_string(),
             effort: "high".to_string(),
@@ -4885,6 +4907,7 @@ mod tests {
             device_label: "box".to_string(),
             origin: LaunchOrigin::Local,
             options: LaunchOptions {
+                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: String::new(),
@@ -5101,6 +5124,7 @@ mod tests {
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = action_request();
         req.options = LaunchOptions {
+            workflow: None,
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
             effort: "high".to_string(),
@@ -7475,6 +7499,7 @@ mod tests {
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = request("EXP-42");
         req.options = LaunchOptions {
+            workflow: None,
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
             effort: "high".to_string(),
@@ -7800,6 +7825,7 @@ mod tests {
     fn agent_shell_request(cwd_override: Option<PathBuf>) -> AgentShellRequest {
         AgentShellRequest {
             options: LaunchOptions {
+                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: String::new(),

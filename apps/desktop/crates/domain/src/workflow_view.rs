@@ -699,6 +699,170 @@ pub fn workflow_row_subtitle(status: &str, metrics: &WorkflowShape) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// EXP-1082 — the node DISPLAY vocabulary (contract `wfNodeDisplayState`)
+// ---------------------------------------------------------------------------
+
+/// The five words a node chip shows, whatever its internal `wfNodeState`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowNodeDisplayState {
+    Queued,
+    Running,
+    Done,
+    Failed,
+    Skipped,
+}
+
+impl WorkflowNodeDisplayState {
+    /// Contract `wfNodeDisplayState`.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            WorkflowNodeDisplayState::Queued => crate::contract::WF_NODE_DISPLAY_STATE_QUEUED,
+            WorkflowNodeDisplayState::Running => crate::contract::WF_NODE_DISPLAY_STATE_RUNNING,
+            WorkflowNodeDisplayState::Done => crate::contract::WF_NODE_DISPLAY_STATE_DONE,
+            WorkflowNodeDisplayState::Failed => crate::contract::WF_NODE_DISPLAY_STATE_FAILED,
+            WorkflowNodeDisplayState::Skipped => crate::contract::WF_NODE_DISPLAY_STATE_SKIPPED,
+        }
+    }
+
+    /// The chip's caption.
+    pub fn label(self) -> &'static str {
+        match self {
+            WorkflowNodeDisplayState::Queued => "Queued",
+            WorkflowNodeDisplayState::Running => "Running",
+            WorkflowNodeDisplayState::Done => "Done",
+            WorkflowNodeDisplayState::Failed => "Failed",
+            WorkflowNodeDisplayState::Skipped => "Skipped",
+        }
+    }
+}
+
+/// An internal node state, as a person reads it. An unknown state (a newer
+/// server) reads Queued.
+pub fn workflow_node_display_state(state: &str) -> WorkflowNodeDisplayState {
+    match state {
+        "running" | "waiting" | "in_review" | "updating" => WorkflowNodeDisplayState::Running,
+        "landed" => WorkflowNodeDisplayState::Done,
+        "failed" => WorkflowNodeDisplayState::Failed,
+        "skipped" => WorkflowNodeDisplayState::Skipped,
+        // proposed / blocked / ready, and anything newer.
+        _ => WorkflowNodeDisplayState::Queued,
+    }
+}
+
+/// The badge on a node whose run waits on a person.
+pub const NEEDS_YOU_LABEL: &str = "needs you";
+
+/// One node as the strip reads it (EXP-1082 declares, a later issue draws).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StripNodeInput {
+    pub id: String,
+    pub identifier: String,
+    pub state: String,
+    pub wave: i64,
+    pub lane: i64,
+    pub members: usize,
+    pub live: bool,
+    pub needs_you: bool,
+    pub note: Option<String>,
+}
+
+/// One chip of the strip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeChip {
+    pub id: String,
+    pub title: String,
+    pub display: WorkflowNodeDisplayState,
+    pub caption: String,
+    pub stacked: bool,
+    pub members: usize,
+    pub live: bool,
+    pub needs_you: bool,
+}
+
+/// One wave column of the strip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StripWave {
+    pub wave: i64,
+    pub nodes: Vec<NodeChip>,
+}
+
+/// The node strip: waves left to right, lanes top to bottom. STUB — the
+/// fixture's `nodeStrips` cases are `skip: true` until it lands.
+pub fn workflow_node_strip(_nodes: &[StripNodeInput], _edges: &[(String, String)]) -> Vec<StripWave> {
+    Vec::new()
+}
+
+/// One node as the header caption counts it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeaderNode {
+    pub state: String,
+    pub members: usize,
+}
+
+/// The workflow header's caption (`on MacBook · 5 of 8 done · 2 running`).
+/// STUB — the fixture's `headerCaptions` cases are `skip: true`.
+pub fn workflow_header_caption(
+    _status: &str,
+    _nodes: &[HeaderNode],
+    _device_label: Option<&str>,
+) -> String {
+    String::new()
+}
+
+/// The workflow header's ONE primary action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowPrimaryAction {
+    PickDevice,
+    Start,
+    Pause,
+    Resume,
+    ReviewFinalPr,
+}
+
+impl WorkflowPrimaryAction {
+    /// The fixture's wire word.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            WorkflowPrimaryAction::PickDevice => "pick_device",
+            WorkflowPrimaryAction::Start => "start",
+            WorkflowPrimaryAction::Pause => "pause",
+            WorkflowPrimaryAction::Resume => "resume",
+            WorkflowPrimaryAction::ReviewFinalPr => "review_final_pr",
+        }
+    }
+}
+
+/// The header's primary action for a status. STUB (fixture `primaryActions`).
+pub fn workflow_primary_action(
+    _status: &str,
+    _device_label: Option<&str>,
+) -> Option<WorkflowPrimaryAction> {
+    None
+}
+
+/// A node chip's menu entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeChipAction {
+    Retry,
+    Skip,
+}
+
+impl NodeChipAction {
+    /// The fixture's wire word.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            NodeChipAction::Retry => "retry",
+            NodeChipAction::Skip => "skip",
+        }
+    }
+}
+
+/// A node chip's menu. STUB (fixture `chipMenus`).
+pub fn node_chip_menu(_state: &str) -> Vec<NodeChipAction> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1226,5 +1390,260 @@ mod tests {
             workflow_node_caption(node("integration", "in_review", "medium"), "paused"),
             "In review"
         );
+    }
+}
+
+/// EXP-1082 — the display vocabulary, replayed off the contract fixture.
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+    use serde::Deserialize;
+
+    const FIXTURE: &str =
+        include_str!("../../../../../packages/domain-contract/fixtures/workflow-view.json");
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Fixture {
+        display_states: Vec<DisplayCase>,
+        needs_you_label: String,
+        node_strips: Vec<StripCase>,
+        header_captions: Vec<HeaderCase>,
+        primary_actions: Vec<ActionCase>,
+        chip_menus: Vec<MenuCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct DisplayCase {
+        state: String,
+        display: String,
+        caption: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct StripNodeCase {
+        id: String,
+        identifier: String,
+        state: String,
+        wave: i64,
+        lane: i64,
+        members: usize,
+        live: bool,
+        needs_you: bool,
+        #[serde(default)]
+        note: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ChipCase {
+        id: String,
+        title: String,
+        display: String,
+        caption: String,
+        stacked: bool,
+        members: usize,
+        live: bool,
+        needs_you: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct WaveCase {
+        wave: i64,
+        nodes: Vec<ChipCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct StripCase {
+        name: String,
+        #[serde(default)]
+        skip: bool,
+        nodes: Vec<StripNodeCase>,
+        edges: Vec<(String, String)>,
+        strip: Vec<WaveCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct HeaderNodeCase {
+        state: String,
+        members: usize,
+    }
+
+    #[derive(Deserialize)]
+    struct HeaderCase {
+        name: String,
+        #[serde(default)]
+        skip: bool,
+        status: String,
+        device: Option<String>,
+        nodes: Vec<HeaderNodeCase>,
+        caption: String,
+    }
+
+    #[derive(Deserialize)]
+    struct ActionCase {
+        status: String,
+        device: Option<String>,
+        action: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct MenuCase {
+        state: String,
+        menu: Vec<String>,
+    }
+
+    fn fixture() -> Fixture {
+        serde_json::from_str(FIXTURE).expect("workflow-view.json parses")
+    }
+
+    #[test]
+    fn display_states_match_the_fixture() {
+        let cases = fixture().display_states;
+        assert!(!cases.is_empty());
+        for case in cases {
+            let display = workflow_node_display_state(&case.state);
+            assert_eq!(display.as_wire(), case.display, "state {}", case.state);
+            assert_eq!(display.label(), case.caption, "state {}", case.state);
+        }
+    }
+
+    #[test]
+    fn display_states_cover_the_contract() {
+        let ours: Vec<&str> = [
+            WorkflowNodeDisplayState::Queued,
+            WorkflowNodeDisplayState::Running,
+            WorkflowNodeDisplayState::Done,
+            WorkflowNodeDisplayState::Failed,
+            WorkflowNodeDisplayState::Skipped,
+        ]
+        .into_iter()
+        .map(WorkflowNodeDisplayState::as_wire)
+        .collect();
+        assert_eq!(ours, crate::contract::WF_NODE_DISPLAY_STATE_VALUES);
+    }
+
+    #[test]
+    fn needs_you_label_matches_the_fixture() {
+        assert_eq!(NEEDS_YOU_LABEL, fixture().needs_you_label);
+    }
+
+    #[test]
+    #[ignore = "EXP-1082 declares the strip; a later issue implements it"]
+    fn node_strips_match_the_fixture() {
+        for case in fixture().node_strips.into_iter().filter(|case| !case.skip) {
+            let nodes: Vec<StripNodeInput> = case
+                .nodes
+                .into_iter()
+                .map(|node| StripNodeInput {
+                    id: node.id,
+                    identifier: node.identifier,
+                    state: node.state,
+                    wave: node.wave,
+                    lane: node.lane,
+                    members: node.members,
+                    live: node.live,
+                    needs_you: node.needs_you,
+                    note: node.note,
+                })
+                .collect();
+            let got: Vec<(i64, Vec<(String, String, &str, String, bool, usize, bool, bool)>)> =
+                workflow_node_strip(&nodes, &case.edges)
+                    .into_iter()
+                    .map(|wave| {
+                        (
+                            wave.wave,
+                            wave.nodes
+                                .into_iter()
+                                .map(|chip| {
+                                    (
+                                        chip.id,
+                                        chip.title,
+                                        chip.display.as_wire(),
+                                        chip.caption,
+                                        chip.stacked,
+                                        chip.members,
+                                        chip.live,
+                                        chip.needs_you,
+                                    )
+                                })
+                                .collect(),
+                        )
+                    })
+                    .collect();
+            let want: Vec<(i64, Vec<(String, String, &str, String, bool, usize, bool, bool)>)> =
+                case.strip
+                    .iter()
+                    .map(|wave| {
+                        (
+                            wave.wave,
+                            wave.nodes
+                                .iter()
+                                .map(|chip| {
+                                    (
+                                        chip.id.clone(),
+                                        chip.title.clone(),
+                                        chip.display.as_str(),
+                                        chip.caption.clone(),
+                                        chip.stacked,
+                                        chip.members,
+                                        chip.live,
+                                        chip.needs_you,
+                                    )
+                                })
+                                .collect(),
+                        )
+                    })
+                    .collect();
+            assert_eq!(got, want, "case: {}", case.name);
+        }
+    }
+
+    #[test]
+    #[ignore = "EXP-1082 declares the header caption; a later issue implements it"]
+    fn header_captions_match_the_fixture() {
+        for case in fixture().header_captions.into_iter().filter(|case| !case.skip) {
+            let nodes: Vec<HeaderNode> = case
+                .nodes
+                .into_iter()
+                .map(|node| HeaderNode {
+                    state: node.state,
+                    members: node.members,
+                })
+                .collect();
+            assert_eq!(
+                workflow_header_caption(&case.status, &nodes, case.device.as_deref()),
+                case.caption,
+                "case: {}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "EXP-1082 declares the primary action; a later issue implements it"]
+    fn primary_actions_match_the_fixture() {
+        for case in fixture().primary_actions {
+            assert_eq!(
+                workflow_primary_action(&case.status, case.device.as_deref())
+                    .map(WorkflowPrimaryAction::as_wire),
+                case.action.as_deref(),
+                "status {}",
+                case.status
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "EXP-1082 declares the chip menu; a later issue implements it"]
+    fn chip_menus_match_the_fixture() {
+        for case in fixture().chip_menus {
+            let got: Vec<&str> = node_chip_menu(&case.state)
+                .into_iter()
+                .map(NodeChipAction::as_wire)
+                .collect();
+            assert_eq!(got, case.menu, "state {}", case.state);
+        }
     }
 }

@@ -1792,6 +1792,15 @@ pub enum ServerFrame {
         /// predates the field simply never reads it.
         #[serde(default)]
         subagent_model: Option<String>,
+        /// EXP-1082: a WORKFLOW run's membership — the workflow, the node
+        /// and contract `wfSessionRole`. All three or none; absent on every
+        /// other start and on every pre-EXP-1082 sender.
+        #[serde(default)]
+        workflow_id: Option<String>,
+        #[serde(default)]
+        workflow_node_id: Option<String>,
+        #[serde(default)]
+        workflow_role: Option<String>,
     },
     /// EXP-773: a viewer asked for the transcript of a session that is no
     /// longer live, and the relay routed the ask to THIS device (the ticket
@@ -3204,6 +3213,9 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow_id: None,
+                workflow_node_id: None,
+                workflow_role: None,
             }
         );
     }
@@ -3322,6 +3334,28 @@ mod tests {
     }
 
     #[test]
+    fn start_session_deserializes_the_workflow_membership() {
+        // EXP-1082: the three optional camelCase keys a workflow run carries.
+        match ServerFrame::parse(
+            r#"{"t":"start_session","issueId":"issue-9","workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"}"#,
+        )
+        .unwrap()
+        {
+            ServerFrame::StartSession {
+                workflow_id,
+                workflow_node_id,
+                workflow_role,
+                ..
+            } => {
+                assert_eq!(workflow_id.as_deref(), Some("wf-1"));
+                assert_eq!(workflow_node_id.as_deref(), Some("node-1"));
+                assert_eq!(workflow_role.as_deref(), Some("author"));
+            }
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn start_session_deserializes_started_by() {
         // EXP-432: a shared-device start carries the requesting teammate's
         // userId — pure attribution, alongside the normal subject/options.
@@ -3352,6 +3386,9 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow_id: None,
+                workflow_node_id: None,
+                workflow_role: None,
             }
         );
     }
@@ -3388,6 +3425,9 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow_id: None,
+                workflow_node_id: None,
+                workflow_role: None,
             }
         );
         // Absent (every person-started frame, and every pre-EXP-679 sender)
@@ -3463,6 +3503,9 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow_id: None,
+                workflow_node_id: None,
+                workflow_role: None,
             }
         );
     }
@@ -3501,6 +3544,9 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow_id: None,
+                workflow_node_id: None,
+                workflow_role: None,
             }
         );
     }
@@ -3540,6 +3586,9 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow_id: None,
+                workflow_node_id: None,
+                workflow_role: None,
             }
         );
     }
@@ -3593,6 +3642,9 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow_id: None,
+                workflow_node_id: None,
+                workflow_role: None,
             }
         );
     }
@@ -3632,6 +3684,9 @@ mod tests {
                 prompt: None,
                 stack: None,
                 subagent_model: None,
+                workflow_id: None,
+                workflow_node_id: None,
+                workflow_role: None,
             }
         );
     }

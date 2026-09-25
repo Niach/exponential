@@ -8,6 +8,7 @@ import {
   MAX_ACTION_INPUT_KEY,
   MAX_ACTION_INPUT_TEXT,
   startPromptSchema,
+  wfSessionRoleValues,
   type ActionInputDef,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -296,8 +297,15 @@ export const steerRouter = router({
             .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
             .optional(),
           // EXP-981: the draft workflow a Plan-workflow start is about.
-          // Required iff actionId is that builtin.
+          // Required when actionId is that builtin. EXP-1082 §1: on any
+          // other subject (resume included) it is the run's workflow
+          // MEMBERSHIP, with `workflowNodeId` / `workflowRole`, forwarded
+          // verbatim on the relay frame; the device hands them to
+          // codingSessions.start, which honours them only from the
+          // workflow's runner device.
           workflowId: z.string().uuid().optional(),
+          workflowNodeId: z.string().uuid().optional(),
+          workflowRole: z.enum(wfSessionRoleValues).optional(),
           // Required iff actionId is the builtin (there is no DB row to
           // derive the team from); forbidden otherwise.
           teamId: z.string().uuid().optional(),
@@ -446,13 +454,23 @@ export const steerRouter = router({
             })
           }
           if (
-            (value.actionId === BUILTIN_PLAN_WORKFLOW_ID) !==
-            (value.workflowId !== undefined)
+            value.actionId === BUILTIN_PLAN_WORKFLOW_ID &&
+            value.workflowId === undefined
           ) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: [`workflowId`],
-              message: `workflowId goes with the Plan workflow builtin, and only with it`,
+              message: `workflowId is required for the Plan workflow builtin`,
+            })
+          }
+          if (
+            (value.workflowNodeId !== undefined || value.workflowRole !== undefined) &&
+            value.workflowId === undefined
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`workflowId`],
+              message: `workflowNodeId and workflowRole go with a workflowId`,
             })
           }
           if (value.inputs && !value.actionId) {
@@ -575,6 +593,23 @@ export const steerRouter = router({
           })
         }
         agentStarted.startedReason = `agent`
+      }
+
+      // EXP-1082 §1: the membership the frame carries, verbatim (a Plan
+      // workflow start is that draft's `plan` run unless the caller says
+      // otherwise). Absent keys stay off the wire.
+      const membershipFrame: {
+        workflowId?: string
+        workflowNodeId?: string
+        workflowRole?: string
+      } = {
+        ...(input.workflowId ? { workflowId: input.workflowId } : {}),
+        ...(input.workflowNodeId ? { workflowNodeId: input.workflowNodeId } : {}),
+        ...(input.workflowRole
+          ? { workflowRole: input.workflowRole }
+          : input.workflowId && input.actionId === BUILTIN_PLAN_WORKFLOW_ID
+            ? { workflowRole: `plan` }
+            : {}),
       }
 
       // EXP-485: the persisted devices row (written by devices.register at
@@ -945,6 +980,7 @@ export const steerRouter = router({
           ...(shared ? { startedBy: userId } : {}),
           ...inheritedAgentStart,
           ...agentStarted,
+          ...membershipFrame,
           resumeSessionId: session.id,
           teamId: session.teamId!,
           ...(session.issueId ? { issueId: session.issueId } : {}),
@@ -1246,6 +1282,7 @@ export const steerRouter = router({
           deviceId: input.deviceId,
           ...(shared ? { startedBy: userId } : {}),
           ...agentStarted,
+          ...membershipFrame,
           actionId: action.id,
           actionName: action.name,
           teamId: action.teamId,
@@ -1432,6 +1469,7 @@ export const steerRouter = router({
             deviceId: input.deviceId,
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
+            ...membershipFrame,
             issueId: input.issueId,
             ...(prompt ? { prompt } : {}),
             ...(stackFrame ? { stack: stackFrame } : {}),
@@ -1442,6 +1480,7 @@ export const steerRouter = router({
             deviceId: input.deviceId,
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
+            ...membershipFrame,
             issueIds: ids,
             teamId,
             repo: repo!,
