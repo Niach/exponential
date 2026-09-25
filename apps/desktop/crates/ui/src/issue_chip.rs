@@ -111,6 +111,9 @@ pub(crate) struct IssueChip {
     /// EXP-1014: a trailing right-aligned word INSIDE the chip (the workflow
     /// graph's node caption). A chip that carries one spans its row.
     note: Option<(SharedString, gpui::Hsla)>,
+    /// EXP-1032: one element AFTER the note, still inside the chip — the
+    /// workflow graph's final-PR chip carries its Merge action there.
+    trailing: Option<gpui::AnyElement>,
     /// EXP-1014: a DECK of chips — two ghosts peeking out behind this one
     /// (the workflow graph's compound node: a parent run with its
     /// sub-issues).
@@ -138,6 +141,7 @@ pub(crate) fn issue_chip(
         flexible: false,
         slot: None,
         note: None,
+        trailing: None,
         stacked: false,
         outline: None,
         on_click: None,
@@ -182,6 +186,14 @@ impl IssueChip {
     /// its row's full width, so the note lands on the right edge.
     pub(crate) fn note(mut self, note: impl Into<SharedString>, color: gpui::Hsla) -> Self {
         self.note = Some((note.into(), color));
+        self
+    }
+
+    /// EXP-1032 — one element after the note and still INSIDE the chip: the
+    /// workflow graph's final-PR chip hangs its Merge action there, where the
+    /// pull request it merges is named. Like a note, it spans the chip's row.
+    pub(crate) fn trailing(mut self, trailing: impl IntoElement) -> Self {
+        self.trailing = Some(trailing.into_any_element());
         self
     }
 
@@ -253,10 +265,10 @@ impl RenderOnce for IssueChip {
             Some((color, dashed)) => (color, dashed),
             None => (border, false),
         };
-        // A chip that carries a trailing note spans its row: the note is
-        // right-aligned INSIDE the chip, which only means anything once the
-        // chip has a right edge of its own.
-        let spans = self.note.is_some();
+        // A chip that carries a trailing note (or a trailing action) spans
+        // its row: the note is right-aligned INSIDE the chip, which only
+        // means anything once the chip has a right edge of its own.
+        let spans = self.note.is_some() || self.trailing.is_some();
 
         let mut chip = h_flex()
             .id(self.id)
@@ -314,6 +326,9 @@ impl RenderOnce for IssueChip {
                     .text_color(color)
                     .child(note),
             );
+        }
+        if let Some(trailing) = self.trailing {
+            chip = chip.child(div().flex_shrink_0().child(trailing));
         }
         if let Some((remove_id, handler)) = self.on_remove {
             chip = chip.child(
