@@ -339,6 +339,13 @@ class WorkflowViewTest {
         assertEquals("Merge train", WorkflowView.MERGE_TRAIN_TITLE)
         assertEquals("Nothing is waiting to land.", WorkflowView.MERGE_TRAIN_EMPTY)
         assertEquals("Final pull request", WorkflowView.FINAL_PR_TITLE)
+        // EXP-1033: merging that pull request is the run's ONE human review.
+        assertEquals("Merge", WorkflowView.MERGE_FINAL_PR_LABEL)
+        assertEquals(
+            "The workflow's branch is squash-merged into the default branch and " +
+                "the run is done.",
+            WorkflowView.MERGE_FINAL_PR_CONFIRM,
+        )
         assertEquals("Running now", WorkflowView.RUNNING_NOW_LABEL)
         assertEquals("Retry", WorkflowView.RETRY_NODE_LABEL)
         assertEquals("Skip", WorkflowView.SKIP_NODE_LABEL)
@@ -409,7 +416,12 @@ class WorkflowViewTest {
         assertEquals("Metrics", WorkflowView.METRICS_TITLE)
         // EXP-1014: the per-phase model pickers are gone; the node sheet only
         // NAMES the model its run spawns on.
-        assertEquals("Model", WorkflowView.MODEL_LABEL)
+        assertEquals("Model", WorkflowView.NODE_MODEL_LABEL)
+        // The chip of a node whose issue row has not synced: the first 8
+        // characters of the issue id stand in for the identifier, this is the
+        // title. A compound one still reads `abcd1234 +2`.
+        assertEquals("Not synced yet", WorkflowView.NODE_UNSYNCED_TITLE)
+        assertEquals("abcd1234 +2", WorkflowView.nodeTitle("abcd1234", 2))
     }
 
     @Test

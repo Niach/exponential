@@ -18,7 +18,9 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.NormalizedWorkflowLaunch
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.WorkflowLaunch
 import com.exponential.app.domain.WorkflowView
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -76,6 +79,13 @@ data class WorkflowGraph(
     val issuesById: Map<String, IssueEntity> = emptyMap(),
     /** `node id → its run`, for every node whose session row has synced. */
     val runsByNodeId: Map<String, WorkflowNodeRun> = emptyMap(),
+    /**
+     * EXP-1035: every covered issue resolved against the team's statuses — a
+     * node chip whose state says nothing worth a glyph (a draft, or `blocked`
+     * / `ready` / `proposed` / `skipped`) wears the ISSUE's own status glyph,
+     * so it reads exactly like the same issue anywhere else in the app.
+     */
+    val statusByIssueId: Map<String, ResolvedIssueStatus> = emptyMap(),
 ) {
     /** The runs that are UP, in the graph's own (wave, lane) order. */
     val liveRuns: List<Pair<WorkflowNodeEntity, WorkflowNodeRun>>
@@ -132,6 +142,26 @@ class WorkflowDetailViewModel @Inject constructor(
     // node's run can be a batch session, which is scoped to no single issue.
     private val sessions: StateFlow<List<CodingSessionEntity>> =
         dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-1035: the workflow team's statuses, in the app's canonical order —
+     * what a node chip's glyph falls back to once its state has nothing of its
+     * own to say. Scoped to the WORKFLOW's team: a builtin anchor resolves
+     * against that team's rows, never another one's.
+     */
+    private val teamStatuses: StateFlow<List<ResolvedIssueStatus>> =
+        combine(dbFlow, workflow.map { it?.teamId }.distinctUntilChanged()) { db, teamId ->
+            db to teamId
+        }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId.isNullOrEmpty()) {
+                    flowOf(emptyList())
+                } else {
+                    db.issueStatusDao().observeByTeam(teamId)
+                        .map { IssueStatusResolver.teamStatuses(it) }
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val graph: StateFlow<WorkflowGraph> = combine(
@@ -193,7 +223,15 @@ class WorkflowDetailViewModel @Inject constructor(
             issuesById = issuesById,
             runsByNodeId = runs,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowGraph())
+    }
+        .combine(teamStatuses) { graph, statuses ->
+            graph.copy(
+                statusByIssueId = graph.issuesById.mapValues { (_, issue) ->
+                    IssueStatusResolver.resolve(issue, statuses)
+                },
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowGraph())
 
     /**
      * The machines the workflow can be bound to: every synced device — the
@@ -361,6 +399,18 @@ class WorkflowDetailViewModel @Inject constructor(
     fun cancel() {
         mutate("The workflow could not be cancelled") { accountId ->
             workflowsApi.cancel(accountId, workflowId)
+        }
+    }
+
+    /**
+     * EXP-1033: the ONE human review of the whole run — squash-merge the
+     * workflow's final pull request. The synced row carries the result back
+     * (`#42 · Merged`, the workflow's own completion), so nothing is echoed
+     * into local state; a refusal lands in [error] like every other mutation.
+     */
+    fun mergeFinalPr() {
+        mutate("The final pull request could not be merged") { accountId ->
+            workflowsApi.mergeFinalPr(accountId, workflowId)
         }
     }
 

@@ -65,6 +65,14 @@ private data class SetIssuesInput(
 @Serializable
 internal data class WorkflowIdInput(@SerialName("id") val id: String)
 
+/**
+ * `workflows.mergeFinalPr`'s answer (EXP-1033). The merge's RESULT arrives
+ * over the synced row (`final_pr_state`, the workflow's own status); this flag
+ * only says the server accepted it — it is `true` for an already merged PR too.
+ */
+@Serializable
+internal data class WorkflowMergeResult(@SerialName("merged") val merged: Boolean = false)
+
 /** `workflows.approveNode` — the gate, taken back with `approved = false`. */
 @Serializable
 internal data class ApproveNodeInput(
@@ -331,6 +339,21 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = WorkflowIdInput.serializer(),
         )
     }
+
+    /**
+     * `workflows.mergeFinalPr` (EXP-1033) — squash-merge the workflow's ONE
+     * final pull request (its branch → the default branch), the one human
+     * review of the whole run. The server completes the workflow itself, so
+     * nothing is echoed locally: Electric carries the merged row back.
+     * Idempotent for a PR that already landed.
+     */
+    suspend fun mergeFinalPr(accountId: String, id: String): Boolean = trpc.mutation(
+        accountId,
+        path = "workflows.mergeFinalPr",
+        input = WorkflowIdInput(id = id),
+        inputSerializer = WorkflowIdInput.serializer(),
+        outputSerializer = WorkflowMergeResult.serializer(),
+    ).merged
 
     /** `workflows.approveNode` — clear a node's PR for the merge train. */
     suspend fun approveNode(accountId: String, nodeId: String, approved: Boolean = true) {

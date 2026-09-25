@@ -38,6 +38,7 @@ import com.exponential.app.domain.captionNode
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.IssueChipStack
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
@@ -236,6 +237,15 @@ internal fun WorkflowGraphList(
      */
     finalPrCaption: String? = null,
     finalPrUrl: String? = null,
+    /**
+     * EXP-1033: the final PR is OPEN — merging it is the run's one human
+     * review, so the control sits on the chip that IS the pull request. The
+     * confirmation and the mutation are the screen's ([onMergeFinalPr]).
+     */
+    finalPrMergeable: Boolean = false,
+    onMergeFinalPr: () -> Unit = {},
+    /** A mutation is in flight: the Merge control dims rather than re-firing. */
+    busy: Boolean = false,
     /** EXP-1014: the node whose sheet is open wears the accent ring. */
     selectedNodeId: String? = null,
 ) {
@@ -264,7 +274,13 @@ internal fun WorkflowGraphList(
             }
         }
         finalPrCaption?.let { caption ->
-            FinalPrRow(caption = caption, url = finalPrUrl)
+            FinalPrRow(
+                caption = caption,
+                url = finalPrUrl,
+                mergeable = finalPrMergeable,
+                mergeEnabled = !busy,
+                onMerge = onMergeFinalPr,
+            )
         }
         cycleNote?.let { note ->
             Text(
@@ -309,8 +325,10 @@ private fun RunningStrip(graph: WorkflowGraph, onOpenRun: (String) -> Unit) {
             live.forEach { (node, run) ->
                 val issue = graph.issuesById[node.issueId]
                 GlassPill(
+                    // The same stand-in the node chip uses while the issue
+                    // row has not synced: the first 8 characters of its id.
                     label = WorkflowView.nodeTitle(
-                        issue?.identifier ?: node.issueId,
+                        issue?.identifier ?: node.issueId.take(8),
                         node.memberIssueIds.size,
                     ),
                     onClick = { onOpenRun(run.sessionId) },
@@ -328,9 +346,18 @@ private fun RunningStrip(graph: WorkflowGraph, onOpenRun: (String) -> Unit) {
  * merged-PR glyph, with its caption trailing — it opens on GitHub once the
  * engine has actually opened it, and before that the caption is all there is
  * to say ("Opening the pull request").
+ *
+ * EXP-1033: while that PR is OPEN the row carries the run's ONE human review —
+ * a small Merge control; the screen confirms it and calls the mutation.
  */
 @Composable
-private fun FinalPrRow(caption: String, url: String?) {
+private fun FinalPrRow(
+    caption: String,
+    url: String?,
+    mergeable: Boolean,
+    mergeEnabled: Boolean,
+    onMerge: () -> Unit,
+) {
     val uriHandler = LocalUriHandler.current
     Row(
         modifier = Modifier
@@ -361,12 +388,18 @@ private fun FinalPrRow(caption: String, url: String?) {
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             maxLines = 1,
         )
+        if (mergeable) {
+            Spacer(Modifier.width(8.dp))
+            GlassPill(
+                WorkflowView.MERGE_FINAL_PR_LABEL,
+                size = PillSize.Sm,
+                enabled = mergeEnabled,
+                onClick = onMerge,
+                modifier = Modifier.testTag("workflow-final-pr-merge"),
+            )
+        }
     }
 }
-
-/** What a node's chip says while its issue row has not arrived (yet, or at
- *  all): the chip's degenerate case — a title with no identifier. */
-private const val NODE_UNSYNCED_TITLE = "Not synced yet"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -388,8 +421,11 @@ private fun WorkflowNodeRow(
     val tone = run?.let { sessionToneColor(it.tone) }
         ?: workflowToneColor(WorkflowView.nodeTone(node.state))
     val compound = node.memberIssueIds.isNotEmpty()
-    // EXP-1014: the chip's glyph slot — the live run's dot while the node is
-    // up, else the state's own glyph. A draft has no states worth a glyph.
+    // EXP-1014/EXP-1035: the chip's glyph slot follows ONE rule ×4 — a live
+    // run's dot while the node is up; else, in a STARTED workflow, the state's
+    // own glyph when it has one; else the ISSUE's own status glyph, so an
+    // unstarted node (a draft, or `blocked`/`ready`/`proposed`/`skipped`) reads
+    // exactly like the same issue anywhere else. An unsynced issue: no glyph.
     val glyph: (@Composable () -> Unit)? = when {
         run != null -> {
             {
@@ -406,6 +442,8 @@ private fun WorkflowNodeRow(
         }
         else -> null
     }
+    // Only when no glyph applies; [IssueChip] never draws both.
+    val chipStatus = if (glyph == null) graph.statusByIssueId[node.issueId] else null
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -417,14 +455,16 @@ private fun WorkflowNodeRow(
         ) {
             val chip: @Composable () -> Unit = {
                 IssueChip(
-                    // A node whose issue has not synced (yet, or at all) still
-                    // draws — the chip's own degenerate case, a title with no
-                    // code, never a crash and never a blank row.
-                    identifier = issue?.let {
-                        WorkflowView.nodeTitle(it.identifier, node.memberIssueIds.size)
-                    }.orEmpty(),
-                    title = issue?.title ?: NODE_UNSYNCED_TITLE,
-                    status = null,
+                    // EXP-1035: a node whose issue has not synced (yet, or at
+                    // all) still draws — the first 8 characters of the issue id
+                    // stand in for the identifier (a compound one still reads
+                    // `abcd1234 +2`), never a crash and never a blank row.
+                    identifier = WorkflowView.nodeTitle(
+                        issue?.identifier ?: node.issueId.take(8),
+                        node.memberIssueIds.size,
+                    ),
+                    title = issue?.title ?: WorkflowView.NODE_UNSYNCED_TITLE,
+                    status = chipStatus,
                     leading = glyph,
                     onClick = onClick,
                 )
