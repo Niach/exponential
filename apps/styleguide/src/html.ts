@@ -27,6 +27,19 @@ function glyph(body: string): string {
 }
 
 export const svgChevronRight = glyph(`<path d="m9 6 6 6-6 6"/>`)
+export const svgChevronDown = glyph(`<path d="m6 9 6 6 6-6"/>`)
+/** The `nav-workflows` concept (lucide `workflow`) and `pr-stack` (`layers`) —
+ *  the two group rows of the session tree (EXP-996). */
+export const svgWorkflow = glyph(
+  `<rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/>`
+)
+export const svgLayers = glyph(
+  [
+    `<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/>`,
+    `<path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/>`,
+    `<path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>`,
+  ].join(``)
+)
 export const svgPlay = glyph(`<polygon points="6 3 20 12 6 21 6 3"/>`)
 export const svgPlus = glyph(`<path d="M5 12h14"/><path d="M12 5v14"/>`)
 export const svgGitMerge = glyph(
