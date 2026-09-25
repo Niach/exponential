@@ -602,6 +602,8 @@ class WorkflowViewTest {
         assertEquals(label("pickDevice"), WorkflowView.PICK_DEVICE_LABEL)
         assertEquals(label("runsOn"), WorkflowView.RUNS_ON_LABEL)
         assertEquals(label("reviewFinalPr"), WorkflowView.REVIEW_FINAL_PR_LABEL)
+        assertEquals(label("noChanges"), WorkflowView.NO_CHANGES_LABEL)
+        assertEquals(label("dismissNodeConfirm"), WorkflowView.DISMISS_NODE_CONFIRM)
     }
 
     @Test

@@ -165,11 +165,6 @@ fun WorkflowDetailScreen(
     onOpenSession: (sessionId: String) -> Unit,
     /** The standalone Changes route — for a PR the face cannot show. */
     onOpenChanges: (issueId: String) -> Unit,
-    /**
-     * Unused since review r2: `review_final_pr` now opens All × Changes on
-     * this page. Kept so the nav host (outside this lane) still compiles.
-     */
-    @Suppress("UNUSED_PARAMETER") onOpenReviews: () -> Unit = {},
     viewModel: WorkflowDetailViewModel = hiltViewModel(),
 ) {
     val workflow by viewModel.workflow.collectAsStateWithLifecycle()
@@ -783,6 +778,7 @@ private fun NodeSheet(
 ) {
     val relations by viewModel.relations.collectAsStateWithLifecycle()
     var confirmSkip by remember { mutableStateOf(false) }
+    var confirmDismiss by remember { mutableStateOf(false) }
     val blocks = remember(node, relations, graph.issuesById) {
         IssueGraph.blockGraph(node.coveredIssueIds, relations, graph.issuesById.values.toList())
     }
@@ -814,10 +810,7 @@ private fun NodeSheet(
                             viewModel.admitNode(node.id, admit = true)
                             onDismiss()
                         }
-                        NodeChipAction.DISMISS -> {
-                            viewModel.admitNode(node.id, admit = false)
-                            onDismiss()
-                        }
+                        NodeChipAction.DISMISS -> confirmDismiss = true
                     }
                 },
             )
@@ -836,6 +829,21 @@ private fun NodeSheet(
                 }) { Text(WorkflowView.SKIP_NODE_LABEL, color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmSkip = false }) { Text("Cancel") } },
+        )
+    }
+    if (confirmDismiss) {
+        AlertDialog(
+            onDismissRequest = { confirmDismiss = false },
+            title = { Text(WorkflowView.DISMISS_NODE_LABEL) },
+            text = { Text(WorkflowView.DISMISS_NODE_CONFIRM) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDismiss = false
+                    viewModel.admitNode(node.id, admit = false)
+                    onDismiss()
+                }) { Text(WorkflowView.DISMISS_NODE_LABEL, color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDismiss = false }) { Text("Cancel") } },
         )
     }
 }
@@ -1146,13 +1154,10 @@ private fun DecisionsSection(decisions: String, open: Boolean, onToggle: () -> U
     }
 }
 
-/** A node row with nothing to open on All × Changes. Byte-identical ×4. */
-private const val NO_CHANGES_LABEL = "No changes yet"
-
 /**
  * All × Changes: the final pull request (Merge in the bar while it is open)
  * over EVERY node's row — its chip and its PR state; a node with a PR opens
- * its own Changes face in place, one without reads [NO_CHANGES_LABEL].
+ * its own Changes face in place, one without reads [WorkflowView.NO_CHANGES_LABEL].
  */
 @Composable
 private fun AllChangesFace(
@@ -1204,7 +1209,7 @@ private fun AllChangesFace(
                     }
                     issue?.prNumber?.let { "#$it · $state" } ?: state
                 } else {
-                    NO_CHANGES_LABEL
+                    WorkflowView.NO_CHANGES_LABEL
                 }
                 Row(
                     modifier = Modifier

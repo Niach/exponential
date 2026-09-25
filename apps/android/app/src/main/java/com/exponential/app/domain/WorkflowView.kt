@@ -423,6 +423,12 @@ object WorkflowView {
     const val RUNS_ON_LABEL = "Runs on"
     const val REVIEW_FINAL_PR_LABEL = "Review final PR"
 
+    /** A node row on All × Changes with nothing to open. */
+    const val NO_CHANGES_LABEL = "No changes yet"
+
+    /** Dismiss's confirm on a `proposed` node. */
+    const val DISMISS_NODE_CONFIRM = "The node is removed from the workflow."
+
     /**
      * The header overflow: a draft is planned, re-bound or deleted; a live
      * (running or paused) one is stopped; anything else is deleted.

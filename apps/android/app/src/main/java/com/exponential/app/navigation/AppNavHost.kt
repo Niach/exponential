@@ -596,8 +596,6 @@ private fun AuthenticatedNav(
                 // A run outside every node (the planner), and a PR's diff.
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
-                // EXP-1087: a done workflow's primary action reviews its final PR.
-                onOpenReviews = { navController.navigate("reviews") { launchSingleTop = true } },
             )
         }
         composable("personal") {
