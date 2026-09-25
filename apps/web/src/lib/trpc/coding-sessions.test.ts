@@ -2514,6 +2514,60 @@ describe(`codingSessions.start — workflow membership (EXP-1082)`, () => {
     ])
   })
 
+  it(`honours a node-less plan role on a draft whose runner is not picked yet`, async () => {
+    selectResults.push([{ label: `mac` }]) // device label
+    selectResults.push([]) // not the runner device (the draft has none)
+    selectResults.push([{ id: WF }]) // a draft of the team
+
+    await caller.start({
+      actionId: `builtin:plan-workflow`,
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowRole: `plan`,
+    } as never)
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: null,
+      workflowRole: `plan`,
+    })
+    expect(whereShape(selectWheres[2])).toEqual([
+      `col:id`,
+      WF,
+      `col:team_id`,
+      TEAM_ID,
+      `col:status`,
+      `draft`,
+    ])
+  })
+
+  it(`still ignores a plan role on a running workflow, or one that names a node`, async () => {
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not the runner
+    selectResults.push([]) // not a draft
+
+    await caller.start({
+      actionId: `builtin:plan-workflow`,
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowRole: `plan`,
+    } as never)
+    expect(inserts[0]!.values).toMatchObject({ workflowId: null, workflowRole: null })
+
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not the runner; a node-bearing plan never falls through
+    await caller.start({
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `plan`,
+    })
+    expect(inserts[1]!.values).toMatchObject({ workflowId: null, workflowRole: null })
+  })
+
   it(`ignores explicit values from anyone but the runner, without refusing`, async () => {
     selectResults.push([{ label: `mac` }])
     selectResults.push([]) // not this caller's runner device
