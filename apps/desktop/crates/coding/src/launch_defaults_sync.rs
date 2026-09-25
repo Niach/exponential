@@ -134,6 +134,7 @@ pub fn write_marker(
     if let Some(dir) = settings_path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    let _guard = settings_path.parent().map(api::settings_lock::locked);
     let mut root = read_root(settings_path)
         .unwrap_or_else(|| Value::Object(Default::default()));
     let entry = serde_json::json!({
