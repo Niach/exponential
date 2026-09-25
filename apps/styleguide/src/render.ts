@@ -20,21 +20,22 @@ import {
 } from "@exp/ui/island"
 
 import { client } from "./client.ts"
-import {
-  COMPONENTS,
-  COMPONENT_PLATFORMS,
-  KIND_ORDER,
-  MODES,
-  isIsland,
-  modeOf,
-} from "./components.tsx"
+import { COMPONENTS, COMPONENT_PLATFORMS } from "./components.tsx"
 import type {
   ComponentKind,
   ComponentPlatform,
   ComponentSpec,
   ComponentStatus,
-  Mode,
 } from "./components.tsx"
+import { ENTRIES } from "./entries/index.ts"
+import type { StyleguideEntry } from "./entries/types.ts"
+import {
+  buildPage,
+  isPageIsland,
+  sectionLabel,
+  sectionShortLabel,
+} from "./sections/page.ts"
+import type { PageEntry, PageSection } from "./sections/page.ts"
 import { escapeHtml } from "./html.ts"
 import { styles } from "./styles.ts"
 import type { GalleryData, Shot, ViewEntry } from "./store.ts"
@@ -181,9 +182,13 @@ function fileBasename(file: string): string {
   return at < 0 ? file : file.slice(at + 1)
 }
 
-function renderStatus(spec: ComponentSpec): string {
+function renderStatus(entry: PageEntry): string {
+  // A placeholder has no table at all: four `unknown` rows would read as a
+  // claim about four platforms nobody has looked at yet.
+  if (entry.status === undefined) return ``
+  const table = entry.status
   const rows = COMPONENT_PLATFORMS.map((platform) => {
-    const status = spec.status[platform]
+    const status = table[platform]
     const dot = `<span class="dot ${componentDotClass(status.state)}"></span>`
     const symbol =
       status.symbol === undefined
@@ -208,8 +213,8 @@ function renderStatus(spec: ComponentSpec): string {
  * product ignores the one it has, which is the only half a reference page
  * cannot infer from the code it points at.
  */
-function renderLeftovers(spec: ComponentSpec): string {
-  const rows = spec.leftovers ?? []
+function renderLeftovers(entry: PageEntry): string {
+  const rows = entry.leftovers ?? []
   if (rows.length === 0) return ``
   const items = rows
     .map(
@@ -226,82 +231,87 @@ function renderLeftovers(spec: ComponentSpec): string {
  * fixed `bg-app-gradient` layer inside a shadow tree is wrong — see
  * `@exp/ui/island`).
  */
-function renderDemo(spec: ComponentSpec): string {
-  return isIsland(spec) ? renderIsland(spec.island()) : spec.render()
+function renderDemo(entry: PageEntry): string {
+  return isPageIsland(entry) ? renderIsland(entry.island()) : (entry.render?.() ?? ``)
 }
 
-function renderComponentSection(spec: ComponentSpec): string {
-  const mode = modeOf(spec)
+function renderComponentSection(entry: PageEntry, section: PageSection): string {
+  const owner = entry.owner === undefined ? `` : ` · ${entry.owner}`
   return [
-    `<section class="view component" data-mode="${mode}" data-view="${escapeHtml(spec.id)}" id="view-${escapeHtml(spec.id)}">`,
-    `<p class="meta-note">${escapeHtml(`${MODES[mode].label} · ${spec.kind}`)}</p>`,
-    `<h2>${escapeHtml(spec.title)}</h2>`,
-    `<div><code class="view-id">${escapeHtml(spec.id)}</code></div>`,
-    `<p class="blurb">${escapeHtml(spec.blurb)}</p>`,
-    `<div class="cmp-demo">${renderDemo(spec)}</div>`,
-    renderStatus(spec),
-    renderLeftovers(spec),
+    `<section class="view component" data-mode="${section.section.id}" data-view="${escapeHtml(entry.id)}" id="view-${escapeHtml(entry.id)}">`,
+    `<p class="meta-note">${escapeHtml(`${section.section.title} · ${entry.kind}${owner}`)}</p>`,
+    `<h2>${escapeHtml(entry.title)}</h2>`,
+    `<div><code class="view-id">${escapeHtml(entry.id)}</code></div>`,
+    `<p class="blurb">${escapeHtml(entry.blurb)}</p>`,
+    `<div class="cmp-demo">${renderDemo(entry)}</div>`,
+    renderStatus(entry),
+    renderLeftovers(entry),
     `</section>`,
   ].join(``)
 }
 
-function renderComponentNavLink(spec: ComponentSpec): string {
-  const platformDots = COMPONENT_PLATFORMS.map((platform) => {
-    const status = spec.status[platform]
-    const title = `${COMPONENT_PLATFORM_LABEL[platform]}: ${status.state}`
-    return `<span class="dot ${componentDotClass(status.state)}" title="${escapeHtml(title)}"></span>`
-  }).join(``)
+function renderComponentNavLink(entry: PageEntry, section: PageSection): string {
+  const table = entry.status
+  // No table, no dots: a placeholder makes no claim about any platform.
+  const platformDots =
+    table === undefined
+      ? ``
+      : COMPONENT_PLATFORMS.map((platform) => {
+          const status = table[platform]
+          const title = `${COMPONENT_PLATFORM_LABEL[platform]}: ${status.state}`
+          return `<span class="dot ${componentDotClass(status.state)}" title="${escapeHtml(title)}"></span>`
+        }).join(``)
   // One EXTRA yellow dot when the web app still draws this by hand somewhere:
   // four platforms agreeing means nothing if the call sites ignore them.
-  const leftovers = spec.leftovers ?? []
+  const leftovers = entry.leftovers ?? []
   const handDot =
     leftovers.length === 0
       ? ``
       : `<span class="dot leftover" title="${escapeHtml(`${leftovers.length} web call site${leftovers.length === 1 ? `` : `s`} still drawn by hand`)}"></span>`
   const dots = `${platformDots}${handDot}`
   const searchable = [
-    spec.id,
-    spec.title,
-    MODES[modeOf(spec)].label,
-    spec.kind,
-    spec.blurb,
-    ...COMPONENT_PLATFORMS.flatMap((platform) => {
-      const status = spec.status[platform]
-      return [status.symbol, status.file === undefined ? undefined : fileBasename(status.file)]
-    }),
+    entry.id,
+    entry.title,
+    section.section.title,
+    entry.kind,
+    entry.owner,
+    entry.blurb,
+    ...(table === undefined
+      ? []
+      : COMPONENT_PLATFORMS.flatMap((platform) => {
+          const status = table[platform]
+          return [status.symbol, status.file === undefined ? undefined : fileBasename(status.file)]
+        })),
   ]
     .filter((part) => part !== undefined)
     .join(` `)
   return [
-    `<a class="nav-link" href="#${escapeHtml(spec.id)}" data-view="${escapeHtml(spec.id)}"`,
-    ` data-title="${escapeHtml(spec.title)}" data-search="${escapeHtml(searchable.toLowerCase())}">`,
-    `<span class="label">${escapeHtml(spec.title)}</span>`,
+    `<a class="nav-link" href="#${escapeHtml(entry.id)}" data-view="${escapeHtml(entry.id)}"`,
+    ` data-title="${escapeHtml(entry.title)}" data-search="${escapeHtml(searchable.toLowerCase())}">`,
+    `<span class="label">${escapeHtml(entry.title)}</span>`,
     `<span class="dots">${dots}</span>`,
     `</a>`,
   ].join(``)
 }
 
-/** The entries of one mode, in nav order (`KIND_ORDER`, then spec order). */
-function specsOf(
-  components: readonly ComponentSpec[],
-  mode: Exclude<Mode, `views`>
-): ComponentSpec[] {
-  const order = KIND_ORDER[mode]
-  return components
-    .filter((spec) => modeOf(spec) === mode)
-    .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
-}
-
-function summary(data: GalleryData, components: readonly ComponentSpec[]): string {
+/**
+ * The summary line: what is captured, then how big each of the four sections
+ * is. Views counts the photographed catalog PLUS whatever registered entries
+ * the section holds, because both are things a reader can open there.
+ */
+function summary(data: GalleryData, page: PageSection[]): string {
   const total = data.counts.ok + data.counts.missing
-  const componentCount = components.filter((spec) => modeOf(spec) === `components`).length
-  const styleCount = components.filter((spec) => modeOf(spec) === `style`).length
+  const sizes = page.map((section) => {
+    const count =
+      section.section.id === `views`
+        ? data.views.length + section.entries.length
+        : section.entries.length
+    return count > 0 ? `${count} ${sectionLabel(section.section)}` : undefined
+  })
   const parts = [
-    `${data.views.length} views`,
     `${data.counts.ok}/${total} captured`,
     data.counts.na > 0 ? `${data.counts.na} n/a` : undefined,
-    componentCount > 0 ? `${componentCount} components` : undefined,
-    styleCount > 0 ? `${styleCount} style` : undefined,
+    ...sizes,
     data.undeclared.length > 0 ? `${data.undeclared.length} undeclared` : undefined,
     data.indexPresent ? undefined : `no index.json`,
   ].filter((part) => part !== undefined)
@@ -309,12 +319,14 @@ function summary(data: GalleryData, components: readonly ComponentSpec[]): strin
 }
 
 /** Serialise for a `<script type="application/json">` block. */
-function inlineJson(data: GalleryData, components: readonly ComponentSpec[]): string {
+function inlineJson(data: GalleryData, page: PageSection[]): string {
   const { groups, views, undeclared, indexPresent, counts } = data
-  // The client routes WITHIN a mode, so every id it knows carries one.
-  const modes: Record<string, Mode> = {}
+  // The client routes WITHIN a section, so every id it knows carries one.
+  const modes: Record<string, string> = {}
   for (const entry of data.views) modes[entry.view.id] = `views`
-  for (const spec of components) modes[spec.id] = modeOf(spec)
+  for (const section of page) {
+    for (const entry of section.entries) modes[entry.id] = section.section.id
+  }
   return JSON.stringify({
     groups,
     views,
@@ -322,13 +334,15 @@ function inlineJson(data: GalleryData, components: readonly ComponentSpec[]): st
     indexPresent,
     counts,
     modes,
-    // Only what the client routes on: `render` is a function and the status
-    // table is already in the document.
-    components: components.map((spec) => ({
-      id: spec.id,
-      title: spec.title,
-      mode: modeOf(spec),
-    })),
+    // Only what the client routes on, in NAV order: `render` is a function and
+    // the status table is already in the document.
+    components: page.flatMap((section) =>
+      section.entries.map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        mode: section.section.id,
+      }))
+    ),
   }).replace(/</g, `\\u003c`)
 }
 
@@ -340,49 +354,64 @@ function kindSlug(kind: ComponentKind): string {
     .replace(/^-|-$/g, ``)
 }
 
-/** One `.mode-section`, its entries banded by `kind` in `KIND_ORDER`. */
-function renderModeNav(
-  components: readonly ComponentSpec[],
-  mode: Exclude<Mode, `views`>
-): string {
-  const specs = specsOf(components, mode)
-  const bands = KIND_ORDER[mode]
-    .map((kind) => {
-      const inKind = specs.filter((spec) => spec.kind === kind)
-      if (inKind.length === 0) return ``
-      return [
-        `<div class="group-section" data-group="${escapeHtml(kindSlug(kind))}">`,
-        `<div class="group-label">${escapeHtml(kind)}</div>`,
-        inKind.map(renderComponentNavLink).join(``),
+/** The bands of ONE section's nav, `kind` by `kind` in `BAND_ORDER`. */
+function renderSectionBands(section: PageSection): string {
+  return section.bands
+    .map((band) =>
+      [
+        `<div class="group-section" data-group="${escapeHtml(kindSlug(band.kind))}">`,
+        `<div class="group-label">${escapeHtml(band.kind)}</div>`,
+        band.entries.map((entry) => renderComponentNavLink(entry, section)).join(``),
         `</div>`,
       ].join(``)
-    })
+    )
     .join(``)
-  return `<div class="mode-section" data-mode="${mode}">${bands}</div>`
 }
 
-/** The three-segment capsule above the filter; the count is the link count. */
-function renderModeBar(counts: Record<Mode, number>): string {
-  const segments = (Object.keys(MODES) as Mode[])
-    .map((mode) => {
-      const info = MODES[mode]
+/**
+ * The four-segment capsule above the filter, in `sections.json` order, with
+ * the contract's title and blurb as the tooltip. No count rides a segment:
+ * four labels and four numbers do not fit a sidebar without ellipsising the
+ * words, and the summary line directly above already prints every section's
+ * size ("10 style · 72 general components · …").
+ */
+function renderSectionBar(page: PageSection[]): string {
+  const segments = page
+    .map((section) => {
+      const { id, title, blurb } = section.section
       return [
-        `<button class="mode-btn" type="button" data-mode="${mode}"`,
-        ` aria-pressed="${mode === `views` ? `true` : `false`}" title="${escapeHtml(info.blurb)}">`,
-        `<span class="label">${escapeHtml(info.label)}</span>`,
-        `<span class="count">${counts[mode]}</span>`,
+        `<button class="mode-btn" type="button" data-mode="${escapeHtml(id)}"`,
+        ` aria-pressed="${id === OPENING_SECTION ? `true` : `false`}"`,
+        ` title="${escapeHtml(`${title} — ${blurb}`)}">`,
+        `<span class="label">${escapeHtml(sectionShortLabel(section.section))}</span>`,
         `</button>`,
       ].join(``)
     })
     .join(``)
-  return `<div class="mode-bar" role="group" aria-label="Mode">${segments}</div>`
+  return `<div class="mode-bar" role="group" aria-label="Section">${segments}</div>`
 }
+
+/**
+ * The section a script-less page shows. The photographed catalog: it is the
+ * only section whose entries a reader cannot reproduce from the code, and the
+ * one the page has always opened in.
+ */
+const OPENING_SECTION = `views`
 
 export function renderHtml(
   data: GalleryData,
   components: readonly ComponentSpec[] = COMPONENTS,
-  uiCss = ``
+  uiCss = ``,
+  entries: readonly StyleguideEntry[] = ENTRIES
 ): string {
+  // EXP-1019: FOUR sections, in the contract's order (`sections/sections.json`
+  // — the same index the IDE styleguide reads). Style is the values, General
+  // the control set, Special the compositions built on top of it, Views the
+  // photographed screens. Every existing spec lands in one of the first three
+  // (`sectionOfSpec`) and every registered entry sits where the contract puts
+  // it.
+  const page = buildPage(components, entries)
+
   const viewNav = data.groups
     .map((section) =>
       [
@@ -394,15 +423,20 @@ export function renderHtml(
     )
     .join(``)
 
-  // Three MODES (EXP-941), not one appended group: Views are photographed,
-  // Components are rendered live, Style is the values both are made of. The
-  // Components and Style navs are SYNTHETIC — no catalog entry, no shots, and
-  // `--check` never sees them — so they band by `kind`, not by catalog group.
-  const nav = [
-    `<div class="mode-section" data-mode="views">${viewNav}</div>`,
-    renderModeNav(components, `components`),
-    renderModeNav(components, `style`),
-  ].join(``)
+  // One `.mode-section` per section, banded by `kind`. The three synthetic
+  // sections have no catalog entry, no shots and `--check` never sees them;
+  // Views prepends the photographed catalog's own groups to its bands.
+  const nav = page
+    .map((section) =>
+      [
+        `<div class="mode-section" data-mode="${escapeHtml(section.section.id)}">`,
+        `<p class="section-blurb">${escapeHtml(section.section.blurb)}</p>`,
+        section.section.id === `views` ? viewNav : ``,
+        renderSectionBands(section),
+        `</div>`,
+      ].join(``)
+    )
+    .join(``)
 
   const sections = data.groups
     .map((section) =>
@@ -410,18 +444,9 @@ export function renderHtml(
     )
     .join(``)
 
-  const componentSections = [
-    ...specsOf(components, `components`),
-    ...specsOf(components, `style`),
-  ]
-    .map(renderComponentSection)
+  const componentSections = page
+    .flatMap((section) => section.entries.map((entry) => renderComponentSection(entry, section)))
     .join(``)
-
-  const modeCounts: Record<Mode, number> = {
-    views: data.views.length,
-    components: specsOf(components, `components`).length,
-    style: specsOf(components, `style`).length,
-  }
 
   const empty =
     data.views.length === 0
@@ -444,15 +469,15 @@ export function renderHtml(
     // shadow root on the page.
     uiCss === `` ? `` : renderIslandCssTemplate(uiCss),
     `</head>`,
-    // The mode the page opens in; the client re-reads it from the hash and
+    // The section the page opens in; the client re-reads it from the hash and
     // from localStorage, but a `file://` page with no script still renders one.
-    `<body data-mode="views">`,
+    `<body data-mode="${OPENING_SECTION}">`,
     `<div class="layout">`,
     `<aside class="sidebar">`,
-    `<div class="brand"><h1>Exponential styleguide</h1><p>${escapeHtml(summary(data, components))}</p></div>`,
+    `<div class="brand"><h1>Exponential styleguide</h1><p>${escapeHtml(summary(data, page))}</p></div>`,
     `<div class="filter-wrap">`,
-    renderModeBar(modeCounts),
-    `<input id="filter" class="filter" type="search" placeholder="Filter this mode  ( / )" autocomplete="off" spellcheck="false">`,
+    renderSectionBar(page),
+    `<input id="filter" class="filter" type="search" placeholder="Filter this section  ( / )" autocomplete="off" spellcheck="false">`,
     `</div>`,
     `<nav>${nav}<div class="nav-empty hidden">Nothing matches.</div></nav>`,
     `</aside>`,
@@ -460,9 +485,9 @@ export function renderHtml(
     `<div class="toolbar">`,
     `<button id="toggle-size" class="btn views-only" type="button" aria-pressed="false">Fit to height</button>`,
     `<span class="meta-note views-only">click a shot for 1:1</span>`,
-    `<span class="meta-note">j / k moves · / filters · 1 / 2 / 3 switches mode</span>`,
+    `<span class="meta-note">j / k moves · / filters · 1 / 2 / 3 / 4 switches section</span>`,
     `<span class="spacer"></span>`,
-    `<span class="meta-note">${escapeHtml(summary(data, components))}</span>`,
+    `<span class="meta-note">${escapeHtml(summary(data, page))}</span>`,
     `</div>`,
     empty,
     sections,
@@ -470,7 +495,7 @@ export function renderHtml(
     `</main>`,
     `</div>`,
     `<dialog class="lightbox"><img alt="Full size screenshot"></dialog>`,
-    `<script type="application/json" id="gallery-data">${inlineJson(data, components)}</script>`,
+    `<script type="application/json" id="gallery-data">${inlineJson(data, page)}</script>`,
     `<script>${client}</script>`,
     uiCss === `` ? `` : `<script>${ISLAND_CLIENT_SCRIPT}</script>`,
     `</body>`,

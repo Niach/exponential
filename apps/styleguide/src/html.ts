@@ -85,3 +85,13 @@ export const svgLock = glyph(
 export const svgTriangleAlert = glyph(
   `<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>`
 )
+
+/** `editor-issue-ref` — the issue picker's glyph (Lucide `hash`). */
+export const svgHash = glyph(
+  `<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>`
+)
+
+/** `ui-submit` — the round send on every composer (Lucide `circle-arrow-up`). */
+export const svgCircleArrowUp = glyph(
+  `<circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/>`
+)

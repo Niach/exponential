@@ -147,6 +147,12 @@ public enum DomainContract {
     public static let diffUiCollapseThresholdLines: Int = 300
     public static let diffUiLineChunk: Int = 500
     public static let diffUiInlineDiffMaxHeight: Int = 288
+    public static let composerUiRunHeadline: String = "Run"
+    public static let composerUiImplementHeadline: String = "Implement"
+    public static let composerUiChatHeadline: String = "Ask the agent"
+    public static let composerUiChatPlaceholder: String = "Ask the agent…"
+    public static let composerUiInstructionsPlaceholder: String = "Additional instructions (optional)…"
+    public static let composerUiDialogTitle: String = "Start a run"
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"
