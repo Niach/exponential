@@ -415,14 +415,17 @@ impl WfSessionRole {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkflowMembership {
     pub workflow_id: String,
-    pub node_id: String,
+    /// `None` for a workflow-level run with no node: the `plan` / `replan`
+    /// planner runs of a draft (the Plan-workflow frame names the workflow
+    /// and the role only). Node runs always carry one.
+    pub node_id: Option<String>,
     pub role: WfSessionRole,
 }
 
 impl WorkflowMembership {
-    /// Decode the three optional wire keys (the relay's `start_session`
-    /// frame); all three are required for a membership, and an unknown role
-    /// drops it.
+    /// Decode the optional wire keys (the relay's `start_session` frame): a
+    /// membership needs the workflow id and a known role; the node is
+    /// optional (a planner run has none). An unknown role drops it.
     pub fn from_wire(
         workflow_id: Option<&str>,
         node_id: Option<&str>,
@@ -431,16 +434,16 @@ impl WorkflowMembership {
         let role = WfSessionRole::parse(role?)?;
         Some(Self {
             workflow_id: workflow_id.filter(|id| !id.is_empty())?.to_string(),
-            node_id: node_id.filter(|id| !id.is_empty())?.to_string(),
+            node_id: node_id.filter(|id| !id.is_empty()).map(str::to_string),
             role,
         })
     }
 
-    /// The `codingSessions.start` keys.
+    /// The `codingSessions.start` keys; a `None` node stays off the wire.
     pub fn wire(&self) -> api::coding_sessions::WorkflowStart<'_> {
         api::coding_sessions::WorkflowStart {
             workflow_id: Some(&self.workflow_id),
-            workflow_node_id: Some(&self.node_id),
+            workflow_node_id: self.node_id.as_deref(),
             workflow_role: Some(self.role.as_str()),
         }
     }
@@ -1980,16 +1983,22 @@ mod tests {
     }
 
     #[test]
-    fn membership_needs_all_three_wire_keys() {
+    fn membership_needs_a_workflow_and_a_role_the_node_is_optional() {
         assert_eq!(
             WorkflowMembership::from_wire(Some("wf"), Some("n"), Some("review")),
             Some(WorkflowMembership {
                 workflow_id: "wf".to_string(),
-                node_id: "n".to_string(),
+                node_id: Some("n".to_string()),
                 role: WfSessionRole::Review,
             })
         );
-        assert_eq!(WorkflowMembership::from_wire(Some("wf"), None, Some("author")), None);
+        // The Plan-workflow frame: workflow + role, no node.
+        let plan = WorkflowMembership::from_wire(Some("wf"), None, Some("plan")).unwrap();
+        assert_eq!(plan.node_id, None);
+        assert_eq!(plan.role, WfSessionRole::Plan);
+        assert_eq!(plan.wire().workflow_node_id, None);
+        assert_eq!(WorkflowMembership::from_wire(None, Some("n"), Some("author")), None);
+        assert_eq!(WorkflowMembership::from_wire(Some("wf"), Some("n"), None), None);
         assert_eq!(WorkflowMembership::from_wire(Some("wf"), Some("n"), Some("boss")), None);
     }
 
