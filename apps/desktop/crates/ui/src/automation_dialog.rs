@@ -21,9 +21,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 
 use crate::automation_editor::{AutomationEditorState, AUTOMATION_REQUIRED_INPUTS_HINT};
@@ -304,29 +302,39 @@ impl AutomationDialogView {
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long action name wraps onto a second line.
             .child(crate::surface::picker_value_label(label))
-            .dropdown_menu(move |mut menu, _window, _cx| {
-                for action in &actions {
-                    let view = view.clone();
-                    let action_id = action.id.clone();
-                    let checked = picked.as_deref() == Some(action_id.as_str());
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(action.name.clone()))
-                            .icon(crate::icons::action_icon(action.icon.as_deref()))
-                            .checked(checked)
-                            .on_click(move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let action_id = action_id.clone();
-                                    view.update(cx, |this, cx| {
-                                        this.action_id = Some(action_id);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    );
-                }
-                menu
-            });
-        crate::surface::glass_picker_row("Action", None, trigger.into_any_element(), cx)
+            .into_any_element();
+        // EXP-1021: THE action picker, the same one the web form mounts —
+        // curated glyph + name + the action's own muted description, searched
+        // the one way every picker searches. The trigger above stays ours.
+        let rows: Vec<crate::picker::action_picker::ActionPickerAction> = actions
+            .iter()
+            .map(|action| crate::picker::action_picker::ActionPickerAction {
+                id: action.id.clone(),
+                name: action.name.clone(),
+                icon: action.icon.clone(),
+                description: action.description.clone(),
+            })
+            .collect();
+        let control = crate::picker::deferred(move |window, cx| {
+            crate::picker::action_picker::action_picker(
+                &rows,
+                picked,
+                trigger,
+                std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                    let (Some(view), Some(action_id)) = (view.upgrade(), next.into_iter().next())
+                    else {
+                        return;
+                    };
+                    view.update(cx, |this, cx| {
+                        this.action_id = Some(action_id);
+                        cx.notify();
+                    });
+                }),
+            )
+            .render(window, cx)
+        })
+        .into_any_element();
+        crate::surface::glass_picker_row("Action", None, control, cx)
     }
 }
 

@@ -1,6 +1,5 @@
 import * as React from "react"
 
-import { Button } from "./button"
 import { cn } from "./cn"
 import {
   Command,
@@ -19,15 +18,18 @@ import {
   type ComboboxSelection,
   type RenderComboboxOption,
 } from "./combobox-core"
-import { GLASS_SELECT_TRIGGER } from "./glass-rows"
-import { conceptIcon } from "./icons.generated"
 import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
 } from "./mobile-popover"
 import type { PickerOption } from "./picker-option"
-import { Pill } from "./pill"
+import {
+  PICKER_INLINE_WORD,
+  PickerTrigger,
+  pickerSummary,
+  type PickerTriggerVariant,
+} from "./picker/picker-trigger"
 
 // EXP-941 — the ONE searchable picker on the web.
 //
@@ -72,17 +74,8 @@ import { Pill } from "./pill"
 // is a WORD inside a muted sentence (the composer's options line), which
 // collapses to plain text when there is only one thing it could say.
 
-const ChevronGlyph = conceptIcon(`ui-chevron-down`)
-const ChevronRightGlyph = conceptIcon(`ui-chevron-right`)
-
-/** The `row` trigger: the glass form ladder's picker row (glass-rows.tsx's
- *  `GLASS_PICKER_ROW` is the same shell on a stock `SelectTrigger`). */
-const ROW_TRIGGER = `flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-fast outline-none hover:bg-glass-active/50 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50`
-
-/** The `inline` trigger and its collapsed word share the row of the sentence
- *  they sit in — no chrome, the sentence's own colour, hover lifts it. */
-const INLINE_WORD = `flex items-center gap-1`
-const INLINE_TRIGGER = `${INLINE_WORD} outline-none hover:text-foreground focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50`
+// The four trigger shapes are `picker/picker-trigger.tsx`'s (EXP-1021), so
+// a `Picker` call site and a `Combobox` draw ONE set.
 
 /** The four popover widths the app actually used, as literals — Tailwind
  *  scans these sources, so a width composed at runtime would not exist. */
@@ -103,6 +96,13 @@ interface ComboboxListBaseProps<TValue extends string> {
   renderOption?: RenderComboboxOption<TValue>
   /** The filter field. On by default; pass `false` for a short fixed list. */
   searchable?: boolean
+  /** How a picked row reads (EXP-1021). `glyph` is EXP-957's language: a
+   *  trailing check on a single pick, the LEADING circle pair on every row
+   *  of a multi. `highlight` drops the circles and marks a multi pick by
+   *  the row's own highlight — the shared `Picker` primitive
+   *  (`picker/picker.tsx`) is its only caller, so the two idioms never mix
+   *  inside one surface. */
+  selectionStyle?: `glyph` | `highlight`
   /** The filter field's placeholder. */
   placeholder?: string
   /** Rendered inside the filter field's row, before the search glyph (a back
@@ -147,7 +147,7 @@ interface ComboboxShellProps<TValue extends string> {
    *  `row` = the glass form ladder's picker row (`mobileTitle` leading, the
    *  picked label trailing), `inline` = one word of a muted sentence, which
    *  collapses to plain text while there is at most one option. */
-  triggerVariant?: `pill` | `field` | `row` | `inline`
+  triggerVariant?: PickerTriggerVariant
   /** The trigger's text while nothing is picked. */
   triggerLabel?: string
   /** A bespoke trigger. Must be ONE element — it is wrapped `asChild`. */
@@ -165,6 +165,13 @@ interface ComboboxShellProps<TValue extends string> {
   /** Controlled-open with no trigger element: a host that opens the picker
    *  from its own menu item (the issue row's "Move to board"). */
   hideTrigger?: boolean
+  /** Extra classes on the SURFACE (the popover panel). `className` styles the
+   *  trigger, which a `renderTrigger` caller owns and styles itself — so a
+   *  host that builds its own trigger has no other way to size the panel it
+   *  opens (the icon grid is wider than any of the four widths). Applied
+   *  after `width`, so `w-auto` can hug a fixed-size body. The sheet arm is
+   *  the screen and ignores it. */
+  surfaceClassName?: string
   disabled?: boolean
   "data-testid"?: string
 }
@@ -180,6 +187,7 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
     options,
     renderOption,
     searchable = true,
+    selectionStyle = `glyph`,
     placeholder,
     leading,
     inputVariant,
@@ -286,13 +294,36 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
                           : isSelected
                         : undefined
                     }
+                    data-picked={
+                      multiple
+                        ? state === `indeterminate`
+                          ? `mixed`
+                          : isSelected
+                            ? `true`
+                            : undefined
+                        : isSelected
+                          ? `true`
+                          : undefined
+                    }
                     className={cn(
                       `flex items-center gap-2.5`,
-                      multiple && isSelected && `bg-glass-active`
+                      multiple &&
+                        (isSelected || state === `indeterminate`) &&
+                        `bg-glass-active`,
+                      // The highlight IS the mark, so it has to outrank the
+                      // hover/keyboard highlight cmdk paints on the active
+                      // row: the inset stroke is what separates "picked"
+                      // from "the cursor is here".
+                      multiple &&
+                        selectionStyle === `highlight` &&
+                        isSelected &&
+                        `font-medium text-foreground ring-1 ring-glass-stroke-active ring-inset`
                     )}
                     onSelect={() => selection.pick(option)}
                   >
-                    {multiple && <SelectionGlyph arity="multi" state={state} />}
+                    {multiple && selectionStyle === `glyph` && (
+                      <SelectionGlyph arity="multi" state={state} />
+                    )}
                     {renderOption ? (
                       renderOption(option, { selected: isSelected })
                     ) : (
@@ -318,17 +349,6 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
   )
 }
 
-/** `None` / `a` / `a, b` / `a, b +3` — the one summary every trigger shows. */
-function summarize(labels: string[], fallback: string) {
-  if (labels.length === 0) {
-    return fallback
-  }
-  if (labels.length <= 2) {
-    return labels.join(`, `)
-  }
-  return `${labels.slice(0, 2).join(`, `)} +${labels.length - 2}`
-}
-
 function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
   const {
     mobileTitle,
@@ -340,6 +360,7 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
     open: openProp,
     onOpenChange,
     hideTrigger = false,
+    surfaceClassName,
     disabled = false,
     className,
     options,
@@ -363,7 +384,7 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
   const selectedOptions = options.filter((option) =>
     selectedSet.has(option.value)
   )
-  const summary = summarize(
+  const summary = pickerSummary(
     selectedOptions.map((option) =>
       typeof option.label === `string` ? option.label : option.value
     ),
@@ -399,7 +420,7 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
       <span
         data-slot="combobox-inline-word"
         data-testid={testId}
-        className={cn(INLINE_WORD, className)}
+        className={cn(PICKER_INLINE_WORD, className)}
         title={mobileTitle}
       >
         {WordGlyph && <WordGlyph aria-hidden className="size-3.5 shrink-0" />}
@@ -410,59 +431,25 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
 
   const trigger = renderTrigger ? (
     renderTrigger({ selected: selectedOptions, summary, open })
-  ) : triggerVariant === `inline` ? (
-    <button
-      type="button"
-      data-slot="combobox-inline-trigger"
-      disabled={disabled}
-      className={cn(INLINE_TRIGGER, className)}
-      title={mobileTitle}
-      aria-label={mobileTitle}
-    >
-      {PickedGlyph && <PickedGlyph aria-hidden className="size-3.5 shrink-0" />}
-      {picked ? picked.label : (triggerLabel ?? mobileTitle)}
-      <ChevronGlyph aria-hidden className="size-3 shrink-0" />
-    </button>
-  ) : triggerVariant === `row` ? (
-    <button
-      type="button"
-      data-slot="glass-picker-row"
-      disabled={disabled}
-      className={cn(ROW_TRIGGER, className)}
-    >
-      <span className="shrink-0 text-sm text-foreground">{mobileTitle}</span>
-      <span className="ml-auto min-w-0 truncate text-sm text-foreground/70 [&_svg]:inline">
-        {picked ? picked.label : triggerLabel}
-      </span>
-      <ChevronRightGlyph
-        aria-hidden
-        className="size-3.5 shrink-0 text-foreground/50"
-      />
-    </button>
-  ) : triggerVariant === `field` ? (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      disabled={disabled}
-      className={cn(
-        // EXP-993: `overflow-hidden` + a growing, shrinkable summary — a long
-        // pull-request title used to spill out of the composer's PR field on
-        // both sides instead of truncating inside it.
-        `h-8 w-full justify-between overflow-hidden font-normal`,
-        GLASS_SELECT_TRIGGER,
-        nothingPicked && `text-muted-foreground`,
-        className
-      )}
-    >
-      <span className="min-w-0 flex-1 truncate text-left">{summary}</span>
-      <ChevronGlyph aria-hidden className="size-3.5 shrink-0 opacity-50" />
-    </Button>
   ) : (
-    <Pill mode="action" disabled={disabled} className={cn(`max-w-full`, className)}>
-      <span className="min-w-0 truncate">{summary}</span>
-      <ChevronGlyph aria-hidden className="shrink-0 opacity-50" />
-    </Pill>
+    <PickerTrigger
+      variant={triggerVariant}
+      label={mobileTitle}
+      placeholder={triggerLabel}
+      // The `inline` word and the `row` value are the picked option's own
+      // label NODE (an action's icon flows inline with its name); `pill` and
+      // `field` are single OR multi, so they take the string summary.
+      value={
+        triggerVariant === `inline` || triggerVariant === `row`
+          ? picked?.label
+          : nothingPicked
+            ? undefined
+            : summary
+      }
+      icon={triggerVariant === `inline` ? PickedGlyph : undefined}
+      disabled={disabled}
+      className={className}
+    />
   )
 
   return (
@@ -479,7 +466,8 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
         data-testid={testId}
         className={cn(
           `flex max-h-(--radix-popover-content-available-height) flex-col overflow-hidden p-0`,
-          WIDTH_CLASS[width]
+          WIDTH_CLASS[width],
+          surfaceClassName
         )}
       >
         <ComboboxList {...listProps} className={undefined} />

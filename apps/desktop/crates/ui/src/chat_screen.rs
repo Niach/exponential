@@ -53,10 +53,9 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::input::{InputEvent, InputState, TextareaState};
+use gpui_component::input::{InputEvent, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
-use gpui_component::popover::Popover;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Selectable as _,
@@ -187,17 +186,12 @@ fn device_agent_status(
 /// everything else a desktop). An unsynced row reads as a plain desktop, which
 /// is what this IDE is.
 fn device_kind_icon(device_id: &str, cx: &App) -> crate::icons::ExpIcon {
-    let row = Store::try_global(cx).and_then(|store| {
-        store
-            .collections()
-            .devices
-            .read(cx)
-            .iter()
-            .find(|row| row.device_id.as_deref() == Some(device_id))
-            .map(|row| (row.icon.clone(), row.is_server()))
-    });
-    let (icon, server) = row.unwrap_or((None, false));
-    crate::icons::device_icon(icon.as_deref(), server)
+    // EXP-1030: through the ONE resolver the device picker's rows go through,
+    // so the pin's glyph and its menu's glyphs cannot come apart.
+    crate::icons::device_icon(
+        Some(crate::launch_options::device_glyph_name(device_id, cx)),
+        false,
+    )
 }
 
 /// The checked issues and everything their launch needs.
@@ -346,13 +340,10 @@ pub(crate) struct ChatScreenView {
     /// placeholder, the start). Only the planner ever lands here; the
     /// pickable builtins ride [`Self::actions`] like the rows.
     hidden_action: Option<api::actions::Action>,
-    issue_search: Entity<InputState>,
-    /// EXP-892: the `#` picker's keyboard selection — a POSITION in the rows
-    /// the popover currently lists (↑/↓ move it, hover moves it, Enter
-    /// toggles that row).
-    issue_pick_selected: usize,
     /// Release review R5: the `#` picker's ranked list, memoised so a busy
-    /// run's 60 fps repaint never re-ranks the pool.
+    /// run's 60 fps repaint never re-ranks the pool. EXP-1030: the picker's
+    /// QUERY and its keyboard cursor are the primitive's now — this memo is
+    /// all the host still holds.
     issue_pick_memo: RefCell<issue_picker::VisibleRowsMemo>,
     /// EXP-868: the `#` tool's pool while nothing is picked, keyed by the
     /// team and the revisions of every collection it reads. The composer
@@ -423,7 +414,6 @@ impl ChatScreenView {
             mention.set_appearance(false);
             mention
         });
-        let issue_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search issues…"));
         let mut subscriptions = vec![
             cx.subscribe_in(
                 &input,
@@ -437,13 +427,6 @@ impl ChatScreenView {
                 },
             ),
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            cx.subscribe(&issue_search, |this: &mut Self, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    // EXP-892: a new query re-selects the top row.
-                    this.issue_pick_selected = 0;
-                    cx.notify();
-                }
-            }),
         ];
         let collections = Store::global(cx).collections();
         let synced_devices = collections.devices.clone();
@@ -501,8 +484,6 @@ impl ChatScreenView {
             pending_icon: None,
             workflow_id: None,
             hidden_action: None,
-            issue_search,
-            issue_pick_selected: 0,
             issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
             team_pool: RefCell::new(None),
             issue_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
@@ -695,6 +676,16 @@ impl ChatScreenView {
         }
         for issue_id in checked {
             self.ensure_probe(issue_id, cx);
+        }
+    }
+
+    /// The issues the `#` picker currently has checked — the primitive's
+    /// `value`, and what a reported SET is diffed against to name the one row
+    /// that moved.
+    fn checked_issue_ids(&self) -> HashSet<String> {
+        match &self.subject {
+            Subject::Issues(issues) => issues.checked.clone(),
+            _ => HashSet::new(),
         }
     }
 
@@ -2206,7 +2197,12 @@ impl ChatScreenView {
         rows
     }
 
-    /// The `#` tool: the issue picker popover.
+    /// The `#` tool: the issue picker, mounted on THE picker primitive
+    /// (EXP-1030). Everything the primitive cannot know rides in as hooks —
+    /// the ranking (`domain::issue_search` through
+    /// [`issue_picker::visible_rows`], memoised here), the row anatomy and
+    /// the overflow notes — and everything else (the surface, the filter
+    /// field, ↑/↓/Enter, the multi-select highlight) is its own.
     fn issue_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let (rows, checked, notes): (Rc<Vec<IssueRow>>, HashSet<String>, Vec<(String, SharedString)>) =
             match &self.subject {
@@ -2252,44 +2248,142 @@ impl ChatScreenView {
                     slot.set(bounds);
                     cx.notify(view_id);
                 }
-            });
+            })
+            .into_any_element();
         // EXP-946: from where the tool actually is, not from a guess.
         let fit = issue_picker::popover_fit(
             self.issue_tool_bounds.get(),
             window.viewport_size(),
             issue_picker::POPOVER_WANTED_HEIGHT,
         );
-        issue_picker::issue_picker_popover(
-            trigger,
-            rows,
-            &checked,
-            &self.issue_search,
-            notes,
-            fit,
-            cx,
-        )
+        let items = issue_picker::picker_items(&rows);
+        let picked: Vec<String> = rows
+            .iter()
+            .filter(|row| checked.contains(&row.issue_id))
+            .map(|row| row.issue_id.clone())
+            .collect();
+        let view = cx.entity().downgrade();
+        // Where a row's body reads its data from: the pool by id, and the
+        // transient probe note ("no repository linked") beside it.
+        let bodies: Rc<HashMap<String, usize>> = Rc::new(
+            rows.iter()
+                .enumerate()
+                .map(|(ix, row)| (row.issue_id.clone(), ix))
+                .collect(),
+        );
+        let notes: Rc<HashMap<String, SharedString>> = Rc::new(notes.into_iter().collect());
+        // ONE ranking per frame, memoised on this view: `rank` and `footer`
+        // both read it, and the composer repaints at 60 fps while a run is
+        // busy (release review R5).
+        let ranked = {
+            let rows = rows.clone();
+            let checked = checked.clone();
+            let view = view.clone();
+            move |query: &str, cx: &mut App| -> (Vec<usize>, usize, bool) {
+                match view.upgrade() {
+                    Some(host) => host
+                        .read(cx)
+                        .issue_pick_memo
+                        .borrow_mut()
+                        .get(&rows, &checked, query),
+                    None => issue_picker::visible_rows(&rows, &checked, query),
+                }
+            }
+        };
+        let rank_of = ranked.clone();
+        let footer_of = ranked;
+        let empty_pool = rows.is_empty();
+        let body_rows = rows.clone();
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::Picker::multi(
+                items,
+                picked,
+                trigger,
+                Rc::new(move |values: Vec<String>, window: &mut Window, cx: &mut App| {
+                    // The primitive reports the WHOLE new set; the composer
+                    // stores one toggle at a time, so the one row that moved
+                    // is the difference.
+                    let Some(view) = view.upgrade() else {
+                        return;
+                    };
+                    let before = view.read(cx).checked_issue_ids();
+                    let after: HashSet<String> = values.into_iter().collect();
+                    let added = after.difference(&before).next().cloned();
+                    let removed = before.difference(&after).next().cloned();
+                    let Some((issue_id, on)) = added
+                        .map(|id| (id, true))
+                        .or_else(|| removed.map(|id| (id, false)))
+                    else {
+                        return;
+                    };
+                    view.update(cx, |this, cx| this.toggle_issue(issue_id, on, window, cx));
+                }),
+            )
+            .search(true)
+            .id("chat-issue-picker")
+            .width(px(480.))
+            .fit(fit)
+            .empty_text("No open issues in this team.")
+            // EXP-892: the ONE engine ranks, checked rows pinned first.
+            .rank(move |_items, query, cx| rank_of(query, cx).0)
+            .render_item(move |item, cx| {
+                let Some(row) = bodies
+                    .get(&item.value)
+                    .and_then(|ix| body_rows.get(*ix))
+                else {
+                    return gpui::Empty.into_any_element();
+                };
+                issue_picker::issue_row_body(row, notes.get(&row.issue_id).cloned(), cx)
+            })
+            .footer(move |query, cx| {
+                let (_, hidden, no_matches) = footer_of(query, cx);
+                let mut notes: Vec<SharedString> = Vec::new();
+                if empty_pool {
+                    notes.push("No open issues in this team.".into());
+                }
+                if no_matches {
+                    notes.push("No matches. Only open issues are shown.".into());
+                }
+                if hidden > 0 {
+                    notes.push(format!("+{hidden} more. Refine your search.").into());
+                }
+                if notes.is_empty() {
+                    return None;
+                }
+                Some(
+                    v_flex()
+                        .w_full()
+                        .children(
+                            notes
+                                .into_iter()
+                                .map(|note| issue_picker::list_note(note, cx)),
+                        )
+                        .into_any_element(),
+                )
+            })
+            .render(window, cx)
+        })
         .into_any_element()
     }
 
-    /// The ▶ tool: the actions popover (builtins pinned first, Create
-    /// action included; Chat is never listed).
+    /// The ▶ tool: the actions picker (builtins pinned first, Create action
+    /// included; Chat is never listed) — THE action picker (EXP-1030), whose
+    /// rows are the curated icon, the name and the muted description.
     fn action_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let actions: Vec<(String, String, Option<String>, Option<String>)> = self
+        let actions: Vec<crate::picker::action_picker::ActionPickerAction> = self
             .actions
             .iter()
             .filter(|action| action.id != api::actions::BUILTIN_CHAT_ID)
-            .map(|action| {
-                (
-                    action.id.clone(),
-                    action.name.clone(),
-                    action.icon.clone(),
-                    action
-                        .description
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|text| !text.is_empty())
-                        .map(str::to_string),
-                )
+            .map(|action| crate::picker::action_picker::ActionPickerAction {
+                id: action.id.clone(),
+                name: action.name.clone(),
+                icon: action.icon.clone(),
+                description: action
+                    .description
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string),
             })
             .collect();
         let ready = self.actions_ready;
@@ -2308,65 +2402,41 @@ impl ChatScreenView {
                     slot.set(bounds);
                     cx.notify(view_id);
                 }
-            });
+            })
+            .into_any_element();
         // EXP-946: flips and caps like the issue picker beside it.
-        let (anchor, max_height) = issue_picker::popover_fit(
+        let fit = issue_picker::popover_fit(
             self.action_tool_bounds.get(),
             window.viewport_size(),
             issue_picker::POPOVER_WANTED_HEIGHT,
         );
-        Popover::new("chat-action-picker")
-            .p_1()
-            .anchor(anchor)
-            .trigger(trigger)
-            .content(move |_, _window, cx| {
-                let muted = cx.theme().muted_foreground;
-                let mut rows = v_flex()
-                    .id("chat-action-picker-rows")
-                    .w(px(360.))
-                    .max_h(max_height)
-                    .overflow_y_scroll();
-                if !ready {
-                    rows = rows.child(issue_picker::list_note("Loading actions…", cx));
-                } else if actions.is_empty() {
-                    rows = rows.child(issue_picker::list_note("No actions yet.", cx));
-                }
-                for (id, name, icon, description) in &actions {
-                    let is_picked = picked.as_deref() == Some(id.as_str());
-                    let view = view.clone();
-                    let id = id.clone();
-                    rows = rows.child(
-                        crate::pickers::picker_row(SharedString::from(format!("chat-action-{id}")), cx)
-                            .child(
-                                Icon::new(if is_picked {
-                                    registry::UI_SELECTED
-                                } else {
-                                    registry::UI_UNSELECTED
-                                })
-                                .small()
-                                .text_color(muted),
-                            )
-                            .child(crate::icons::action_icon(icon.as_deref()).xsmall().text_color(muted))
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(div().text_sm().truncate().child(SharedString::from(name.clone())))
-                                    .children(description.clone().map(|text| {
-                                        div().text_xs().truncate().text_color(muted).child(SharedString::from(text))
-                                    })),
-                            )
-                            .on_click(move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let id = id.clone();
-                                    view.update(cx, |this, cx| this.select_action(id, cx));
-                                }
-                            }),
-                    );
-                }
-                rows
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::action_picker::action_picker(
+                &actions,
+                picked,
+                trigger,
+                Rc::new(move |values: Vec<String>, _window: &mut Window, cx: &mut App| {
+                    let Some(id) = values.into_iter().next() else {
+                        return;
+                    };
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |this, cx| this.select_action(id, cx));
+                    }
+                }),
+            )
+            .id("chat-action-picker")
+            .width(px(360.))
+            .fit(fit)
+            // A list that has not arrived says so; an arrived empty one says
+            // there is nothing to run.
+            .empty_text(if ready {
+                "No actions yet."
+            } else {
+                "Loading actions…"
             })
-            .into_any_element()
+            .render(window, cx)
+        })
+        .into_any_element()
     }
 
     /// The Device pin: this machine first, then the online remote ones. A
@@ -2404,47 +2474,43 @@ impl ChatScreenView {
         let bound = self.device.device_id.clone();
         // EXP-862: the machine's KIND leads the trigger AND every row — a
         // picker whose value wears an icon offers that icon on its items.
-        let kinds: HashMap<String, crate::icons::ExpIcon> = candidates
-            .iter()
-            .map(|device| (device.device_id.clone(), device_kind_icon(&device.device_id, cx)))
-            .collect();
+        // EXP-1030: the rows and their glyphs are THE device picker's now
+        // ([`crate::picker::device_picker`]); only the inline pin trigger is
+        // the composer's own.
         let selected_kind = self
             .device
             .device_id
             .as_deref()
-            .and_then(|id| kinds.get(id).cloned())
+            .map(|id| device_kind_icon(id, cx))
             .unwrap_or(registry::UI_DEVICE);
+        let rows = crate::launch_options::launch_device_rows(&candidates, cx);
         let view = cx.entity().downgrade();
-        crate::launch_options::inline_pin_trigger_with(
+        let trigger = crate::launch_options::inline_pin_trigger_with(
             "chat-pin-device".into(),
             Some(selected_kind),
             label,
             cx,
         )
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            for device in &candidates {
-                let view = view.clone();
-                let device_id = device.device_id.clone();
-                let kind = kinds
-                    .get(&device_id)
-                    .cloned()
-                    .unwrap_or(registry::UI_DEVICE);
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(device.label.clone()))
-                        .icon(Icon::new(kind))
-                        .checked(bound.as_deref() == Some(device_id.as_str()))
-                        .on_click(move |_, window, cx| {
-                            if let Some(view) = view.upgrade() {
-                                let device_id = device_id.clone();
-                                view.update(cx, |this, cx| {
-                                    this.set_device(device_id, window, cx);
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                );
-            }
-            menu
+        .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::device_picker::device_picker(
+                &rows,
+                bound.clone(),
+                trigger,
+                Rc::new(move |values: Vec<String>, window: &mut Window, cx: &mut App| {
+                    let Some(device_id) = values.into_iter().next() else {
+                        return;
+                    };
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |this, cx| {
+                            this.set_device(device_id, window, cx);
+                            cx.notify();
+                        });
+                    }
+                }),
+            )
+            .id("chat-pin-device-picker")
+            .render(window, cx)
         })
         .into_any_element()
     }
@@ -2620,32 +2686,6 @@ impl ChatScreenView {
 impl Focusable for ChatScreenView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
-    }
-}
-
-/// EXP-892: the `#` picker's host — the checked set lives in the subject, the
-/// keyboard selection in [`ChatScreenView::issue_pick_selected`].
-impl issue_picker::IssuePickerHost for ChatScreenView {
-    fn picker_selected(&self) -> usize {
-        self.issue_pick_selected
-    }
-
-    fn set_picker_selected(&mut self, position: usize) {
-        self.issue_pick_selected = position;
-    }
-
-    fn picker_memo(&self) -> &RefCell<issue_picker::VisibleRowsMemo> {
-        &self.issue_pick_memo
-    }
-
-    fn toggle_picked_issue(
-        &mut self,
-        issue_id: String,
-        on: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.toggle_issue(issue_id, on, window, cx);
     }
 }
 

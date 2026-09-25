@@ -7,12 +7,20 @@ use gpui::AnyElement;
 
 use domain::statuses::ResolvedStatus;
 
+use crate::icons::{glyph_icon, static_status_tint_color};
+
 use super::{OnPickerChange, Picker, PickerItem, PickerMode};
 
+/// The team's statuses as rows, in the ONE vocabulary order the list groups
+/// and the settings pane already render (EXP-448) — a picker never re-sorts.
 pub(crate) fn status_items(statuses: &[ResolvedStatus]) -> Vec<PickerItem<String>> {
     statuses
         .iter()
-        .map(|status| PickerItem::new(status.group_key.clone(), status.name.clone()))
+        .map(|status| {
+            PickerItem::new(status.group_key.clone(), status.name.clone())
+                .icon(glyph_icon(status.glyph))
+                .color(static_status_tint_color(&status.tint))
+        })
         .collect()
 }
 

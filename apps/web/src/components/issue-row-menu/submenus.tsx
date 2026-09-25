@@ -4,26 +4,35 @@ import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import {
   StatusIcon,
-  toStatusMenuOptions,
+  toStatusPickerStatuses,
 } from "@/components/issue-properties/status-dropdown"
 import {
+  assigneePickerItems,
+  boardPickerItems,
   ComboboxMenuItems,
   conceptIcon,
   ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
+  labelPickerItems,
+  pickerMenuRows,
+  priorityPickerItems,
+  statusPickerItems,
   UserAvatar,
-  type PickerOption,
-  BoardGlyph,
 } from "@exp/ui"
 import { displayUserName } from "@/lib/user-display"
 
 // EXP-957 — every submenu BODY here is the Combobox's menu arm: the rows are
-// `ComboboxMenuItems` over `PickerOption`s, so the selection glyph is the
-// primitive's (a trailing `ui-check`, or the circle pair on the multi arm) and
-// not the menu's own radio dot / checkbox tick. The triggers stay hand-drawn:
-// they mirror the ROW's current value (EXP-59), which is not a picker concern.
+// `ComboboxMenuItems`, so the selection glyph is the primitive's (a trailing
+// `ui-check`, or the circle pair on the multi arm) and not the menu's own
+// radio dot / checkbox tick. The triggers stay hand-drawn: they mirror the
+// ROW's current value (EXP-59), which is not a picker concern.
+//
+// EXP-1021 — and the rows themselves are now the TYPED pickers' rows, bridged
+// through `pickerMenuRows`: a Radix submenu is a shell the picker primitive
+// cannot nest inside, but a board row, a label row, a member row and a status
+// row are built in exactly ONE place for all of them.
 
 // EXP-687: "Move to board" draws the SAME glyph on all four clients.
 const NavBoardsIcon = conceptIcon(`nav-boards`)
@@ -58,7 +67,7 @@ export function StatusSubmenu({
       <ContextMenuSubContent className="w-[14rem]">
         <ComboboxMenuItems
           menu="context"
-          options={toStatusMenuOptions(options)}
+          {...pickerMenuRows(statusPickerItems(toStatusPickerStatuses(options)))}
           value={status.id}
           onChange={(id) => {
             const picked = options.find((option) => option.id === id)
@@ -87,14 +96,17 @@ export function AssigneeSubmenu({
   topLevelValueClass,
   onSelect,
 }: AssigneeSubmenuProps) {
-  // The same rows the `AssigneePicker` builds: the id is the identity, the
-  // name and the email are only search terms.
-  const options: PickerOption[] = orderedUsers.map((user) => ({
-    value: user.id,
-    label: displayUserName(user, user.id),
-    keywords: [displayUserName(user, user.id), user.email ?? ``],
+  // Literally the `AssigneePicker`'s rows (EXP-1021). `Unassigned` is the
+  // menu arm's own `noneLabel` here rather than the picker's `allowsNone`
+  // row — a menu reports `null` through the same single arm.
+  const members = orderedUsers.map((user) => ({
+    id: user.id,
+    name: displayUserName(user, user.id),
+    email: user.email,
+    image: user.image,
   }))
-  const usersById = new Map(orderedUsers.map((user) => [user.id, user]))
+  const membersById = new Map(members.map((member) => [member.id, member]))
+  const rows = pickerMenuRows(assigneePickerItems(members))
 
   return (
     <ContextMenuSub>
@@ -122,24 +134,15 @@ export function AssigneeSubmenu({
       <ContextMenuSubContent className="w-[15rem]">
         <ComboboxMenuItems
           menu="context"
-          options={options}
+          {...rows}
           value={assigneeId}
           onChange={onSelect}
           noneLabel="Unassigned"
           emptyText="No team members yet"
           renderOption={(option) => (
             <>
-              <UserAvatar
-                size={20}
-                user={{
-                  id: option.value,
-                  name: String(option.label),
-                  image: usersById.get(option.value)?.image ?? null,
-                }}
-              />
-              <span className="min-w-0 flex-1 truncate text-sm">
-                {option.label}
-              </span>
+              <UserAvatar size={20} user={membersById.get(option.value)} />
+              {rows.renderOption(option)}
             </>
           )}
         />
@@ -176,12 +179,12 @@ export function PrioritySubmenu({
       <ContextMenuSubContent className="w-[14rem]">
         <ComboboxMenuItems
           menu="context"
-          options={issuePriorityOptions}
+          {...pickerMenuRows(priorityPickerItems(issuePriorityOptions))}
           value={priority}
           onChange={(next) => {
             // There is no none row here, so the single arm never reports null.
             if (next) {
-              onSelect(next)
+              onSelect(next as Issue[`priority`])
             }
           }}
         />
@@ -208,13 +211,15 @@ export function BoardSubmenu({
   topLevelValueClass,
   onSelect,
 }: BoardSubmenuProps) {
-  const boardsById = new Map(boards.map((board) => [board.id, board]))
-  const currentName = boardsById.get(boardId)?.name
-  const options: PickerOption[] = boards.map((board) => ({
-    value: board.id,
-    label: board.name,
-    disabled: board.id === boardId,
-  }))
+  const currentName = boards.find((board) => board.id === boardId)?.name
+  // The `BoardPicker`'s rows (icon + colour, EXP-449/EXP-1021); the issue's
+  // own board is rendered and disabled — moving it there is a no-op.
+  const rows = pickerMenuRows(
+    boardPickerItems(boards).map((item) => ({
+      ...item,
+      disabled: item.value === boardId,
+    }))
+  )
 
   return (
     <ContextMenuSub>
@@ -228,7 +233,7 @@ export function BoardSubmenu({
       <ContextMenuSubContent className="w-[15rem]">
         <ComboboxMenuItems
           menu="context"
-          options={options}
+          {...rows}
           value={boardId}
           onChange={(next) => {
             if (next && next !== boardId) {
@@ -236,17 +241,6 @@ export function BoardSubmenu({
             }
           }}
           emptyText="No boards yet"
-          renderOption={(option) => {
-            const board = boardsById.get(option.value)
-            return (
-              <>
-                {board && <BoardGlyph board={board} className="size-3.5" />}
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {option.label}
-                </span>
-              </>
-            )
-          }}
         />
       </ContextMenuSubContent>
     </ContextMenuSub>
@@ -268,11 +262,7 @@ export function LabelsSubmenu({
 }: LabelsSubmenuProps) {
   const labelsLabel =
     selectedLabelIds.size > 0 ? `${selectedLabelIds.size} selected` : `None`
-  const options: PickerOption[] = labels.map((label) => ({
-    value: label.id,
-    label: label.name,
-    dot: label.color,
-  }))
+  const rows = pickerMenuRows(labelPickerItems(labels))
 
   return (
     <ContextMenuSub>
@@ -287,7 +277,7 @@ export function LabelsSubmenu({
         <ComboboxMenuItems
           menu="context"
           multiple
-          options={options}
+          {...rows}
           value={[...selectedLabelIds]}
           onChange={(next) => {
             // The host toggles ONE label at a time (two tRPC calls, add and

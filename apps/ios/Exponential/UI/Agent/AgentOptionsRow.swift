@@ -6,7 +6,7 @@ import SwiftUI
 /// card (Danny's variant B): Device, Account, Model, a Plan switch, the Resume
 /// switch inline while a worktree makes it offerable (EXP-481), and a `⋯` pill
 /// for the rest (`AgentOptionsSheet`: Effort, Subagent model, Ultracode).
-/// Every pill is a menu or a toggle — no disabled controls, the footer under
+/// Every pill is a picker or a toggle — no disabled controls, the footer under
 /// the row explains what cannot start.
 ///
 /// EXP-872 folded the Agent pill INTO the Account one: the list is every login
@@ -39,31 +39,35 @@ struct AgentOptionsRow: View {
     // MARK: - Pills
 
     /// The machine the run lands on — always named once one resolves (the
-    /// desktop and web say it too); a menu only while there is a choice, a
+    /// desktop and web say it too); a picker only while there is a choice, a
     /// lone machine reads as a plain label like a lone agent does.
     @ViewBuilder
     private var devicePill: some View {
         if let device = model.device {
             if model.candidateDevices.count > 1 {
-                GlassMenu {
-                    ForEach(model.candidateDevices) { candidate in
-                        // EXP-862: every picker menu whose selected value shows
-                        // an icon shows it on the items too — here the machine's
-                        // own glyph (EXP-924: its owner's pick, else the kind
-                        // default), exactly as the trigger draws it.
-                        GlassMenuItem(
-                            LaunchVocabulary.deviceCaption(candidate),
-                            icon: DeviceIconDisplay.iconName(for: candidate)
-                        ) {
-                            model.selectDevice(candidate.deviceId)
-                        }
+                // EXP-1030: the SHARED `DevicePicker`; the pill is only its
+                // trigger. EXP-862 stands — a machine is recognised by its own
+                // glyph (EXP-924: its owner's pick, else the kind default), and
+                // the picker leads every row with it, exactly as the trigger
+                // draws it. A shared machine names its owner under it.
+                DevicePicker(
+                    devices: model.candidateDevices.map { candidate in
+                        DevicePickerDevice(
+                            id: candidate.deviceId,
+                            name: LaunchVocabulary.deviceName(candidate),
+                            icon: DeviceIconDisplay.iconName(for: candidate),
+                            description: candidate.owner?.name
+                        )
+                    },
+                    value: device.deviceId,
+                    onChange: { model.selectDevice($0) },
+                    trigger: {
+                        OptionPillLabel(
+                            icon: DeviceIconDisplay.iconName(for: device),
+                            text: LaunchVocabulary.deviceName(device)
+                        )
                     }
-                } label: {
-                    OptionPillLabel(
-                        icon: DeviceIconDisplay.iconName(for: device),
-                        text: LaunchVocabulary.deviceName(device)
-                    )
-                }
+                )
                 .accessibilityLabel("Device")
                 .accessibilityIdentifier("agent-device-pill")
             } else {
@@ -83,6 +87,11 @@ struct AgentOptionsRow: View {
     /// email, the machine's default first; picking one picks its agent too.
     /// EXP-849: a login the agent REFUSED stays on offer wearing its badge, or
     /// a run starts and dies on an expired credential.
+    ///
+    /// EXP-1030: `AccountPickerMenu` is the trigger + the lone-login rule over
+    /// the SHARED `AccountPicker` (`ExpUI`) — the pill opens the one picker
+    /// sheet now, brand mark + email per row with the EXP-992 limit bars under
+    /// each, instead of a menu of its own.
     ///
     /// EXP-642: the store slide's pop-out rect is measured off the agent
     /// control, so the identifier stays on this one.
@@ -161,9 +170,10 @@ struct AgentOptionsRow: View {
 }
 
 /// One option pill's LABEL — a glyph, a value and a chevron, on the row fill.
-/// A label, not a button: `GlassMenu` wraps it in its own trigger, so a
-/// `GlassPill` (a `Button` itself) would nest two. The agent's brand-marked
-/// trigger is `AgentPickerTriggerLabel` (ExpUI) since EXP-862.
+/// A label, not a button: `GlassMenu` and `GlassPicker` wrap it in a trigger
+/// of their own, so a `GlassPill` (a `Button` itself) would nest two. The
+/// agent's brand-marked trigger is `AgentPickerTriggerLabel` (ExpUI) since
+/// EXP-862.
 struct OptionPillLabel: View {
     var icon: String? = nil
     let text: String

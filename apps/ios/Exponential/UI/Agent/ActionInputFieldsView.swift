@@ -35,13 +35,23 @@ struct ActionInputFieldsView: View {
             )
             .padding(.vertical, 4)
         case "board":
-            GlassPickerRow(
-                inputLabel(def),
-                selection: binding(def),
-                options: [""] + model.boards.map(\.id),
-                label: { id in
-                    guard !id.isEmpty else { return def.isRequired ? "Select a board" : "None" }
-                    return model.boards.first { $0.id == id }?.name ?? id
+            // EXP-1030: the SHARED `BoardPicker`; the row is only its trigger.
+            // A board is recognised by its icon in its colour — the picker
+            // leads every row with it, as the create-issue and move-to-board
+            // sheets do. An OPTIONAL input keeps its "None" row: a pick has to
+            // be takeable back.
+            BoardPicker(
+                boards: model.boards.map(BoardPickerBoard.init),
+                value: model.value(for: def),
+                onChange: { model.setValue($0, for: def) },
+                allowsNone: !def.isRequired,
+                trigger: {
+                    GlassPickerRowLabel(
+                        inputLabel(def),
+                        value: pickedBoard(def)?.name
+                            ?? (def.isRequired ? "Select a board" : "None"),
+                        icon: pickedBoard(def).map(BoardTypeDisplay.iconName(for:))
+                    )
                 }
             )
             .padding(.vertical, 4)
@@ -94,6 +104,14 @@ struct ActionInputFieldsView: View {
 
     private func inputLabel(_ def: ActionInputDto) -> String {
         def.isRequired ? def.label : "\(def.label) (optional)"
+    }
+
+    /// The picked board, nil while the stored value is still the unset
+    /// sentinel (`""`) every pick input starts on.
+    private func pickedBoard(_ def: ActionInputDto) -> BoardEntity? {
+        let id = model.value(for: def)
+        guard !id.isEmpty else { return nil }
+        return model.boards.first { $0.id == id }
     }
 
     private func binding(_ def: ActionInputDto) -> Binding<String> {

@@ -96,6 +96,34 @@ pub fn token_color(token: ColorToken, cx: &App) -> Hsla {
     }
 }
 
+/// [`token_color`] WITHOUT a theme handle, for the typed pickers
+/// (`picker::*`): their constructors take rows and a trigger, never a
+/// `&App` — that signature is the cross-platform contract, and it is the
+/// same on web, iOS and Android. Sound because the IDE forces ONE theme and
+/// `theme::init` assigns `foreground` / `muted_foreground` from exactly
+/// these two tokens; `picker::tests` draws a themed window and asserts the
+/// two answers agree.
+pub fn static_token_color(token: ColorToken) -> Hsla {
+    match token {
+        ColorToken::MutedForeground => theme::tokens::MUTED_FOREGROUND.to_hsla(),
+        ColorToken::Foreground => theme::tokens::FOREGROUND.to_hsla(),
+        ColorToken::Yellow => theme::tokens::YELLOW.to_hsla(),
+        ColorToken::Green => theme::tokens::GREEN.to_hsla(),
+        ColorToken::Red => theme::tokens::RED.to_hsla(),
+        ColorToken::Orange => theme::tokens::ORANGE.to_hsla(),
+        ColorToken::Blue => theme::tokens::BLUE.to_hsla(),
+    }
+}
+
+/// [`status_tint_color`]'s theme-free twin — see [`static_token_color`].
+pub fn static_status_tint_color(tint: &StatusTint) -> Hsla {
+    match tint {
+        StatusTint::Token(token) => static_token_color(*token),
+        StatusTint::Hex(hex) => crate::settings::parse_hex_color(hex)
+            .unwrap_or_else(|| theme::tokens::MUTED_FOREGROUND.to_hsla()),
+    }
+}
+
 /// The colored icon of one option-table row (`web <Icon className={color}>`).
 pub fn option_icon<V: 'static>(option: &IssueOption<V>, cx: &App) -> Icon {
     glyph_icon(option.icon).text_color(token_color(option.color, cx))

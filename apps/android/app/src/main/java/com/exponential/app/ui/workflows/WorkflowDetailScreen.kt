@@ -62,8 +62,6 @@ import com.exponential.app.domain.line
 import com.exponential.app.domain.modelForNode
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.workflowNodeReview
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassNotice
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
@@ -78,6 +76,8 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.deviceIcon
+import com.exponential.app.ui.components.picker.DevicePicker
+import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
@@ -689,65 +689,48 @@ private fun RunnerPill(
     enabled: Boolean,
     onSelect: (String) -> Unit,
 ) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        GlassPill(
-            device?.let(::deviceOptionLabel) ?: RUNNER_UNSET_LABEL,
-            size = PillSize.Sm,
-            icon = device?.let(::deviceIcon) ?: ExpIcons.uiDevice,
-            onClick = if (enabled) ({ open = true }) else null,
-            trailing = if (enabled) {
-                {
-                    Icon(
-                        ExpIcons.uiChevronDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(10.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Tertiary,
-                        ),
-                    )
-                }
-            } else {
-                null
-            },
-            contentDescription = RUNNER_LABEL,
-            modifier = Modifier.testTag("workflow-runner"),
-        )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            // The blank pick UNBINDS the machine, which a draft may do.
-            GlassMenuItem(
-                text = { Text(RUNNER_NONE_LABEL) },
-                trailingIcon = if (device == null) ({ MenuCheck() }) else null,
-                onClick = {
-                    open = false
-                    onSelect("")
-                },
-            )
-            devices.forEach { row ->
-                GlassMenuItem(
-                    text = { Text(deviceOptionLabel(row)) },
-                    leadingIcon = {
-                        Icon(
-                            deviceIcon(row),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    },
-                    trailingIcon = if (row.deviceId == device?.deviceId) ({ MenuCheck() }) else null,
-                    onClick = {
-                        open = false
-                        onSelect(row.deviceId)
-                    },
+    // EXP-1030: the machine list is the shared device picker — the same sheet
+    // of plain rows the composer and the automation editor open. The blank
+    // pick UNBINDS the machine (a draft may), so it rides as the FIRST row:
+    // an unbound runner is a choice here, not a missing one.
+    DevicePicker(
+        devices = listOf(DevicePickerDevice(id = "", name = RUNNER_NONE_LABEL)) +
+            devices.map { row ->
+                DevicePickerDevice(
+                    id = row.deviceId,
+                    name = deviceOptionLabel(row),
+                    icon = row.icon,
+                    isServer = row.isServer,
                 )
-            }
-        }
-    }
-}
-
-/** The pick's tick, in the menu's trailing slot (the launch pickers' recipe). */
-@Composable
-private fun MenuCheck() {
-    Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(16.dp))
+            },
+        value = device?.deviceId ?: "",
+        onChange = onSelect,
+        title = RUNNER_LABEL,
+        trigger = { open ->
+            GlassPill(
+                device?.let(::deviceOptionLabel) ?: RUNNER_UNSET_LABEL,
+                size = PillSize.Sm,
+                icon = device?.let(::deviceIcon) ?: ExpIcons.uiDevice,
+                onClick = if (enabled) ({ open() }) else null,
+                trailing = if (enabled) {
+                    {
+                        Icon(
+                            ExpIcons.uiChevronDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(10.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Tertiary,
+                            ),
+                        )
+                    }
+                } else {
+                    null
+                },
+                contentDescription = RUNNER_LABEL,
+                modifier = Modifier.testTag("workflow-runner"),
+            )
+        },
+    )
 }
 
 /** What the runner pill says with no machine bound, and what names it. */

@@ -1,8 +1,10 @@
-// EXP-941/EXP-892: the composer's issue picker rides the shared `Combobox`
-// with `shouldFilter={false}` — the CALLER ranks (checked rows pinned first,
-// then the shared engine's hits) and the primitive renders that order
-// verbatim. This pins both: the order it hands over, and that a pick reports
-// ONE issue id while the list stays open.
+// EXP-1030/EXP-892: the composer's issue picker rides the SHARED issue picker
+// (`@exp/ui` `IssuePicker`, `mode="multi"`) with `shouldFilter={false}` — the
+// CALLER ranks (checked rows pinned first, then the shared engine's hits) and
+// the primitive renders that order verbatim. This pins all of it: the surface
+// it opens (`data-slot="picker"`, `data-picker-mode="multi"`), the order it
+// hands over, the primitive's own "picked" mark (`data-picked`), and that a
+// pick reports ONE issue id while the list stays open.
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Issue } from "@/db/schema"
@@ -34,8 +36,23 @@ vi.mock(`@/hooks/use-issue-search-results`, () => ({
     return { results: [...rows].reverse() }
   },
 }))
+// The status resolution is the team-statuses suite's; here it only has to hand
+// the row its glyph and colour, which the shared picker draws.
+vi.mock(`@/hooks/use-team-statuses`, () => ({
+  useTeamStatusesContext: () => ({
+    resolve: (row: Issue) => row,
+  }),
+}))
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({
-  IssueStatusIcon: () => <span data-testid="status-icon" />,
+  toStatusPickerStatus: () => ({
+    id: `s1`,
+    name: `Backlog`,
+    category: `backlog`,
+    icon: (props: Record<string, unknown>) => (
+      <svg {...props} data-testid="status-icon" />
+    ),
+    colorHex: `text-muted-foreground`,
+  }),
 }))
 vi.mock(`@/components/issue-properties/priority-dropdown`, () => ({
   PriorityIcon: () => <span data-testid="priority-icon" />,
@@ -64,6 +81,14 @@ describe(`IssuePicker`, () => {
     fireEvent.click(screen.getByText(`Issues`))
   }
 
+  it(`is the shared picker in multi mode`, () => {
+    open()
+    const marker = document.querySelector(`[data-slot="picker"]`)
+    expect(marker?.getAttribute(`data-picker-mode`)).toBe(`multi`)
+    // The id the natives' suites match the surface on is unchanged.
+    expect(screen.getByTestId(`agent-composer-issues-picker`)).toBeTruthy()
+  })
+
   it(`renders the caller's order verbatim: checked first, then the ranking`, () => {
     open([ELIGIBLE[0]!])
     expect(rows().map((row) => row.textContent)).toEqual([
@@ -71,8 +96,16 @@ describe(`IssuePicker`, () => {
       `EXP-3Gamma`,
       `EXP-2Beta`,
     ])
+    // The primitive's own multi mark — the row's highlight, never a circle.
+    expect(rows()[0]!.getAttribute(`data-picked`)).toBe(`true`)
+    expect(rows()[1]!.getAttribute(`data-picked`)).toBeNull()
     expect(rows()[0]!.getAttribute(`aria-pressed`)).toBe(`true`)
-    expect(rows()[1]!.getAttribute(`aria-pressed`)).toBe(`false`)
+  })
+
+  it(`leads every row with its status glyph`, () => {
+    open()
+    expect(rows()[0]!.querySelector(`[data-testid=status-icon]`)).toBeTruthy()
+    expect(rows()[0]!.querySelector(`[data-testid=priority-icon]`)).toBeTruthy()
   })
 
   it(`reports one issue per pick and stays open`, () => {

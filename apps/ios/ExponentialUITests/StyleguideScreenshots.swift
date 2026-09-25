@@ -400,11 +400,15 @@ final class StyleguideScreenshots: XCTestCase {
         let issuePicker = anyElement(app, identified: "agent-composer-issues-picker")
         XCTAssertTrue(issuePicker.waitForExistence(timeout: 20), "Issue picker did not open")
         for title in [Self.bulkFirstTitle, Self.bulkSecondTitle] {
-            let row = app.staticTexts[title].firstMatch
+            // EXP-1030: a picker row reads `IDENT Title` in ONE label (the ×4
+            // contract), so it is matched on the title as a fragment.
+            let row = anyElement(app, containing: title)
             XCTAssertTrue(row.waitForExistence(timeout: 60), "Issue picker never listed \"\(title)\"")
             row.tap()
         }
-        app.buttons["Done"].firstMatch.tap()
+        // EXP-1030: the shared picker has no Done button — a multi pick stays
+        // open across toggles and closes with the platform swipe (EXP-687).
+        dismissSheet(app, whileVisible: issuePicker)
         _ = issuePicker.waitForNonExistence(timeout: 10)
         let issueChip = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "agent-composer-chip-issue-")

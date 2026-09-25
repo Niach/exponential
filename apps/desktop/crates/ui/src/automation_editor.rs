@@ -46,7 +46,8 @@ use crate::coding_selects::{effort_choices_for, model_choices_for};
 use crate::surface;
 // EXP-615: the model/effort pins render through the ONE shared launch
 // cluster; EXP-995: the agent strip above them became THE account picker
-// (`coding_selects::account_picker`), fed by the bound machine's logins.
+// (`picker::account_picker` since EXP-1021), fed by the bound machine's
+// logins.
 use crate::launch_options;
 use crate::controls::glass_input;
 
@@ -108,6 +109,11 @@ pub(crate) struct DeviceOption {
     /// automation's `device_id` and what the host matches itself against.
     pub(crate) device_id: String,
     pub(crate) label: String,
+    /// EXP-924's stored device glyph (`contract::DEVICE_ICON_VALUES`), read
+    /// only through `icons::device_icon` — with [`Self::server`] for the
+    /// kind default when the row names none.
+    pub(crate) icon: Option<String>,
+    pub(crate) server: bool,
     pub(crate) online: bool,
     /// The agent CLIs the machine advertises — the Agent picker offers
     /// exactly these (the server re-checks the pin against the same list).
@@ -719,12 +725,13 @@ impl AutomationEditorState {
             })
             .into_any_element();
 
-        let boards: Vec<(String, String)> = sync::Store::global(cx)
-            .collections()
-            .boards_in_team(&self.team_id, cx)
-            .into_iter()
-            .map(|board| (board.id, board.name))
-            .collect();
+        // The filter rows are the TYPED pickers' own rows: a board wears its
+        // glyph in its colour, a label its coloured dot.
+        let boards = crate::picker::board_picker::board_items(
+            &sync::Store::global(cx)
+                .collections()
+                .boards_in_team(&self.team_id, cx),
+        );
         let mut rows = vec![
             surface::glass_picker_row("When", None, when, cx),
             self.render_filter(
@@ -732,7 +739,7 @@ impl AutomationEditorState {
                 "board",
                 "Board",
                 "Any board",
-                &boards,
+                boards,
                 &self.board_ids,
                 |state| &mut state.board_ids,
                 access,
@@ -741,16 +748,15 @@ impl AutomationEditorState {
         ];
         match self.event {
             EventKind::LabelAdded => {
-                let labels: Vec<(String, String)> = crate::queries::team_labels(cx, &self.team_id)
-                    .into_iter()
-                    .map(|label| (label.id, label.name))
-                    .collect();
+                let labels = crate::picker::label_picker::label_items(
+                    &crate::queries::team_labels(cx, &self.team_id),
+                );
                 rows.push(self.render_filter(
                     prefix,
                     "label",
                     "Label",
                     "Any label",
-                    &labels,
+                    labels,
                     &self.label_ids,
                     |state| &mut state.label_ids,
                     access,
@@ -758,16 +764,19 @@ impl AutomationEditorState {
                 ));
             }
             EventKind::Created | EventKind::PriorityChanged => {
-                let priorities: Vec<(String, String)> = domain::contract::ISSUE_PRIORITY_VALUES
-                    .iter()
-                    .map(|value| ((*value).to_string(), capitalize(value)))
-                    .collect();
+                let priorities: Vec<crate::picker::PickerItem<String>> =
+                    domain::contract::ISSUE_PRIORITY_VALUES
+                        .iter()
+                        .map(|value| {
+                            crate::picker::PickerItem::new((*value).to_string(), capitalize(value))
+                        })
+                        .collect();
                 rows.push(self.render_filter(
                     prefix,
                     "priority",
                     "Priority",
                     "Any priority",
-                    &priorities,
+                    priorities,
                     &self.priorities,
                     |state| &mut state.priorities,
                     access,
@@ -778,18 +787,18 @@ impl AutomationEditorState {
                 // EXP-314: the team's own status rows. The duplicate category
                 // is excluded like every other picker — a duplicate needs its
                 // canonical pairing, so nothing "changes to" it in isolation.
-                let statuses: Vec<(String, String)> =
+                let statuses: Vec<crate::picker::PickerItem<String>> =
                     crate::queries::team_statuses(cx, &self.team_id)
                         .into_iter()
                         .filter(|row| row.category != "duplicate")
-                        .map(|row| (row.id, row.name))
+                        .map(|row| crate::picker::PickerItem::new(row.id, row.name))
                         .collect();
                 rows.push(self.render_filter(
                     prefix,
                     "status",
                     "To status",
                     "Any status",
-                    &statuses,
+                    statuses,
                     &self.to_status_ids,
                     |state| &mut state.to_status_ids,
                     access,
@@ -810,7 +819,7 @@ impl AutomationEditorState {
         key: &'static str,
         label: &'static str,
         empty_label: &'static str,
-        options: &[(String, String)],
+        items: Vec<crate::picker::PickerItem<String>>,
         selected: &[String],
         pick: fn(&mut Self) -> &mut Vec<String>,
         access: fn(&mut V) -> &mut Self,
@@ -818,55 +827,52 @@ impl AutomationEditorState {
     ) -> Div {
         let button_label: SharedString = match selected.len() {
             0 => empty_label.into(),
-            1 => options
+            1 => items
                 .iter()
-                .find(|(id, _)| id == &selected[0])
-                .map(|(_, name)| SharedString::from(name.clone()))
+                .find(|item| item.value == selected[0])
+                .map(|item| item.label.clone())
                 .unwrap_or_else(|| "1 selected".into()),
             count => format!("{count} selected").into(),
         };
-        let options = options.to_vec();
         let picked = selected.to_vec();
         let at_cap = selected.len() >= filter_cap();
         let view = cx.entity().downgrade();
-        let control = picker_trigger(
-            format!("{prefix}-filter-{key}").into(),
-            button_label,
-            cx,
-        )
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            if options.is_empty() {
-                return menu.item(PopupMenuItem::new("Nothing to filter on").disabled(true));
-            }
-            for (id, name) in &options {
-                let on = picked.iter().any(|entry| entry == id);
-                let view = view.clone();
-                let id = id.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(name.clone()))
-                        .checked(on)
-                        // At the cap only DEselection stays live —
-                        // the server rejects a longer list.
-                        .disabled(at_cap && !on)
-                        .on_click(move |_, _, cx| {
-                            if let Some(view) = view.upgrade() {
-                                let id = id.clone();
-                                view.update(cx, |view, cx| {
-                                    let list = pick(access(view));
-                                    match list.iter().position(|e| e == &id) {
-                                        Some(ix) => {
-                                            list.remove(ix);
-                                        }
-                                        None if list.len() < filter_cap() => list.push(id),
-                                        None => {}
-                                    }
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                );
-            }
-            menu
+        let trigger =
+            picker_trigger(format!("{prefix}-filter-{key}").into(), button_label, cx)
+                .into_any_element();
+        // EXP-1021: a filter is a MULTI pick, so it rides the shared picker —
+        // its rows carry the subject's own glyph and a picked one reads as
+        // the row's highlight, the same language every other multi picker
+        // speaks.
+        let items: Vec<crate::picker::PickerItem<String>> = items
+            .into_iter()
+            .map(|item| {
+                // At the cap only DEselection stays live — the server rejects
+                // a longer list.
+                let on = picked.iter().any(|entry| entry == &item.value);
+                item.disabled(at_cap && !on)
+            })
+            .collect();
+        let control = crate::picker::deferred(move |window, cx| {
+            crate::picker::Picker::multi(
+                items,
+                picked,
+                trigger,
+                std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |view, cx| {
+                            let list = pick(access(view));
+                            *list = next.clone();
+                            list.truncate(filter_cap());
+                            cx.notify();
+                        });
+                    }
+                }),
+            )
+            .search(true)
+            .empty_text("Nothing to filter on")
+            .id(SharedString::from(format!("{prefix}-filter-{key}-picker")))
+            .render(window, cx)
         })
         .into_any_element();
         surface::glass_picker_row(label, None, control, cx)
@@ -915,56 +921,63 @@ impl AutomationEditorState {
             )]);
         }
         let view = cx.entity().downgrade();
-        let menu_devices = devices.clone();
         let bound = self.device_id.clone();
         let trigger = picker_trigger(
             format!("{prefix}-device").into(),
             picked.clone().unwrap_or_else(|| "Select device…".into()),
             cx,
         )
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            for device in &menu_devices {
-                let view = view.clone();
-                let device_id = device.device_id.clone();
-                // EXP-615: every automation-capable machine reads the
-                // same. Offline-but-capable is not a lesser choice — the
-                // run fires when the machine comes back (the offline
-                // catch-up rule) — so the picker carries no online
-                // decoration at all; the Automations LIST shows presence.
-                let label = device.label.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(label))
-                        .checked(bound.as_deref() == Some(device_id.as_str()))
-                        .on_click(move |_, _, cx| {
-                            if let Some(view) = view.upgrade() {
-                                let device_id = device_id.clone();
-                                view.update(cx, |view, cx| {
-                                    access(view).rebind_device(device_id, cx);
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                );
-            }
-            menu
-        });
-        surface::glass_group_rows(vec![surface::glass_picker_row(
-            "Runs on",
-            None,
-            trigger.into_any_element(),
-            cx,
-        )])
+        .into_any_element();
+        // EXP-1021: THE device picker — the same rows the composer and the
+        // workflow runner row draw, each machine by its own glyph.
+        // EXP-615: every automation-capable machine reads the same.
+        // Offline-but-capable is not a lesser choice — the run fires when the
+        // machine comes back (the offline catch-up rule) — so no row is
+        // disabled and none carries an online decoration; the Automations
+        // LIST shows presence.
+        let rows: Vec<crate::picker::device_picker::DevicePickerDevice> = devices
+            .iter()
+            .map(|device| crate::picker::device_picker::DevicePickerDevice {
+                id: device.device_id.clone(),
+                name: device.label.clone(),
+                icon: device.icon.clone(),
+                server: device.server,
+                description: None,
+                disabled: false,
+            })
+            .collect();
+        let control = crate::picker::deferred(move |window, cx| {
+            crate::picker::device_picker::device_picker(
+                &rows,
+                bound,
+                trigger,
+                std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                    let (Some(view), Some(device_id)) = (view.upgrade(), next.into_iter().next())
+                    else {
+                        return;
+                    };
+                    view.update(cx, |view, cx| {
+                        access(view).rebind_device(device_id, cx);
+                        cx.notify();
+                    });
+                }),
+            )
+            .id(SharedString::from(format!("{prefix}-device-picker")))
+            .render(window, cx)
+        })
+        .into_any_element();
+        surface::glass_group_rows(vec![surface::glass_picker_row("Runs on", None, control, cx)])
     }
 
     /// Account / Model / Effort — the optional pins. EXP-995: the agent strip
-    /// is gone — the group's FIRST ROW is THE account picker every launch
-    /// surface shares ([`crate::coding_selects::account_picker`]): brand mark
-    /// + email over every login the BOUND machine reports, its default first,
-    /// and a pick implies the agent (the server re-checks it against what the
-    /// machine advertises). Model/effort below it are the same rows the launch
-    /// dialogs draw and only unlock once an agent is pinned: they are
-    /// validated per agent, and "the device's default agent with a foreign
-    /// model" is not a state the server accepts.
+    /// is gone — the group's FIRST ROW is THE account picker
+    /// ([`crate::picker::account_picker`], the shared picker since EXP-1021):
+    /// brand mark + email over every login the BOUND machine reports, its
+    /// default first, and a pick implies the agent (the server re-checks it
+    /// against what the machine advertises). Model/effort below it are the
+    /// same rows the launch dialogs draw and only unlock once an agent is
+    /// pinned: they are validated per agent, and "the device's default agent
+    /// with a foreign model" is not a state the server accepts.
     fn render_launch_pins<V: Render>(
         &self,
         prefix: &'static str,
@@ -990,23 +1003,66 @@ impl AutomationEditorState {
                     .map(|option| option.account_option_key())
             });
         let view = cx.entity().downgrade();
-        let picker = crate::coding_selects::account_picker(
-            SharedString::from(format!("{prefix}-account")),
-            &options,
-            current_key.as_deref(),
-            crate::coding_selects::AccountTrigger::Row,
-            move |option: &coding::AccountOption, _window, cx| {
-                let Some(view) = view.upgrade() else {
-                    return;
-                };
-                let option = option.clone();
-                view.update(cx, |view, cx| {
-                    access(view).set_account(&option);
-                    cx.notify();
-                });
-            },
-            cx,
-        );
+        // EXP-1021: THE account picker — the shared picker's rows (brand mark
+        // + login email, a dead credential's health as the muted line) behind
+        // the trigger the other pin rows in this group wear. What the trigger
+        // READS as: the stored pair, else the machine's own default, which is
+        // the picker's first row.
+        let current_option = current_key
+            .as_deref()
+            .and_then(|key| options.iter().find(|option| option.account_option_key() == key))
+            .or_else(|| coding::default_account_option(&options))
+            .cloned();
+        let picker = match current_option {
+            // No login to offer: the row keeps its label and nothing else —
+            // a caller with nothing to pick builds its own fallback rows.
+            None => div().into_any_element(),
+            Some(current) => {
+                // Nothing to PICK either, with exactly one login: the same
+                // line without the affordance (the mark and the email still
+                // say which login the run spends).
+                let alone = options.len() < 2;
+                let trigger = picker_trigger(
+                    format!("{prefix}-account").into(),
+                    SharedString::from(current.email.clone()),
+                    cx,
+                )
+                .icon(crate::coding_selects::agent_mark(current.agent))
+                .dropdown_caret(!alone)
+                .into_any_element();
+                let picked = current.account_option_key();
+                let rows = options.clone();
+                crate::picker::deferred(move |window, cx| {
+                    let options = rows.clone();
+                    crate::picker::account_picker::account_picker(
+                        &rows,
+                        Some(picked),
+                        trigger,
+                        std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                            let (Some(view), Some(key)) = (view.upgrade(), next.into_iter().next())
+                            else {
+                                return;
+                            };
+                            let Some(option) = options
+                                .iter()
+                                .find(|option| option.account_option_key() == key)
+                                .cloned()
+                            else {
+                                return;
+                            };
+                            view.update(cx, |view, cx| {
+                                access(view).set_account(&option);
+                                cx.notify();
+                            });
+                        }),
+                    )
+                    .disabled(alone)
+                    .id(SharedString::from(format!("{prefix}-account-picker")))
+                    .render(window, cx)
+                })
+                .into_any_element()
+            }
+        };
         let strip = surface::glass_picker_row("Account", None, picker, cx);
 
         // Model/Effort stay VISIBLE while nothing is pinned (web parity,
@@ -1217,6 +1273,8 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
             }
             Some(DeviceOption {
                 label: row.label.clone().unwrap_or_else(|| device_id.clone()),
+                icon: row.icon.clone(),
+                server: row.is_server(),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
                 agents,
                 default_agent,

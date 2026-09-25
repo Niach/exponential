@@ -7,12 +7,18 @@ use gpui::AnyElement;
 use domain::options::ISSUE_PRIORITY_OPTIONS;
 use domain::IssuePriority;
 
+use crate::icons::{glyph_icon, static_token_color};
+
 use super::{OnPickerChange, Picker, PickerItem, PickerMode};
 
 pub(crate) fn priority_items() -> Vec<PickerItem<IssuePriority>> {
     ISSUE_PRIORITY_OPTIONS
         .iter()
-        .map(|option| PickerItem::new(option.value, option.label))
+        .map(|option| {
+            PickerItem::new(option.value, option.label)
+                .icon(glyph_icon(option.icon))
+                .color(static_token_color(option.color))
+        })
         .collect()
 }
 

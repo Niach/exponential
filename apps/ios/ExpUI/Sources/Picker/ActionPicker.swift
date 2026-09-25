@@ -23,17 +23,40 @@ public struct ActionPicker<Trigger: View>: View {
     public let actions: [ActionPickerAction]
     public let value: String?
     public let onChange: (String) -> Void
+    /// The sheet headline; the default names the picker (Android's
+    /// `ActionPicker.kt` carries the same parameter).
+    public let title: String
+    /// EXP-1021 — the surface controls every typed picker forwards verbatim
+    /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
+    /// property row or `…` menu drives `open` and hides the trigger, and
+    /// `onDismiss` fires once the sheet finished animating away (what a
+    /// hand-off to a SECOND picker is promoted on).
+    public let open: Binding<Bool>?
+    public let hideTrigger: Bool
+    public let onDismiss: (() -> Void)?
+    /// EXP-1030 — an accessibility identifier for the presented sheet.
+    public let sheetIdentifier: String?
     private let trigger: () -> Trigger
 
     public init(
         actions: [ActionPickerAction],
         value: String?,
         onChange: @escaping (String) -> Void,
+        title: String = "Action",
+        open: Binding<Bool>? = nil,
+        hideTrigger: Bool = false,
+        onDismiss: (() -> Void)? = nil,
+        sheetIdentifier: String? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.actions = actions
         self.value = value
         self.onChange = onChange
+        self.title = title
+        self.open = open
+        self.hideTrigger = hideTrigger
+        self.onDismiss = onDismiss
+        self.sheetIdentifier = sheetIdentifier
         self.trigger = trigger
     }
 
@@ -51,7 +74,11 @@ public struct ActionPicker<Trigger: View>: View {
             onChange: { picked in picked.first.map(onChange) },
             search: true,
             emptyText: "No actions",
-            title: "Action",
+            title: title,
+            open: open,
+            hideTrigger: hideTrigger,
+            onDismiss: onDismiss,
+            sheetIdentifier: sheetIdentifier,
             trigger: trigger
         )
     }

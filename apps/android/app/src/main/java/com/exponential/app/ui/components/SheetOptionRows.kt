@@ -13,10 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -27,10 +25,7 @@ import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,6 +41,9 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.R
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -57,9 +55,9 @@ import com.exponential.app.ui.theme.glassGroup
 // (EXP-208/EXP-211 — iOS Form parity), extracted for reuse by the
 // device-settings sheet (EXP-481). Visuals are byte-identical to the
 // originals; only the visibility moved — except [PickerRow], which since
-// EXP-607 opens a [GlassSheet] instead of an anchored dropdown (a dropdown
-// over a bottom sheet lands wherever M3 can fit it; a sheet always presents
-// the same way, and matches how every other picker in the app reads).
+// EXP-607 opens a sheet instead of an anchored dropdown (a dropdown over a
+// bottom sheet lands wherever M3 can fit it; a sheet always presents the same
+// way), and since EXP-1021 hands that sheet to the shared `Picker`.
 
 // iOS-inset-grouped-section analog (EXP-208): a rounded glass container that
 // wraps a group of rows, separated inside by [GroupDivider] hairlines. The
@@ -213,8 +211,17 @@ fun LabelsPickerBlock(
     }
 }
 
-// iOS-Form-style picker row: label left, selected value + chevron right; tap
-// opens a glass sheet of the options. Disabled = dimmed + non-interactive.
+/**
+ * iOS-Form-style picker row: label left, selected value + chevron right; tap
+ * opens the options. Disabled = dimmed + non-interactive.
+ *
+ * EXP-1021: the OPTIONS ride the shared [Picker] — this file owns the form row
+ * (the trigger), never a sheet of its own. The rows it used to draw were
+ * [GlassSheetRow]s with a trailing check, so a flow that also opened a typed
+ * picker showed a user two different "this is picked" languages; a flat option
+ * list is exactly what the primitive renders, so there is nothing here it
+ * cannot say.
+ */
 @Composable
 internal fun PickerRow(
     label: String,
@@ -232,12 +239,54 @@ internal fun PickerRow(
      */
     optionIcon: ((String) -> ImageVector?)? = null,
 ) {
-    var open by remember { mutableStateOf(false) }
+    val rows = remember(options, optionLabel, optionIcon) {
+        options.map { option ->
+            PickerItem(
+                value = option,
+                label = optionLabel(option),
+                icon = optionIcon?.invoke(option),
+            )
+        }
+    }
+    Picker(
+        items = rows,
+        mode = PickerMode.Single,
+        value = setOfNotNull(selected),
+        onChange = { picked -> picked.firstOrNull()?.let(onSelect) },
+        title = label,
+        enabled = enabled,
+    ) { open ->
+        PickerValueRow(
+            label = label,
+            value = value,
+            valueIcon = selected?.let { optionIcon?.invoke(it) },
+            enabled = enabled,
+            onClick = open,
+        )
+    }
+}
+
+/**
+ * The picker ROW on its own — label left, picked value + chevron right — with
+ * no sheet of its own. EXP-1021 split it out of [PickerRow] so a form row can
+ * be the TRIGGER of the shared `Picker` (the automation form's action and
+ * filter rows) while the surfaces that still carry their own option sheet keep
+ * rendering exactly the same row.
+ */
+@Composable
+internal fun PickerValueRow(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    valueIcon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
     val contentAlpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled) { open = true }
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -255,9 +304,9 @@ internal fun PickerRow(
         )
         // The picked option's own glyph, right before its name. Unweighted, so
         // the value keeps the whole rest of the row (see above).
-        selected?.let { optionIcon?.invoke(it) }?.let { glyph ->
+        if (valueIcon != null) {
             Icon(
-                glyph,
+                valueIcon,
                 contentDescription = null,
                 modifier = Modifier.padding(start = 8.dp).size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(
@@ -284,38 +333,6 @@ internal fun PickerRow(
                 alpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary,
             ),
         )
-    }
-    if (open) {
-        GlassSheet(title = label, onDismiss = { open = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                options.forEach { option ->
-                    GlassSheetRow(
-                        label = optionLabel(option),
-                        selected = option == selected,
-                        leading = optionIcon?.invoke(option)?.let { glyph ->
-                            {
-                                Icon(
-                                    glyph,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.onSurface
-                                        .copy(alpha = TextEmphasis.Secondary),
-                                )
-                            }
-                        },
-                        onClick = {
-                            open = false
-                            onSelect(option)
-                        },
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
     }
 }
 

@@ -1,12 +1,44 @@
-//! EXP-1029 contract — PLACEHOLDER `picker-device` (2 General components). EXP-1021 fills
-//! this entry's demo and never edits `entries/mod.rs` or the section index.
+//! EXP-1021 — the `picker-device` styleguide entry: the device picker — the device glyph, offline rows disabled with their reason.
+//!
+//! Filled by EXP-1021; never edits `entries/mod.rs` nor the index.
 
-use gpui::{div, Div, ParentElement as _};
+use gpui::Div;
+
+use super::picker::{chip, column, demo, inert};
 
 pub(crate) const ID: &str = "picker-device";
 pub(crate) const OWNER: &str = "EXP-1021";
 
-/// The one-line body every placeholder renders until its owner fills it.
 pub(crate) fn render() -> Div {
-    div().child(format!("{ID} — placeholder, {OWNER} fills this entry."))
+    column(vec![demo(
+        "device — an offline machine still RENDERS; it just never picks",
+        |window, cx| {
+            let devices = vec![
+                crate::picker::device_picker::DevicePickerDevice {
+                    id: "device-1".to_string(),
+                    name: "studio".to_string(),
+                    icon: Some("laptop".to_string()),
+                    server: false,
+                    description: None,
+                    disabled: false,
+                },
+                crate::picker::device_picker::DevicePickerDevice {
+                    id: "device-2".to_string(),
+                    name: "builder".to_string(),
+                    icon: Some("server".to_string()),
+                    server: true,
+                    description: Some("Offline".to_string()),
+                    disabled: true,
+                },
+            ];
+            crate::picker::device_picker::device_picker(
+                &devices,
+                Some("device-1".to_string()),
+                chip("sg-picker-device", "studio", cx),
+                inert(),
+            )
+            .id("sg-picker-device-surface")
+            .render(window, cx)
+        },
+    )])
 }

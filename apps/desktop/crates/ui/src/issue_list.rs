@@ -317,6 +317,13 @@ pub struct IssueListView {
     /// render — the row dropdowns and the context menu read it instead of
     /// re-querying the collections once per row.
     team_statuses: Rc<Vec<ResolvedStatus>>,
+    /// EXP-1045: the same once-per-frame treatment for the row assignee
+    /// picker's members. The picker builds its rows EAGERLY (a `Picker` owns
+    /// its items, unlike the `dropdown_menu` closure it replaced), so
+    /// without this every visible row would clone and sort the whole team on
+    /// every render. Empty on a solo team, where the cell does not render at
+    /// all (EXP-832: that query never runs on a path that does not need it).
+    row_assignees: Rc<Vec<User>>,
     /// REV-39: the memoized board query. `render` re-runs on every
     /// `cx.notify` (selection toggles, group collapses, nav highlights,
     /// width flips, every Electric batch), and rebuilding the full
@@ -381,6 +388,7 @@ impl IssueListView {
             rail_hovered: HashSet::new(),
             rail_hot: None,
             team_statuses: Rc::new(Vec::new()),
+            row_assignees: Rc::new(Vec::new()),
             data: queries::Memo::default(),
             scroll_handle: VirtualListScrollHandle::new(),
             empty_scroll: ScrollHandle::new(),
@@ -815,7 +823,7 @@ impl IssueListView {
                 row.child(
                     control_cell(row_id("assignee-cell", &issue.id))
                         .ml_3()
-                        .child(assignee_dropdown(issue, cx)),
+                        .child(assignee_dropdown(issue, &self.row_assignees, cx)),
                 )
             })
             // auto due date: CalendarDays + short date, only when set — web
@@ -998,36 +1006,152 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         }
     };
 
+    // EXP-1045: the bulk status edit rides THE status picker — the one the
+    // row chip and the detail header open, and the one the bulk LABELS
+    // beside it already did. One toolbar, one selection language.
     let status_menu = {
         let ids = ids.clone();
         let list = list.clone();
         let team_id = team_id.clone();
-        with_label(
+        let trigger = with_label(
             Button::new("bulk-status")
                 .ghost()
                 .web_sm()
                 .icon(Icon::from(ExpIcon::ListTodo)),
             "Status",
         )
-            .tooltip("Status")
+        .tooltip("Status")
+        .disabled(busy)
+        .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            // The team's own vocabulary (EXP-314), minus the
+            // duplicate-category rows (`StatusMenuScope::Assignable`): bulk
+            // marking has no canonical-issue picker, and
+            // status='duplicate' without duplicate_of_id breaks the pairing
+            // invariant (the single-issue path intercepts via
+            // apply_status_selection's picker).
+            let statuses = queries::team_status_options(cx, &team_id);
+            let offered: Vec<ResolvedStatus> =
+                crate::pickers::status_menu_options(&statuses, StatusMenuScope::Assignable)
+                    .into_iter()
+                    .cloned()
+                    .collect();
+            let picks = offered.clone();
+            crate::picker::status_picker::status_picker(
+                &offered,
+                crate::picker::PickerMode::Single,
+                // A bulk edit has no ONE current status, so no row is marked.
+                Vec::new(),
+                trigger,
+                Rc::new(move |keys: Vec<String>, _window, cx: &mut App| {
+                    let Some(pick) = keys
+                        .first()
+                        .and_then(|key| picks.iter().find(|status| &status.group_key == key))
+                        .map(StatusPick::from_resolved)
+                    else {
+                        return;
+                    };
+                    spawn_bulk_op(
+                        list.clone(),
+                        cx,
+                        ids.clone(),
+                        false,
+                        "issues.bulkUpdate",
+                        move |trpc, chunk| {
+                            let mut input =
+                                api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
+                            pick.apply_to_bulk(&mut input);
+                            api::issues::issues_bulk_update(trpc, &input).map(|_| ())
+                        },
+                    );
+                }),
+            )
             .disabled(busy)
-            .dropdown_menu(move |menu, _window, cx| {
-                // The team's own vocabulary (EXP-314), minus the
-                // duplicate-category rows (`StatusMenuScope::Assignable`):
-                // bulk marking has no canonical-issue picker, and
-                // status='duplicate' without duplicate_of_id breaks the
-                // pairing invariant (the single-issue path intercepts via
-                // apply_status_selection's picker).
-                let statuses = queries::team_status_options(cx, &team_id);
-                let ids = ids.clone();
-                let list = list.clone();
-                status_menu(
-                    menu,
-                    &statuses,
-                    "",
-                    StatusMenuScope::Assignable,
-                    Rc::new(move |pick: StatusPick, _window, cx| {
-                        let pick = pick.clone();
+            .id("bulk-status-picker")
+            .render(window, cx)
+        })
+        .into_any_element()
+    };
+
+    // EXP-1045: THE priority picker (see `status_menu` above).
+    let priority_menu = {
+        let ids = ids.clone();
+        let list = list.clone();
+        let trigger = with_label(
+            Button::new("bulk-priority")
+                .ghost()
+                .web_sm()
+                .icon(Icon::from(ExpIcon::SignalHigh)),
+            "Priority",
+        )
+        .tooltip("Priority")
+        .disabled(busy)
+        .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::priority_picker::priority_picker(
+                crate::picker::PickerMode::Single,
+                // A bulk edit has no ONE current priority.
+                Vec::new(),
+                trigger,
+                Rc::new(move |values: Vec<domain::IssuePriority>, _window, cx: &mut App| {
+                    let Some(value) = values.first().copied() else {
+                        return;
+                    };
+                    spawn_bulk_op(
+                        list.clone(),
+                        cx,
+                        ids.clone(),
+                        false,
+                        "issues.bulkUpdate",
+                        move |trpc, chunk| {
+                            let mut input =
+                                api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
+                            input.priority = Some(value);
+                            api::issues::issues_bulk_update(trpc, &input).map(|_| ())
+                        },
+                    );
+                }),
+            )
+            .disabled(busy)
+            .id("bulk-priority-picker")
+            .render(window, cx)
+        })
+        .into_any_element()
+    };
+
+    // Hidden on a solo team — one member can only self-assign, so the
+    // affordance is noise. The fetched list feeds the picker directly (no
+    // second query on open).
+    //
+    // EXP-1045: THE assignee picker (see `status_menu` above) — searchable,
+    // avatar rows, `Unassigned` as a real row rather than an "Unassign" item.
+    let assignee_menu = {
+        let ids = ids.clone();
+        let list = list.clone();
+        has_assignee.then(|| {
+            let trigger = with_label(
+                Button::new("bulk-assignee")
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::new(registry::UI_ASSIGNEE)),
+                "Assignee",
+            )
+            .tooltip("Assignee")
+            .disabled(busy)
+            .into_any_element();
+            crate::picker::deferred(move |window, cx| {
+                use crate::picker::assignee_picker::UNASSIGNED_VALUE;
+                crate::picker::assignee_picker::assignee_picker(
+                    &users,
+                    crate::picker::PickerMode::Single,
+                    // A bulk edit has no ONE current assignee.
+                    Vec::new(),
+                    true,
+                    trigger,
+                    Rc::new(move |picked: Vec<String>, _window, cx: &mut App| {
+                        let Some(value) = picked.first().cloned() else {
+                            return;
+                        };
                         spawn_bulk_op(
                             list.clone(),
                             cx,
@@ -1037,135 +1161,21 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
                             move |trpc, chunk| {
                                 let mut input =
                                     api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
-                                pick.apply_to_bulk(&mut input);
+                                input.assignee_id = if value == UNASSIGNED_VALUE {
+                                    api::Patch::Null
+                                } else {
+                                    api::Patch::Set(value.clone())
+                                };
                                 api::issues::issues_bulk_update(trpc, &input).map(|_| ())
                             },
                         );
                     }),
-                    cx,
                 )
-            })
-    };
-
-    let priority_menu = {
-        let ids = ids.clone();
-        let list = list.clone();
-        with_label(
-            Button::new("bulk-priority")
-                .ghost()
-                .web_sm()
-                .icon(Icon::from(ExpIcon::SignalHigh)),
-            "Priority",
-        )
-            .tooltip("Priority")
-            .disabled(busy)
-            .dropdown_menu(move |menu, _window, cx| {
-                let mut menu = menu.check_side(Side::Right);
-                for option in &ISSUE_PRIORITY_OPTIONS {
-                    let ids = ids.clone();
-                    let list = list.clone();
-                    let value = option.value;
-                    menu = menu.item(option_item(
-                        SharedString::from(option.label),
-                        option_icon(option, cx),
-                        false,
-                        move |_window, cx| {
-                            spawn_bulk_op(
-                                list.clone(),
-                                cx,
-                                ids.clone(),
-                                false,
-                                "issues.bulkUpdate",
-                                move |trpc, chunk| {
-                                    let mut input =
-                                        api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
-                                    input.priority = Some(value);
-                                    api::issues::issues_bulk_update(trpc, &input).map(|_| ())
-                                },
-                            );
-                        },
-                    ));
-                }
-                menu
-            })
-    };
-
-    // Hidden on a solo team — one member can only self-assign, so the
-    // affordance is noise. The fetched list feeds the menu directly (no
-    // second query on open).
-    let assignee_menu = {
-        let ids = ids.clone();
-        let list = list.clone();
-        has_assignee.then(|| {
-            with_label(
-                Button::new("bulk-assignee")
-                    .ghost()
-                    .web_sm()
-                    .icon(Icon::new(registry::UI_ASSIGNEE)),
-                "Assignee",
-            )
-                .tooltip("Assignee")
                 .disabled(busy)
-                .dropdown_menu(move |menu, _window, _cx| {
-                    let mut menu = menu.scrollable(true).max_h(px(320.));
-                    menu = menu.item(
-                        PopupMenuItem::new("Unassign")
-                            .icon(Icon::new(registry::UI_CLOSE))
-                            .on_click({
-                                let ids = ids.clone();
-                                let list = list.clone();
-                                move |_, _, cx| {
-                                    spawn_bulk_op(
-                                        list.clone(),
-                                        cx,
-                                        ids.clone(),
-                                        false,
-                                        "issues.bulkUpdate",
-                                        |trpc, chunk| {
-                                            let mut input =
-                                                api::issues::IssuesBulkUpdateInput::new(
-                                                    chunk.to_vec(),
-                                                );
-                                            input.assignee_id = api::Patch::Null;
-                                            api::issues::issues_bulk_update(trpc, &input)
-                                                .map(|_| ())
-                                        },
-                                    );
-                                }
-                            }),
-                    );
-                    for user in &users {
-                        let name = crate::comments::author_label(Some(user));
-                        let ids = ids.clone();
-                        let list = list.clone();
-                        let user_id = user.id.clone();
-                        menu = menu.item(
-                            PopupMenuItem::new(SharedString::from(name))
-                                .icon(Icon::new(registry::UI_ASSIGNEE))
-                                .on_click(move |_, _, cx| {
-                                    let user_id = user_id.clone();
-                                    spawn_bulk_op(
-                                        list.clone(),
-                                        cx,
-                                        ids.clone(),
-                                        false,
-                                        "issues.bulkUpdate",
-                                        move |trpc, chunk| {
-                                            let mut input =
-                                                api::issues::IssuesBulkUpdateInput::new(
-                                                    chunk.to_vec(),
-                                                );
-                                            input.assignee_id =
-                                                api::Patch::Set(user_id.clone());
-                                            api::issues::issues_bulk_update(trpc, &input)
-                                                .map(|_| ())
-                                        },
-                                    );
-                                }),
-                        );
-                    }
-                    menu
-                })
+                .id("bulk-assignee-picker")
+                .render(window, cx)
+            })
+            .into_any_element()
         })
     };
 
@@ -1173,94 +1183,99 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         let ids = ids.clone();
         let list = list.clone();
         let team_id = team_id.clone();
-        with_label(
+        // EXP-1021: the bulk label edit rides the SHARED label picker. Its
+        // rows are tri-state — a label on ALL the picked issues wears the
+        // wash + the active stroke, one on only SOME the bare wash — and
+        // that mark is the row's whole selection language; no trailing
+        // check/minus column, on any client.
+        let trigger = with_label(
             Button::new("bulk-labels")
                 .ghost()
                 .web_sm()
                 .icon(Icon::from(ExpIcon::Tag)),
             "Labels",
         )
-            .tooltip("Labels")
-            .disabled(busy)
-            .dropdown_menu(move |menu, _window, cx| {
-                let mut menu = menu
-                    .scrollable(true)
-                    .max_h(px(320.))
-                    .check_side(Side::Right);
-                let labels = queries::team_labels(cx, &team_id);
-                if labels.is_empty() {
-                    return menu.item(PopupMenuItem::label("No labels in this team"));
+        .tooltip("Labels")
+        .disabled(busy)
+        .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            let labels = queries::team_labels(cx, &team_id);
+            // How many of the PICKED issues carry each label — the tri-state.
+            let selected_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
+            let mut counts: HashMap<String, usize> = HashMap::new();
+            for link in Store::global(cx).collections().issue_labels.read(cx).iter() {
+                if selected_set.contains(link.issue_id.as_str()) {
+                    *counts.entry(link.label_id.clone()).or_default() += 1;
                 }
-                // Tri-state per web: checked when the label is on ALL
-                // selected issues; toggling removes from all, else adds
-                // to all.
-                let selected_set: HashSet<&str> =
-                    ids.iter().map(String::as_str).collect();
-                let mut counts: HashMap<String, usize> = HashMap::new();
-                for link in Store::global(cx).collections().issue_labels.read(cx).iter() {
-                    if selected_set.contains(link.issue_id.as_str()) {
-                        *counts.entry(link.label_id.clone()).or_default() += 1;
-                    }
-                }
-                for label in labels {
-                    let on_all =
-                        counts.get(&label.id).copied().unwrap_or(0) == ids.len();
-                    let dot = label
-                        .color
-                        .as_deref()
-                        .and_then(parse_hex_color)
-                        .unwrap_or(gpui::opaque_grey(0.5, 1.0));
-                    let name = SharedString::from(label.name.clone());
+            }
+            let on_all: HashSet<String> = labels
+                .iter()
+                .filter(|label| {
+                    counts.get(&label.id).copied().unwrap_or(0) == ids.len() && !ids.is_empty()
+                })
+                .map(|label| label.id.clone())
+                .collect();
+            let mut picker = crate::picker::label_picker::label_picker(
+                &labels,
+                on_all.iter().cloned().collect(),
+                trigger,
+                {
                     let ids = ids.clone();
                     let list = list.clone();
-                    let label_id = label.id.clone();
-                    menu = menu.item(
-                        PopupMenuItem::element(move |_, cx| {
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .child(
-                                    div().size_2().rounded_full().flex_shrink_0().bg(dot),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(cx.theme().popover_foreground)
-                                        .child(name.clone()),
-                                )
-                        })
-                        .checked(on_all)
-                        .on_click(move |_, _, cx| {
-                            let label_id = label_id.clone();
-                            let op = if on_all {
-                                "issueLabels.bulkRemove"
-                            } else {
-                                "issueLabels.bulkAdd"
-                            };
-                            spawn_bulk_op(
-                                list.clone(),
-                                cx,
-                                ids.clone(),
-                                false,
-                                op,
-                                move |trpc, chunk| {
-                                    if on_all {
-                                        api::labels::issue_labels_bulk_remove(
-                                            trpc, &label_id, chunk,
-                                        )
+                    let on_all = on_all.clone();
+                    Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                        // The primitive reports the whole new set; the write
+                        // is one bulk add or one bulk remove, so the ONE row
+                        // that changed is the diff — a label that was on all
+                        // of them comes off all of them, anything else goes
+                        // onto all of them.
+                        let next_set: HashSet<&String> = next.iter().collect();
+                        let removed = on_all.iter().find(|id| !next_set.contains(id)).cloned();
+                        let added = next.iter().find(|id| !on_all.contains(*id)).cloned();
+                        let (label_id, remove) = match (removed, added) {
+                            (Some(id), _) => (id, true),
+                            (None, Some(id)) => (id, false),
+                            _ => return,
+                        };
+                        let op = if remove {
+                            "issueLabels.bulkRemove"
+                        } else {
+                            "issueLabels.bulkAdd"
+                        };
+                        spawn_bulk_op(
+                            list.clone(),
+                            cx,
+                            ids.clone(),
+                            false,
+                            op,
+                            move |trpc, chunk| {
+                                if remove {
+                                    api::labels::issue_labels_bulk_remove(trpc, &label_id, chunk)
                                         .map(|_| ())
-                                    } else {
-                                        api::labels::issue_labels_bulk_add(
-                                            trpc, &label_id, chunk,
-                                        )
+                                } else {
+                                    api::labels::issue_labels_bulk_add(trpc, &label_id, chunk)
                                         .map(|_| ())
-                                    }
-                                },
-                            );
-                        }),
-                    );
-                }
-                menu
-            })
+                                }
+                            },
+                        );
+                    })
+                },
+            )
+            .empty_text("No labels in this team");
+            // The third state: on SOME of the picked issues, not all.
+            for item in &mut picker.items {
+                let count = counts.get(&item.value).copied().unwrap_or(0);
+                item.checked = Some(if count == 0 {
+                    crate::picker::PickerChecked::None
+                } else if count == ids.len() {
+                    crate::picker::PickerChecked::All
+                } else {
+                    crate::picker::PickerChecked::Some
+                });
+            }
+            picker.id("bulk-labels-picker").render(window, cx)
+        })
+        .into_any_element()
     };
 
     // EXP-981: the play control is a MENU now — Start as batch (what the
@@ -1451,6 +1466,13 @@ use gpui::prelude::FluentBuilder as _;
 /// selection clears and the new workflow's detail opens. A refusal (a
 /// started issue, two repositories, a board without one) is the server's own
 /// sentence — shown as the window's error notice.
+///
+/// EXP-1032: a workflow created HERE names this machine as its runner, so the
+/// server seeds its two models from THIS install's own workflow defaults
+/// (`launch_defaults.workflow`) rather than from the contract fallbacks. Only
+/// while this build actually advertises the engine capability — the server
+/// refuses a machine that cannot run workflows, and an un-run-able IDE must
+/// still be able to PLAN one.
 fn spawn_create_workflow<V: BulkSelectionHost>(
     team_id: String,
     issue_ids: Vec<String>,
@@ -1462,6 +1484,12 @@ fn spawn_create_workflow<V: BulkSelectionHost>(
         log::warn!("[ui] workflows.create skipped: no signed-in account");
         return;
     };
+    // Resolved on the UI thread: both reads want the app's globals.
+    let own_device_id = queries::own_device_id(cx);
+    let device_id = queries::device_caps(cx, &own_device_id)
+        .iter()
+        .any(|cap| cap == coding::doctor::WORKFLOWS_CAP)
+        .then_some(own_device_id);
     let _ = list.update(cx, |this, cx| {
         this.set_bulk_busy(true);
         cx.notify();
@@ -1470,7 +1498,15 @@ fn spawn_create_workflow<V: BulkSelectionHost>(
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
-            .spawn(async move { api::workflows::create(&trpc, &team_id, &issue_ids, None) })
+            .spawn(async move {
+                api::workflows::create(
+                    &trpc,
+                    &team_id,
+                    &issue_ids,
+                    None,
+                    device_id.as_deref(),
+                )
+            })
             .await;
         let _ = list.update(cx, |this, cx| {
             this.set_bulk_busy(false);
@@ -1595,6 +1631,14 @@ impl Render for IssueListView {
                 .map(|team_id| queries::team_status_options(cx, &team_id))
                 .unwrap_or_else(domain::statuses::default_resolved_statuses),
         );
+        // EXP-1045: and the members the row assignee pickers offer — the
+        // whole list is one team, so one query feeds every row (see
+        // `row_assignees`). A solo team draws no assignee cell, so it pays
+        // nothing.
+        self.row_assignees = Rc::new(match (self.solo_team, self.bulk_team_id(cx)) {
+            (false, Some(team_id)) => queries::team_users(cx, &team_id),
+            _ => Vec::new(),
+        });
 
         // EXP-439: classify the chip treatment off the LAST frame's measured
         // width (0 until the first prepaint — default to full chips, web
@@ -1894,41 +1938,51 @@ pub(crate) fn control_cell(id: ElementId) -> gpui::Stateful<gpui::Div> {
 }
 
 /// Priority dropdown (web `PriorityDropdown`): xsmall ghost trigger with the
-/// colored priority glyph; options carry icon + label + check (right side —
-/// left-side checks would replace our icons, §4.6).
+/// colored priority glyph.
+///
+/// EXP-1045: the row chip opens THE priority picker, the same one the detail
+/// header's chip does — one property, one code path. (The row CONTEXT menu
+/// keeps its hand-built submenu: a trigger-owning `Picker` cannot BE a
+/// submenu of another menu.) A picker per row, so it names itself — the
+/// default identity is the call site, which every row shares.
 fn priority_dropdown(issue: &Issue, cx: &App) -> impl IntoElement {
     let config = get_issue_priority_config(issue.priority);
     let current = issue.priority;
     let issue_id = issue.id.clone();
+    let picker_id = row_id("priority-picker", &issue.id);
 
-    Button::new(row_id("priority", &issue.id))
+    let trigger = Button::new(row_id("priority", &issue.id))
         .ghost().cursor_pointer()
         .xsmall()
         .icon(option_icon(config, cx))
-        .dropdown_menu(move |menu, _window, cx| {
-            let mut menu = menu.check_side(Side::Right);
-            for option in &ISSUE_PRIORITY_OPTIONS {
-                let issue_id = issue_id.clone();
-                let value = option.value;
-                menu = menu.item(option_item(
-                    SharedString::from(option.label),
-                    option_icon(option, cx),
-                    option.value == current,
-                    move |_window, cx| {
-                        let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                        input.priority = Some(value);
-                        spawn_issue_update(cx, input);
-                    },
-                ));
-            }
-            menu
-        })
+        .into_any_element();
+    crate::picker::deferred(move |window, cx| {
+        crate::picker::priority_picker::priority_picker(
+            crate::picker::PickerMode::Single,
+            vec![current],
+            trigger,
+            Rc::new(move |values, _window, cx| {
+                let Some(value) = values.first().copied() else {
+                    return;
+                };
+                let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                input.priority = Some(value);
+                spawn_issue_update(cx, input);
+            }),
+        )
+        .id(picker_id)
+        .render(window, cx)
+    })
 }
 
 /// Status dropdown (web `StatusDropdown`). EXP-314: the trigger renders the
-/// issue's RESOLVED status and the menu lists the team's own vocabulary;
+/// issue's RESOLVED status and the rows list the team's own vocabulary;
 /// picking a duplicate-category status is intercepted into the duplicate
 /// picker (L27), never a direct status write.
+///
+/// EXP-1045: THE status picker, the same one the detail header's chip opens.
+/// (The row CONTEXT menu keeps `status_menu` — a submenu cannot be a
+/// trigger-owning `Picker`.)
 pub(crate) fn status_dropdown(
     issue: &Issue,
     statuses: &Rc<Vec<ResolvedStatus>>,
@@ -1936,31 +1990,43 @@ pub(crate) fn status_dropdown(
 ) -> impl IntoElement {
     let resolved = resolve_in(issue, statuses);
     let current_key = resolved.group_key.clone();
-    // EXP-915: the frame's shared vocabulary rides into the menu closure as
-    // a handle (it used to be `to_vec()`'d once per row per frame).
+    // EXP-915: the frame's shared vocabulary rides into the closure as a
+    // handle (it used to be `to_vec()`'d once per row per frame).
     let statuses = statuses.clone();
     let issue_id = issue.id.clone();
+    let picker_id = row_id("status-picker", &issue.id);
 
-    Button::new(row_id("status", &issue.id))
+    let trigger = Button::new(row_id("status", &issue.id))
         .ghost().cursor_pointer()
         .xsmall()
         .icon(resolved_status_icon(&resolved, cx))
-        .dropdown_menu(move |menu, _window, cx| {
-            let issue_id = issue_id.clone();
-            status_menu(
-                menu,
-                &statuses,
-                &current_key,
-                // Single-issue surface: the duplicate row IS offered, and
-                // `apply_status_selection` intercepts it into the canonical
-                // picker (L27).
-                StatusMenuScope::SingleIssue,
-                Rc::new(move |pick, window, cx| {
-                    apply_status_selection(issue_id.clone(), pick, window, cx)
-                }),
-                cx,
-            )
-        })
+        .into_any_element();
+    crate::picker::deferred(move |window, cx| {
+        // Single-issue surface: the duplicate row IS offered, and
+        // `apply_status_selection` intercepts it into the canonical picker
+        // (L27). `StatusMenuScope::SingleIssue` filters NOTHING, so the
+        // frame's shared vocabulary IS the row list — no per-row `to_vec()`
+        // (EXP-915), and the lookup below rides the same handle.
+        let picks = statuses.clone();
+        crate::picker::status_picker::status_picker(
+            &statuses,
+            crate::picker::PickerMode::Single,
+            vec![current_key],
+            trigger,
+            Rc::new(move |keys, window, cx| {
+                let Some(pick) = keys
+                    .first()
+                    .and_then(|key| picks.iter().find(|status| &status.group_key == key))
+                    .map(StatusPick::from_resolved)
+                else {
+                    return;
+                };
+                apply_status_selection(issue_id.clone(), pick, window, cx);
+            }),
+        )
+        .id(picker_id)
+        .render(window, cx)
+    })
 }
 
 /// The issue's status within a PRE-RESOLVED team vocabulary (the frame's
@@ -1991,9 +2057,15 @@ fn resolve_in(issue: &Issue, statuses: &[ResolvedStatus]) -> ResolvedStatus {
 }
 
 /// Assignee dropdown (web `AssigneeDropdown`): avatar trigger when assigned,
-/// dashed placeholder circle otherwise; menu = Unassign + the team's
+/// dashed placeholder circle otherwise; rows = `Unassigned` + the team's
 /// human members (current assignee first — web `orderedUsers`).
-fn assignee_dropdown(issue: &Issue, cx: &mut App) -> impl IntoElement {
+///
+/// EXP-1045: THE assignee picker, the same one the detail header's chip
+/// opens — searchable, avatar rows, `Unassigned` as a real row. (The row
+/// CONTEXT menu keeps `assignee_menu`: a submenu cannot own a trigger.)
+/// `members` is the frame's shared list (`row_assignees`) — the picker owns
+/// its rows, so a per-row query would run on every render.
+fn assignee_dropdown(issue: &Issue, members: &Rc<Vec<User>>, cx: &mut App) -> impl IntoElement {
     let assignee = issue
         .assignee_id
         .as_deref()
@@ -2036,15 +2108,38 @@ fn assignee_dropdown(issue: &Issue, cx: &mut App) -> impl IntoElement {
     };
 
     let issue_id = issue.id.clone();
-    let board_id = issue.board_id.clone();
     let current = issue.assignee_id.clone();
-    trigger.dropdown_menu(move |menu, _window, cx| {
-        // Member lists grow with the team — cap + scroll (EXP-46a).
-        // Scrollable ONLY on this top-level dropdown: the same body renders
-        // as a context-menu SUBMENU below, where scrollable is unsupported
-        // at the pinned gpui-component rev.
-        let menu = menu.scrollable(true).max_h(px(320.));
-        assignee_menu(menu, &issue_id, &board_id, current.as_deref(), cx)
+    let picker_id = row_id("assignee-picker", &issue.id);
+    let members = members.clone();
+    let trigger = trigger.into_any_element();
+    crate::picker::deferred(move |window, cx| {
+        use crate::picker::assignee_picker::UNASSIGNED_VALUE;
+        // Member lists grow with the team; the picker's own filter field and
+        // scroll cap are what carry that now, so the rows stay name-sorted
+        // rather than current-first (the mark already says who is on it).
+        crate::picker::assignee_picker::assignee_picker(
+            &members,
+            crate::picker::PickerMode::Single,
+            // Unassigned is a real ROW with a real value, so an unassigned
+            // issue PICKS it rather than marking nothing.
+            vec![current
+                .clone()
+                .unwrap_or_else(|| UNASSIGNED_VALUE.to_string())],
+            true,
+            trigger,
+            Rc::new(move |picked, _window, cx| {
+                let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
+                input.assignee_id = match picked.first() {
+                    Some(user_id) if user_id != UNASSIGNED_VALUE => {
+                        api::Patch::Set(user_id.clone())
+                    }
+                    _ => api::Patch::Null,
+                };
+                spawn_issue_update(cx, input);
+            }),
+        )
+        .id(picker_id)
+        .render(window, cx)
     })
 }
 

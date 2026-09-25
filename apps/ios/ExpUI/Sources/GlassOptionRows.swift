@@ -53,23 +53,12 @@ public struct GlassPickerRow<SelectionValue: Hashable>: View {
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .foregroundStyle(.white.opacity(enabled ? TextOpacity.primary : TextOpacity.quaternary))
-            Spacer(minLength: 8)
-            if let glyph = icon?(selection) {
-                AppIcon(glyph, size: 14)
-                    .foregroundStyle(
-                        .white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary)
-                    )
-            }
-            Text(label(selection))
-                .foregroundStyle(.white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary))
-                .lineLimit(1)
-            AppIcon(AppIcons.uiChevronRight, size: 14)
-                .foregroundStyle(.white.opacity(enabled ? TextOpacity.tertiary : TextOpacity.quaternary))
-        }
-        .contentShape(Rectangle())
+        GlassPickerRowLabel(
+            title,
+            value: label(selection),
+            icon: icon?(selection),
+            enabled: enabled
+        )
         .onTapGesture {
             guard enabled else { return }
             showsOptions = true
@@ -94,6 +83,44 @@ public struct GlassPickerRow<SelectionValue: Hashable>: View {
                 }
             }
         }
+    }
+}
+
+/// The ROW ITSELF, without the tap or the sheet — what a form row that hands
+/// its presentation to the shared picker (`GlassPicker`, EXP-1021) renders as
+/// the picker's trigger. `GlassPickerRow` above is this label plus its own
+/// untyped sheet, for the picks the ten typed pickers do not model.
+public struct GlassPickerRowLabel: View {
+    let title: String
+    let value: String
+    var icon: String?
+    var enabled: Bool = true
+
+    public init(_ title: String, value: String, icon: String? = nil, enabled: Bool = true) {
+        self.title = title
+        self.value = value
+        self.icon = icon
+        self.enabled = enabled
+    }
+
+    public var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .foregroundStyle(.white.opacity(enabled ? TextOpacity.primary : TextOpacity.quaternary))
+            Spacer(minLength: 8)
+            if let icon {
+                AppIcon(icon, size: 14)
+                    .foregroundStyle(
+                        .white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary)
+                    )
+            }
+            Text(value)
+                .foregroundStyle(.white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary))
+                .lineLimit(1)
+            AppIcon(AppIcons.uiChevronRight, size: 14)
+                .foregroundStyle(.white.opacity(enabled ? TextOpacity.tertiary : TextOpacity.quaternary))
+        }
+        .contentShape(Rectangle())
     }
 }
 

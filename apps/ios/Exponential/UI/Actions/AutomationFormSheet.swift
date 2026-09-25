@@ -178,18 +178,23 @@ struct AutomationFormSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             } else {
-                GlassPickerRow(
-                    "Action",
-                    selection: $actionId,
-                    options: eligibleActions.map(\.id),
-                    label: { id in
-                        eligibleActions.first { $0.id == id }?.name ?? id
+                // EXP-1021: the shared `ActionPicker`; the row is only its
+                // trigger. EXP-827 stands — an action is recognised by its
+                // curated icon, and the picker leads every row with it,
+                // exactly as the web dialog draws it.
+                ActionPicker(
+                    actions: eligibleActions.map {
+                        ActionPickerAction(id: $0.id, name: $0.name, icon: $0.icon)
                     },
-                    // EXP-827: an action is recognised by its curated icon —
-                    // the glyph leads the name here and in the picker sheet,
-                    // exactly as the web dialog draws it.
-                    icon: { id in
-                        eligibleActions.first { $0.id == id }?.icon ?? AppIcons.actionDefault
+                    value: actionId,
+                    onChange: { actionId = $0 },
+                    trigger: {
+                        GlassPickerRowLabel(
+                            "Action",
+                            value: eligibleActions.first { $0.id == actionId }?.name ?? actionId,
+                            icon: eligibleActions.first { $0.id == actionId }?.icon
+                                ?? AppIcons.actionDefault
+                        )
                     }
                 )
             }

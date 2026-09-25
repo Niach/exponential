@@ -480,9 +480,12 @@ struct CreateIssueView: View {
                     )
                 }
             }
-        .sheet(item: $picker) { target in
+        // EXP-1021: status / priority / assignee are TYPED pickers driven by
+        // `open`; only the label editor still presents a view.
+        .sheet(item: viewPicker) { target in
             pickerSheet(target)
         }
+        .background { propertyPickers }
         // A close that did not go through the toolbar's Back (a system pop,
         // an account switch) still owes the one write.
         .onDisappear {
@@ -493,69 +496,84 @@ struct CreateIssueView: View {
         }
     }
 
+    /// The pickers that still present a VIEW of their own — only the label
+    /// editor, which is a name + a swatch strip rather than a row list.
+    private var viewPicker: Binding<CreateIssuePicker?> {
+        Binding(
+            get: { picker == .createLabel ? picker : nil },
+            set: { picker = $0 }
+        )
+    }
+
+    /// One picker's open state (EXP-1021): the metadata row that set `picker`
+    /// is the trigger, and it lives in a different part of the tree.
+    private func pickerOpen(_ target: CreateIssuePicker) -> Binding<Bool> {
+        Binding(
+            get: { picker == target },
+            set: { isOpen in if !isOpen, picker == target { picker = nil } }
+        )
+    }
+
+    /// The new issue's property pickers — the SAME typed pickers the issue
+    /// face uses, over the same sheet.
     @ViewBuilder
-    private func pickerSheet(_ target: CreateIssuePicker) -> some View {
-        switch target {
-        case .status:
-            GlassPickerSheet(
-                title: "Status",
+    private var propertyPickers: some View {
+        ZStack {
+            StatusPicker(
                 // Duplicate CATEGORY = status interception (L27): a new issue
                 // can't be a duplicate (nothing to link yet), so it's not a
                 // create option. The team's own status order — the ONE picker
                 // vocabulary (REV2-85).
-                items: teamStatuses.filter { $0.category != .duplicate },
-                selectedID: status.id,
-                idFor: { $0.id },
-                onSelect: { status = $0 }
-            ) { s in
-                Label {
-                    Text(s.name)
-                } icon: {
-                    AppIcon(s.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(s.color)
-                }
-            }
-        case .priority:
-            GlassPickerSheet(
-                title: "Priority",
-                items: IssuePriority.displayOrder,
-                selectedID: priority.id,
-                idFor: { $0.id },
-                onSelect: { priority = $0 }
-            ) { p in
-                Label {
-                    Text(p.label)
-                } icon: {
-                    AppIcon(p.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(p.color)
-                }
-            }
-        case .assignee:
-            GlassPickerSheet(
-                title: "Assignee",
-                items: assigneeOptions(users: users),
-                selectedID: assigneeId ?? AssigneeOption.unassigned.id,
-                idFor: { $0.id },
-                onSelect: { assigneeId = $0.userId }
-            ) { option in
-                if option.userId == nil {
-                    Label {
-                        Text("Unassigned")
-                    } icon: {
-                        AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.medium)
-                    }
-                } else {
-                    Label {
-                        Text(option.displayName)
-                    } icon: {
-                        AppIcon(AppIcons.uiAssignee, size: AppIcon.Size.medium)
-                    }
-                }
-            }
+                statuses: teamStatuses
+                    .filter { $0.category != .duplicate }
+                    .map(StatusPickerStatus.init),
+                value: [status.id],
+                onChange: { picked in
+                    guard let selected = teamStatuses.first(where: { picked.contains($0.id) })
+                    else { return }
+                    status = selected
+                },
+                open: pickerOpen(.status),
+                hideTrigger: true,
+                trigger: { EmptyView() }
+            )
+
+            PriorityPicker(
+                options: IssuePriority.displayOrder.map(PriorityPickerOption.init),
+                value: [priority.id],
+                onChange: { picked in
+                    guard let selected = IssuePriority.displayOrder
+                        .first(where: { picked.contains($0.id) }) else { return }
+                    priority = selected
+                },
+                open: pickerOpen(.priority),
+                hideTrigger: true,
+                trigger: { EmptyView() }
+            )
+
+            AssigneePicker(
+                members: users.map(AssigneePickerMember.init),
+                // An EMPTY set is unassigned; the picker offers the row that
+                // clears the pick and reports it back as nothing.
+                value: assigneeId.map { [$0] } ?? [],
+                onChange: { picked in assigneeId = picked.first },
+                open: pickerOpen(.assignee),
+                hideTrigger: true,
+                trigger: { EmptyView() }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func pickerSheet(_ target: CreateIssuePicker) -> some View {
+        switch target {
         case .createLabel:
             CreateLabelSheet { name, color in
                 Task { await createAndSelectLabel(name: name, color: color) }
             }
+        // The typed pickers (EXP-1021) never come through here.
+        case .status, .priority, .assignee:
+            EmptyView()
         }
     }
 

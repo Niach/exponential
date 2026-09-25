@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 // EXP-1029 contract — the assignee picker: the team's members by avatar +
@@ -30,6 +31,14 @@ public struct AssigneePicker<Trigger: View>: View {
     public let onChange: (Set<String>) -> Void
     /// Offer the `Unassigned` row (single mode only).
     public let allowsNone: Bool
+    /// EXP-1021 — the surface controls every typed picker forwards verbatim
+    /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
+    /// property row or `…` menu drives `open` and hides the trigger, and
+    /// `onDismiss` fires once the sheet finished animating away (what a
+    /// hand-off to a SECOND picker is promoted on).
+    public let open: Binding<Bool>?
+    public let hideTrigger: Bool
+    public let onDismiss: (() -> Void)?
     private let trigger: () -> Trigger
 
     public init(
@@ -38,6 +47,9 @@ public struct AssigneePicker<Trigger: View>: View {
         value: Set<String>,
         onChange: @escaping (Set<String>) -> Void,
         allowsNone: Bool = true,
+        open: Binding<Bool>? = nil,
+        hideTrigger: Bool = false,
+        onDismiss: (() -> Void)? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.members = members
@@ -45,6 +57,9 @@ public struct AssigneePicker<Trigger: View>: View {
         self.value = value
         self.onChange = onChange
         self.allowsNone = allowsNone
+        self.open = open
+        self.hideTrigger = hideTrigger
+        self.onDismiss = onDismiss
         self.trigger = trigger
     }
 
@@ -71,6 +86,33 @@ public struct AssigneePicker<Trigger: View>: View {
             search: true,
             emptyText: "No members",
             title: "Assignee",
+            open: open,
+            hideTrigger: hideTrigger,
+            onDismiss: onDismiss,
+            // The avatar is what makes a member row a MEMBER row, and it is
+            // not a `PickerItem` slot (a picker glyph is an icon, never a
+            // photo) — so the one picker that needs one draws it over the
+            // primitive's mark. `Unassigned` keeps its own glyph: there is
+            // nobody to picture.
+            renderMark: { item in
+                if item.value == Self.unassignedValue {
+                    return AnyView(
+                        AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    )
+                }
+                guard let member = members.first(where: { $0.id == item.value }) else { return nil }
+                return AnyView(
+                    UserAvatar(
+                        image: member.image,
+                        initials: memberInitials(
+                            forDisplayName: member.name.isEmpty ? (member.email ?? "") : member.name
+                        ),
+                        hueKey: member.id,
+                        size: 22
+                    )
+                )
+            },
             trigger: trigger
         )
     }

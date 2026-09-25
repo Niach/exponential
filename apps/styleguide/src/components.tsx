@@ -3152,7 +3152,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `combobox`,
     title: `Combobox`,
     kind: `Inputs & pickers`,
-    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. EXP-958 folded the last two closed single-selects onto it — the status and priority menu, whose desktop arm marked no row at all, and the settings picker row, which was a Select on desktop and a hand-rolled sheet on the phone — as searchable={false} pickers with two more triggers: row (the glass form ladder's picker row, label leading, value trailing) and inline (one word of the muted sentence under the composer, which collapses to plain text with a single option). The demo shows the four triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all.`,
+    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. EXP-958 folded the last two closed single-selects onto it — the status and priority menu, whose desktop arm marked no row at all, and the settings picker row, which was a Select on desktop and a hand-rolled sheet on the phone — as searchable={false} pickers with two more triggers: row (the glass form ladder's picker row, label leading, value trailing) and inline (one word of the muted sentence under the composer, which collapses to plain text with a single option). The demo shows the four triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all. EXP-1021 added selectionStyle: the circle pair above is the glyph arm, still what every Combobox call site draws, while the Picker primitive built on these surfaces passes highlight and marks a multi pick by the row's own wash. The four triggers moved to picker/picker-trigger.tsx so both arms draw ONE set.`,
     status: {
       web: ok(
         `Combobox / ComboboxList / ComboboxMenuItems`,
@@ -3160,19 +3160,19 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `PickerOption is the row shape; ComboboxList the body without the popover; ComboboxMenuItems the rows inside a Radix menu`
       ),
       desktop: ok(
-        `pickers::searchable_picker`,
-        `apps/desktop/crates/ui/src/pickers.rs`,
-        `EXP-963: PickerOption + PickerSelection Single/Multi; the label and board popovers wrap it`
+        `picker::Picker`,
+        `apps/desktop/crates/ui/src/picker/mod.rs`,
+        `EXP-1021 retired searchable_picker; the primitive owns its query + cursor, so a host holds no picker entities`
       ),
       ios: leftover(
         `GlassPickerSheet`,
         `apps/ios/ExpUI/Sources/GlassSheet.swift`,
-        `a sheet per subject over GlassSheetRow; the selection glyphs agree, the generic picker does not exist`
+        `EXP-1021 built the generic picker (GlassPicker, its own entry); this keeps the picks outside the ten typed subjects`
       ),
       android: leftover(
         `GlassSheetRow`,
         `${ANDROID_COMPONENTS}/GlassSheet.kt`,
-        `only the ROW is shared — every picker sheet re-assembles sheet + search field + rows by hand`
+        `EXP-1021 built the generic picker (Picker, its own entry); this row is what the sheets outside the ten assemble`
       ),
     },
     island: () => (

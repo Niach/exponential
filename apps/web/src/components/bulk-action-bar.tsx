@@ -9,9 +9,14 @@ import {
   workflowCollection,
 } from "@/lib/collections"
 import {
+  assigneePickerItems,
   conceptIcon,
   Button,
   ComboboxMenuItems,
+  labelPickerItems,
+  pickerMenuRows,
+  priorityPickerItems,
+  statusPickerItems,
   Pill,
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +24,6 @@ import {
   DropdownMenuTrigger,
   Separator,
   UserAvatar,
-  type PickerOption,
 } from "@exp/ui"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
@@ -45,7 +49,7 @@ import {
   statusUpdatePayload,
   type StatusRowOption,
 } from "@/lib/team-statuses"
-import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
+import { toStatusPickerStatuses } from "@/components/issue-properties/status-dropdown"
 import { displayUserName } from "@/lib/user-display"
 
 // Bulk action bar: rendered by the board / My Issues views as an in-flow row
@@ -135,16 +139,22 @@ export function BulkActionBar({
     [users]
   )
 
-  // EXP-957 — the menu rows and the value they mark. `statusRows` stays around
-  // beside its menu options because a pick reports an id and `applyStatus`
+  // EXP-957/EXP-1021 — the menu rows and the value they mark. The rows are
+  // the TYPED pickers' rows bridged into the menu arm (`pickerMenuRows`), so
+  // a status row here is the same row the status picker draws. `statusRows`
+  // stays around beside them because a pick reports an id and `applyStatus`
   // needs the ROW (the fallback set's synthetic ids are not in `statusById`).
   const statusRows = useMemo(
     () => creatableStatusOptions(teamStatusOptions),
     [teamStatusOptions]
   )
-  const statusMenuOptions = useMemo(
-    () => toStatusMenuOptions(statusRows),
+  const statusMenuRows = useMemo(
+    () => pickerMenuRows(statusPickerItems(toStatusPickerStatuses(statusRows))),
     [statusRows]
+  )
+  const priorityMenuRows = useMemo(
+    () => pickerMenuRows(priorityPickerItems(issuePriorityOptions)),
+    []
   )
   const sharedStatus = useMemo(
     () => sharedValue(issues, (issue) => resolveStatus(issue).id),
@@ -159,21 +169,25 @@ export function BulkActionBar({
     [issues]
   )
 
-  const usersById = useMemo(
-    () => new Map(orderedUsers.map((user) => [user.id, user])),
+  const members = useMemo(
+    () =>
+      orderedUsers.map((user) => ({
+        id: user.id,
+        name: displayUserName(user, user.id),
+        email: user.email,
+        image: user.image,
+      })),
     [orderedUsers]
   )
-  const assigneeOptions = useMemo<PickerOption[]>(
-    () =>
-      orderedUsers.map((user) => {
-        const name = displayUserName(user, user.id)
-        return {
-          value: user.id,
-          label: name,
-          keywords: [name, user.email ?? ``],
-        }
-      }),
-    [orderedUsers]
+  const membersById = useMemo(
+    () => new Map(members.map((member) => [member.id, member])),
+    [members]
+  )
+  // `Unassigned` is the menu arm's own `noneLabel` row here (it reports
+  // `null`), so the picker's `allowsNone` row is left off.
+  const assigneeMenuRows = useMemo(
+    () => pickerMenuRows(assigneePickerItems(members)),
+    [members]
   )
 
   // Sequential chunk loop; awaiting only the LAST txId is enough — Electric
@@ -256,31 +270,33 @@ export function BulkActionBar({
   // selection is `"indeterminate"`); `value` stays the honest membership array
   // the toggle arithmetic runs on, so `onChange` reports exactly one changed
   // id — the row that was picked.
-  const labelOptions = useMemo<PickerOption[]>(
+  const labelMenuRows = useMemo(
     () =>
-      labels.map((label) => {
-        const state = labelState(label)
-        return {
-          value: label.id,
-          label: label.name,
-          dot: label.color,
-          checked:
-            state === `all`
-              ? true
-              : state === `some`
-                ? (`indeterminate` as const)
-                : false,
-        }
-      }),
+      pickerMenuRows(
+        labelPickerItems(labels).map((item) => {
+          const state = labelState(
+            labels.find((label) => label.id === item.value)!
+          )
+          return {
+            ...item,
+            checked:
+              state === `all`
+                ? true
+                : state === `some`
+                  ? (`indeterminate` as const)
+                  : false,
+          }
+        })
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- labelState reads exactly these.
     [labels, issues, issueLabelMap]
   )
   const selectedLabelIds = useMemo(
     () =>
-      labelOptions
+      labelMenuRows.options
         .filter((option) => option.checked === true)
         .map((option) => option.value),
-    [labelOptions]
+    [labelMenuRows]
   )
 
   const toggleLabelId = (next: string[]) => {
@@ -389,7 +405,7 @@ export function BulkActionBar({
               intercept via the picker). */}
             <ComboboxMenuItems
               menu="dropdown"
-              options={statusMenuOptions}
+              {...statusMenuRows}
               value={sharedStatus.value}
               indeterminate={sharedStatus.mixed}
               onChange={(statusId) => {
@@ -424,12 +440,12 @@ export function BulkActionBar({
           >
             <ComboboxMenuItems
               menu="dropdown"
-              options={issuePriorityOptions}
+              {...priorityMenuRows}
               value={sharedPriority.value}
               indeterminate={sharedPriority.mixed}
               onChange={(priority) => {
                 if (priority === null) return
-                void applyPriority(priority)
+                void applyPriority(priority as IssuePriority)
               }}
             />
           </DropdownMenuContent>
@@ -461,24 +477,15 @@ export function BulkActionBar({
                 marked only when EVERY selected issue is unassigned. */}
               <ComboboxMenuItems
                 menu="dropdown"
-                options={assigneeOptions}
+                {...assigneeMenuRows}
                 value={sharedAssignee.value}
                 indeterminate={sharedAssignee.mixed}
                 noneLabel="Unassigned"
                 onChange={(assigneeId) => void applyAssignee(assigneeId)}
                 renderOption={(option) => (
                   <>
-                    <UserAvatar
-                      size={20}
-                      user={{
-                        id: option.value,
-                        name: String(option.label),
-                        image: usersById.get(option.value)?.image ?? null,
-                      }}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      {option.label}
-                    </span>
+                    <UserAvatar size={20} user={membersById.get(option.value)} />
+                    {assigneeMenuRows.renderOption(option)}
                   </>
                 )}
               />
@@ -512,7 +519,7 @@ export function BulkActionBar({
             <ComboboxMenuItems
               menu="dropdown"
               multiple
-              options={labelOptions}
+              {...labelMenuRows}
               value={selectedLabelIds}
               onChange={toggleLabelId}
               emptyText="No labels yet"

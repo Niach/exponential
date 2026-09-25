@@ -1986,12 +1986,17 @@ fn pick_row(
 /// draft cannot start without a machine; everything else a workflow used to
 /// configure is gone). Fixed the moment the workflow leaves draft, which is
 /// what the server enforces too.
+///
+/// EXP-1030: the pick itself is THE device picker
+/// ([`crate::picker::device_picker`]) — the same rows, the same glyphs, the
+/// same empty copy the composer and the automation editor show. Only the
+/// trigger is this header's own.
 fn device_control(
     workflow_id: &str,
     picked: Option<&str>,
     devices: Vec<queries::LaunchDevice>,
     enabled: bool,
-    _cx: &App,
+    cx: &App,
 ) -> gpui::AnyElement {
     let label = picked
         .and_then(|device_id| {
@@ -2003,36 +2008,36 @@ fn device_control(
         .unwrap_or_else(|| "No machine".to_string());
     let workflow_id = workflow_id.to_string();
     let picked = picked.map(str::to_string);
-    Button::new("workflow-device")
+    let trigger = Button::new("workflow-device")
         .ghost()
         .small()
         .icon(Icon::from(registry::NAV_DEVICES))
         .label(SharedString::from(label))
         .disabled(!enabled)
         .dropdown_caret(true)
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            if devices.is_empty() {
-                return menu.item(PopupMenuItem::new("No machines").disabled(true));
-            }
-            for device in &devices {
-                let device_id = device.device_id.clone();
-                let name = device.label.clone();
-                let on = picked.as_deref() == Some(device_id.as_str());
-                let workflow_id = workflow_id.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(name))
-                        .checked(on)
-                        .on_click(move |_, _window, cx| {
-                            let mut input =
-                                api::workflows::WorkflowUpdate::new(workflow_id.clone());
-                            input.device_id = api::Patch::Set(device_id.clone());
-                            spawn_update(input, cx);
-                        }),
-                );
-            }
-            menu
-        })
-        .into_any_element()
+        .into_any_element();
+    let rows = crate::launch_options::launch_device_rows(&devices, cx);
+    crate::picker::deferred(move |window, cx| {
+        crate::picker::device_picker::device_picker(
+            &rows,
+            picked.clone(),
+            trigger,
+            std::rc::Rc::new(move |values: Vec<String>, _window, cx: &mut App| {
+                let Some(device_id) = values.into_iter().next() else {
+                    return;
+                };
+                let mut input = api::workflows::WorkflowUpdate::new(workflow_id.clone());
+                input.device_id = api::Patch::Set(device_id);
+                spawn_update(input, cx);
+            }),
+        )
+        // A workflow that cannot be re-pointed any more shows its runner,
+        // inert: the primitive drops the surface with the picker disabled.
+        .disabled(!enabled)
+        .empty_text("No machines")
+        .render(window, cx)
+    })
+    .into_any_element()
 }
 
 /// Destructive actions confirm first (the machines Remove pattern).

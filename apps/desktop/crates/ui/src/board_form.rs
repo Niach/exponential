@@ -4,8 +4,10 @@
 //! start-coding action inputs. Callback-style so each host owns its own state
 //! (dialog draft vs immediate `boards.update`).
 
+use std::rc::Rc;
+
 use gpui::{
-    div, px, App, InteractiveElement as _, IntoElement, ParentElement, SharedString,
+    div, px, App, InteractiveElement as _, IntoElement, ParentElement, RenderOnce, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
@@ -37,7 +39,7 @@ const ICON_GRID_PAD: f32 = 4.;
 /// third of it empty). The box's own padding is INCLUDED — taffy sizes
 /// border-box, so the flat 266 this used to carry left room for seven cells
 /// per row, not the eight it was named for.
-fn icon_grid_width(count: usize) -> f32 {
+pub(crate) fn icon_grid_width(count: usize) -> f32 {
     let columns = count.clamp(1, ICON_GRID_COLUMNS);
     columns as f32 * ICON_CELL
         + (columns - 1) as f32 * ICON_CELL_GAP
@@ -65,45 +67,100 @@ pub(crate) fn icon_picker(
     color: Option<&str>,
     allows_none: bool,
     on_pick: impl Fn(Option<&'static str>, &mut Window, &mut App) + Clone + 'static,
-    cx: &App,
+    _cx: &App,
 ) -> impl IntoElement {
-    let id_prefix: SharedString = id_prefix.into();
-    let selected: SharedString = selected.unwrap_or_default().to_string().into();
-    let has_pick = !selected.is_empty();
-    let tint = color.and_then(crate::settings::parse_hex_color);
-    let glyph = if has_pick {
-        let glyph = crate::icons::board_icon_name_glyph(&selected);
-        match tint {
-            Some(color) => glyph.text_color(color),
-            None => glyph,
-        }
-    } else {
-        Icon::from(registry::UI_ICON_PLACEHOLDER).text_color(cx.theme().muted_foreground)
-    };
-    // EXP-862: the icon and colour triggers and the name field share ONE row,
-    // so they share ONE height — the 32px control rung (`CTL_MD_H`, web h-9's
-    // desktop twin), down from the 36 this trigger used to pick alone.
-    let mut trigger = Button::new(SharedString::from(format!("{id_prefix}-icon-trigger")))
-        .outline()
-        .cursor_pointer()
-        .size(px(crate::controls::CTL_MD_H))
-        .icon(glyph);
-    if !has_pick {
-        trigger = trigger.border_dashed();
+    IconPickerElement {
+        id_prefix: id_prefix.into(),
+        options,
+        selected: SharedString::from(selected.unwrap_or_default().to_string()),
+        tint: color.and_then(crate::settings::parse_hex_color),
+        allows_none,
+        on_pick: Rc::new(on_pick),
     }
-    Popover::new(SharedString::from(format!("{id_prefix}-icon-popover")))
-        .trigger(trigger)
-        .content(move |_, _, cx| {
-            let popover = cx.entity();
-            let id_prefix = id_prefix.clone();
-            let selected = selected.clone();
+}
+
+/// [`icon_picker`] deferred to paint time: the shared [`crate::picker`]
+/// primitive mounts the surface and needs a `&mut Window`, which this
+/// picker's signature (the one every form already calls, EXP-1020's device
+/// dialog included) does not carry. A `RenderOnce` element gets one for
+/// free, so the primitive lands without a single caller changing.
+#[derive(IntoElement)]
+struct IconPickerElement {
+    id_prefix: SharedString,
+    options: &'static [&'static str],
+    /// The picked NAME, empty while none is.
+    selected: SharedString,
+    tint: Option<gpui::Hsla>,
+    allows_none: bool,
+    on_pick: Rc<dyn Fn(Option<&'static str>, &mut Window, &mut App)>,
+}
+
+impl RenderOnce for IconPickerElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let IconPickerElement {
+            id_prefix,
+            options,
+            selected,
+            tint,
+            allows_none,
+            on_pick,
+        } = self;
+        let has_pick = !selected.is_empty();
+        let glyph = if has_pick {
+            let glyph = crate::icons::board_icon_name_glyph(&selected);
+            match tint {
+                Some(color) => glyph.text_color(color),
+                None => glyph,
+            }
+        } else {
+            Icon::from(registry::UI_ICON_PLACEHOLDER).text_color(cx.theme().muted_foreground)
+        };
+        // EXP-862: the icon and colour triggers and the name field share ONE
+        // row, so they share ONE height — the 32px control rung (`CTL_MD_H`,
+        // web h-9's desktop twin).
+        let mut trigger = Button::new(SharedString::from(format!("{id_prefix}-icon-trigger")))
+            .outline()
+            .cursor_pointer()
+            .size(px(crate::controls::CTL_MD_H))
+            .icon(glyph);
+        if !has_pick {
+            trigger = trigger.border_dashed();
+        }
+
+        // The primitive reports a SET; an icon pick is at most one name, and
+        // the `&'static str` the forms store is the one from the offered
+        // set, never a fresh allocation.
+        let on_change: crate::picker::OnPickerChange<String> = {
             let on_pick = on_pick.clone();
+            Rc::new(move |values, window, cx| {
+                let picked = values
+                    .into_iter()
+                    .next()
+                    .and_then(|name| options.iter().copied().find(|known| **known == *name));
+                on_pick(picked, window, cx);
+            })
+        };
+        let panel_prefix = id_prefix.clone();
+        let panel_selected = selected.clone();
+        crate::picker::icon_picker::icon_picker(
+            crate::picker::icon_picker::IconSet::of(options),
+            has_pick.then(|| selected.to_string()),
+            trigger.into_any_element(),
+            on_change,
+        )
+        // Every icon picker renders from THIS line, so the primitive's
+        // call-site identity would collide — each one names itself.
+        .id(SharedString::from(format!("{id_prefix}-icon")))
+        .panel(move |dismiss, _window, cx| {
+            let on_pick = on_pick.clone();
+            let id_prefix = panel_prefix.clone();
+            let selected = panel_selected.clone();
             // The grid only wraps inside a DEFINITE width — a popover's
             // content box is unconstrained. Up to 8 × 28px cells + gaps.
             let mut content = v_flex().w(px(icon_grid_width(options.len()))).p_1().gap_1();
-            if allows_none && has_pick {
+            if allows_none && !selected.is_empty() {
                 let on_pick = on_pick.clone();
-                let popover = popover.clone();
+                let dismiss = dismiss.clone();
                 content = content.child(
                     Button::new(SharedString::from(format!("{id_prefix}-icon-none")))
                         .ghost()
@@ -112,7 +169,7 @@ pub(crate) fn icon_picker(
                         .label("No icon")
                         .on_click(move |_, window, cx| {
                             on_pick(None, window, cx);
-                            popover.update(cx, |state, cx| state.dismiss(window, cx));
+                            dismiss(window, cx);
                         }),
                 );
             }
@@ -120,23 +177,27 @@ pub(crate) fn icon_picker(
             // EXP-924: a tall set scrolls INSIDE the popover rather than
             // hanging past the bottom of the window; a short one (the device
             // set's single row) never reaches the cap and simply hugs.
-            content.child(
-                div()
-                    .id(SharedString::from(format!("{id_prefix}-icon-grid")))
-                    .max_h(px(ICON_GRID_MAX_H))
-                    .overflow_y_scroll()
-                    .child(icon_swatch_grid(
-                        grid_prefix,
-                        options,
-                        &selected,
-                        move |name, window, cx| {
-                            on_pick(Some(name), window, cx);
-                            popover.update(cx, |state, cx| state.dismiss(window, cx));
-                        },
-                        cx,
-                    )),
-            )
+            content
+                .child(
+                    div()
+                        .id(SharedString::from(format!("{id_prefix}-icon-grid")))
+                        .max_h(px(ICON_GRID_MAX_H))
+                        .overflow_y_scroll()
+                        .child(icon_swatch_grid(
+                            grid_prefix,
+                            options,
+                            &selected,
+                            move |name, window, cx| {
+                                on_pick(Some(name), window, cx);
+                                dismiss(window, cx);
+                            },
+                            cx,
+                        )),
+                )
+                .into_any_element()
         })
+        .render(window, cx)
+    }
 }
 
 /// EXP-862 — THE colour picker: [`icon_picker`]'s twin over the swatch grid.
@@ -197,7 +258,7 @@ pub(crate) const SWATCH_COLORS: [&str; 20] = [
 /// glyph of the OFFERED set (`registry::PICKABLE_ICONS` for boards and
 /// actions, `registry::DEVICE_ICONS` for devices); the selected one carries
 /// the primary ring.
-fn icon_swatch_grid(
+pub(crate) fn icon_swatch_grid(
     id_prefix: SharedString,
     options: &'static [&'static str],
     selected: &str,

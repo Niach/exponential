@@ -209,48 +209,78 @@ struct AutomationTriggerForm: View {
             options: DomainContract.actionTriggerEventValues,
             label: { AutomationTriggerDisplay.eventLabel($0) }
         )
-        GlassPickerRow(
+        filterRow(
             "Board",
-            selection: $draft.filterBoardId,
-            options: [""] + options.boards.map(\.id),
-            label: { id in
-                guard !id.isEmpty else { return "Any board" }
-                return options.boards.first { $0.id == id }?.name ?? id
-            }
+            anyLabel: "Any board",
+            rows: BoardPicker<EmptyView>.items(options.boards.map(BoardPickerBoard.init)),
+            selection: $draft.filterBoardId
         )
         if draft.eventType == "label_added" {
-            GlassPickerRow(
+            filterRow(
                 "Label",
-                selection: $draft.filterLabelId,
-                options: [""] + options.labels.map(\.id),
-                label: { id in
-                    guard !id.isEmpty else { return "Any label" }
-                    return options.labels.first { $0.id == id }?.name ?? id
-                }
+                anyLabel: "Any label",
+                rows: LabelPicker<EmptyView>.items(options.labels.map(LabelPickerLabel.init)),
+                selection: $draft.filterLabelId
             )
         }
         if draft.eventType == "created" || draft.eventType == "priority_changed" {
-            GlassPickerRow(
+            filterRow(
                 "Priority",
-                selection: $draft.filterPriority,
-                options: [""] + IssuePriority.displayOrder.map(\.rawValue),
-                label: { value in
-                    guard !value.isEmpty else { return "Any priority" }
-                    return IssuePriority.displayOrder
-                        .first { $0.rawValue == value }?.label ?? value
-                }
+                anyLabel: "Any priority",
+                rows: PriorityPicker<EmptyView>.items(
+                    IssuePriority.displayOrder.map(PriorityPickerOption.init)
+                ),
+                selection: $draft.filterPriority
             )
         }
         if draft.eventType == "status_changed" {
-            GlassPickerRow(
+            // EXP-314: the team's rows resolved the way every list resolves
+            // them, so a custom status keeps its own glyph and colour and the
+            // order matches the board it filters.
+            filterRow(
                 "To status",
-                selection: $draft.filterToStatusId,
-                options: [""] + options.statuses.map(\.id),
-                label: { id in
-                    guard !id.isEmpty else { return "Any status" }
-                    return options.statuses.first { $0.id == id }?.name ?? id
-                }
+                anyLabel: "Any status",
+                rows: StatusPicker<EmptyView>.items(
+                    IssueStatusResolver.teamStatuses(options.statuses)
+                        .map(StatusPickerStatus.init)
+                ),
+                selection: $draft.filterToStatusId
             )
         }
+    }
+
+    /// One event filter: the TYPED pickers' own rows — a board wears its glyph
+    /// in its colour, a label its dot, a status its glyph — on the shared
+    /// sheet, with the "Any X" reset as the FIRST row.
+    ///
+    /// Built from each typed picker's `items` rather than from the typed VIEW
+    /// on purpose, which is also what the IDE's filter rows do
+    /// (`automation_editor.rs`: `board_picker::board_items` + its own row) and
+    /// what Android's `AutomationFilterPicker` reads as: "Any board" is not a
+    /// board, and a mobile filter is SINGLE-select (a multi-id list seeds from
+    /// its first entry and travels as one, see this file's header), so there
+    /// is no empty multi-selection for a cleared filter to be — it is a row.
+    private func filterRow(
+        _ title: String,
+        anyLabel: String,
+        rows: [PickerItem<String>],
+        selection: Binding<String>
+    ) -> some View {
+        GlassPicker(
+            items: [PickerItem(value: "", label: anyLabel)] + rows,
+            mode: .single,
+            value: [selection.wrappedValue],
+            onChange: { picked in
+                guard let value = picked.first else { return }
+                selection.wrappedValue = value
+            },
+            title: title,
+            trigger: {
+                GlassPickerRowLabel(
+                    title,
+                    value: rows.first { $0.value == selection.wrappedValue }?.label ?? anyLabel
+                )
+            }
+        )
     }
 }

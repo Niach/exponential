@@ -4,6 +4,8 @@
 
 use gpui::AnyElement;
 
+use crate::icons::action_icon;
+
 use super::{OnPickerChange, Picker, PickerItem};
 
 /// An action row as the picker reads it (a synced `actions` row or a
@@ -20,7 +22,8 @@ pub(crate) fn action_items(actions: &[ActionPickerAction]) -> Vec<PickerItem<Str
     actions
         .iter()
         .map(|action| {
-            let mut item = PickerItem::new(action.id.clone(), action.name.clone());
+            let mut item = PickerItem::new(action.id.clone(), action.name.clone())
+                .icon(action_icon(action.icon.as_deref()));
             if let Some(description) = &action.description {
                 item = item.description(description.clone());
             }

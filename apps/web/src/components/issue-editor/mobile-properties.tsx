@@ -26,10 +26,12 @@ import {
 } from "@/components/issue-properties/priority-dropdown"
 import {
   toStatusMenuOption,
-  toStatusMenuOptions,
+  toStatusPickerStatuses,
 } from "@/components/issue-properties/status-dropdown"
 import {
   Combobox,
+  PriorityPicker,
+  StatusPicker,
   Button,
   conceptIcon,
   DatePicker,
@@ -181,19 +183,17 @@ export function IssueEditorMobileProperties({
     <div className="mx-3 my-3 flex flex-col gap-4">
       {/* EXP-994: the divided-rows shell, not a hand-divided card. */}
       <GlassGroup>
-        <Combobox
-          searchable={false}
+        <StatusPicker
+          statuses={toStatusPickerStatuses(statusOptions)}
           value={status.id}
           disabled={disabled || disableStatus}
-          options={toStatusMenuOptions(statusOptions)}
           width="sm"
           onChange={(id) => {
-            if (!id) return
             const picked = byId.get(id)
             if (picked) void onStatusChange(picked)
           }}
           mobileTitle="Status"
-          renderTrigger={() => (
+          trigger={
             <PropertyRow
               label="Status"
               disabled={disabled || disableStatus}
@@ -211,20 +211,17 @@ export function IssueEditorMobileProperties({
                 </>
               }
             />
-          )}
+          }
         />
 
-        <Combobox
-          searchable={false}
+        <PriorityPicker
+          options={priorities}
           value={priority}
           disabled={disabled}
-          options={priorities}
           width="sm"
-          onChange={(next) => {
-            if (next) void onPriorityChange(next)
-          }}
+          onChange={(next) => void onPriorityChange(next as IssuePriority)}
           mobileTitle="Priority"
-          renderTrigger={() => (
+          trigger={
             <PropertyRow
               label="Priority"
               disabled={disabled}
@@ -238,7 +235,7 @@ export function IssueEditorMobileProperties({
                 </>
               }
             />
-          )}
+          }
         />
 
         {!hideAssignee && (

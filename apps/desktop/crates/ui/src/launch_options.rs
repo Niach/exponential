@@ -506,6 +506,54 @@ pub(crate) fn inline_pin_trigger_with(
         .child(div().text_xs().child(SharedString::from(label)))
 }
 
+/// EXP-1030 — the candidate machines as THE device picker
+/// ([`crate::picker::device_picker`]) reads them: one row per machine, its
+/// [`crate::icons::device_icon_name`] glyph (its owner's pick, else its kind
+/// — resolved HERE, because the typed constructor takes no `&App` and the
+/// kind lives on the synced row), and its picker line as the label. Every
+/// launch surface that offers a machine — the composer's Device pin, the
+/// workflow header's runner — builds its rows through this ONE function, so
+/// they can never list the same fleet differently.
+pub(crate) fn launch_device_rows(
+    devices: &[crate::queries::LaunchDevice],
+    cx: &App,
+) -> Vec<crate::picker::device_picker::DevicePickerDevice> {
+    devices
+        .iter()
+        .map(|device| crate::picker::device_picker::DevicePickerDevice {
+            id: device.device_id.clone(),
+            name: device.label.clone(),
+            icon: Some(device_glyph_name(&device.device_id, cx).to_string()),
+            // The glyph above is already resolved (EXP-924), so the kind
+            // default the picker would derive from this is never consulted.
+            server: false,
+            description: None,
+            // EXP-615: an offline-but-capable machine is not a lesser choice
+            // (the run fires when it comes back), so no candidate is ever
+            // greyed out here.
+            disabled: false,
+        })
+        .collect()
+}
+
+/// The stored glyph NAME for one machine (EXP-924: its own `icon` when it
+/// names a device icon, else its kind's default) — resolved off the synced
+/// `devices` row, so a picker row and the Devices list wear the same mark.
+pub(crate) fn device_glyph_name(device_id: &str, cx: &App) -> &'static str {
+    let (icon, is_server) = sync::Store::try_global(cx)
+        .and_then(|store| {
+            store
+                .collections()
+                .devices
+                .read(cx)
+                .iter()
+                .find(|row| row.device_id.as_deref() == Some(device_id))
+                .map(|row| (row.icon.clone(), row.is_server()))
+        })
+        .unwrap_or((None, false));
+    crate::icons::device_icon_name(icon.as_deref(), is_server)
+}
+
 /// EXP-862: the composer options row's ICON-ONLY control (the `⋯` that
 /// opens more options) — the same muted ghost as the pins, a glyph instead of
 /// a word and no caret, web `Button variant="ghost" size="icon-xs"`.
