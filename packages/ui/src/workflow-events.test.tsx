@@ -44,6 +44,21 @@ describe(`WorkflowEventList`, () => {
     expect(rows[0]?.textContent).not.toContain(`EXP-12`)
   })
 
+  it(`filters to the picked nodes`, () => {
+    const { container } = render(
+      <WorkflowEventList
+        events={[
+          event(`a`, `node_started`, `2026-09-25T10:00:00Z`, { nodeId: `n1` }),
+          event(`b`, `landed`, `2026-09-25T11:00:00Z`, { nodeId: `n2` }),
+          event(`c`, `final_pr_opened`, `2026-09-25T12:00:00Z`),
+        ]}
+        nodeIds={[`n2`]}
+      />
+    )
+    const kinds = [...container.querySelectorAll(`[data-kind]`)].map((row) => row.getAttribute(`data-kind`))
+    expect(kinds).toEqual([`landed`])
+  })
+
   it(`opens the run behind a row that names one`, () => {
     const open = vi.fn()
     const { getByTestId } = render(

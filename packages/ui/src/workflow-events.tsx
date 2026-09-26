@@ -32,6 +32,8 @@ export interface WorkflowEventListProps {
   nodeLabel?: (nodeId: string) => string | null | undefined
   /** Makes rows with a `sessionId` open that run. */
   onOpenSession?: (sessionId: string) => void
+  /** EXP-1096: only the events of these nodes (a node panel); absent = all. */
+  nodeIds?: readonly string[]
   className?: string
 }
 
@@ -80,6 +82,16 @@ export function sortWorkflowEvents<T extends WorkflowEventListItem>(events: read
   )
 }
 
+/** EXP-1096: the events naming one of `nodeIds`; absent = every event. */
+export function filterWorkflowEvents<T extends WorkflowEventListItem>(
+  events: readonly T[],
+  nodeIds?: readonly string[]
+): T[] {
+  if (!nodeIds) return [...events]
+  const ids = new Set(nodeIds)
+  return events.filter((event) => event.nodeId != null && ids.has(event.nodeId))
+}
+
 /** Local `HH:mm`, empty for an unreadable stamp. */
 export function workflowEventTime(value: string | Date): string {
   const ms = stamp(value)
@@ -93,9 +105,10 @@ export function WorkflowEventList({
   events,
   nodeLabel,
   onOpenSession,
+  nodeIds,
   className,
 }: WorkflowEventListProps) {
-  const rows = sortWorkflowEvents(events)
+  const rows = sortWorkflowEvents(filterWorkflowEvents(events, nodeIds))
   if (rows.length === 0) return <ul data-slot="workflow-event-list" />
   return (
     <ul data-slot="workflow-event-list" className={cn(`flex flex-col`, className)}>

@@ -144,7 +144,7 @@ export type SessionTreeNode<T extends SessionTreeRow = SessionTreeRow> =
 
 /** A row is LIVE until the server ends it (`running` and `in_review` both
  *  are; `needs_input`/`blocked` are flags on a live row). */
-export function sessionRowIsLive(row: Pick<SessionTreeRow, `status`>): boolean {
+export function sessionRowIsLive(row: { status: string }): boolean {
   return row.status !== `ended`
 }
 
@@ -691,8 +691,6 @@ export function workflowRunAccountCaption(
 
 /** EXP-1068: the needs-you dot = a LIVE row with an open question. The amber
  *  needs-input/blocked flags are a separate mark, never this one. */
-export function sessionNeedsYou(
-  row: Pick<SessionTreeRow, `status`> & { pendingQuestion?: unknown }
-): boolean {
+export function sessionNeedsYou(row: { status: string; pendingQuestion?: unknown }): boolean {
   return sessionRowIsLive(row) && row.pendingQuestion != null
 }
