@@ -7,6 +7,8 @@ import {
   REVIEW_MERGES_WITH_STACK,
   reviewRowMergeAction,
   reviewsMergeDisabledReason,
+  reviewWorkflowStatus,
+  workflowStatusByIssue,
   type ReviewMergeInput,
 } from "./reviews-merge"
 
@@ -27,4 +29,28 @@ describe(`reviews merge (contract fixture)`, () => {
       expect(reviewsMergeDisabledReason(input)).toBe(entry.disabledReason)
     })
   }
+})
+
+describe(`reviewWorkflowStatus`, () => {
+  const byIssue = workflowStatusByIssue(
+    [
+      { id: `w1`, status: `done` },
+      { id: `w2`, status: `running` },
+    ],
+    [
+      { workflowId: `w1`, issueId: `a`, memberIssueIds: [] },
+      { workflowId: `w2`, issueId: `b`, memberIssueIds: [`c`, `a`] },
+      { workflowId: `gone`, issueId: `d`, memberIssueIds: [] },
+    ]
+  )
+
+  it(`reads a node's issue and its members, a live workflow first`, () => {
+    expect(reviewWorkflowStatus([`b`], byIssue)).toBe(`running`)
+    expect(reviewWorkflowStatus([`c`], byIssue)).toBe(`running`)
+    expect(reviewWorkflowStatus([`a`], byIssue)).toBe(`running`)
+  })
+
+  it(`is null off every synced workflow`, () => {
+    expect(reviewWorkflowStatus([`d`, `x`], byIssue)).toBeNull()
+  })
 })

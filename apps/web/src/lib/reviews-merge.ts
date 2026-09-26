@@ -36,13 +36,9 @@ export const REVIEW_MERGES_WITH_STACK = `merges with its stack`
 /** A workflow node PR's quiet caption. */
 export const REVIEW_MERGES_THROUGH_WORKFLOW = `merges through the workflow`
 
-function workflowOwnsMerge(status: string | null): boolean {
-  return status === `running` || status === `paused`
-}
-
 export function reviewRowMergeAction(input: ReviewMergeInput): ReviewMergeAction {
   if (input.finalPr) return input.finalPrState === `open` ? `merge` : `none`
-  if (workflowOwnsMerge(input.workflowStatus)) return `none`
+  if (liveWorkflow(input.workflowStatus)) return `none`
   if (input.stack === `bottom`) return `merge_stack`
   if (input.stack === `upper`) return `none`
   return `merge`
@@ -52,7 +48,44 @@ export function reviewRowMergeAction(input: ReviewMergeInput): ReviewMergeAction
  *  to say (a final PR that is not open). */
 export function reviewsMergeDisabledReason(input: ReviewMergeInput): string | null {
   if (input.finalPr) return null
-  if (workflowOwnsMerge(input.workflowStatus)) return REVIEW_MERGES_THROUGH_WORKFLOW
+  if (liveWorkflow(input.workflowStatus)) return REVIEW_MERGES_THROUGH_WORKFLOW
   if (input.stack === `upper`) return REVIEW_MERGES_WITH_STACK
   return null
+}
+
+function liveWorkflow(status: string | null | undefined): boolean {
+  return status === `running` || status === `paused`
+}
+
+/** Issue id → the status of the workflow whose node covers it (the node's
+ *  `issueId` or a `memberIssueIds` entry). A live workflow wins over a
+ *  finished one covering the same issue. */
+export function workflowStatusByIssue(
+  workflows: readonly { id: string; status: string }[],
+  nodes: readonly { workflowId: string; issueId: string; memberIssueIds?: readonly string[] | null }[]
+): Map<string, string> {
+  const statusById = new Map(workflows.map((row) => [row.id, row.status]))
+  const byIssue = new Map<string, string>()
+  for (const node of nodes) {
+    const status = statusById.get(node.workflowId)
+    if (!status) continue
+    for (const issueId of [node.issueId, ...(node.memberIssueIds ?? [])]) {
+      if (!byIssue.has(issueId) || (liveWorkflow(status) && !liveWorkflow(byIssue.get(issueId)))) {
+        byIssue.set(issueId, status)
+      }
+    }
+  }
+  return byIssue
+}
+
+/** A PR's `workflowStatus` input over its linked issues: a live workflow
+ *  first, else any covering one, else null. */
+export function reviewWorkflowStatus(
+  issueIds: readonly string[],
+  byIssue: ReadonlyMap<string, string>
+): string | null {
+  const statuses = issueIds
+    .map((id) => byIssue.get(id))
+    .filter((status): status is string => status !== undefined)
+  return statuses.find(liveWorkflow) ?? statuses[0] ?? null
 }

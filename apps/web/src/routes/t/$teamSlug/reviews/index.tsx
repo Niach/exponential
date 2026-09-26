@@ -38,6 +38,12 @@ import {
   MERGE_STACK_TITLE,
   stackedOnCaption,
 } from "@/lib/pr-stack"
+import {
+  MERGE_LABEL,
+  REVIEW_MERGES_THROUGH_WORKFLOW,
+  reviewRowMergeAction,
+  reviewsMergeDisabledReason,
+} from "@/lib/reviews-merge"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
@@ -439,6 +445,26 @@ function ReviewsPage() {
                     const canFixConflicts = Boolean(
                       mergeError?.conflict && issue.branch && steerEnabled
                     )
+                    // EXP-1094: ONE merge control per row (`lib/reviews-merge.ts`).
+                    const mergeInput = {
+                      stack: row.stackTopIssueId
+                        ? (`bottom` as const)
+                        : row.depth > 0
+                          ? (`upper` as const)
+                          : (`none` as const),
+                      workflowStatus: row.workflowStatus,
+                      finalPr: false,
+                      finalPrState: null,
+                    }
+                    const mergeAction = reviewRowMergeAction(mergeInput)
+                    const mergeReason = reviewsMergeDisabledReason(mergeInput)
+                    const startMerge = () => {
+                      if (mergeAction === `merge_stack` && row.stackTopIssueId) {
+                        setStackMergeTarget({ row, topIssueId: row.stackTopIssueId })
+                      } else {
+                        setMergeTarget(entry)
+                      }
+                    }
                     return (
                       <ListRow
                         key={entry.key}
@@ -498,10 +524,8 @@ function ReviewsPage() {
                               issue.title
                             )}
                           </div>
-                          {/* EXP-897: the caption line carries the branch, an
-                              upper row's foundation, and — on the BOTTOM row
-                              of a stack — "Merge stack", so the trailing
-                              action column still holds exactly one control. */}
+                          {/* EXP-897: the caption line carries the branch and
+                              an upper row's foundation. */}
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
                             {issue.branch && (
                               <span className="truncate font-mono text-xs text-muted-foreground">
@@ -513,31 +537,18 @@ function ReviewsPage() {
                                 {stackedOnCaption(row.stackedOn)}
                               </span>
                             )}
-                            {row.stackTopIssueId && (
-                              <Pill
-                                mode="action"
-                                disabled={merging}
-                                data-testid={`merge-stack-${issue.identifier}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setStackMergeTarget({
-                                    row,
-                                    topIssueId: row.stackTopIssueId!,
-                                  })
-                                }}
-                              >
-                                <StackIcon className="size-3" />
-                                {MERGE_STACK_LABEL}
-                              </Pill>
-                            )}
                           </div>
                         </div>
-                        {/* EXP-706: the recovery run takes the Merge button's
+                        {/* EXP-706: the recovery run takes the merge control's
                             OWN slot on a real conflict — one trailing action
                             per row, never two.
                             EXP-698: the row's Merge and the review detail's
                             header Merge are ONE control at ONE weight —
-                            `Pill size="md" mode="action"`. */}
+                            `Pill size="md" mode="action"`.
+                            EXP-1094: the slot holds what `reviewRowMergeAction`
+                            says: Merge, Merge stack (the bottom row), or
+                            nothing (an upper member, a workflow node PR; the
+                            latter says why, quietly). */}
                         {canFixConflicts ? (
                           <Pill
                             size="md"
@@ -550,14 +561,30 @@ function ReviewsPage() {
                             <BranchIcon className="h-3.5 w-3.5" />
                             Fix conflicts
                           </Pill>
+                        ) : mergeAction === `none` ? (
+                          mergeReason === REVIEW_MERGES_THROUGH_WORKFLOW ? (
+                            <span
+                              className="self-center text-xs text-muted-foreground"
+                              data-testid={`merge-reason-${issue.identifier}`}
+                            >
+                              {mergeReason}
+                            </span>
+                          ) : (
+                            <span />
+                          )
                         ) : (
                           <Pill
                             size="md"
                             mode="action"
                             disabled={merging}
+                            data-testid={
+                              mergeAction === `merge_stack`
+                                ? `merge-stack-${issue.identifier}`
+                                : undefined
+                            }
                             onClick={(e) => {
                               e.stopPropagation()
-                              setMergeTarget(entry)
+                              startMerge()
                             }}
                           >
                             {merging ? (
@@ -565,10 +592,15 @@ function ReviewsPage() {
                                 <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
                                 Merging…
                               </>
+                            ) : mergeAction === `merge_stack` ? (
+                              <>
+                                <StackIcon className="h-3.5 w-3.5" />
+                                {MERGE_STACK_LABEL}
+                              </>
                             ) : (
                               <>
                                 <PrMergedIcon className="h-3.5 w-3.5" />
-                                Merge
+                                {MERGE_LABEL}
                               </>
                             )}
                           </Pill>
@@ -585,13 +617,13 @@ function ReviewsPage() {
                             <span className="text-destructive text-xs">
                               {mergeError.message}
                             </span>
-                            {canFixConflicts && (
+                            {canFixConflicts && mergeAction !== `none` && (
                               <Pill
                                 mode="action"
                                 disabled={merging}
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  setMergeTarget(entry)
+                                  startMerge()
                                 }}
                               >
                                 <PrMergedIcon className="size-3" />
@@ -635,6 +667,17 @@ function ReviewsPage() {
                     const canFixConflicts = Boolean(
                       mergeError?.conflict && steerEnabled
                     )
+                    // EXP-1094: a final PR merges only while it is open.
+                    const canMerge =
+                      reviewRowMergeAction({
+                        stack: `none`,
+                        workflowStatus: workflow.status,
+                        finalPr: true,
+                        finalPrState:
+                          typeof workflow.finalPrState === `string`
+                            ? workflow.finalPrState
+                            : null,
+                      }) === `merge`
                     return (
                       <ListRow
                         key={entry.key}
@@ -665,6 +708,8 @@ function ReviewsPage() {
                             <BranchIcon className="h-3.5 w-3.5" />
                             Fix conflicts
                           </Pill>
+                        ) : !canMerge ? (
+                          <span />
                         ) : (
                           <Pill
                             size="md"
@@ -693,7 +738,7 @@ function ReviewsPage() {
                             <span className="text-destructive text-xs">
                               {mergeError.message}
                             </span>
-                            {canFixConflicts && (
+                            {canFixConflicts && canMerge && (
                               <Pill
                                 mode="action"
                                 disabled={merging}
