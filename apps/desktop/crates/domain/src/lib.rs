@@ -100,6 +100,7 @@ pub mod placeholder_status;
 pub mod pr_graph;
 pub mod pr_stack;
 pub mod relations;
+pub mod reviews_merge;
 pub mod rows;
 pub mod session_results;
 pub mod session_tree;
