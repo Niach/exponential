@@ -26,15 +26,31 @@ function fakeExecutor(results: unknown[][]) {
 describe(`assertMergeOutsideWorkflow`, () => {
   it(`refuses a PR whose issue a live workflow covers`, async () => {
     const executor = fakeExecutor([[{ workflowId: `wf-1`, nodeId: `n-1`, issueId: `a` }]])
-    await expect(assertMergeOutsideWorkflow(executor, [`a`], `EXP-1`)).rejects.toMatchObject({
+    await expect(assertMergeOutsideWorkflow(executor, `a`, `https://github.com/o/r/pull/1`, `EXP-1`)).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
       message: `EXP-1's pull request ${WORKFLOW_MERGE_REFUSAL}`,
     })
   })
 
+  it(`asks about the issue AND every issue sharing its PR`, async () => {
+    const wheres: unknown[] = []
+    const p = Promise.resolve([] as unknown[]) as Promise<unknown[]> & Record<string, (arg?: unknown) => unknown>
+    for (const m of [`from`, `innerJoin`, `limit`]) p[m] = () => p
+    p.where = (cond?: unknown) => {
+      wheres.push(cond)
+      return p
+    }
+    await assertMergeOutsideWorkflow({ select: () => p } as never, `a`, `https://github.com/o/r/pull/1`, `EXP-1`)
+    const { PgDialect } = await import(`drizzle-orm/pg-core`)
+    const query = new PgDialect().sqlToQuery(wheres[0] as never)
+    expect(query.sql).toContain(`"pr_url" =`)
+    expect(query.sql).toContain(`"member_issue_ids" ?`)
+    expect(query.params).toEqual(expect.arrayContaining([`running`, `paused`, `a`, `https://github.com/o/r/pull/1`]))
+  })
+
   it(`lets any other PR through`, async () => {
     await expect(
-      assertMergeOutsideWorkflow(fakeExecutor([[]]), [`a`, `b`], `EXP-1`)
+      assertMergeOutsideWorkflow(fakeExecutor([[]]), `a`, `https://github.com/o/r/pull/1`, `EXP-1`)
     ).resolves.toBeUndefined()
   })
 })

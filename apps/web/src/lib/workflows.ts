@@ -548,16 +548,16 @@ export async function issueLandsInLiveWorkflow(
 }
 
 /**
- * EXP-1094: the first issue of `issueIds` that a RUNNING or PAUSED workflow
- * covers (node issue or compound member), with that workflow. Such a PR
- * merges through the workflow's train (`landNode`), never by hand.
+ * EXP-1094: the node of a RUNNING or PAUSED workflow covering a PR — its
+ * issue or any issue linked to the same `pr_url` (a batch PR), as node issue
+ * or compound member — in ONE query. Such a PR merges through the workflow's
+ * train (`landNode`), never by hand.
  */
-export async function liveWorkflowCoveringIssues(
+export async function liveWorkflowCoveringPr(
   executor: Executor,
-  issueIds: readonly string[]
+  issueId: string,
+  prUrl: string
 ): Promise<{ workflowId: string; nodeId: string; issueId: string } | null> {
-  const ids = [...new Set(issueIds)]
-  if (ids.length === 0) return null
   const [row] = await executor
     .select({
       workflowId: workflowNodes.workflowId,
@@ -569,10 +569,12 @@ export async function liveWorkflowCoveringIssues(
     .where(
       and(
         inArray(workflows.status, [`running`, `paused`]),
-        or(
-          inArray(workflowNodes.issueId, ids),
-          sql`${workflowNodes.memberIssueIds} ?| ${sql.param(ids)}::text[]`
-        )
+        sql`EXISTS (
+          SELECT 1 FROM ${issues}
+          WHERE (${issues.id} = ${issueId} OR ${issues.prUrl} = ${prUrl})
+            AND (${workflowNodes.issueId} = ${issues.id}
+              OR ${workflowNodes.memberIssueIds} ? (${issues.id})::text)
+        )`
       )
     )
     .limit(1)

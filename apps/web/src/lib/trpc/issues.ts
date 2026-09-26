@@ -724,12 +724,13 @@ export const WORKFLOW_MERGE_REFUSAL = `merges through the workflow: its merge tr
 /** EXP-1094: refuse a hand merge of a PR whose issue (or any issue linked to
  *  the same PR) a running or paused workflow covers. */
 export async function assertMergeOutsideWorkflow(
-  executor: Parameters<typeof import("@/lib/workflows").liveWorkflowCoveringIssues>[0],
-  issueIds: readonly string[],
+  executor: Parameters<typeof import("@/lib/workflows").liveWorkflowCoveringPr>[0],
+  issueId: string,
+  prUrl: string,
   identifier: string
 ): Promise<void> {
-  const { liveWorkflowCoveringIssues } = await import(`@/lib/workflows`)
-  if (await liveWorkflowCoveringIssues(executor, issueIds)) {
+  const { liveWorkflowCoveringPr } = await import(`@/lib/workflows`)
+  if (await liveWorkflowCoveringPr(executor, issueId, prUrl)) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
       message: `${identifier}'s pull request ${WORKFLOW_MERGE_REFUSAL}`,
@@ -1910,15 +1911,7 @@ export const issuesRouter = router({
       // workflow's merge train (`landNode`), never by hand. The train's own
       // call carries WORKFLOW_LANDING on its context.
       if (!isWorkflowLanding(ctx)) {
-        const linked = await ctx.db
-          .select({ id: issues.id })
-          .from(issues)
-          .where(eq(issues.prUrl, row.prUrl))
-        await assertMergeOutsideWorkflow(
-          ctx.db,
-          [input.issueId, ...linked.map((issue) => issue.id)],
-          row.identifier
-        )
+        await assertMergeOutsideWorkflow(ctx.db, input.issueId, row.prUrl, row.identifier)
       }
 
       // Merge against the repo the PR actually lives in — derived from prUrl,

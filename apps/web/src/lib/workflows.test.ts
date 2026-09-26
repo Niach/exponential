@@ -7,7 +7,6 @@ import {
   loadWorkflowEdges,
   nodeEdges,
   isWorkflowReviewBranch,
-  liveWorkflowCoveringIssues,
   proposeNodesForRelation,
   unlinkedRootsToPropose,
   workflowIntegrationBranch,
@@ -263,14 +262,5 @@ describe(`proposeNodesForRelation`, () => {
     ])
     await proposeNodesForRelation(tx, { issueId: `p`, relatedIssueId: `new` })
     expect(inserted).toMatchObject([{ issueId: `new`, state: `proposed` }])
-  })
-})
-
-describe(`liveWorkflowCoveringIssues`, () => {
-  it(`answers nothing without ids and the first live node otherwise`, async () => {
-    expect(await liveWorkflowCoveringIssues(fakeTx([]).tx, [])).toBeNull()
-    const row = { workflowId: `wf-1`, nodeId: `n-1`, issueId: `a` }
-    expect(await liveWorkflowCoveringIssues(fakeTx([[row]]).tx, [`a`])).toEqual(row)
-    expect(await liveWorkflowCoveringIssues(fakeTx([[]]).tx, [`a`])).toBeNull()
   })
 })

@@ -79,6 +79,13 @@ vi.mock(`@/db/connection`, () => {
 
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
+// EXP-1094: none of these PRs is a live workflow node's (the guard itself is
+// covered in issues-merge-guard.test.ts).
+vi.mock(`@/lib/workflows`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workflows")>()),
+  liveWorkflowCoveringPr: async () => null,
+}))
+
 vi.mock(`@/lib/team-membership`, async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/team-membership")>()
   return {
