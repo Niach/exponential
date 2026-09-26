@@ -758,4 +758,60 @@ final class SessionTreeNodeTests: XCTestCase {
             "Review · no verdict"
         )
     }
+
+    // MARK: - EXP-1108: row marks, replayed from the shared fixture
+
+    private struct MarksFixture: Decodable {
+        struct AccountCase: Decodable {
+            let name: String
+            let session: SessionTree.MarkSession
+            let devices: [SessionTree.MarkDevice]
+            let caption: String?
+        }
+        struct NeedsYouCase: Decodable {
+            let name: String
+            let status: String
+            let pendingQuestion: [String: String]?
+            let needsYou: Bool
+        }
+        let accountCaptions: [AccountCase]
+        let needsYou: [NeedsYouCase]
+    }
+
+    private func marksFixture() throws -> MarksFixture {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/session-tree-marks.json")
+        return try JSONDecoder().decode(MarksFixture.self, from: try Data(contentsOf: url))
+    }
+
+    func testAccountCaptionFixtureCases() throws {
+        let fixture = try marksFixture()
+        XCTAssertFalse(fixture.accountCaptions.isEmpty)
+        for testCase in fixture.accountCaptions {
+            XCTAssertEqual(
+                SessionTree.workflowRunAccountCaption(session: testCase.session, devices: testCase.devices),
+                testCase.caption,
+                testCase.name
+            )
+        }
+    }
+
+    func testNeedsYouFixtureCases() throws {
+        let fixture = try marksFixture()
+        XCTAssertFalse(fixture.needsYou.isEmpty)
+        for testCase in fixture.needsYou {
+            XCTAssertEqual(
+                SessionTree.sessionNeedsYou(
+                    status: testCase.status, hasPendingQuestion: testCase.pendingQuestion != nil
+                ),
+                testCase.needsYou,
+                testCase.name
+            )
+        }
+    }
 }

@@ -86,7 +86,9 @@ struct RunningSessionRow<Footer: View>: View {
                 HStack(spacing: 6) {
                     // EXP-1068: an open question to a person — red, beside
                     // the state dot (the amber needs-input state stays).
-                    if marks.needsYou {
+                    if SessionTree.sessionNeedsYou(
+                        status: session.status, hasPendingQuestion: marks.needsYou
+                    ) {
                         Circle()
                             .fill(DesignTokens.Semantic.red)
                             .frame(width: 7, height: 7)
@@ -119,7 +121,7 @@ struct RunningSessionRow<Footer: View>: View {
                     paused: paused,
                     device: device.displayLabel,
                     started: relativeWireDate(session.startedAt)
-                ) + (marks.account.map { " · account \($0)" } ?? ""))
+                ) + (marks.account.map { " · \($0)" } ?? ""))
                 .font(.caption)
                 .foregroundStyle(sessionStatusLineColor(state: state, paused: paused))
                 .lineLimit(1)
@@ -165,11 +167,13 @@ extension RunningSessionRow where Footer == EmptyView {
 
 /// EXP-1068: what a workflow member's row adds to the plain run row.
 struct RunningSessionRowMarks {
-    /// The run holds an open question to a person (`pendingQuestion`).
+    /// The run holds an open question to a person (`pendingQuestion`); the
+    /// dot shows only while the run is live (`SessionTree.sessionNeedsYou`).
     var needsYou = false
     /// Two live author (or review) runs on this node.
     var duplicateLive = false
-    /// The account label, only when it is not the machine's default.
+    /// The `account <label>` caption, only on a workflow run off its
+    /// machine's default (`nonDefaultAccount`).
     var account: String?
 }
 
@@ -201,27 +205,41 @@ extension RunningSessionRowMarks {
         )
     }
 
-    /// The run's account label when it is NOT the host machine's default for
-    /// that agent (`launch_defaults.defaultAccount` when the agent is the
-    /// machine's default agent, else its ambient `system` login). A host this
-    /// phone has not synced shows any non-ambient account.
+    /// EXP-1108: `account <label>` on a WORKFLOW run that does not spend its
+    /// host's default account for its agent (the shared rule,
+    /// `SessionTree.workflowRunAccountCaption`). Nil on every other run, and
+    /// when the host is not synced to this phone.
     static func nonDefaultAccount(_ session: CodingSessionEntity, devices: [SteerDevice]?) -> String? {
-        guard let account = session.agentAccount, !account.isEmpty else { return nil }
-        let device = session.deviceId.flatMap { id in
-            devices?.first { $0.deviceId == id }
-        }
-        let system = AgentAccountsRows.systemProfileId
-        let defaults = device?.launchDefaults
-        let fallback = defaults?.defaultAccount.flatMap { $0.isEmpty ? nil : $0 } ?? system
-        let machineDefault = (session.agent != nil && defaults?.defaultAgent == session.agent)
-            ? fallback : system
-        guard account != machineDefault else { return nil }
-        let profile = session.agent.flatMap { agent in
-            device?.agentAccounts?[agent]?.profiles?.first { $0.id == account }
-        }
-        let label = profile?.label ?? profile?.email
-        if let label, !label.isEmpty { return label }
-        return account == system ? "Default" : account
+        SessionTree.workflowRunAccountCaption(
+            session: SessionTree.MarkSession(
+                agent: session.agent,
+                agentAccount: session.agentAccount,
+                deviceId: session.deviceId,
+                userId: session.userId,
+                workflowId: session.workflowId
+            ),
+            devices: (devices ?? []).map(markDevice)
+        )
+    }
+
+    /// A synced machine as the rule reads it. `userId` = the owner on a
+    /// teammate's shared row; the caller's own rows carry no owner, so they
+    /// fall back to the first row with the device id.
+    private static func markDevice(_ device: SteerDevice) -> SessionTree.MarkDevice {
+        SessionTree.MarkDevice(
+            deviceId: device.deviceId,
+            userId: device.owner?.id,
+            launchDefaults: device.launchDefaults.map {
+                SessionTree.MarkLaunchDefaults(
+                    defaultAgent: $0.defaultAgent, defaultAccount: $0.defaultAccount
+                )
+            },
+            agentAccounts: device.agentAccounts?.mapValues { account in
+                SessionTree.MarkAgentAccount(profiles: account.profiles?.map {
+                    SessionTree.MarkProfile(id: $0.id, label: $0.label, active: $0.active)
+                })
+            }
+        )
     }
 }
 

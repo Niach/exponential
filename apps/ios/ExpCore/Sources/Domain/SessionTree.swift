@@ -899,3 +899,118 @@ extension SessionTree {
         return parent
     }
 }
+
+// MARK: - Row marks (EXP-1108, fixture `session-tree-marks.json`)
+
+extension SessionTree {
+    /// The run fields the account caption reads (fixture `session`).
+    public struct MarkSession: Sendable, Equatable, Decodable {
+        public let agent: String?
+        public let agentAccount: String?
+        public let deviceId: String?
+        public let userId: String?
+        public let workflowId: String?
+
+        public init(
+            agent: String?, agentAccount: String?, deviceId: String?, userId: String?,
+            workflowId: String?
+        ) {
+            self.agent = agent
+            self.agentAccount = agentAccount
+            self.deviceId = deviceId
+            self.userId = userId
+            self.workflowId = workflowId
+        }
+    }
+
+    /// One login profile of an agent on a machine (fixture `profiles[]`).
+    public struct MarkProfile: Sendable, Equatable, Decodable {
+        public let id: String
+        public let label: String?
+        public let active: Bool?
+
+        public init(id: String, label: String?, active: Bool?) {
+            self.id = id
+            self.label = label
+            self.active = active
+        }
+    }
+
+    /// The machine's launch defaults (fixture `launchDefaults`).
+    public struct MarkLaunchDefaults: Sendable, Equatable, Decodable {
+        public let defaultAgent: String?
+        public let defaultAccount: String?
+
+        public init(defaultAgent: String?, defaultAccount: String?) {
+            self.defaultAgent = defaultAgent
+            self.defaultAccount = defaultAccount
+        }
+    }
+
+    /// One agent's profiles on a machine (fixture `agentAccounts[agent]`).
+    public struct MarkAgentAccount: Sendable, Equatable, Decodable {
+        public let profiles: [MarkProfile]?
+
+        public init(profiles: [MarkProfile]?) {
+            self.profiles = profiles
+        }
+    }
+
+    /// A synced machine as the caption reads it (fixture `devices[]`).
+    public struct MarkDevice: Sendable, Equatable, Decodable {
+        public let deviceId: String
+        public let userId: String?
+        public let launchDefaults: MarkLaunchDefaults?
+        public let agentAccounts: [String: MarkAgentAccount]?
+
+        public init(
+            deviceId: String, userId: String?, launchDefaults: MarkLaunchDefaults?,
+            agentAccounts: [String: MarkAgentAccount]?
+        ) {
+            self.deviceId = deviceId
+            self.userId = userId
+            self.launchDefaults = launchDefaults
+            self.agentAccounts = agentAccounts
+        }
+    }
+
+    /// The account a machine runs `agent` on by default: its
+    /// `defaultAccount` when `agent` is the machine's default agent, else that
+    /// agent's ACTIVE profile, else `system`. Nil without a device or agent.
+    public static func deviceDefaultAccount(_ device: MarkDevice?, agent: String?) -> String? {
+        guard let device, let agent else { return nil }
+        if device.launchDefaults?.defaultAgent == agent,
+           let account = device.launchDefaults?.defaultAccount, !account.isEmpty {
+            return account
+        }
+        let profiles = device.agentAccounts?[agent]?.profiles ?? []
+        return profiles.first { $0.active == true }?.id ?? "system"
+    }
+
+    /// `account <label>` when a WORKFLOW run does not run on its device's
+    /// default account for its agent. Nil outside a workflow, without an
+    /// `agentAccount`, on an unsynced device, or on the default. Label = the
+    /// profile's label, else `Default` for `system`, else the raw id.
+    public static func workflowRunAccountCaption(
+        session: MarkSession, devices: [MarkDevice]
+    ) -> String? {
+        guard let workflowId = session.workflowId, !workflowId.isEmpty else { return nil }
+        guard let account = session.agentAccount, !account.isEmpty else { return nil }
+        let matches = devices.filter { $0.deviceId == session.deviceId }
+        let device = matches.first { $0.userId == session.userId } ?? matches.first
+        guard let fallback = deviceDefaultAccount(device, agent: session.agent),
+              fallback != account else { return nil }
+        let profile = session.agent.flatMap { agent in
+            device?.agentAccounts?[agent]?.profiles?.first { $0.id == account }
+        }
+        let label = profile?.label.flatMap { $0.isEmpty ? nil : $0 }
+            ?? (account == "system" ? "Default" : account)
+        return "account \(label)"
+    }
+
+    /// The needs-you dot: a LIVE row with an open question. The amber
+    /// needs-input/blocked flags are a separate mark, never this one.
+    public static func sessionNeedsYou(status: String, hasPendingQuestion: Bool) -> Bool {
+        sessionRowIsLive(status: status) && hasPendingQuestion
+    }
+}
