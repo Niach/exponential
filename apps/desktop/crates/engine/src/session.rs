@@ -350,6 +350,15 @@ impl EngineSession {
         self.0.ctx.turn_signal.clone()
     }
 
+    /// EXP-848 / FEED-44: the value the synced `agent_busy` column mirrors —
+    /// a prompt in flight, or backgrounded subagents still running after
+    /// the turn that launched them ended. NOT the turn signal: that one
+    /// stays "between turns" while they run, so the queue drains and an
+    /// account switch may proceed.
+    pub fn agent_busy(&self) -> bool {
+        self.0.ctx.agent_busy()
+    }
+
     /// EXP-1005: the agent's usage wall as the engine last saw it (`None` =
     /// not blocked) — what a host's account-rotation beat reads, together
     /// with the turn slot, to decide whether this run may move to another
@@ -621,6 +630,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         terminals: Default::default(),
         ids: Mutex::new(SessionIds::default()),
         needs_input: AtomicBool::new(false),
+        background_agents: AtomicBool::new(false),
         blocked: Mutex::new(None),
         prompt_queue: Mutex::new(std::collections::VecDeque::new()),
         queue_commands: OnceLock::new(),

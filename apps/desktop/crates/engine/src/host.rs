@@ -1057,6 +1057,14 @@ pub(crate) struct SessionCtx {
     pub(crate) ids: Mutex<SessionIds>,
     /// EXP-214: the latest pending flag; the lifecycle ticker forwards it.
     pub(crate) needs_input: AtomicBool,
+    /// FEED-44: the agent's latest `background_tasks` list names a live
+    /// backgrounded SUBAGENT (kind `agent`, claude's `run_in_background`
+    /// Agent call). The agent may end its own turn to wait for their
+    /// completion notifications; the run is still working all that time, so
+    /// [`SessionCtx::agent_busy`] holds while this is set. The turn signal
+    /// itself is untouched (it gates the queue drain, the kill-after-turn
+    /// wait and the account switch, which all mean "no prompt in flight").
+    pub(crate) background_agents: AtomicBool,
     /// EXP-804: the agent's usage wall as the mapper last saw it (`None` =
     /// not blocked); the lifecycle ticker forwards it to the synced row.
     /// A Mutex rather than an atomic because the value is a struct — it is
@@ -1386,6 +1394,24 @@ impl SessionCtx {
         if !workflows.is_empty() {
             self.note_captions(&workflows);
         }
+        // FEED-44: the latest list is the live set — any `agent` entry keeps
+        // the run busy past its turn end.
+        let agents_listed = out.wire.iter().rev().find_map(|event| match event {
+            steer::ActivityEvent::BackgroundTasks { tasks, .. } => Some(
+                tasks
+                    .iter()
+                    .any(|task| task.kind == steer::BackgroundTaskKind::Agent),
+            ),
+            _ => None,
+        });
+        if let Some(listed) = agents_listed {
+            let was = self.background_agents.swap(listed, Ordering::SeqCst);
+            // The last one finished while the turn is already over: the
+            // caption the idle edge kept for them goes now.
+            if was && !listed && self.turn_signal.is_idle() {
+                self.caption_signal.set(None);
+            }
+        }
         if let Some(sink) = self.sink.get() {
             for event in out.wire {
                 sink.send(event);
@@ -1424,8 +1450,12 @@ impl SessionCtx {
             self.turn_signal.set_idle(idle);
             // EXP-850 §8: a turn that ended runs no workflow — the caption
             // goes with it, on the same edge the busy flag does.
+            // FEED-44: while backgrounded subagents still run the run is
+            // still working, so the caption stays until their list empties.
             if idle {
-                self.caption_signal.set(None);
+                if !self.background_agents.load(Ordering::SeqCst) {
+                    self.caption_signal.set(None);
+                }
             } else if self.caption_signal.get().as_deref() == Some(steer::RESUMED_IDLE_CAPTION) {
                 // EXP-906: the first prompt after a resume — the run is no
                 // longer waiting (a workflow card re-sets the caption later
@@ -1448,6 +1478,13 @@ impl SessionCtx {
             fold_workflow_caption(&mut workflows, cards)
         };
         self.caption_signal.set(caption);
+    }
+
+    /// EXP-848 / FEED-44: is the agent working right now — a prompt in
+    /// flight, OR backgrounded subagents still running after the turn that
+    /// launched them ended. The synced `agent_busy` column's one input.
+    pub(crate) fn agent_busy(&self) -> bool {
+        !self.turn_signal.is_idle() || self.background_agents.load(Ordering::SeqCst)
     }
 
     /// FEED-25: the agent (or a turn edge) just said something.
@@ -1933,6 +1970,9 @@ where
                 mapper.set_turn(steer::TurnState::Ended, false, &mut out);
             });
             ctx.dispatch(out);
+            // FEED-44: the agent is gone, and its backgrounded subagents
+            // with it — nothing may hold the run busy any more.
+            ctx.background_agents.store(false, Ordering::SeqCst);
             Ok(())
         })
         .await

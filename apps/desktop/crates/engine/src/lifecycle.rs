@@ -549,9 +549,11 @@ fn spawn_tickers(
             };
             // EXP-848: the synced `agent_busy` column — the ONE input every
             // other client's session list spins its working dot on. The turn
-            // signal is already exactly this bool (set false at `start_turn`,
-            // true at `on_stop` and at the session's first moment), so the
-            // mirror reads it rather than tracking the edges twice.
+            // signal is most of this bool (set false at `start_turn`, true at
+            // `on_stop` and at the session's first moment), so the mirror
+            // reads it rather than tracking the edges twice. FEED-44: it also
+            // holds while backgrounded subagents run past their turn's end
+            // (`SessionCtx::agent_busy`).
             let busy_hook: Option<steer::AgentBusyHook> = {
                 let trpc = Arc::clone(&ctx.trpc);
                 let session_id = ctx.session_id.clone();
@@ -623,7 +625,7 @@ fn spawn_tickers(
                     break;
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
-                agent_busy.tick(!ctx.turn_signal.is_idle(), &busy_hook);
+                agent_busy.tick(ctx.agent_busy(), &busy_hook);
                 // EXP-850 §8: the caption of the newest RUNNING workflow —
                 // `None` while none runs, which is also what a turn end and
                 // the teardown below write.
@@ -673,7 +675,9 @@ fn spawn_tickers(
             // Teardown tidiness: never leave the synced attention flag stuck
             // on a session whose engine is gone.
             needs_input.clear_on_teardown(&hook);
-            // EXP-848: a run whose engine is gone is never working.
+            // EXP-848: a run whose engine is gone is never working — nor
+            // are its backgrounded subagents (FEED-44), which died with it.
+            ctx.background_agents.store(false, Ordering::SeqCst);
             agent_busy.clear_on_teardown(&busy_hook);
             // EXP-850 §8: a run whose engine is gone runs no workflow either.
             caption.clear_on_teardown(&caption_hook);
