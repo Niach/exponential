@@ -1,0 +1,156 @@
+{
+  "_doc": "EXP-1094: the ONE merge control per Reviews row, x4 (web lib/reviews-merge.ts). First match wins: finalPr -> merge iff finalPrState == \"open\", else none (no reason); workflowStatus running|paused (the PR's issue is a workflow node's issue_id or in its member_issue_ids) -> none + mergesThroughWorkflow; stack bottom (the root row carrying stackTopIssueId) -> merge_stack (label \"Merge stack\"); stack upper -> none + mergesWithStack; else merge (label \"Merge\"). disabledReason is null whenever the action is not none, and for a final PR that is not open.",
+  "labels": {
+    "merge": "Merge",
+    "mergeStack": "Merge stack"
+  },
+  "reasons": {
+    "mergesWithStack": "merges with its stack",
+    "mergesThroughWorkflow": "merges through the workflow"
+  },
+  "cases": [
+    {
+      "name": "plain PR",
+      "input": {
+        "stack": "none",
+        "workflowStatus": null,
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "merge",
+      "disabledReason": null
+    },
+    {
+      "name": "stack bottom",
+      "input": {
+        "stack": "bottom",
+        "workflowStatus": null,
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "merge_stack",
+      "disabledReason": null
+    },
+    {
+      "name": "stack upper",
+      "input": {
+        "stack": "upper",
+        "workflowStatus": null,
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "none",
+      "disabledReason": "merges with its stack"
+    },
+    {
+      "name": "node PR of a running workflow",
+      "input": {
+        "stack": "none",
+        "workflowStatus": "running",
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "none",
+      "disabledReason": "merges through the workflow"
+    },
+    {
+      "name": "node PR of a paused workflow",
+      "input": {
+        "stack": "none",
+        "workflowStatus": "paused",
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "none",
+      "disabledReason": "merges through the workflow"
+    },
+    {
+      "name": "node PR stack bottom of a running workflow",
+      "input": {
+        "stack": "bottom",
+        "workflowStatus": "running",
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "none",
+      "disabledReason": "merges through the workflow"
+    },
+    {
+      "name": "node PR stack upper of a paused workflow",
+      "input": {
+        "stack": "upper",
+        "workflowStatus": "paused",
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "none",
+      "disabledReason": "merges through the workflow"
+    },
+    {
+      "name": "node PR of a done workflow",
+      "input": {
+        "stack": "none",
+        "workflowStatus": "done",
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "merge",
+      "disabledReason": null
+    },
+    {
+      "name": "node PR stack bottom of a done workflow",
+      "input": {
+        "stack": "bottom",
+        "workflowStatus": "done",
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "merge_stack",
+      "disabledReason": null
+    },
+    {
+      "name": "node PR of a draft workflow",
+      "input": {
+        "stack": "none",
+        "workflowStatus": "draft",
+        "finalPr": false,
+        "finalPrState": null
+      },
+      "action": "merge",
+      "disabledReason": null
+    },
+    {
+      "name": "final PR open",
+      "input": {
+        "stack": "none",
+        "workflowStatus": "running",
+        "finalPr": true,
+        "finalPrState": "open"
+      },
+      "action": "merge",
+      "disabledReason": null
+    },
+    {
+      "name": "final PR closed",
+      "input": {
+        "stack": "none",
+        "workflowStatus": "running",
+        "finalPr": true,
+        "finalPrState": "closed"
+      },
+      "action": "none",
+      "disabledReason": null
+    },
+    {
+      "name": "final PR merged",
+      "input": {
+        "stack": "none",
+        "workflowStatus": "done",
+        "finalPr": true,
+        "finalPrState": "merged"
+      },
+      "action": "none",
+      "disabledReason": null
+    }
+  ]
+}
