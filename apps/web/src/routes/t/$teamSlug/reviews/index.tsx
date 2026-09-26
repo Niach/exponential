@@ -40,7 +40,6 @@ import {
 } from "@/lib/pr-stack"
 import {
   MERGE_LABEL,
-  REVIEW_MERGES_THROUGH_WORKFLOW,
   reviewRowMergeAction,
   reviewsMergeDisabledReason,
 } from "@/lib/reviews-merge"
@@ -547,8 +546,9 @@ function ReviewsPage() {
                             `Pill size="md" mode="action"`.
                             EXP-1094: the slot holds what `reviewRowMergeAction`
                             says: Merge, Merge stack (the bottom row), or
-                            nothing (an upper member, a workflow node PR; the
-                            latter says why, quietly). */}
+                            nothing (an upper member, a workflow node PR). Any
+                            reason the rule returns is the row's muted caption,
+                            the same on every client. */}
                         {canFixConflicts ? (
                           <Pill
                             size="md"
@@ -562,7 +562,7 @@ function ReviewsPage() {
                             Fix conflicts
                           </Pill>
                         ) : mergeAction === `none` ? (
-                          mergeReason === REVIEW_MERGES_THROUGH_WORKFLOW ? (
+                          mergeReason ? (
                             <span
                               className="self-center text-xs text-muted-foreground"
                               data-testid={`merge-reason-${issue.identifier}`}

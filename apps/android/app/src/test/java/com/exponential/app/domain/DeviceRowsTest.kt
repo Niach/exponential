@@ -155,6 +155,22 @@ class DeviceRowsTest {
         assertTrue(claude!!.planMode)
     }
 
+    // EXP-1005: the desktop's auto-rotate flag rides the synced row as a
+    // nullable boolean, so the settings sheet can echo it back on a save; a
+    // row without the key decodes to null (absent), never to false.
+    @Test
+    fun `stored launch defaults carry autoRotateAccounts or leave it null`() {
+        val device = entity {
+            copy(
+                launchDefaults = """{"defaultAgent":"claude","agents":""" +
+                    """{"claude":{"model":"opus","autoRotateAccounts":false},"codex":{"model":""}}}""",
+            )
+        }.toSteerDevice(nowMs, currentUserId = "me")
+        val agents = device.launchDefaults!!.agents
+        assertEquals(false, agents.getValue("claude").autoRotateAccounts)
+        assertNull(agents.getValue("codex").autoRotateAccounts)
+    }
+
     // ── resumeWorktreeFor ────────────────────────────────────────────────────
 
     private fun worktree(over: DeviceWorktreeEntity.() -> DeviceWorktreeEntity = { this }) =

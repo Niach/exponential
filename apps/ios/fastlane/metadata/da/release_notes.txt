@@ -1,5 +1,4 @@
-- Workflows: en række chips vælger en node og åbner den i Issue, Run, Changes og Results, et spørgsmål fra planlæggeren vises i et banner, Pause og Dismiss ligger i overløbsmenuen, og den sidste pull request står under Reviews, hvor den merges
-- Agentkørsler: et workflows kørsler grupperes under deres node med en statusprik og en billedtekst, review-kørsler bærer deres titler, en kørsel der venter på dig får en prik, og panelet Recent tegner træet
-- Issues: blokeringsmærket åbner en minigraf tegnet på ét fælles gitter, og headeren på en stack- eller batchkørsel viser det forreste issue med et antal
-- Editor: skriver du ---, indsættes en skillelinje med det samme
-- Aktivitet: ændringer af estimater foldes sammen ligesom alle andre feltændringer
+- Reviews: hver pull request-række har én knap, Merge, eller Merge stack nederst i en stack, og en workflow-nodes pull request siger, at den merges gennem workflowet
+- Workflows: Open final PR vises, når et workflows sidste pull request blev lukket, hændelsesloggen ligger under grafen, og en valgt node viser kun sine egne hændelser, og fejlede eller ventende tilstande vises i rav
+- Agentkørsler: en kørsel der venter på dit svar får en rød prik, og en workflowkørsel på en anden konto siger hvilken
+- Starter du et issue, der allerede har en aktiv kørsel, får du det at vide i stedet for at starte en til

@@ -1,5 +1,4 @@
-- Workflows: a chip strip picks a node and opens it into Issue, Run, Changes and Results, a question the planner asks shows in a banner, Pause and Dismiss sit in the overflow, and the final pull request lists under Reviews where it merges
-- Agent runs: a workflow's runs group under their node with a status dot and caption, review runs carry their titles, a run that needs you wears a dot, and the Recent sheet draws the tree
-- Issues: the blocks badge opens a mini-graph drawn on one shared grid, and the header of a stacked or batch run shows the front issue with a count
-- Editor: typing --- inserts a separator at once
-- Activity: estimate changes fold like every other field edit
+- Reviews: every pull request row carries one control, Merge or Merge stack at the bottom of a stack, and a workflow node's pull request says it merges through the workflow
+- Workflows: Open final PR appears when a workflow's final pull request was closed, the event log sits under the graph and a picked node shows only its own events, and failed or waiting states read amber
+- Agent runs: a run waiting on your answer wears a red dot, and a workflow run on another account says which one
+- Starting an issue that already has a live run says so instead of starting a second one

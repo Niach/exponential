@@ -54,6 +54,14 @@ data class AgentLaunchDefaults(
     @SerialName("subagentModel") val subagentModel: String? = null,
     @SerialName("ultracode") val ultracode: Boolean = false,
     @SerialName("planMode") val planMode: Boolean = false,
+    /**
+     * EXP-1005: the desktop's auto-rotate-accounts toggle (claude only). This
+     * client owns no UI for it and never invents a value: the synced one is
+     * ECHOED unchanged on every whole-object save, and null stays ABSENT on
+     * the wire (`explicitNulls = false`) because the server keeps the stored
+     * value only for a missing key and drops it for an explicit null.
+     */
+    @SerialName("autoRotateAccounts") val autoRotateAccounts: Boolean? = null,
 )
 
 /**

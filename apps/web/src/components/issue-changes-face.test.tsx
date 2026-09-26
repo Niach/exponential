@@ -12,6 +12,21 @@ const filesState = {
 }
 
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
+// EXP-1094: the two workflow shapes the face reads to hide Merge on a node PR.
+const workflowState = {
+  workflows: [] as { id: string; status: string; teamId: string }[],
+  nodes: [] as {
+    workflowId: string
+    issueId: string
+    memberIssueIds: string[]
+    teamId: string
+  }[],
+}
+vi.mock(`@/hooks/use-workflows`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-workflows")>()),
+  useTeamWorkflows: () => workflowState.workflows,
+  useTeamWorkflowNodes: () => workflowState.nodes,
+}))
 // The face reads the steer config off the session view; importing that module
 // would drag the whole steering surface into this test.
 vi.mock(`@/components/agent-session`, () => ({
@@ -58,6 +73,8 @@ const issue = {
 const board = { id: `b1`, slug: `met` } as unknown as Board
 
 function renderFace() {
+  workflowState.workflows = []
+  workflowState.nodes = []
   return render(
     <IssueChangesFace
       issue={issue}
@@ -118,6 +135,50 @@ describe(`IssueChangesFace`, () => {
   it(`the bar carries EXACTLY ONE merge control while the PR is open`, () => {
     filesState.value = { kind: `files`, files: [file(`src/a.ts`)] }
     renderFace()
+    expect(
+      screen.getAllByRole(`button`, { name: `Merge pull request` })
+    ).toHaveLength(1)
+  })
+
+  // EXP-1094: a workflow NODE PR merges through the workflow (the server
+  // refuses the row merge, PR #864), so the bar carries NO Merge capsule
+  // while that workflow is running or paused, and offers it again once the
+  // workflow is done.
+  it(`hides the Merge capsule on a node PR of a live workflow`, () => {
+    filesState.value = { kind: `files`, files: [file(`src/a.ts`)] }
+    const { rerender, unmount } = renderFace()
+    workflowState.workflows = [{ id: `w1`, status: `running`, teamId: `t1` }]
+    workflowState.nodes = [
+      { workflowId: `w1`, issueId: `other`, memberIssueIds: [`i1`], teamId: `t1` },
+    ]
+    rerender(
+      <IssueChangesFace
+        issue={issue}
+        board={board}
+        teamSlug="acme"
+        teamId="t1"
+        readOnly={false}
+        filesState={filesState.value}
+        switcher={<div data-testid="switcher" />}
+      />
+    )
+    expect(
+      screen.queryByRole(`button`, { name: `Merge pull request` })
+    ).toBeNull()
+    unmount()
+
+    workflowState.workflows = [{ id: `w1`, status: `done`, teamId: `t1` }]
+    render(
+      <IssueChangesFace
+        issue={issue}
+        board={board}
+        teamSlug="acme"
+        teamId="t1"
+        readOnly={false}
+        filesState={filesState.value}
+        switcher={<div data-testid="switcher" />}
+      />
+    )
     expect(
       screen.getAllByRole(`button`, { name: `Merge pull request` })
     ).toHaveLength(1)

@@ -71,6 +71,10 @@ struct DeviceSettingsSheet: View {
         var effort: String
         var ultracode: Bool
         var planMode: Bool
+        /// EXP-1082 §6: the desktop-owned auto-rotate toggle as the row
+        /// advertises it. No control here; it only rides back on a save so
+        /// the whole-object replace never drops it (nil = absent on the row).
+        var autoRotateAccounts: Bool?
     }
 
     @State private var seeded = false
@@ -285,7 +289,8 @@ struct DeviceSettingsSheet: View {
             ),
             effort: effort,
             ultracode: agent == "claude" && (advertised?.ultracode ?? false),
-            planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false)
+            planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false),
+            autoRotateAccounts: advertised?.autoRotateAccounts
         )
     }
 
@@ -743,7 +748,9 @@ struct DeviceSettingsSheet: View {
                     : nil,
                 effort: draft.effort == LaunchVocabulary.cliDefault ? "" : draft.effort,
                 ultracode: agent == "claude" ? draft.ultracode : nil,
-                planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil
+                planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil,
+                // EXP-1082 §6: echoed verbatim, never invented (see the draft).
+                autoRotateAccounts: draft.autoRotateAccounts
             )
         }
         // Built synchronously: the payload is what the drafts say NOW, and a

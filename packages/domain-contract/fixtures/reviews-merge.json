@@ -1,5 +1,5 @@
 {
-  "_doc": "EXP-1094: the ONE merge control per Reviews row, x4 (web lib/reviews-merge.ts). First match wins: finalPr -> merge iff finalPrState == \"open\", else none (no reason); workflowStatus running|paused (the PR's issue is a workflow node's issue_id or in its member_issue_ids) -> none + mergesThroughWorkflow; stack bottom (the root row carrying stackTopIssueId) -> merge_stack (label \"Merge stack\"); stack upper -> none + mergesWithStack; else merge (label \"Merge\"). disabledReason is null whenever the action is not none, and for a final PR that is not open.",
+  "_doc": "EXP-1094: the ONE merge control per Reviews row, x4 (web lib/reviews-merge.ts). First match wins: finalPr -> merge iff finalPrState == \"open\", else none (no reason); workflowStatus running|paused (the PR's issue is a workflow node's issue_id or in its member_issue_ids) -> none + mergesThroughWorkflow; stack bottom (the root row carrying stackTopIssueId) -> merge_stack (label \"Merge stack\"); stack upper -> none + mergesWithStack; else merge (label \"Merge\"). disabledReason is null whenever the action is not none, and for a final PR that is not open. A non-null disabledReason is drawn as the row's muted caption on every client (web, desktop, iOS, Android); null draws nothing.",
   "labels": {
     "merge": "Merge",
     "mergeStack": "Merge stack"

@@ -24,6 +24,7 @@ import {
   issues,
   sessionAttachments,
   teams,
+  users,
   workflowNodes,
   workflows,
 } from "@/db/schema"
@@ -554,6 +555,9 @@ export interface LiveIssueRun {
   branch: string | null
   /** The asked-for issues this run covers, as identifiers. */
   identifiers: string[]
+  /** Who owns the run (EXP-312: the only one who can stop it); null when the
+   *  user row is gone. */
+  owner: { name: string; email: string } | null
 }
 
 export async function findLiveRunForIssues(
@@ -595,6 +599,11 @@ export async function findLiveRunForIssues(
         .where(inArray(issues.id, hit))
     : []
   const identifierOf = new Map(rows.map((row) => [row.id, row.identifier]))
+  const [owner] = await db
+    .select({ name: users.name, email: users.email })
+    .from(users)
+    .where(eq(users.id, run.userId))
+    .limit(1)
   return {
     id: run.id,
     deviceLabel: run.deviceLabel ?? null,
@@ -602,17 +611,32 @@ export async function findLiveRunForIssues(
     startedReason: run.startedReason ?? null,
     branch: run.branch ?? null,
     identifiers: hit.map((id) => identifierOf.get(id) ?? id),
+    owner: owner ? { name: owner.name, email: owner.email } : null,
   }
 }
 
-/** The CONFLICT a fresh start on an issue with a live run gets: which issue,
- *  which run, how it was started and where, so the caller can find it. */
-export function liveRunConflictMessage(run: LiveIssueRun): string {
+/** The CONFLICT a fresh start (or a resume) on an issue with a live run
+ *  gets: which issue, which run, how it was started and where, so the caller
+ *  can find it. Only the run's OWNER can stop it (EXP-312), so a caller who
+ *  is not the owner is told whose run it is instead of "stop it". */
+export function liveRunConflictMessage(
+  run: LiveIssueRun,
+  callerUserId?: string
+): string {
   const subject = run.identifiers.length > 0 ? run.identifiers.join(`, `) : `That issue`
   const how = run.startedReason ? `started by ${run.startedReason}` : `started by a person`
   const facts = [`session ${run.id}`, how, ...(run.branch ? [`branch ${run.branch}`] : [])]
   const where = run.deviceLabel ? ` on ${run.deviceLabel}` : ``
-  return `${subject} already has a live run${where} (${facts.join(`, `)}). Stop it or let it end before starting another.`
+  const lead = `${subject} already has a live run${where} (${facts.join(`, `)}).`
+  if (callerUserId === undefined || callerUserId === run.userId) {
+    return `${lead} Stop it or let it end before starting another.`
+  }
+  const owner = run.owner
+    ? run.owner.name
+      ? `${run.owner.name} (${run.owner.email})`
+      : run.owner.email
+    : `another member`
+  return `${lead} ${owner} owns it: only they can stop it, or let it end before starting another.`
 }
 
 export const codingSessionsRouter = router({

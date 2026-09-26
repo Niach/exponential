@@ -1,5 +1,4 @@
-- Workflow: una fila di chip sceglie un nodo e lo apre su Issue, Run, Changes e Results, una domanda del pianificatore compare in un banner, Pause e Dismiss stanno nel menu delle altre opzioni, e la pull request finale compare in Reviews, dove si unisce
-- Esecuzioni dell'agente: le esecuzioni di un workflow si raggruppano sotto il loro nodo con un punto di stato e una didascalia, le esecuzioni di revisione portano il proprio titolo, un'esecuzione che ha bisogno di te mostra un punto e il foglio Recent disegna l'albero
-- Issue: il badge dei blocchi apre un mini-grafico disegnato su un'unica griglia condivisa, e l'intestazione di un'esecuzione in stack o in batch mostra l'issue in testa con un conteggio
-- Editor: digitando --- si inserisce subito un separatore
-- Attività: le modifiche alla stima si raggruppano come ogni altra modifica di campo
+- Reviews: ogni riga di pull request ha un solo controllo, Merge, o Merge stack in fondo a uno stack, e la pull request di un nodo di workflow indica che si unisce tramite il workflow
+- Workflow: Open final PR compare quando la pull request finale di un workflow è stata chiusa, il registro eventi sta sotto il grafo e un nodo scelto mostra solo i propri eventi, e gli stati falliti o in attesa appaiono ambra
+- Esecuzioni dell'agente: un'esecuzione che attende la tua risposta mostra un punto rosso, e un'esecuzione di workflow su un altro account indica quale
+- Avviare un issue che ha già un'esecuzione attiva lo segnala invece di avviarne una seconda

@@ -209,7 +209,13 @@ extension RunningSessionRowMarks {
     /// host's default account for its agent (the shared rule,
     /// `SessionTree.workflowRunAccountCaption`). Nil on every other run, and
     /// when the host is not synced to this phone.
-    static func nonDefaultAccount(_ session: CodingSessionEntity, devices: [SteerDevice]?) -> String? {
+    ///
+    /// `currentUserId` = the signed-in user: the rule prefers the row whose
+    /// `userId` is the session owner's, and the caller's OWN device rows
+    /// carry no `owner`, so it is what names them (see `markDevice`).
+    static func nonDefaultAccount(
+        _ session: CodingSessionEntity, devices: [SteerDevice]?, currentUserId: String?
+    ) -> String? {
         SessionTree.workflowRunAccountCaption(
             session: SessionTree.MarkSession(
                 agent: session.agent,
@@ -218,17 +224,21 @@ extension RunningSessionRowMarks {
                 userId: session.userId,
                 workflowId: session.workflowId
             ),
-            devices: (devices ?? []).map(markDevice)
+            devices: (devices ?? []).map { markDevice($0, currentUserId: currentUserId) }
         )
     }
 
     /// A synced machine as the rule reads it. `userId` = the owner on a
-    /// teammate's shared row; the caller's own rows carry no owner, so they
-    /// fall back to the first row with the device id.
-    private static func markDevice(_ device: SteerDevice) -> SessionTree.MarkDevice {
+    /// teammate's shared row; the caller's own rows carry NO owner (the
+    /// `devices` shape sets it only on a teammate's shared row), so they are
+    /// stamped with the signed-in user. Without that, the "same device id
+    /// prefers the session owner's row" rule could never pick an own row and
+    /// fell to the first match, possibly a teammate's shared copy of the same
+    /// machine with other defaults, giving a wrong or missing caption.
+    private static func markDevice(_ device: SteerDevice, currentUserId: String?) -> SessionTree.MarkDevice {
         SessionTree.MarkDevice(
             deviceId: device.deviceId,
-            userId: device.owner?.id,
+            userId: device.owner?.id ?? currentUserId,
             launchDefaults: device.launchDefaults.map {
                 SessionTree.MarkLaunchDefaults(
                     defaultAgent: $0.defaultAgent, defaultAccount: $0.defaultAccount

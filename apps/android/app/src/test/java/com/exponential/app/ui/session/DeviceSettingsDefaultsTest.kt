@@ -335,6 +335,68 @@ class DeviceSettingsDefaultsTest {
         assertFalse(without.containsKey("workflow"))
     }
 
+    /**
+     * EXP-1005: the desktop-owned `autoRotateAccounts` flag has no toggle on
+     * this client, and `setLaunchDefaults` REPLACES the stored object, so a
+     * save must ECHO the synced value: a stored boolean rides back as itself,
+     * and a row without the key writes NO key (never a literal null, which
+     * the server reads as a clear). The sheet never invents a value.
+     */
+    @Test
+    fun `autoRotateAccounts is echoed as stored and absent when unset`() {
+        val agents = listOf("claude", "codex")
+        val stored = device(
+            agents = agents,
+            defaults = DeviceLaunchDefaults(
+                defaultAgent = "claude",
+                agents = mapOf(
+                    "claude" to AgentLaunchDefaults(model = "opus", autoRotateAccounts = false),
+                    "codex" to AgentLaunchDefaults(model = ""),
+                ),
+            ),
+        )
+        val drafts = agents.associateWith { agentDraft(stored, it) }
+        assertEquals(false, drafts.getValue("claude").autoRotateAccounts)
+        assertNull(drafts.getValue("codex").autoRotateAccounts)
+
+        // An edit elsewhere on the draft keeps the echoed flag.
+        val edited = drafts + ("claude" to drafts.getValue("claude").copy(planMode = true))
+        val sent = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = buildDefaults(
+                defaultAgent = "claude",
+                defaultAccount = "work",
+                agents = agents,
+                drafts = edited,
+            ),
+        ).getValue("launchDefaults").jsonObject.getValue("agents").jsonObject
+        assertEquals(JsonPrimitive(false), sent.getValue("claude").jsonObject["autoRotateAccounts"])
+        val codex = sent.getValue("codex").jsonObject
+        assertFalse(codex.containsKey("autoRotateAccounts"))
+        assertFalse(codex.containsValue(JsonNull))
+
+        // A true value echoes too, and a draft built from nothing stays keyless.
+        val fresh = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = buildDefaults(
+                defaultAgent = "claude",
+                defaultAccount = "work",
+                agents = listOf("claude"),
+                drafts = mapOf(
+                    "claude" to AgentDraft("fable", "", ultracode = false, planMode = false, autoRotateAccounts = true),
+                ),
+            ),
+        ).getValue("launchDefaults").jsonObject.getValue("agents").jsonObject
+        assertEquals(JsonPrimitive(true), fresh.getValue("claude").jsonObject["autoRotateAccounts"])
+        assertFalse(
+            setLaunchDefaultsInput(
+                deviceId = "dev-1",
+                defaults = buildDefaults("claude", "work", listOf("claude"), emptyMap()),
+            ).getValue("launchDefaults").jsonObject.getValue("agents").jsonObject
+                .getValue("claude").jsonObject.containsKey("autoRotateAccounts"),
+        )
+    }
+
     /** EXP-773 deleted the "Start in terminal" preference. An older server
      *  still stamps `startInTerminal` onto `launchDefaults`; the decoder is
      *  `ignoreUnknownKeys`, so the key is skipped instead of failing the whole

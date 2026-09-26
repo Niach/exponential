@@ -1,9 +1,8 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, arrayContains, desc, eq, gte, inArray } from "drizzle-orm"
+import { and, arrayContains, eq, inArray } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
-  CODING_SESSION_STALE_MS,
   MAX_ACTION_INPUTS,
   MAX_ACTION_INPUT_KEY,
   MAX_ACTION_INPUT_TEXT,
@@ -926,38 +925,20 @@ export const steerRouter = router({
         // EXP-662: an issue run resumes into the issue's ONE session slot
         // (REV2-24), so a live session for it means the desktop would refuse
         // the frame after the relay swallowed it — decide it here instead and
-        // name the machine. Same "live" predicate as
-        // codingSessions.liveForIssue: still-alive status (in_review stays
-        // steerable) within the staleness window.
+        // name the run. FEED-57: the SAME probe as the fresh start, so a live
+        // BATCH covering the issue blocks the resume too (an issue-only probe
+        // let it through and the device dropped it silently), with the same
+        // CONFLICT shape.
         if (session.issueId) {
           const { db } = await import(`@/db/connection`)
-          const [live] = await db
-            .select({
-              id: codingSessions.id,
-              deviceLabel: codingSessions.deviceLabel,
-            })
-            .from(codingSessions)
-            .where(
-              and(
-                eq(codingSessions.issueId, session.issueId),
-                inArray(codingSessions.status, [`running`, `in_review`]),
-                gte(
-                  codingSessions.updatedAt,
-                  new Date(Date.now() - CODING_SESSION_STALE_MS)
-                )
-              )
-            )
-            .orderBy(desc(codingSessions.updatedAt))
-            .limit(1)
+          const live = await findLiveRunForIssues(db, [session.issueId])
           // EXP-849: the run being SWITCHED is itself that live session — it
           // is the one the device is about to end and continue, so it can
           // never be its own blocker. Another live run on the issue still is.
           if (live && live.id !== session.id) {
             throw new TRPCError({
-              code: `PRECONDITION_FAILED`,
-              message: live.deviceLabel
-                ? `That issue already has a live session on ${live.deviceLabel}`
-                : `That issue already has a live session`,
+              code: `CONFLICT`,
+              message: liveRunConflictMessage(live, userId),
             })
           }
         }
@@ -1412,7 +1393,10 @@ export const steerRouter = router({
       // name the run, like the resume path does.
       const live = await findLiveRunForIssues(db, ids)
       if (live) {
-        throw new TRPCError({ code: `CONFLICT`, message: liveRunConflictMessage(live) })
+        throw new TRPCError({
+          code: `CONFLICT`,
+          message: liveRunConflictMessage(live, userId),
+        })
       }
       const prompt = await resolveStartPromptOrThrow(
         input.prompt,

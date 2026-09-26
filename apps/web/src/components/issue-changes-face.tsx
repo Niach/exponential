@@ -19,6 +19,7 @@ import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionMergePill } from "@/components/session-merge-button"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
+import { useWorkflowOwnsMerge } from "@/hooks/use-reviews-data"
 
 // EXP-893: the Changes FACE of an issue subject with NO shown run — the
 // issue has an open PR (or a pushed branch), so its files are the face
@@ -92,6 +93,9 @@ export function IssueChangesFace({
   const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(steerConfig?.enabled) && !readOnly
+  // EXP-1094: a workflow NODE PR merges through its workflow, never from the
+  // bar; the server refuses it (PR #864), so the capsule stays away.
+  const workflowOwnsMerge = useWorkflowOwnsMerge(teamId, issue.id)
   const files = state.kind === `files` ? state.files : []
 
   return (
@@ -168,7 +172,7 @@ export function IssueChangesFace({
           ) : undefined
         }
         capsule={
-          issue.prState === `open` ? (
+          issue.prState === `open` && !workflowOwnsMerge ? (
             <MergeCapsule
               issueId={issue.id}
               prState={issue.prState}

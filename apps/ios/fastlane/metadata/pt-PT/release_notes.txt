@@ -1,5 +1,4 @@
-- Workflows: uma fila de chips escolhe um nó e abre-o em Issue, Run, Changes e Results, uma pergunta do planeador aparece num banner, Pause e Dismiss estão no menu de mais opções, e o pull request final aparece em Reviews, onde é integrado
-- Execuções do agente: as execuções de um workflow agrupam-se sob o seu nó com um ponto de estado e uma legenda, as execuções de revisão levam os seus títulos, uma execução que precisa de si tem um ponto, e o painel Recent desenha a árvore
-- Issues: o distintivo de bloqueios abre um minigráfico desenhado numa única grelha partilhada, e o cabeçalho de uma execução em stack ou em lote mostra o issue da frente com uma contagem
-- Editor: escrever --- insere logo um separador
-- Atividade: as alterações de estimativa agrupam-se como qualquer outra edição de campo
+- Reviews: cada linha de pull request tem um único controlo, Merge, ou Merge stack na base de uma stack, e o pull request de um nó de workflow indica que é integrado através do workflow
+- Workflows: Open final PR aparece quando o pull request final de um workflow foi fechado, o registo de eventos fica por baixo do grafo e um nó escolhido mostra só os seus próprios eventos, e os estados falhados ou em espera aparecem em âmbar
+- Execuções do agente: uma execução à espera da sua resposta tem um ponto vermelho, e uma execução de workflow noutra conta indica qual
+- Iniciar um issue que já tem uma execução ativa avisa disso em vez de iniciar uma segunda

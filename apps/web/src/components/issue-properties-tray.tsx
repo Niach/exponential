@@ -9,6 +9,8 @@ import { useIsTeamMember } from "@/components/issue-coding-rows"
 import { IssueCodingAction } from "@/components/issue-coding-action"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { MergePrPill } from "@/components/run-action-pills"
+import { useWorkflowOwnsMerge } from "@/hooks/use-reviews-data"
+import { REVIEW_MERGES_THROUGH_WORKFLOW } from "@/lib/reviews-merge"
 import { WORK_COLUMN_CLASS } from "@exp/ui"
 
 // EXP-877: row 2 of the unified work header — the issue's properties tray
@@ -51,7 +53,11 @@ export function IssuePropertiesTray({
   const isMember = useIsTeamMember(teamId, currentUserId ?? ``)
   const team = useTeamById(teamId)
   const steerConfig = useSteerConfig()
-  const prOpen = issue.prState === `open`
+  // EXP-1094: a workflow NODE PR (its workflow running or paused) merges
+  // through the workflow, never here; the server refuses it (PR #864), so
+  // the pill gives way to the same quiet caption the Reviews row draws.
+  const workflowOwnsMerge = useWorkflowOwnsMerge(teamId, issue.id)
+  const prOpen = issue.prState === `open` && !workflowOwnsMerge
   const dueDate = issue.dueDate ?? null
 
   const mergeButton =
@@ -60,6 +66,13 @@ export function IssuePropertiesTray({
         {...mergeTargetProps({ kind: `issue`, issue })}
         steerEnabled={steerConfig?.enabled === true}
       />
+    ) : currentUserId && isMember && issue.prState === `open` && workflowOwnsMerge ? (
+      <span
+        className="truncate text-xs text-muted-foreground"
+        data-testid="merge-reason"
+      >
+        {REVIEW_MERGES_THROUGH_WORKFLOW}
+      </span>
     ) : null
 
   const codingAction =

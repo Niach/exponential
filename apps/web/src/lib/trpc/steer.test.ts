@@ -2046,20 +2046,65 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
   // EXP-662: one session per issue. The desktop would refuse the frame
   // anyway, so the refusal happens here, named, instead of vanishing.
+  // FEED-57: the SAME probe and CONFLICT shape as the fresh start.
   it(`refuses an issue run whose issue already has a live session`, async () => {
     queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null })
     queueOwnDevice({ caps: [`resume-run`] })
-    h.dbQueue.push([{ id: uuid(9), deviceLabel: `studio` }])
+    h.findLiveRunForIssues.mockResolvedValue({
+      id: uuid(9),
+      deviceLabel: `studio`,
+      userId: `actor`,
+      startedReason: null,
+      branch: null,
+      identifiers: [`EXP-1`],
+      owner: { name: `Actor`, email: `a@example.com` },
+    })
 
     const error = await rejectionOf(
       caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
     )
 
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect((error as TRPCError).message).toBe(
-      `That issue already has a live session on studio`
+      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by a person). Stop it or let it end before starting another.`
+    )
+    expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A])
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // FEED-57: a live BATCH covering the issue holds its slot just as much as
+  // an issue run does; an issue-only probe let the resume through and the
+  // device dropped it silently. Another member's run names its owner (only
+  // they can stop it, EXP-312).
+  it(`refuses an issue run when a live batch of another member covers the issue`, async () => {
+    queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null })
+    queueOwnDevice({ caps: [`resume-run`] })
+    h.findLiveRunForIssues.mockResolvedValue({
+      id: uuid(9),
+      deviceLabel: `studio`,
+      userId: `someone-else`,
+      startedReason: `workflow`,
+      branch: `exp/batch-1a2b3c4d`,
+      identifiers: [`EXP-1`],
+      owner: { name: `Dana`, email: `dana@example.com` },
+    })
+
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+
+    expect((error as TRPCError).code).toBe(`CONFLICT`)
+    expect((error as TRPCError).message).toBe(
+      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by workflow, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`never probes for a run that has no issue`, async () => {
+    queueEndedRun()
+    queueOwnDevice({ caps: [`actions`, `resume-run`] })
+    await caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    expect(h.findLiveRunForIssues).not.toHaveBeenCalled()
   })
 
   // EXP-849: the mid-session account switch IS a resume naming another
@@ -2099,7 +2144,15 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
     queueOwnDevice({ caps: [`resume-run`, `account-switch`] })
     // The live-session probe finds THIS run — never its own blocker.
-    h.dbQueue.push([{ id: RESUME, deviceLabel: `studio` }])
+    h.findLiveRunForIssues.mockResolvedValue({
+      id: RESUME,
+      deviceLabel: `studio`,
+      userId: `actor`,
+      startedReason: null,
+      branch: null,
+      identifiers: [`EXP-1`],
+      owner: null,
+    })
 
     await caller.startSession({
       resumeSessionId: RESUME,

@@ -57,6 +57,7 @@ import {
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import {
+  assertMergeOutsideWorkflow,
   boardBranchOverride,
   repoBranchOverride,
 } from "@/lib/trpc/repositories"
@@ -504,6 +505,22 @@ async function mergeStackFromMember(opts: {
     (entry) => entry.prState === `open` && entry.prNumber != null
   )
 
+  // EXP-1094: mergePr guarded the ENTRY issue only, but a stack lands as a
+  // unit, so a plain PR stacked on a live workflow node's PR would land the
+  // node PR beneath it. Every member gets the same refusal, named; the guard
+  // asks about every issue sharing a member's PR, so one issue per member
+  // is enough.
+  for (const member of members) {
+    const first = member.issues[0]
+    if (!first) continue
+    await assertMergeOutsideWorkflow(
+      db,
+      first.id,
+      member.prUrl,
+      stackEntryLabel(member)
+    )
+  }
+
   // Pre-flight: a stack merges as a unit, so ONE unmergeable member refuses
   // the whole operation before anything lands.
   for (const member of members) {
@@ -719,24 +736,13 @@ function isWorkflowLanding(ctx: object): boolean {
   return (ctx as { [WORKFLOW_LANDING]?: boolean })[WORKFLOW_LANDING] === true
 }
 
-export const WORKFLOW_MERGE_REFUSAL = `merges through the workflow: its merge train lands it once its run ended and its review wave cleared. Cancel the workflow to merge it by hand.`
-
-/** EXP-1094: refuse a hand merge of a PR whose issue (or any issue linked to
- *  the same PR) a running or paused workflow covers. */
-export async function assertMergeOutsideWorkflow(
-  executor: Parameters<typeof import("@/lib/workflows").liveWorkflowCoveringPr>[0],
-  issueId: string,
-  prUrl: string,
-  identifier: string
-): Promise<void> {
-  const { liveWorkflowCoveringPr } = await import(`@/lib/workflows`)
-  if (await liveWorkflowCoveringPr(executor, issueId, prUrl)) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `${identifier}'s pull request ${WORKFLOW_MERGE_REFUSAL}`,
-    })
-  }
-}
+// EXP-1094: the guard itself lives in repositories.ts (the chore merge path
+// needs it too, and that module cannot import this one without a cycle);
+// re-exported so every hand-merge caller keeps one import site.
+export {
+  WORKFLOW_MERGE_REFUSAL,
+  assertMergeOutsideWorkflow,
+} from "@/lib/trpc/repositories"
 
 export const issuesRouter = router({
   create: authedProcedure

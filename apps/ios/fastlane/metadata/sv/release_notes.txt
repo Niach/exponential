@@ -1,5 +1,4 @@
-- Workflows: en rad med chips väljer en nod och öppnar den i Issue, Run, Changes och Results, en fråga från planeraren visas i en banner, Pause och Dismiss finns i överflödesmenyn, och den sista pull requesten listas under Reviews, där den slås ihop
-- Agentkörningar: ett workflows körningar grupperas under sin nod med en statusprick och en bildtext, granskningskörningar bär sina titlar, en körning som behöver dig får en prick, och rutan Recent ritar trädet
-- Issues: blockeringsmärket öppnar en minigraf ritad på ett gemensamt rutnät, och huvudet på en stack- eller batchkörning visar det främsta issuet med ett antal
-- Editor: skriver du --- infogas en avdelare direkt
-- Aktivitet: ändringar av uppskattningar slås ihop som alla andra fältändringar
+- Reviews: varje pull request-rad har en enda kontroll, Merge, eller Merge stack längst ned i en stack, och en workflow-nods pull request säger att den slås ihop genom workflowet
+- Workflows: Open final PR visas när ett workflows sista pull request har stängts, händelseloggen ligger under grafen och en vald nod visar bara sina egna händelser, och misslyckade eller väntande tillstånd visas i bärnsten
+- Agentkörningar: en körning som väntar på ditt svar får en röd prick, och en workflowkörning på ett annat konto säger vilket
+- Startar du ett issue som redan har en aktiv körning får du veta det i stället för att en till startas

@@ -84,6 +84,36 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
         XCTAssertNil(object.index(forKey: "workflow"))
     }
 
+    /// EXP-1082 §6: the desktop-owned auto-rotate toggle is ECHOED, never
+    /// invented. A stored value rides back verbatim on the whole-object save
+    /// and an absent one writes no key, so the server's carry-forward compat
+    /// can retire without this client clearing the toggle.
+    func testAutoRotateAccountsIsEchoedVerbatimAndAbsentWritesNoKey() throws {
+        let echoed = try json(DeviceLaunchDefaultsInput(
+            defaultAgent: "claude",
+            agents: [
+                "claude": AgentLaunchDefaultsInput(model: "opus", autoRotateAccounts: false),
+                "codex": AgentLaunchDefaultsInput(model: "gpt-5-codex"),
+            ]
+        ))
+        let agents = try XCTUnwrap(echoed["agents"] as? [String: Any])
+        let claude = try XCTUnwrap(agents["claude"] as? [String: Any])
+        XCTAssertEqual(claude["autoRotateAccounts"] as? Bool, false)
+        let codex = try XCTUnwrap(agents["codex"] as? [String: Any])
+        XCTAssertNil(codex.index(forKey: "autoRotateAccounts"))
+
+        // And the synced row's value survives the decode it is echoed from.
+        let row = try JSONDecoder().decode(
+            AgentLaunchDefaults.self,
+            from: Data(#"{"model":"opus","autoRotateAccounts":true}"#.utf8)
+        )
+        XCTAssertEqual(row.autoRotateAccounts, true)
+        let bare = try JSONDecoder().decode(
+            AgentLaunchDefaults.self, from: Data(#"{"model":"opus"}"#.utf8)
+        )
+        XCTAssertNil(bare.autoRotateAccounts)
+    }
+
     func testNoDefaultAgentWritesNoAccountKey() throws {
         // The account is one of the default agent's logins: alone it names
         // nothing, so there is nothing to clear either.

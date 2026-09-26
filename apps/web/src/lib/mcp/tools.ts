@@ -609,7 +609,10 @@ export function noRunReportedMessage(deviceId: string): string {
 
 /** The row a BATCH start's device creates: issue-less and action-less in
  *  the batch's team, with no builtin name (FEED-57: a chat or action run is
- *  issue-less and action-less too) and a covered set naming the batch. */
+ *  issue-less and action-less too) and a covered set naming the batch. Every
+ *  device at or above the floor stamps `batch_issue_ids` on a batch start
+ *  (EXP-876, desktop 0.14.43), so a NULL covered set never matches (compat
+ *  cleanup round 25). */
 export function batchStartRowMatch(
   teamIds: readonly string[],
   issueIds: readonly string[]
@@ -619,10 +622,7 @@ export function batchStartRowMatch(
     isNull(codingSessions.issueId),
     isNull(codingSessions.actionId),
     isNull(codingSessions.actionName),
-    or(
-      isNull(codingSessions.batchIssueIds),
-      sql`${codingSessions.batchIssueIds} ?| ${sql.param([...issueIds])}::text[]`
-    )
+    sql`${codingSessions.batchIssueIds} ?| ${sql.param([...issueIds])}::text[]`
   )
 }
 

@@ -611,6 +611,30 @@ describe(`the engine's write path`, () => {
     expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
   })
 
+  // FEED-56: the pre-check before a Fresh wake is a READ. A state-less
+  // report only runs the landed/skipped guard and writes nothing, so a stale
+  // device snapshot can neither take a newer state back nor bump
+  // `updated_at` (an Electric change) on every wake.
+  it(`answers a state-less ping off the guard alone, writing nothing`, async () => {
+    selectQueue.push(
+      [node({ state: `landed` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }]
+    )
+    expect(await caller.reportNode({ nodeId: NODE })).toEqual({ updated: false })
+    expect(fakeDb.update).not.toHaveBeenCalled()
+    expect(written).toEqual([])
+
+    selectQueue.push(
+      [node({ state: `running` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }]
+    )
+    expect(await caller.reportNode({ nodeId: NODE })).toEqual({ updated: true })
+    expect(fakeDb.update).not.toHaveBeenCalled()
+    expect(written).toEqual([])
+  })
+
   // EXP-1103: no review gates a node — its RUN does (it lands once the run
   // ended with its pull request up), and in a deep graph the review wave
   // before its layer.

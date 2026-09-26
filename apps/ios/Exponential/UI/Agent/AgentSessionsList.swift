@@ -197,7 +197,9 @@ struct AgentSessionsList: View {
     }
 
     private func nonDefaultAccount(_ session: CodingSessionEntity) -> String? {
-        RunningSessionRowMarks.nonDefaultAccount(session, devices: vm.devices)
+        RunningSessionRowMarks.nonDefaultAccount(
+            session, devices: vm.devices, currentUserId: vm.currentUserId
+        )
     }
 
     /// Every listed row is the caller's own (EXP-312: live sessions are

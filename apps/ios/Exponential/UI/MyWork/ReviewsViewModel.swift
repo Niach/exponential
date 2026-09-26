@@ -140,13 +140,20 @@ final class ReviewsViewModel {
     private var workflowTask: Task<Void, Never>?
     private var allWorkflowTask: Task<Void, Never>?
     private var nodeTask: Task<Void, Never>?
+    /// The team the workflow observations are scoped to (nil = none armed).
+    private var workflowTeamId: String?
 
     init(accountId: String, db: DatabaseManager) {
         self.accountId = accountId
         self.db = db
     }
 
-    func startObserving() {
+    /// `teamId` = the ACTIVE team: the workflow + node observations are
+    /// scoped to it (Android parity, `observeByTeam`), so a member of many
+    /// teams never loads every team's workflow rows for one Reviews list.
+    /// The issue/board/session loops stay team-agnostic and filter at read
+    /// time (`groups(teamId:)`), as before.
+    func startObserving(teamId: String?) {
         stopObserving() // restartable: the view re-arms on every appear
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
 
@@ -207,25 +214,50 @@ final class ReviewsViewModel {
             } catch {}
         }
 
-        // EXP-1094: which PRs are workflow node PRs, and whether their
-        // workflow still runs.
+        observeWorkflowRows(teamId: teamId, pool: pool)
+    }
+
+    /// Re-scope the workflow + node observations to a new active team; the
+    /// other loops are unaffected. A no-op while the team is unchanged.
+    func updateTeam(_ teamId: String?) {
+        guard teamId != workflowTeamId else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        observeWorkflowRows(teamId: teamId, pool: pool)
+    }
+
+    /// EXP-1094: which PRs are workflow node PRs, and whether their workflow
+    /// still runs. Both rows carry `team_id`, so the observation is scoped
+    /// to the active team; no team = nothing observed, empty rows.
+    private func observeWorkflowRows(teamId: String?, pool: DatabasePool) {
+        allWorkflowTask?.cancel()
+        allWorkflowTask = nil
+        nodeTask?.cancel()
+        nodeTask = nil
+        workflowTeamId = teamId
+        guard let teamId else {
+            allWorkflows = []
+            workflowNodes = []
+            return
+        }
         let allWorkflowObservation = ValueObservation.tracking { db in
-            try WorkflowEntity.fetchAll(db)
+            try WorkflowEntity.filter(Column("team_id") == teamId).fetchAll(db)
         }
         allWorkflowTask = Task { [weak self] in
             do {
                 for try await workflows in allWorkflowObservation.values(in: pool) {
-                    self?.allWorkflows = workflows
+                    guard let self, self.workflowTeamId == teamId else { return }
+                    self.allWorkflows = workflows
                 }
             } catch {}
         }
         let nodeObservation = ValueObservation.tracking { db in
-            try WorkflowNodeEntity.fetchAll(db)
+            try WorkflowNodeEntity.filter(Column("team_id") == teamId).fetchAll(db)
         }
         nodeTask = Task { [weak self] in
             do {
                 for try await nodes in nodeObservation.values(in: pool) {
-                    self?.workflowNodes = nodes
+                    guard let self, self.workflowTeamId == teamId else { return }
+                    self.workflowNodes = nodes
                 }
             } catch {}
         }
@@ -244,6 +276,7 @@ final class ReviewsViewModel {
         allWorkflowTask = nil
         nodeTask?.cancel()
         nodeTask = nil
+        workflowTeamId = nil
     }
 
     /// Review entries grouped by board, scoped to `teamId`. Entries

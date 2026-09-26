@@ -1393,7 +1393,14 @@ impl ClaudeSession {
             TurnOutcome::MaxTokens => Ok(PromptResponse::new(StopReason::MaxTokens)),
             TurnOutcome::MaxTurnRequests => Ok(PromptResponse::new(StopReason::MaxTurnRequests)),
             TurnOutcome::Refusal => Ok(PromptResponse::new(StopReason::Refusal)),
-            TurnOutcome::Cancelled => Ok(PromptResponse::new(StopReason::Cancelled)),
+            TurnOutcome::Cancelled => {
+                // FEED-44: an interrupt kills the turn's background agents
+                // with it, and the CLI need not re-list. Nothing may hold
+                // the run busy past a Stop; a later list frame that still
+                // names one restores it.
+                self.retire_background_agents(cx, None);
+                Ok(PromptResponse::new(StopReason::Cancelled))
+            }
             // Not a stop reason: a logged-out CLI answers a perfectly ordinary
             // `result/success` whose text is "Not logged in · Please run
             // /login" (measured), and a turn that reports EndTurn there looks
@@ -1750,6 +1757,31 @@ impl ClaudeSession {
             )),
             meta,
         );
+    }
+
+    /// FEED-44: drop a finished AGENT from the strip without waiting for the
+    /// CLI to re-list. The host reads `agent_busy` off the latest list's
+    /// agent entries, and the CLI does not always send a
+    /// `background_tasks_changed` after the agent's own completion frame
+    /// (a Stop killing background agents, a `/clear`, a lost frame): the
+    /// run then showed the working dot on an idle session until Stop.
+    /// `task_id` = `None` retires EVERY listed agent (a cancelled turn).
+    /// Only an agent-kind entry moves: a shell task's row is the CLI's to
+    /// keep, and only agents hold the run busy. Republished through the
+    /// same slot a list frame uses, so the host's flag recomputes off it.
+    fn retire_background_agents(&self, cx: &ConnectionTo<Client>, task_id: Option<&str>) {
+        let changed = {
+            let mut state = self.lock();
+            let before = state.background_tasks.len();
+            state.background_tasks.retain(|listed| {
+                listed.kind != steer::BackgroundTaskKind::Agent
+                    || task_id.is_some_and(|task_id| listed.id != task_id)
+            });
+            state.background_tasks.len() != before
+        };
+        if changed {
+            self.publish_background_tasks(cx);
+        }
     }
 
     /// EXP-850 §2: the background-task slot, as `_meta` on a no-op
@@ -2734,6 +2766,10 @@ impl ClaudeSession {
                     );
                 }
                 if terminal {
+                    // FEED-44: the strip drops the finished agent NOW, before
+                    // the settle ends the turn, so the idle edge already
+                    // reads the run as not busy.
+                    self.retire_background_agents(cx, Some(&task_id));
                     let mut state = self.lock();
                     self.settle_deferred(cx, &mut state);
                 }

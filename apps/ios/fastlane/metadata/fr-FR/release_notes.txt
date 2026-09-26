@@ -1,5 +1,4 @@
-- Workflows : une rangée de chips choisit un nœud et l'ouvre sur Issue, Run, Changes et Results, une question du planificateur s'affiche dans une bannière, Pause et Dismiss se trouvent dans le menu d'options, et la pull request finale apparaît dans Reviews, où elle se fusionne
-- Runs de l'agent : les runs d'un workflow se regroupent sous leur nœud avec un point d'état et une légende, les runs de revue portent leur titre, un run qui vous attend affiche un point, et la feuille Recent dessine l'arbre
-- Issues : le badge de blocage ouvre un mini-graphe dessiné sur une seule grille commune, et l'en-tête d'un run en stack ou par lot montre l'issue de tête avec un compteur
-- Éditeur : taper --- insère aussitôt un séparateur
-- Activité : les changements d'estimation se regroupent comme toute autre modification de champ
+- Reviews : chaque ligne de pull request porte une seule commande, Merge, ou Merge stack en bas d'une stack, et la pull request d'un nœud de workflow indique qu'elle se fusionne via le workflow
+- Workflows : Open final PR apparaît quand la pull request finale d'un workflow a été fermée, le journal des événements se place sous le graphe et un nœud choisi n'affiche que ses propres événements, et les états en échec ou en attente s'affichent en ambre
+- Runs de l'agent : un run qui attend votre réponse affiche un point rouge, et un run de workflow sur un autre compte indique lequel
+- Démarrer un issue qui a déjà un run actif le signale au lieu d'en lancer un second

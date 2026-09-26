@@ -14,7 +14,11 @@ import { trpc } from "@/lib/trpc-client"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import { nestPrStacks } from "@/lib/pr-stack"
 import { useTeamWorkflowNodes, useTeamWorkflows } from "@/hooks/use-workflows"
-import { reviewWorkflowStatus, workflowStatusByIssue } from "@/lib/reviews-merge"
+import {
+  reviewRowMergeAction,
+  reviewWorkflowStatus,
+  workflowStatusByIssue,
+} from "@/lib/reviews-merge"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import type { CodingSession, Issue, Board, Team, SyncedWorkflow } from "@/db/schema"
 
@@ -371,4 +375,28 @@ export function useReviewsData(team: Team | null | undefined) {
     externalLoading,
     removeExternalPull,
   ])
+}
+
+/** EXP-1094: whether a workflow (running or paused) owns this issue's PR
+ *  merge: the node PR merges through the workflow, never from an issue
+ *  surface, and the server refuses it (`PRECONDITION_FAILED`, PR #864) and the
+ *  Reviews row says so. The tray and the phone's Changes face hide their
+ *  Merge control on it; `undefined` teamId skips the queries. */
+export function useWorkflowOwnsMerge(
+  teamId: string | undefined,
+  issueId: string
+): boolean {
+  const teamWorkflows = useTeamWorkflows(teamId)
+  const teamWorkflowNodes = useTeamWorkflowNodes(teamId)
+  return useMemo(() => {
+    const statusByIssue = workflowStatusByIssue(teamWorkflows, teamWorkflowNodes)
+    return (
+      reviewRowMergeAction({
+        stack: `none`,
+        workflowStatus: reviewWorkflowStatus([issueId], statusByIssue),
+        finalPr: false,
+        finalPrState: null,
+      }) === `none`
+    )
+  }, [teamWorkflows, teamWorkflowNodes, issueId])
 }
