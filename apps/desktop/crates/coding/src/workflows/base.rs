@@ -194,21 +194,27 @@ fn parse_ls_remote(raw: &str) -> HashMap<String, String> {
 /// tokens: the host reads it off git and hands it over as plain text.
 pub const MOVEMENT_NOTE_CAP: usize = 1_500;
 
-/// `git log --oneline <from>..<to>` + `git diff --stat <from>..<to>`,
-/// flattened and capped. A range git cannot resolve yields the bare `to`,
-/// which still tells the run WHAT to merge.
-pub fn movement_note(cwd: &Path, from: &str, to: &str, url: Option<&TokenUrl>) -> String {
-    let range = format!("{from}..{to}");
+/// `git log --oneline <from>..<to>` + `git diff --stat <from>...<to>`,
+/// flattened and capped. FEED-55: the stat is taken from the MERGE-BASE
+/// (three dots), so it lists only what `to` brought, never `from`'s own
+/// work reversed. `None` = nothing in the range, or a range git cannot
+/// resolve: no note beats a wrong one.
+pub fn movement_note(cwd: &Path, from: &str, to: &str, url: Option<&TokenUrl>) -> Option<String> {
+    let commits = format!("{from}..{to}");
+    let changes = format!("{from}...{to}");
     let log = run_git(
         Some(cwd),
-        &["log", "--oneline", "--no-decorate", "-n", "20", &range],
+        &["log", "--oneline", "--no-decorate", "-n", "20", &commits],
         url,
         "git log (workflow upstream)",
     )
-    .unwrap_or_default();
+    .ok()?;
+    if log.trim().is_empty() {
+        return None;
+    }
     let stat = run_git(
         Some(cwd),
-        &["diff", "--stat", &range],
+        &["diff", "--stat", &changes],
         url,
         "git diff --stat (workflow upstream)",
     )
@@ -219,11 +225,22 @@ pub fn movement_note(cwd: &Path, from: &str, to: &str, url: Option<&TokenUrl>) -
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .collect();
-    if lines.is_empty() {
-        return to.to_string();
-    }
     let joined = lines.join("; ");
-    joined.chars().take(MOVEMENT_NOTE_CAP).collect()
+    Some(joined.chars().take(MOVEMENT_NOTE_CAP).collect())
+}
+
+/// FEED-55 — the note for an upstream that moved from `known` (the tip the
+/// node already has, `Snapshot::merged`) to `to`. An unknown `known` is NO
+/// note: guessing it from the node's own branch is what listed a node's own
+/// diff back to it as "upstream".
+pub fn upstream_note(
+    cwd: &Path,
+    known: Option<&str>,
+    to: &str,
+    url: Option<&TokenUrl>,
+) -> Option<String> {
+    let known = known.filter(|known| *known != to)?;
+    movement_note(cwd, known, to, url)
 }
 
 /// EXP-1106 — one `git fetch --prune origin` in the engine clone: the
@@ -733,14 +750,71 @@ mod tests {
         git(&clone, &["commit", "-m", "add the token parser"]);
         let second = git(&clone, &["rev-parse", "HEAD"]);
 
-        let note = movement_note(&clone, &first, &second, None);
+        let note = movement_note(&clone, &first, &second, None).unwrap();
         assert!(note.contains("add the token parser"), "{note}");
         assert!(note.contains("one.txt"), "{note}");
         assert!(!note.contains('\n'), "one line, however long the range");
         assert!(note.chars().count() <= MOVEMENT_NOTE_CAP);
 
-        // A range git cannot resolve still names what to merge.
-        assert_eq!(movement_note(&clone, "nope", &second, None), second);
+        // FEED-55: a range git cannot resolve is no note, never a guess.
+        assert_eq!(movement_note(&clone, "nope", &second, None), None);
+        drop(dir);
+    }
+
+    /// FEED-54/55: the upstream note of a node whose base moved lists ONLY
+    /// the base's new commits and files, never the node's own work; no
+    /// movement and an unknown starting tip are no note at all.
+    #[test]
+    fn the_upstream_note_lists_only_what_the_base_brought() {
+        let (dir, _origin, clone) = repo("upstream");
+        let cut = git(&clone, &["rev-parse", "origin/main"]);
+        // The node's own work on its branch, cut at `cut`.
+        push_branch(&clone, "exp/EXP-7", "leaf.txt", "leaf\n");
+        // The base moves on after the cut.
+        git(&clone, &["checkout", "main"]);
+        write(&clone, "base.txt", "base\n");
+        git(&clone, &["add", "-A"]);
+        git(&clone, &["commit", "-m", "base moves on"]);
+        git(&clone, &["push", "origin", "main"]);
+        let tip = git(&clone, &["rev-parse", "HEAD"]);
+
+        // No movement: the node already has the tip.
+        assert_eq!(upstream_note(&clone, Some(&tip), &tip, None), None);
+        // An unknown starting tip: no note rather than a wrong one.
+        assert_eq!(upstream_note(&clone, None, &tip, None), None);
+
+        let note = upstream_note(&clone, Some(&cut), &tip, None).unwrap();
+        assert!(note.contains("base moves on"), "{note}");
+        assert!(note.contains("base.txt"), "{note}");
+        assert!(!note.contains("leaf.txt"), "the node's own work is not upstream: {note}");
+        assert!(!note.contains("exp/EXP-7"), "{note}");
+
+        // Even taken against the node's branch itself, the three-dot stat
+        // never lists the node's own file reversed.
+        let against_leaf =
+            movement_note(&clone, "origin/exp/EXP-7", &tip, None).unwrap();
+        assert!(against_leaf.contains("base.txt"), "{against_leaf}");
+        assert!(!against_leaf.contains("leaf.txt"), "{against_leaf}");
+
+        // The facts behind it: git proves the moved tip missing (`behind`),
+        // and a tip already in the branch is recorded as merged instead.
+        git(&clone, &["fetch", "origin"]);
+        let leaf = git(&clone, &["rev-parse", "origin/exp/EXP-7"]);
+        let pairs = vec![("n".to_string(), "exp/EXP-7".to_string(), "main".to_string())];
+        let mut merged = HashMap::new();
+        let tips: HashMap<String, String> = [
+            ("exp/EXP-7".to_string(), leaf.clone()),
+            ("main".to_string(), tip.clone()),
+        ]
+        .into();
+        let behind = super::super::refresh_merged(&clone, &pairs, &tips, &mut merged);
+        assert!(behind.contains(&("n".to_string(), "main".to_string())));
+        assert!(merged.is_empty());
+        let at_cut: HashMap<String, String> =
+            [("exp/EXP-7".to_string(), leaf), ("main".to_string(), cut.clone())].into();
+        let behind = super::super::refresh_merged(&clone, &pairs, &at_cut, &mut merged);
+        assert!(behind.is_empty());
+        assert_eq!(merged["n"]["main"], cut);
         drop(dir);
     }
 

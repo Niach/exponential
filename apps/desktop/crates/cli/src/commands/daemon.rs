@@ -3542,7 +3542,8 @@ impl AutomationHost {
             );
             coding::workflows::confine_branches_to_tips(&mut plan.snapshot);
             let pairs = workflow_upstream_pairs(&plan.snapshot, &plan.branch_of);
-            coding::workflows::refresh_merged(clone, &pairs, &plan.snapshot.tips, &mut state.merged);
+            plan.snapshot.behind =
+                coding::workflows::refresh_merged(clone, &pairs, &plan.snapshot.tips, &mut state.merged);
             plan.snapshot.base_conflicts = coding::workflows::detect_base_conflicts(
                 clone,
                 &pairs,
@@ -3786,18 +3787,11 @@ impl AutomationHost {
                         reason,
                     } => {
                         let WakeReason::UpstreamConflict { base_branch, sha } = reason;
-                        let note = match repo.as_ref() {
-                            Some((clone, url)) => workflow_movement_note(
-                                clone,
-                                &plan,
-                                &node_id,
-                                &base_branch,
-                                &sha,
-                                Some(url),
-                            ),
-                            None => sha.clone(),
-                        };
-                        let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
+                        let note = repo.as_ref().and_then(|(clone, url)| {
+                            workflow_movement_note(clone, &plan, &node_id, &base_branch, &sha, Some(url))
+                        });
+                        let text =
+                            coding::prompt::upstream_moved_prompt(&base_branch, &sha, note.as_deref());
                         match self.wake_workflow_run(
                             &plan,
                             repo.as_ref(),
@@ -4656,9 +4650,10 @@ impl AutomationHost {
                     .clone()
                     .unwrap_or_else(|| plan.snapshot.workflow.integration_branch.clone());
                 let branch = node.branch.clone().unwrap_or_default();
+                // FEED-55: the node's OWN work, from the merge-base.
                 let diff_stat = repo
                     .zip(node.branch.as_deref())
-                    .map(|((clone, url), branch)| {
+                    .and_then(|((clone, url), branch)| {
                         coding::workflows::movement_note(
                             clone,
                             &format!("refs/remotes/origin/{base_branch}"),
@@ -5096,6 +5091,7 @@ fn workflow_plan(
             merged: engine_state.merged.clone(),
             woken: engine_state.woken.clone(),
             base_conflicts: Default::default(),
+            behind: Default::default(),
             tip_seen_ms: HashMap::new(),
             synthetic: engine_state.synthetic.clone(),
             conflicts: Default::default(),
@@ -5409,7 +5405,9 @@ fn workflow_blocker_identifiers(
 }
 
 /// The note a moved branch carries: the engine's own summary of the range
-/// between what the node was last told and where the branch is now.
+/// between the tip the node already has and where the branch is now.
+/// FEED-55: `None` when that tip is unknown, never a guess off the node's
+/// own branch.
 fn workflow_movement_note(
     clone: &Path,
     plan: &WorkflowPlan,
@@ -5417,21 +5415,13 @@ fn workflow_movement_note(
     base_branch: &str,
     sha: &str,
     url: Option<&coding::git_worktree::TokenUrl>,
-) -> String {
-    let from = plan
+) -> Option<String> {
+    let known = plan
         .snapshot
         .merged
         .get(node_id)
-        .and_then(|branches| branches.get(base_branch).cloned())
-        .or_else(|| {
-            plan.branch_of
-                .get(node_id)
-                .map(|branch| format!("refs/remotes/origin/{branch}"))
-        });
-    match from {
-        Some(from) => coding::workflows::movement_note(clone, &from, sha, url),
-        None => sha.to_string(),
-    }
+        .and_then(|branches| branches.get(base_branch));
+    coding::workflows::upstream_note(clone, known.map(String::as_str), sha, url)
 }
 
 /// EXP-1102: the engine state's own store under the data dir

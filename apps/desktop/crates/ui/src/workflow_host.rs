@@ -787,6 +787,7 @@ fn snapshot_for(
                 merged: engine_state.merged.clone(),
                 woken: engine_state.woken.clone(),
                 base_conflicts: HashSet::new(),
+                behind: HashSet::new(),
                 tip_seen_ms: HashMap::new(),
                 synthetic: engine_state.synthetic.clone(),
                 conflicts: HashSet::new(),
@@ -1001,7 +1002,8 @@ fn run_pass(
         // the siblings it merges in first), re-derived from git when the
         // store does not know, and which of the moved ones would conflict.
         let pairs = upstream_pairs(&snapshot, &pass.branch_of);
-        workflows::refresh_merged(&repo.clone_path, &pairs, &snapshot.tips, &mut state.merged);
+        snapshot.behind =
+            workflows::refresh_merged(&repo.clone_path, &pairs, &snapshot.tips, &mut state.merged);
         snapshot.base_conflicts = workflows::detect_base_conflicts(
             &repo.clone_path,
             &pairs,
@@ -1297,11 +1299,10 @@ fn run_pass(
                     reason,
                 } => {
                     let WakeReason::UpstreamConflict { base_branch, sha } = reason.clone();
-                    let note = match repo.as_ref() {
-                        Some(repo) => movement_note(repo, &pass, &snapshot, &node_id, &base_branch, &sha),
-                        None => sha.clone(),
-                    };
-                    let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
+                    let note = repo
+                        .as_ref()
+                        .and_then(|repo| movement_note(repo, &snapshot, &node_id, &base_branch, &sha));
+                    let text = coding::prompt::upstream_moved_prompt(&base_branch, &sha, note.as_deref());
                     // The stamp goes where the wake executes: a steer stamps
                     // at once, a resume as it goes out, a fresh launch once it
                     // came up — never for an order that failed to launch.
@@ -1823,9 +1824,12 @@ fn wake(
                 .clone()
                 .unwrap_or_else(|| snapshot.workflow.integration_branch.clone());
             let branch = node.branch.clone().unwrap_or_default();
+            // FEED-55: what the node's OWN branch holds, from the merge-base
+            // (three dots inside `movement_note`), never the base's newer
+            // work reversed.
             let diff_stat = repo
                 .zip(node.branch.as_deref())
-                .map(|(repo, branch)| {
+                .and_then(|(repo, branch)| {
                     workflows::movement_note(
                         &repo.clone_path,
                         &format!("refs/remotes/origin/{base_branch}"),
@@ -2055,31 +2059,21 @@ fn blocker_identifiers(snapshot: &Snapshot, node_id: &str) -> Vec<String> {
 }
 
 /// The note a moved branch carries: the host's own summary of the range
-/// between what the node was last told and where the branch is now.
+/// between the tip the node already has and where the branch is now.
+/// FEED-55: `None` when that tip is unknown, never a guess off the node's
+/// own branch.
 fn movement_note(
     repo: &EngineRepo,
-    pass: &Pass,
     snapshot: &Snapshot,
     node_id: &str,
     base_branch: &str,
     sha: &str,
-) -> String {
-    let from = snapshot
+) -> Option<String> {
+    let known = snapshot
         .merged
         .get(node_id)
-        .and_then(|branches| branches.get(base_branch).cloned())
-        .or_else(|| {
-            // Never told anything yet: what the node's OWN branch is missing.
-            pass.branch_of
-                .get(node_id)
-                .map(|branch| format!("refs/remotes/origin/{branch}"))
-        });
-    match from {
-        Some(from) => {
-            workflows::movement_note(&repo.clone_path, &from, sha, Some(&repo.url))
-        }
-        None => sha.to_string(),
-    }
+        .and_then(|branches| branches.get(base_branch));
+    workflows::upstream_note(&repo.clone_path, known.map(String::as_str), sha, Some(&repo.url))
 }
 
 fn read_state(pass: &Pass, workflow_id: &str) -> workflows::WorkflowState {

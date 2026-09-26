@@ -311,13 +311,19 @@ Decisions so far:
 /// EXP-983/EXP-1106 — what a run is told when the branch under it moved AND
 /// the host's own merge of it CONFLICTS (a clean move is merged by the host,
 /// and nobody is told). The NOTE is the host's own `git log`/`git diff
-/// --stat` summary of the range: the agent never spends a token working out
-/// what changed.
-pub fn upstream_moved_prompt(base_branch: &str, note: &str) -> String {
+/// --stat` summary of what the base brought; FEED-55: absent when the host
+/// cannot say for sure. Nodes propagate by MERGE only.
+pub fn upstream_moved_prompt(base_branch: &str, sha: &str, note: Option<&str>) -> String {
+    let short: String = sha.chars().take(12).collect();
+    let note = match note.map(str::trim).filter(|note| !note.is_empty()) {
+        Some(note) => format!(" It brings: {note}."),
+        None => String::new(),
+    };
     format!(
-        "Upstream moved and does not merge cleanly into your branch: {note}. Run git fetch origin \
-and git merge origin/{base_branch}, resolve the conflict in favour of what already landed unless \
-that breaks your issue, run the tests you touched, and push."
+        "Upstream `{base_branch}` moved to {short} and does not merge cleanly into your branch.{note} \
+Merge it into your branch: run git fetch origin and git merge origin/{base_branch}, resolve the \
+conflict in favour of what already landed unless that breaks your issue, run the tests you touched, \
+and push. Keep your history: merge and push normally."
     )
 }
 
@@ -608,11 +614,17 @@ exponential_sessions_ask_parent.\n"
     #[test]
     fn the_upstream_prompt_names_the_branch_and_the_change() {
         assert_eq!(
-            upstream_moved_prompt("exp/EXP-1", "a1b2c3 add the token parser"),
-            "Upstream moved and does not merge cleanly into your branch: a1b2c3 add the token parser. Run \
-git fetch origin and git merge origin/exp/EXP-1, resolve the conflict in favour of what already \
-landed unless that breaks your issue, run the tests you touched, and push."
+            upstream_moved_prompt("exp/EXP-1", "a1b2c3d4e5f6a7b8", Some("a1b2c3 add the token parser")),
+            "Upstream `exp/EXP-1` moved to a1b2c3d4e5f6 and does not merge cleanly into your branch. \
+It brings: a1b2c3 add the token parser. Merge it into your branch: run git fetch origin and git merge \
+origin/exp/EXP-1, resolve the conflict in favour of what already landed unless that breaks your \
+issue, run the tests you touched, and push. Keep your history: merge and push normally."
         );
+        // FEED-55: no note when the host cannot say, and never a rebase.
+        let bare = upstream_moved_prompt("exp/EXP-1", "a1b2c3", None);
+        assert!(!bare.contains("It brings"), "{bare}");
+        assert!(!bare.to_lowercase().contains("rebase"), "{bare}");
+        assert!(!bare.contains("force"), "{bare}");
     }
 
     /// EXP-984 — the findings reach the author whole, under their heading,

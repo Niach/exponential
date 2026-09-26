@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 pub use base::{
     build_base, delete_remote_branch, engine_worktree, fetch_origin,
     is_ancestor as git_is_ancestor, land_branch, merge_conflicts, merge_into_branch,
-    movement_note, remote_tips, BaseOutcome, MergeOutcome,
+    movement_note, remote_tips, upstream_note, BaseOutcome, MergeOutcome,
 };
 pub use branch::{delete_integration_branch, engine_clone, ensure_integration_branch};
 pub use facts::{
@@ -451,11 +451,19 @@ pub struct Snapshot {
     /// collision wakes the agent once.
     #[serde(default)]
     pub woken: HashMap<String, HashMap<String, String>>,
-    /// Host fact (EXP-1106): node ids whose branch does NOT merge cleanly
-    /// with their base's current tip (`git merge-tree`). Such a move wakes
-    /// the run instead of being merged by the host.
+    /// Host fact (EXP-1106): `(node id, upstream branch)` pairs whose
+    /// branches do NOT merge cleanly at the upstream's current tip (`git
+    /// merge-tree`). Such a move wakes the run instead of being merged by the
+    /// host. FEED-54: keyed per upstream, so a collision with a serialized
+    /// sibling never flags the base.
     #[serde(default)]
-    pub base_conflicts: HashSet<String>,
+    pub base_conflicts: HashSet<(String, String)>,
+    /// Host fact (FEED-54): `(node id, upstream branch)` pairs whose current
+    /// upstream tip git says is NOT in the node's branch
+    /// ([`facts::refresh_merged`]). Only such a pair has moved: a pair git
+    /// could not answer, or one the host never tested, is not movement.
+    #[serde(default)]
+    pub behind: HashSet<(String, String)>,
     /// Host fact (EXP-1106): `branch → ms epoch the host first saw its
     /// CURRENT tip` — the debounce clock. An absent branch reads as seen
     /// just now, which holds one window.
@@ -1559,6 +1567,14 @@ fn upstream_decision(snapshot: &Snapshot, entry: &Mirrored<'_>, base: &str) -> O
     {
         return None;
     }
+    // FEED-54: only a tip git PROVED missing from the branch has moved. A
+    // `merged` entry that is absent (never recorded, store lost, ancestry
+    // unanswered) is not movement: reading it as one woke runs with an
+    // "Upstream moved" notice about their own work.
+    let key = (node.id.clone(), base.to_string());
+    if !snapshot.behind.contains(&key) {
+        return None;
+    }
     // Debounced: a tip that moved inside the window is still moving.
     let seen = snapshot.tip_seen_ms.get(base).copied().unwrap_or(snapshot.now_ms);
     if snapshot.now_ms - seen < UPSTREAM_DEBOUNCE_MS {
@@ -1571,7 +1587,7 @@ fn upstream_decision(snapshot: &Snapshot, entry: &Mirrored<'_>, base: &str) -> O
     if session.live {
         return None;
     }
-    if !snapshot.base_conflicts.contains(&node.id) {
+    if !snapshot.base_conflicts.contains(&key) {
         return Some(Decision::MergeBase {
             node_id: node.id.clone(),
             branch,
@@ -2478,6 +2494,9 @@ mod tests {
         facts.base_branch = Some(base.to_string());
         facts.branch = Some(format!("exp/EXP-{id}"));
         snapshot.tips.insert(format!("exp/EXP-{id}"), format!("sha-{id}"));
+        // FEED-54: git says the base's current tip is not in the branch; a
+        // tip `merged` already records still reads as nothing to do.
+        snapshot.behind.insert((id.to_string(), base.to_string()));
         snapshot.sessions.insert(format!("s-{id}"), ended(Some(0)));
         snapshot.issues.insert(
             format!("issue-{id}"),
@@ -2866,7 +2885,7 @@ mod tests {
         started_on("a", INTEGRATION, &mut snapshot);
         snapshot.tips.insert(INTEGRATION.to_string(), "sha-i2".to_string());
         snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), 0);
-        snapshot.base_conflicts.insert("a".to_string());
+        snapshot.base_conflicts.insert(("a".to_string(), INTEGRATION.to_string()));
         snapshot.now_ms = UPSTREAM_DEBOUNCE_MS;
         snapshot.sessions.insert("s-a".to_string(), ended(Some(snapshot.now_ms - 1_000)));
         let wake = Decision::WakeRun {
@@ -2894,6 +2913,40 @@ mod tests {
         assert!(!evaluate(&snapshot).iter().any(Decision::is_wake));
         snapshot.tips.insert(INTEGRATION.to_string(), "sha-i3".to_string());
         assert_eq!(of_kind(&evaluate(&snapshot), Decision::is_wake).len(), 1);
+    }
+
+    /// FEED-54: a pair git never proved behind is not movement. No
+    /// `merged` entry (never recorded, store lost, ancestry unanswered) and
+    /// no `behind` fact means nothing, however old the tip reads.
+    #[test]
+    fn an_unknown_merged_entry_is_not_movement() {
+        let mut snapshot = running(vec![]);
+        started_on("a", INTEGRATION, &mut snapshot);
+        snapshot.behind.clear();
+        snapshot.tips.insert(INTEGRATION.to_string(), "sha-i2".to_string());
+        snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), 0);
+        snapshot.base_conflicts.insert(("a".to_string(), INTEGRATION.to_string()));
+        snapshot.now_ms = UPSTREAM_DEBOUNCE_MS;
+        assert!(snapshot.merged.is_empty());
+        assert!(!touches_upstream(&evaluate(&snapshot)));
+        // Git proves it: now the move is real.
+        snapshot.behind.insert(("a".to_string(), INTEGRATION.to_string()));
+        assert!(touches_upstream(&evaluate(&snapshot)));
+    }
+
+    /// FEED-54: a collision with a SIBLING's branch never marks the base as
+    /// conflicting. The base's clean move is merged by the host, no wake.
+    #[test]
+    fn a_sibling_conflict_does_not_flag_the_base() {
+        let mut snapshot = running(vec![]);
+        started_on("a", INTEGRATION, &mut snapshot);
+        snapshot.tips.insert(INTEGRATION.to_string(), "sha-i2".to_string());
+        snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), 0);
+        snapshot.base_conflicts.insert(("a".to_string(), "exp/EXP-b".to_string()));
+        snapshot.now_ms = UPSTREAM_DEBOUNCE_MS;
+        let decisions = evaluate(&snapshot);
+        assert!(!decisions.iter().any(Decision::is_wake), "{decisions:?}");
+        assert!(decisions.iter().any(|d| matches!(d, Decision::MergeBase { .. })), "{decisions:?}");
     }
 
     /// Three quick moves become one merge: while the tip keeps moving inside
@@ -2957,7 +3010,7 @@ mod tests {
         let mut snapshot = running(vec![]);
         for id in ["a", "b", "c", "d"] {
             started_on(id, INTEGRATION, &mut snapshot);
-            snapshot.base_conflicts.insert(id.to_string());
+            snapshot.base_conflicts.insert((id.to_string(), INTEGRATION.to_string()));
         }
         // Two more runs walled and reset: nudges compete for the same budget.
         for id in ["e", "f"] {
@@ -3165,23 +3218,18 @@ mod tests {
         assert_eq!(expected, vec![Decision::LandNode { node_id: "a".to_string() }]);
 
         // The store is gone: no merged cache, no tip clock, no woken record.
+        // The tip IS in the branch, so git never calls the pair behind.
         let mut bare = cached.clone();
         bare.merged.clear();
+        bare.behind.clear();
         bare.tip_seen_ms.clear();
         bare.woken.clear();
         assert_eq!(evaluate(&bare), expected, "the same pass, the tip reads as just seen");
-        // One beat later the host has dated the tip; the merge it decides is
-        // a no-op (the tip is already in), and nothing else differs.
+        // FEED-54: one beat later, still nothing: an unknown `merged` entry
+        // is not movement, so no merge (and no notice) is decided.
         bare.tip_seen_ms.insert(INTEGRATION.to_string(), bare.now_ms);
         bare.now_ms += UPSTREAM_DEBOUNCE_MS;
-        let mut converged = expected.clone();
-        converged.insert(0, Decision::MergeBase {
-            node_id: "a".to_string(),
-            branch: "exp/EXP-a".to_string(),
-            base_branch: INTEGRATION.to_string(),
-            sha: "sha-c".to_string(),
-        });
-        assert_eq!(evaluate(&bare), converged);
+        assert_eq!(evaluate(&bare), expected);
         // And the host's ancestry check refills the cache from git alone.
         bare.merged = cached.merged.clone();
         assert_eq!(evaluate(&bare), expected);
