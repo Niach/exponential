@@ -4210,7 +4210,9 @@ describe(`exponential_sessions_start`, () => {
     )
   })
 
-  it(`hands back sessionId null when the device never reports the run`, async () => {
+  // FEED-57/46: a start the device never turned into a run is an ERROR,
+  // never `ok` with a null id the caller would wait on.
+  it(`errors when the device never reports the run`, async () => {
     caller.steer.startSession.mockResolvedValue({ ok: true })
     dbRows.current = []
     vi.useFakeTimers()
@@ -4221,16 +4223,29 @@ describe(`exponential_sessions_start`, () => {
       })
       await vi.advanceTimersByTimeAsync(12_000)
       const result = await pending
-      expect(parseOk(result)).toEqual({
-        ok: true,
-        deviceId: `mac-1`,
-        sessionId: null,
-        session: null,
-      })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toBe(
+          `Device mac-1 took the start but reported no run within 10s. Check that it is online (exponential_devices_list), its app or daemon log, and whether a live run already holds the issue (exponential_sessions_list). Check exponential_sessions_list before starting again: the run may still appear.`
+      )
     } finally {
       vi.useRealTimers()
     }
     expect(caller.steer.startSession).toHaveBeenCalledTimes(1)
+  })
+
+  // FEED-57: a builtin chat/action row (issue-less, action-less, named) the
+  // same user starts on the same device must never pass for the batch run.
+  it(`matches a batch start's row by its covered set, never a named builtin row`, async () => {
+    membership.getIssueTeamContext.mockResolvedValue({ teamId: WS, boardId: PROJ })
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    dbRows.current = [{ id: RUN, status: `running` }]
+    await tool(`exponential_sessions_start`)({ deviceId: `mac-1`, issueIds: [UUID, RUN] })
+    const { sql, params } = renderWhere()
+    expect(sql).toContain(`"issue_id" is null`)
+    expect(sql).toContain(`"action_id" is null`)
+    expect(sql).toContain(`"action_name" is null`)
+    expect(sql).toContain(`"batch_issue_ids" ?|`)
+    expect(params).toContainEqual([UUID, RUN])
   })
 
   it(`surfaces an offline device (relay 404) as an MCP error`, async () => {

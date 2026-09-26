@@ -97,6 +97,8 @@ const h = vi.hoisted(() => {
     resolveBoardRepository: vi.fn(),
     // EXP-897: the stacked start's chain resolver (dynamically imported).
     resolveStackChain: vi.fn(),
+    // FEED-57: the fresh start's live-run probe (codingSessions helper).
+    findLiveRunForIssues: vi.fn(),
     dbQueue,
     db: { select: () => makeChain() },
   }
@@ -122,6 +124,10 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
 }))
 vi.mock(`@/lib/stack-plan`, () => ({
   resolveStackChain: h.resolveStackChain,
+}))
+vi.mock(`@/lib/trpc/coding-sessions`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/trpc/coding-sessions")>()),
+  findLiveRunForIssues: h.findLiveRunForIssues,
 }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
@@ -237,6 +243,8 @@ beforeEach(() => {
     repoFullName: `acme/api`,
     base: `main`,
   })
+  h.findLiveRunForIssues.mockReset()
+  h.findLiveRunForIssues.mockResolvedValue(null)
   h.dbQueue.length = 0
 })
 
@@ -615,6 +623,54 @@ describe(`steer.startSession — routed body shape`, () => {
     expect(`installationId` in (body.repo as Record<string, unknown>)).toBe(
       false
     )
+  })
+})
+
+// FEED-57/46/47: a fresh issue or batch start on an issue a live run holds
+// (its own, or a batch covering it) is refused here, never posted for the
+// device to drop silently.
+describe(`steer.startSession — live run on a target issue`, () => {
+  const live = {
+    id: `99999999-9999-4999-8999-999999999999`,
+    deviceLabel: `studio`,
+    userId: `actor`,
+    startedReason: `workflow`,
+    branch: `exp/batch-1a2b3c4d`,
+    identifiers: [`EXP-2`],
+  }
+
+  it(`refuses a single-issue start with CONFLICT naming the run`, async () => {
+    queueOwnDevice()
+    h.findLiveRunForIssues.mockResolvedValue({ ...live, branch: null, startedReason: null, identifiers: [`EXP-1`] })
+    const error = (await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )) as TRPCError
+    expect(error.code).toBe(`CONFLICT`)
+    expect(error.message).toBe(
+      `EXP-1 already has a live run on studio (session ${live.id}, started by a person). Stop it or let it end before starting another.`
+    )
+    expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A])
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a batch when any covered issue has a live run`, async () => {
+    queueOwnDevice()
+    h.findLiveRunForIssues.mockResolvedValue(live)
+    const error = (await rejectionOf(
+      caller.startSession({ issueIds: [ISSUE_A, ISSUE_B], deviceId: `dev-1` })
+    )) as TRPCError
+    expect(error.code).toBe(`CONFLICT`)
+    expect(error.message).toBe(
+      `EXP-2 already has a live run on studio (session ${live.id}, started by workflow, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+    )
+    expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A, ISSUE_B])
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`starts when nothing live holds the issues`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueIds: [ISSUE_A, ISSUE_B], deviceId: `dev-1` })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 })
 

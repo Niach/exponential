@@ -482,6 +482,79 @@ async function bindStartAttachments(
     )
 }
 
+/** FEED-57/46/47: a LIVE run covering an issue — the issue's own run, or a
+ *  batch run whose covered set (`batch_issue_ids`) names it. Live = still
+ *  running or in review AND heartbeating within the staleness window (the
+ *  REV2-24 client predicate). */
+export interface LiveIssueRun {
+  id: string
+  deviceLabel: string | null
+  userId: string
+  startedReason: string | null
+  branch: string | null
+  /** The asked-for issues this run covers, as identifiers. */
+  identifiers: string[]
+}
+
+export async function findLiveRunForIssues(
+  db: Context[`db`],
+  issueIds: readonly string[]
+): Promise<LiveIssueRun | null> {
+  const ids = [...new Set(issueIds)]
+  if (ids.length === 0) return null
+  const [run] = await db
+    .select({
+      id: codingSessions.id,
+      deviceLabel: codingSessions.deviceLabel,
+      userId: codingSessions.userId,
+      startedReason: codingSessions.startedReason,
+      branch: codingSessions.branch,
+      issueId: codingSessions.issueId,
+      batchIssueIds: codingSessions.batchIssueIds,
+    })
+    .from(codingSessions)
+    .where(
+      and(
+        or(
+          inArray(codingSessions.issueId, ids),
+          sql`${codingSessions.batchIssueIds} ?| ${sql.param(ids)}::text[]`
+        ),
+        inArray(codingSessions.status, [`running`, `in_review`]),
+        gte(codingSessions.updatedAt, new Date(Date.now() - CODING_SESSION_STALE_MS))
+      )
+    )
+    .orderBy(desc(codingSessions.updatedAt))
+    .limit(1)
+  if (!run) return null
+  const covered = new Set([run.issueId, ...(run.batchIssueIds ?? [])])
+  const hit = ids.filter((id) => covered.has(id))
+  const rows = hit.length
+    ? await db
+        .select({ id: issues.id, identifier: issues.identifier })
+        .from(issues)
+        .where(inArray(issues.id, hit))
+    : []
+  const identifierOf = new Map(rows.map((row) => [row.id, row.identifier]))
+  return {
+    id: run.id,
+    deviceLabel: run.deviceLabel ?? null,
+    userId: run.userId,
+    startedReason: run.startedReason ?? null,
+    branch: run.branch ?? null,
+    identifiers: hit.map((id) => identifierOf.get(id) ?? id),
+  }
+}
+
+/** The CONFLICT a fresh start on an issue with a live run gets: which issue,
+ *  which run, how it was started and where, so the caller can find it. */
+export function liveRunConflictMessage(run: LiveIssueRun): string {
+  const subject = run.identifiers.length > 0 ? run.identifiers.join(`, `) : `That issue`
+  const how = run.startedReason ? `started by ${run.startedReason}` : `started by a person`
+  const facts = [`session ${run.id}`, how, ...(run.branch ? [`branch ${run.branch}`] : [])]
+  const where = run.deviceLabel ? ` on ${run.deviceLabel}` : ``
+  return `${subject} already has a live run${where} (${facts.join(`, `)}). Stop it or let it end before starting another.`
+}
+
 export const codingSessionsRouter = router({
   // EXP-1051: what the Exponential MCP surface costs a run on turn one, in
   // UTF-8 bytes — the always-loaded tool definitions plus the server
@@ -665,26 +738,13 @@ export const codingSessionsRouter = router({
     .query(async ({ ctx, input }) => {
       const issueCtx = await getIssueTeamContext(input.issueId)
       await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
-      const [session] = await ctx.db
-        .select({
-          id: codingSessions.id,
-          deviceLabel: codingSessions.deviceLabel,
-          userId: codingSessions.userId,
-        })
-        .from(codingSessions)
-        .where(
-          and(
-            eq(codingSessions.issueId, input.issueId),
-            inArray(codingSessions.status, [`running`, `in_review`]),
-            gte(
-              codingSessions.updatedAt,
-              new Date(Date.now() - CODING_SESSION_STALE_MS)
-            )
-          )
-        )
-        .orderBy(desc(codingSessions.updatedAt))
-        .limit(1)
-      return { session: session ?? null }
+      // FEED-57: a batch run covering the issue holds it too.
+      const live = await findLiveRunForIssues(ctx.db, [input.issueId])
+      return {
+        session: live
+          ? { id: live.id, deviceLabel: live.deviceLabel, userId: live.userId }
+          : null,
+      }
     }),
 
   start: authedProcedure
