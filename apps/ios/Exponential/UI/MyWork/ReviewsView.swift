@@ -81,10 +81,14 @@ struct ReviewsListContent: View {
             }
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
-            viewModel?.startObserving()
+            viewModel?.startObserving(teamId: teamState.activeTeam?.id)
         }
         .onDisappear {
             viewModel?.stopObserving()
+        }
+        // The workflow rows are observed per team: a switch re-scopes them.
+        .onChange(of: teamState.activeTeam?.id) { _, teamId in
+            viewModel?.updateTeam(teamId)
         }
         .alert(
             "Merge pull request?",

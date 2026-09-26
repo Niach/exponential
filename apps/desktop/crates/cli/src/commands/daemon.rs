@@ -4195,7 +4195,7 @@ impl AutomationHost {
                 log::warn!(
                     "workflow reportNode {} → {} refused: the node is landed or skipped on the server",
                     report.node_id,
-                    report.state
+                    report.state_label()
                 );
                 false
             }
@@ -4203,7 +4203,7 @@ impl AutomationHost {
                 log::warn!(
                     "workflow reportNode {} → {} failed: {err}",
                     report.node_id,
-                    report.state
+                    report.state_label()
                 );
                 false
             }
@@ -4375,13 +4375,26 @@ impl AutomationHost {
             .member_issue_ids
             .is_empty()
             .then(|| node.issue_id.clone());
-        spawn_prepared(
+        // A COMPOUND node runs as a batch over the parent and its members:
+        // the live entry records that covered set, so `issue_is_coding_here`
+        // (the remote-start guard) holds every one of them the way a relay
+        // batch start's entry does. A plain node is keyed by its issue.
+        let covered: Vec<String> = if issue_id.is_some() {
+            Vec::new()
+        } else {
+            std::iter::once(&node.issue_id)
+                .chain(node.member_issue_ids.iter())
+                .cloned()
+                .collect()
+        };
+        spawn_prepared_covering(
             &self.ctx,
             self.runtime.as_ref(),
             &self.sessions,
             self.personal_key.clone(),
             prepared,
             issue_id,
+            covered,
             false,
         )?;
         Ok(Some(session_id))
@@ -4704,10 +4717,11 @@ impl AutomationHost {
                 let Some(node) = plan.nodes.get(node_id) else {
                     return Ok(false);
                 };
-                // FEED-56: the plan may be stale. Ask the server first (its
-                // own state, nothing changes); a landed or skipped node there
-                // is refused, and nothing launches for it.
-                if !self.report_node(&api::workflows::NodeReport::new(node_id, &node.state)) {
+                // FEED-56: the plan may be stale. Ask the server first (a
+                // PING: its own state decides, nothing is written); a landed
+                // or skipped node there is refused, and nothing launches for
+                // it.
+                if !self.report_node(&api::workflows::NodeReport::ping(node_id)) {
                     return Ok(false);
                 }
                 let identifier = plan

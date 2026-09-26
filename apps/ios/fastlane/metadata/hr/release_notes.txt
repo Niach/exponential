@@ -1,5 +1,4 @@
-- Workflowi: traka čipova bira čvor i otvara ga u Issue, Run, Changes i Results, pitanje planera prikazuje se u banneru, Pause i Dismiss nalaze se u izborniku s više opcija, a završni pull request pojavljuje se pod Reviews, gdje se spaja
-- Izvođenja agenta: izvođenja workflowa grupiraju se pod svojim čvorom s točkom statusa i opisom, izvođenja pregleda nose svoje naslove, izvođenje koje vas treba ima točku, a list Recent crta stablo
-- Issues: oznaka blokiranja otvara mini-graf nacrtan na jednoj zajedničkoj mreži, a zaglavlje stack ili skupnog izvođenja prikazuje prvi issue s brojem
-- Uređivač: upisivanjem --- odmah se umeće razdjelnik
-- Aktivnost: promjene procjene sažimaju se kao i svaka druga izmjena polja
+- Reviews: svaki redak pull requesta ima jednu kontrolu, Merge, ili Merge stack na dnu stacka, a pull request čvora workflowa navodi da se spaja kroz workflow
+- Workflowi: Open final PR pojavljuje se kada je završni pull request workflowa zatvoren, zapisnik događaja nalazi se ispod grafa i odabrani čvor prikazuje samo svoje događaje, a stanja neuspjeha ili čekanja prikazuju se jantarno
+- Izvođenja agenta: izvođenje koje čeka vaš odgovor ima crvenu točku, a izvođenje workflowa na drugom računu navodi na kojem
+- Pokretanje issuea koji već ima aktivno izvođenje to javlja umjesto da pokrene drugo

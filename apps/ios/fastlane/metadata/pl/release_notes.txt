@@ -1,5 +1,4 @@
-- Workflows: pasek chipów wybiera węzeł i otwiera go w Issue, Run, Changes i Results, pytanie od planisty pojawia się w banerze, Pause i Dismiss są w menu dodatkowych opcji, a końcowy pull request trafia do Reviews, gdzie się go scala
-- Przebiegi agenta: przebiegi workflow grupują się pod swoim węzłem z kropką stanu i podpisem, przebiegi przeglądu noszą swoje tytuły, przebieg, który na ciebie czeka, ma kropkę, a panel Recent rysuje drzewo
-- Issues: plakietka blokad otwiera minigraf rysowany na jednej wspólnej siatce, a nagłówek przebiegu stosu lub partii pokazuje pierwsze issue z liczbą
-- Edytor: wpisanie --- od razu wstawia separator
-- Aktywność: zmiany szacunku zwijają się tak jak każda inna edycja pola
+- Reviews: każdy wiersz pull requestu ma jedną kontrolkę, Merge, lub Merge stack na dole stosu, a pull request węzła workflow informuje, że scala się przez workflow
+- Workflows: Open final PR pojawia się, gdy końcowy pull request workflow został zamknięty, dziennik zdarzeń leży pod grafem, a wybrany węzeł pokazuje tylko własne zdarzenia, zaś stany błędu lub oczekiwania są bursztynowe
+- Przebiegi agenta: przebieg czekający na twoją odpowiedź ma czerwoną kropkę, a przebieg workflow na innym koncie mówi, na którym
+- Uruchomienie issue, które ma już aktywny przebieg, informuje o tym zamiast startować drugi

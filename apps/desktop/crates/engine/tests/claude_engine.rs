@@ -319,6 +319,44 @@ fn background_subagents_keep_the_run_busy_past_the_turn_end() {
     until("the run to read idle", || !harness.session.agent_busy());
 }
 
+/// FEED-44 (the stuck half): the agent's completion arrives as a
+/// `task_notification` and the CLI never re-lists (a Stop killing
+/// background agents, a `/clear`, a lost frame). The strip has to drop the
+/// finished agent off that notification alone, or `agent_busy` holds the
+/// working dot on an idle session until Stop.
+///
+/// Same first turn as `background-agent`; the second turn carries the
+/// notification and NO `background_tasks_changed`.
+#[test]
+fn a_completion_notification_alone_lets_the_run_go_idle() {
+    let _session = one_session_at_a_time();
+    let harness = start("background-agent-notification", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+
+    harness
+        .session
+        .send_prompt("Launch the slowpoke agent in the background and wait for it.".to_string());
+    until("the first turn to end", || ended_turns(&harness.sink) >= 1);
+    until("the agent-kind background list", || {
+        events_of(&harness.sink, "background_tasks").iter().any(has_agent_task)
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(harness.session.agent_busy(), "the listed agent keeps the run busy");
+    let lists_before = events_of(&harness.sink, "background_tasks").len();
+
+    harness.session.send_prompt("Is the slowpoke agent done?".to_string());
+    until("the second turn to end", || ended_turns(&harness.sink) >= 2);
+    until("the run to read idle", || !harness.session.agent_busy());
+    // The strip closed off the notification: one more list, empty of agents,
+    // that the CLI never sent.
+    let lists = events_of(&harness.sink, "background_tasks");
+    assert!(lists.len() > lists_before, "the adapter republished the strip: {lists:?}");
+    assert!(
+        lists.last().is_some_and(|list| !has_agent_task(list)),
+        "the finished agent left the strip: {lists:?}"
+    );
+}
+
 /// EXP-1098: a seed prompt with an image — the host announces the person's
 /// text (`![image](/api/attachments/…)`, the issue ref, the mention) and the
 /// agent receives the LOCALIZED text (`Image #1: …` manifest). Claude's

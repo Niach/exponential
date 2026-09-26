@@ -1,5 +1,4 @@
-- Workflows: eine Chip-Leiste wählt einen Knoten und öffnet ihn in Issue, Run, Changes und Results, eine Frage des Planers erscheint in einem Banner, Pause und Dismiss liegen im Überlaufmenü, und der finale Pull Request steht unter Reviews, wo er gemergt wird
-- Agent-Läufe: die Läufe eines Workflows gruppieren sich unter ihrem Knoten mit Statuspunkt und Beschriftung, Review-Läufe tragen ihre Titel, ein Lauf, der dich braucht, bekommt einen Punkt, und die Übersicht Recent zeichnet den Baum
-- Issues: das Blockiert-Abzeichen öffnet einen Mini-Graphen auf einem gemeinsamen Raster, und der Kopf eines Stapel- oder Batch-Laufs zeigt das vorderste Issue mit einer Anzahl
-- Editor: wer --- tippt, fügt sofort eine Trennlinie ein
-- Aktivität: Änderungen an Schätzungen werden wie jede andere Feldänderung zusammengefasst
+- Reviews: jede Pull-Request-Zeile trägt ein einziges Bedienelement, Merge oder Merge stack am unteren Ende eines Stapels, und der Pull Request eines Workflow-Knotens sagt, dass er über den Workflow gemergt wird
+- Workflows: Open final PR erscheint, wenn der finale Pull Request eines Workflows geschlossen wurde, das Ereignisprotokoll steht unter dem Graphen und ein gewählter Knoten zeigt nur seine eigenen Ereignisse, und fehlgeschlagene oder wartende Zustände erscheinen bernsteinfarben
+- Agent-Läufe: ein Lauf, der auf deine Antwort wartet, bekommt einen roten Punkt, und ein Workflow-Lauf auf einem anderen Konto sagt, auf welchem
+- Wer ein Issue startet, das schon einen laufenden Lauf hat, erfährt das, statt einen zweiten zu starten

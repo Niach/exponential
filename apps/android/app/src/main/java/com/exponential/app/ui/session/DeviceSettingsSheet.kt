@@ -692,6 +692,12 @@ data class AgentDraft(
     val subagentModel: String = CLI_DEFAULT_MODEL,
     val ultracode: Boolean,
     val planMode: Boolean,
+    /**
+     * EXP-1005: the desktop-owned auto-rotate toggle, carried through the
+     * draft ONLY so a save echoes the synced value (the mutation replaces the
+     * whole object). No row edits it here; null = the stored row has no key.
+     */
+    val autoRotateAccounts: Boolean? = null,
 )
 
 /**
@@ -751,6 +757,8 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
             ?: CLI_DEFAULT_MODEL,
         ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
         planMode = defaults.planMode && supportsPlanMode(agent),
+        // EXP-1005: echoed as stored, never clamped or defaulted here.
+        autoRotateAccounts = defaults.autoRotateAccounts,
     )
 }
 
@@ -802,6 +810,9 @@ internal fun buildDefaults(
             subagentModel = draft.subagentModel.takeIf { supportsSubagentModel(agent) },
             ultracode = draft.ultracode && agent == DEFAULT_AGENT,
             planMode = draft.planMode && supportsPlanMode(agent),
+            // EXP-1005: the synced value rides back unchanged; absent stays
+            // absent so the server keeps whatever the desktop stored.
+            autoRotateAccounts = draft.autoRotateAccounts,
         )
     },
 )

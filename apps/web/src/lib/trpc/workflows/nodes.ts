@@ -291,12 +291,15 @@ export const workflowNodeProcedures = {
       })
     }),
 
-  /** ENGINE: a node's state moved. */
+  /** ENGINE: a node's state moved. FEED-56: with no `state` it is a PING,
+   *  the pre-check before a Fresh wake: only the landed/skipped guard runs
+   *  and nothing is written (a write off the device's one-beat-stale
+   *  snapshot took a newer state back on every wake). */
   reportNode: authedProcedure
     .input(
       z.object({
         nodeId: z.string().uuid(),
-        state: wfNodeStateSchema,
+        state: wfNodeStateSchema.optional(),
         sessionId: z.string().uuid().nullable().optional(),
         baseBranch: z.string().max(255).nullable().optional(),
         attempt: z.number().int().min(0).max(99).optional(),
@@ -318,6 +321,9 @@ export const workflowNodeProcedures = {
         input.state === `skipped`
       ) {
         return { updated: false }
+      }
+      if (input.state === undefined) {
+        return { updated: true }
       }
       // EXP-1007: the read above and this write are not one transaction —
       // `landNode` can land the node in between. The WHERE repeats the

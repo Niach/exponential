@@ -77,19 +77,26 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
+    /// EXP-1082 §6 / EXP-1005: rotate to another logged-in account of this
+    /// agent when the active one hits its usage wall. The desktop owns the
+    /// toggle; this client only ECHOES the stored value back on a save (see
+    /// `AgentLaunchDefaultsInput`). nil = the key is absent on the row.
+    public let autoRotateAccounts: Bool?
 
     public init(
         model: String? = nil,
         subagentModel: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
-        planMode: Bool? = nil
+        planMode: Bool? = nil,
+        autoRotateAccounts: Bool? = nil
     ) {
         self.model = model
         self.subagentModel = subagentModel
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode
+        self.autoRotateAccounts = autoRotateAccounts
     }
 }
 

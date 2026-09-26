@@ -1,5 +1,4 @@
-- Workflow-k: egy chipsáv kiválaszt egy csomópontot és megnyitja Issue, Run, Changes és Results nézetre, a tervező kérdése szalagcímben jelenik meg, a Pause és a Dismiss a további lehetőségek menüjében van, a záró pull request pedig a Reviews alatt látszik, ahol mergelhető
-- Ügynökfutások: egy workflow futásai a csomópontjuk alá csoportosulnak állapotponttal és felirattal, az ellenőrző futások viselik a címüket, a rád váró futás pontot kap, a Recent panel pedig kirajzolja a fát
-- Issue-k: a blokkolásjelvény egy közös rácsra rajzolt minigráfot nyit meg, egy stack vagy kötegelt futás fejléce pedig az első issue-t mutatja egy darabszámmal
-- Szerkesztő: a --- begépelése azonnal elválasztót szúr be
-- Tevékenység: a becslésmódosítások ugyanúgy összevonódnak, mint bármely más mező szerkesztése
+- Reviews: minden pull request sor egyetlen vezérlőt kap, Merge, vagy egy stack alján Merge stack, egy workflow-csomópont pull requestje pedig jelzi, hogy a workflow-n keresztül mergelődik
+- Workflow-k: az Open final PR megjelenik, ha egy workflow záró pull requestjét lezárták, az eseménynapló a gráf alatt van, a kiválasztott csomópont csak a saját eseményeit mutatja, a sikertelen vagy várakozó állapotok pedig borostyánszínűek
+- Ügynökfutások: a válaszodra váró futás piros pontot kap, a másik fiókon futó workflow-futás pedig megmondja, melyiken
+- Ha olyan issue-t indítasz, amelynek már van élő futása, ezt jelzi ahelyett, hogy egy másodikat indítana

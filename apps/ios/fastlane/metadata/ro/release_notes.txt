@@ -1,5 +1,4 @@
-- Workflow-uri: un șir de chipuri alege un nod și îl deschide în Issue, Run, Changes și Results, o întrebare a planificatorului apare într-un banner, Pause și Dismiss stau în meniul cu opțiuni suplimentare, iar pull request-ul final apare în Reviews, unde se îmbină
-- Rulări ale agentului: rulările unui workflow se grupează sub nodul lor cu un punct de stare și o descriere, rulările de revizuire își poartă titlurile, o rulare care are nevoie de tine primește un punct, iar panoul Recent desenează arborele
-- Issue-uri: insigna de blocare deschide un minigraf desenat pe o singură grilă comună, iar antetul unei rulări de stack sau în lot arată issue-ul din față cu un număr
-- Editor: tastând --- se inserează imediat un separator
-- Activitate: modificările de estimare se comasează ca orice altă editare de câmp
+- Reviews: fiecare rând de pull request are un singur control, Merge, sau Merge stack la baza unui stack, iar pull request-ul unui nod de workflow arată că se îmbină prin workflow
+- Workflow-uri: Open final PR apare când pull request-ul final al unui workflow a fost închis, jurnalul de evenimente stă sub graf și un nod ales arată doar propriile evenimente, iar stările eșuate sau în așteptare apar în chihlimbariu
+- Rulări ale agentului: o rulare care îți așteaptă răspunsul primește un punct roșu, iar o rulare de workflow pe alt cont spune pe care
+- Pornirea unui issue care are deja o rulare activă anunță acest lucru în loc să pornească o a doua

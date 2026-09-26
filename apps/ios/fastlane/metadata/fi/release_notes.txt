@@ -1,5 +1,4 @@
-- Workflowt: chip-rivistä valitaan solmu ja avataan se näkymiin Issue, Run, Changes ja Results, suunnittelijan kysymys näkyy bannerissa, Pause ja Dismiss löytyvät lisävalikosta, ja viimeinen pull request näkyy kohdassa Reviews, jossa se mergetään
-- Agenttiajot: workflown ajot ryhmittyvät solmunsa alle tilapisteen ja kuvatekstin kanssa, katselmointiajoilla on omat otsikkonsa, sinua odottavassa ajossa on piste, ja Recent-paneeli piirtää puun
-- Issuet: estomerkki avaa minigraafin, joka piirretään yhteiselle ruudukolle, ja stack- tai eräajon otsakkeessa näkyy ensimmäinen issue ja lukumäärä
-- Editori: kun kirjoitat ---, erotin lisätään heti
-- Aktiviteetti: arviomuutokset yhdistetään kuten kaikki muutkin kenttämuutokset
+- Reviews: jokaisella pull request -rivillä on yksi ohjain, Merge, tai Merge stack stackin pohjalla, ja workflow-solmun pull request kertoo mergeytyvänsä workflown kautta
+- Workflowt: Open final PR ilmestyy, kun workflown viimeinen pull request on suljettu, tapahtumaloki on graafin alla ja valittu solmu näyttää vain omat tapahtumansa, ja epäonnistuneet tai odottavat tilat näkyvät meripihkana
+- Agenttiajot: vastaustasi odottavassa ajossa on punainen piste, ja toisella tilillä kulkeva workflow-ajo kertoo millä
+- Jos aloitat issuen, jolla on jo käynnissä oleva ajo, siitä kerrotaan toisen ajon aloittamisen sijaan

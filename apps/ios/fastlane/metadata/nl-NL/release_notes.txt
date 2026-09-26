@@ -1,5 +1,4 @@
-- Workflows: een strook chips kiest een node en opent die in Issue, Run, Changes en Results, een vraag van de planner verschijnt in een banner, Pause en Dismiss zitten in het overloopmenu, en de laatste pull request staat onder Reviews, waar hij gemerged wordt
-- Agentruns: de runs van een workflow groeperen onder hun node met een statusstip en een bijschrift, reviewruns dragen hun titel, een run die jou nodig heeft krijgt een stip, en het venster Recent tekent de boom
-- Issues: de blokkeringsbadge opent een minigrafiek op één gedeeld raster, en de kop van een stack- of batchrun toont het voorste issue met een aantal
-- Editor: wie --- typt, voegt meteen een scheidingslijn in
-- Activiteit: wijzigingen in schattingen worden samengevoegd zoals elke andere veldwijziging
+- Reviews: elke pull request-rij heeft één knop, Merge, of Merge stack onderaan een stack, en de pull request van een workflow-node meldt dat hij via de workflow gemerged wordt
+- Workflows: Open final PR verschijnt wanneer de laatste pull request van een workflow gesloten is, het gebeurtenislogboek staat onder de graaf en een gekozen node toont alleen zijn eigen gebeurtenissen, en mislukte of wachtende statussen kleuren amber
+- Agentruns: een run die op jouw antwoord wacht krijgt een rode stip, en een workflowrun op een ander account zegt welk
+- Een issue starten dat al een actieve run heeft, meldt dat in plaats van een tweede te starten

@@ -127,6 +127,9 @@ final class AgentsViewModel {
 
     private let accountId: String
     private let userId: String?
+    /// The signed-in user, for the row marks: the caller's own device rows
+    /// carry no `owner`, so the session-tree marks name them with this.
+    var currentUserId: String? { userId }
     private let db: DatabaseManager
     // Stored and cancelled individually — a single wrapper task would not
     // propagate cancellation into unstructured inner loops, and the view

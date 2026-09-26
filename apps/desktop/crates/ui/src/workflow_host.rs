@@ -1832,10 +1832,10 @@ fn wake(
             let Some(claim) = InFlight::claim(&pass.in_flight, node_id) else {
                 return Outcome::Skipped;
             };
-            // FEED-56: the snapshot may be stale. Ask the server first (its
-            // own state, nothing changes); a landed or skipped node there is
-            // refused, and nothing launches for it.
-            if !report_node(&pass.trpc, &api::workflows::NodeReport::new(node_id, &node.state)) {
+            // FEED-56: the snapshot may be stale. Ask the server first (a
+            // PING: its own state decides, nothing is written); a landed or
+            // skipped node there is refused, and nothing launches for it.
+            if !report_node(&pass.trpc, &api::workflows::NodeReport::ping(node_id)) {
                 return Outcome::Skipped;
             }
             let identifier = snapshot
@@ -2144,7 +2144,7 @@ fn report_node(trpc: &api::TrpcClient, report: &api::workflows::NodeReport) -> b
             log::warn!(
                 "[workflows] reportNode {} → {} refused: the node is landed or skipped on the server",
                 report.node_id,
-                report.state
+                report.state_label()
             );
             false
         }
@@ -2152,7 +2152,7 @@ fn report_node(trpc: &api::TrpcClient, report: &api::workflows::NodeReport) -> b
             log::warn!(
                 "[workflows] reportNode {} → {} failed: {err}",
                 report.node_id,
-                report.state
+                report.state_label()
             );
             false
         }

@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-26-release-train-evening",
+    date: "2026-09-26",
+    title: "Release train 2026-09-26, evening",
+    summary: "One merge control per pull request row, a workflow's event log under its graph, a red dot for a run waiting on you, a refusal to start an issue twice, and a desktop app that logs and keeps its heartbeat.",
+    body: r#"- **Reviews**: every pull request row carries exactly one control on every client: Merge for a plain pull request, Merge stack at the bottom of a stack, and a node's pull request of a running or paused workflow says it merges through the workflow. The server refuses to merge such a node's pull request by hand.
+- **Workflows**: a workflow whose final pull request was closed offers Open final PR on every client, the event log sits under the graph and a picked node shows only its own events, a review verdict and a skipped node write their own lines, and a review run started by hand nests under its node.
+- **Agent runs**: a run waiting on your answer wears a red dot, a workflow run on another account says which one, and a repeated failure logs once per distinct cause.
+- **Starting a run**: starting an issue or a batch that already has a live run says so instead of starting a second one, and an agent that asked for a run gets an error instead of a silent nothing. Unlinking the last blocker of a node that has not started makes it a proposal instead of a ready root.
+- **Phones**: the Run face scrolls to its newest rows again.
+- **Desktop app**: the heartbeat never stops silently, a run keeps its busy spinner while background agents work, an image seed posts one user message, a run started by an agent or a workflow lands in the sidebar instead of taking the screen, the sidebar scrollbars are slim and stay beside the rows, and the app writes a rotating log file next to its data."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-26-release-train",
     date: "2026-09-26",
     title: "Release train 2026-09-26",
@@ -61,24 +76,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Desktop app**: the workflow engine keeps its state in its own device store instead of settings.json, every writer to settings.json takes the lock, and a torn read never re-mints the device id."#,
 };
 
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-25-release-train",
-    date: "2026-09-25",
-    title: "Release train 2026-09-25",
-    summary: "One picker for every property on every client, the composer opens as a dialog, agent runs group by workflow and stack, workflow screens take their models from the machine, and issue lists select in bulk.",
-    body: r#"- **Pickers**: status, assignee, labels, priority, board, issue, action, machine, account and icon all open the same picker on every client: a popover at the control on the web and the desktop app, a searchable sheet of plain rows on phones, with several picks shown as a highlight instead of a circle. Keyboard navigation of the assignee picker works from the first row, and Unassigned is searchable.
-- **Start a run**: on the web and the desktop app the composer opens as a dialog from an issue, a play button or an action, and stays open while a start is pending on the machine; a subjectless chat still opens the Agent page.
-- **Agent runs**: the running list nests a workflow's runs under one row that opens the workflow and a stack's runs under one row, each folded away by its chevron.
-- **Workflows**: the workflow screen drops its settings block; a new workflow takes its model pair from the runner machine's Workflow settings (a model for leaves and subagents, a strong model for the contract, the integration, high-risk nodes and every review), a node reads its own state, and the final pull request merges from the screen. A resumed reviewer stays the node's reviewer, is never spawned twice, and a refused verdict says what to do next.
-- **Issue lists**: rows select in bulk with a floating action bar on the board and beside an issue, and the due-date column collapses when no issue in the list has a due date. Ctrl-click opens the issue on Windows and Linux again.
-- **Machine settings**: the sheet is organised into pages, with a new Workflow settings page, and the API key section says what revoking a device's key does: it disconnects the device's coding runs, the device stays signed in.
-- **Work header**: the stack, batch and runs badge stands as tall as the controls beside it, the runs badge wears the workflow glyph, and the web shows it too.
-- **Teams**: the running list follows the active team, and the team switcher wears a dot when another team has one of your live runs (amber when it needs input).
-- **Settings lists and members**: every settings list on the web and in the desktop app follows one rule, the Linear import wizard is shorter and groups statuses across teams, and a roster member nobody has invited yet reads "Not invited" with a first Send invite, on every client.
-- **Settings**: shorter section copy on the web and in the desktop app."#,
-};
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]

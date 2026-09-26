@@ -1331,7 +1331,25 @@ async function main() {
     agents: [`claude`, `codex`],
     lastSeenAt: hoursAgo(1),
     createdAt: daysAgo(58),
-  }).returning({ id: devices.id })
+  })
+    // screenshots:desktop upserts the same (user_id, device_id) every ~30s, so
+    // a stub heartbeat landing between `ensureDemoUser` and this insert must
+    // not abort the seed on the unique index; converge the row instead
+    // (mirrors the stub's own `onConflictDoUpdate`).
+    .onConflictDoUpdate({
+      target: [devices.userId, devices.deviceId],
+      set: {
+        label: DEMO_DEVICE_LABEL,
+        kind: `desktop`,
+        platform: `macos`,
+        version: DEMO_DEVICE_VERSION,
+        isDefault: true,
+        agents: [`claude`, `codex`],
+        lastSeenAt: hoursAgo(1),
+        createdAt: daysAgo(58),
+      },
+    })
+    .returning({ id: devices.id })
 
   // EXP-891: the per-DEVICE MCP servers (`device_mcp_servers`, reported from
   // `{data_dir}/mcp/device-servers.json`), so Settings → MCP servers renders

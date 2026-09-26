@@ -1,5 +1,4 @@
-- Workflows: pás čipů vybere uzel a otevře ho do Issue, Run, Changes a Results, otázka od plánovače se ukáže v banneru, Pause a Dismiss najdete v nabídce Další a finální pull request se objeví v Reviews, kde ho mergnete
-- Běhy agentů: běhy workflow se seskupují pod svým uzlem s tečkou stavu a popiskem, kontrolní běhy nesou své názvy, běh, který na vás čeká, má tečku a list Recent kreslí strom
-- Issues: odznak blokování otevře mini-graf nakreslený na jedné společné mřížce a hlavička stacku nebo dávkového běhu ukazuje přední issue s počtem
-- Editor: napsáním --- se hned vloží oddělovač
-- Aktivita: změny odhadu se slučují stejně jako úpravy každého jiného pole
+- Reviews: každý řádek pull requestu má jediný ovládací prvek, Merge, nebo Merge stack na spodku stacku, a pull request uzlu workflow uvádí, že se mergne přes workflow
+- Workflows: Open final PR se objeví, když byl finální pull request workflow zavřen, log událostí je pod grafem a vybraný uzel ukazuje jen své vlastní události, a stavy selhání nebo čekání jsou jantarové
+- Běhy agentů: běh, který čeká na vaši odpověď, má červenou tečku, a běh workflow na jiném účtu uvádí, na kterém
+- Spuštění issue, které už má živý běh, to oznámí místo spuštění druhého

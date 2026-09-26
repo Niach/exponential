@@ -402,8 +402,10 @@ pub fn append_event(trpc: &TrpcClient, event: &WorkflowEvent) -> Result<(), ApiE
 #[serde(rename_all = "camelCase")]
 pub struct NodeReport {
     pub node_id: String,
-    /// contract `wfNodeState`.
-    pub state: String,
+    /// contract `wfNodeState`. FEED-56: `None` = a PING ([`NodeReport::ping`]):
+    /// only the landed/skipped guard runs and the server writes nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub session_id: Patch<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
@@ -423,9 +425,27 @@ impl NodeReport {
     pub fn new(node_id: impl Into<String>, state: impl Into<String>) -> Self {
         Self {
             node_id: node_id.into(),
-            state: state.into(),
+            state: Some(state.into()),
             ..Self::default()
         }
+    }
+
+    /// FEED-56: the pre-check before a Fresh wake, a READ. It serialises no
+    /// `state` key, so the server answers `updated` off its own row (landed
+    /// or skipped = `false`) and rewrites nothing: the old form carried the
+    /// device's one-beat-stale snapshot state as a write, which took a newer
+    /// state back and fanned out an Electric change on every wake.
+    pub fn ping(node_id: impl Into<String>) -> Self {
+        Self {
+            node_id: node_id.into(),
+            state: None,
+            ..Self::default()
+        }
+    }
+
+    /// The state for a log line: the reported one, or `ping`.
+    pub fn state_label(&self) -> &str {
+        self.state.as_deref().unwrap_or("ping")
     }
 }
 

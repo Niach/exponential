@@ -52,8 +52,12 @@ describe(`findLiveRunForIssues`, () => {
     expect(query.sql).toContain(`"updated_at" >=`)
   })
 
-  it(`names the asked-for issues the batch run covers`, async () => {
-    const { db } = fakeDb([[RUN], [{ id: `b`, identifier: `EXP-2` }]])
+  it(`names the asked-for issues the batch run covers, and the run's owner`, async () => {
+    const { db, wheres } = fakeDb([
+      [RUN],
+      [{ id: `b`, identifier: `EXP-2` }],
+      [{ name: `Dana`, email: `dana@example.com` }],
+    ])
     const live = await findLiveRunForIssues(db, [`a`, `b`])
     expect(live).toEqual({
       id: `run-1`,
@@ -62,9 +66,55 @@ describe(`findLiveRunForIssues`, () => {
       startedReason: null,
       branch: `exp/batch-1a2b3c4d`,
       identifiers: [`EXP-2`],
+      owner: { name: `Dana`, email: `dana@example.com` },
     })
+    // The owner lookup keys on the run's user, not the caller.
+    const ownerQuery = new PgDialect().sqlToQuery(wheres[2] as never)
+    expect(ownerQuery.sql).toContain(`"id" =`)
+    expect(ownerQuery.params).toEqual([`u-1`])
     expect(liveRunConflictMessage(live!)).toBe(
       `EXP-2 already has a live run on studio (session run-1, started by a person, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+    )
+  })
+
+  it(`reads a vanished owner row as no owner`, async () => {
+    const { db } = fakeDb([[RUN], [{ id: `b`, identifier: `EXP-2` }], []])
+    const live = await findLiveRunForIssues(db, [`b`])
+    expect(live?.owner).toBeNull()
+  })
+})
+
+// EXP-312: only the owner can stop a live run, so the refusal tells everyone
+// else WHOSE run it is instead of asking them to stop it.
+describe(`liveRunConflictMessage`, () => {
+  const live = {
+    id: `run-1`,
+    deviceLabel: `studio`,
+    userId: `u-1`,
+    startedReason: `workflow`,
+    branch: `exp/batch-1a2b3c4d`,
+    identifiers: [`EXP-2`],
+    owner: { name: `Dana`, email: `dana@example.com` },
+  }
+
+  it(`tells the owner to stop it`, () => {
+    expect(liveRunConflictMessage(live, `u-1`)).toBe(
+      `EXP-2 already has a live run on studio (session run-1, started by workflow, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+    )
+  })
+
+  it(`tells anyone else who owns it`, () => {
+    expect(liveRunConflictMessage(live, `u-2`)).toBe(
+      `EXP-2 already has a live run on studio (session run-1, started by workflow, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
+    )
+  })
+
+  it(`falls back to the email, then to "another member"`, () => {
+    expect(liveRunConflictMessage({ ...live, owner: { name: ``, email: `dana@example.com` } }, `u-2`)).toContain(
+      ` dana@example.com owns it:`
+    )
+    expect(liveRunConflictMessage({ ...live, owner: null, deviceLabel: null, branch: null }, `u-2`)).toBe(
+      `EXP-2 already has a live run (session run-1, started by workflow). another member owns it: only they can stop it, or let it end before starting another.`
     )
   })
 })

@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-26-release-train-evening`,
+    date: `2026-09-26`,
+    title: `Release train 2026-09-26, evening`,
+    summary: `One merge control per pull request row, a workflow's event log under its graph, a red dot for a run waiting on you, a refusal to start an issue twice, and a desktop app that logs and keeps its heartbeat.`,
+    body: `- **Reviews**: every pull request row carries exactly one control on every client: Merge for a plain pull request, Merge stack at the bottom of a stack, and a node's pull request of a running or paused workflow says it merges through the workflow. The server refuses to merge such a node's pull request by hand.
+- **Workflows**: a workflow whose final pull request was closed offers Open final PR on every client, the event log sits under the graph and a picked node shows only its own events, a review verdict and a skipped node write their own lines, and a review run started by hand nests under its node.
+- **Agent runs**: a run waiting on your answer wears a red dot, a workflow run on another account says which one, and a repeated failure logs once per distinct cause.
+- **Starting a run**: starting an issue or a batch that already has a live run says so instead of starting a second one, and an agent that asked for a run gets an error instead of a silent nothing. Unlinking the last blocker of a node that has not started makes it a proposal instead of a ready root.
+- **Phones**: the Run face scrolls to its newest rows again.
+- **Desktop app**: the heartbeat never stops silently, a run keeps its busy spinner while background agents work, an image seed posts one user message, a run started by an agent or a workflow lands in the sidebar instead of taking the screen, the sidebar scrollbars are slim and stay beside the rows, and the app writes a rotating log file next to its data.`,
+  },
+  {
     id: `2026-09-26-release-train`,
     date: `2026-09-26`,
     title: `Release train 2026-09-26`,

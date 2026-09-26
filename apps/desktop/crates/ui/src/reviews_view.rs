@@ -410,18 +410,16 @@ impl ReviewsView {
                 .child(merge_button)
                 .child(fix)
                 .into_any_element(),
+            // Any reason the rule gives draws (iOS, Android and web parity),
+            // not only the workflow one.
             None if no_merge => match merge_reason {
-                Some(reason)
-                    if reason == domain::reviews_merge::REVIEW_MERGES_THROUGH_WORKFLOW =>
-                {
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(reason)
-                        .into_any_element()
-                }
-                _ => div().into_any_element(),
+                Some(reason) => div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(reason)
+                    .into_any_element(),
+                None => div().into_any_element(),
             },
             None => merge_button,
         };

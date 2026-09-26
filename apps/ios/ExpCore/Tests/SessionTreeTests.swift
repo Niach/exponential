@@ -801,6 +801,50 @@ final class SessionTreeNodeTests: XCTestCase {
         }
     }
 
+    /// The rule prefers the row whose `userId` is the session owner's over an
+    /// earlier row with the same device id. The `devices` shape stamps an
+    /// owner ONLY on a teammate's shared row, so the UI adapter names the
+    /// caller's own rows with the signed-in user (`RunningSessionRowMarks`):
+    /// a nil `userId` there can never win and falls to the first match.
+    func testOwnRowNamedWithTheSignedInUserWinsOverATeammatesSharedCopy() {
+        let session = SessionTree.MarkSession(
+            agent: "claude", agentAccount: "p2", deviceId: "d1", userId: "u1", workflowId: "w1"
+        )
+        let teammateCopy = SessionTree.MarkDevice(
+            deviceId: "d1",
+            userId: "u2",
+            launchDefaults: SessionTree.MarkLaunchDefaults(defaultAgent: "claude", defaultAccount: "p2"),
+            agentAccounts: nil
+        )
+        func ownRow(userId: String?) -> SessionTree.MarkDevice {
+            SessionTree.MarkDevice(
+                deviceId: "d1",
+                userId: userId,
+                launchDefaults: SessionTree.MarkLaunchDefaults(defaultAgent: "claude", defaultAccount: "system"),
+                agentAccounts: [
+                    "claude": SessionTree.MarkAgentAccount(profiles: [
+                        SessionTree.MarkProfile(id: "system", label: "Default", active: true),
+                        SessionTree.MarkProfile(id: "p2", label: "Work", active: false),
+                    ]),
+                ]
+            )
+        }
+        // Stamped with the signed-in user, the own row wins even listed last.
+        XCTAssertEqual(
+            SessionTree.workflowRunAccountCaption(
+                session: session, devices: [teammateCopy, ownRow(userId: "u1")]
+            ),
+            "account Work"
+        )
+        // Left nil, the teammate's copy is read instead and its defaults
+        // hide the caption: the reason the adapter fills the id in.
+        XCTAssertNil(
+            SessionTree.workflowRunAccountCaption(
+                session: session, devices: [teammateCopy, ownRow(userId: nil)]
+            )
+        )
+    }
+
     func testNeedsYouFixtureCases() throws {
         let fixture = try marksFixture()
         XCTAssertFalse(fixture.needsYou.isEmpty)

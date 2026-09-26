@@ -67,19 +67,27 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
+    /// EXP-1082 §6: the desktop's auto-rotate toggle, ECHOED from the synced
+    /// row on every whole-object save. The server keeps a stored value only
+    /// while the KEY is absent (a compat carry-forward slated for removal),
+    /// so a sender that omitted it would clear the toggle once that goes.
+    /// Never invented here: absent stays absent, present rides verbatim.
+    public let autoRotateAccounts: Bool?
 
     public init(
         model: String? = nil,
         subagentModel: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
-        planMode: Bool? = nil
+        planMode: Bool? = nil,
+        autoRotateAccounts: Bool? = nil
     ) {
         self.model = model
         self.subagentModel = subagentModel
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode
+        self.autoRotateAccounts = autoRotateAccounts
     }
 }
 

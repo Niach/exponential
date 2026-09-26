@@ -1622,6 +1622,23 @@ describe(`exponential_issues_update statusId passthrough`, () => {
   })
 })
 
+// ── FEED-57: the batch start poll's row match ────────────────────────────
+// Compat cleanup round 25: a batch row with a NULL covered set never matches
+// (every device at or above the floor stamps `batch_issue_ids`).
+
+describe(`batchStartRowMatch (FEED-57)`, () => {
+  it(`requires the covered set to name the batch, never a NULL set`, async () => {
+    const { batchStartRowMatch } = await import(`@/lib/mcp/tools`)
+    const { sql, params } = new PgDialect().sqlToQuery(
+      batchStartRowMatch([WS], [UUID]) as never
+    )
+    expect(sql).toContain(`"coding_sessions"."batch_issue_ids" ?| `)
+    expect(sql).not.toContain(`"batch_issue_ids" is null`)
+    expect(sql).toContain(`"coding_sessions"."action_name" is null`)
+    expect(params).toEqual(expect.arrayContaining([WS, [UUID]]))
+  })
+})
+
 // ── EXP-684: exponential_issues_list filters ─────────────────────────────
 // The sweep an automation runs ("created in the last day on boards A+B, not
 // done/cancelled, no labels") must be ONE call, so every predicate renders

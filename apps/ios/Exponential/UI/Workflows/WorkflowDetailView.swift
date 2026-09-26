@@ -838,7 +838,9 @@ struct WorkflowDetailView: View {
                 marks: RunningSessionRowMarks(
                     needsYou: !(session.pendingQuestion ?? "").isEmpty,
                     duplicateLive: node.duplicateLive,
-                    account: RunningSessionRowMarks.nonDefaultAccount(session, devices: model.devices)
+                    account: RunningSessionRowMarks.nonDefaultAccount(
+                        session, devices: model.devices, currentUserId: deps.auth.userId
+                    )
                 )
             )
         case let .stack(group):
