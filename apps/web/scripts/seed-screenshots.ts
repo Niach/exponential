@@ -39,6 +39,7 @@ import {
   automations,
   codingSessions,
   comments,
+  deviceMcpServers,
   devices,
   issueDrafts,
   issueEvents,
@@ -83,6 +84,7 @@ import {
   DEMO_DEVICE_ID,
   DEMO_SERVER_DEVICE_ID,
   DEMO_DEVICE_LABEL,
+  DEMO_DEVICE_VERSION,
   DEMO_EMAIL,
   DEMO_INVITE_TOKEN,
   DEMO_PENDING_INVITE_EXPIRY,
@@ -1296,9 +1298,10 @@ async function main() {
   // purpose: `last_seen_at` freshness is what "online" means (contract
   // `device.onlineWindowSeconds`, 90s), and a fake heartbeat here would be
   // contradicted by the relay the moment a capture looks. The demo user's own
-  // desktop row is registered by screenshots:desktop, which owns its version
-  // and default-machine flags.
-  await db.insert(devices).values({
+  // desktop row is seeded below (EXP-1008) and kept fresh by
+  // screenshots:desktop, whose heartbeat upsert owns its liveness, version,
+  // default-machine flag and agent report.
+  const [serverDevice] = await db.insert(devices).values({
     userId: jonas,
     deviceId: DEMO_SERVER_DEVICE_ID,
     label: `Acme build server`,
@@ -1310,7 +1313,90 @@ async function main() {
     sharedTeamIds: [ws.id],
     lastSeenAt: hoursAgo(5),
     createdAt: daysAgo(45),
-  })
+  }).returning({ id: devices.id })
+
+  // EXP-1008: the demo user's own desktop, seeded rather than left to the
+  // relay stub, so its per-device MCP servers can hang off the row uuid. The
+  // stub's heartbeat upserts on the same (user_id, device_id) and only
+  // refreshes the liveness + report columns, so nothing here is overwritten
+  // that the captures rely on. Offline until the stub beats (the 90s window).
+  const [demoDevice] = await db.insert(devices).values({
+    userId: demoId,
+    deviceId: DEMO_DEVICE_ID,
+    label: DEMO_DEVICE_LABEL,
+    kind: `desktop`,
+    platform: `macos`,
+    version: DEMO_DEVICE_VERSION,
+    isDefault: true,
+    agents: [`claude`, `codex`],
+    lastSeenAt: hoursAgo(1),
+    createdAt: daysAgo(58),
+  }).returning({ id: devices.id })
+
+  // EXP-891: the per-DEVICE MCP servers (`device_mcp_servers`, reported from
+  // `{data_dir}/mcp/device-servers.json`), so Settings → MCP servers renders
+  // its "On your devices" group instead of the empty hint. The demo desktop
+  // carries one of each state (detected from the agent's config, typed by
+  // hand, typed and switched off); Jonas' shared server one detected row, so
+  // the group shows a teammate's machine too.
+  await db.insert(deviceMcpServers).values([
+    {
+      deviceRowId: demoDevice.id,
+      deviceId: DEMO_DEVICE_ID,
+      userId: demoId,
+      name: `github`,
+      transport: `stdio`,
+      command: `npx`,
+      args: [`-y`, `@modelcontextprotocol/server-github`],
+      source: `detected`,
+      agent: `claude`,
+      enabled: true,
+      createdAt: daysAgo(30),
+      updatedAt: daysAgo(30),
+    },
+    {
+      deviceRowId: demoDevice.id,
+      deviceId: DEMO_DEVICE_ID,
+      userId: demoId,
+      name: `playwright`,
+      transport: `http`,
+      url: `http://localhost:8931/mcp`,
+      source: `manual`,
+      enabled: true,
+      createdAt: daysAgo(12),
+      updatedAt: daysAgo(12),
+    },
+    {
+      deviceRowId: demoDevice.id,
+      deviceId: DEMO_DEVICE_ID,
+      userId: demoId,
+      name: `filesystem`,
+      transport: `stdio`,
+      command: `npx`,
+      args: [
+        `-y`,
+        `@modelcontextprotocol/server-filesystem`,
+        `/Users/demo/Documents`,
+      ],
+      source: `manual`,
+      enabled: false,
+      createdAt: daysAgo(20),
+      updatedAt: daysAgo(6),
+    },
+    {
+      deviceRowId: serverDevice.id,
+      deviceId: DEMO_SERVER_DEVICE_ID,
+      userId: jonas,
+      name: `linear`,
+      transport: `http`,
+      url: `https://mcp.linear.app/mcp`,
+      source: `detected`,
+      agent: `codex`,
+      enabled: true,
+      createdAt: daysAgo(40),
+      updatedAt: daysAgo(40),
+    },
+  ])
 
   // Helpdesk tickets for the support-inbox screenshot (server-only tRPC —
   // no Electric shape involved). A trailing inbound message marks the
@@ -1579,13 +1665,13 @@ Seeded screenshot demo data:
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${4} comments incl. @mention + #issue ref)
   inbox       5 notifications (3 unread)
   agents      3 coding sessions (2 running + 1 in review)
-  machines    1 shared team server (offline; the desktop registers itself)
+  machines    demo desktop (offline until screenshots:desktop beats) + 1 shared team server (offline)
   reviews     4 open pull requests
   review shot APP-14 → ${REVIEW_PR_URL} (real diff, fetched from GitHub)
   actions     ${actionRows.length} saved team actions
   automations ${automationRows.length} (2 scheduled + 1 event, 1 disabled) + 2 automated runs
   storage     ${seedAttachments.length} attachments (1 unreferenced image to sweep)
-  mcp         2 team MCP servers (http + stdio; the desktop reports readiness)
+  mcp         2 team MCP servers (http + stdio; the desktop reports readiness) + 4 device MCP servers (3 on the demo desktop, 1 on the shared server)
   widgets     2 widget configs (feedback+support, support-only)
   api keys    2 personal keys
   support     ${seedThreads.length} helpdesk threads
