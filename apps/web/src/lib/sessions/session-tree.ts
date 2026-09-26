@@ -629,3 +629,70 @@ export function flattenSessionTree<T extends SessionTreeRow>(
   walk(nodes)
   return out
 }
+
+// EXP-1108: a session row's marks, ONE rule ×4 (desktop
+// `domain::session_tree`, iOS `SessionTree.swift`, Android `SessionTree.kt`),
+// locked by `@exp/domain-contract/fixtures/session-tree-marks.json`.
+
+/** The device fields the account caption reads: a structural `Pick` of the
+ *  synced `devices` row, so the fixture's plain JSON satisfies it. */
+export interface SessionMarkDevice {
+  deviceId: string
+  userId: string
+  launchDefaults?: { defaultAgent?: string | null; defaultAccount?: string | null } | null
+  agentAccounts?: Record<
+    string,
+    { profiles?: readonly { id: string; label?: string | null; active?: boolean | null }[] | null }
+  > | null
+}
+
+/** The session fields the account caption reads. */
+export type SessionMarkRow = Pick<CodingSession, `agent` | `agentAccount` | `deviceId` | `userId`> &
+  Partial<Pick<CodingSession, `workflowId`>>
+
+/** The device's DEFAULT account for `agent` (EXP-872): `defaultAccount` when
+ *  `agent` is the default agent, else that agent's ACTIVE profile, else
+ *  `system`. Null when the device is unknown or the run has no agent. */
+export function deviceDefaultAccount(
+  device: SessionMarkDevice | undefined,
+  agent: string | null
+): string | null {
+  if (!device || !agent) return null
+  const defaults = device.launchDefaults ?? {}
+  if (defaults.defaultAgent === agent && defaults.defaultAccount) {
+    return defaults.defaultAccount
+  }
+  const profiles = device.agentAccounts?.[agent]?.profiles ?? []
+  return profiles.find((profile) => profile.active)?.id ?? `system`
+}
+
+/** EXP-1068: `account <label>` when a WORKFLOW run (a row with `workflowId`)
+ *  does not run on its device's default account for its agent. Null for a
+ *  row outside a workflow, a row with no `agentAccount`, an unsynced device,
+ *  or a run on the default. Label = the profile's `label`, else `Default` for
+ *  `system`, else the raw account id. */
+export function workflowRunAccountCaption(
+  session: SessionMarkRow,
+  devices: readonly SessionMarkDevice[]
+): string | null {
+  if (!session.workflowId) return null
+  const account = session.agentAccount
+  if (!account) return null
+  const matches = devices.filter((device) => device.deviceId === session.deviceId)
+  const device = matches.find((entry) => entry.userId === session.userId) ?? matches[0]
+  const fallback = deviceDefaultAccount(device, session.agent)
+  if (!fallback || fallback === account) return null
+  const profile = session.agent
+    ? device?.agentAccounts?.[session.agent]?.profiles?.find((entry) => entry.id === account)
+    : undefined
+  const label = profile?.label || (account === `system` ? `Default` : account)
+  return `account ${label}`
+}
+
+/** EXP-1068: the needs-you dot = a LIVE row with an open question. The amber
+ *  needs-input/blocked flags are a separate mark, never this one. */
+export function sessionNeedsYou(
+  row: Pick<SessionTreeRow, `status`> & { pendingQuestion?: unknown }
+): boolean {
+  return sessionRowIsLive(row) && row.pendingQuestion != null
+}
