@@ -1885,6 +1885,14 @@ fn primary_button(
                 }
             })
             .into_any_element(),
+        // EXP-1101: the same `workflows.openFinalPr` path as the chip's button.
+        WorkflowPrimaryAction::OpenFinalPr => Button::new("workflow-primary")
+            .primary()
+            .small()
+            .icon(Icon::from(registry::NAV_REVIEWS))
+            .label(domain::workflow_final_pr::OPEN_FINAL_PR_LABEL)
+            .on_click(move |_, window, cx| spawn_open_final_pr(id.clone(), window, cx))
+            .into_any_element(),
     }
 }
 
