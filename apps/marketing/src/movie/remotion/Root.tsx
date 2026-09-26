@@ -26,6 +26,7 @@ import {
   DURATION_IN_FRAMES as SHOWREEL_FRAMES,
   FPS as SHOWREEL_FPS,
 } from "../showreel/Showreel"
+import { VARIANTS } from "../showreel/variants"
 
 // The two canvases (keep in lockstep with LoopMoviePlayer + loop.css).
 const WIDE = { width: 1920, height: 1080 } as const
@@ -59,6 +60,17 @@ export const RemotionRoot: React.FC = () => (
       width={WIDE.width}
       height={WIDE.height}
     />
+    {VARIANTS.map((v) => (
+      <Composition
+        key={v.id}
+        id={`Showreel-${v.id}`}
+        component={v.component}
+        durationInFrames={SHOWREEL_FRAMES}
+        fps={SHOWREEL_FPS}
+        width={WIDE.width}
+        height={WIDE.height}
+      />
+    ))}
     <Composition
       id="ClosedLoop"
       component={ClosedLoop}
