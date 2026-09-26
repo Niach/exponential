@@ -1,5 +1,6 @@
 package com.exponential.app.ui.agent
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,20 +15,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
-import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SessionTreeContext
 import com.exponential.app.domain.SessionTreeNode
 import com.exponential.app.domain.TreeGuides
-import com.exponential.app.domain.parseAgentAccounts
-import com.exponential.app.domain.parseAgentUsage
-import com.exponential.app.domain.parseLaunchDefaults
+import com.exponential.app.domain.SessionMarkDevice
+import com.exponential.app.domain.SessionMarkRow
+import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.sessionTree
 import com.exponential.app.domain.visibleSessionTreeRows
 import com.exponential.app.domain.workflowNodeReview
@@ -177,7 +179,6 @@ internal fun LazyListScope.agentSessionsList(
     }
 }
 
-/** EXP-1068: what the duplicate-live warning glyph announces. */
 /**
  * EXP-1068: the glyphs after a workflow run's state dot — the red "needs
  * you" dot of a pending question and the duplicate-live warning. Shared by
@@ -187,11 +188,17 @@ internal fun LazyListScope.agentSessionsList(
 internal fun workflowRunDotAccessory(
     node: SessionTreeNode.Session,
 ): (@Composable RowScope.() -> Unit)? {
-    if (!node.duplicateLive && node.session.pendingQuestion == null) return null
+    // EXP-1108: the red dot = the shared rule (live AND an open question).
+    val needsYou = SessionTree.sessionNeedsYou(node.session.status, node.session.pendingQuestion != null)
+    if (!node.duplicateLive && !needsYou) return null
     return {
-        if (node.session.pendingQuestion != null) {
+        if (needsYou) {
             Spacer(Modifier.width(4.dp))
-            StaticDot(NeedsYouRed, size = 6.dp)
+            Box(
+                Modifier
+                    .semantics { contentDescription = WorkflowView.NEEDS_YOU_LABEL }
+                    .testTag("session-needs-you"),
+            ) { StaticDot(NeedsYouRed, size = 6.dp) }
         }
         if (node.duplicateLive) {
             Spacer(Modifier.width(4.dp))
@@ -234,23 +241,11 @@ internal fun reviewRowTitle(
 }
 
 /**
- * EXP-1068: the account a run spends, when it is NOT its machine's default for
- * the run's agent (the default = the device's default account when it is of
- * that agent, else that agent's first login — `AccountOptions.flatten`). The
- * option's email names it, else the profile id. Null when unset, when the
- * machine is not synced, or when it is the default.
+ * EXP-1068/EXP-1108: the account a WORKFLOW run spends, when it is NOT its
+ * machine's default for the run's agent (the shared
+ * [SessionTree.workflowRunAccountLabel]; the row prefixes `account `). Null
+ * outside a workflow, when unset, when the machine is not synced, or on the
+ * default.
  */
-internal fun runAccountLabel(session: CodingSessionEntity, devices: List<DeviceEntity>): String? {
-    val account = session.agentAccount?.takeIf { it.isNotBlank() } ?: return null
-    val agent = session.agent ?: return null
-    val device = devices.firstOrNull { it.deviceId == session.deviceId } ?: return null
-    val options = AccountOptions.flatten(
-        parseAgentAccounts(device.agentAccounts),
-        parseAgentUsage(device.agentUsage),
-        parseLaunchDefaults(device.launchDefaults),
-    ).filter { it.agent == agent }
-    if (options.isEmpty()) return account.takeIf { it != "system" }
-    val default = options.firstOrNull { it.isDeviceDefault } ?: options.first()
-    if (default.id == account) return null
-    return options.firstOrNull { it.id == account }?.email?.takeIf { it.isNotBlank() } ?: account
-}
+internal fun runAccountLabel(session: CodingSessionEntity, devices: List<DeviceEntity>): String? =
+    SessionTree.workflowRunAccountLabel(SessionMarkRow.of(session), devices.map(SessionMarkDevice::of))

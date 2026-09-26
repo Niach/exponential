@@ -23,6 +23,7 @@ import com.exponential.app.data.db.WorkflowEventEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
@@ -72,7 +73,12 @@ fun WorkflowEventList(
                     workflowEventIcon(event.kind),
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    // Warning kinds paint amber, like web's `WARNING_KINDS`.
+                    tint = if (event.kind in WORKFLOW_EVENT_WARNING_KINDS) {
+                        DesignTokens.Semantic.Yellow
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                    },
                 )
                 Spacer(Modifier.width(10.dp))
                 event.nodeId?.let(nodeLabel)?.let { label ->
@@ -104,6 +110,14 @@ fun WorkflowEventList(
         }
     }
 }
+
+/** Kinds whose glyph reads as a warning (web `WARNING_KINDS`). */
+internal val WORKFLOW_EVENT_WARNING_KINDS: Set<String> = setOf(
+    DomainContract.wfEventKindFailed,
+    DomainContract.wfEventKindGaveUp,
+    DomainContract.wfEventKindReviewNoVerdict,
+    DomainContract.wfEventKindWaitingReset,
+)
 
 /** The concept glyph of a contract `wfEventKind`; unknown kinds read as info. */
 internal fun workflowEventIcon(kind: String): ImageVector = when (kind) {

@@ -1,6 +1,8 @@
 package com.exponential.app.domain
 
+import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
@@ -170,6 +172,99 @@ object SessionTree {
         if (liveRuns > 0) parts.add("$liveRuns running")
         if (nodesTotal > 0) parts.add("$nodesDone of $nodesTotal done")
         return parts.joinToString(" · ")
+    }
+
+    // ── EXP-1108: a session row's marks, ONE rule ×4 (web
+    //    `deviceDefaultAccount` / `workflowRunAccountCaption` /
+    //    `sessionNeedsYou`), locked by `session-tree-marks.json`.
+
+    /**
+     * The device's DEFAULT account for [agent] (EXP-872): `defaultAccount`
+     * when [agent] is the default agent, else that agent's ACTIVE profile,
+     * else `system`. Null when the device is unknown or the run has no agent.
+     */
+    fun deviceDefaultAccount(device: SessionMarkDevice?, agent: String?): String? {
+        if (device == null || agent == null) return null
+        if (device.defaultAgent == agent && !device.defaultAccount.isNullOrEmpty()) {
+            return device.defaultAccount
+        }
+        return device.profiles[agent].orEmpty().firstOrNull { it.active }?.id ?: SYSTEM_PROFILE_ID
+    }
+
+    /**
+     * The label a WORKFLOW run's account caption names, when the run does not
+     * spend its device's default account for its agent: the profile's label,
+     * else `Default` for `system`, else the raw id. Null outside a workflow,
+     * with no account, on an unsynced device or on the default.
+     */
+    fun workflowRunAccountLabel(session: SessionMarkRow, devices: List<SessionMarkDevice>): String? {
+        if (session.workflowId.isNullOrEmpty()) return null
+        val account = session.agentAccount?.takeIf { it.isNotEmpty() } ?: return null
+        val matches = devices.filter { it.deviceId == session.deviceId }
+        val device = matches.firstOrNull { it.userId == session.userId } ?: matches.firstOrNull()
+        val fallback = deviceDefaultAccount(device, session.agent)
+        if (fallback == null || fallback == account) return null
+        val profile = session.agent?.let { agent -> device?.profiles?.get(agent)?.firstOrNull { it.id == account } }
+        return profile?.label?.takeIf { it.isNotEmpty() }
+            ?: if (account == SYSTEM_PROFILE_ID) "Default" else account
+    }
+
+    /** `account <label>` ([workflowRunAccountLabel]), or null. */
+    fun workflowRunAccountCaption(session: SessionMarkRow, devices: List<SessionMarkDevice>): String? =
+        workflowRunAccountLabel(session, devices)?.let { "account $it" }
+
+    /**
+     * The RED needs-you dot = a LIVE row with an open question. The amber
+     * needs-input/blocked flags are a separate mark, never this one.
+     */
+    fun sessionNeedsYou(status: String?, hasPendingQuestion: Boolean): Boolean =
+        sessionRowIsLive(status) && hasPendingQuestion
+}
+
+/** EXP-1108: the session fields the account caption reads. */
+data class SessionMarkRow(
+    val agent: String?,
+    val agentAccount: String?,
+    val deviceId: String?,
+    val userId: String?,
+    val workflowId: String?,
+) {
+    companion object {
+        fun of(session: CodingSessionEntity) = SessionMarkRow(
+            agent = session.agent,
+            agentAccount = session.agentAccount,
+            deviceId = session.deviceId,
+            userId = session.userId,
+            workflowId = session.workflowId,
+        )
+    }
+}
+
+/** EXP-1108: one login profile as the account caption reads it. */
+data class SessionMarkProfile(val id: String, val label: String?, val active: Boolean)
+
+/** EXP-1108: the synced device fields the account caption reads. */
+data class SessionMarkDevice(
+    val deviceId: String,
+    val userId: String?,
+    val defaultAgent: String?,
+    val defaultAccount: String?,
+    /** agent → its login profiles; an agent with none is absent. */
+    val profiles: Map<String, List<SessionMarkProfile>>,
+) {
+    companion object {
+        fun of(device: DeviceEntity): SessionMarkDevice {
+            val defaults = parseLaunchDefaults(device.launchDefaults)
+            return SessionMarkDevice(
+                deviceId = device.deviceId,
+                userId = device.userId,
+                defaultAgent = defaults?.defaultAgent,
+                defaultAccount = defaults?.defaultAccount,
+                profiles = parseAgentAccounts(device.agentAccounts).orEmpty().mapValues { (_, account) ->
+                    account.profiles.orEmpty().map { SessionMarkProfile(it.id, it.label, it.active) }
+                },
+            )
+        }
     }
 }
 

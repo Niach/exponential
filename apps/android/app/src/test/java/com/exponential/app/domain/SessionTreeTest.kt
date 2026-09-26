@@ -4,7 +4,17 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 // EXP-818 — the session tree's four rules, the same four tests web
@@ -688,5 +698,69 @@ class SessionTreeCaptionTest {
     fun `falls back to a bare Review without a round`() {
         assertEquals("Review", SessionTree.reviewRowCaption(null, SessionTree.ReviewRowVerdict.None, true))
         assertEquals("Review · no verdict", SessionTree.reviewRowCaption(null, SessionTree.ReviewRowVerdict.None, false))
+    }
+
+    // ── EXP-1108: the row marks, replayed from `session-tree-marks.json` by
+    //    case name (web `session-tree.test.ts`, iOS, desktop the same).
+
+    private val marks by lazy {
+        kotlinx.serialization.json.Json.parseToJsonElement(contractFixtureJson("session-tree-marks.json")).jsonObject
+    }
+
+    private fun JsonElement?.str(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+    private fun markDevice(json: JsonObject) = SessionMarkDevice(
+        deviceId = json.getValue("deviceId").jsonPrimitive.content,
+        userId = json["userId"].str(),
+        defaultAgent = (json["launchDefaults"] as? JsonObject)?.get("defaultAgent").str(),
+        defaultAccount = (json["launchDefaults"] as? JsonObject)?.get("defaultAccount").str(),
+        profiles = (json["agentAccounts"] as? JsonObject).orEmpty().mapValues { (_, entry) ->
+            (entry.jsonObject["profiles"] as? JsonArray).orEmpty().map { profile ->
+                val p = profile.jsonObject
+                SessionMarkProfile(
+                    id = p.getValue("id").jsonPrimitive.content,
+                    label = p["label"].str(),
+                    active = p["active"]?.jsonPrimitive?.boolean ?: false,
+                )
+            }
+        },
+    )
+
+    @Test
+    fun `the workflow run account caption matches every fixture case`() {
+        val cases = marks.getValue("accountCaptions").jsonArray
+        assertTrue(cases.size >= 10)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val name = case.getValue("name").jsonPrimitive.content
+            val session = case.getValue("session").jsonObject
+            val row = SessionMarkRow(
+                agent = session["agent"].str(),
+                agentAccount = session["agentAccount"].str(),
+                deviceId = session["deviceId"].str(),
+                userId = session["userId"].str(),
+                workflowId = session["workflowId"].str(),
+            )
+            val devices = case.getValue("devices").jsonArray.map { markDevice(it.jsonObject) }
+            assertEquals(name, case["caption"].str(), SessionTree.workflowRunAccountCaption(row, devices))
+        }
+    }
+
+    @Test
+    fun `the needs-you dot matches every fixture case`() {
+        val cases = marks.getValue("needsYou").jsonArray
+        assertTrue(cases.size >= 4)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val question = case["pendingQuestion"]
+            assertEquals(
+                case.getValue("name").jsonPrimitive.content,
+                case.getValue("needsYou").jsonPrimitive.boolean,
+                SessionTree.sessionNeedsYou(
+                    case.getValue("status").jsonPrimitive.content,
+                    question != null && question !is JsonNull,
+                ),
+            )
+        }
     }
 }
