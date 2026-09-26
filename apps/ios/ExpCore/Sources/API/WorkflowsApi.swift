@@ -197,6 +197,11 @@ private struct MergeFinalPrResult: Decodable {
     let merged: Bool
 }
 
+/// `workflows.openFinalPr` answers `{ url }` (the reopened or fresh PR).
+private struct OpenFinalPrResult: Decodable {
+    let url: String?
+}
+
 private struct ResolveNodeInput: Encodable {
     let nodeId: String
     let action: String
@@ -340,6 +345,20 @@ public final class WorkflowsApi: Sendable {
             input: IdInput(id: id)
         )
         return result.merged
+    }
+
+    /// Member-callable `workflows.openFinalPr` (EXP-1101) — the way back from a
+    /// final PR closed without merging: GitHub reopens it, else a fresh one
+    /// opens from the same branch. Idempotent; the synced row carries the
+    /// new state back. Returns the PR url when the server names one.
+    @discardableResult
+    public func openFinalPr(accountId: String, id: String) async throws -> String? {
+        let result: OpenFinalPrResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "workflows.openFinalPr",
+            input: IdInput(id: id)
+        )
+        return result.url
     }
 
     /// `workflows.resolveNode` — a person unsticks a node: `retry` gives it a

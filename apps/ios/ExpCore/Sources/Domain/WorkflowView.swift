@@ -441,6 +441,7 @@ public enum WorkflowPrimaryAction: String, Sendable {
     case pause
     case resume
     case reviewFinalPr = "review_final_pr"
+    case openFinalPr = "open_final_pr"
 }
 
 /// What the page's overflow offers (fixture `overflowMenus`).
@@ -555,8 +556,8 @@ extension WorkflowView {
     }
 
     /// The header's ONE primary button: a draft without a runner picks one, a
-    /// draft starts; a started workflow whose final PR is OPEN reviews it,
-    /// else running pauses and paused resumes; done reviews the final PR.
+    /// draft starts; a started workflow whose final PR is OPEN reviews it, one
+    /// whose final PR was CLOSED re-opens it (EXP-1101), else running pauses and paused resumes; done reviews the final PR.
     /// Failed and cancelled offer nothing (fixture `primaryActions`).
     public static func primaryAction(
         status: String, deviceLabel: String?, finalPrState: String? = nil
@@ -565,6 +566,7 @@ extension WorkflowView {
         case DomainContract.wfStatusDraft: return (deviceLabel ?? "").isEmpty ? .pickDevice : .start
         case DomainContract.wfStatusRunning, DomainContract.wfStatusPaused:
             if finalPrState == "open" { return .reviewFinalPr }
+            if finalPrState == DomainContract.prStateClosed { return .openFinalPr }
             return status == DomainContract.wfStatusRunning ? .pause : .resume
         case DomainContract.wfStatusDone: return .reviewFinalPr
         default: return nil
@@ -602,6 +604,9 @@ extension WorkflowView {
     public static let pickDeviceLabel = "Pick device"
     public static let runsOnLabel = "Runs on"
     public static let reviewFinalPrLabel = "Review final PR"
+    /// EXP-1101: the way back from a final PR closed without merging
+    /// (`workflows.openFinalPr`). Byte-identical to web `OPEN_FINAL_PR_LABEL`.
+    public static let openFinalPrLabel = "Open final PR"
     /// All × Changes: a node with nothing pushed yet.
     public static let noChangesLabel = "No changes yet"
     /// The Run(s) face when no run is in scope yet.
