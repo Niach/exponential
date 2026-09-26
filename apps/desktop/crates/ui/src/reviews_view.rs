@@ -202,15 +202,32 @@ impl ReviewsView {
     fn review_row(
         &self,
         entry: &queries::ReviewEntry,
+        workflow_status: Option<String>,
         has_children: bool,
         guides: &domain::tree_guides::Guides,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let issue = entry.representative();
         let is_batch = entry.is_batch();
-        // EXP-897: the BOTTOM of a stack merges the whole chain; the server
-        // resolves the top off this row's own issue id.
-        let merges_stack = entry.depth == 0 && entry.stack_top_issue_id.is_some();
+        // EXP-1094: ONE merge control per row from the shared rule. The
+        // BOTTOM of a stack merges the whole chain (the server resolves the
+        // top off this row's own issue id); an upper member and a live
+        // workflow's node PR offer none.
+        let merge_input = domain::reviews_merge::ReviewMergeInput {
+            stack: if entry.depth > 0 {
+                domain::reviews_merge::ReviewStackPosition::Upper
+            } else if entry.stack_top_issue_id.is_some() {
+                domain::reviews_merge::ReviewStackPosition::Bottom
+            } else {
+                domain::reviews_merge::ReviewStackPosition::None
+            },
+            workflow_status,
+            final_pr: false,
+            final_pr_state: None,
+        };
+        let merge_action = domain::reviews_merge::review_row_merge_action(&merge_input);
+        let merge_reason = domain::reviews_merge::reviews_merge_disabled_reason(&merge_input);
+        let merges_stack = merge_action == domain::reviews_merge::ReviewMergeAction::MergeStack;
         let collapsed = self.collapsed.contains(&issue.id);
         let identifier_text = if is_batch {
             match issue.pr_number {
@@ -358,9 +375,9 @@ impl ReviewsView {
                     .label(if swapped {
                         crate::work_header::RETRY_MERGE_LABEL
                     } else if merges_stack {
-                        domain::pr_stack::MERGE_STACK_LABEL
+                        domain::reviews_merge::MERGE_STACK_LABEL
                     } else {
-                        "Merge"
+                        domain::reviews_merge::MERGE_LABEL
                     });
             }
             let click_id = issue.id.clone();
@@ -381,8 +398,11 @@ impl ReviewsView {
         };
         // The swap: a conflict-classified merge failure takes the PRIMARY
         // trailing slot; Merge steps down to the ghost "Retry merge" beside it
-        // rather than disappearing until the PR closes.
+        // rather than disappearing until the PR closes. A row the rule gives
+        // no merge keeps only the fix; a workflow node PR says why, quietly.
+        let no_merge = merge_action == domain::reviews_merge::ReviewMergeAction::None;
         let trailing = match fix_button {
+            Some(fix) if no_merge => fix,
             Some(fix) => h_flex()
                 .flex_shrink_0()
                 .items_center()
@@ -390,6 +410,19 @@ impl ReviewsView {
                 .child(merge_button)
                 .child(fix)
                 .into_any_element(),
+            None if no_merge => match merge_reason {
+                Some(reason)
+                    if reason == domain::reviews_merge::REVIEW_MERGES_THROUGH_WORKFLOW =>
+                {
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(reason)
+                        .into_any_element()
+                }
+                _ => div().into_any_element(),
+            },
             None => merge_button,
         };
 
@@ -782,6 +815,15 @@ impl ReviewsView {
                 .into_any_element()
         });
         let swapped = fix_button.is_some();
+        // EXP-1094: a final PR merges only while it is open.
+        let can_merge = domain::reviews_merge::review_row_merge_action(
+            &domain::reviews_merge::ReviewMergeInput {
+                stack: domain::reviews_merge::ReviewStackPosition::None,
+                workflow_status: workflow.status.clone(),
+                final_pr: true,
+                final_pr_state: workflow.final_pr_state.clone(),
+            },
+        ) == domain::reviews_merge::ReviewMergeAction::Merge;
 
         let merge_button = {
             let mut button =
@@ -801,7 +843,7 @@ impl ReviewsView {
                 button = button.icon(Icon::new(registry::PR_MERGED)).label(if swapped {
                     crate::work_header::RETRY_MERGE_LABEL
                 } else {
-                    "Merge"
+                    domain::reviews_merge::MERGE_LABEL
                 });
             }
             let workflow_id = workflow.id.clone();
@@ -822,14 +864,16 @@ impl ReviewsView {
                 .into_any_element()
         };
         let trailing = match fix_button {
-            Some(fix) => h_flex()
+            Some(fix) if can_merge => h_flex()
                 .flex_shrink_0()
                 .items_center()
                 .gap_1()
                 .child(merge_button)
                 .child(fix)
                 .into_any_element(),
-            None => merge_button,
+            Some(fix) => fix,
+            None if can_merge => merge_button,
+            None => div().into_any_element(),
         };
 
         let nav_id = workflow.id.clone();
@@ -1110,6 +1154,11 @@ impl Render for ReviewsView {
             .as_deref()
             .map(|id| queries::review_workflows(cx, id))
             .unwrap_or_default();
+        // EXP-1094: a live workflow's node PRs merge through the workflow.
+        let workflow_status_by_issue = team_id
+            .as_deref()
+            .map(|id| queries::review_workflow_status_by_issue(cx, id))
+            .unwrap_or_default();
         let workflow_pr_urls = team_id
             .as_deref()
             .map(|id| queries::workflow_final_pr_urls(cx, id))
@@ -1222,8 +1271,13 @@ impl Render for ReviewsView {
                         .skip_while(|row| row.representative().id != entry.representative().id)
                         .nth(1)
                         .is_some_and(|next| next.depth > entry.depth);
+                    let workflow_status = domain::reviews_merge::review_workflow_status(
+                        entry.issues.iter().map(|issue| issue.id.as_str()),
+                        &workflow_status_by_issue,
+                    );
                     block = block.child(self.review_row(
                         entry,
+                        workflow_status,
                         has_children,
                         &guides.get(index).cloned().unwrap_or_default(),
                         cx,
