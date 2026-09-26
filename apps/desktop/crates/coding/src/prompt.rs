@@ -542,9 +542,11 @@ parallel on sibling branches and land into the same integration branch.
 
 - Your branch was cut from `exp/wf-abcdef12`. Open your pull request with exponential_pr_open as \
 usual and pass NO base: it is derived from the workflow.
-- Never rebase and never force-push. When you are told that the integration branch moved, run \
-`git fetch origin` and `git merge origin/exp/wf-abcdef12`, resolve any conflict in favour of what \
-already landed unless that breaks your issue, and push.
+- Never rebase and never force-push. Your branch is FROZEN on the `exp/wf-abcdef12` tip you were \
+cut from: nobody merges a newer one into it while you run. If you need a newer upstream, run \
+`git fetch origin` and `git merge origin/exp/wf-abcdef12` yourself, resolve any conflict in favour \
+of what already landed unless that breaks your issue, and push. Once your run has ended the \
+scheduler merges upstream into your branch for you and wakes you only for a conflict.
 - Stay inside your issue. Work you discover that is not yours: file it with \
 exponential_issues_create and mention it in your summary.
 - A question only a person can answer: exponential_sessions_ask_parent. It goes to the person \
@@ -607,8 +609,9 @@ exponential_sessions_ask_parent.\n"
     fn the_upstream_prompt_names_the_branch_and_the_change() {
         assert_eq!(
             upstream_moved_prompt("exp/EXP-1", "a1b2c3 add the token parser"),
-            "Upstream moved: a1b2c3 add the token parser. Run git fetch origin and git merge \
-origin/exp/EXP-1, resolve any conflict, run the tests you touched, and push."
+            "Upstream moved and does not merge cleanly into your branch: a1b2c3 add the token parser. Run \
+git fetch origin and git merge origin/exp/EXP-1, resolve the conflict in favour of what already \
+landed unless that breaks your issue, run the tests you touched, and push."
         );
     }
 

@@ -22,10 +22,28 @@
 //! Non-unix keeps the process mutex only — the shared-data-dir deployment is
 //! unix, and there is no flock without another dependency.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-static LOCK: Mutex<()> = Mutex::new(());
+/// One in-process mutex PER lock file. A single shared mutex self-deadlocked
+/// the moment two DIFFERENT files were locked nested (a legacy migration
+/// holds settings.json's section while it writes the device store). Nesting
+/// is always settings.json first, then a store, never the reverse.
+static LOCKS: Mutex<Option<HashMap<PathBuf, &'static Mutex<()>>>> = Mutex::new(None);
+
+fn process_lock(lock_file: &Path) -> &'static Mutex<()> {
+    let mut locks = match LOCKS.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    // Leaked on purpose: a handful of lock files per process, each living as
+    // long as the process does.
+    *locks
+        .get_or_insert_with(HashMap::new)
+        .entry(lock_file.to_path_buf())
+        .or_insert_with(|| Box::leak(Box::new(Mutex::new(()))))
+}
 
 /// Held for one whole load-modify-save of `settings.json`. Released on drop,
 /// in both halves.
@@ -55,11 +73,10 @@ pub fn locked(data_dir: &Path) -> SettingsGuard {
 
 /// EXP-1102: the same section for ANY small file store that is replaced by
 /// rename — `lock_file` is the sibling lock file to take (never the store
-/// itself). Every store shares the one in-process mutex: they are rare,
-/// short read-modify-writes, and one mutex cannot deadlock against itself
-/// the way two ordered ones can.
+/// itself). Each lock file gets its own in-process mutex, so a store write
+/// nested inside the settings section does not wait on itself.
 pub fn locked_at(lock_file: &Path) -> SettingsGuard {
-    let process = match LOCK.lock() {
+    let process = match process_lock(lock_file).lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
@@ -132,6 +149,12 @@ mod tests {
         );
         // A second take blocks forever if the first never released.
         drop(locked(&dir));
+
+        // Nested sections on DIFFERENT files (settings, then a store) must
+        // not wait on each other (EXP-1102's legacy migrations do this).
+        let outer = locked(&dir);
+        drop(locked_at(&dir.join("store").join(".lock")));
+        drop(outer);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -2459,6 +2459,15 @@ mod tests {
         snapshot.nodes.push(facts);
     }
 
+    /// Whether a pass merges upstream or wakes a run. A leaf with its pull
+    /// request up may LAND in the same pass (EXP-1103: no per-node review),
+    /// which is not what the debounce tests are about.
+    fn touches_upstream(decisions: &[Decision]) -> bool {
+        decisions
+            .iter()
+            .any(|decision| decision.is_wake() || matches!(decision, Decision::MergeBase { .. }))
+    }
+
     fn of_kind<'a>(decisions: &'a [Decision], test: fn(&Decision) -> bool) -> Vec<&'a Decision> {
         decisions.iter().filter(|decision| test(decision)).collect()
     }
@@ -2871,26 +2880,30 @@ mod tests {
         for (sha, seen) in [("sha-i2", 40_000), ("sha-i3", 70_000), ("sha-i4", 90_000)] {
             snapshot.tips.insert(INTEGRATION.to_string(), sha.to_string());
             snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), seen);
-            assert!(evaluate(&snapshot).is_empty(), "{sha} still moving");
+            assert!(!touches_upstream(&evaluate(&snapshot)), "{sha} still moving");
         }
         // A tip the host has not dated reads as just seen: it waits too.
         snapshot.tip_seen_ms.clear();
-        assert!(evaluate(&snapshot).is_empty());
+        assert!(!touches_upstream(&evaluate(&snapshot)));
         snapshot.tip_seen_ms.insert(INTEGRATION.to_string(), 90_000);
         snapshot.now_ms = 90_000 + UPSTREAM_DEBOUNCE_MS;
+        // Merged forward first, then landed, in that order (its PR is up).
         assert_eq!(
             evaluate(&snapshot),
-            vec![Decision::MergeBase {
-                node_id: "a".to_string(),
-                branch: "exp/EXP-a".to_string(),
-                base_branch: INTEGRATION.to_string(),
-                sha: "sha-i4".to_string(),
-            }]
+            vec![
+                Decision::MergeBase {
+                    node_id: "a".to_string(),
+                    branch: "exp/EXP-a".to_string(),
+                    base_branch: INTEGRATION.to_string(),
+                    sha: "sha-i4".to_string(),
+                },
+                Decision::LandNode { node_id: "a".to_string() },
+            ]
         );
         snapshot
             .sessions
             .insert("s-a".to_string(), SessionFacts { live: true, ..SessionFacts::default() });
-        assert!(evaluate(&snapshot).is_empty(), "a live run pulls itself");
+        assert!(!touches_upstream(&evaluate(&snapshot)), "a live run pulls itself");
     }
 
     /// EXP-1106 rule 3: the wake mode by idle time — steer a live idle run,

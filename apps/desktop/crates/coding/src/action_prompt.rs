@@ -1390,7 +1390,7 @@ The work is checked out in this directory on a throwaway branch. It was based on
 2. Read the issue with exponential_issues_get (description and comments): that is the requirement.
 3. Read the whole diff. Look for: requirements not met, behaviour that contradicts the issue, broken or missing tests, contract changes that would break the nodes that build on this one, security problems, dead or duplicated code.
 4. RUN the checks: the tests this change touches and, if the repository has them, the contract tests. An opinion is advisory; a command you ran is evidence. Remember the exact command and whether it passed.
-5. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, head = exactly the sha from step 1 (never a branch name, never a shortened or edited sha), verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed; empty when you approve without remarks), oracle = {command, passed} for what you ran (omit it only if nothing could be run), model = the model you are.
+5. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, head = exactly the sha from step 1 (never a branch name, never a shortened or edited sha), verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed — the author gets them verbatim; empty when you approve without remarks), oracle = {command, passed} for what you ran (omit it only if nothing could be run), model = the model you are.
 Then finish with exponential_sessions_end."
         );
 
