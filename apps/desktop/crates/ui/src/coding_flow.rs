@@ -478,7 +478,7 @@ impl LocalSessions {
     /// here; the second one finds the entry already gone, so the refresher is
     /// released exactly once.
     fn remove(sessions: &Entity<LocalSessions>, subject: &SessionSubject, cx: &mut App) {
-        let removed = sessions.update(cx, |this, cx| {
+        let (removed, live) = sessions.update(cx, |this, cx| {
             let entry = match subject {
                 SessionSubject::Issue(id) => this.by_issue.remove(id),
                 SessionSubject::Batch(id) => this.by_batch.remove(id),
@@ -488,7 +488,14 @@ impl LocalSessions {
                 this.watchers.remove(&entry.session_id);
             }
             cx.notify();
-            entry
+            // FEED-53: what the OTHER live sessions hold, taken with the
+            // finished one already out, so its cleanup never removes a dir
+            // or branch a sibling still runs on.
+            let live = coding::run_cleanup::LiveHolders {
+                branches: this.held_branches().map(str::to_string).collect(),
+                worktrees: this.all().map(|session| session.worktree.clone()).collect(),
+            };
+            (entry, live)
         });
         // EXP-481: a session ending changes the inventory's busy flags.
         crate::device_sync::report_soon(cx);
@@ -508,7 +515,15 @@ impl LocalSessions {
                         .background_executor()
                         .spawn({
                             let cleanup = cleanup.clone();
-                            async move { coding::remove_if_clean(&cleanup) }
+                            let data_dir = data_dir.clone();
+                            let session_id = session_id.clone();
+                            async move {
+                                // Plus every run a live host drives on the
+                                // shared data dir (the CLI daemon, another
+                                // desktop).
+                                let live = live.with_registry(&data_dir, &session_id);
+                                coding::remove_if_clean(&cleanup, &live)
+                            }
                         })
                         .await;
                     let _ = cx.update(|cx| {

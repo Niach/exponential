@@ -638,6 +638,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 })
                 .collect();
             guard.retain(|live| !live.session.is_done());
+            // FEED-53: what the runs still live here hold; the reaped ones
+            // are already out. In-flight starts hold the clone's launch gate,
+            // which the cleanup already respects.
+            let live_holders = coding::run_cleanup::LiveHolders {
+                branches: guard
+                    .iter()
+                    .map(|live| live.branch.clone())
+                    .filter(|branch| !branch.is_empty())
+                    .collect(),
+                worktrees: guard.iter().map(|live| live.session.worktree.clone()).collect(),
+            };
             drop(guard);
             // The moment the runs were seen to END: the git work below can
             // hold the loop for seconds, and a resume that re-enters a
@@ -649,7 +660,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         // The record outlives a removal: a resume re-creates
                         // the worktree on the recorded branch; the registry's
                         // TTL retires the record.
-                        let verdict = coding::remove_if_clean(&cleanup);
+                        let live = live_holders.clone().with_registry(&ctx.data_dir, &session_id);
+                        let verdict = coding::remove_if_clean(&cleanup, &live);
                         log::info!(
                             "run cleanup [{session_id}] on {}: {verdict:?}",
                             cleanup.branch
