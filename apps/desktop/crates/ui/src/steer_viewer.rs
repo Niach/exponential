@@ -1400,8 +1400,11 @@ impl SteerSessionView {
 
     /// EXP-550: the host machine went offline — the run is paused, not dead,
     /// and no affordance may claim otherwise.
+    ///
+    /// Never for a run this process hosts: it is running right here, whatever
+    /// the synced row's last heartbeat says.
     fn paused(&self, cx: &App) -> bool {
-        !self.row_ended() && self.device(cx).offline
+        !self.row_ended() && !self.is_local() && self.device(cx).offline
     }
 
     // ── Wakeups (the web store's `kickAll`, EXP-696) ───────────────────────
