@@ -429,12 +429,25 @@ impl NodeReport {
     }
 }
 
-/// ENGINE: `workflows.reportNode` — a node's state moved.
-pub fn report_node(trpc: &TrpcClient, input: &NodeReport) -> Result<(), ApiError> {
-    #[derive(Deserialize)]
-    struct Ignored {}
-    let _: Ignored = trpc.mutation("workflows.reportNode", input)?;
-    Ok(())
+/// What `workflows.reportNode` answers: `updated: false` = the server
+/// REFUSED the write (the node is landed or skipped there). FEED-56: an
+/// answer, not an error, and the host must not act on its stale snapshot.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub struct NodeReportAnswer {
+    /// Absent (an older server) reads as written, the old behaviour.
+    #[serde(default = "written")]
+    pub updated: bool,
+}
+
+fn written() -> bool {
+    true
+}
+
+/// ENGINE: `workflows.reportNode` — a node's state moved. `Ok(false)` = the
+/// server refused it (landed/skipped).
+pub fn report_node(trpc: &TrpcClient, input: &NodeReport) -> Result<bool, ApiError> {
+    let answer: NodeReportAnswer = trpc.mutation("workflows.reportNode", input)?;
+    Ok(answer.updated)
 }
 
 /// What `workflows.landNode` answers. A refusal is an ANSWER, not an error:
@@ -640,6 +653,23 @@ mod tests {
 
     fn client(base: &str) -> TrpcClient {
         TrpcClient::new(base, Arc::new(StaticToken("tok".to_string())))
+    }
+
+    /// FEED-56: the server's refusal comes back as `false`, a write as
+    /// `true`, and an answer without the field reads as written.
+    #[test]
+    fn report_node_returns_the_servers_answer() {
+        for (body, expected) in [
+            (r#"{"result":{"data":{"updated":false}}}"#, false),
+            (r#"{"result":{"data":{"updated":true}}}"#, true),
+            (r#"{"result":{"data":{}}}"#, true),
+        ] {
+            let (base, captured) = one_shot_server(200, body);
+            let report = NodeReport::new("n-1", "running");
+            assert_eq!(report_node(&client(&base), &report).unwrap(), expected, "{body}");
+            let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(request.starts_with("POST /api/trpc/workflows.reportNode HTTP/1.1"));
+        }
     }
 
     #[test]

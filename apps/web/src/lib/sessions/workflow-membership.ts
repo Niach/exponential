@@ -12,6 +12,11 @@
 //
 //   (a) EXPLICIT host values win — only ever passed after the caller proved
 //       they come from the workflow's runner device (`workflows.device_id`).
+//   (a2) EXP-1093: a REVIEW run whose node the caller resolved from the
+//       start itself (the review builtin + `workflowRole=review` +
+//       `workflowNodeId`, or its `exp/wf-<id8>-review-<IDENT>-r<n>` branch;
+//       the node checked to be the run's team) joins that node as
+//       `review` even when the runner-device proof of (a) fails.
 //   (b) A RESUME (the predecessor) inherits workflow_id, workflow_node_id,
 //       workflow_role, started_reason and parent_session_id, whoever calls.
 //       Its started_reason is NEVER re-branded to `agent`: the predecessor's
@@ -65,6 +70,9 @@ export interface WorkflowMembershipInput {
     workflowNodeId?: string | null
     workflowRole?: string | null
   } | null
+  /** EXP-1093: a review run's node, resolved and team-checked by the
+   *  caller (`reviewStartClaim` says what to resolve). */
+  reviewNode?: { workflowId: string; nodeId: string } | null
   /** The resumed run (resumeSessionId / an account switch). */
   predecessor?: {
     workflowId: string | null
@@ -150,6 +158,13 @@ export function resolveWorkflowMembership(
       workflowNodeId: explicit.workflowNodeId ?? null,
       workflowRole: explicit.workflowRole ?? null,
     }
+  } else if (input.reviewNode) {
+    // (a2)
+    ids = {
+      workflowId: input.reviewNode.workflowId,
+      workflowNodeId: input.reviewNode.nodeId,
+      workflowRole: `review`,
+    }
   } else if (predecessor?.workflowId) {
     // (b)
     ids = {
@@ -172,4 +187,39 @@ export function resolveWorkflowMembership(
     }
   }
   return { ...ids, ...tree }
+}
+
+/** EXP-1093: the parts of a review branch `exp/wf-<id8>-review-<IDENT>-r<n>`
+ *  (mirror of `crates/coding` `review_branch`), or null for any other. */
+export function parseWorkflowReviewBranch(
+  branch: string | null | undefined
+): { workflowId8: string; identifier: string; round: number } | null {
+  if (!branch) return null
+  const match = /^exp\/wf-([0-9a-f]{8})-review-(.+)-r(\d+)$/.exec(branch)
+  if (!match) return null
+  const round = Number(match[3])
+  if (!Number.isSafeInteger(round) || round < 1) return null
+  return { workflowId8: match[1]!, identifier: match[2]!, round }
+}
+
+/** EXP-1093: what a start claims about the review node it runs, or null
+ *  when it is no review run: the node id when the frame named it with the
+ *  `review` role, else the node its review branch names. Only the review
+ *  builtin claims (`isReviewBuiltin`); the caller still resolves the claim
+ *  against the run's team and refuses a mismatch. */
+export function reviewStartClaim(input: {
+  isReviewBuiltin: boolean
+  workflowRole?: string | null
+  workflowNodeId?: string | null
+  branch?: string | null
+}): {
+  nodeId: string | null
+  branch: { workflowId8: string; identifier: string; round: number } | null
+} | null {
+  if (!input.isReviewBuiltin) return null
+  const branch = parseWorkflowReviewBranch(input.branch)
+  const nodeId =
+    input.workflowRole === `review` && input.workflowNodeId ? input.workflowNodeId : null
+  if (!nodeId && !branch) return null
+  return { nodeId, branch }
 }

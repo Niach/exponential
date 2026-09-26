@@ -710,6 +710,34 @@ async function mergeStackFromMember(opts: {
   }
 }
 
+/** EXP-1094: marks the workflow merge train's own `mergePr` call
+ *  (`workflows.landNode`), the one caller allowed to merge a live node's PR.
+ *  A symbol on the server-built context: no wire input can carry it. */
+export const WORKFLOW_LANDING = Symbol.for(`exp.workflowLanding`)
+
+function isWorkflowLanding(ctx: object): boolean {
+  return (ctx as { [WORKFLOW_LANDING]?: boolean })[WORKFLOW_LANDING] === true
+}
+
+export const WORKFLOW_MERGE_REFUSAL = `merges through the workflow: its merge train lands it once its run ended and its review wave cleared. Cancel the workflow to merge it by hand.`
+
+/** EXP-1094: refuse a hand merge of a PR whose issue (or any issue linked to
+ *  the same PR) a running or paused workflow covers. */
+export async function assertMergeOutsideWorkflow(
+  executor: Parameters<typeof import("@/lib/workflows").liveWorkflowCoveringPr>[0],
+  issueId: string,
+  prUrl: string,
+  identifier: string
+): Promise<void> {
+  const { liveWorkflowCoveringPr } = await import(`@/lib/workflows`)
+  if (await liveWorkflowCoveringPr(executor, issueId, prUrl)) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `${identifier}'s pull request ${WORKFLOW_MERGE_REFUSAL}`,
+    })
+  }
+}
+
 export const issuesRouter = router({
   create: authedProcedure
     .input(
@@ -1877,6 +1905,13 @@ export const issuesRouter = router({
             message: `The pull request is ${row.prState}. Only open pull requests can be merged.`,
           })
         }
+      }
+
+      // EXP-1094: a node PR of a running/paused workflow lands through the
+      // workflow's merge train (`landNode`), never by hand. The train's own
+      // call carries WORKFLOW_LANDING on its context.
+      if (!isWorkflowLanding(ctx)) {
+        await assertMergeOutsideWorkflow(ctx.db, input.issueId, row.prUrl, row.identifier)
       }
 
       // Merge against the repo the PR actually lives in — derived from prUrl,

@@ -858,15 +858,23 @@ pub fn cwds_for(data_dir: &Path, session_ids: &[String]) -> Vec<PathBuf> {
 /// one pass — the safe direction, and [`crate::reaper`] clears the pids of
 /// dead hosts at every start.
 pub fn live_host_cwds(data_dir: &Path) -> Vec<PathBuf> {
+    live_host_runs(data_dir).into_iter().map(|(_, cwd)| cwd).collect()
+}
+
+/// [`live_host_cwds`] with the session id beside each cwd (empty when an
+/// unknown entry has none) — FEED-53: a finished run's cleanup must tell
+/// its OWN record (whose host clears its pid only at the end) from another
+/// live run on the same worktree.
+pub fn live_host_runs(data_dir: &Path) -> Vec<(String, PathBuf)> {
     let _guard = locked(data_dir);
     let registry = load_registry(data_dir);
-    let mut cwds: Vec<PathBuf> = registry
+    let mut runs: Vec<(String, PathBuf)> = registry
         .records
         .iter()
         .filter(|record| record.host_pid.is_some_and(crate::process::is_alive))
-        .map(|record| record.cwd.clone())
+        .map(|record| (record.session_id.clone(), record.cwd.clone()))
         .collect();
-    cwds.extend(
+    runs.extend(
         registry
             .unknown
             .iter()
@@ -876,9 +884,13 @@ pub fn live_host_cwds(data_dir: &Path) -> Vec<PathBuf> {
                     .and_then(serde_json::Value::as_u64)
                     .is_some_and(|pid| u32::try_from(pid).is_ok_and(crate::process::is_alive))
             })
-            .filter_map(|entry| entry_cwd(entry).map(PathBuf::from)),
+            .filter_map(|entry| {
+                let cwd = entry_cwd(entry)?;
+                let session = entry_session_id(entry).unwrap_or_default();
+                Some((session.to_string(), PathBuf::from(cwd)))
+            }),
     );
-    cwds
+    runs
 }
 
 pub fn remove(data_dir: &Path, session_id: &str) {

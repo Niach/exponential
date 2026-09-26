@@ -1082,6 +1082,183 @@ pub fn visible_session_tree_rows<'a, T>(
     out
 }
 
+// ---------------------------------------------------------------------------
+// EXP-1108: a run row's MARKS, byte-locked x4 by
+// `packages/domain-contract/fixtures/session-tree-marks.json` (web
+// `lib/sessions/session-tree.ts` `workflowRunAccountCaption` /
+// `sessionNeedsYou`). The input structs map the fixture 1:1 and deserialize
+// straight off the synced `devices` jsonb columns.
+
+/// The session columns the account caption reads.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MarkSession {
+    pub agent: Option<String>,
+    pub agent_account: Option<String>,
+    pub device_id: Option<String>,
+    pub user_id: Option<String>,
+    pub workflow_id: Option<String>,
+}
+
+/// `devices.launch_defaults`, the two keys the caption reads.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MarkLaunchDefaults {
+    pub default_agent: Option<String>,
+    pub default_account: Option<String>,
+}
+
+/// One `devices.agent_accounts[agent].profiles[]` row.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MarkProfile {
+    pub id: String,
+    pub label: Option<String>,
+    pub active: bool,
+}
+
+/// One `devices.agent_accounts[agent]` entry (only its profiles).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MarkAgentAccount {
+    pub profiles: Vec<MarkProfile>,
+}
+
+/// One synced device row, as far as the caption reads it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MarkDevice {
+    pub device_id: Option<String>,
+    pub user_id: Option<String>,
+    pub launch_defaults: Option<MarkLaunchDefaults>,
+    pub agent_accounts: Option<HashMap<String, MarkAgentAccount>>,
+}
+
+/// The account a device runs `agent` on by default: the stored
+/// `defaultAccount` when `agent` is the `defaultAgent`, else that agent's
+/// ACTIVE profile, else `system`. `None` without a device or an agent.
+pub fn device_default_account(device: Option<&MarkDevice>, agent: Option<&str>) -> Option<String> {
+    let (device, agent) = (device?, agent?);
+    if let Some(defaults) = device.launch_defaults.as_ref() {
+        if defaults.default_agent.as_deref() == Some(agent) {
+            if let Some(account) = defaults.default_account.as_deref().filter(|a| !a.is_empty()) {
+                return Some(account.to_string());
+            }
+        }
+    }
+    let active = device
+        .agent_accounts
+        .as_ref()
+        .and_then(|accounts| accounts.get(agent))
+        .and_then(|entry| entry.profiles.iter().find(|profile| profile.active))
+        .map(|profile| profile.id.clone());
+    Some(active.unwrap_or_else(|| "system".to_string()))
+}
+
+/// `account <label>` when a WORKFLOW run does not run on its device's default
+/// account for its agent. `None` outside a workflow, without an
+/// `agentAccount`, for an unsynced device or a run on the default. Label =
+/// the profile's `label`, else `Default` for `system`, else the raw id.
+pub fn workflow_run_account_caption(session: &MarkSession, devices: &[MarkDevice]) -> Option<String> {
+    session.workflow_id.as_deref().filter(|id| !id.is_empty())?;
+    let account = session.agent_account.as_deref().filter(|id| !id.is_empty())?;
+    let matches: Vec<&MarkDevice> = devices
+        .iter()
+        .filter(|device| device.device_id == session.device_id)
+        .collect();
+    let device = matches
+        .iter()
+        .find(|device| device.user_id == session.user_id)
+        .or_else(|| matches.first())
+        .copied();
+    let fallback = device_default_account(device, session.agent.as_deref())?;
+    if fallback == account {
+        return None;
+    }
+    let profile_label = session.agent.as_deref().and_then(|agent| {
+        device?
+            .agent_accounts
+            .as_ref()?
+            .get(agent)?
+            .profiles
+            .iter()
+            .find(|profile| profile.id == account)?
+            .label
+            .clone()
+            .filter(|label| !label.is_empty())
+    });
+    let label = profile_label.unwrap_or_else(|| {
+        if account == "system" { "Default".to_string() } else { account.to_string() }
+    });
+    Some(format!("account {label}"))
+}
+
+/// The red needs-you dot: a LIVE row with an open question. The amber
+/// needs-input/blocked flags are a separate mark, never this one.
+pub fn session_needs_you(status: &str, has_pending_question: bool) -> bool {
+    session_row_is_live(status) && has_pending_question
+}
+
+#[cfg(test)]
+mod marks_tests {
+    use super::*;
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Fixture {
+        account_captions: Vec<CaptionCase>,
+        needs_you: Vec<NeedsYouCase>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct CaptionCase {
+        name: String,
+        session: MarkSession,
+        devices: Vec<MarkDevice>,
+        caption: Option<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct NeedsYouCase {
+        name: String,
+        status: String,
+        pending_question: Option<serde_json::Value>,
+        needs_you: bool,
+    }
+
+    fn fixture() -> Fixture {
+        serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-tree-marks.json"
+        ))
+        .expect("session-tree-marks.json parses")
+    }
+
+    #[test]
+    fn account_captions_match_the_fixture() {
+        let fixture = fixture();
+        assert!(!fixture.account_captions.is_empty());
+        for case in fixture.account_captions {
+            assert_eq!(
+                workflow_run_account_caption(&case.session, &case.devices),
+                case.caption,
+                "{}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn needs_you_matches_the_fixture() {
+        let fixture = fixture();
+        assert!(!fixture.needs_you.is_empty());
+        for case in fixture.needs_you {
+            let has_question = case.pending_question.as_ref().is_some_and(|q| !q.is_null());
+            assert_eq!(session_needs_you(&case.status, has_question), case.needs_you, "{}", case.name);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

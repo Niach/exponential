@@ -595,6 +595,8 @@ pub enum WorkflowPrimaryAction {
     Pause,
     Resume,
     ReviewFinalPr,
+    /// EXP-1101: the final PR was closed without merging; re-open it.
+    OpenFinalPr,
 }
 
 impl WorkflowPrimaryAction {
@@ -606,6 +608,7 @@ impl WorkflowPrimaryAction {
             WorkflowPrimaryAction::Pause => "pause",
             WorkflowPrimaryAction::Resume => "resume",
             WorkflowPrimaryAction::ReviewFinalPr => "review_final_pr",
+            WorkflowPrimaryAction::OpenFinalPr => "open_final_pr",
         }
     }
 }
@@ -613,7 +616,7 @@ impl WorkflowPrimaryAction {
 /// The header's ONE primary button: a draft without a runner picks one, a
 /// draft starts; a running or paused workflow whose final PR is OPEN reviews
 /// it (the ONE human review — the workflow is `done` only once it merged),
-/// else running pauses and paused resumes; done reviews the merged final PR.
+/// one whose final PR was CLOSED re-opens it (EXP-1101), else running pauses and paused resumes; done reviews the merged final PR.
 /// Failed and cancelled offer nothing; Stop and Delete live in the overflow.
 pub fn workflow_primary_action(
     status: &str,
@@ -625,6 +628,9 @@ pub fn workflow_primary_action(
         "draft" => Some(WorkflowPrimaryAction::PickDevice),
         "running" | "paused" if final_pr_state == Some("open") => {
             Some(WorkflowPrimaryAction::ReviewFinalPr)
+        }
+        "running" | "paused" if final_pr_state == Some("closed") => {
+            Some(WorkflowPrimaryAction::OpenFinalPr)
         }
         "running" => Some(WorkflowPrimaryAction::Pause),
         "paused" => Some(WorkflowPrimaryAction::Resume),

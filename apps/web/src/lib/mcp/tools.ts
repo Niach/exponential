@@ -601,6 +601,31 @@ async function stampChildOfRun(
 const SESSION_START_POLL_MS = 10_000
 const SESSION_START_POLL_STEP_MS = 500
 
+/** FEED-57/46: what `exponential_sessions_start` answers when the device
+ *  reported no run within the wait. */
+export function noRunReportedMessage(deviceId: string): string {
+  return `Device ${deviceId} took the start but reported no run within ${SESSION_START_POLL_MS / 1000}s. Check that it is online (exponential_devices_list), its app or daemon log, and whether a live run already holds the issue (exponential_sessions_list). Check exponential_sessions_list before starting again: the run may still appear.`
+}
+
+/** The row a BATCH start's device creates: issue-less and action-less in
+ *  the batch's team, with no builtin name (FEED-57: a chat or action run is
+ *  issue-less and action-less too) and a covered set naming the batch. */
+export function batchStartRowMatch(
+  teamIds: readonly string[],
+  issueIds: readonly string[]
+): SQL | undefined {
+  return and(
+    inArray(codingSessions.teamId, [...teamIds]),
+    isNull(codingSessions.issueId),
+    isNull(codingSessions.actionId),
+    isNull(codingSessions.actionName),
+    or(
+      isNull(codingSessions.batchIssueIds),
+      sql`${codingSessions.batchIssueIds} ?| ${sql.param([...issueIds])}::text[]`
+    )
+  )
+}
+
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
@@ -3948,13 +3973,9 @@ export function registerExponentialTools(
           for (const ctx of contexts) {
             assertBoardGranted(access, ctx.boardId, ctx.teamId)
           }
-          // A batch row is issue-less and action-less in the batch's team.
-          match = and(
-            inArray(codingSessions.teamId, [
-              ...new Set(contexts.map((ctx) => ctx.teamId)),
-            ]),
-            isNull(codingSessions.issueId),
-            isNull(codingSessions.actionId)
+          match = batchStartRowMatch(
+            [...new Set(contexts.map((ctx) => ctx.teamId))],
+            issueIds
           )
         } else if (input.actionId) {
           if (isBuiltinActionId(input.actionId)) {
@@ -4094,10 +4115,16 @@ export function registerExponentialTools(
           if (Date.now() >= deadline) break
           await sleep(SESSION_START_POLL_STEP_MS)
         }
+        // FEED-57/46: no row = the device took no run off the frame (it
+        // refused or dropped it). Never an `ok` with a null id: the caller
+        // would wait on a run that does not exist.
+        if (!session) {
+          return err(new Error(noRunReportedMessage(input.deviceId)))
+        }
         return ok({
           ok: true,
           deviceId: input.deviceId,
-          sessionId: (session?.id as string | undefined) ?? null,
+          sessionId: session.id as string,
           session,
           // EXP-700: a child started from inside a run reports back
           // event-based (every supported device brands it agent-started —

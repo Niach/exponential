@@ -336,7 +336,17 @@
         "b": {
           "exp/wf-abcdef12": "sha-i1"
         }
-      }
+      },
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ]
     },
     "expected": [
       {
@@ -474,7 +484,25 @@
         "b": {
           "exp/wf-abcdef12": "sha-i1"
         }
-      }
+      },
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "a",
+          "exp/wf-abcdef12-base-EXP-3"
+        ],
+        [
+          "b",
+          "exp/EXP-1"
+        ],
+        [
+          "b",
+          "exp/wf-abcdef12-base-EXP-3"
+        ]
+      ]
     },
     "expected": [
       {
@@ -623,6 +651,36 @@
           "s-c",
           "freeze"
         ]
+      ],
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "a",
+          "exp/wf-abcdef12-base-EXP-3"
+        ],
+        [
+          "b",
+          "exp/EXP-1"
+        ],
+        [
+          "b",
+          "exp/wf-abcdef12-base-EXP-3"
+        ],
+        [
+          "c",
+          "exp/EXP-1"
+        ],
+        [
+          "c",
+          "exp/EXP-2"
+        ],
+        [
+          "c",
+          "exp/wf-abcdef12"
+        ]
       ]
     },
     "expected": [
@@ -713,7 +771,13 @@
       ],
       "tipSeenMs": {
         "exp/EXP-1": 0
-      }
+      },
+      "behind": [
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ]
     },
     "expected": []
   },
@@ -875,7 +939,13 @@
       ],
       "tipSeenMs": {
         "exp/EXP-1": 0
-      }
+      },
+      "behind": [
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ]
     },
     "expected": [
       {
@@ -966,7 +1036,16 @@
         "exp/EXP-1": 0
       },
       "baseConflicts": [
-        "b"
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ],
+      "behind": [
+        [
+          "b",
+          "exp/EXP-1"
+        ]
       ]
     },
     "expected": [
@@ -1062,7 +1141,16 @@
         "exp/EXP-1": 0
       },
       "baseConflicts": [
-        "b"
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ],
+      "behind": [
+        [
+          "b",
+          "exp/EXP-1"
+        ]
       ]
     },
     "expected": [
@@ -1158,13 +1246,22 @@
         "exp/EXP-1": 0
       },
       "baseConflicts": [
-        "b"
+        [
+          "b",
+          "exp/EXP-1"
+        ]
       ],
       "woken": {
         "b": {
           "exp/EXP-1": "sha-a2"
         }
-      }
+      },
+      "behind": [
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ]
     },
     "expected": []
   },
@@ -1245,7 +1342,13 @@
       ],
       "tipSeenMs": {
         "exp/EXP-1": 95000
-      }
+      },
+      "behind": [
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ]
     },
     "expected": []
   },
@@ -1322,6 +1425,12 @@
         [
           "s-a",
           "freeze"
+        ]
+      ],
+      "behind": [
+        [
+          "b",
+          "exp/EXP-1"
         ]
       ]
     },
@@ -1415,7 +1524,17 @@
         "b": {
           "exp/wf-abcdef12": "sha-i1"
         }
-      }
+      },
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ]
     },
     "expected": [
       {
@@ -1497,7 +1616,17 @@
         "b": {
           "exp/wf-abcdef12": "sha-i1"
         }
-      }
+      },
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ]
     },
     "expected": []
   },
@@ -1593,7 +1722,13 @@
           "exp/wf-abcdef12": "sha-i1",
           "exp/EXP-1": "sha-a1"
         }
-      }
+      },
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ]
+      ]
     },
     "expected": []
   },
@@ -1975,6 +2110,12 @@
           "s-a",
           "freeze"
         ]
+      ],
+      "behind": [
+        [
+          "b",
+          "exp/EXP-1"
+        ]
       ]
     },
     "expected": [
@@ -2092,6 +2233,16 @@
           "s-b",
           "freeze"
         ]
+      ],
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "b",
+          "exp/wf-abcdef12"
+        ]
       ]
     },
     "expected": []
@@ -2184,7 +2335,17 @@
         "b": {
           "exp/wf-abcdef12": "sha-i1"
         }
-      }
+      },
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "b",
+          "exp/EXP-1"
+        ]
+      ]
     },
     "expected": [
       {
@@ -2297,7 +2458,13 @@
           "exp/wf-abcdef12": "sha-i1",
           "exp/EXP-1": "sha-a1"
         }
-      }
+      },
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ]
+      ]
     },
     "expected": [
       {
@@ -2703,6 +2870,40 @@
           "s-b",
           "freeze"
         ]
+      ],
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "a",
+          "exp/EXP-3"
+        ],
+        [
+          "a",
+          "exp/wf-abcdef12-base-EXP-3"
+        ],
+        [
+          "b",
+          "exp/EXP-3"
+        ],
+        [
+          "b",
+          "exp/wf-abcdef12-base-EXP-3"
+        ],
+        [
+          "c",
+          "exp/EXP-1"
+        ],
+        [
+          "c",
+          "exp/EXP-2"
+        ],
+        [
+          "c",
+          "exp/wf-abcdef12"
+        ]
       ]
     },
     "expected": [
@@ -2860,6 +3061,40 @@
         [
           "s-b",
           "freeze"
+        ]
+      ],
+      "behind": [
+        [
+          "a",
+          "exp/EXP-2"
+        ],
+        [
+          "a",
+          "exp/EXP-3"
+        ],
+        [
+          "a",
+          "exp/wf-abcdef12-base-EXP-3"
+        ],
+        [
+          "b",
+          "exp/EXP-3"
+        ],
+        [
+          "b",
+          "exp/wf-abcdef12-base-EXP-3"
+        ],
+        [
+          "c",
+          "exp/EXP-1"
+        ],
+        [
+          "c",
+          "exp/EXP-2"
+        ],
+        [
+          "c",
+          "exp/wf-abcdef12"
         ]
       ]
     },

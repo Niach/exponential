@@ -367,12 +367,30 @@ struct LaunchAudit {
 impl LaunchAudit {
     /// Off the foreground: the sink is a blocking tRPC call.
     fn record(self, outcome: Outcome, executor: &gpui::BackgroundExecutor) {
+        self.finish(outcome, None, executor);
+    }
+
+    /// EXP-1108: the launch came up as `session_id` — the line names it.
+    fn record_launched(self, session_id: &str, executor: &gpui::BackgroundExecutor) {
+        self.finish(Outcome::Done, Some(session_id), executor);
+    }
+
+    fn finish(self, outcome: Outcome, session_id: Option<&str>, executor: &gpui::BackgroundExecutor) {
         if let (Outcome::Done, Some(woken)) = (&outcome, self.woken) {
             woken.stamp(executor);
         }
-        let Some(event) = events::launch_event_for(&self.decision, &outcome) else {
+        let Some(event) = events::launch_event_for(&self.decision, &outcome, session_id) else {
             return;
         };
+        // EXP-1108: an unchanged failure every beat is one line.
+        let (Decision::StartNode { workflow_id, .. } | Decision::StartReview { workflow_id, .. }) =
+            &self.decision
+        else {
+            return;
+        };
+        if !events::admit(workflow_id, &self.decision, &outcome) {
+            return;
+        }
         let sink = self.sink;
         executor.spawn(async move { sink.record(event) }).detach();
     }
@@ -787,6 +805,7 @@ fn snapshot_for(
                 merged: engine_state.merged.clone(),
                 woken: engine_state.woken.clone(),
                 base_conflicts: HashSet::new(),
+                behind: HashSet::new(),
                 tip_seen_ms: HashMap::new(),
                 synthetic: engine_state.synthetic.clone(),
                 conflicts: HashSet::new(),
@@ -1001,7 +1020,8 @@ fn run_pass(
         // the siblings it merges in first), re-derived from git when the
         // store does not know, and which of the moved ones would conflict.
         let pairs = upstream_pairs(&snapshot, &pass.branch_of);
-        workflows::refresh_merged(&repo.clone_path, &pairs, &snapshot.tips, &mut state.merged);
+        snapshot.behind =
+            workflows::refresh_merged(&repo.clone_path, &pairs, &snapshot.tips, &mut state.merged);
         snapshot.base_conflicts = workflows::detect_base_conflicts(
             &repo.clone_path,
             &pairs,
@@ -1297,11 +1317,10 @@ fn run_pass(
                     reason,
                 } => {
                     let WakeReason::UpstreamConflict { base_branch, sha } = reason.clone();
-                    let note = match repo.as_ref() {
-                        Some(repo) => movement_note(repo, &pass, &snapshot, &node_id, &base_branch, &sha),
-                        None => sha.clone(),
-                    };
-                    let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
+                    let note = repo
+                        .as_ref()
+                        .and_then(|repo| movement_note(repo, &snapshot, &node_id, &base_branch, &sha));
+                    let text = coding::prompt::upstream_moved_prompt(&base_branch, &sha, note.as_deref());
                     // The stamp goes where the wake executes: a steer stamps
                     // at once, a resume as it goes out, a fresh launch once it
                     // came up — never for an order that failed to launch.
@@ -1568,7 +1587,7 @@ fn run_pass(
         if matches!(outcome, Outcome::Queued) {
             continue;
         }
-        if let Some(event) = events::event_for(&workflow_id, &decided, &outcome) {
+        if let Some(event) = events::audit_line(&workflow_id, &decided, &outcome, None) {
             sink.record(event);
         }
     }
@@ -1813,6 +1832,12 @@ fn wake(
             let Some(claim) = InFlight::claim(&pass.in_flight, node_id) else {
                 return Outcome::Skipped;
             };
+            // FEED-56: the snapshot may be stale. Ask the server first (its
+            // own state, nothing changes); a landed or skipped node there is
+            // refused, and nothing launches for it.
+            if !report_node(&pass.trpc, &api::workflows::NodeReport::new(node_id, &node.state)) {
+                return Outcome::Skipped;
+            }
             let identifier = snapshot
                 .identifier
                 .get(node_id)
@@ -1823,9 +1848,12 @@ fn wake(
                 .clone()
                 .unwrap_or_else(|| snapshot.workflow.integration_branch.clone());
             let branch = node.branch.clone().unwrap_or_default();
+            // FEED-55: what the node's OWN branch holds, from the merge-base
+            // (three dots inside `movement_note`), never the base's newer
+            // work reversed.
             let diff_stat = repo
                 .zip(node.branch.as_deref())
-                .map(|(repo, branch)| {
+                .and_then(|(repo, branch)| {
                     workflows::movement_note(
                         &repo.clone_path,
                         &format!("refs/remotes/origin/{base_branch}"),
@@ -2055,31 +2083,21 @@ fn blocker_identifiers(snapshot: &Snapshot, node_id: &str) -> Vec<String> {
 }
 
 /// The note a moved branch carries: the host's own summary of the range
-/// between what the node was last told and where the branch is now.
+/// between the tip the node already has and where the branch is now.
+/// FEED-55: `None` when that tip is unknown, never a guess off the node's
+/// own branch.
 fn movement_note(
     repo: &EngineRepo,
-    pass: &Pass,
     snapshot: &Snapshot,
     node_id: &str,
     base_branch: &str,
     sha: &str,
-) -> String {
-    let from = snapshot
+) -> Option<String> {
+    let known = snapshot
         .merged
         .get(node_id)
-        .and_then(|branches| branches.get(base_branch).cloned())
-        .or_else(|| {
-            // Never told anything yet: what the node's OWN branch is missing.
-            pass.branch_of
-                .get(node_id)
-                .map(|branch| format!("refs/remotes/origin/{branch}"))
-        });
-    match from {
-        Some(from) => {
-            workflows::movement_note(&repo.clone_path, &from, sha, Some(&repo.url))
-        }
-        None => sha.to_string(),
-    }
+        .and_then(|branches| branches.get(base_branch));
+    workflows::upstream_note(&repo.clone_path, known.map(String::as_str), sha, Some(&repo.url))
 }
 
 fn read_state(pass: &Pass, workflow_id: &str) -> workflows::WorkflowState {
@@ -2116,9 +2134,20 @@ fn remember_woken(pass: &Pass, workflow_id: &str, node_id: &str, branch: &str, s
     });
 }
 
+/// `true` = the server WROTE the report. FEED-56: a refusal (`updated:
+/// false`, the node is landed or skipped there) is `false` too, so no caller
+/// launches off its stale snapshot.
 fn report_node(trpc: &api::TrpcClient, report: &api::workflows::NodeReport) -> bool {
     match api::workflows::report_node(trpc, report) {
-        Ok(()) => true,
+        Ok(true) => true,
+        Ok(false) => {
+            log::warn!(
+                "[workflows] reportNode {} → {} refused: the node is landed or skipped on the server",
+                report.node_id,
+                report.state
+            );
+            false
+        }
         Err(err) => {
             log::warn!(
                 "[workflows] reportNode {} → {} failed: {err}",
@@ -2421,7 +2450,7 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                 };
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
-                        audit.record(Outcome::Done, cx.background_executor());
+                        audit.record_launched(&session_id, cx.background_executor());
                         let trpc = Arc::clone(&trpc);
                         let node = node.clone();
                         // The in-flight claim rides along until the node
@@ -2578,7 +2607,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                 let subject = SessionSubject::Action(session_id.clone());
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
-                        audit.record(Outcome::Done, cx.background_executor());
+                        audit.record_launched(&session_id, cx.background_executor());
                         remember_review_run(
                             &store,
                             &workflow_id,
@@ -2694,7 +2723,7 @@ fn launch_fix(order: FixOrder, cx: &mut App) {
                 let subject = SessionSubject::Action(session_id.clone());
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
-                        audit.record(Outcome::Done, cx.background_executor());
+                        audit.record_launched(&session_id, cx.background_executor());
                         let now_ms = chrono::Utc::now().timestamp_millis();
                         if let Err(err) = store.update(&workflow_id, move |state| {
                             state.fix_runs.insert(wave, session_id.clone());

@@ -201,6 +201,9 @@ fn gated_update_due(gated: bool, last_attempt: Option<Instant>, now: Instant) ->
 /// One live session the daemon supervises (the desktop's `LocalSessions`).
 struct LiveSession {
     issue_id: Option<String>,
+    /// FEED-47/57: the issues a BATCH run covers (empty otherwise), so an
+    /// issue start beside it is refused like one beside the issue's own run.
+    batch_issue_ids: Vec<String>,
     /// EXP-530: the `actions` row this run executes (from the prepared
     /// launch's `action_id`) — the automation host's defer check ("never
     /// launch a second run of an action already running here").
@@ -259,8 +262,15 @@ fn lock_sessions(sessions: &Sessions) -> std::sync::MutexGuard<'_, Vec<LiveSessi
 /// (a finished entry awaiting the reaper tick must not block a restart).
 fn issue_is_coding_here(sessions: &Sessions, issue_id: &str) -> bool {
     lock_sessions(sessions).iter().any(|live| {
-        live.issue_id.as_deref() == Some(issue_id) && !live.session.is_done()
+        covers_issue(live.issue_id.as_deref(), &live.batch_issue_ids, issue_id)
+            && !live.session.is_done()
     })
+}
+
+/// FEED-47/57: a run holds an issue when it IS the issue's run or a batch
+/// run covering it.
+fn covers_issue(run_issue: Option<&str>, batch_issue_ids: &[String], issue_id: &str) -> bool {
+    run_issue == Some(issue_id) || batch_issue_ids.iter().any(|id| id == issue_id)
 }
 
 /// REV-9: in-flight remote-start reservations. The handler's dedup checks
@@ -638,6 +648,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 })
                 .collect();
             guard.retain(|live| !live.session.is_done());
+            // FEED-53: what the runs still live here hold; the reaped ones
+            // are already out. In-flight starts hold the clone's launch gate,
+            // which the cleanup already respects.
+            let live_holders = coding::run_cleanup::LiveHolders {
+                branches: guard
+                    .iter()
+                    .map(|live| live.branch.clone())
+                    .filter(|branch| !branch.is_empty())
+                    .collect(),
+                worktrees: guard.iter().map(|live| live.session.worktree.clone()).collect(),
+            };
             drop(guard);
             // The moment the runs were seen to END: the git work below can
             // hold the loop for seconds, and a resume that re-enters a
@@ -649,7 +670,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         // The record outlives a removal: a resume re-creates
                         // the worktree on the recorded branch; the registry's
                         // TTL retires the record.
-                        let verdict = coding::remove_if_clean(&cleanup);
+                        let live = live_holders.clone().with_registry(&ctx.data_dir, &session_id);
+                        let verdict = coding::remove_if_clean(&cleanup, &live);
                         log::info!(
                             "run cleanup [{session_id}] on {}: {verdict:?}",
                             cleanup.branch
@@ -1759,10 +1781,11 @@ fn issue_resume_record(
     issue_id: &str,
     start_resume: bool,
 ) -> Option<coding::run_registry::RunRecord> {
-    if !start_resume {
-        return None;
-    }
-    coding::run_registry::latest_for_issue(data_dir, account_id, issue_id)
+    // FEED-47: only the explicit flag reads the registry; a fresh start on an
+    // issue with a recorded run is a NEW run in the reused worktree.
+    coding::launcher::recorded_run_for_start(start_resume, || {
+        coding::run_registry::latest_for_issue(data_dir, account_id, issue_id)
+    })
 }
 
 /// EXP-862 — the accounts the runs this daemon hosts are using right now
@@ -1797,7 +1820,7 @@ fn remote_issue_start(
     hold: NodeHold<'_>,
 ) -> anyhow::Result<()> {
     if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
-        log::info!("{reason}");
+        log::warn!("{reason}");
         return Ok(());
     }
     let fetched = api::issues::issues_get(&ctx.trpc, &issue_id).context("resolve the issue")?;
@@ -1926,11 +1949,12 @@ fn remote_batch_start(
         base_branch: None,
         workflow: None,
     };
+    let covered: Vec<String> = request.issues.iter().map(|issue| issue.issue_id.clone()).collect();
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::Batch(request);
     let prepared = coding::prepare(&request, &deps)
         .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(ctx, runtime, sessions, personal_key, prepared, None, false)
+    spawn_prepared_covering(ctx, runtime, sessions, personal_key, prepared, None, covered, false)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2225,6 +2249,21 @@ fn spawn_prepared(
     issue_id: Option<String>,
     is_fix_run: bool,
 ) -> anyhow::Result<()> {
+    spawn_prepared_covering(ctx, runtime, sessions, personal_key, prepared, issue_id, Vec::new(), is_fix_run)
+}
+
+/// [`spawn_prepared`] for a BATCH run, which records the issues it covers.
+#[allow(clippy::too_many_arguments)]
+fn spawn_prepared_covering(
+    ctx: &Ctx,
+    runtime: Option<&Arc<steer::SteerRuntime>>,
+    sessions: &Sessions,
+    personal_key: Option<String>,
+    prepared: Prepared,
+    issue_id: Option<String>,
+    batch_issue_ids: Vec<String>,
+    is_fix_run: bool,
+) -> anyhow::Result<()> {
     let prepared = match prepared {
         Prepared::Ready(prepared) => prepared,
         Prepared::Disabled(reason) => {
@@ -2256,6 +2295,7 @@ fn spawn_prepared(
         sessions,
         LiveSession {
             issue_id,
+            batch_issue_ids,
             action_id,
             branch: session.branch.clone(),
             is_fix_run,
@@ -3542,7 +3582,8 @@ impl AutomationHost {
             );
             coding::workflows::confine_branches_to_tips(&mut plan.snapshot);
             let pairs = workflow_upstream_pairs(&plan.snapshot, &plan.branch_of);
-            coding::workflows::refresh_merged(clone, &pairs, &plan.snapshot.tips, &mut state.merged);
+            plan.snapshot.behind =
+                coding::workflows::refresh_merged(clone, &pairs, &plan.snapshot.tips, &mut state.merged);
             plan.snapshot.base_conflicts = coding::workflows::detect_base_conflicts(
                 clone,
                 &pairs,
@@ -3666,6 +3707,8 @@ impl AutomationHost {
         for decision in coding::workflows::evaluate(&plan.snapshot) {
             // EXP-1082: what the host did with it, for the audit trail.
             let decided = decision.clone();
+            // EXP-1108: the run a start launched, named on its line.
+            let mut launched: Option<String> = None;
             let outcome: Outcome = 'decision: {
                 match decision {
                     // Handled above; the engine still emits it when the host
@@ -3731,8 +3774,8 @@ impl AutomationHost {
                             settings,
                             settings_path,
                         ) {
-                            Ok(true) => {}
-                            Ok(false) => break 'decision Outcome::Skipped,
+                            Ok(Some(session_id)) => launched = Some(session_id),
+                            Ok(None) => break 'decision Outcome::Skipped,
                             Err(err) => break 'decision Outcome::Failed(err),
                         }
                     }
@@ -3786,18 +3829,11 @@ impl AutomationHost {
                         reason,
                     } => {
                         let WakeReason::UpstreamConflict { base_branch, sha } = reason;
-                        let note = match repo.as_ref() {
-                            Some((clone, url)) => workflow_movement_note(
-                                clone,
-                                &plan,
-                                &node_id,
-                                &base_branch,
-                                &sha,
-                                Some(url),
-                            ),
-                            None => sha.clone(),
-                        };
-                        let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
+                        let note = repo.as_ref().and_then(|(clone, url)| {
+                            workflow_movement_note(clone, &plan, &node_id, &base_branch, &sha, Some(url))
+                        });
+                        let text =
+                            coding::prompt::upstream_moved_prompt(&base_branch, &sha, note.as_deref());
                         match self.wake_workflow_run(
                             &plan,
                             repo.as_ref(),
@@ -3850,8 +3886,8 @@ impl AutomationHost {
                             settings,
                             settings_path,
                         ) {
-                            Ok(true) => {}
-                            Ok(false) => break 'decision Outcome::Skipped,
+                            Ok(Some(session_id)) => launched = Some(session_id),
+                            Ok(None) => break 'decision Outcome::Skipped,
                             Err(err) => break 'decision Outcome::Failed(err),
                         }
                     }
@@ -4044,7 +4080,9 @@ impl AutomationHost {
                 }
                 Outcome::Done
             };
-            if let Some(event) = events::event_for(&workflow_id, &decided, &outcome) {
+            if let Some(event) =
+                events::audit_line(&workflow_id, &decided, &outcome, launched.as_deref())
+            {
                 sink.record(event);
             }
         }
@@ -4137,9 +4175,20 @@ impl AutomationHost {
         }
     }
 
+    /// `true` = the server WROTE the report. FEED-56: a refusal (`updated:
+    /// false`, landed or skipped there) is `false` too, so nothing launches
+    /// off a stale snapshot.
     fn report_node(&self, report: &api::workflows::NodeReport) -> bool {
         match api::workflows::report_node(&self.ctx.trpc, report) {
-            Ok(()) => true,
+            Ok(true) => true,
+            Ok(false) => {
+                log::warn!(
+                    "workflow reportNode {} → {} refused: the node is landed or skipped on the server",
+                    report.node_id,
+                    report.state
+                );
+                false
+            }
             Err(err) => {
                 log::warn!(
                     "workflow reportNode {} → {} failed: {err}",
@@ -4156,9 +4205,9 @@ impl AutomationHost {
     /// compound one a BATCH over its parent plus its members. Both cut from
     /// the integration branch and carry the `## Workflow` prompt section.
     ///
-    /// EXP-1082 (the audit outcome): `Ok(true)` = launched, `Ok(false)` = not
-    /// attempted (the node or its `running` report is missing), `Err` = the
-    /// prepare/launch failed (the node is reported `failed` with it).
+    /// EXP-1082 (the audit outcome): `Ok(Some(session))` = launched as that
+    /// run, `Ok(None)` = not attempted (the node or its `running` report is
+    /// missing), `Err` = the prepare/launch failed (reported `failed`).
     #[allow(clippy::too_many_arguments)]
     fn start_workflow_node(
         &self,
@@ -4171,16 +4220,16 @@ impl AutomationHost {
         account: Option<String>,
         settings: &coding::Settings,
         settings_path: &Path,
-    ) -> Result<bool, String> {
+    ) -> Result<Option<String>, String> {
         let Some(node) = plan.nodes.get(node_id) else {
-            return Ok(false);
+            return Ok(None);
         };
         let mut report = api::workflows::NodeReport::new(node_id, "running");
         report.attempt = Some(attempt);
         report.base_branch = api::patch::Patch::Set(branch.to_string());
         report.note = api::patch::Patch::Null;
         if !self.report_node(&report) {
-            return Ok(false);
+            return Ok(None);
         }
         // EXP-983: the run is cut AT this tip, so it already has it —
         // recording that is what keeps the first beat quiet.
@@ -4220,11 +4269,11 @@ impl AutomationHost {
         match self.prepare_workflow_node(plan, node, run, options, branch, None) {
             Ok(Some(session_id)) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "running");
-                report.session_id = api::patch::Patch::Set(session_id);
+                report.session_id = api::patch::Patch::Set(session_id.clone());
                 self.report_node(&report);
-                Ok(true)
+                Ok(Some(session_id))
             }
-            Ok(None) => Ok(false),
+            Ok(None) => Ok(None),
             Err(err) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "failed");
                 report.note = api::patch::Patch::Set(one_line_note(&err.to_string()));
@@ -4333,7 +4382,7 @@ impl AutomationHost {
     /// is not a node failure (the node's own work is fine): it only drops
     /// the recorded head, so the next beat tries the review again.
     ///
-    /// EXP-1082 (the audit outcome): `Ok(true)` = launched, `Ok(false)` = not
+    /// EXP-1082 (the audit outcome): `Ok(Some(session))` = launched, `Ok(None)` = not
     /// attempted (something has not synced yet), `Err` = the lookup or the
     /// prepare/launch failed.
     #[allow(clippy::too_many_arguments)]
@@ -4347,19 +4396,19 @@ impl AutomationHost {
         account: Option<String>,
         settings: &coding::Settings,
         settings_path: &Path,
-    ) -> Result<bool, String> {
+    ) -> Result<Option<String>, String> {
         let workflow_id = plan.snapshot.workflow.id.clone();
         let Some(node) = plan.nodes.get(node_id) else {
-            return Ok(false);
+            return Ok(None);
         };
         let Some(identifier) = plan.snapshot.identifier.get(node_id).cloned() else {
-            return Ok(false);
+            return Ok(None);
         };
         let repo = match api::repositories::for_issue(&self.ctx.trpc, &node.issue_id) {
             Ok(Some(repo)) => repo,
             Ok(None) => {
                 log::warn!("workflow review of {node_id}: the node has no repository");
-                return Ok(false);
+                return Ok(None);
             }
             Err(err) => {
                 log::warn!("workflow review of {node_id}: repository — {err}");
@@ -4376,7 +4425,7 @@ impl AutomationHost {
             )
         } else {
             let Some(branch) = plan.branch_of.get(node_id).cloned() else {
-                return Ok(false);
+                return Ok(None);
             };
             (
                 branch,
@@ -4476,7 +4525,7 @@ impl AutomationHost {
                     // In flight until its row syncs (`pending_launches`).
                     state.launched.insert(session_id.clone(), now_ms);
                 });
-                Ok(true)
+                Ok(Some(session_id))
             }
             Err(err) => {
                 log::warn!("workflow review of {node_id} — {err}");
@@ -4645,6 +4694,12 @@ impl AutomationHost {
                 let Some(node) = plan.nodes.get(node_id) else {
                     return Ok(false);
                 };
+                // FEED-56: the plan may be stale. Ask the server first (its
+                // own state, nothing changes); a landed or skipped node there
+                // is refused, and nothing launches for it.
+                if !self.report_node(&api::workflows::NodeReport::new(node_id, &node.state)) {
+                    return Ok(false);
+                }
                 let identifier = plan
                     .snapshot
                     .identifier
@@ -4656,9 +4711,10 @@ impl AutomationHost {
                     .clone()
                     .unwrap_or_else(|| plan.snapshot.workflow.integration_branch.clone());
                 let branch = node.branch.clone().unwrap_or_default();
+                // FEED-55: the node's OWN work, from the merge-base.
                 let diff_stat = repo
                     .zip(node.branch.as_deref())
-                    .map(|((clone, url), branch)| {
+                    .and_then(|((clone, url), branch)| {
                         coding::workflows::movement_note(
                             clone,
                             &format!("refs/remotes/origin/{base_branch}"),
@@ -5096,6 +5152,7 @@ fn workflow_plan(
             merged: engine_state.merged.clone(),
             woken: engine_state.woken.clone(),
             base_conflicts: Default::default(),
+            behind: Default::default(),
             tip_seen_ms: HashMap::new(),
             synthetic: engine_state.synthetic.clone(),
             conflicts: Default::default(),
@@ -5409,7 +5466,9 @@ fn workflow_blocker_identifiers(
 }
 
 /// The note a moved branch carries: the engine's own summary of the range
-/// between what the node was last told and where the branch is now.
+/// between the tip the node already has and where the branch is now.
+/// FEED-55: `None` when that tip is unknown, never a guess off the node's
+/// own branch.
 fn workflow_movement_note(
     clone: &Path,
     plan: &WorkflowPlan,
@@ -5417,21 +5476,13 @@ fn workflow_movement_note(
     base_branch: &str,
     sha: &str,
     url: Option<&coding::git_worktree::TokenUrl>,
-) -> String {
-    let from = plan
+) -> Option<String> {
+    let known = plan
         .snapshot
         .merged
         .get(node_id)
-        .and_then(|branches| branches.get(base_branch).cloned())
-        .or_else(|| {
-            plan.branch_of
-                .get(node_id)
-                .map(|branch| format!("refs/remotes/origin/{branch}"))
-        });
-    match from {
-        Some(from) => coding::workflows::movement_note(clone, &from, sha, url),
-        None => sha.to_string(),
-    }
+        .and_then(|branches| branches.get(base_branch));
+    coding::workflows::upstream_note(clone, known.map(String::as_str), sha, url)
 }
 
 /// EXP-1102: the engine state's own store under the data dir
@@ -6043,6 +6094,27 @@ fn status(args: &[String]) -> CommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEED-47/57: a batch run covering the issue holds it like the issue's
+    /// own run; a batch over other issues does not.
+    #[test]
+    fn a_batch_run_covering_the_issue_holds_it() {
+        let batch = vec!["i-1".to_string(), "i-2".to_string()];
+        assert!(covers_issue(Some("i-1"), &[], "i-1"));
+        assert!(covers_issue(None, &batch, "i-2"));
+        assert!(!covers_issue(None, &batch, "i-3"));
+        assert!(!covers_issue(Some("i-9"), &[], "i-1"));
+    }
+
+    /// FEED-47: a fresh remote start never reads the run registry, so a
+    /// recorded run on the issue cannot turn it into a resume.
+    #[test]
+    fn a_fresh_issue_start_resolves_no_recorded_run() {
+        let dir = std::env::temp_dir().join(format!("exp-daemon-feed47-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(issue_resume_record(&dir, "acct", "issue-1", false).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn advert(agents: &[&str]) -> coding::AgentAdvertisement {
         coding::AgentAdvertisement {

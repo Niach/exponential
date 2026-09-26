@@ -192,6 +192,7 @@ struct WorkflowDetailView: View {
             header(model)
             strip(model)
             stepper(model)
+            eventLog(model)
             if let node = model.selectedNode {
                 // One node = its Work screen, in place: the issue's, or a
                 // batch node's own run of mine (an issue subject cannot find
@@ -215,6 +216,27 @@ struct WorkflowDetailView: View {
             if model.selection.isAll, !faces.contains(face), let next = WorkFaces.fallbackFace(shown: face, available: faces) {
                 face = next
             }
+        }
+    }
+
+    /// EXP-1096: the engine's event log, ALWAYS under the graph (newest
+    /// first), the picked node's events only when one is picked; nothing when
+    /// empty. Bounded so the face below keeps the room.
+    @ViewBuilder
+    private func eventLog(_ model: WorkflowDetailModel) -> some View {
+        let events = model.scopedEvents
+        if !events.isEmpty {
+            ScrollView {
+                WorkflowEventList(
+                    events: events,
+                    nodeLabel: model.selection.isAll
+                        ? { id in model.nodes.first { $0.id == id }.map(model.identifier(of:)) }
+                        : nil
+                )
+            }
+            .frame(maxHeight: 192)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("workflow-events")
         }
     }
 
@@ -371,6 +393,16 @@ struct WorkflowDetailView: View {
                 primary: true
             )
             .accessibilityIdentifier("workflow-review-button")
+        case .openFinalPr:
+            GlassPill(
+                WorkflowView.openFinalPrLabel,
+                icon: AppIcons.prOpen,
+                size: .md,
+                mode: .action { model.openFinalPr() },
+                primary: true,
+                enabled: !model.busy
+            )
+            .accessibilityIdentifier("workflow-open-final-pr-button")
         case nil:
             EmptyView()
         }
@@ -739,7 +771,8 @@ struct WorkflowDetailView: View {
         .buttonStyle(.plain)
     }
 
-    /// The workflow's runs as the session tree, then its event log.
+    /// The workflow's runs as the session tree (the event log sits under the
+    /// graph, EXP-1096).
     private func runsFace(_ model: WorkflowDetailModel) -> some View {
         let rows = SessionTree.visibleRows(
             SessionTree.sessionTree(
@@ -762,7 +795,6 @@ struct WorkflowDetailView: View {
                     runRow(entry, model: model)
                         .treeGuides(guides[index])
                 }
-                WorkflowEventList(events: model.events)
             }
             .padding(.vertical, 8)
         }
@@ -969,6 +1001,21 @@ struct WorkflowDetailView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
+            // EXP-1101: a started workflow's final PR closed without merging
+            // offers the way back (the header's primary button says the same).
+            if model.primaryAction == .openFinalPr {
+                HStack {
+                    Spacer(minLength: 0)
+                    GlassPill(
+                        WorkflowView.openFinalPrLabel,
+                        icon: AppIcons.prOpen,
+                        mode: .action { model.openFinalPr() },
+                        enabled: !model.busy
+                    )
+                    .accessibilityIdentifier("workflow-open-final-pr")
+                }
+                .padding(.top, 8)
+            }
         }
         .accessibilityIdentifier("workflow-final-pr")
     }

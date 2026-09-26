@@ -376,8 +376,119 @@ export async function replanWorkflowsForIssues(
   issueIds: readonly string[]
 ): Promise<void> {
   for (const workflowId of await workflowIdsCoveringIssues(tx, issueIds)) {
+    // FEED-57: the waves BEFORE the replan are the only record of which
+    // nodes had a blocker (the relation row is already gone).
+    const before = await tx
+      .select({ id: workflowNodes.id, wave: workflowNodes.wave })
+      .from(workflowNodes)
+      .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
+      .where(
+        and(
+          eq(workflowNodes.workflowId, workflowId),
+          inArray(workflows.status, [`running`, `paused`]),
+          or(
+            inArray(workflowNodes.issueId, [...issueIds]),
+            sql`${workflowNodes.memberIssueIds} ?| ${sql.param([...issueIds])}::text[]`
+          )
+        )
+      )
     await replanWorkflow(tx, workflowId)
+    if (before.length > 0) await proposeUnblockedNodes(tx, workflowId, before)
   }
+}
+
+/** Node states that never started: no run, nothing to take back. */
+const UNSTARTED_STATES = new Set<string>([`blocked`, `ready`])
+
+export const UNLINKED_NODE_NOTE = `Its last blocker in the workflow was unlinked; admit it to run it`
+
+/**
+ * FEED-57 (a): which nodes an UNLINK turned into roots that never started.
+ * A node whose wave was > 0 (it waited on something) and that now has no
+ * `blocks` edge from an ADMITTED node would otherwise be a ready root the
+ * engine starts at once; it goes back to `proposed` for a member to admit.
+ * The engine drops proposals and their edges, so an unstarted node whose
+ * every blocker is now a proposal follows it (a chain A→B→C unlinked at
+ * A→B proposes B and C). Pure; `nodes` = every node of the workflow,
+ * `edges` = every in-workflow edge, proposals included.
+ */
+export function unlinkedRootsToPropose(
+  before: ReadonlyArray<{ id: string; wave: number }>,
+  nodes: ReadonlyArray<{ id: string; state: string; attempt: number; sessionId: string | null }>,
+  edges: readonly LayoutEdge[]
+): string[] {
+  const hadBlocker = new Set(before.filter((row) => row.wave > 0).map((row) => row.id))
+  const stateOf = new Map(nodes.map((node) => [node.id, node.state]))
+  const sourcesOf = new Map<string, string[]>()
+  for (const [from, to] of edges) {
+    sourcesOf.set(to, [...(sourcesOf.get(to) ?? []), from])
+  }
+  const unstarted = (node: (typeof nodes)[number]) =>
+    UNSTARTED_STATES.has(node.state) && node.attempt === 0 && node.sessionId === null
+  const out = new Set<string>()
+  const proposedNow = (id: string) => out.has(id) || stateOf.get(id) === `proposed`
+  for (const node of nodes) {
+    if (!hadBlocker.has(node.id) || !unstarted(node)) continue
+    if ((sourcesOf.get(node.id) ?? []).every(proposedNow)) out.add(node.id)
+  }
+  for (let grew = out.size > 0; grew; ) {
+    grew = false
+    for (const node of nodes) {
+      if (out.has(node.id) || !unstarted(node)) continue
+      const sources = sourcesOf.get(node.id) ?? []
+      if (sources.length === 0 || !sources.some((id) => out.has(id))) continue
+      if (!sources.every(proposedNow)) continue
+      out.add(node.id)
+      grew = true
+    }
+  }
+  return nodes.filter((node) => out.has(node.id)).map((node) => node.id)
+}
+
+async function proposeUnblockedNodes(
+  tx: Tx,
+  workflowId: string,
+  before: ReadonlyArray<{ id: string; wave: number }>
+): Promise<void> {
+  const nodes = await tx
+    .select({
+      id: workflowNodes.id,
+      issueId: workflowNodes.issueId,
+      memberIssueIds: workflowNodes.memberIssueIds,
+      state: workflowNodes.state,
+      attempt: workflowNodes.attempt,
+      sessionId: workflowNodes.sessionId,
+    })
+    .from(workflowNodes)
+    .where(eq(workflowNodes.workflowId, workflowId))
+  const covered = nodes.flatMap((node) => [node.issueId, ...node.memberIssueIds])
+  const blocks = covered.length
+    ? await tx
+        .select({
+          issueId: issueRelations.issueId,
+          relatedIssueId: issueRelations.relatedIssueId,
+        })
+        .from(issueRelations)
+        .where(
+          and(
+            eq(issueRelations.type, `blocks`),
+            inArray(issueRelations.issueId, covered),
+            inArray(issueRelations.relatedIssueId, covered)
+          )
+        )
+    : []
+  const propose = unlinkedRootsToPropose(before, nodes, nodeEdges(nodes, blocks))
+  if (propose.length === 0) return
+  await tx
+    .update(workflowNodes)
+    .set({ state: `proposed`, note: UNLINKED_NODE_NOTE })
+    .where(
+      and(
+        inArray(workflowNodes.id, propose),
+        inArray(workflowNodes.state, [...UNSTARTED_STATES]),
+        sql`${workflowNodes.sessionId} IS NULL`
+      )
+    )
 }
 
 /**
@@ -434,6 +545,40 @@ export async function issueLandsInLiveWorkflow(
     )
     .limit(1)
   return rows.length > 0
+}
+
+/**
+ * EXP-1094: the node of a RUNNING or PAUSED workflow covering a PR — its
+ * issue or any issue linked to the same `pr_url` (a batch PR), as node issue
+ * or compound member — in ONE query. Such a PR merges through the workflow's
+ * train (`landNode`), never by hand.
+ */
+export async function liveWorkflowCoveringPr(
+  executor: Executor,
+  issueId: string,
+  prUrl: string
+): Promise<{ workflowId: string; nodeId: string; issueId: string } | null> {
+  const [row] = await executor
+    .select({
+      workflowId: workflowNodes.workflowId,
+      nodeId: workflowNodes.id,
+      issueId: workflowNodes.issueId,
+    })
+    .from(workflowNodes)
+    .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
+    .where(
+      and(
+        inArray(workflows.status, [`running`, `paused`]),
+        sql`EXISTS (
+          SELECT 1 FROM ${issues}
+          WHERE (${issues.id} = ${issueId} OR ${issues.prUrl} = ${prUrl})
+            AND (${workflowNodes.issueId} = ${issues.id}
+              OR ${workflowNodes.memberIssueIds} ? (${issues.id})::text)
+        )`
+      )
+    )
+    .limit(1)
+  return row ?? null
 }
 
 /** EXP-1010: remember the base a live node's PR merged into. NULL (a base
@@ -532,10 +677,13 @@ export async function loadWorkflowEdges(executor: Executor, workflowId: string) 
  * filed DURING the run (created after the workflow started), still in the
  * backlog and in the workflow's repository, it arrives as a node:
  *
- * - additive → admitted at once (`blocked`): it sits DOWNSTREAM of the covered
- *   issue (covered blocks new) and blocks nothing the workflow covers, so no
- *   running node's base changes and no cycle is possible;
- * - anything else (it blocks covered work) → `proposed`: the engine ignores it
+ * - additive → admitted at once (`blocked`): it sits DOWNSTREAM of an
+ *   ADMITTED covered node (covered blocks new) and blocks nothing the
+ *   workflow covers, so no running node's base changes and no cycle is
+ *   possible;
+ * - anything else (it blocks covered work, or FEED-57: its only blocker is
+ *   itself a proposal, so it has no predecessor in the workflow) →
+ *   `proposed`: the engine ignores it
  *   until a member admits or dismisses it.
  *
  * Returns the workflow ids touched. Pure insert; the caller replans.
@@ -553,6 +701,7 @@ export async function proposeNodesForRelation(
       startedAt: workflows.startedAt,
       issueId: workflowNodes.issueId,
       members: workflowNodes.memberIssueIds,
+      state: workflowNodes.state,
     })
     .from(workflowNodes)
     .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
@@ -607,7 +756,18 @@ export async function proposeNodesForRelation(
         )
       )
       .limit(1)
-    const additive = relation.relatedIssueId === outsider && blocksCovered.length === 0
+    // FEED-57 (b): the blocking end must be an ADMITTED node; a follow-up
+    // whose only predecessor is itself a proposal has none in the workflow
+    // and would start at once as a root.
+    const predecessorAdmitted = rows.some(
+      (row) =>
+        (row.issueId === relation.issueId || row.members.includes(relation.issueId)) &&
+        row.state !== `proposed`
+    )
+    const additive =
+      relation.relatedIssueId === outsider &&
+      blocksCovered.length === 0 &&
+      predecessorAdmitted
     await tx
       .insert(workflowNodes)
       .values({
@@ -615,7 +775,11 @@ export async function proposeNodesForRelation(
         teamId: workflow.teamId,
         issueId: outsider,
         state: additive ? `blocked` : `proposed`,
-        note: additive ? null : `Filed during the run; it changes what existing nodes wait for`,
+        note: additive
+          ? null
+          : relation.relatedIssueId === outsider && blocksCovered.length === 0
+            ? `Filed during the run with no admitted blocker in the workflow`
+            : `Filed during the run; it changes what existing nodes wait for`,
       })
       .onConflictDoNothing()
     touched.push(workflowId)

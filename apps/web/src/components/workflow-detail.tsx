@@ -28,6 +28,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  filterWorkflowEvents,
   Input,
   IssueChip as IssueChipView,
   IssueChipStack,
@@ -616,6 +617,11 @@ export function WorkflowDetail({
     face === `runs` ? `run` : face === `changes` ? `diff` : face
 
   const scopeNodes = picked.length > 0 ? picked : nodes
+  const pickedIds = picked.length > 0 ? picked.map((node) => node.id) : undefined
+  const eventNodeLabel = (nodeId: string) => {
+    const node = nodeById.get(nodeId)
+    return node ? (issueById.get(node.issueId)?.identifier ?? null) : null
+  }
   const scopedSessions = scopeSessions(sessions, picked)
   const skipNodeId =
     dialog && typeof dialog === `object` && `skip` in dialog ? dialog.skip : null
@@ -664,6 +670,8 @@ export function WorkflowDetail({
               deviceId={workflow.deviceId}
               onPickDevice={(deviceId) => void save({ deviceId })}
               onIntent={(which) => void intent(which)}
+              openingFinalPr={openingFinalPr}
+              onOpenFinalPr={() => void openFinalPr()}
               onReview={() => {
                 // The final PR lives on this page (All × Changes: its link,
                 // and Merge while open); the Reviews queue's Workflows group
@@ -837,10 +845,18 @@ export function WorkflowDetail({
         data-testid={`workflow-body-${body}`}
       >
         {body === `issue-detail` && picked[0] ? (
-          <NodeIssueFace
-            issue={issueById.get(picked[0].issueId)}
-            teamSlug={teamSlug}
-          />
+          <>
+            <NodeIssueFace
+              issue={issueById.get(picked[0].issueId)}
+              teamSlug={teamSlug}
+            />
+            <WorkflowEventsLog
+              workflowId={workflow.id}
+              nodeIds={pickedIds}
+              nodeLabel={eventNodeLabel}
+              className="max-h-48 shrink-0 overflow-y-auto border-t border-border"
+            />
+          </>
         ) : body === `issue-list` ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <WorkflowIssueList
@@ -855,7 +871,12 @@ export function WorkflowDetail({
                 setSelection(selectNode(ALL_SELECTION, nodeId, order))
               }
             />
-            {picked.length === 0 && <DecisionsLog workflow={workflow} />}
+            {picked.length === 0 && <DecisionsLog decisions={workflow.decisions} />}
+            <WorkflowEventsLog
+              workflowId={workflow.id}
+              nodeIds={pickedIds}
+              nodeLabel={eventNodeLabel}
+            />
           </div>
         ) : body === `runs` ? (
           <RunsFace
@@ -1080,6 +1101,8 @@ function PrimaryAction({
   deviceId,
   onPickDevice,
   onIntent,
+  openingFinalPr,
+  onOpenFinalPr,
   onReview,
 }: {
   action: WorkflowPrimaryAction | null
@@ -1088,6 +1111,8 @@ function PrimaryAction({
   deviceId: string | null
   onPickDevice: (deviceId: string) => void
   onIntent: (which: `start` | `pause` | `resume`) => void
+  openingFinalPr: boolean
+  onOpenFinalPr: () => void
   onReview: () => void
 }) {
   switch (action) {
@@ -1142,6 +1167,18 @@ function PrimaryAction({
       return (
         <Button size="sm" data-testid="workflow-review" onClick={onReview}>
           {REVIEW_FINAL_PR_LABEL}
+        </Button>
+      )
+    case `open_final_pr`:
+      // EXP-1101: a live workflow whose final PR was closed unmerged.
+      return (
+        <Button
+          size="sm"
+          disabled={openingFinalPr}
+          data-testid="workflow-open-final-pr"
+          onClick={onOpenFinalPr}
+        >
+          {OPEN_FINAL_PR_LABEL}
         </Button>
       )
     default:
@@ -1592,41 +1629,56 @@ function WorkflowIssueList({
   )
 }
 
-/** The workflow's dated answers + the engine's event log, folded by default. */
-function DecisionsLog({ workflow }: { workflow: SyncedWorkflow }) {
+/** The workflow's dated answers, folded by default. */
+function DecisionsLog({ decisions: raw }: { decisions: string }) {
   const [open, setOpen] = useState(false)
+  const decisions = raw.trim()
+  if (!decisions) return null
+  return (
+    <div className="flex flex-col gap-2 px-4 pt-3" data-testid="workflow-decisions">
+      <DisclosureHeader open={open} onToggle={() => setOpen(!open)} className="text-xs">
+        {DECISIONS_LABEL}
+      </DisclosureHeader>
+      {open && <p className="whitespace-pre-wrap text-xs text-muted-foreground">{decisions}</p>}
+    </div>
+  )
+}
+
+/** EXP-1096: the engine's event log, always mounted, newest first; a node
+ *  panel passes `nodeIds` for that node's events only. Zero events = nothing. */
+function WorkflowEventsLog({
+  workflowId,
+  nodeIds,
+  nodeLabel,
+  className,
+}: {
+  workflowId: string
+  nodeIds?: readonly string[]
+  nodeLabel: (nodeId: string) => string | null
+  className?: string
+}) {
   const { data: eventRows } = useLiveQuery(
     (query) =>
       query
         .from({ e: workflowEventCollection })
-        .where(({ e }) => eq(e.workflowId, workflow.id)),
-    [workflow.id]
+        .where(({ e }) => eq(e.workflowId, workflowId)),
+    [workflowId]
   )
-  const events = (eventRows ?? []) as WorkflowEvent[]
-  const decisions = workflow.decisions.trim()
-  if (!decisions && events.length === 0) return null
+  const events = filterWorkflowEvents(
+    ((eventRows ?? []) as WorkflowEvent[]).map((event) => ({
+      id: event.id,
+      kind: event.kind,
+      message: event.message,
+      at: event.at,
+      nodeId: event.nodeId,
+      sessionId: event.sessionId,
+    })),
+    nodeIds
+  )
+  if (events.length === 0) return null
   return (
-    <div className="flex flex-col gap-2 px-4 py-3" data-testid="workflow-decisions">
-      <DisclosureHeader open={open} onToggle={() => setOpen(!open)} className="text-xs">
-        {DECISIONS_LABEL}
-      </DisclosureHeader>
-      {open && (
-        <>
-          {decisions && (
-            <p className="whitespace-pre-wrap text-xs text-muted-foreground">{decisions}</p>
-          )}
-          <WorkflowEventList
-            events={events.map((event) => ({
-              id: event.id,
-              kind: event.kind,
-              message: event.message,
-              at: event.at,
-              nodeId: event.nodeId,
-              sessionId: event.sessionId,
-            }))}
-          />
-        </>
-      )}
+    <div className={cn(`px-2 py-3`, className)} data-testid="workflow-events">
+      <WorkflowEventList events={events} nodeLabel={nodeLabel} />
     </div>
   )
 }

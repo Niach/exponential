@@ -395,6 +395,21 @@ final class WorkflowDetailModel {
         }
     }
 
+    /// EXP-1101: a final PR closed without merging comes back — GitHub
+    /// reopens it, else a fresh one opens; the synced row carries it back.
+    func openFinalPr() {
+        run { accountId, id in
+            _ = try await self.deps.workflowsApi.openFinalPr(accountId: accountId, id: id)
+        }
+    }
+
+    /// EXP-1096: the event log under the graph, scoped to the picked node
+    /// (every event on All). Order is the list's own, newest first.
+    var scopedEvents: [WorkflowEventEntity] {
+        guard let node = selectedNode else { return events }
+        return events.filter { $0.nodeId == node.id }
+    }
+
     func perform(_ action: NodeChipAction, on nodeId: String) {
         run { accountId, _ in
             let api = self.deps.workflowsApi

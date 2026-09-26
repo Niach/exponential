@@ -53,6 +53,10 @@ import { deviceRowIsOnline, deviceUsageWallAt } from "@/lib/steer-devices"
 import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import {
+  findLiveRunForIssues,
+  liveRunConflictMessage,
+} from "@/lib/trpc/coding-sessions"
+import {
   BUILTIN_CHAT_ID,
   BUILTIN_PLAN_WORKFLOW_ID,
   PLAN_WORKFLOW_CAP,
@@ -1402,6 +1406,14 @@ export const steerRouter = router({
       const teamId = contexts[0]!.teamId
       await assertTeamMember(userId, teamId)
       const { db } = await import(`@/db/connection`)
+      // FEED-57/46/47: a live run on any target issue (its own, or a batch
+      // covering it) makes the device drop the frame silently, and the
+      // caller would wait for a run that never comes. Decide it here and
+      // name the run, like the resume path does.
+      const live = await findLiveRunForIssues(db, ids)
+      if (live) {
+        throw new TRPCError({ code: `CONFLICT`, message: liveRunConflictMessage(live) })
+      }
       const prompt = await resolveStartPromptOrThrow(
         input.prompt,
         teamId,

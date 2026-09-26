@@ -386,13 +386,15 @@ export type WorkflowPrimaryAction =
   | `pause`
   | `resume`
   | `review_final_pr`
+  | `open_final_pr`
 
 /**
  * The header's ONE primary button: a draft without a runner picks one (the
  * existing DevicePicker over own + team-shared online runners), a draft
  * starts; a started workflow whose final PR is OPEN reviews it (the one
- * human review — the workflow is `done` only once it merged), else running
- * pauses and paused resumes; done reviews the merged final PR. Failed and
+ * human review — the workflow is `done` only once it merged), one whose
+ * final PR was CLOSED re-opens it (EXP-1101), else running pauses and paused
+ * resumes; done reviews the merged final PR. Failed and
  * cancelled offer nothing; Stop and Delete live in the overflow.
  */
 export function workflowPrimaryAction(
@@ -403,6 +405,7 @@ export function workflowPrimaryAction(
   if (status === `draft`) return deviceLabel ? `start` : `pick_device`
   if (status === `running` || status === `paused`) {
     if (finalPrState === `open`) return `review_final_pr`
+    if (finalPrState === `closed`) return `open_final_pr`
     return status === `running` ? `pause` : `resume`
   }
   if (status === `done`) return `review_final_pr`

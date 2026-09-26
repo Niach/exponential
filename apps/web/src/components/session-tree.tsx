@@ -20,11 +20,13 @@ import { sessionIdentity } from "@/lib/session-identity"
 import {
   reviewRoundVerdict,
   reviewRowCaption,
+  sessionNeedsYou,
   sessionRowIsLive,
   sessionTree,
   sessionTreeNodeKey,
   visibleSessionTreeRows,
   workflowGroupCaption,
+  workflowRunAccountCaption,
   type SessionNode,
   type SessionTreeContext,
   type SessionTreeFlatRow,
@@ -173,39 +175,6 @@ export function useSessionTreeRows<T extends TreeListRow>(
 /** EXP-1068 3d: the duplicate-run warning's words, ×4. */
 export const DUPLICATE_RUN_WARNING = `Two live runs on this node`
 
-/** The device's DEFAULT account for `agent` (EXP-872: `defaultAccount` when
- *  it is the default agent's, else the agent's active login), or null when
- *  the device is unknown. */
-function deviceDefaultAccount(device: Device | undefined, agent: string | null): string | null {
-  if (!device || !agent) return null
-  const defaults = device.launchDefaults ?? {}
-  if (defaults.defaultAgent === agent && defaults.defaultAccount) {
-    return defaults.defaultAccount
-  }
-  const profiles = device.agentAccounts?.[agent]?.profiles ?? []
-  return profiles.find((profile) => profile.active)?.id ?? `system`
-}
-
-/** EXP-1068: `account <label>` when a workflow run does NOT run on its
- *  device's default account for its agent (the resumed-on-account-2 case);
- *  null otherwise or when the device has not synced. */
-export function workflowRunAccountCaption(
-  session: Pick<CodingSession, `agent` | `agentAccount` | `deviceId` | `userId`>,
-  devices: readonly Device[]
-): string | null {
-  const account = session.agentAccount
-  if (!account) return null
-  const matches = devices.filter((device) => device.deviceId === session.deviceId)
-  const device = matches.find((entry) => entry.userId === session.userId) ?? matches[0]
-  const fallback = deviceDefaultAccount(device, session.agent)
-  if (!fallback || fallback === account) return null
-  const profile = session.agent
-    ? device?.agentAccounts?.[session.agent]?.profiles?.find((entry) => entry.id === account)
-    : undefined
-  const label = profile?.label || (account === `system` ? `Default` : account)
-  return `account ${label}`
-}
-
 /** EXP-1068: what a session node adds to its row beyond the identity — pure,
  *  given the team's `workflow_nodes` (for a review's verdict) and the devices
  *  (for the account caption). */
@@ -218,7 +187,7 @@ export function sessionNodeDecor(
   if (!session.workflowId) return undefined
   const live = sessionRowIsLive(session)
   const decor: SessionRowDecor = {
-    needsYou: live && session.pendingQuestion != null,
+    needsYou: sessionNeedsYou(session),
     warning: node.duplicateLive ? DUPLICATE_RUN_WARNING : null,
     caption: workflowRunAccountCaption(session, devices),
   }

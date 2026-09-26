@@ -353,8 +353,9 @@ struct ReviewsListContent: View {
                         .onTapGesture { fixConflicts(workflow: entry) }
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel("Fix merge conflicts")
-                } else {
-                    GlassPill("Merge") {
+                } else if entry.mergeAction == .merge {
+                    // EXP-1094: a final PR merges only while it is open.
+                    GlassPill(ReviewsMerge.mergeLabel) {
                         if merging.contains(key) {
                             ProgressView().controlSize(.mini)
                         } else {
@@ -378,10 +379,12 @@ struct ReviewsListContent: View {
                 pushRoute(.workflow(accountId: accountId, id: entry.workflow.id))
             }
             .swipeActions(edge: .trailing) {
-                Button { workflowMergeTarget = entry } label: {
-                    Label("Merge", appIcon: AppIcons.prMerged)
+                if entry.mergeAction == .merge {
+                    Button { workflowMergeTarget = entry } label: {
+                        Label(ReviewsMerge.mergeLabel, appIcon: AppIcons.prMerged)
+                    }
+                    .tint(DesignTokens.Semantic.green)
                 }
-                .tint(DesignTokens.Semantic.green)
             }
             .contextMenu {
                 Button {
@@ -389,10 +392,12 @@ struct ReviewsListContent: View {
                 } label: {
                     Label("Open workflow", appIcon: AppIcons.navWorkflows)
                 }
-                Button {
-                    workflowMergeTarget = entry
-                } label: {
-                    Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
+                if entry.mergeAction == .merge {
+                    Button {
+                        workflowMergeTarget = entry
+                    } label: {
+                        Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
+                    }
                 }
                 if canFixConflicts(workflow: entry) {
                     Button {
@@ -600,27 +605,21 @@ struct ReviewsListContent: View {
         .treeGuides(guide, gap: Self.rowGap)
     }
 
-    /// EXP-897: the row's stack line — what it is built ON, the "Merge stack"
-    /// pill on the LOWEST member, and (Part 4) a batch row's issue count,
+    /// EXP-897: the row's stack line — what it is built ON and (Part 4) a
+    /// batch row's issue count (EXP-1094: Merge stack moved to the row's ONE
+    /// merge slot),
     /// which opens the overlay. All of it OUTSIDE the link, so every control
     /// here actually receives its tap.
     @ViewBuilder
     private func stackCaption(_ row: ReviewRow) -> some View {
         let entry = row.entry
-        if row.stackedOn != nil || row.isStackBottom || entry.isBatch {
+        if row.stackedOn != nil || entry.isBatch {
             HStack(spacing: 8) {
                 if let below = row.stackedOn {
                     Text("on top of #\(below)")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
-                }
-                if row.isStackBottom {
-                    GlassPill("Merge stack", icon: AppIcons.prStack)
-                        .contentShape(Capsule())
-                        .onTapGesture { stackMergeTarget = row }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityLabel("Merge the whole stack")
                 }
                 if entry.isBatch {
                     GlassPill("\(entry.issues.count) issues", icon: AppIcons.prBatch)
@@ -727,6 +726,10 @@ struct ReviewsListContent: View {
                 // run REPLACES Merge in this slot instead of crowding a
                 // second button into the caption below. One trailing action,
                 // always the one worth tapping.
+                //
+                // EXP-1094: exactly ONE merge control per row, from the shared
+                // rule: a stack's bottom merges the stack, an upper member and
+                // a live workflow's node PR carry a muted reason instead.
                 if canFixConflicts(entry) {
                     GlassPill("Fix conflicts", icon: AppIcons.uiBranch)
                     .contentShape(Capsule())
@@ -736,20 +739,38 @@ struct ReviewsListContent: View {
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel("Fix merge conflicts")
                 } else {
-                    GlassPill("Merge") {
-                        if merging.contains(entry.id) {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphSm)
+                    switch row.mergeAction {
+                    case .merge:
+                        GlassPill(ReviewsMerge.mergeLabel) {
+                            mergeGlyph(entry, icon: AppIcons.prMerged)
+                        }
+                        .contentShape(Capsule())
+                        .onTapGesture {
+                            guard !merging.contains(entry.id) else { return }
+                            mergeTarget = entry
+                        }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("Merge pull request")
+                    case .mergeStack:
+                        GlassPill(ReviewsMerge.mergeStackLabel) {
+                            mergeGlyph(entry, icon: AppIcons.prStack)
+                        }
+                        .contentShape(Capsule())
+                        .onTapGesture {
+                            guard !merging.contains(entry.id) else { return }
+                            stackMergeTarget = row
+                        }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("Merge the whole stack")
+                    case .none:
+                        if let reason = row.mergeDisabledReason {
+                            Text(reason)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .lineLimit(1)
+                                .accessibilityIdentifier("review-merge-reason")
                         }
                     }
-                    .contentShape(Capsule())
-                    .onTapGesture {
-                        guard !merging.contains(entry.id) else { return }
-                        mergeTarget = entry
-                    }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("Merge pull request")
                 }
             }
             .padding(.horizontal, 12)
@@ -758,16 +779,20 @@ struct ReviewsListContent: View {
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing) {
-            Button { mergeTarget = entry } label: {
-                Label("Merge", appIcon: AppIcons.prMerged)
-            }
-            .tint(DesignTokens.Semantic.green)
-            // EXP-897: the lowest member of a stack merges the whole chain.
-            if row.isStackBottom {
-                Button { stackMergeTarget = row } label: {
-                    Label("Merge stack", appIcon: AppIcons.prStack)
+            // EXP-1094: the same ONE control the row shows.
+            switch row.mergeAction {
+            case .merge:
+                Button { mergeTarget = entry } label: {
+                    Label(ReviewsMerge.mergeLabel, appIcon: AppIcons.prMerged)
                 }
                 .tint(DesignTokens.Semantic.green)
+            case .mergeStack:
+                Button { stackMergeTarget = row } label: {
+                    Label(ReviewsMerge.mergeStackLabel, appIcon: AppIcons.prStack)
+                }
+                .tint(DesignTokens.Semantic.green)
+            case .none:
+                EmptyView()
             }
         }
         .contextMenu {
@@ -776,17 +801,21 @@ struct ReviewsListContent: View {
             } label: {
                 Label("Open issue", appIcon: AppIcons.uiIssue)
             }
-            Button {
-                mergeTarget = entry
-            } label: {
-                Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
-            }
-            if row.isStackBottom {
+            switch row.mergeAction {
+            case .merge:
+                Button {
+                    mergeTarget = entry
+                } label: {
+                    Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
+                }
+            case .mergeStack:
                 Button {
                     stackMergeTarget = row
                 } label: {
-                    Label("Merge stack", appIcon: AppIcons.prStack)
+                    Label(ReviewsMerge.mergeStackLabel, appIcon: AppIcons.prStack)
                 }
+            case .none:
+                EmptyView()
             }
             if entry.isBatch {
                 Button {
@@ -809,6 +838,16 @@ struct ReviewsListContent: View {
                     Label(DomainContract.diffUiOpenOnGithub, appIcon: AppIcons.uiGithub)
                 }
             }
+        }
+    }
+
+    /// The merge pill's glyph: a spinner while that row's merge is in flight.
+    @ViewBuilder
+    private func mergeGlyph(_ entry: ReviewEntry, icon: String) -> some View {
+        if merging.contains(entry.id) {
+            ProgressView().controlSize(.mini)
+        } else {
+            AppIcon(icon, size: GlassPillTokens.glyphSm)
         }
     }
 

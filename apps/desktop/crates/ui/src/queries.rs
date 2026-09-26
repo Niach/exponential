@@ -1471,6 +1471,37 @@ pub fn review_workflows(cx: &App, team_id: &str) -> Vec<domain::rows::WorkflowRo
     )
 }
 
+/// EXP-1094: issue id -> the status of the workflow whose node covers it
+/// (the node's issue or a member issue; a live workflow wins), the Reviews
+/// row's `workflow_status` merge input. This team's synced rows only.
+pub(crate) fn review_workflow_status_by_issue(
+    cx: &App,
+    team_id: &str,
+) -> HashMap<String, String> {
+    let collections = Store::global(cx).collections();
+    let workflows: Vec<(String, String)> = collections
+        .workflows
+        .read(cx)
+        .iter()
+        .filter(|workflow| workflow.team_id.as_deref() == Some(team_id))
+        .map(|workflow| (workflow.id.clone(), workflow.status_wire().to_string()))
+        .collect();
+    let nodes: Vec<(String, String, Vec<String>)> = collections
+        .workflow_nodes
+        .read(cx)
+        .iter()
+        .filter_map(|node| {
+            Some((node.workflow_id.clone()?, node.issue_id.clone()?, node.member_ids()))
+        })
+        .collect();
+    domain::reviews_merge::workflow_status_by_issue(
+        workflows.iter().map(|(id, status)| (id.as_str(), status.as_str())),
+        nodes
+            .iter()
+            .map(|(workflow, issue, members)| (workflow.as_str(), issue.as_str(), members.clone())),
+    )
+}
+
 /// Pure core of [`review_workflows`]: this team's workflows whose final PR
 /// is `open` and has a url, newest `created_at` first (id-tiebroken so the
 /// order is stable across repaints — the collection is a map).

@@ -71,8 +71,6 @@ const WORKFLOW_COLUMN_W: f32 = 1024.;
 /// A chip's title cap inside the strip: the identifier says which issue, the
 /// title only reminds.
 const STRIP_TITLE_W: f32 = 140.;
-/// The folded audit trail under All × Issue (while it has rows).
-const EVENTS_TITLE: &str = "Activity";
 /// The banner's one button: the run's own composer answers it.
 const ANSWER_LABEL: &str = "Answer";
 
@@ -171,7 +169,6 @@ pub struct WorkflowView {
     /// A run opened IN PLACE from a list (All/several × Runs, the banner).
     open_run: Option<String>,
     decisions_open: bool,
-    events_open: bool,
     /// The session tree's folded rows.
     collapsed_runs: HashSet<String>,
     /// The strip's keys (←/→, j/k) — only while the strip holds focus, so
@@ -282,7 +279,6 @@ impl WorkflowView {
             face: Face::Issue,
             open_run: None,
             decisions_open: false,
-            events_open: false,
             collapsed_runs: HashSet::new(),
             strip_focus: cx.focus_handle(),
             page_focus: cx.focus_handle(),
@@ -311,7 +307,6 @@ impl WorkflowView {
         self.face = Face::Issue;
         self.open_run = None;
         self.decisions_open = false;
-        self.events_open = false;
         self.drop_run_view(cx);
         // Swap the name UNCONDITIONALLY, or the next blur would write the
         // previous workflow's name onto this one.
@@ -714,7 +709,30 @@ impl Render for WorkflowView {
                         }
                     });
                 }
-                embedded(detail.into_any_element())
+                // EXP-1096: this node's events under its issue, capped.
+                let picked = [info.row.id.clone()];
+                let labels = [(info.row.id.clone(), info.identifier.clone())].into();
+                match self.events_log(&row.id, Some(&picked), labels, cx) {
+                    Some(log) => v_flex()
+                        .flex_1()
+                        .min_h_0()
+                        .min_w_0()
+                        .size_full()
+                        .child(embedded(detail.into_any_element()))
+                        .child(
+                            div()
+                                .id("workflow-node-events")
+                                .flex_shrink_0()
+                                .max_h(px(192.))
+                                .overflow_y_scroll()
+                                .border_t_1()
+                                .border_color(cx.theme().border)
+                                .py_2()
+                                .child(log),
+                        )
+                        .into_any_element(),
+                    None => embedded(detail.into_any_element()),
+                }
             }
             (Face::Diff, Some(info), _) if info.has_pr => {
                 let issue_id = info.row.issue_id.clone().unwrap_or_default();
@@ -1035,9 +1053,53 @@ impl WorkflowView {
             .into_any_element()
     }
 
+    /// EXP-1096: the workflow's event list, filtered to `node_ids` (`None` =
+    /// every event); `None` when nothing is left. A line naming a run opens
+    /// it in place.
+    fn events_log(
+        &self,
+        workflow_id: &str,
+        node_ids: Option<&[String]>,
+        labels: std::collections::HashMap<String, String>,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        let events: Vec<domain::rows::WorkflowEventRow> = Store::try_global(cx)
+            .map(|store| {
+                store
+                    .collections()
+                    .workflow_events
+                    .read(cx)
+                    .iter()
+                    .filter(|event| event.workflow_id.as_deref() == Some(workflow_id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let events = crate::workflow_events::filter_to_nodes(events, node_ids);
+        if events.is_empty() {
+            return None;
+        }
+        let view = cx.entity().downgrade();
+        Some(
+            crate::workflow_events::WorkflowEventList::new(&events)
+                .node_labels(labels)
+                .on_open_session(Rc::new(move |session_id, _window, cx| {
+                    if let Some(view) = view.upgrade() {
+                        let session_id = session_id.to_string();
+                        view.update(cx, |this, cx| {
+                            this.face = Face::Run;
+                            this.open_run = Some(session_id);
+                            cx.notify();
+                        });
+                    }
+                }))
+                .into_any_element(),
+        )
+    }
+
     /// All/several × Issue: the nodes' issues, sub-issues under their
-    /// compound node; All adds the folded decisions log (and the audit trail
-    /// once it has rows).
+    /// compound node; All adds the folded decisions log; the audit trail
+    /// follows, filtered to the scope (EXP-1096).
     fn render_issue_list(
         &self,
         row: &WorkflowRow,
@@ -1142,44 +1204,17 @@ impl WorkflowView {
                         }),
                 );
             }
-            let events: Vec<domain::rows::WorkflowEventRow> = Store::try_global(cx)
-                .map(|store| {
-                    store
-                        .collections()
-                        .workflow_events
-                        .read(cx)
-                        .iter()
-                        .filter(|event| event.workflow_id.as_deref() == Some(row.id.as_str()))
-                        .cloned()
-                        .collect()
-                })
-                .unwrap_or_default();
-            if !events.is_empty() {
-                let open = self.events_open;
-                column = column.child(
-                    v_flex()
-                        .w_full()
-                        .min_w_0()
-                        .pt_4()
-                        .gap_2()
-                        .child(
-                            crate::controls::disclosure_header(
-                                "workflow-events",
-                                open,
-                                crate::controls::ChevronSide::Leading,
-                                div().text_sm().child(EVENTS_TITLE),
-                                cx,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.events_open = !this.events_open;
-                                cx.notify();
-                            })),
-                        )
-                        .when(open, |this| {
-                            this.child(crate::workflow_events::WorkflowEventList::new(&events))
-                        }),
-                );
-            }
+        }
+        // EXP-1096: the audit trail, always mounted (unfolded), newest first,
+        // filtered to the picked nodes; nothing when empty.
+        let picked: Option<Vec<String>> =
+            (!self.selection.is_all()).then(|| scope.iter().map(|info| info.row.id.clone()).collect());
+        let labels = scope
+            .iter()
+            .map(|info| (info.row.id.clone(), info.identifier.clone()))
+            .collect();
+        if let Some(log) = self.events_log(&row.id, picked.as_deref(), labels, cx) {
+            column = column.child(v_flex().w_full().min_w_0().pt_4().child(log));
         }
         column.into_any_element()
     }
@@ -1884,6 +1919,14 @@ fn primary_button(
                     });
                 }
             })
+            .into_any_element(),
+        // EXP-1101: the same `workflows.openFinalPr` path as the chip's button.
+        WorkflowPrimaryAction::OpenFinalPr => Button::new("workflow-primary")
+            .primary()
+            .small()
+            .icon(Icon::from(registry::NAV_REVIEWS))
+            .label(domain::workflow_final_pr::OPEN_FINAL_PR_LABEL)
+            .on_click(move |_, window, cx| spawn_open_final_pr(id.clone(), window, cx))
             .into_any_element(),
     }
 }

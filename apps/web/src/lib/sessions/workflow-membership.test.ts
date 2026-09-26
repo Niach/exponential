@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   matchWorkflowNode,
+  parseWorkflowReviewBranch,
   resolveWorkflowMembership,
+  reviewStartClaim,
   type WorkflowMembershipNode,
 } from "./workflow-membership"
 
@@ -79,6 +81,54 @@ describe(`resolveWorkflowMembership`, () => {
           issueIds: [],
         })
       ).toMatchObject({ workflowId: WF, workflowNodeId: null, workflowRole: `plan` })
+    })
+  })
+
+  // EXP-1093: a review run the runner proof could not vouch for.
+  describe(`(a2) a review run's resolved node`, () => {
+    it(`joins the node as review`, () => {
+      expect(
+        resolveWorkflowMembership({
+          reviewNode: { workflowId: WF, nodeId: `node-2` },
+          startedReason: `workflow`,
+          issueIds: [],
+        })
+      ).toEqual({
+        workflowId: WF,
+        workflowNodeId: `node-2`,
+        workflowRole: `review`,
+        startedReason: `workflow`,
+        parentSessionId: null,
+      })
+    })
+
+    it(`loses to explicit host values and beats a predecessor`, () => {
+      expect(
+        resolveWorkflowMembership({
+          explicit: { workflowId: DRAFT, workflowNodeId: `node-9`, workflowRole: `review` },
+          reviewNode: { workflowId: WF, nodeId: `node-2` },
+          issueIds: [],
+        })
+      ).toMatchObject({ workflowId: DRAFT, workflowNodeId: `node-9` })
+      expect(
+        resolveWorkflowMembership({
+          reviewNode: { workflowId: WF, nodeId: `node-2` },
+          predecessor: {
+            workflowId: DRAFT,
+            workflowNodeId: `node-9`,
+            workflowRole: `author`,
+            startedReason: `agent`,
+            parentSessionId: `parent-1`,
+          },
+          issueIds: [],
+        })
+      ).toEqual({
+        workflowId: WF,
+        workflowNodeId: `node-2`,
+        workflowRole: `review`,
+        startedReason: `agent`,
+        parentSessionId: `parent-1`,
+      })
     })
   })
 
@@ -282,5 +332,39 @@ describe(`resolveWorkflowMembership`, () => {
         resolveWorkflowMembership({ issueIds: [`issue-1`], nodes: [node()], startedReason: `agent` })
       ).toMatchObject({ workflowId: WF, startedReason: `agent` })
     })
+  })
+})
+
+describe(`parseWorkflowReviewBranch`, () => {
+  it.each([
+    [`exp/wf-abcdef12-review-EXP-42-r2`, { workflowId8: `abcdef12`, identifier: `EXP-42`, round: 2 }],
+    [`exp/wf-abcdef12-review-EXP-10-r13`, { workflowId8: `abcdef12`, identifier: `EXP-10`, round: 13 }],
+    [`exp/wf-abcdef12-review-EXP-42-r`, null],
+    [`exp/wf-abcdef12-review-EXP-42-r0`, null],
+    [`exp/wf-abcdef12`, null],
+    [`exp/EXP-42`, null],
+    [null, null],
+  ])(`%s`, (branch, expected) => {
+    expect(parseWorkflowReviewBranch(branch)).toEqual(expected)
+  })
+})
+
+describe(`reviewStartClaim`, () => {
+  const branch = `exp/wf-abcdef12-review-EXP-42-r2`
+  it(`claims the named node of a review-role start`, () => {
+    expect(
+      reviewStartClaim({ isReviewBuiltin: true, workflowRole: `review`, workflowNodeId: `n-1` })
+    ).toEqual({ nodeId: `n-1`, branch: null })
+  })
+  it(`claims by branch alone`, () => {
+    expect(reviewStartClaim({ isReviewBuiltin: true, branch })).toEqual({
+      nodeId: null,
+      branch: { workflowId8: `abcdef12`, identifier: `EXP-42`, round: 2 },
+    })
+  })
+  it(`claims nothing for another builtin, another role or no evidence`, () => {
+    expect(reviewStartClaim({ isReviewBuiltin: false, branch, workflowRole: `review`, workflowNodeId: `n-1` })).toBeNull()
+    expect(reviewStartClaim({ isReviewBuiltin: true, workflowRole: `author`, workflowNodeId: `n-1` })).toBeNull()
+    expect(reviewStartClaim({ isReviewBuiltin: true })).toBeNull()
   })
 })

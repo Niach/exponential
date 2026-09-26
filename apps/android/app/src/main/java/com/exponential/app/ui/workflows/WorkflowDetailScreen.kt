@@ -181,6 +181,7 @@ fun WorkflowDetailScreen(
     val ownSessionIds by viewModel.ownSessionIds.collectAsStateWithLifecycle()
     val startNotice by viewModel.startNotice.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val events by viewModel.events.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val deleted by viewModel.deleted.collectAsStateWithLifecycle()
 
@@ -285,6 +286,9 @@ fun WorkflowDetailScreen(
                                                 selectNode(null)
                                                 faceName = WorkFaceKind.Changes.name
                                             }
+                                            // EXP-1101: a final PR closed without
+                                            // merging comes back.
+                                            WorkflowPrimaryAction.OPEN_FINAL_PR -> viewModel.openFinalPr()
                                         }
                                     },
                                 )
@@ -422,6 +426,29 @@ fun WorkflowDetailScreen(
                             )
                         }
                     }
+                    // EXP-1096: the engine's event log, ALWAYS under the
+                    // graph (newest first), only the picked node's events
+                    // when one is picked; nothing when empty. Bounded so the
+                    // face below keeps the room.
+                    val scopedEvents = selection.single?.let { id -> events.filter { it.nodeId == id } } ?: events
+                    if (scopedEvents.isNotEmpty()) {
+                        WorkflowEventList(
+                            events = scopedEvents,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 192.dp)
+                                .verticalScroll(rememberScrollState())
+                                .testTag("workflow-events"),
+                            nodeLabel = { id ->
+                                if (selection.single != null) {
+                                    null
+                                } else {
+                                    graph.nodes.firstOrNull { it.id == id }
+                                        ?.let { node -> graph.issuesById[node.issueId]?.identifier }
+                                }
+                            },
+                        )
+                    }
                 }
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -457,6 +484,7 @@ fun WorkflowDetailScreen(
                     viewModel = viewModel,
                     graph = graph,
                     finalPrOpen = finalPrUrl != null && row.finalPrState == DomainContract.prStateOpen,
+                    canOpenFinalPr = primary == WorkflowPrimaryAction.OPEN_FINAL_PR,
                     onOpenNodeChanges = { nodeId ->
                         selectNode(nodeId)
                         faceName = WorkFaceKind.Changes.name
@@ -566,6 +594,7 @@ private fun PrimaryActionPill(action: WorkflowPrimaryAction, enabled: Boolean, o
         WorkflowPrimaryAction.PAUSE -> WorkflowView.PAUSE_WORKFLOW_LABEL to ExpIcons.runPause
         WorkflowPrimaryAction.RESUME -> WorkflowView.RESUME_WORKFLOW_LABEL to ExpIcons.actionRun
         WorkflowPrimaryAction.REVIEW_FINAL_PR -> WorkflowView.REVIEW_FINAL_PR_LABEL to ExpIcons.navReviews
+        WorkflowPrimaryAction.OPEN_FINAL_PR -> WorkflowView.OPEN_FINAL_PR_LABEL to ExpIcons.prOpen
     }
     GlassPill(
         label,
@@ -1019,6 +1048,8 @@ private fun AllFaces(
     viewModel: WorkflowDetailViewModel,
     graph: WorkflowGraph,
     finalPrOpen: Boolean,
+    /** EXP-1101: the final PR was closed without merging and may come back. */
+    canOpenFinalPr: Boolean,
     /** A node row with a PR on All × Changes: that node's Changes face. */
     onOpenNodeChanges: (nodeId: String) -> Unit,
     faceName: String?,
@@ -1031,7 +1062,6 @@ private fun AllFaces(
     val sessions by viewModel.workflowSessions.collectAsStateWithLifecycle()
     val results by viewModel.results.collectAsStateWithLifecycle()
     val relations by viewModel.relations.collectAsStateWithLifecycle()
-    val events by viewModel.events.collectAsStateWithLifecycle()
     val deviceRows by viewModel.deviceRows.collectAsStateWithLifecycle()
     val workflow by viewModel.workflow.collectAsStateWithLifecycle()
     var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
@@ -1088,7 +1118,6 @@ private fun AllFaces(
                         )
                     }
                 }
-                item(key = "__events__") { WorkflowEventList(events, Modifier.fillMaxWidth()) }
             }
         }
         WorkFaceKind.Run -> {
@@ -1135,8 +1164,10 @@ private fun AllFaces(
                 WorkflowView.finalPrCaption(graph.nodes.map { it.state }, row.finalPrState, row.finalPrNumber)
             },
             finalPrOpen = finalPrOpen,
+            canOpenFinalPr = canOpenFinalPr,
             busy = busy,
             onMerge = viewModel::mergeFinalPr,
+            onOpenFinalPr = viewModel::openFinalPr,
             onOpenNodeChanges = onOpenNodeChanges,
             padding = padding,
             trailing = trailing,
@@ -1224,8 +1255,10 @@ private fun AllChangesFace(
     graph: WorkflowGraph,
     finalPrCaption: String?,
     finalPrOpen: Boolean,
+    canOpenFinalPr: Boolean,
     busy: Boolean,
     onMerge: () -> Unit,
+    onOpenFinalPr: () -> Unit,
     onOpenNodeChanges: (String) -> Unit,
     padding: PaddingValues,
     trailing: @Composable () -> Unit,
@@ -1255,6 +1288,18 @@ private fun AllChangesFace(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
+                        // EXP-1101: a closed final PR offers the way back
+                        // (the header's primary button says the same).
+                        if (canOpenFinalPr) {
+                            GlassPill(
+                                WorkflowView.OPEN_FINAL_PR_LABEL,
+                                size = PillSize.Sm,
+                                icon = ExpIcons.prOpen,
+                                enabled = !busy,
+                                onClick = onOpenFinalPr,
+                                modifier = Modifier.testTag("workflow-open-final-pr"),
+                            )
+                        }
                     }
                 }
             }

@@ -599,6 +599,22 @@ pub struct ActionLaunchRequest {
     pub prompt: Option<String>,
 }
 
+/// FEED-47 — which recorded run (if any) a remote ISSUE start relaunches.
+/// Only a start that EXPLICITLY asks to resume (the frame's `resume` flag)
+/// ever reads the run registry; every other start is FRESH: a new run and a
+/// new session id, in the reused worktree, with the requester's prompt. A
+/// recorded run on the issue alone never turns a start into a resume.
+/// `lookup` is the registry read, called only when the flag is set.
+pub fn recorded_run_for_start(
+    explicit_resume: bool,
+    lookup: impl FnOnce() -> Option<RunRecord>,
+) -> Option<RunRecord> {
+    if !explicit_resume {
+        return None;
+    }
+    lookup()
+}
+
 /// EXP-637: RESUME an ended action/chat run — same workspace, same agent,
 /// a NEW `coding_sessions` row pointing back at the old one
 /// (`resumedFromId`). Everything the resume needs comes from the recorded
@@ -7207,6 +7223,19 @@ mod tests {
             Some("system"),
             "the heartbeat echoes it, so a resurrected row keeps it"
         );
+    }
+
+    /// FEED-47: a fresh start never reads the registry, whatever is recorded
+    /// for the issue; only an explicit resume relaunches the recorded run.
+    #[test]
+    fn only_an_explicit_resume_relaunches_the_recorded_run() {
+        let recorded = crate::run_registry::sample_record("sess-old");
+        let fresh = recorded_run_for_start(false, || panic!("a fresh start reads no record"));
+        assert!(fresh.is_none());
+        let resumed = recorded_run_for_start(true, || Some(recorded.clone()));
+        assert_eq!(resumed.map(|record| record.session_id), Some("sess-old".to_string()));
+        // An explicit resume with nothing recorded degrades to a fresh run.
+        assert!(recorded_run_for_start(true, || None).is_none());
     }
 
     /// EXP-662: `resume_prompt` is the DEGRADED half of resume — no record

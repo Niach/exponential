@@ -392,7 +392,8 @@ object WorkflowView {
     /**
      * The header's ONE primary button: a draft without a runner picks one, a
      * draft starts; a started workflow whose final PR is OPEN reviews it (the
-     * one human review), else running pauses and paused resumes; done reviews
+     * one human review), a CLOSED one is opened again (EXP-1101), else
+     * running pauses and paused resumes; done reviews
      * the merged final PR. Failed and cancelled offer nothing; Stop and Delete
      * live in the overflow.
      */
@@ -405,6 +406,7 @@ object WorkflowView {
             if (!deviceLabel.isNullOrEmpty()) WorkflowPrimaryAction.START else WorkflowPrimaryAction.PICK_DEVICE
         DomainContract.wfStatusRunning, DomainContract.wfStatusPaused -> when {
             finalPrState == DomainContract.prStateOpen -> WorkflowPrimaryAction.REVIEW_FINAL_PR
+            finalPrState == DomainContract.prStateClosed -> WorkflowPrimaryAction.OPEN_FINAL_PR
             status == DomainContract.wfStatusRunning -> WorkflowPrimaryAction.PAUSE
             else -> WorkflowPrimaryAction.RESUME
         }
@@ -434,6 +436,7 @@ object WorkflowView {
     const val PICK_DEVICE_LABEL = "Pick device"
     const val RUNS_ON_LABEL = "Runs on"
     const val REVIEW_FINAL_PR_LABEL = "Review final PR"
+    const val OPEN_FINAL_PR_LABEL = "Open final PR"
 
     /** A node row on All × Changes with nothing to open. */
     const val NO_CHANGES_LABEL = "No changes yet"
@@ -515,6 +518,7 @@ enum class WorkflowPrimaryAction(val wire: String) {
     PAUSE("pause"),
     RESUME("resume"),
     REVIEW_FINAL_PR("review_final_pr"),
+    OPEN_FINAL_PR("open_final_pr"),
 }
 
 enum class NodeChipAction(val wire: String) {

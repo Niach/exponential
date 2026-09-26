@@ -85,6 +85,7 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
 }))
 vi.mock(`@/lib/trpc/issues`, () => ({
   issuesRouter: { createCaller: () => ({ mergePr: h.mergePr }) },
+  WORKFLOW_LANDING: Symbol.for(`exp.workflowLanding`),
 }))
 
 const selectQueue: unknown[][] = []
@@ -917,6 +918,28 @@ describe(`the engine's write path`, () => {
     expect(written[0]!.values).toEqual({ state: `skipped`, note: null })
     expect(h.retargetReleasedDependents).toHaveBeenCalledWith(fakeDb, WF, `node-1`, `user-1`)
   })
+
+  // EXP-1096: a skip leaves a `skipped` line naming the member.
+  it(`a skip records who skipped the node`, async () => {
+    const skipper = workflowsRouter.createCaller({
+      db: fakeDb,
+      session: { user: { id: `user-1`, name: `Dana` } },
+    } as never)
+    selectQueue.push(
+      [node({ state: `failed` })],
+      [workflow({ status: `running` })],
+      [{ identifier: `APP-6` }]
+    )
+    await skipper.resolveNode({ nodeId: NODE, action: `skip` })
+    const event = written.find(
+      (entry) => entry.op === `insert` && (entry.values as { kind?: string }).kind === `skipped`
+    )
+    expect(event?.values).toMatchObject({
+      workflowId: WF,
+      nodeId: `node-1`,
+      message: `APP-6 skipped by Dana`,
+    })
+  })
 })
 
 // EXP-984: the agent review gate is bound to the reviewer RUN.
@@ -1106,13 +1129,17 @@ describe(`workflows.submitReview`, () => {
       [running()],
       [{ id: `device-row` }],
       [resumed({ branch: `exp/wf-22222222-review-APP-6-r3` })],
-      [{ identifier: `APP-6` }]
+      [{ identifier: `APP-6` }],
+      // FEED-53: the round is read off the same branch.
+      [{ identifier: `APP-6` }],
+      [{ branch: `exp/wf-22222222-review-APP-6-r3`, resumedFromId: REVIEW_RUN }]
     )
     updateQueue.push([{ round: 3 }])
     const result = await submit(RESUMED_RUN, { head: `e39378c61d30` })
     expect(result).toMatchObject({ round: 3, approve: true })
-    // node, workflow, device, reviewer, issue — never the predecessor.
-    expect(fakeDb.select).toHaveBeenCalledTimes(5)
+    // node, workflow, device, reviewer, issue, then the round's issue +
+    // reviewer — never the predecessor.
+    expect(fakeDb.select).toHaveBeenCalledTimes(7)
   })
 
   it(`follows a twice-resumed reviewer on another workflow's branch back to the run the engine started`, async () => {
@@ -1214,6 +1241,131 @@ describe(`workflows.submitReview`, () => {
     const error = await rejection(submit(REVIEW_RUN))
     expect(error?.message).toContain(`not under review`)
     expect(written).toHaveLength(1)
+  })
+
+  // FEED-53: a STARTED round always records its verdict; the round comes
+  // from the calling run's review branch, never `review_round + 1`.
+  describe(`the round is the calling run's review branch`, () => {
+    const onBranch = (round: number) => [
+      [{ identifier: `APP-6` }],
+      [{ branch: `exp/wf-22222222-review-APP-6-r${round}`, resumedFromId: null }],
+    ]
+    const events = () =>
+      written.filter(
+        (entry) => entry.op === `insert` && (entry.values as { kind?: string }).kind === `review_verdict`
+      )
+
+    it(`records r3 after a duplicate r2 reviewer already bumped the node to 3`, async () => {
+      const r2 = {
+        verdict: `request_changes`,
+        findings: `- a\n- b`,
+        oracle: null,
+        model: null,
+        round: 2,
+        at: `2026-09-25T10:00:00.000Z`,
+      }
+      selectQueue.push(
+        [node({ state: `updating`, reviewRound: 3, review: r2 })],
+        [running()],
+        [{ id: `device-row` }],
+        [reviewer({ branch: `exp/wf-22222222-review-APP-6-r3` })],
+        [{ identifier: `APP-6` }],
+        ...onBranch(3)
+      )
+      updateQueue.push([{ round: 3 }])
+      const result = await submit(REVIEW_RUN, {
+        verdict: `request_changes`,
+        findings: `1. one\n2. two\n3. three`,
+        oracle: null,
+      })
+      expect(result).toMatchObject({ round: 3, approve: false, state: `updating` })
+      // Moved UP to the branch's round (GREATEST), never incremented past it.
+      const claim = (written[0]!.values as { reviewRound: unknown }).reviewRound
+      expect(typeof claim).toBe(`object`)
+      expect(written[1]!.values).toMatchObject({ review: expect.objectContaining({ round: 3 }) })
+      expect(events()).toHaveLength(1)
+      expect(events()[0]!.values).toMatchObject({
+        nodeId: `node-1`,
+        sessionId: REVIEW_RUN,
+        message: `APP-6 review round 3: changes requested, 3 findings`,
+      })
+    })
+
+    it(`refuses a verdict from an r4 branch, writing nothing`, async () => {
+      selectQueue.push(
+        [node({ state: `updating`, reviewRound: 3 })],
+        [running()],
+        [{ id: `device-row` }],
+        [reviewer({ branch: `exp/wf-22222222-review-APP-6-r4` })],
+        [{ identifier: `APP-6` }],
+        ...onBranch(4)
+      )
+      const error = await rejection(submit(REVIEW_RUN))
+      expect(error?.code).toBe(`BAD_REQUEST`)
+      expect(error?.message).toContain(`Review round 4 is past the cap of 3`)
+      expect(fakeDb.transaction).not.toHaveBeenCalled()
+      expect(written).toEqual([])
+    })
+
+    it(`answers a second verdict of the same round with the one on record`, async () => {
+      const r2 = {
+        verdict: `approve`,
+        findings: ``,
+        oracle: { command: `bun test`, passed: true },
+        model: null,
+        round: 2,
+        at: `2026-09-25T10:00:00.000Z`,
+      }
+      selectQueue.push(
+        [node({ reviewRound: 2, review: r2 })],
+        [running()],
+        [{ id: `device-row` }],
+        [reviewer({ branch: `exp/wf-22222222-review-APP-6-r2` })],
+        [{ identifier: `APP-6` }],
+        ...onBranch(2)
+      )
+      expect(await submit(REVIEW_RUN, { verdict: `request_changes` })).toEqual({
+        round: 2,
+        approve: true,
+        state: `in_review`,
+        note: `Agent review passed, backed by its checks`,
+      })
+      expect(fakeDb.transaction).not.toHaveBeenCalled()
+      expect(written).toEqual([])
+    })
+
+    it(`refuses a stale round once a newer one is on record`, async () => {
+      selectQueue.push(
+        [node({ reviewRound: 3, review: { verdict: `approve`, findings: ``, oracle: null, model: null, round: 3, at: `x` } })],
+        [running()],
+        [{ id: `device-row` }],
+        [reviewer()],
+        [{ identifier: `APP-6` }],
+        ...onBranch(1)
+      )
+      const error = await rejection(submit(REVIEW_RUN))
+      expect(error?.message).toContain(`superseded`)
+      expect(written).toEqual([])
+    })
+
+    it(`records a review wave's verdict on a landed node under the same cap`, async () => {
+      selectQueue.push(
+        [node({ state: `landed`, reviewRound: 3 })],
+        [running()],
+        [{ id: `device-row` }],
+        [reviewer({ branch: `exp/wf-22222222-review-APP-6-r3` })],
+        [{ identifier: `APP-6` }],
+        ...onBranch(3)
+      )
+      updateQueue.push([{ round: 3 }])
+      expect(await submit(REVIEW_RUN)).toMatchObject({ round: 3, approve: true, state: `landed` })
+      expect(events()[0]!.values).toMatchObject({ message: `APP-6 review wave round 3: approved` })
+
+      // Without a branch the wave's next round is capped too.
+      selectQueue.push([node({ state: `landed`, reviewRound: 3 })], [running()], [{ id: `device-row` }], [reviewer({ branch: null })])
+      const error = await rejection(submit(REVIEW_RUN))
+      expect(error?.message).toContain(`used up`)
+    })
   })
 
   it(`refuses an approval past the round cap`, async () => {

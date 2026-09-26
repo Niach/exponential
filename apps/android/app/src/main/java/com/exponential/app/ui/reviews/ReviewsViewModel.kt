@@ -12,11 +12,16 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.WorkflowEntity
+import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.CHAT_RUN_NAME
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrStack
+import com.exponential.app.domain.ReviewMergeInput
+import com.exponential.app.domain.ReviewStackPosition
+import com.exponential.app.domain.ReviewsMerge
+import com.exponential.app.domain.coveredIssueIds
 import com.exponential.app.domain.WorkflowFinalPr
 import com.exponential.app.domain.chatRunSubject
 import com.exponential.app.domain.sortableTimestamp
@@ -162,7 +167,24 @@ data class ReviewRowEntry(
      */
     val mergeStackIssueId: String?,
     val stackSize: Int,
-)
+    /**
+     * EXP-1094: the status of the workflow whose node covers this PR's
+     * issues (a live one first), else null. A running or paused workflow
+     * merges its node PRs itself.
+     */
+    val workflowStatus: String? = null,
+) {
+    /** EXP-1094: the input of the ONE merge control this row carries. */
+    val mergeInput: ReviewMergeInput
+        get() = ReviewMergeInput(
+            stack = when {
+                mergeStackIssueId != null -> ReviewStackPosition.BOTTOM
+                depth > 0 -> ReviewStackPosition.UPPER
+                else -> ReviewStackPosition.NONE
+            },
+            workflowStatus = workflowStatus,
+        )
+}
 
 /**
  * The team's review entries → rows, nested by stack: the caller's order is
@@ -170,7 +192,11 @@ data class ReviewRowEntry(
  * row records the board of its ROOT so a whole stack groups under one board
  * even when a member was moved.
  */
-fun buildReviewRows(entries: List<ReviewEntry>): List<ReviewRowEntry> {
+fun buildReviewRows(
+    entries: List<ReviewEntry>,
+    /** EXP-1094: issue id → its covering workflow's status ([ReviewsMerge.workflowStatusByIssue]). */
+    workflowStatusByIssue: Map<String, String> = emptyMap(),
+): List<ReviewRowEntry> {
     val nested = PrStack.nestPrStacks(
         entries,
         { it.branch },
@@ -206,6 +232,10 @@ fun buildReviewRows(entries: List<ReviewEntry>): List<ReviewRowEntry> {
                 null
             },
             stackSize = sizeOfRootAt[rootIndex] ?: 1,
+            workflowStatus = ReviewsMerge.reviewWorkflowStatus(
+                row.entry.issues.map { it.id },
+                workflowStatusByIssue,
+            ),
         )
     }
 }
@@ -255,8 +285,9 @@ class ReviewsViewModel @Inject constructor(
                         db.boardDao().observeByTeam(teamId),
                         db.codingSessionDao().observeOpenPrRunsByTeam(teamId),
                         db.workflowDao().observeByTeam(teamId),
-                    ) { issues, boards, runs, workflows ->
-                        buildState(issues, boards, runs, workflows)
+                        db.workflowNodeDao().observeByTeam(teamId),
+                    ) { issues, boards, runs, workflows, nodes ->
+                        buildState(issues, boards, runs, workflows, nodes)
                     }
                 }
             }
@@ -267,6 +298,7 @@ class ReviewsViewModel @Inject constructor(
         boards: List<BoardEntity>,
         runs: List<CodingSessionEntity>,
         workflows: List<WorkflowEntity>,
+        nodes: List<WorkflowNodeEntity>,
     ): ReviewsState {
         val boardsById = boards.associateBy { it.id }
 
@@ -295,8 +327,14 @@ class ReviewsViewModel @Inject constructor(
         // ROOT's board so a stack never splits across two bands, and the
         // boards ordered by sortOrder (name tiebreak) — parity with
         // web/iOS/desktop, which all walk boards in board order.
+        // EXP-1094: a node PR of a live workflow merges through the workflow.
+        val workflowStatusByIssue = ReviewsMerge.workflowStatusByIssue(
+            workflows.map { it.id to it.status },
+            nodes.map { it.workflowId to it.coveredIssueIds },
+        )
         val rows = buildReviewRows(
             entries.sortedByDescending { sortableTimestamp(it.representative.createdAt) },
+            workflowStatusByIssue,
         )
         val groups = rows
             .groupBy { it.rootBoardId }

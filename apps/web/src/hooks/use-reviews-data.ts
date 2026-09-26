@@ -13,6 +13,8 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import { nestPrStacks } from "@/lib/pr-stack"
+import { useTeamWorkflowNodes, useTeamWorkflows } from "@/hooks/use-workflows"
+import { reviewWorkflowStatus, workflowStatusByIssue } from "@/lib/reviews-merge"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import type { CodingSession, Issue, Board, Team, SyncedWorkflow } from "@/db/schema"
 
@@ -43,6 +45,10 @@ export interface ReviewRow {
    *  (what `issues.mergePr({ mergeStack: true })` takes) and the stack's size. */
   stackTopIssueId: string | null
   stackSize: number
+  /** EXP-1094: the status of the workflow whose node covers any of this PR's
+   *  issues (a node's `issueId` or `memberIssueIds`), else null. A running or
+   *  paused one owns the merge (`lib/reviews-merge.ts`). */
+  workflowStatus: string | null
 }
 
 export interface ReviewGroup {
@@ -105,6 +111,14 @@ export function useReviewsData(team: Team | null | undefined) {
   )
 
   const { userMap } = useTeamUsers(team?.id)
+
+  // EXP-1094: which issues a workflow node covers, and that workflow's status.
+  const teamWorkflows = useTeamWorkflows(teamId)
+  const teamWorkflowNodes = useTeamWorkflowNodes(teamId)
+  const statusByIssue = useMemo(
+    () => workflowStatusByIssue(teamWorkflows, teamWorkflowNodes),
+    [teamWorkflows, teamWorkflowNodes]
+  )
 
   // EXP-734: run PRs that link no issue. Team-scoped over the synced
   // coding_sessions shape — the issue-less filter and the prUrl dedupe run in
@@ -243,6 +257,10 @@ export function useReviewsData(team: Team | null | undefined) {
         }
         stackTopIssueId = top.issue.id
       }
+      const workflowStatus = reviewWorkflowStatus(
+        row.entry.issues.map((linked) => linked.id),
+        statusByIssue
+      )
       return {
         entry: row.entry,
         depth: row.depth,
@@ -250,6 +268,7 @@ export function useReviewsData(team: Team | null | undefined) {
         stackedOn,
         stackTopIssueId,
         stackSize,
+        workflowStatus,
       }
     })
 
@@ -344,6 +363,7 @@ export function useReviewsData(team: Team | null | undefined) {
     issues,
     sessionRows,
     workflowRows,
+    statusByIssue,
     isReady,
     boards,
     userMap,

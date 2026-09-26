@@ -985,7 +985,13 @@
       "status": "running",
       "device": "MacBook",
       "finalPrState": "closed",
-      "action": "pause"
+      "action": "open_final_pr"
+    },
+    {
+      "status": "paused",
+      "device": "MacBook",
+      "finalPrState": "closed",
+      "action": "open_final_pr"
     },
     {
       "status": "draft",

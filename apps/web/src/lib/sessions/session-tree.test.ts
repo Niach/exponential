@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
+import marks from "@exp/domain-contract/fixtures/session-tree-marks.json"
 import {
+  sessionNeedsYou,
+  workflowRunAccountCaption,
+  type SessionMarkDevice,
+  type SessionMarkRow,
   flattenSessionTree,
   reviewBranchRound,
   reviewRoundVerdict,
@@ -629,4 +634,23 @@ describe(`reviewRowCaption (EXP-1068)`, () => {
     expect(reviewRowCaption(null, `none`, true)).toBe(`Review`)
     expect(reviewRowCaption(null, `none`, false)).toBe(`Review · no verdict`)
   })
+})
+
+// EXP-1108: the row marks, replayed off the ONE contract fixture ×4.
+describe(`session row marks (contract fixture)`, () => {
+  for (const entry of marks.accountCaptions) {
+    it(`account caption: ${entry.name}`, () => {
+      expect(
+        workflowRunAccountCaption(
+          entry.session as SessionMarkRow,
+          entry.devices as SessionMarkDevice[]
+        )
+      ).toBe(entry.caption)
+    })
+  }
+  for (const entry of marks.needsYou) {
+    it(`needs you: ${entry.name}`, () => {
+      expect(sessionNeedsYou(entry)).toBe(entry.needsYou)
+    })
+  }
 })

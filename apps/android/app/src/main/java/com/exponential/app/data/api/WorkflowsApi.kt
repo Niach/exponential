@@ -70,6 +70,10 @@ internal data class WorkflowIdInput(@SerialName("id") val id: String)
 @Serializable
 internal data class WorkflowMergeResult(@SerialName("merged") val merged: Boolean = false)
 
+/** `workflows.openFinalPr` echoes the final PR's url. */
+@Serializable
+internal data class WorkflowOpenFinalPrResult(@SerialName("url") val url: String? = null)
+
 /** `workflows.resolveNode` — `retry` or `skip`, nothing else. */
 @Serializable
 internal data class ResolveNodeInput(
@@ -309,6 +313,19 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
         inputSerializer = WorkflowIdInput.serializer(),
         outputSerializer = WorkflowMergeResult.serializer(),
     ).merged
+
+    /**
+     * `workflows.openFinalPr` (EXP-1101) — member-callable: opens the final
+     * PR once every node landed, and on a CLOSED one reopens it (or opens a
+     * fresh one when GitHub refuses). Electric carries the row back.
+     */
+    suspend fun openFinalPr(accountId: String, id: String): String? = trpc.mutation(
+        accountId,
+        path = "workflows.openFinalPr",
+        input = WorkflowIdInput(id = id),
+        inputSerializer = WorkflowIdInput.serializer(),
+        outputSerializer = WorkflowOpenFinalPrResult.serializer(),
+    ).url
 
     /**
      * `workflows.resolveNode` — a person unsticks a failed node: [NODE_RETRY]

@@ -69,6 +69,17 @@ public struct WorkflowEventList: View {
         }
     }
 
+    /// The kinds that read as a warning (amber glyph), web `WARNING_KINDS`.
+    static func isWarning(_ kind: String) -> Bool {
+        switch kind {
+        case DomainContract.wfEventKindFailed,
+             DomainContract.wfEventKindGaveUp,
+             DomainContract.wfEventKindReviewNoVerdict,
+             DomainContract.wfEventKindWaitingReset: true
+        default: false
+        }
+    }
+
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -95,7 +106,10 @@ public struct WorkflowEventList: View {
         let label = event.nodeId.flatMap { id in nodeLabel?(id) }
         return HStack(spacing: 8) {
             AppIcon(Self.glyph(event.kind), size: 14)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .foregroundStyle(
+                    Self.isWarning(event.kind)
+                        ? DesignTokens.Semantic.yellow : .white.opacity(TextOpacity.secondary)
+                )
             if let label, !label.isEmpty {
                 Text(label)
                     .font(.caption.monospaced())

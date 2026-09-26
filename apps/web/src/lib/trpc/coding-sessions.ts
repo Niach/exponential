@@ -27,9 +27,11 @@ import {
   workflowNodes,
   workflows,
 } from "@/db/schema"
+import { isWorkflowReviewBranch } from "@/lib/workflows"
 import {
   JOINABLE_WORKFLOW_STATUSES,
   resolveWorkflowMembership,
+  reviewStartClaim,
   type WorkflowMembership,
 } from "@/lib/sessions/workflow-membership"
 import {
@@ -237,6 +239,8 @@ async function resolveStartMembership(
     workflowRole?: string
     deviceId?: string
     startedReason?: string
+    actionId?: string
+    branch?: string
   },
   teamId: string,
   issueIds: readonly string[],
@@ -311,8 +315,22 @@ async function resolveStartMembership(
       }
     }
   }
+  // EXP-1093: a review run the runner proof above did not vouch for still
+  // joins its node when the start names it (role + node, or its review
+  // branch) and the node is the run's team's.
+  const claim = explicit
+    ? null
+    : reviewStartClaim({
+        isReviewBuiltin: input.actionId === BUILTIN_REVIEW_NODE_ID,
+        workflowRole: input.workflowRole,
+        workflowNodeId: input.workflowNodeId,
+        branch: input.branch,
+      })
+  const reviewNode = claim
+    ? await resolveReviewNode(db, teamId, claim, input.branch ?? null, input.workflowId)
+    : null
   const needsNodes =
-    !explicit && !predecessor?.workflowId && issueIds.length > 0
+    !explicit && !reviewNode && !predecessor?.workflowId && issueIds.length > 0
   const nodes = needsNodes
     ? await db
         .select({
@@ -334,11 +352,53 @@ async function resolveStartMembership(
     : []
   return resolveWorkflowMembership({
     explicit,
+    reviewNode,
     predecessor,
     startedReason: input.startedReason ?? null,
     issueIds,
     nodes,
   })
+}
+
+/** EXP-1093: the node a review start claims, in the run's team only; a
+ *  claim whose node id and branch disagree, or naming another workflow than
+ *  the frame's, resolves to nothing (ignored, never refused). */
+async function resolveReviewNode(
+  db: Context[`db`],
+  teamId: string,
+  claim: NonNullable<ReturnType<typeof reviewStartClaim>>,
+  branch: string | null,
+  workflowId: string | undefined
+): Promise<{ workflowId: string; nodeId: string } | null> {
+  const rows = await db
+    .select({
+      nodeId: workflowNodes.id,
+      workflowId: workflowNodes.workflowId,
+      identifier: issues.identifier,
+    })
+    .from(workflowNodes)
+    .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
+    .innerJoin(issues, eq(issues.id, workflowNodes.issueId))
+    .where(
+      and(
+        eq(workflowNodes.teamId, teamId),
+        eq(workflows.teamId, teamId),
+        claim.nodeId
+          ? eq(workflowNodes.id, claim.nodeId)
+          : and(
+              eq(issues.identifier, claim.branch!.identifier),
+              sql`replace(${workflows.id}::text, '-', '') LIKE ${`${claim.branch!.workflowId8}%`}`
+            )
+      )
+    )
+    .limit(2)
+  if (rows.length !== 1) return null
+  const row = rows[0]!
+  if (workflowId && workflowId !== row.workflowId) return null
+  if (branch && claim.branch && !isWorkflowReviewBranch(row.workflowId, row.identifier, branch)) {
+    return null
+  }
+  return { workflowId: row.workflowId, nodeId: row.nodeId }
 }
 
 /** EXP-906: the predecessor's children now belong to the successor — the
@@ -480,6 +540,79 @@ async function bindStartAttachments(
         isNull(sessionAttachments.sessionId)
       )
     )
+}
+
+/** FEED-57/46/47: a LIVE run covering an issue — the issue's own run, or a
+ *  batch run whose covered set (`batch_issue_ids`) names it. Live = still
+ *  running or in review AND heartbeating within the staleness window (the
+ *  REV2-24 client predicate). */
+export interface LiveIssueRun {
+  id: string
+  deviceLabel: string | null
+  userId: string
+  startedReason: string | null
+  branch: string | null
+  /** The asked-for issues this run covers, as identifiers. */
+  identifiers: string[]
+}
+
+export async function findLiveRunForIssues(
+  db: Context[`db`],
+  issueIds: readonly string[]
+): Promise<LiveIssueRun | null> {
+  const ids = [...new Set(issueIds)]
+  if (ids.length === 0) return null
+  const [run] = await db
+    .select({
+      id: codingSessions.id,
+      deviceLabel: codingSessions.deviceLabel,
+      userId: codingSessions.userId,
+      startedReason: codingSessions.startedReason,
+      branch: codingSessions.branch,
+      issueId: codingSessions.issueId,
+      batchIssueIds: codingSessions.batchIssueIds,
+    })
+    .from(codingSessions)
+    .where(
+      and(
+        or(
+          inArray(codingSessions.issueId, ids),
+          sql`${codingSessions.batchIssueIds} ?| ${sql.param(ids)}::text[]`
+        ),
+        inArray(codingSessions.status, [`running`, `in_review`]),
+        gte(codingSessions.updatedAt, new Date(Date.now() - CODING_SESSION_STALE_MS))
+      )
+    )
+    .orderBy(desc(codingSessions.updatedAt))
+    .limit(1)
+  if (!run) return null
+  const covered = new Set([run.issueId, ...(run.batchIssueIds ?? [])])
+  const hit = ids.filter((id) => covered.has(id))
+  const rows = hit.length
+    ? await db
+        .select({ id: issues.id, identifier: issues.identifier })
+        .from(issues)
+        .where(inArray(issues.id, hit))
+    : []
+  const identifierOf = new Map(rows.map((row) => [row.id, row.identifier]))
+  return {
+    id: run.id,
+    deviceLabel: run.deviceLabel ?? null,
+    userId: run.userId,
+    startedReason: run.startedReason ?? null,
+    branch: run.branch ?? null,
+    identifiers: hit.map((id) => identifierOf.get(id) ?? id),
+  }
+}
+
+/** The CONFLICT a fresh start on an issue with a live run gets: which issue,
+ *  which run, how it was started and where, so the caller can find it. */
+export function liveRunConflictMessage(run: LiveIssueRun): string {
+  const subject = run.identifiers.length > 0 ? run.identifiers.join(`, `) : `That issue`
+  const how = run.startedReason ? `started by ${run.startedReason}` : `started by a person`
+  const facts = [`session ${run.id}`, how, ...(run.branch ? [`branch ${run.branch}`] : [])]
+  const where = run.deviceLabel ? ` on ${run.deviceLabel}` : ``
+  return `${subject} already has a live run${where} (${facts.join(`, `)}). Stop it or let it end before starting another.`
 }
 
 export const codingSessionsRouter = router({
@@ -665,26 +798,13 @@ export const codingSessionsRouter = router({
     .query(async ({ ctx, input }) => {
       const issueCtx = await getIssueTeamContext(input.issueId)
       await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
-      const [session] = await ctx.db
-        .select({
-          id: codingSessions.id,
-          deviceLabel: codingSessions.deviceLabel,
-          userId: codingSessions.userId,
-        })
-        .from(codingSessions)
-        .where(
-          and(
-            eq(codingSessions.issueId, input.issueId),
-            inArray(codingSessions.status, [`running`, `in_review`]),
-            gte(
-              codingSessions.updatedAt,
-              new Date(Date.now() - CODING_SESSION_STALE_MS)
-            )
-          )
-        )
-        .orderBy(desc(codingSessions.updatedAt))
-        .limit(1)
-      return { session: session ?? null }
+      // FEED-57: a batch run covering the issue holds it too.
+      const live = await findLiveRunForIssues(ctx.db, [input.issueId])
+      return {
+        session: live
+          ? { id: live.id, deviceLabel: live.deviceLabel, userId: live.userId }
+          : null,
+      }
     }),
 
   start: authedProcedure

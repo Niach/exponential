@@ -1,0 +1,153 @@
+{
+  "_doc": "EXP-1108: a session row's marks, ONE rule x4 (web lib/sessions/session-tree.ts, desktop domain::session_tree, iOS SessionTree.swift, Android SessionTree.kt). accountCaptions: workflowRunAccountCaption(session, devices) -> caption; the FUNCTION itself returns null for a session without workflowId. The device is the one whose deviceId matches the session's, preferring the same userId. Default account = launchDefaults.defaultAccount when the run's agent is launchDefaults.defaultAgent, else that agent's active profile id in agentAccounts[agent].profiles, else \"system\". Caption = \"account <label>\", label = the matching profile's label, else \"Default\" for \"system\", else the raw account id. needsYou: sessionNeedsYou(row) = status is live (not \"ended\") AND pendingQuestion != null; the amber needs-input/blocked flags are a separate mark.",
+  "accountCaptions": [
+    {
+      "name": "default account",
+      "session": { "agent": "claude", "agentAccount": "system", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "system" },
+          "agentAccounts": { "claude": { "profiles": [ { "id": "system", "label": "Default", "active": true }, { "id": "p2", "label": "Work", "active": false } ] } }
+        }
+      ],
+      "caption": null
+    },
+    {
+      "name": "non-default profile",
+      "session": { "agent": "claude", "agentAccount": "p2", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "system" },
+          "agentAccounts": { "claude": { "profiles": [ { "id": "system", "label": "Default", "active": true }, { "id": "p2", "label": "Work", "active": false } ] } }
+        }
+      ],
+      "caption": "account Work"
+    },
+    {
+      "name": "other agent on its active profile",
+      "session": { "agent": "codex", "agentAccount": "c2", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "system" },
+          "agentAccounts": { "codex": { "profiles": [ { "id": "system", "label": "Personal", "active": false }, { "id": "c2", "label": "Team", "active": true } ] } }
+        }
+      ],
+      "caption": null
+    },
+    {
+      "name": "other agent on another profile",
+      "session": { "agent": "codex", "agentAccount": "system", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "system" },
+          "agentAccounts": { "codex": { "profiles": [ { "id": "system", "label": "Personal", "active": false }, { "id": "c2", "label": "Team", "active": true } ] } }
+        }
+      ],
+      "caption": "account Personal"
+    },
+    {
+      "name": "other agent with no active profile defaults to system",
+      "session": { "agent": "codex", "agentAccount": "system", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "p2" },
+          "agentAccounts": null
+        }
+      ],
+      "caption": null
+    },
+    {
+      "name": "device not synced",
+      "session": { "agent": "claude", "agentAccount": "p2", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [],
+      "caption": null
+    },
+    {
+      "name": "system account while the default is another profile",
+      "session": { "agent": "claude", "agentAccount": "system", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "p2" },
+          "agentAccounts": { "claude": { "profiles": [ { "id": "p2", "label": "Work", "active": true } ] } }
+        }
+      ],
+      "caption": "account Default"
+    },
+    {
+      "name": "account with no profile row",
+      "session": { "agent": "claude", "agentAccount": "p9", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "system" },
+          "agentAccounts": { "claude": { "profiles": [ { "id": "system", "label": "Default", "active": true } ] } }
+        }
+      ],
+      "caption": "account p9"
+    },
+    {
+      "name": "no agent account",
+      "session": { "agent": "claude", "agentAccount": null, "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "system" },
+          "agentAccounts": { "claude": { "profiles": [ { "id": "system", "label": "Default", "active": true }, { "id": "p2", "label": "Work", "active": false } ] } }
+        }
+      ],
+      "caption": null
+    },
+    {
+      "name": "row outside a workflow",
+      "session": { "agent": "claude", "agentAccount": "p2", "deviceId": "d1", "userId": "u1", "workflowId": null },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "system" },
+          "agentAccounts": { "claude": { "profiles": [ { "id": "system", "label": "Default", "active": true }, { "id": "p2", "label": "Work", "active": false } ] } }
+        }
+      ],
+      "caption": null
+    },
+    {
+      "name": "same device id prefers the session owner's row",
+      "session": { "agent": "claude", "agentAccount": "p2", "deviceId": "d1", "userId": "u1", "workflowId": "w1" },
+      "devices": [
+        {
+          "deviceId": "d1",
+          "userId": "u2",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "p2" },
+          "agentAccounts": null
+        },
+        {
+          "deviceId": "d1",
+          "userId": "u1",
+          "launchDefaults": { "defaultAgent": "claude", "defaultAccount": "system" },
+          "agentAccounts": { "claude": { "profiles": [ { "id": "system", "label": "Default", "active": true }, { "id": "p2", "label": "Work", "active": false } ] } }
+        }
+      ],
+      "caption": "account Work"
+    }
+  ],
+  "needsYou": [
+    { "name": "live with a question", "status": "running", "pendingQuestion": { "id": "q1" }, "needsYou": true },
+    { "name": "in review with a question", "status": "in_review", "pendingQuestion": { "id": "q1" }, "needsYou": true },
+    { "name": "ended with a question", "status": "ended", "pendingQuestion": { "id": "q1" }, "needsYou": false },
+    { "name": "live without a question", "status": "running", "pendingQuestion": null, "needsYou": false }
+  ]
+}
