@@ -4131,9 +4131,20 @@ impl AutomationHost {
         }
     }
 
+    /// `true` = the server WROTE the report. FEED-56: a refusal (`updated:
+    /// false`, landed or skipped there) is `false` too, so nothing launches
+    /// off a stale snapshot.
     fn report_node(&self, report: &api::workflows::NodeReport) -> bool {
         match api::workflows::report_node(&self.ctx.trpc, report) {
-            Ok(()) => true,
+            Ok(true) => true,
+            Ok(false) => {
+                log::warn!(
+                    "workflow reportNode {} → {} refused: the node is landed or skipped on the server",
+                    report.node_id,
+                    report.state
+                );
+                false
+            }
             Err(err) => {
                 log::warn!(
                     "workflow reportNode {} → {} failed: {err}",
@@ -4639,6 +4650,12 @@ impl AutomationHost {
                 let Some(node) = plan.nodes.get(node_id) else {
                     return Ok(false);
                 };
+                // FEED-56: the plan may be stale. Ask the server first (its
+                // own state, nothing changes); a landed or skipped node there
+                // is refused, and nothing launches for it.
+                if !self.report_node(&api::workflows::NodeReport::new(node_id, &node.state)) {
+                    return Ok(false);
+                }
                 let identifier = plan
                     .snapshot
                     .identifier

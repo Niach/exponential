@@ -1814,6 +1814,12 @@ fn wake(
             let Some(claim) = InFlight::claim(&pass.in_flight, node_id) else {
                 return Outcome::Skipped;
             };
+            // FEED-56: the snapshot may be stale. Ask the server first (its
+            // own state, nothing changes); a landed or skipped node there is
+            // refused, and nothing launches for it.
+            if !report_node(&pass.trpc, &api::workflows::NodeReport::new(node_id, &node.state)) {
+                return Outcome::Skipped;
+            }
             let identifier = snapshot
                 .identifier
                 .get(node_id)
@@ -2110,9 +2116,20 @@ fn remember_woken(pass: &Pass, workflow_id: &str, node_id: &str, branch: &str, s
     });
 }
 
+/// `true` = the server WROTE the report. FEED-56: a refusal (`updated:
+/// false`, the node is landed or skipped there) is `false` too, so no caller
+/// launches off its stale snapshot.
 fn report_node(trpc: &api::TrpcClient, report: &api::workflows::NodeReport) -> bool {
     match api::workflows::report_node(trpc, report) {
-        Ok(()) => true,
+        Ok(true) => true,
+        Ok(false) => {
+            log::warn!(
+                "[workflows] reportNode {} → {} refused: the node is landed or skipped on the server",
+                report.node_id,
+                report.state
+            );
+            false
+        }
         Err(err) => {
             log::warn!(
                 "[workflows] reportNode {} → {} failed: {err}",
