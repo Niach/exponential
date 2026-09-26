@@ -123,6 +123,12 @@ data class IssueListState(
     val isCreating: Boolean = false,
     val isRefreshing: Boolean = false,
     val error: String? = null,
+    // EXP-1115: true once the issues shape has reached up-to-date at least
+    // once for this account (a zero-row snapshot counts). Until then an
+    // empty group list means "still syncing", not "empty board" — the screen
+    // shows a spinner instead of the empty state + getting-started cards,
+    // which a full resync otherwise flashes while the snapshot lands.
+    val issuesSynced: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -434,12 +440,20 @@ class IssueListViewModel @Inject constructor(
         )
     }
 
+    // The issues shape's "up-to-date seen" flag, re-scoped on account switch.
+    // Null (no offset row yet — a fresh install or a full resync's wipe)
+    // reads as not-yet-synced, same as HomeViewModel's boards flag.
+    private val issuesSynced = dbFlow
+        .scopedQuery<Boolean?>(null) { db -> db.electricOffsetDao().observeIsLive("issues") }
+        .map { it == true }
+
     val state: StateFlow<IssueListState> = combine(
         groupedState,
         _busy,
         _refreshing,
         _error,
-    ) { grouped, busy, refreshing, error ->
+        issuesSynced,
+    ) { grouped, busy, refreshing, error, synced ->
         IssueListState(
             board = grouped.board,
             groups = grouped.groups,
@@ -450,6 +464,7 @@ class IssueListViewModel @Inject constructor(
             isCreating = busy,
             isRefreshing = refreshing,
             error = error,
+            issuesSynced = synced,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueListState())
 
