@@ -5,7 +5,8 @@
 // The Seg-* compositions preview each per-flow clip at its own local
 // timeline (EXP-337) — studio-only authoring aids, never rendered.
 // Everything is registered twice: once wide (1920×1080), once `portrait`
-// (the 1080×1350 phone framing, EXP-482). movie:render and movie:poster keep
+// (the 1080×1350 phone framing, EXP-482). EXP-1100 adds the Showreel comp
+// (movie:showreel:render), wide only. movie:render and movie:poster keep
 // targeting the wide ids, so their output is unaffected; movie:poster:portrait
 // renders ClosedLoop-Portrait, and the -pt previews are where the portrait
 // camera shots get tuned.
@@ -20,6 +21,12 @@ import { CodeEverywhereSegment } from "../closedloop/segments/codeeverywhere"
 import { ReviewMergeSegment } from "../closedloop/segments/reviewmerge"
 import { FeedbackSegment } from "../closedloop/segments/feedback"
 import { PlatformsSegment } from "../closedloop/segments/platforms"
+import {
+  Showreel,
+  DURATION_IN_FRAMES as SHOWREEL_FRAMES,
+  FPS as SHOWREEL_FPS,
+} from "../showreel/Showreel"
+import { VARIANTS } from "../showreel/variants"
 
 // The two canvases (keep in lockstep with LoopMoviePlayer + loop.css).
 const WIDE = { width: 1920, height: 1080 } as const
@@ -44,6 +51,26 @@ const segmentPreview = (id: string, portrait: boolean): React.FC => {
 
 export const RemotionRoot: React.FC = () => (
   <>
+    {/* EXP-1100: the 15-second showreel — render-only, never embedded. */}
+    <Composition
+      id="Showreel"
+      component={Showreel}
+      durationInFrames={SHOWREEL_FRAMES}
+      fps={SHOWREEL_FPS}
+      width={WIDE.width}
+      height={WIDE.height}
+    />
+    {VARIANTS.map((v) => (
+      <Composition
+        key={v.id}
+        id={`Showreel-${v.id}`}
+        component={v.component}
+        durationInFrames={SHOWREEL_FRAMES}
+        fps={SHOWREEL_FPS}
+        width={WIDE.width}
+        height={WIDE.height}
+      />
+    ))}
     <Composition
       id="ClosedLoop"
       component={ClosedLoop}
