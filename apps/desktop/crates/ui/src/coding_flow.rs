@@ -1417,7 +1417,8 @@ impl engine::EngineHost for DesktopEngineHost {
 }
 
 /// Start a prepared launch on the in-process ACP engine and open its session
-/// screen.
+/// screen — unless an agent or the workflow host started it
+/// ([`should_open_session`], EXP-1088).
 ///
 /// The ORDER below is the whole function: every step is an invariant some
 /// earlier bug bought.
@@ -1455,6 +1456,7 @@ pub fn spawn_into_window(
     let agent = prepared.agent;
     let action_id = prepared.action_id.clone();
     let started_reason = prepared.heartbeat_scope.started_reason.clone();
+    let started_reason_for_nav = started_reason.clone();
     let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
     let run_cleanup = prepared.run_cleanup.clone();
 
@@ -1571,8 +1573,30 @@ pub fn spawn_into_window(
     );
     // EXP-478: only now (see the PTY arm).
     drop(launch_hold);
-    crate::session_screen::open_session(&session_id, window, cx);
+    if should_open_session(started_reason_for_nav.as_deref()) {
+        crate::session_screen::open_session(&session_id, window, cx);
+    }
     Ok(())
+}
+
+/// EXP-1088: whether a freshly spawned run takes the window over. A run
+/// another coding session started (`agent`, MCP `sessions_start`) or the
+/// workflow orchestrator started (`workflow`) must NOT navigate: the person
+/// may be mid-edit elsewhere, and the run already appears in the sidebar via
+/// its synced row, nested under its parent. Everything a person asked for
+/// (the composer, a phone/web relay start, a chat, an automation) still
+/// opens.
+///
+/// A person's LOCAL Resume never trips this even on an agent-started run:
+/// the launcher recomputes the reason from `LaunchOrigin::Local` (always
+/// `None`), and EXP-906's reason inheritance happens server-side, never in
+/// `prepared.heartbeat_scope`. Only a relay frame (`agent`) or the workflow
+/// host can put one of these reasons here.
+pub(crate) fn should_open_session(started_reason: Option<&str>) -> bool {
+    !matches!(
+        started_reason,
+        Some("agent") | Some(coding::WORKFLOW_STARTED_REASON)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -2103,6 +2127,18 @@ pub(crate) fn live_batch_device_for_issue(cx: &App, issue_id: &str, now_epoch: i
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1088: agent- and workflow-started runs never steal the window;
+    /// person-started ones (incl. automations and a local resume, whose
+    /// reason is `None`) still open.
+    #[test]
+    fn only_person_started_runs_navigate() {
+        assert!(should_open_session(None));
+        assert!(should_open_session(Some("schedule")));
+        assert!(should_open_session(Some("event")));
+        assert!(!should_open_session(Some("agent")));
+        assert!(!should_open_session(Some("workflow")));
+    }
 
     /// FEED-47/57: a live batch covering the issue holds it; an ended
     /// batch, an issue row and a batch over other issues do not.
