@@ -327,6 +327,14 @@ class WorkflowDetailViewModel @Inject constructor(
         workflowsApi.mergeFinalPr(it, workflowId)
     }
 
+    /**
+     * EXP-1101: a final PR closed without merging comes back: GitHub reopens
+     * it, else a fresh one opens. The synced row carries it back.
+     */
+    fun openFinalPr() = mutate("The final pull request could not be opened") {
+        workflowsApi.openFinalPr(it, workflowId)
+    }
+
     /** [WorkflowsApi.NODE_RETRY] or [WorkflowsApi.NODE_SKIP] on a failed node. */
     fun resolveNode(nodeId: String, action: String) = mutate("The node could not be resolved") {
         workflowsApi.resolveNode(it, nodeId, action)
