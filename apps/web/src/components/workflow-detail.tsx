@@ -664,6 +664,8 @@ export function WorkflowDetail({
               deviceId={workflow.deviceId}
               onPickDevice={(deviceId) => void save({ deviceId })}
               onIntent={(which) => void intent(which)}
+              openingFinalPr={openingFinalPr}
+              onOpenFinalPr={() => void openFinalPr()}
               onReview={() => {
                 // The final PR lives on this page (All × Changes: its link,
                 // and Merge while open); the Reviews queue's Workflows group
@@ -1080,6 +1082,8 @@ function PrimaryAction({
   deviceId,
   onPickDevice,
   onIntent,
+  openingFinalPr,
+  onOpenFinalPr,
   onReview,
 }: {
   action: WorkflowPrimaryAction | null
@@ -1088,6 +1092,8 @@ function PrimaryAction({
   deviceId: string | null
   onPickDevice: (deviceId: string) => void
   onIntent: (which: `start` | `pause` | `resume`) => void
+  openingFinalPr: boolean
+  onOpenFinalPr: () => void
   onReview: () => void
 }) {
   switch (action) {
@@ -1142,6 +1148,18 @@ function PrimaryAction({
       return (
         <Button size="sm" data-testid="workflow-review" onClick={onReview}>
           {REVIEW_FINAL_PR_LABEL}
+        </Button>
+      )
+    case `open_final_pr`:
+      // EXP-1101: a live workflow whose final PR was closed unmerged.
+      return (
+        <Button
+          size="sm"
+          disabled={openingFinalPr}
+          data-testid="workflow-open-final-pr"
+          onClick={onOpenFinalPr}
+        >
+          {OPEN_FINAL_PR_LABEL}
         </Button>
       )
     default:
