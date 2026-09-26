@@ -7,23 +7,61 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "blocked", "wave": 0, "lane": 0 },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "ready", "wave": 1, "lane": 1 }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "contract",
+          "state": "blocked",
+          "wave": 0,
+          "lane": 0
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "ready",
+          "wave": 1,
+          "lane": 1
+        }
       ],
       "edges": [
-        ["a", "b"],
-        ["a", "c"]
+        [
+          "a",
+          "b"
+        ],
+        [
+          "a",
+          "c"
+        ]
       ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "a", "state": "ready" },
-      { "kind": "setNodeState", "nodeId": "c", "state": "blocked" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "ready"
+      },
+      {
+        "kind": "setNodeState",
+        "nodeId": "c",
+        "state": "blocked"
+      }
     ]
   },
   {
@@ -34,21 +72,57 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 0 },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "landed", "wave": 0, "lane": 1 },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "skipped",
+          "wave": 0,
+          "lane": 0
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        }
       ],
       "edges": [
-        ["a", "c"],
-        ["b", "c"]
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "c"
+        ]
       ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "setNodeState", "nodeId": "c", "state": "ready" }]
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "c",
+        "state": "ready"
+      }
+    ]
   },
   {
     "name": "rule 1: a failed node blocks its dependents, an independent branch goes on",
@@ -58,7 +132,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -71,17 +148,52 @@
           "sessionId": "s-a",
           "attempt": 2
         },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 },
-        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 0, "lane": 1 }
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 0
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 0,
+          "lane": 1
+        }
       ],
-      "edges": [["a", "b"]],
-      "sessions": { "s-a": { "live": false } },
+      "edges": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "sessions": {
+        "s-a": {
+          "live": false
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
-      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "c",
+        "state": "ready"
+      },
+      {
+        "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
+        "nodeId": "c",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -92,7 +204,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -127,15 +242,28 @@
         }
       ],
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": true, "needsInput": true },
-        "s-c": { "live": true, "blocked": true, "blockedResetsAtMs": 9000 }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": true,
+          "needsInput": true
+        },
+        "s-c": {
+          "live": true,
+          "blocked": true,
+          "blockedResetsAtMs": 9000
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "a", "state": "running" },
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "running"
+      },
       {
         "kind": "setNodeState",
         "nodeId": "c",
@@ -145,14 +273,17 @@
     ]
   },
   {
-    "name": "rule 1: an open PR reads in_review whether the run is up or not",
+    "name": "rule 1: an open PR reads in_review whether the run is up or not; the ended one is landed",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -177,19 +308,39 @@
         }
       ],
       "issues": {
-        "i-a": { "prState": "open" },
-        "i-b": { "prState": "open" }
+        "i-a": {
+          "prState": "open"
+        },
+        "i-b": {
+          "prState": "open"
+        }
       },
       "sessions": {
-        "s-a": { "live": true },
-        "s-b": { "live": false }
+        "s-a": {
+          "live": true
+        },
+        "s-b": {
+          "live": false
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "a", "state": "in_review" },
-      { "kind": "setNodeState", "nodeId": "b", "state": "in_review" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "in_review"
+      },
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "in_review"
+      },
+      {
+        "kind": "landNode",
+        "nodeId": "b"
+      }
     ]
   },
   {
@@ -200,7 +351,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -214,8 +368,17 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true, "agentBusy": true } },
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "agentBusy": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -229,7 +392,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -243,12 +409,27 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true, "agentBusy": false } },
+      "issues": {
+        "i-a": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "agentBusy": false
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "setNodeState", "nodeId": "a", "state": "in_review" }]
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "in_review"
+      }
+    ]
   },
   {
     "name": "rule 1: an ended run with no PR retries once, then fails",
@@ -258,7 +439,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -283,14 +467,22 @@
         }
       ],
       "sessions": {
-        "s-a": { "live": false },
-        "s-b": { "live": false }
+        "s-a": {
+          "live": false
+        },
+        "s-b": {
+          "live": false
+        }
       },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "a", "state": "ready" },
+      {
+        "kind": "setNodeState",
+        "nodeId": "a",
+        "state": "ready"
+      },
       {
         "kind": "setNodeState",
         "nodeId": "b",
@@ -307,7 +499,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -321,12 +516,25 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "merged" } },
-      "sessions": { "s-a": { "live": false } },
+      "issues": {
+        "i-a": {
+          "prState": "merged"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": false
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "a"
+      }
+    ]
   },
   {
     "name": "rule 1: a merged PR lands the node while its run is still live (EXP-1007)",
@@ -336,7 +544,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -350,12 +561,26 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "merged" } },
-      "sessions": { "s-a": { "live": true, "agentBusy": true } },
+      "issues": {
+        "i-a": {
+          "prState": "merged"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "agentBusy": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "a"
+      }
+    ]
   },
   {
     "name": "rule 1: a merged PR lands a node parked on a question",
@@ -365,7 +590,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -379,12 +607,26 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "merged" } },
-      "sessions": { "s-a": { "live": true, "needsInput": true } },
+      "issues": {
+        "i-a": {
+          "prState": "merged"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "needsInput": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "a"
+      }
+    ]
   },
   {
     "name": "rule 1: a merged PR of a live in_review node lands ONCE, the train does not repeat it",
@@ -394,7 +636,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -408,12 +653,25 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "merged" } },
-      "sessions": { "s-a": { "live": true } },
+      "issues": {
+        "i-a": {
+          "prState": "merged"
+        }
+      },
+      "sessions": {
+        "s-a": {
+          "live": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "a"
+      }
+    ]
   },
   {
     "name": "rule 1: a session this device has not synced decides nothing",
@@ -423,7 +681,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -450,7 +711,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -487,8 +751,20 @@
       "nowMs": 700000
     },
     "expected": [
-      { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
-      { "kind": "startNode", "workflowId": "wf-1", "role": "author", "nodeId": "b", "attempt": 2, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "ready"
+      },
+      {
+        "kind": "startNode",
+        "workflowId": "wf-1",
+        "role": "author",
+        "nodeId": "b",
+        "attempt": 2,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -499,7 +775,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -512,13 +791,29 @@
           "sessionId": "s-unsynced",
           "attempt": 1
         },
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "landed", "wave": 0, "lane": 1 }
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1
+        }
       ],
-      "issues": { "i-a": { "prState": "merged" } },
+      "issues": {
+        "i-a": {
+          "prState": "merged"
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+    "expected": [
+      {
+        "kind": "landNode",
+        "nodeId": "a"
+      }
+    ]
   },
   {
     "name": "rule 1: an open question changes nothing but the badge",
@@ -528,7 +823,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -542,7 +840,12 @@
           "attempt": 1
         }
       ],
-      "sessions": { "s-a": { "live": true, "needsInput": true } },
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "needsInput": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -556,7 +859,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0,
-        "launch": { "model": "opus", "strongModel": "fable" }
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
       },
       "nodes": [
         {
@@ -593,10 +899,27 @@
           "note": "Agent review passed"
         }
       ],
-      "sessions": { "s-a": { "live": true, "blocked": true }, "s-b": { "live": true }, "s-c": { "live": true } },
+      "sessions": {
+        "s-a": {
+          "live": true,
+          "blocked": true
+        },
+        "s-b": {
+          "live": true
+        },
+        "s-c": {
+          "live": true
+        }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "setNodeState", "nodeId": "b", "state": "running" }]
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "running"
+      }
+    ]
   }
 ]

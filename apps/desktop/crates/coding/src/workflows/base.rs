@@ -226,6 +226,157 @@ pub fn movement_note(cwd: &Path, from: &str, to: &str, url: Option<&TokenUrl>) -
     joined.chars().take(MOVEMENT_NOTE_CAP).collect()
 }
 
+/// EXP-1106 — one `git fetch --prune origin` in the engine clone: the
+/// ancestry and merge tests below read `refs/remotes/origin/*`, which
+/// `ls-remote` alone never updates.
+pub fn fetch_origin(clone: &Path, url: Option<&TokenUrl>) -> Result<(), GitError> {
+    run_git(
+        Some(clone),
+        &["fetch", "--prune", "origin"],
+        url,
+        "git fetch origin",
+    )?;
+    Ok(())
+}
+
+/// Whether `ancestor` is reachable from `descendant` (`git merge-base
+/// --is-ancestor`, exit 1 = no). Both are refs or shas the clone has.
+pub fn is_ancestor(clone: &Path, ancestor: &str, descendant: &str) -> Result<bool, GitError> {
+    let op = format!("git merge-base --is-ancestor {ancestor} {descendant}");
+    let output = git_output(
+        Some(clone),
+        &["merge-base", "--is-ancestor", ancestor, descendant],
+        None,
+        &op,
+    )?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(GitError {
+            op,
+            detail: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        }),
+    }
+}
+
+/// What the host's mechanical merge produced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MergeOutcome {
+    /// `branch` now holds `base_branch`'s tip and is pushed.
+    Merged,
+    /// The two do not merge cleanly; nothing was pushed. The run is woken.
+    Conflict,
+}
+
+/// EXP-1106 rule 1 — merge `origin/<base_branch>` into `origin/<branch>` in
+/// the engine's worktree and push `branch`. Pre-tested with `merge-tree`, so
+/// a conflicting pair comes back as [`MergeOutcome::Conflict`] with nothing
+/// pushed. Never a rebase, never a force-push: the push is a fast-forward by
+/// construction (the worktree started at origin's tip). The caller fetched.
+pub fn merge_into_branch(
+    clone: &Path,
+    workspace: &Path,
+    branch: &str,
+    base_branch: &str,
+    url: Option<&TokenUrl>,
+) -> Result<MergeOutcome, GitError> {
+    validate_branch_arg(branch, "workflow node branch")?;
+    validate_branch_arg(base_branch, "workflow base branch")?;
+    let ours = format!("refs/remotes/origin/{branch}");
+    let theirs = format!("refs/remotes/origin/{base_branch}");
+    if merge_conflicts(clone, &ours, &theirs, url)? {
+        return Ok(MergeOutcome::Conflict);
+    }
+    let workspace = ensure_engine_worktree(clone, workspace, branch, &ours, url)?;
+    run_git(
+        Some(&workspace),
+        &[
+            "-c",
+            ENGINE_IDENTITY_NAME,
+            "-c",
+            ENGINE_IDENTITY_EMAIL,
+            "-c",
+            "commit.gpgsign=false",
+            "merge",
+            "--no-ff",
+            "--no-edit",
+            "-m",
+            &format!("Merge {base_branch} into {branch} (workflow upstream)"),
+            &theirs,
+        ],
+        url,
+        &format!("git merge origin/{base_branch}"),
+    )?;
+    run_git(
+        Some(&workspace),
+        &["push", "origin", &format!("HEAD:refs/heads/{branch}")],
+        url,
+        &format!("git push origin {branch}"),
+    )?;
+    Ok(MergeOutcome::Merged)
+}
+
+/// EXP-1103 — land a review wave's fix branch: fast-forward `target` (the
+/// integration branch) to `origin/<source>` when it is a descendant, else
+/// merge it in (pre-tested; a conflict is an error the caller reports), then
+/// drop `source`. A `source` origin does not have (the run pushed nothing)
+/// is nothing to land. The caller fetched.
+pub fn land_branch(
+    clone: &Path,
+    workspace: &Path,
+    source: &str,
+    target: &str,
+    url: Option<&TokenUrl>,
+) -> Result<(), GitError> {
+    validate_branch_arg(source, "workflow fix branch")?;
+    validate_branch_arg(target, "integration branch")?;
+    let Some(source_sha) = origin_ref(clone, source) else {
+        return Ok(());
+    };
+    let target_ref = format!("refs/remotes/origin/{target}");
+    let source_ref = format!("refs/remotes/origin/{source}");
+    if is_ancestor(clone, &target_ref, &source_sha)? {
+        run_git(
+            Some(clone),
+            &["push", "origin", &format!("{source_sha}:refs/heads/{target}")],
+            url,
+            &format!("git push origin {target} (fast-forward)"),
+        )?;
+    } else {
+        if merge_conflicts(clone, &target_ref, &source_ref, url)? {
+            return Err(GitError {
+                op: format!("merge {source} into {target}"),
+                detail: "the fix branch conflicts with what landed since".to_string(),
+            });
+        }
+        let workspace = ensure_engine_worktree(clone, workspace, target, &target_ref, url)?;
+        run_git(
+            Some(&workspace),
+            &[
+                "-c",
+                ENGINE_IDENTITY_NAME,
+                "-c",
+                ENGINE_IDENTITY_EMAIL,
+                "-c",
+                "commit.gpgsign=false",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                &source_ref,
+            ],
+            url,
+            &format!("git merge origin/{source}"),
+        )?;
+        run_git(
+            Some(&workspace),
+            &["push", "origin", &format!("HEAD:refs/heads/{target}")],
+            url,
+            &format!("git push origin {target}"),
+        )?;
+    }
+    delete_remote_branch(clone, source, url)
+}
+
 /// Drop a branch this engine pushed. A branch that is already gone is a
 /// success — the sweep runs on every pass until it is.
 pub fn delete_remote_branch(

@@ -65,13 +65,22 @@ export const BUILTIN_REVIEW_NODE_ID = contract.builtinAction.reviewNodeId
 
 export const BUILTIN_REVIEW_NODE_NAME = `Review node`
 
+/** EXP-1103: the hidden "Fix review findings" builtin — a review WAVE's one
+ * fix run on the integration branch, started by the workflow engine on the
+ * runner device and by nothing else. Like the reviewer it has no factory
+ * here; the server only accepts the id and names the run. */
+export const BUILTIN_FIX_REVIEW_FINDINGS_ID = contract.builtinAction.fixReviewFindingsId
+
+export const BUILTIN_FIX_REVIEW_FINDINGS_NAME = `Fix review findings`
+
 export function isBuiltinActionId(id: string): boolean {
   return (
     id === BUILTIN_CREATE_ACTION_ID ||
     id === BUILTIN_FIX_CONFLICTS_ID ||
     id === BUILTIN_CHAT_ID ||
     id === BUILTIN_PLAN_WORKFLOW_ID ||
-    id === BUILTIN_REVIEW_NODE_ID
+    id === BUILTIN_REVIEW_NODE_ID ||
+    id === BUILTIN_FIX_REVIEW_FINDINGS_ID
   )
 }
 
@@ -86,7 +95,9 @@ export function builtinActionName(id: string): string {
         ? BUILTIN_PLAN_WORKFLOW_NAME
         : id === BUILTIN_REVIEW_NODE_ID
           ? BUILTIN_REVIEW_NODE_NAME
-          : BUILTIN_CREATE_ACTION_NAME
+          : id === BUILTIN_FIX_REVIEW_FINDINGS_ID
+            ? BUILTIN_FIX_REVIEW_FINDINGS_NAME
+            : BUILTIN_CREATE_ACTION_NAME
 }
 
 // EXP-825: the request itself (what the action should do, and its name if

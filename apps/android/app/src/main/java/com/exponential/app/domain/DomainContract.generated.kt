@@ -102,6 +102,7 @@ object DomainContract {
     const val builtinChatId: String = "builtin:chat"
     const val builtinPlanWorkflowId: String = "builtin:plan-workflow"
     const val builtinReviewNodeId: String = "builtin:review-node"
+    const val builtinFixReviewFindingsId: String = "builtin:fix-review-findings"
     const val workflowMaxReviewRounds: Int = 3
     const val workflowEventsMax: Int = 50
     const val workflowMaxParallelDefault: Int = 3

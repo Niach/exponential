@@ -411,7 +411,7 @@ How the graph works:
 - Everything else runs in parallel. Depth is wall-clock time: every extra wave makes the whole workflow wait.
 
 Default shape, about three waves whatever the number of issues (contracts-first fan-out):
-1. ONE root contract issue that blocks every leaf: the shared types, interfaces, stubs, contract tests and acceptance tests the leaves build against. File it with exponential_issues_create, add it with exponential_workflows_update addIssueIds, mark it kind contract. Every leaf builds on it and it gets the same agent review as any node, so keep it small and precise. NO LEEWAY: it lists the decided answers, never a proposal to overrule; a leaf must never be able to pick between two readings the person could have settled.
+1. ONE root contract issue that blocks every leaf: the shared types, interfaces, stubs, contract tests and acceptance tests the leaves build against. File it with exponential_issues_create, add it with exponential_workflows_update addIssueIds, mark it kind contract. Every leaf builds on it; reviews come in WAVES over what landed (one wave at the end; a graph deeper than three layers also reviews after the contract layer), so keep it small and precise. NO LEEWAY: it lists the decided answers, never a proposal to overrule; a leaf must never be able to pick between two readings the person could have settled.
 2. The user's original issues as parallel leaf nodes, each blocked only by the contract.
 3. ONE integration issue blocked by every leaf: wiring and end-to-end checks. Mark it kind integration.
 Add a chain between two leaves ONLY where a dependency truly cannot be turned into an interface in the contract.
@@ -462,25 +462,119 @@ pub fn review_node_prompt(
     base_branch: &str,
     adversarial: bool,
 ) -> String {
+    review_prompt(node_id, identifier, base_branch, adversarial, None)
+}
+
+/// EXP-1103 — the review of a LANDED node, as one reviewer of a review WAVE:
+/// the node's work is already in the integration branch (checked out here)
+/// as the squash commit of its pull request `#pr_number`; the reviewer finds
+/// that commit and judges ITS diff, in the context of the branch as it is
+/// now. The wave's ONE fix run gets the findings, never the author.
+pub fn review_landed_node_prompt(
+    node_id: &str,
+    identifier: &str,
+    base_branch: &str,
+    adversarial: bool,
+    pr_number: Option<i64>,
+) -> String {
+    review_prompt(node_id, identifier, base_branch, adversarial, Some(pr_number))
+}
+
+/// `landed` = `None` for a node branch cut from `base_branch` (pre-EXP-1103
+/// per-node review), `Some(pr)` for a landed node's squash commit on the
+/// integration branch checked out here.
+fn review_prompt(
+    node_id: &str,
+    identifier: &str,
+    base_branch: &str,
+    adversarial: bool,
+    landed: Option<Option<i64>>,
+) -> String {
     // Omitted whole (the line AND its newline) for an ordinary node.
     let adversarial_line = if adversarial {
         format!("{REVIEW_NODE_ADVERSARIAL_LINE}\n")
     } else {
         String::new()
     };
+    let (where_it_is, findings_go) = match landed {
+        None => (
+            format!("The work is checked out in this directory on a throwaway branch. It was based on `{base_branch}`: read the change with `git diff origin/{base_branch}...HEAD`."),
+            "the author gets them verbatim",
+        ),
+        Some(pr) => {
+            let locate = match pr {
+                Some(pr) => format!("It landed on this branch as the SQUASH COMMIT of pull request #{pr}: find it with `git log --oneline --grep='(#{pr})' HEAD` and read its diff with `git show <sha>`."),
+                None => format!("It landed on this branch as a squash commit titled with `{identifier}`: find it with `git log --oneline --grep='{identifier}' HEAD` and read its diff with `git show <sha>`."),
+            };
+            (
+                format!("The workflow's INTEGRATION branch is checked out in this directory, cut from `{base_branch}`, with every node that landed so far. This is one review of a REVIEW WAVE over the landed result; you review only THIS node's change. {locate} Judge it as it sits in the branch now — a later node may have moved things."),
+                "the wave's one fix run gets them verbatim",
+            )
+        }
+    };
     format!(
         "You are REVIEWING one node of an Exponential workflow. You did not write this code and you have not seen its author's reasoning: judge only what is in front of you. You change NO files and you push nothing.
 
 Node: {node_id}
 Issue: {identifier}
-The work is checked out in this directory on a throwaway branch. It was based on `{base_branch}`: read the change with `git diff origin/{base_branch}...HEAD`.
+{where_it_is}
 
 1. Run `git rev-parse HEAD` and keep the full sha it prints: that is the commit you are reviewing, and your verdict is tied to it.
 2. Read the issue with exponential_issues_get (description and comments): that is the requirement.
 3. Read the whole diff. Look for: requirements not met, behaviour that contradicts the issue, broken or missing tests, contract changes that would break the nodes that build on this one, security problems, dead or duplicated code.
 4. RUN the checks: the tests this change touches and, if the repository has them, the contract tests. An opinion is advisory; a command you ran is evidence. Remember the exact command and whether it passed.
-5. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, head = exactly the sha from step 1 (never a branch name, never a shortened or edited sha), verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed; empty when you approve without remarks), oracle = {{command, passed}} for what you ran (omit it only if nothing could be run), model = the model you are.
+5. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, head = exactly the sha from step 1 (never a branch name, never a shortened or edited sha), verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed — {findings_go}; empty when you approve without remarks), oracle = {{command, passed}} for what you ran (omit it only if nothing could be run), model = the model you are.
 {adversarial_line}Then finish with exponential_sessions_end."
+    )
+}
+
+/// EXP-1103 — one finding set of a review wave: what one reviewer asked of
+/// one landed node, as the fix run reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WaveFinding {
+    pub identifier: String,
+    /// The findings text the reviewer wrote, verbatim.
+    pub findings: String,
+    /// The reviewer's failed check, if its oracle failed.
+    pub failed_check: Option<String>,
+}
+
+/// EXP-1103 — the wave's ONE fix run: the integration branch is checked out
+/// on `branch` (cut from it); the run addresses every finding of every
+/// requesting node in one go, pushes `branch`, and ends. The host
+/// fast-forwards the integration branch to it; nothing here opens a pull
+/// request. Whatever it cannot settle it says so in its summary — that goes
+/// to the final pull request, never to another round.
+pub fn fix_review_findings_prompt(
+    workflow_name: &str,
+    wave: i64,
+    branch: &str,
+    integration_branch: &str,
+    findings: &[WaveFinding],
+) -> String {
+    let mut list = String::new();
+    for finding in findings {
+        let text = match finding.findings.trim() {
+            "" => "(the reviewer wrote no findings)".to_string(),
+            text => text.to_string(),
+        };
+        list.push_str(&format!("\n### {}\n\n{text}\n", finding.identifier));
+        if let Some(check) = finding.failed_check.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+            list.push_str(&format!("\nThe reviewer's check failed: `{check}`\n"));
+        }
+    }
+    format!(
+        "You are the FIX RUN of review wave {wave} of the Exponential workflow \"{workflow_name}\". The reviewers of this wave read every node that landed on the integration branch `{integration_branch}` and asked for the changes below. You address ALL of them, once, in this one run; there is no second round — whatever you cannot settle, say exactly what and why in your summary, and it is carried to the final pull request for a person.
+
+You are in a worktree on branch `{branch}`, cut from `{integration_branch}` as it is now. Never rebase and never force-push. Do not open a pull request: push `{branch}` and end; the scheduler fast-forwards the integration branch to it.
+
+1. Read each finding and the code it names. Read the issue behind a node with exponential_issues_get when a finding needs the requirement.
+2. Fix what is asked, in the order given. A finding that is wrong about the code: leave the code, say so in your summary.
+3. Run the tests you touch and the failed checks named below until they pass.
+4. Commit, push `{branch}`, then finish with exponential_sessions_end: one paragraph — what you fixed, what you left open and why.
+
+## Findings by node
+{list}"
     )
 }
 
@@ -558,6 +652,18 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
             "<its issue>",
             "<the branch it was cut from>",
             false,
+        )),
+        // EXP-1103: the wave's fix run previews with one placeholder finding.
+        domain::contract::BUILTIN_FIX_REVIEW_FINDINGS_ID => Some(fix_review_findings_prompt(
+            "<the workflow>",
+            1,
+            "<the fix branch>",
+            "<the integration branch>",
+            &[WaveFinding {
+                identifier: "<a landed node's issue>".to_string(),
+                findings: "<what its reviewer asked for>".to_string(),
+                failed_check: None,
+            }],
         )),
         domain::contract::BUILTIN_FIX_CONFLICTS_ID => Some(fix_pr_conflicts_prompt(
             "<the issue you pick>",
@@ -1284,7 +1390,7 @@ The work is checked out in this directory on a throwaway branch. It was based on
 2. Read the issue with exponential_issues_get (description and comments): that is the requirement.
 3. Read the whole diff. Look for: requirements not met, behaviour that contradicts the issue, broken or missing tests, contract changes that would break the nodes that build on this one, security problems, dead or duplicated code.
 4. RUN the checks: the tests this change touches and, if the repository has them, the contract tests. An opinion is advisory; a command you ran is evidence. Remember the exact command and whether it passed.
-5. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, head = exactly the sha from step 1 (never a branch name, never a shortened or edited sha), verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed; empty when you approve without remarks), oracle = {command, passed} for what you ran (omit it only if nothing could be run), model = the model you are.
+5. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, head = exactly the sha from step 1 (never a branch name, never a shortened or edited sha), verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed — the author gets them verbatim; empty when you approve without remarks), oracle = {command, passed} for what you ran (omit it only if nothing could be run), model = the model you are.
 Then finish with exponential_sessions_end."
         );
 

@@ -40,6 +40,7 @@ import {
   BUILTIN_CHAT_ID,
   BUILTIN_PLAN_WORKFLOW_ID,
   BUILTIN_REVIEW_NODE_ID,
+  BUILTIN_FIX_REVIEW_FINDINGS_ID,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
   builtinActionName,
@@ -60,6 +61,7 @@ const actionIdInput = z
   .or(z.literal(BUILTIN_CHAT_ID))
   .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
   .or(z.literal(BUILTIN_REVIEW_NODE_ID))
+  .or(z.literal(BUILTIN_FIX_REVIEW_FINDINGS_ID))
 
 // EXP-432: a remote start on a teammate's SHARED server device is attributed
 // to the requester — `startedBy` rides the relay frame and the daemon echoes

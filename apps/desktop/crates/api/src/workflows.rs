@@ -462,6 +462,9 @@ impl LandOutcome {
             Some("Waiting for a person to approve")
                 // EXP-1065: the server's wording once nobody approves by hand.
                 | Some("Waiting for the agent review to clear it")
+                // EXP-1103: the run gate and the review-wave gate.
+                | Some("Waiting for its run to end")
+                | Some("Waiting for the review wave to clear")
                 | Some("The workflow is not running")
                 // EXP-983: the train lands in topological order, so a
                 // speculative node's turn simply has not come yet.
@@ -479,6 +482,36 @@ pub fn land_node(trpc: &TrpcClient, node_id: &str) -> Result<LandOutcome, ApiErr
         node_id: &'a str,
     }
     trpc.mutation("workflows.landNode", &Input { node_id })
+}
+
+/// ENGINE (EXP-1103): `workflows.clearReviewWave` — a review wave is done;
+/// `approved_at` is stamped on its landed nodes. Answers how many were.
+pub fn clear_review_wave(
+    trpc: &TrpcClient,
+    workflow_id: &str,
+    wave: i64,
+    node_ids: &[String],
+) -> Result<usize, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        workflow_id: &'a str,
+        wave: i64,
+        node_ids: &'a [String],
+    }
+    #[derive(Deserialize)]
+    struct Cleared {
+        cleared: usize,
+    }
+    let cleared: Cleared = trpc.mutation(
+        "workflows.clearReviewWave",
+        &Input {
+            workflow_id,
+            wave,
+            node_ids,
+        },
+    )?;
+    Ok(cleared.cleared)
 }
 
 /// MEMBER: `workflows.mergeFinalPr` — squash-merge the workflow's ONE final

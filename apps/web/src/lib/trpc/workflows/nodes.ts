@@ -14,9 +14,14 @@ import {
   wfRiskSchema,
 } from "@exp/db-schema/domain"
 import { authedProcedure, generateTxId } from "@/lib/trpc"
-import { issues, workflowNodes, workflows } from "@/db/schema"
+import { codingSessions, issues, workflowNodes, workflows } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
 import { loadWorkflowEdges, replanWorkflow } from "@/lib/workflows"
+import {
+  reviewWaveGate,
+  WAITING_FOR_REVIEW_WAVE,
+  WAITING_FOR_RUN_TO_END,
+} from "@/lib/workflow-waves"
 import {
   bad,
   loadWorkflow,
@@ -28,8 +33,20 @@ import {
   appendDecisionLine,
   carriedReviewAtCap,
   carriedFindingsLine,
+  type Db,
 } from "./shared"
 import { recordWorkflowEvent } from "@/lib/workflows/record-event"
+
+/** Whether a node's run (if it has one) is no longer live. */
+async function runEnded(db: Db, sessionId: string | null): Promise<boolean> {
+  if (!sessionId) return true
+  const [run] = await db
+    .select({ status: codingSessions.status })
+    .from(codingSessions)
+    .where(eq(codingSessions.id, sessionId))
+    .limit(1)
+  return !run || (run.status !== `running` && run.status !== `in_review`)
+}
 
 export const workflowNodeProcedures = {
 
@@ -256,14 +273,20 @@ export const workflowNodeProcedures = {
           retriedAt: node.retriedAt,
         })
       const waiting = (reason: string) => ({ merged: false, reason, retargeted: [] as string[] })
-      // EXP-1065: the cap clears a node without an approval; its findings
-      // ride along below.
-      const carried = carriedReviewAtCap(node)
-      if (!merged && !node.approvedAt && !carried) {
-        // The literal is matched by shipped engines (`LandOutcome::is_waiting`).
-        return waiting(`Waiting for the agent review to clear it`)
-      }
       const graph = await loadWorkflowEdges(ctx.db, workflow.id)
+      if (!merged) {
+        // EXP-1103: no review gates a node any more — the waves review the
+        // LANDED result. What gates a node is its RUN (it lands once the run
+        // ended with its pull request up) and the review wave before its
+        // layer, in a deep graph.
+        if (!(await runEnded(ctx.db, node.sessionId))) {
+          return waiting(WAITING_FOR_RUN_TO_END)
+        }
+        if (reviewWaveGate(graph.nodes, node.wave) !== null) {
+          // The literal is matched by shipped engines (`LandOutcome::is_waiting`).
+          return waiting(WAITING_FOR_REVIEW_WAVE)
+        }
+      }
       if (merged) {
         const others = graph.nodes.filter((row) => row.id !== node.id)
         const branches = others.length
@@ -339,7 +362,13 @@ export const workflowNodeProcedures = {
       }
       // EXP-1010: the state guard IS the claim. A concurrent `skip` stays a
       // skip, and two landings of one node count once.
-      const outside = merged && !node.approvedAt && !carried
+      // EXP-1103: a merge outside the train is only worth a decisions line
+      // when it skipped the RUN gate (the run was still up); a review no
+      // longer gates anything before the landing.
+      const outside = merged && !node.approvedAt && !(await runEnded(ctx.db, node.sessionId))
+      // EXP-1065 compat: a node an OLD engine bounced to the review cap
+      // carries its last findings into the log as before.
+      const carried = carriedReviewAtCap(node)
       let identifier: string | null = null
       const landed = await ctx.db.transaction(async (tx) => {
         const rows = await tx
@@ -374,7 +403,7 @@ export const workflowNodeProcedures = {
                 : ``
             decisions = appendDecisionLine(
               decisions,
-              `${identifier ?? `A node`} was merged outside the train${where}, before a review approved it.`,
+              `${identifier ?? `A node`} was merged outside the train${where}, while its run was still up.`,
               new Date()
             )
           }

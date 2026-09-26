@@ -4975,7 +4975,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_request_upstream`,
     {
-      description: `Workflow node runs only: ask the run of an issue that BLOCKS yours to change what it gave you (a missing field, a wrong signature). It lands in that run's channel; go on with what you can. You may reject upstream work, but never settle an interface dispute between two runs: if it refuses or has ended, escalate with exponential_sessions_ask_parent.`,
+      description: `Workflow node runs only: ask the run of an issue that BLOCKS yours to change what it gave you (a missing field, a wrong signature). It lands in that run's channel; go on with what you can. Your branch is FROZEN on the upstream tip you started from: nobody pushes a newer one into it while you run, so once the change is up, pull it yourself (git fetch origin && git merge origin/<the base branch of your prompt>). You may reject upstream work, but never settle an interface dispute between two runs: if it refuses or has ended, escalate with exponential_sessions_ask_parent.`,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         message: z.string().min(1).max(4_000),
@@ -5024,7 +5024,7 @@ export function registerExponentialTools(
         )
         return ok(
           result.delivered
-            ? { delivered: true, note: `Delivered. Go on with what you can; the change arrives as a new upstream push.` }
+            ? { delivered: true, note: `Delivered. Go on with what you can; when the change is pushed, take it yourself with git fetch origin && git merge origin/<your base branch> — upstream is never merged into a running node's branch for it.` }
             : { delivered: false, note: escalate }
         )
       } catch (e) {
@@ -5036,7 +5036,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_review_submit`,
     {
-      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the author gets it verbatim); oracle = {command, passed} for the checks you actually RAN (the exact commands, up to 2000 chars); head = the PR head commit sha you reviewed (a later push needs a new review). An approval clears the node for the merge train unless your own oracle failed; then a person decides.`,
+      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the wave's fix run gets it verbatim); oracle = {command, passed} for the checks you actually RAN (the exact commands, up to 2000 chars); head = the commit sha you reviewed. Reviews happen in waves over landed work: every request of the wave goes to ONE fix run, then whatever stays open is carried to the final pull request.`,
       inputSchema: strictInput({
         nodeId: uuidString,
         verdict: z.enum(contract.wfReviewVerdict.values as [string, ...string[]]),

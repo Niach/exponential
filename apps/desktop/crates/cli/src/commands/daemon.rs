@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context as _};
 use coding::{LaunchOptions, Prepared, PrepareRequest};
 use coding::workflows::events::{self, Outcome, TrpcEventSink, WorkflowEventSink as _};
+use coding::workflows::{FixRunFacts, WakeMode, WakeReason, WorkflowStore};
 use steer::control_channel::StartSessionFn;
 use steer::{ControlApi, DeviceIdentity, RemoteStart, RemoteStartSubject, TrpcControlApi};
 
@@ -2003,8 +2004,8 @@ impl NodeHold<'_> {
         let nodes = read_shape_rows::<domain::rows::WorkflowNodeRow>(store, "workflow_nodes")
             .into_iter()
             .filter_map(|row| Some((row.workflow_id?, row.session_id?)));
-        let settings_path = coding::Settings::default_path(&ctx.data_dir);
-        let mut states = coding::workflows::read_states(&settings_path, self.device_id);
+        let engine_store = WorkflowStore::open(&ctx.data_dir);
+        let mut states = engine_store.read_all();
         let now_ms = chrono::Local::now().timestamp_millis();
         let Some(workflow_id) =
             coding::workflows::hold_resume(&mut states, nodes, &record.session_id, now_ms)
@@ -2015,7 +2016,10 @@ impl NodeHold<'_> {
             "workflow {workflow_id}: holding node run {} for a person's resume",
             record.session_id
         );
-        if let Err(err) = coding::workflows::write_states(&settings_path, self.device_id, &states) {
+        let held = record.session_id.clone();
+        if let Err(err) = engine_store.update(&workflow_id, move |state| {
+            state.resuming.insert(held, now_ms);
+        }) {
             log::warn!("workflow state write failed: {err}");
         }
         record
@@ -2024,13 +2028,17 @@ impl NodeHold<'_> {
     /// The hold released: the resume was refused after the run ended, so the
     /// engine decides the node now, not after the grace.
     fn release(&self, ctx: &Ctx, session_id: &str) {
-        let settings_path = coding::Settings::default_path(&ctx.data_dir);
-        let mut states = coding::workflows::read_states(&settings_path, self.device_id);
-        if !coding::workflows::release_resume(&mut states, session_id) {
-            return;
-        }
-        if let Err(err) = coding::workflows::write_states(&settings_path, self.device_id, &states) {
-            log::warn!("workflow state write failed: {err}");
+        let engine_store = WorkflowStore::open(&ctx.data_dir);
+        for (workflow_id, state) in engine_store.read_all() {
+            if !state.resuming.contains_key(session_id) {
+                continue;
+            }
+            let released = session_id.to_string();
+            if let Err(err) = engine_store.update(&workflow_id, move |state| {
+                state.resuming.remove(&released);
+            }) {
+                log::warn!("workflow state write failed: {err}");
+            }
         }
     }
 }
@@ -3141,7 +3149,7 @@ impl AutomationHost {
             return;
         }
         let settings_path = coding::Settings::default_path(&self.ctx.data_dir);
-        let mut states = coding::automations::read_states(&settings_path, &self.device_id);
+        let mut states = coding::automations::read_states(&self.automation_store());
         let now_local = chrono::Local::now();
         let now_ms = now_local.timestamp_millis();
         let live = live_action_ids(&self.sessions);
@@ -3262,7 +3270,8 @@ impl AutomationHost {
         settings_path: &Path,
         states: &HashMap<String, coding::automations::AutomationState>,
     ) -> bool {
-        match coding::automations::write_states(settings_path, &self.device_id, states) {
+        let _ = settings_path;
+        match coding::automations::write_states(&self.automation_store(), states) {
             Ok(()) => true,
             Err(err) => {
                 // Without a durable watermark a launch could re-fire forever
@@ -3381,6 +3390,20 @@ impl AutomationHost {
     /// daemon's pass runs to completion before the next beat starts, so
     /// nothing can be half-done across an evaluation.
     fn workflow_beat(&self, store: &sync::store::ShapeStore) {
+        // EXP-1102: the engine state's one move out of settings.json — this
+        // device's sub-maps only, once per process.
+        static MIGRATED: AtomicBool = AtomicBool::new(false);
+        if !MIGRATED.swap(true, Ordering::SeqCst) {
+            let settings_path = coding::Settings::default_path(&self.ctx.data_dir);
+            let moved = WorkflowStore::open(&self.ctx.data_dir)
+                .migrate_legacy(&settings_path, &self.device_id);
+            if moved > 0 {
+                log::info!("moved {moved} workflow state document(s) out of settings.json");
+            }
+            if self.automation_store().migrate_legacy(&settings_path) {
+                log::info!("moved the automation state out of settings.json");
+            }
+        }
         let workflows = read_shape_rows::<domain::rows::WorkflowRow>(store, "workflows");
         let mine: Vec<&domain::rows::WorkflowRow> = workflows
             .iter()
@@ -3397,16 +3420,24 @@ impl AutomationHost {
         let settings_path = coding::Settings::default_path(&self.ctx.data_dir);
         let settings = coding::Settings::load(&settings_path);
         let now_ms = chrono::Local::now().timestamp_millis();
+        // EXP-1102: a workflow that is gone takes its state document with it.
+        let engine_store = WorkflowStore::open(&self.ctx.data_dir);
+        engine_store.prune(&workflows.iter().map(|row| row.id.clone()).collect());
         for workflow in mine {
             let plan = match workflow_plan(
-                workflow, &nodes, &issues, &sessions, &relations, &settings_path,
-                &self.device_id, now_ms,
+                workflow, &nodes, &issues, &sessions, &relations, &engine_store, now_ms,
             ) {
                 Some(plan) => plan,
                 None => continue,
             };
             self.run_workflow_pass(plan, &settings, &settings_path);
         }
+    }
+
+    /// EXP-1102: the automation state's own store (`{data_dir}/automations/
+    /// <device_id>.json`).
+    fn automation_store(&self) -> coding::automations::AutomationStore {
+        coding::automations::AutomationStore::open(&self.ctx.data_dir, &self.device_id)
     }
 
     /// Execute one workflow's decisions, in the order the engine emitted
@@ -3453,23 +3484,60 @@ impl AutomationHost {
                     HashMap::new()
                 }
             };
-            let mut cache = workflow_state(settings_path, &self.device_id, &workflow_id).conflicts;
+            // EXP-1106: the ancestry and merge tests read the clone's remote
+            // refs, which ls-remote alone never moves.
+            if let Err(err) = coding::workflows::fetch_origin(clone, Some(url)) {
+                log::warn!("workflow {workflow_id}: fetch — {err}");
+            }
+            let mut state = workflow_state(settings_path, &self.device_id, &workflow_id);
+            plan.snapshot.tip_seen_ms = coding::workflows::stamp_tips_seen(
+                &mut state.tips_seen,
+                &plan.snapshot.tips,
+                plan.snapshot.now_ms,
+            );
             plan.snapshot.conflicts = coding::workflows::detect_conflicts(
                 clone,
                 &plan.candidates,
                 &plan.branch_of,
                 &plan.snapshot.tips,
-                &mut cache,
+                &mut state.conflicts,
+                Some(url),
+            );
+            coding::workflows::confine_branches_to_tips(&mut plan.snapshot);
+            let pairs = workflow_upstream_pairs(&plan.snapshot, &plan.branch_of);
+            coding::workflows::refresh_merged(clone, &pairs, &plan.snapshot.tips, &mut state.merged);
+            plan.snapshot.base_conflicts = coding::workflows::detect_base_conflicts(
+                clone,
+                &pairs,
+                &plan.snapshot.tips,
+                &state.merged,
+                &mut state.conflicts,
                 Some(url),
             );
             coding::workflows::prune_conflict_cache(
-                &mut cache,
+                &mut state.conflicts,
                 &plan.candidates,
                 &plan.branch_of,
                 &plan.snapshot.tips,
             );
-            update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
-                state.conflicts = cache.clone()
+            for fix in &mut plan.snapshot.fix_runs {
+                let branch = coding::workflows::fix_branch(&workflow_id, fix.wave);
+                fix.landed = match plan.snapshot.tips.get(&branch) {
+                    None => true,
+                    Some(sha) => coding::workflows::git_is_ancestor(
+                        clone,
+                        sha,
+                        &format!("refs/remotes/origin/{}", plan.snapshot.workflow.integration_branch),
+                    )
+                    .unwrap_or(false),
+                };
+            }
+            plan.snapshot.merged = state.merged.clone();
+            plan.snapshot.woken = state.woken.clone();
+            update_workflow_state(settings_path, &self.device_id, &workflow_id, move |persisted| {
+                persisted.conflicts = state.conflicts;
+                persisted.merged = state.merged;
+                persisted.tips_seen = state.tips_seen;
             });
         }
         // Unconditional: a beat that could not read the remote has no
@@ -3523,7 +3591,6 @@ impl AutomationHost {
                     sink.record(event);
                 }
             }
-            plan.snapshot.reviewed_head = state.reviewed_head.clone();
             // FEED-49: the map as this pass READ it — a person's resume on
             // the remote-start thread may have taken a hold since, and the
             // write-back below must keep it.
@@ -3536,7 +3603,6 @@ impl AutomationHost {
             coding::workflows::prune_land_refused(&mut state.land_refused, &plan.snapshot.pr_head);
             plan.snapshot.land_refused = state.land_refused.clone();
             update_workflow_state(settings_path, &self.device_id, &workflow_id, move |persisted| {
-                persisted.reviewed_head = state.reviewed_head;
                 persisted.review_runs = state.review_runs;
                 persisted.review_rounds = state.review_rounds;
                 persisted.review_failures = state.review_failures;
@@ -3626,16 +3692,55 @@ impl AutomationHost {
                         }
                     }
                     coding::workflows::Decision::LandNode { node_id } => {
-                        self.land_workflow_node(&plan, &node_id, &branch, settings_path);
+                        self.land_workflow_node(&plan, &node_id, &branch, settings, settings_path);
                     }
-                    // EXP-983: the branch under a run moved — a live run takes
-                    // the text where it stands, an ended one is resumed with it.
-                    coding::workflows::Decision::MergeUpstream {
+                    // EXP-1106 rule 1: the branch under an ENDED run moved —
+                    // merged in by the daemon itself. Zero agent tokens.
+                    coding::workflows::Decision::MergeBase {
                         node_id,
-                        session_id,
+                        branch: node_branch,
                         base_branch,
                         sha,
                     } => {
+                        let Some((clone, url)) = repo.as_ref() else {
+                            break 'decision Outcome::Skipped;
+                        };
+                        let workspace = coding::workflows::engine_worktree(clone, &workflow_id);
+                        match coding::workflows::merge_into_branch(
+                            clone,
+                            &workspace,
+                            &node_branch,
+                            &base_branch,
+                            Some(url),
+                        ) {
+                            Ok(coding::workflows::MergeOutcome::Merged) => {
+                                remember_merged(
+                                    settings_path,
+                                    &self.device_id,
+                                    &workflow_id,
+                                    &node_id,
+                                    &base_branch,
+                                    &sha,
+                                );
+                            }
+                            Ok(coding::workflows::MergeOutcome::Conflict) => {
+                                log::info!("workflow {workflow_id}: {node_branch} conflicts with {base_branch}");
+                                break 'decision Outcome::Skipped;
+                            }
+                            Err(err) => {
+                                log::warn!("workflow {workflow_id}: merge {base_branch} into {node_branch} — {err}");
+                                break 'decision Outcome::Failed(err.to_string());
+                            }
+                        }
+                    }
+                    // EXP-1106 rule 3: the one wake a conflict costs.
+                    coding::workflows::Decision::WakeRun {
+                        node_id,
+                        session_id,
+                        mode,
+                        reason,
+                    } => {
+                        let WakeReason::UpstreamConflict { base_branch, sha } = reason;
                         let note = match repo.as_ref() {
                             Some((clone, url)) => workflow_movement_note(
                                 clone,
@@ -3648,28 +3753,38 @@ impl AutomationHost {
                             None => sha.clone(),
                         };
                         let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
-                        remember_propagated(
-                            settings_path,
-                            &self.device_id,
-                            &workflow_id,
+                        match self.wake_workflow_run(
+                            &plan,
+                            repo.as_ref(),
                             &node_id,
-                            &base_branch,
-                            &sha,
-                        );
-                        // EXP-984: a merge-in is counted when it is DELIVERED.
-                        if let Some(live) = workflow_session(&self.sessions, &session_id) {
-                            live.send_prompt(text);
-                        } else if let Err(err) =
-                            self.resume_workflow_node(&plan, &session_id, text, settings_path)
-                        {
-                            log::warn!("workflow resume of {session_id} failed: {err}");
-                            break 'decision Outcome::Failed(err.to_string());
+                            &session_id,
+                            mode,
+                            text,
+                            settings,
+                            settings_path,
+                        ) {
+                            Ok(true) => {
+                                remember_woken(
+                                    settings_path,
+                                    &self.device_id,
+                                    &workflow_id,
+                                    &node_id,
+                                    &base_branch,
+                                    &sha,
+                                );
+                            }
+                            Ok(false) => break 'decision Outcome::Skipped,
+                            Err(err) => {
+                                log::warn!("workflow wake of {session_id} failed: {err}");
+                                break 'decision Outcome::Failed(err.to_string());
+                            }
                         }
                     }
                     // EXP-984: the agent review of one node — the hidden
                     // `Review node` builtin, in a throwaway worktree of its own.
                     coding::workflows::Decision::StartReview {
                         node_id,
+                        wave: _,
                         model,
                         adversarial,
                         workflow_id: member_workflow_id,
@@ -3695,53 +3810,69 @@ impl AutomationHost {
                             Err(err) => break 'decision Outcome::Failed(err),
                         }
                     }
-                    // EXP-984: the review asked for changes — its findings go to
-                    // the node's AUTHOR verbatim, once per round.
-                    coding::workflows::Decision::SendFindings {
-                        node_id,
-                        session_id,
+                    // EXP-1103: the wave's ONE fix run.
+                    coding::workflows::Decision::StartFix {
+                        wave,
+                        node_ids,
+                        branch: fix_branch,
+                        model,
+                        workflow_id: member_workflow_id,
+                        role,
+                        account,
                     } => {
-                        let Some(review) = plan.review_of.get(&node_id) else {
+                        match self.start_workflow_fix(
+                            &plan,
+                            wave,
+                            &node_ids,
+                            fix_branch,
+                            model,
+                            coding::workflows::WorkflowMembership {
+                                workflow_id: member_workflow_id,
+                                node_id: None,
+                                role,
+                            },
+                            account,
+                            settings,
+                            settings_path,
+                        ) {
+                            Ok(true) => {}
+                            Ok(false) => break 'decision Outcome::Skipped,
+                            Err(err) => break 'decision Outcome::Failed(err),
+                        }
+                    }
+                    // EXP-1103: the fix run ended — its branch lands on the
+                    // integration branch, mechanically.
+                    coding::workflows::Decision::LandFix { wave, branch: fix_branch } => {
+                        let Some((clone, url)) = repo.as_ref() else {
                             break 'decision Outcome::Skipped;
                         };
-                        let text =
-                            coding::prompt::review_findings_prompt(review.round, &review.findings);
-                        match session_id {
-                            // The engine only names a session that is LIVE:
-                            // steer it where it stands, or say nothing this pass
-                            // (a live run must never be resumed into a second).
-                            Some(session_id) => {
-                                match workflow_session(&self.sessions, &session_id) {
-                                    Some(live) => live.send_prompt(text),
-                                    None => break 'decision Outcome::Skipped,
-                                }
-                            }
-                            // Its run ENDED: re-enter it with the findings.
-                            None => {
-                                let Some(session_id) = plan
-                                    .nodes
-                                    .get(&node_id)
-                                    .and_then(|node| node.session_id.clone())
-                                else {
-                                    break 'decision Outcome::Skipped;
-                                };
-                                if let Err(err) =
-                                    self.resume_workflow_node(&plan, &session_id, text, settings_path)
-                                {
-                                    log::warn!("workflow resume of {session_id} failed: {err}");
-                                    break 'decision Outcome::Failed(err.to_string());
-                                }
+                        let workspace = coding::workflows::engine_worktree(clone, &workflow_id);
+                        if let Err(err) = coding::workflows::land_branch(
+                            clone,
+                            &workspace,
+                            &fix_branch,
+                            &branch,
+                            Some(url),
+                        ) {
+                            log::warn!("workflow {workflow_id}: landing the wave {wave} fix — {err}");
+                            let _ = api::workflows::append_decision(
+                                &self.ctx.trpc,
+                                &workflow_id,
+                                &format!("The review wave {wave} fix branch {fix_branch} could not be landed: {err}. It stays on origin for a person."),
+                            );
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                        log::info!("workflow {workflow_id}: landed the wave {wave} fix");
+                    }
+                    // EXP-1103: the wave clears — the server stamps its nodes.
+                    coding::workflows::Decision::ClearWave { wave, node_ids } => {
+                        match api::workflows::clear_review_wave(&self.ctx.trpc, &workflow_id, wave, &node_ids) {
+                            Ok(cleared) => log::info!("workflow {workflow_id}: review wave {wave} cleared ({cleared} nodes)"),
+                            Err(err) => {
+                                log::warn!("workflow {workflow_id}: clearReviewWave — {err}");
+                                break 'decision Outcome::Failed(err.to_string());
                             }
                         }
-                        let round = review.round;
-                        update_workflow_state(
-                            settings_path,
-                            &self.device_id,
-                            &workflow_id,
-                            |state| {
-                                state.findings_sent.insert(node_id.clone(), round);
-                            },
-                        );
                     }
                     // EXP-983: the collision the engine decided to serialize.
                     coding::workflows::Decision::SetSerialEdge {
@@ -4009,7 +4140,7 @@ impl AutomationHost {
         // EXP-983: the run is cut AT this tip, so it already has it —
         // recording that is what keeps the first beat quiet.
         if let Some(sha) = plan.snapshot.tips.get(branch) {
-            remember_propagated(
+            remember_merged(
                 settings_path,
                 &self.device_id,
                 &plan.snapshot.workflow.id,
@@ -4041,7 +4172,7 @@ impl AutomationHost {
         // EXP-1082: the row names its workflow, node and role; EXP-1005's
         // rotation may pick the account.
         coding::workflows::apply_engine_start(&mut options, membership, account);
-        match self.prepare_workflow_node(plan, node, run, options, branch) {
+        match self.prepare_workflow_node(plan, node, run, options, branch, None) {
             Ok(Some(session_id)) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "running");
                 report.session_id = api::patch::Patch::Set(session_id);
@@ -4068,6 +4199,7 @@ impl AutomationHost {
         run: coding::WorkflowRun,
         options: coding::LaunchOptions,
         branch: &str,
+        prompt: Option<String>,
     ) -> anyhow::Result<Option<String>> {
         let mut seeds = HashMap::new();
         let request = if node.member_issue_ids.is_empty() {
@@ -4078,7 +4210,7 @@ impl AutomationHost {
                 options,
                 coding::LaunchOrigin::Local,
                 false,
-                None,
+                prompt,
                 None,
             );
             request.base_branch = Some(branch.to_string());
@@ -4119,7 +4251,7 @@ impl AutomationHost {
                 device_label: coding::default_device_label(),
                 origin: coding::LaunchOrigin::Local,
                 options,
-                prompt: None,
+                prompt,
                 base_branch: Some(branch.to_string()),
                 workflow: Some(run),
             })
@@ -4175,10 +4307,7 @@ impl AutomationHost {
         let Some(node) = plan.nodes.get(node_id) else {
             return Ok(false);
         };
-        let (Some(identifier), Some(node_branch)) = (
-            plan.snapshot.identifier.get(node_id).cloned(),
-            plan.branch_of.get(node_id).cloned(),
-        ) else {
+        let Some(identifier) = plan.snapshot.identifier.get(node_id).cloned() else {
             return Ok(false);
         };
         let repo = match api::repositories::for_issue(&self.ctx.trpc, &node.issue_id) {
@@ -4192,13 +4321,25 @@ impl AutomationHost {
                 return Err(err.to_string());
             }
         };
-        // The head this review runs against is recorded BEFORE the launch:
-        // the next beat must not start a second review of the same push.
-        if let Some(sha) = plan.snapshot.pr_head.get(node_id).cloned() {
-            update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
-                state.reviewed_head.insert(node_id.to_string(), sha.clone());
-            });
-        }
+        // EXP-1103: a review WAVE looks at the LANDED result — the
+        // integration branch is checked out, the node's squash commit judged.
+        let landed = node.state == "landed";
+        let (node_branch, review_base) = if landed {
+            (
+                plan.snapshot.workflow.integration_branch.clone(),
+                repo.default_branch.clone(),
+            )
+        } else {
+            let Some(branch) = plan.branch_of.get(node_id).cloned() else {
+                return Ok(false);
+            };
+            (
+                branch,
+                node.base_branch
+                    .clone()
+                    .unwrap_or_else(|| plan.snapshot.workflow.integration_branch.clone()),
+            )
+        };
         let round = node.review_round + 1;
         let mut options = coding::workflows::launch_options(
             settings,
@@ -4231,16 +4372,14 @@ impl AutomationHost {
                 node_id: node_id.to_string(),
                 identifier: identifier.clone(),
                 branch: node_branch,
-                base_branch: node
-                    .base_branch
-                    .clone()
-                    .unwrap_or_else(|| plan.snapshot.workflow.integration_branch.clone()),
+                base_branch: review_base,
                 review_branch: coding::workflows::review_branch(
                     &workflow_id,
                     &identifier,
                     round,
                 ),
                 adversarial,
+                landed: landed.then(|| plan.pr_number_of.get(node_id).copied()),
             },
             trigger: None,
             automation_id: None,
@@ -4293,11 +4432,233 @@ impl AutomationHost {
             }
             Err(err) => {
                 log::warn!("workflow review of {node_id} — {err}");
-                // It reviewed nothing: let the next beat try again.
-                update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
-                    state.reviewed_head.remove(node_id);
-                });
                 Err(err.to_string())
+            }
+        }
+    }
+
+    /// EXP-1103 — start ONE review wave's fix run: the hidden `Fix review
+    /// findings` builtin in a worktree of its own on the wave's fix branch.
+    /// `Ok(true)` = launched, `Ok(false)` = nothing to hand it (not synced
+    /// yet), `Err` = the launch failed; either way the next beat re-decides.
+    #[allow(clippy::too_many_arguments)]
+    fn start_workflow_fix(
+        &self,
+        plan: &WorkflowPlan,
+        wave: i64,
+        node_ids: &[String],
+        branch: String,
+        model: Option<String>,
+        membership: coding::workflows::WorkflowMembership,
+        account: Option<String>,
+        settings: &coding::Settings,
+        settings_path: &Path,
+    ) -> Result<bool, String> {
+        let workflow_id = plan.snapshot.workflow.id.clone();
+        let Some(first) = node_ids.iter().find_map(|id| plan.nodes.get(id)) else {
+            return Ok(false);
+        };
+        let repo = match api::repositories::for_issue(&self.ctx.trpc, &first.issue_id) {
+            Ok(Some(repo)) => repo,
+            Ok(None) => return Ok(false),
+            Err(err) => return Err(err.to_string()),
+        };
+        let findings: Vec<coding::action_prompt::WaveFinding> = node_ids
+            .iter()
+            .filter_map(|node_id| {
+                let review = plan.review_of.get(node_id)?;
+                Some(coding::action_prompt::WaveFinding {
+                    identifier: plan
+                        .snapshot
+                        .identifier
+                        .get(node_id)
+                        .cloned()
+                        .unwrap_or_else(|| node_id.clone()),
+                    findings: review.findings.clone(),
+                    failed_check: (review.oracle_passed == Some(false))
+                        .then(|| review.oracle_command.clone())
+                        .flatten(),
+                })
+            })
+            .collect();
+        if findings.is_empty() {
+            return Ok(false);
+        }
+        let mut options = coding::workflows::launch_options(
+            settings,
+            Some(plan.launch.agent.as_str()),
+            None,
+            None,
+            Some(plan.launch.model.as_str()),
+            plan.launch.account.as_deref(),
+        );
+        if let Some(model) = model {
+            options.model = model;
+        }
+        coding::workflows::apply_engine_start(&mut options, membership, account);
+        let request = PrepareRequest::Action(coding::ActionLaunchRequest {
+            action_id: api::actions::BUILTIN_FIX_REVIEW_FINDINGS_ID.to_string(),
+            run_id: coding::new_run_id(),
+            action_name: api::actions::BUILTIN_FIX_REVIEW_FINDINGS_NAME.to_string(),
+            team_id: plan.team_id.clone(),
+            body: String::new(),
+            repo: Some(coding::RepoGroup {
+                repository_id: repo.repository_id,
+                full_name: repo.full_name,
+                default_branch: repo.default_branch,
+            }),
+            inputs: Vec::new(),
+            kind: coding::ActionRunKind::FixReviewFindings {
+                workflow_name: plan.name.clone(),
+                wave,
+                branch,
+                integration_branch: plan.snapshot.workflow.integration_branch.clone(),
+                findings,
+            },
+            trigger: None,
+            automation_id: None,
+            device_label: coding::default_device_label(),
+            origin: coding::LaunchOrigin::Local,
+            options,
+            prompt: None,
+        });
+        let deps = launch::coding_deps(
+            &self.ctx,
+            HashMap::new(),
+            launch::LaunchHost::Daemon,
+            self.runtime.as_ref(),
+        );
+        let started = (|| -> anyhow::Result<String> {
+            let prepared =
+                coding::prepare(&request, &deps).map_err(|err| anyhow::anyhow!("{err}"))?;
+            if let Prepared::Disabled(reason) = &prepared {
+                anyhow::bail!("{}", reason.message());
+            }
+            let session_id = match &prepared {
+                Prepared::Ready(ready) => ready.session_id.clone(),
+                Prepared::Disabled(_) => unreachable!("refused above"),
+            };
+            spawn_prepared(
+                &self.ctx,
+                self.runtime.as_ref(),
+                &self.sessions,
+                self.personal_key.clone(),
+                prepared,
+                None,
+                false,
+            )?;
+            Ok(session_id)
+        })();
+        match started {
+            Ok(session_id) => {
+                update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
+                    state.fix_runs.insert(wave, session_id.clone());
+                });
+                Ok(true)
+            }
+            Err(err) => {
+                log::warn!("workflow fix run of wave {wave} — {err}");
+                Err(err.to_string())
+            }
+        }
+    }
+
+    /// EXP-1106 rule 3 — wake one node's run with `text`: steer it where it
+    /// stands, resume it warm, or start a FRESH run of the node with a brief.
+    /// `Ok(true)` = woken.
+    #[allow(clippy::too_many_arguments)]
+    fn wake_workflow_run(
+        &self,
+        plan: &WorkflowPlan,
+        repo: Option<&(PathBuf, coding::git_worktree::TokenUrl)>,
+        node_id: &str,
+        session_id: &str,
+        mode: WakeMode,
+        text: String,
+        settings: &coding::Settings,
+        settings_path: &Path,
+    ) -> anyhow::Result<bool> {
+        match mode {
+            WakeMode::Steer => match workflow_session(&self.sessions, session_id) {
+                Some(live) => {
+                    live.send_prompt(text);
+                    Ok(true)
+                }
+                None => Ok(false),
+            },
+            WakeMode::Resume => {
+                self.resume_workflow_node(plan, session_id, text, settings_path)?;
+                Ok(true)
+            }
+            WakeMode::Fresh => {
+                let Some(node) = plan.nodes.get(node_id) else {
+                    return Ok(false);
+                };
+                let identifier = plan
+                    .snapshot
+                    .identifier
+                    .get(node_id)
+                    .cloned()
+                    .unwrap_or_else(|| node_id.to_string());
+                let base_branch = node
+                    .base_branch
+                    .clone()
+                    .unwrap_or_else(|| plan.snapshot.workflow.integration_branch.clone());
+                let branch = node.branch.clone().unwrap_or_default();
+                let diff_stat = repo
+                    .zip(node.branch.as_deref())
+                    .map(|((clone, url), branch)| {
+                        coding::workflows::movement_note(
+                            clone,
+                            &format!("refs/remotes/origin/{base_branch}"),
+                            &format!("refs/remotes/origin/{branch}"),
+                            Some(url),
+                        )
+                    })
+                    .unwrap_or_default();
+                let brief = coding::prompt::wake_brief(
+                    &identifier,
+                    &branch,
+                    &base_branch,
+                    &diff_stat,
+                    node.note.as_deref(),
+                    &text,
+                );
+                let run = coding::WorkflowRun {
+                    workflow_id: plan.snapshot.workflow.id.clone(),
+                    name: plan.name.clone(),
+                    decisions: plan.decisions.clone(),
+                    blockers: workflow_blocker_identifiers(&plan.snapshot, node_id),
+                };
+                let mut options = coding::workflows::launch_options(
+                    settings,
+                    Some(plan.launch.agent.as_str()),
+                    None,
+                    None,
+                    Some(plan.launch.model.as_str()),
+                    plan.launch.account.as_deref(),
+                );
+                options.model =
+                    coding::workflows::launch::model_for_node(&plan.launch, &node.kind, &node.risk);
+                coding::workflows::apply_engine_start(
+                    &mut options,
+                    coding::workflows::WorkflowMembership {
+                        workflow_id: plan.snapshot.workflow.id.clone(),
+                        node_id: Some(node_id.to_string()),
+                        role: coding::workflows::WfSessionRole::Author,
+                    },
+                    None,
+                );
+                match self.prepare_workflow_node(plan, node, run, options, &base_branch, Some(brief))? {
+                    Some(new_session) => {
+                        // The node keeps its state; only its run moves.
+                        let mut report = api::workflows::NodeReport::new(node_id, &node.state);
+                        report.session_id = api::patch::Patch::Set(new_session);
+                        self.report_node(&report);
+                        Ok(true)
+                    }
+                    None => Ok(false),
+                }
             }
         }
     }
@@ -4310,13 +4671,14 @@ impl AutomationHost {
         plan: &WorkflowPlan,
         node_id: &str,
         branch: &str,
+        settings: &coding::Settings,
         settings_path: &Path,
-    ) {
+    ) -> bool {
         let outcome = match api::workflows::land_node(&self.ctx.trpc, node_id) {
             Ok(outcome) => outcome,
             Err(err) => {
                 log::warn!("workflow landNode {node_id} failed: {err}");
-                return;
+                return false;
             }
         };
         if outcome.merged {
@@ -4331,10 +4693,10 @@ impl AutomationHost {
                     outcome.retargeted.join(", ")
                 );
             }
-            return;
+            return false;
         }
         if outcome.is_waiting() {
-            return;
+            return false;
         }
         let reason = outcome
             .reason
@@ -4360,17 +4722,25 @@ impl AutomationHost {
             .get(node_id)
             .and_then(|node| node.session_id.clone())
         else {
-            return;
+            return false;
+        };
+        // EXP-1106 rule 3: steered where it stands, resumed warm, or a fresh
+        // run with a brief — one wake.
+        let Some(mode) = plan
+            .snapshot
+            .sessions
+            .get(&session_id)
+            .and_then(|session| coding::workflows::wake_mode(session, plan.snapshot.now_ms))
+        else {
+            return false;
         };
         let prompt = workflow_conflict_prompt(branch);
-        if let Some(live) = workflow_session(&self.sessions, &session_id) {
-            live.send_prompt(prompt);
-            return;
-        }
-        // The run ended on this machine: re-enter its RECORDED conversation
-        // with the merge instruction as its first message.
-        if let Err(err) = self.resume_workflow_node(plan, &session_id, prompt, settings_path) {
-            log::warn!("workflow resume of {session_id} failed: {err}");
+        match self.wake_workflow_run(plan, None, node_id, &session_id, mode, prompt, settings, settings_path) {
+            Ok(woken) => woken,
+            Err(err) => {
+                log::warn!("workflow wake of {session_id} failed: {err}");
+                false
+            }
         }
     }
 
@@ -4447,6 +4817,9 @@ struct WorkflowPlan {
     /// EXP-984: `node id → its latest review` (the findings the author is
     /// handed verbatim).
     review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
+    /// EXP-1103: `node id → its issue's pull request number`, what a wave's
+    /// reviewer locates the landed squash commit by.
+    pr_number_of: HashMap<String, i64>,
     /// EXP-984: `reviewer session id → live` off the synced rows, for every
     /// reviewer run this device recorded (a row that has not synced is
     /// absent) — what settles a review that ended without a verdict.
@@ -4476,8 +4849,7 @@ fn workflow_plan(
     issue_rows: &[domain::rows::Issue],
     session_rows: &[domain::rows::CodingSession],
     relation_rows: &[domain::rows::IssueRelation],
-    settings_path: &Path,
-    device_id: &str,
+    engine_store: &WorkflowStore,
     now_ms: i64,
 ) -> Option<WorkflowPlan> {
     let integration_branch = workflow.integration_branch.clone()?;
@@ -4493,6 +4865,7 @@ fn workflow_plan(
     let mut git_nodes: Vec<coding::workflows::NodeGit> = Vec::new();
     // EXP-984: the latest verdicts.
     let mut review_of: HashMap<String, domain::rows::WorkflowNodeReview> = HashMap::new();
+    let mut pr_number_of: HashMap<String, i64> = HashMap::new();
     // The workflow's team — a batch launch's subject.
     let team_id = workflow.team_id.clone().unwrap_or_default();
     for row in node_rows {
@@ -4514,6 +4887,9 @@ fn workflow_plan(
         if let Some(issue) = issue_rows.iter().find(|issue| issue.id == issue_id) {
             board_id.get_or_insert_with(|| issue.board_id.clone());
             identifier.insert(row.id.clone(), issue.identifier.clone());
+            if let Some(pr_number) = issue.pr_number {
+                pr_number_of.insert(row.id.clone(), pr_number);
+            }
             // The issue's branch is stamped when its PR opens; before that a
             // started run is already pushing to the launcher's conventional
             // name (which the tips then confirm).
@@ -4589,10 +4965,13 @@ fn workflow_plan(
         return None;
     }
     let edges = workflow_edges(&edge_nodes, relation_rows);
-    let engine_state = coding::workflows::read_states(settings_path, device_id)
-        .get(&workflow.id)
-        .cloned()
-        .unwrap_or_default();
+    let engine_state = engine_store.read(&workflow.id);
+    let review_gave_up: HashSet<String> = engine_state
+        .review_failures
+        .iter()
+        .filter(|(_, failures)| **failures >= coding::workflows::MAX_REVIEW_RUN_FAILURES)
+        .map(|(node_id, _)| node_id.clone())
+        .collect();
     let candidates = coding::workflows::conflict_candidates(&git_nodes, &edges);
     let branch_of: HashMap<String, String> = git_nodes
         .iter()
@@ -4641,8 +5020,7 @@ fn workflow_plan(
             final_pr_in_flight: false,
             // EXP-1059: cleared by the read itself once the PR reads open.
             final_pr_close_handled: coding::workflows::final_pr_close_handled(
-                settings_path,
-                device_id,
+                engine_store,
                 &workflow.id,
                 workflow.final_pr_state.as_deref() == Some("closed"),
             ),
@@ -4650,19 +5028,20 @@ fn workflow_plan(
             // EXP-983: the git facts are filled by the pass itself, where
             // the clone and the token are.
             tips: HashMap::new(),
-            propagated: engine_state.propagated.clone(),
+            merged: engine_state.merged.clone(),
+            woken: engine_state.woken.clone(),
+            base_conflicts: Default::default(),
+            tip_seen_ms: HashMap::new(),
             synthetic: engine_state.synthetic.clone(),
             conflicts: Default::default(),
             identifier,
-            // EXP-984: the review gate's at-most-once bookkeeping (the heads
-            // themselves are filled with the tips, in the pass).
             review_in_flight: live_reviews(&engine_state, session_rows)
                 .into_iter()
                 .chain(review_live_on_branch.keys().cloned())
                 .collect(),
             pr_head: HashMap::new(),
-            reviewed_head: engine_state.reviewed_head.clone(),
-            findings_sent: engine_state.findings_sent.clone(),
+            fix_runs: workflow_fix_runs_by_branch(&workflow.id, session_rows),
+            review_gave_up,
             land_refused: engine_state.land_refused.clone(),
             now_ms,
         },
@@ -4670,6 +5049,7 @@ fn workflow_plan(
         candidates,
         branch_of,
         review_of,
+        pr_number_of,
         review_session_live: review_session_liveness(&engine_state, session_rows),
         review_live_on_branch,
         name: workflow.name.clone().unwrap_or_default(),
@@ -4717,15 +5097,89 @@ fn workflow_edges(
 fn workflow_session_facts(row: &domain::rows::CodingSession) -> coding::workflows::SessionFacts {
     let status = row.status.as_deref().unwrap_or("");
     let blocked = row.blocked.as_ref().filter(|value| !value.is_null());
+    let live = matches!(status, "running" | "in_review");
     coding::workflows::SessionFacts {
-        live: matches!(status, "running" | "in_review"),
+        live,
         needs_input: row.needs_input.unwrap_or(false),
         blocked: blocked.is_some(),
         blocked_resets_at_ms: blocked
             .and_then(|value| value.get("resetsAt"))
             .and_then(parse_resets_at),
         agent_busy: row.agent_busy.unwrap_or(false),
+        // EXP-1106: when an ended run ended, for the resume-or-fresh call.
+        ended_at_ms: (!live)
+            .then(|| {
+                row.ended_at
+                    .as_deref()
+                    .or(row.updated_at.as_deref())
+                    .and_then(coding::workflows::parse_wire_timestamp_ms)
+            })
+            .flatten(),
     }
+}
+
+/// EXP-1103: the review waves' fix runs of one workflow, found by their
+/// branch on the synced rows — the newest row per wave. `landed` is filled
+/// in the pass, where git is.
+fn workflow_fix_runs_by_branch(
+    workflow_id: &str,
+    session_rows: &[domain::rows::CodingSession],
+) -> Vec<FixRunFacts> {
+    let mut rows: Vec<&domain::rows::CodingSession> = session_rows
+        .iter()
+        .filter(|row| {
+            row.branch.as_deref().is_some_and(|branch| {
+                coding::workflows::fix_branch_wave(workflow_id, branch).is_some()
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+    let mut by_wave: HashMap<i64, FixRunFacts> = HashMap::new();
+    for row in rows {
+        let Some(wave) = row
+            .branch
+            .as_deref()
+            .and_then(|branch| coding::workflows::fix_branch_wave(workflow_id, branch))
+        else {
+            continue;
+        };
+        by_wave.insert(
+            wave,
+            FixRunFacts {
+                wave,
+                session_id: row.id.clone(),
+                live: matches!(row.status.as_deref(), Some("running" | "in_review")),
+                landed: false,
+            },
+        );
+    }
+    let mut runs: Vec<FixRunFacts> = by_wave.into_values().collect();
+    runs.sort_by_key(|fix| fix.wave);
+    runs
+}
+
+/// EXP-1106 — every `(node id, node branch, upstream branch)` the mechanical
+/// merge rule reads: a started node and its base, and a serialized node and
+/// each sibling it merges in first.
+fn workflow_upstream_pairs(
+    snapshot: &coding::workflows::Snapshot,
+    branch_of: &HashMap<String, String>,
+) -> Vec<(String, String, String)> {
+    let mut pairs = Vec::new();
+    for node in &snapshot.nodes {
+        let Some(branch) = node.branch.clone() else {
+            continue;
+        };
+        if let Some(base) = node.base_branch.clone() {
+            pairs.push((node.id.clone(), branch.clone(), base));
+        }
+        for after in &node.after_node_ids {
+            if let Some(sibling) = branch_of.get(after) {
+                pairs.push((node.id.clone(), branch.clone(), sibling.clone()));
+            }
+        }
+    }
+    pairs
 }
 
 /// EXP-984: the nodes whose REVIEWER run is still up — the session this
@@ -4841,18 +5295,10 @@ fn remember_nudge(
     session_id: &str,
     key: &str,
 ) {
-    let Ok(resets_at) = key.parse::<i64>() else {
-        return;
-    };
-    let mut states = coding::workflows::read_states(settings_path, device_id);
-    states
-        .entry(workflow_id.to_string())
-        .or_default()
-        .nudged
-        .insert((session_id.to_string(), resets_at));
-    if let Err(err) = coding::workflows::write_states(settings_path, device_id, &states) {
-        log::warn!("workflow state write failed: {err}");
-    }
+    let pair = (session_id.to_string(), key.to_string());
+    update_workflow_state(settings_path, device_id, workflow_id, move |state| {
+        state.nudged.insert(pair);
+    });
 }
 
 /// EXP-983 — why a node is waiting when its blockers cannot both be merged
@@ -4901,7 +5347,7 @@ fn workflow_movement_note(
 ) -> String {
     let from = plan
         .snapshot
-        .propagated
+        .merged
         .get(node_id)
         .and_then(|branches| branches.get(base_branch).cloned())
         .or_else(|| {
@@ -4915,15 +5361,19 @@ fn workflow_movement_note(
     }
 }
 
+/// EXP-1102: the engine state's own store under the data dir
+/// (`settings_path` only names the data dir now; `device_id` rides along
+/// for the call sites, the store is per workflow).
+fn engine_store(settings_path: &Path, _device_id: &str) -> WorkflowStore {
+    WorkflowStore::open(settings_path.parent().unwrap_or_else(|| Path::new(".")))
+}
+
 fn workflow_state(
     settings_path: &Path,
     device_id: &str,
     workflow_id: &str,
 ) -> coding::workflows::WorkflowState {
-    coding::workflows::read_states(settings_path, device_id)
-        .get(workflow_id)
-        .cloned()
-        .unwrap_or_default()
+    engine_store(settings_path, device_id).read(workflow_id)
 }
 
 /// Read-modify-write one workflow's persisted engine state.
@@ -4933,14 +5383,13 @@ fn update_workflow_state(
     workflow_id: &str,
     edit: impl FnOnce(&mut coding::workflows::WorkflowState),
 ) {
-    let mut states = coding::workflows::read_states(settings_path, device_id);
-    edit(states.entry(workflow_id.to_string()).or_default());
-    if let Err(err) = coding::workflows::write_states(settings_path, device_id, &states) {
+    if let Err(err) = engine_store(settings_path, device_id).update(workflow_id, edit) {
         log::warn!("workflow state write failed: {err}");
     }
 }
 
-fn remember_propagated(
+/// EXP-1106: `sha` of `branch` is IN the node's branch.
+fn remember_merged(
     settings_path: &Path,
     device_id: &str,
     workflow_id: &str,
@@ -4950,7 +5399,25 @@ fn remember_propagated(
 ) {
     update_workflow_state(settings_path, device_id, workflow_id, |state| {
         state
-            .propagated
+            .merged
+            .entry(node_id.to_string())
+            .or_default()
+            .insert(branch.to_string(), sha.to_string());
+    });
+}
+
+/// EXP-1106: the run was woken for `sha` of `branch` conflicting — once.
+fn remember_woken(
+    settings_path: &Path,
+    device_id: &str,
+    workflow_id: &str,
+    node_id: &str,
+    branch: &str,
+    sha: &str,
+) {
+    update_workflow_state(settings_path, device_id, workflow_id, |state| {
+        state
+            .woken
             .entry(node_id.to_string())
             .or_default()
             .insert(branch.to_string(), sha.to_string());
@@ -4958,17 +5425,13 @@ fn remember_propagated(
 }
 
 fn branch_already_deleted(settings_path: &Path, device_id: &str, workflow_id: &str) -> bool {
-    coding::workflows::read_states(settings_path, device_id)
-        .get(workflow_id)
-        .is_some_and(|state| state.branch_deleted)
+    workflow_state(settings_path, device_id, workflow_id).branch_deleted
 }
 
 fn remember_branch_deleted(settings_path: &Path, device_id: &str, workflow_id: &str) {
-    let mut states = coding::workflows::read_states(settings_path, device_id);
-    states.entry(workflow_id.to_string()).or_default().branch_deleted = true;
-    if let Err(err) = coding::workflows::write_states(settings_path, device_id, &states) {
-        log::warn!("workflow state write failed: {err}");
-    }
+    update_workflow_state(settings_path, device_id, workflow_id, |state| {
+        state.branch_deleted = true
+    });
 }
 
 /// The synced `automations` rows this device evaluates: ENABLED, bound to

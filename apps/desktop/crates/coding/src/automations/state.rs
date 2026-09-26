@@ -1,32 +1,106 @@
 //! Automation state persistence (EXP-530): per-(device, action) firing
-//! bookkeeping in settings.json, the [`crate::launch_defaults_sync`]
-//! read-modify-write idiom — ONE foreign top-level key the desktop app and
-//! the CLI daemon share (two device ids, two sub-maps):
+//! bookkeeping. EXP-1102: in a store of its OWN, `{data_dir}/automations/
+//! <deviceId>.json` (one document per device id — the desktop app and the
+//! CLI daemon share a data dir and have two ids), replaced by rename
+//! ([`api::device_store::JsonStore`]); until then ONE foreign top-level key
+//! of settings.json, the file a torn write of which cost workflow 2f353e88
+//! its host:
 //!
 //! ```json
-//! "actionAutomations": {
-//!   "<deviceId>": {
-//!     "<actionId>": {
-//!       "fingerprint": "…", "lastFiredAt": 123, "watermarkCreatedAt": 123,
-//!       "watermarkId": "…", "cooldownUntil": 123,
-//!       "seenFloor": 123, "seenIds": ["evt-…"]
-//!     }
+//! {
+//!   "<actionId>": {
+//!     "fingerprint": "…", "lastFiredAt": 123, "watermarkCreatedAt": 123,
+//!     "watermarkId": "…", "cooldownUntil": 123,
+//!     "seenFloor": 123, "seenIds": ["evt-…"]
 //!   }
 //! }
 //! ```
 //!
-//! All stamps are ms epochs. `Settings::save`'s merge-preserve keeps the
-//! key; it must never enter `DEAD_KEYS`. [`write_states`] replaces the
-//! device's WHOLE map, so deleted actions' entries prune themselves on the
-//! next write.
+//! All stamps are ms epochs. [`write_states`] replaces the device's WHOLE
+//! map, so deleted actions' entries prune themselves on the next write. A
+//! pre-EXP-1102 install still carries its map under settings.json's
+//! `actionAutomations.<deviceId>`: [`AutomationStore::migrate_legacy`] moves
+//! it once and clears that device's sub-map.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-/// The settings.json top-level key holding all per-device automation state.
+/// The legacy settings.json top-level key (read for migration only).
 pub const AUTOMATIONS_KEY: &str = "actionAutomations";
+
+/// The store's directory under the data dir.
+pub const AUTOMATIONS_STORE_DIR: &str = "automations";
+
+/// The store: `{data_dir}/automations/`, one document per device id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutomationStore {
+    inner: api::device_store::JsonStore,
+    device_id: String,
+}
+
+impl AutomationStore {
+    pub fn open(data_dir: &Path, device_id: &str) -> Self {
+        Self::at(data_dir.join(AUTOMATIONS_STORE_DIR), device_id)
+    }
+
+    pub fn at(dir: impl Into<PathBuf>, device_id: &str) -> Self {
+        Self {
+            inner: api::device_store::JsonStore::new(dir),
+            device_id: device_id.to_string(),
+        }
+    }
+
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    /// EXP-1102: move this device's pre-store map out of settings.json — the
+    /// document is written only when the store has none yet, and the legacy
+    /// sub-map is cleared either way. Idempotent. `true` when a document was
+    /// written.
+    pub fn migrate_legacy(&self, settings_path: &Path) -> bool {
+        let Some(data_dir) = settings_path.parent() else {
+            return false;
+        };
+        let _guard = api::settings_lock::locked(data_dir);
+        let Some(mut root) = read_root(settings_path) else {
+            return false;
+        };
+        let Some(entries) = root
+            .get(AUTOMATIONS_KEY)
+            .and_then(|devices| devices.get(&self.device_id))
+            .and_then(Value::as_object)
+            .cloned()
+        else {
+            return false;
+        };
+        let mut written = false;
+        if self.inner.read(&self.device_id).is_none() {
+            let states = decode_map(&Value::Object(entries));
+            match write_states(self, &states) {
+                Ok(()) => written = true,
+                Err(err) => {
+                    log::warn!("[automations] migrating state failed: {err}");
+                    return false;
+                }
+            }
+        }
+        if let Some(devices) = root.get_mut(AUTOMATIONS_KEY).and_then(Value::as_object_mut) {
+            devices.remove(&self.device_id);
+            if devices.is_empty() {
+                root.as_object_mut().map(|object| object.remove(AUTOMATIONS_KEY));
+            }
+        }
+        let mut rendered = serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string());
+        rendered.push('\n');
+        if let Err(err) = api::atomic_file::write_atomic(settings_path, &rendered) {
+            log::warn!("[automations] clearing the legacy state key failed: {err}");
+        }
+        written
+    }
+}
 
 /// One action's automation bookkeeping on one device.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -56,17 +130,18 @@ pub struct AutomationState {
     pub seen_ids: Vec<String>,
 }
 
-/// Read `device_id`'s whole state map. Missing/corrupt file or key →
-/// empty — the engine then re-seeds every trigger (never fires blind).
-pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, AutomationState> {
-    let Some(root) = read_root(settings_path) else {
-        return HashMap::new();
-    };
-    let Some(entries) = root
-        .get(AUTOMATIONS_KEY)
-        .and_then(|devices| devices.get(device_id))
-        .and_then(Value::as_object)
-    else {
+/// Read the device's whole state map. Missing/corrupt document → empty —
+/// the engine then re-seeds every trigger (never fires blind).
+pub fn read_states(store: &AutomationStore) -> HashMap<String, AutomationState> {
+    store
+        .inner
+        .read(&store.device_id)
+        .map(|value| decode_map(&value))
+        .unwrap_or_default()
+}
+
+fn decode_map(value: &Value) -> HashMap<String, AutomationState> {
+    let Some(entries) = value.as_object() else {
         return HashMap::new();
     };
     entries
@@ -102,23 +177,12 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Aut
         .collect()
 }
 
-/// Write `device_id`'s state map, read-modify-write on the raw JSON so
-/// every other top-level key (and every sibling device's map) survives.
-/// Replaces the device's map WHOLESALE — entries for actions the caller no
-/// longer tracks are pruned.
+/// Write the device's state map, replacing the document WHOLESALE —
+/// entries for actions the caller no longer tracks are pruned.
 pub fn write_states(
-    settings_path: &Path,
-    device_id: &str,
+    store: &AutomationStore,
     states: &HashMap<String, AutomationState>,
 ) -> std::io::Result<()> {
-    if let Some(dir) = settings_path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    // Held across the read AND the write: settings.json has writers in two
-    // processes (EXP-781).
-    let _guard = settings_path.parent().map(api::settings_lock::locked);
-    let mut root = read_root(settings_path)
-        .unwrap_or_else(|| Value::Object(Default::default()));
     let mut entries = serde_json::Map::new();
     for (action_id, state) in states {
         entries.insert(
@@ -134,23 +198,7 @@ pub fn write_states(
             }),
         );
     }
-    if let Some(object) = root.as_object_mut() {
-        let devices = object
-            .entry(AUTOMATIONS_KEY.to_string())
-            .or_insert_with(|| Value::Object(Default::default()));
-        if !devices.is_object() {
-            *devices = Value::Object(Default::default());
-        }
-        if let Some(devices) = devices.as_object_mut() {
-            devices.insert(device_id.to_string(), Value::Object(entries));
-        }
-    }
-    let mut rendered = serde_json::to_string_pretty(&root).expect("render settings json");
-    rendered.push('\n');
-    // EXP-766: by rename. A truncating write let device_identity read an
-    // EMPTY file mid-write, take it for a fresh install and re-mint the
-    // device id over every other key (workflow 2f353e88 lost its host).
-    api::atomic_file::write_atomic(settings_path, &rendered)
+    store.inner.write(&store.device_id, &Value::Object(entries))
 }
 
 fn read_root(settings_path: &Path) -> Option<Value> {
@@ -163,8 +211,6 @@ fn read_root(settings_path: &Path) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::Settings;
-    use std::path::PathBuf;
 
     struct TempDir(PathBuf);
 
@@ -197,58 +243,50 @@ mod tests {
         }
     }
 
+    /// One document per device: a write replaces the device's map wholesale
+    /// and never touches the sibling device's, and settings.json is never
+    /// involved.
     #[test]
-    fn states_round_trip_and_preserve_siblings() {
+    fn states_round_trip_per_device_and_prune_wholesale() {
         let dir = temp_dir("roundtrip");
-        let path = dir.0.join("settings.json");
-        std::fs::write(&path, r#"{"deviceId":"desk-1","claudeModel":"sonnet"}"#).unwrap();
-
+        let cli = AutomationStore::open(&dir.0, "cli-dev");
+        let desk = AutomationStore::open(&dir.0, "desk-dev");
         let mine: HashMap<String, AutomationState> =
             [("act-1".to_string(), state("fp-1", 100))].into();
-        write_states(&path, "cli-dev", &mine).unwrap();
+        write_states(&cli, &mine).unwrap();
         let sibling: HashMap<String, AutomationState> =
             [("act-2".to_string(), state("fp-2", 200))].into();
-        write_states(&path, "desk-dev", &sibling).unwrap();
-
-        assert_eq!(read_states(&path, "cli-dev"), mine);
-        assert_eq!(read_states(&path, "desk-dev"), sibling);
-        assert!(read_states(&path, "unknown").is_empty());
-
-        // Foreign keys and a Settings::save survive around the states
-        // (AUTOMATIONS_KEY is a foreign key to the merge-save, like the
-        // launchDefaultsSync marker).
-        let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(root["deviceId"], "desk-1");
-        Settings::default().save(&path).unwrap();
-        assert_eq!(read_states(&path, "cli-dev"), mine, "Settings::save preserves the states");
-
-        // A rewrite replaces the device's map wholesale — the stale action
-        // entry prunes itself; the sibling device is untouched.
+        write_states(&desk, &sibling).unwrap();
+        assert_eq!(read_states(&cli), mine);
+        assert_eq!(read_states(&desk), sibling);
+        assert!(read_states(&AutomationStore::open(&dir.0, "unknown")).is_empty());
         let replaced: HashMap<String, AutomationState> =
             [("act-3".to_string(), state("fp-3", 300))].into();
-        write_states(&path, "cli-dev", &replaced).unwrap();
-        assert_eq!(read_states(&path, "cli-dev"), replaced);
-        assert_eq!(read_states(&path, "desk-dev"), sibling);
+        write_states(&cli, &replaced).unwrap();
+        assert_eq!(read_states(&cli), replaced);
+        assert_eq!(read_states(&desk), sibling);
+        assert!(dir.0.join("automations").join("cli-dev.json").exists());
+        assert!(!dir.0.join("settings.json").exists());
     }
 
     #[test]
-    fn missing_or_corrupt_file_reads_as_empty() {
+    fn missing_or_corrupt_document_reads_as_empty() {
         let dir = temp_dir("corrupt");
-        let path = dir.0.join("settings.json");
-        assert!(read_states(&path, "d").is_empty());
-        std::fs::write(&path, "{not json").unwrap();
-        assert!(read_states(&path, "d").is_empty());
-        // Writing heals the file.
+        let store = AutomationStore::open(&dir.0, "d");
+        assert!(read_states(&store).is_empty());
+        std::fs::create_dir_all(dir.0.join("automations")).unwrap();
+        std::fs::write(dir.0.join("automations").join("d.json"), "{not json").unwrap();
+        assert!(read_states(&store).is_empty());
         let states: HashMap<String, AutomationState> =
             [("act-1".to_string(), state("fp", 1))].into();
-        write_states(&path, "d", &states).unwrap();
-        assert_eq!(read_states(&path, "d"), states);
+        write_states(&store, &states).unwrap();
+        assert_eq!(read_states(&store), states);
     }
 
     #[test]
     fn optional_stamps_survive_as_null() {
         let dir = temp_dir("nulls");
-        let path = dir.0.join("settings.json");
+        let store = AutomationStore::open(&dir.0, "d");
         let bare: HashMap<String, AutomationState> = [(
             "act-1".to_string(),
             AutomationState {
@@ -257,28 +295,38 @@ mod tests {
             },
         )]
         .into();
-        write_states(&path, "d", &bare).unwrap();
-        assert_eq!(read_states(&path, "d"), bare);
+        write_states(&store, &bare).unwrap();
+        assert_eq!(read_states(&store), bare);
     }
 
-    /// EXP-562: an entry written before the grace cursor existed reads as
-    /// `seen_floor: None` — the engine keeps it on the strict watermark
-    /// until the next fire migrates it, so an upgrade never double-fires.
+    /// EXP-1102: the legacy settings.json map moves into the store once —
+    /// this device's sub-map only — and the key is cleared behind it.
     #[test]
-    fn legacy_entry_without_seen_keys_reads_as_none() {
-        let dir = temp_dir("legacy");
+    fn legacy_settings_state_migrates_once() {
+        let dir = temp_dir("migrate");
         let path = dir.0.join("settings.json");
-        std::fs::write(
-            &path,
-            r#"{"actionAutomations":{"d":{"act-1":{"fingerprint":"fp",
-               "lastFiredAt":100,"watermarkCreatedAt":100,"watermarkId":"evt-1",
-               "cooldownUntil":null}}}}"#,
-        )
-        .unwrap();
-        let states = read_states(&path, "d");
-        let legacy = &states["act-1"];
-        assert_eq!(legacy.watermark_id.as_deref(), Some("evt-1"));
-        assert_eq!(legacy.seen_floor, None, "no seenFloor key → strict watermark");
-        assert!(legacy.seen_ids.is_empty());
+        let raw = serde_json::json!({
+            "deviceId": "desk-1",
+            "actionAutomations": {
+                "desk-1": { "act-1": { "fingerprint": "fp-1", "lastFiredAt": 100, "seenIds": ["e"] } },
+                "cli-1": { "act-9": { "fingerprint": "fp-9" } }
+            }
+        });
+        std::fs::write(&path, raw.to_string()).unwrap();
+        let store = AutomationStore::open(&dir.0, "desk-1");
+        assert!(store.migrate_legacy(&path));
+        let states = read_states(&store);
+        assert_eq!(states["act-1"].fingerprint, "fp-1");
+        assert_eq!(states["act-1"].last_fired_at, Some(100));
+        assert_eq!(states["act-1"].seen_ids, ["e"]);
+        let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(root["deviceId"], "desk-1");
+        assert!(root["actionAutomations"].get("desk-1").is_none());
+        assert_eq!(root["actionAutomations"]["cli-1"]["act-9"]["fingerprint"], "fp-9");
+        assert!(!store.migrate_legacy(&path), "nothing left");
+        // The sibling's turn clears the key entirely.
+        assert!(AutomationStore::open(&dir.0, "cli-1").migrate_legacy(&path));
+        let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(root.get("actionAutomations").is_none());
     }
 }

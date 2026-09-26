@@ -16,9 +16,11 @@
 //! In-flight bookkeeping is per PROCESS, not persisted: a node the host is
 //! mid-start (or mid-land) on is left alone for the whole pass, and a crash
 //! simply re-decides from the synced rows next launch, which is what
-//! level-triggered means. What DOES persist (`coding::workflows::state`) is
-//! only what must happen at most once across restarts: a nudge already sent
-//! and a branch already deleted.
+//! level-triggered means. What DOES persist (`coding::workflows::state`,
+//! EXP-1102: `{data_dir}/workflows/<id>.json`, this host's own store) is
+//! caches the pass re-derives from git and the rows, and what must happen at
+//! most once across restarts: a nudge already sent, a wake already sent, a
+//! branch already deleted.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -30,7 +32,8 @@ use gpui::{App, AppContext as _, Global};
 
 use coding::workflows::events::{self, Outcome, TrpcEventSink, WorkflowEventSink as _};
 use coding::workflows::{
-    self, Decision, IssueFacts, NodeFacts, SessionFacts, Snapshot, WorkflowFacts,
+    self, Decision, FixRunFacts, IssueFacts, NodeFacts, SessionFacts, Snapshot, WakeMode,
+    WakeReason, WorkflowFacts, WorkflowStore,
 };
 use coding::{LaunchOptions, LaunchOrigin};
 
@@ -128,6 +131,19 @@ pub fn start_workflow_host(account: &api::Account, cx: &mut App) {
         )
     });
 
+    // EXP-1102: the engine state's one move out of settings.json, this
+    // device's sub-map only — a no-op once done.
+    {
+        let auth = crate::session::AuthContext::global(cx);
+        let store = WorkflowStore::open(&auth.data_dir);
+        let settings_path = coding::Settings::default_path(&auth.data_dir);
+        let device_id = steer::persistent_device_id(&auth.data_dir);
+        let moved = store.migrate_legacy(&settings_path, &device_id);
+        if moved > 0 {
+            log::info!("[workflows] moved {moved} workflow state document(s) out of settings.json");
+        }
+    }
+
     let watches = watch_collections(stop.clone(), eval_soon.clone(), cx);
     state_entity.update(cx, |state, _| {
         if watches.is_empty() {
@@ -181,6 +197,10 @@ pub fn start_workflow_host(account: &api::Account, cx: &mut App) {
                     // EXP-984: the reviewer runs the pass decided on.
                     for review in orders.reviews {
                         launch_review(review, cx);
+                    }
+                    // EXP-1103: the review waves' fix runs.
+                    for fix in orders.fixes {
+                        launch_fix(fix, cx);
                     }
                 });
             }
@@ -242,9 +262,12 @@ fn watch_flag<T: 'static>(
 /// Everything ONE workflow's pass needs, read on the foreground.
 struct Pass {
     trpc: Arc<api::TrpcClient>,
-    settings_path: PathBuf,
+    /// EXP-1102: this host's own engine-state store.
+    store: WorkflowStore,
+    /// The process-wide in-flight node claims (a fresh wake claims the node
+    /// like a start does).
+    in_flight: Arc<Mutex<HashSet<String>>>,
     repos_root: PathBuf,
-    device_id: String,
     /// The workflow's repository and the board its token mint resolves the
     /// default branch through (the first node's issue's board).
     repository_id: Option<String>,
@@ -274,9 +297,12 @@ struct Pass {
     /// EXP-984: the workflow's team — a reviewer run is a builtin action
     /// run, and those rows are keyed by team.
     team_id: String,
-    /// EXP-984: `node id → its latest review`, whose findings the author is
-    /// handed verbatim.
+    /// EXP-984/EXP-1103: `node id → its latest review`, whose findings the
+    /// wave's fix run is handed verbatim.
     review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
+    /// EXP-1103: `node id → its issue's pull request number`, what a wave's
+    /// reviewer locates the landed squash commit by.
+    pr_number_of: HashMap<String, i64>,
     /// EXP-984: `reviewer session id → live` off the synced rows, for every
     /// reviewer run this device recorded; a row that has not synced is
     /// absent. What settles a review that ended without a verdict.
@@ -309,6 +335,11 @@ struct StartOrder {
     trpc: Arc<api::TrpcClient>,
     in_flight: Option<Arc<InFlight>>,
     audit: LaunchAudit,
+    /// EXP-1106: `Some(brief)` = a FRESH run of a node whose earlier run
+    /// ended too long ago to resume warm: the brief is its first message,
+    /// the node's state is not re-reported (only its `session_id` moves to
+    /// the new run), and its attempt does not count up.
+    wake: Option<String>,
 }
 
 /// EXP-1082 — the audit line a FOREGROUND launch still owes. The pass records
@@ -365,18 +396,43 @@ struct ReviewOrder {
     /// ends with the round still there submitted no verdict.
     round_at_launch: i64,
     adversarial: bool,
+    /// EXP-1103: `Some(pr)` = a review WAVE's look at a LANDED node —
+    /// `node_branch` is then the integration branch, `base_branch` the
+    /// repository's default, `pr` the node's pull request if known.
+    landed: Option<Option<i64>>,
     options: LaunchOptions,
-    settings_path: PathBuf,
-    device_id: String,
+    store: WorkflowStore,
     in_flight: Option<Arc<InFlight>>,
     audit: LaunchAudit,
 }
+
+/// EXP-1103 — one review wave's FIX run the pass decided to start: the
+/// hidden `Fix review findings` builtin, in a worktree of its own on the
+/// wave's fix branch, launched on the foreground like a review.
+struct FixOrder {
+    workflow_id: String,
+    workflow_name: String,
+    wave: i64,
+    team_id: String,
+    repo: api::repositories::IssueRepository,
+    branch: String,
+    integration_branch: String,
+    findings: Vec<coding::action_prompt::WaveFinding>,
+    options: LaunchOptions,
+    store: WorkflowStore,
+    in_flight: Option<Arc<InFlight>>,
+    audit: LaunchAudit,
+}
+
+/// EXP-1103: the in-flight key one wave's fix run claims.
+const FIX_CLAIM_PREFIX: &str = "fix:";
 
 /// What one pass hands back to the foreground.
 #[derive(Default)]
 struct PassOrders {
     starts: Vec<StartOrder>,
     reviews: Vec<ReviewOrder>,
+    fixes: Vec<FixOrder>,
 }
 
 fn snapshot_for(
@@ -392,7 +448,7 @@ fn snapshot_for(
     let auth = crate::session::AuthContext::global(cx);
     let data_dir = auth.data_dir.clone();
     let device_id = steer::persistent_device_id(&data_dir);
-    let settings_path = coding::Settings::default_path(&data_dir);
+    let store = WorkflowStore::open(&data_dir);
     let trpc = Arc::new(queries::trpc_client(cx)?);
     let collections = sync::Store::try_global(cx)?.collections().clone();
     let hub = CodingHub::global(cx);
@@ -410,6 +466,9 @@ fn snapshot_for(
     let now_ms = chrono::Local::now().timestamp_millis();
     let claimed = snapshot_of(in_flight);
     let final_claimed = snapshot_of(final_pr_in_flight);
+
+    // EXP-1102: a workflow that is gone takes its state document with it.
+    store.prune(&workflows_rows.iter().map(|row| row.id.clone()).collect());
 
     let mut passes = Vec::new();
     for workflow in workflows_rows.iter() {
@@ -432,10 +491,7 @@ fn snapshot_for(
         let launch = workflows::launch::normalize_workflow_launch(
             workflow.launch.as_ref().unwrap_or(&serde_json::Value::Null),
         );
-        let engine_state = workflows::read_states(&settings_path, &device_id)
-            .get(&workflow.id)
-            .cloned()
-            .unwrap_or_default();
+        let engine_state = store.read(&workflow.id);
         let mut nodes = Vec::new();
         // EXP-983: the identifier names a node's synthetic base, and the
         // branches + globs feed the collision pre-filter.
@@ -450,6 +506,7 @@ fn snapshot_for(
         let mut edge_nodes = Vec::new();
         let mut board_id = None;
         let mut review_of: HashMap<String, domain::rows::WorkflowNodeReview> = HashMap::new();
+        let mut pr_number_of: HashMap<String, i64> = HashMap::new();
         // EXP-984: a REVIEWER run still up keeps its node out of the review
         // rule — its session id is the one this device recorded when it
         // started that review.
@@ -489,6 +546,9 @@ fn snapshot_for(
             if let Some(issue) = issue_rows.get(&issue_id) {
                 board_id.get_or_insert_with(|| issue.board_id.clone());
                 identifier.insert(node.id.clone(), issue.identifier.clone());
+                if let Some(pr_number) = issue.pr_number {
+                    pr_number_of.insert(node.id.clone(), pr_number);
+                }
                 // The issue's branch is stamped when its PR opens; before
                 // that a started run is already pushing to the launcher's
                 // conventional name (which the tips then confirm).
@@ -588,11 +648,22 @@ fn snapshot_for(
             live_session_branches(session_rows.iter()),
         );
         review_in_flight.extend(review_live_on_branch.keys().cloned());
+        // EXP-1103: the waves' fix runs, found by their branch; the newest
+        // row per wave wins (a resume mints a new id on the same branch).
+        let fix_runs = fix_runs_by_branch(&workflow.id, session_rows.iter());
+        // EXP-984: a node whose reviewers kept ending without a verdict is
+        // reviewed no further.
+        let review_gave_up: HashSet<String> = engine_state
+            .review_failures
+            .iter()
+            .filter(|(_, failures)| **failures >= workflows::MAX_REVIEW_RUN_FAILURES)
+            .map(|(node_id, _)| node_id.clone())
+            .collect();
         passes.push(Pass {
             trpc: Arc::clone(&trpc),
-            settings_path: settings_path.clone(),
+            store: store.clone(),
+            in_flight: Arc::clone(in_flight),
             repos_root: repos_root.clone(),
-            device_id: device_id.clone(),
             repository_id: workflow.repository_id.clone(),
             board_id,
             options: workflows::launch_options(
@@ -629,8 +700,7 @@ fn snapshot_for(
                 final_pr_in_flight: final_claimed.contains(&workflow.id),
                 // EXP-1059: cleared by the read itself once the PR reads open.
                 final_pr_close_handled: workflows::final_pr_close_handled(
-                    &settings_path,
-                    &device_id,
+                    &store,
                     &workflow.id,
                     workflow.final_pr_state.as_deref() == Some("closed"),
                 ),
@@ -638,16 +708,17 @@ fn snapshot_for(
                 // EXP-983: the git facts are filled on the background pass,
                 // where the clone and the token live.
                 tips: HashMap::new(),
-                propagated: engine_state.propagated.clone(),
+                merged: engine_state.merged.clone(),
+                woken: engine_state.woken.clone(),
+                base_conflicts: HashSet::new(),
+                tip_seen_ms: HashMap::new(),
                 synthetic: engine_state.synthetic.clone(),
                 conflicts: HashSet::new(),
                 identifier,
-                // EXP-984: the review gate's at-most-once bookkeeping. The
-                // heads themselves are filled with the tips, below.
                 review_in_flight,
                 pr_head: HashMap::new(),
-                reviewed_head: engine_state.reviewed_head.clone(),
-                findings_sent: engine_state.findings_sent.clone(),
+                fix_runs,
+                review_gave_up,
                 land_refused: engine_state.land_refused.clone(),
                 now_ms,
             },
@@ -659,11 +730,51 @@ fn snapshot_for(
             branch_of,
             team_id: workflow.team_id.clone().unwrap_or_default(),
             review_of,
+            pr_number_of,
             review_session_live,
             review_live_on_branch,
         });
     }
     Some(passes)
+}
+
+/// EXP-1103: the review waves' fix runs of one workflow, found by their
+/// branch (`exp/wf-<id8>-fix-w<wave>`) on the synced rows — the newest row
+/// per wave. `landed` is filled on the background pass, where git is.
+fn fix_runs_by_branch<'a>(
+    workflow_id: &str,
+    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
+) -> Vec<FixRunFacts> {
+    let mut rows: Vec<&domain::rows::CodingSession> = rows
+        .filter(|row| {
+            row.branch
+                .as_deref()
+                .is_some_and(|branch| workflows::fix_branch_wave(workflow_id, branch).is_some())
+        })
+        .collect();
+    rows.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+    let mut by_wave: HashMap<i64, FixRunFacts> = HashMap::new();
+    for row in rows {
+        let Some(wave) = row
+            .branch
+            .as_deref()
+            .and_then(|branch| workflows::fix_branch_wave(workflow_id, branch))
+        else {
+            continue;
+        };
+        by_wave.insert(
+            wave,
+            FixRunFacts {
+                wave,
+                session_id: row.id.clone(),
+                live: matches!(row.status.as_deref(), Some("running" | "in_review")),
+                landed: false,
+            },
+        );
+    }
+    let mut runs: Vec<FixRunFacts> = by_wave.into_values().collect();
+    runs.sort_by_key(|fix| fix.wave);
+    runs
 }
 
 /// This team's LIVE runs as `(session id, branch)`, oldest first — what the
@@ -718,14 +829,24 @@ fn workflow_edges<'a>(
 fn session_facts(row: &domain::rows::CodingSession) -> SessionFacts {
     let status = row.status.as_deref().unwrap_or("");
     let blocked = row.blocked.as_ref().filter(|value| !value.is_null());
+    let live = matches!(status, "running" | "in_review");
     SessionFacts {
-        live: matches!(status, "running" | "in_review"),
+        live,
         needs_input: row.needs_input.unwrap_or(false),
         blocked: blocked.is_some(),
         blocked_resets_at_ms: blocked
             .and_then(|value| value.get("resetsAt"))
             .and_then(parse_resets_at),
         agent_busy: row.agent_busy.unwrap_or(false),
+        // EXP-1106: when an ended run ended, for the resume-or-fresh call.
+        ended_at_ms: (!live)
+            .then(|| {
+                row.ended_at
+                    .as_deref()
+                    .or(row.updated_at.as_deref())
+                    .and_then(workflows::parse_wire_timestamp_ms)
+            })
+            .flatten(),
     }
 }
 
@@ -775,11 +896,36 @@ fn run_pass(
     let mut state = read_state(&pass, &workflow_id);
     if let Some(repo) = repo.as_ref() {
         snapshot.tips = git_tips(repo);
+        // EXP-1106: the ancestry and merge tests below read the clone's
+        // remote refs, which ls-remote alone never moves.
+        if let Err(err) = workflows::fetch_origin(&repo.clone_path, Some(&repo.url)) {
+            log::warn!("[workflows] {workflow_id}: fetch — {err}");
+        }
+        snapshot.tip_seen_ms =
+            workflows::stamp_tips_seen(&mut state.tips_seen, &snapshot.tips, snapshot.now_ms);
         snapshot.conflicts = workflows::detect_conflicts(
             &repo.clone_path,
             &pass.candidates,
             &pass.branch_of,
             &snapshot.tips,
+            &mut state.conflicts,
+            Some(&repo.url),
+        );
+    }
+    // Unconditional: a beat that could not read the remote has no branches
+    // to speculate on at all, which leaves those nodes blocked.
+    workflows::confine_branches_to_tips(&mut snapshot);
+    if let Some(repo) = repo.as_ref() {
+        // EXP-1106: what each started node already has of its base (and of
+        // the siblings it merges in first), re-derived from git when the
+        // store does not know, and which of the moved ones would conflict.
+        let pairs = upstream_pairs(&snapshot, &pass.branch_of);
+        workflows::refresh_merged(&repo.clone_path, &pairs, &snapshot.tips, &mut state.merged);
+        snapshot.base_conflicts = workflows::detect_base_conflicts(
+            &repo.clone_path,
+            &pairs,
+            &snapshot.tips,
+            &state.merged,
             &mut state.conflicts,
             Some(&repo.url),
         );
@@ -789,10 +935,23 @@ fn run_pass(
             &pass.branch_of,
             &snapshot.tips,
         );
+        // EXP-1103: a fix run's branch is landed once its tip is in the
+        // integration branch, or once it is gone.
+        for fix in &mut snapshot.fix_runs {
+            let branch = workflows::fix_branch(&workflow_id, fix.wave);
+            fix.landed = match snapshot.tips.get(&branch) {
+                None => true,
+                Some(sha) => workflows::git_is_ancestor(
+                    &repo.clone_path,
+                    sha,
+                    &format!("refs/remotes/origin/{}", snapshot.workflow.integration_branch),
+                )
+                .unwrap_or(false),
+            };
+        }
     }
-    // Unconditional: a beat that could not read the remote has no branches
-    // to speculate on at all, which leaves those nodes blocked.
-    workflows::confine_branches_to_tips(&mut snapshot);
+    snapshot.merged = state.merged.clone();
+    snapshot.woken = state.woken.clone();
     // The host bookkeeping the engine reads, settled against this beat's
     // rows and tips: a reviewer run that ended without a verdict releases
     // its head (bounded), a session this host is resuming reads live, and a
@@ -833,7 +992,6 @@ fn run_pass(
             sink.record(event);
         }
     }
-    snapshot.reviewed_head = state.reviewed_head.clone();
     // FEED-49: the map as this pass READ it — a person's resume may have
     // taken a hold since (off the foreground, while the git calls above
     // ran), and the write-back below must keep it.
@@ -845,7 +1003,8 @@ fn run_pass(
         let settled = state.clone();
         update_state(&pass, &workflow_id, move |persisted| {
             persisted.conflicts = settled.conflicts;
-            persisted.reviewed_head = settled.reviewed_head;
+            persisted.merged = settled.merged;
+            persisted.tips_seen = settled.tips_seen;
             persisted.review_runs = settled.review_runs;
             persisted.review_rounds = settled.review_rounds;
             persisted.review_failures = settled.review_failures;
@@ -949,7 +1108,7 @@ fn run_pass(
                     // EXP-983: the run is cut AT this tip, so it already has it —
                     // recording that is what keeps the first beat quiet.
                     if let Some(sha) = snapshot.tips.get(&base_branch).cloned() {
-                        remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
+                        remember_merged(&pass, &workflow_id, &node_id, &base_branch, &sha);
                     }
                     // EXP-1002: the node's PHASE picks the model; everything
                     // else (agent, effort, account, subagent model) is the
@@ -990,6 +1149,7 @@ fn run_pass(
                             decision: decided.clone(),
                             sink: sink.clone(),
                         },
+                        wake: None,
                     });
                     // EXP-1082: the order was QUEUED; `launch_node` is the
                     // ONE recorder of this decision (its `audit`), so the
@@ -1000,40 +1160,78 @@ fn run_pass(
                     let Some(claim) = InFlight::claim(in_flight, &node_id) else {
                         break 'decision Outcome::Skipped;
                     };
-                    land(&pass, &snapshot, &node_id, &branch, claim, &mut resumes);
+                    land(&pass, &snapshot, &node_id, &branch, claim, &mut resumes, &mut orders);
                 }
-                // EXP-983: the branch under a run moved. A live run takes the
-                // text where it stands; an ended one is resumed with it.
-                Decision::MergeUpstream {
+                // EXP-1106 rule 1: the branch under an ENDED run moved — the
+                // host merges it in, in its own worktree. Zero agent tokens.
+                Decision::MergeBase {
                     node_id,
-                    session_id,
+                    branch: node_branch,
                     base_branch,
                     sha,
                 } => {
+                    let Some(repo) = repo.as_ref() else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    let workspace = workflows::engine_worktree(&repo.clone_path, &workflow_id);
+                    match workflows::merge_into_branch(
+                        &repo.clone_path,
+                        &workspace,
+                        &node_branch,
+                        &base_branch,
+                        Some(&repo.url),
+                    ) {
+                        Ok(workflows::MergeOutcome::Merged) => {
+                            remember_merged(&pass, &workflow_id, &node_id, &base_branch, &sha);
+                        }
+                        Ok(workflows::MergeOutcome::Conflict) => {
+                            // The pre-test missed it (a tip moved between the
+                            // two reads): the next pass sees the conflict.
+                            log::info!("[workflows] {workflow_id}: {node_branch} conflicts with {base_branch}");
+                            break 'decision Outcome::Skipped;
+                        }
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: merge {base_branch} into {node_branch} — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
+                        }
+                    }
+                }
+                // EXP-1106 rule 3: the one wake a conflict costs — steered,
+                // resumed warm, or a fresh run with a brief.
+                Decision::WakeRun {
+                    node_id,
+                    session_id,
+                    mode,
+                    reason,
+                } => {
+                    let WakeReason::UpstreamConflict { base_branch, sha } = reason.clone();
                     let note = match repo.as_ref() {
                         Some(repo) => movement_note(repo, &pass, &snapshot, &node_id, &base_branch, &sha),
                         None => sha.clone(),
                     };
                     let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
-                    remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
-                    if let Some(engine) = pass.engines.get(&session_id) {
-                        engine.steer(text);
-                        break 'decision Outcome::Done;
+                    let outcome = wake(
+                        &pass,
+                        &snapshot,
+                        repo.as_ref(),
+                        &node_id,
+                        &session_id,
+                        mode,
+                        text,
+                        &mut resumes,
+                        &mut orders,
+                        &sink,
+                    );
+                    if matches!(outcome, Outcome::Done | Outcome::Queued) {
+                        remember_woken(&pass, &workflow_id, &node_id, &base_branch, &sha);
                     }
-                    if pass.session_is_local.contains(&session_id) {
-                        break 'decision Outcome::Skipped; // a live run this app hosts but cannot reach
-                    }
-                    remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
-                    resumes.push(ResumeOrder {
-                        session_id,
-                        prompt: text,
-                        in_flight: None,
-                    });
+                    break 'decision outcome;
                 }
                 // EXP-984: the agent review of one node — an ACTION run in a
                 // throwaway worktree, launched on the foreground.
                 Decision::StartReview {
                     node_id,
+                    wave: _,
                     model,
                     adversarial,
                     workflow_id: member_workflow_id,
@@ -1058,62 +1256,77 @@ fn run_pass(
                     ) else {
                         break 'decision Outcome::Skipped;
                     };
-                    // The head this review runs against is recorded NOW: the
-                    // next beat must not start a second review of the same push
-                    // while this one is still coming up.
-                    if let Some(sha) = snapshot.pr_head.get(&node_id).cloned() {
-                        update_state(&pass, &workflow_id, |state| {
-                            state.reviewed_head.insert(node_id.clone(), sha.clone());
-                        });
-                    }
                     // EXP-1082: the order was QUEUED; `launch_review` is the
                     // ONE recorder of this decision (its `audit`), so the
                     // pass records nothing.
                     orders.reviews.push(order);
                     break 'decision Outcome::Queued;
                 }
-                // EXP-984: the review asked for changes — its findings go to the
-                // node's AUTHOR verbatim, once per round.
-                Decision::SendFindings {
-                    node_id,
-                    session_id,
+                // EXP-1103: the wave's ONE fix run.
+                Decision::StartFix {
+                    wave,
+                    node_ids,
+                    branch: fix_branch,
+                    model,
+                    workflow_id: member_workflow_id,
+                    role,
+                    account,
                 } => {
-                    let Some(review) = pass.review_of.get(&node_id) else {
+                    let audit = LaunchAudit {
+                        decision: decided.clone(),
+                        sink: sink.clone(),
+                    };
+                    let Some(order) = fix_order(
+                        &pass,
+                        &snapshot,
+                        wave,
+                        &node_ids,
+                        fix_branch,
+                        model,
+                        member_workflow_id,
+                        role,
+                        account,
+                        in_flight,
+                        audit,
+                    ) else {
                         break 'decision Outcome::Skipped;
                     };
-                    let text = coding::prompt::review_findings_prompt(review.round, &review.findings);
-                    match session_id {
-                        // The engine only names a session that is LIVE: steer it
-                        // where it stands, or say nothing at all this pass (a
-                        // live run must never be resumed into a second one).
-                        Some(session_id) => match pass.engines.get(&session_id) {
-                            Some(engine) => engine.steer(text),
-                            None => break 'decision Outcome::Skipped,
-                        },
-                        // Its run ENDED: re-enter it with the findings as its
-                        // first message, exactly like the conflict path.
-                        None => {
-                            let Some(session_id) = pass
-                                .snapshot
-                                .nodes
-                                .iter()
-                                .find(|node| node.id == node_id)
-                                .and_then(|node| node.session_id.clone())
-                            else {
-                                break 'decision Outcome::Skipped;
-                            };
-                            remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
-                            resumes.push(ResumeOrder {
-                                session_id,
-                                prompt: text,
-                                in_flight: None,
-                            });
+                    orders.fixes.push(order);
+                    break 'decision Outcome::Queued;
+                }
+                // EXP-1103: the fix run ended — its branch lands on the
+                // integration branch, mechanically.
+                Decision::LandFix { wave, branch: fix_branch } => {
+                    let Some(repo) = repo.as_ref() else {
+                        break 'decision Outcome::Skipped;
+                    };
+                    let workspace = workflows::engine_worktree(&repo.clone_path, &workflow_id);
+                    if let Err(err) = workflows::land_branch(
+                        &repo.clone_path,
+                        &workspace,
+                        &fix_branch,
+                        &branch,
+                        Some(&repo.url),
+                    ) {
+                        log::warn!("[workflows] {workflow_id}: landing the wave {wave} fix — {err}");
+                        let _ = api::workflows::append_decision(
+                            &pass.trpc,
+                            &workflow_id,
+                            &format!("The review wave {wave} fix branch {fix_branch} could not be landed: {err}. It stays on origin for a person."),
+                        );
+                        break 'decision Outcome::Failed(err.to_string());
+                    }
+                    log::info!("[workflows] {workflow_id}: landed the wave {wave} fix");
+                }
+                // EXP-1103: the wave clears — the server stamps its nodes.
+                Decision::ClearWave { wave, node_ids } => {
+                    match api::workflows::clear_review_wave(&pass.trpc, &workflow_id, wave, &node_ids) {
+                        Ok(cleared) => log::info!("[workflows] {workflow_id}: review wave {wave} cleared ({cleared} nodes)"),
+                        Err(err) => {
+                            log::warn!("[workflows] {workflow_id}: clearReviewWave — {err}");
+                            break 'decision Outcome::Failed(err.to_string());
                         }
                     }
-                    let round = review.round;
-                    update_state(&pass, &workflow_id, |state| {
-                        state.findings_sent.insert(node_id.clone(), round);
-                    });
                 }
                 // EXP-983: the collision the engine decided to serialize. The
                 // state rides along unchanged — `reportNode` always takes one.
@@ -1282,13 +1495,28 @@ fn review_order(
 ) -> Option<ReviewOrder> {
     let node = snapshot.nodes.iter().find(|node| node.id == node_id)?;
     let identifier = snapshot.identifier.get(node_id)?.clone();
-    let node_branch = pass.branch_of.get(node_id)?.clone();
     let repo = match api::repositories::for_issue(&pass.trpc, &node.issue_id) {
         Ok(Some(repo)) => repo,
         Ok(None) | Err(_) => {
             log::warn!("[workflows] review of {node_id}: the node has no repository");
             return None;
         }
+    };
+    // EXP-1103: a review WAVE looks at the LANDED result — the integration
+    // branch is what is checked out, the node's squash commit what is judged.
+    let landed = node.state == "landed";
+    let (node_branch, base_branch) = if landed {
+        (
+            snapshot.workflow.integration_branch.clone(),
+            repo.default_branch.clone(),
+        )
+    } else {
+        (
+            pass.branch_of.get(node_id)?.clone(),
+            node.base_branch
+                .clone()
+                .unwrap_or_else(|| snapshot.workflow.integration_branch.clone()),
+        )
     };
     let claim = InFlight::claim(in_flight, &format!("{REVIEW_CLAIM_PREFIX}{node_id}"))?;
     let round = node.review_round + 1;
@@ -1315,19 +1543,241 @@ fn review_order(
         repo,
         identifier: identifier.clone(),
         node_branch,
-        base_branch: node
-            .base_branch
-            .clone()
-            .unwrap_or_else(|| snapshot.workflow.integration_branch.clone()),
+        base_branch,
         review_branch: workflows::review_branch(&snapshot.workflow.id, &identifier, round),
         round_at_launch: node.review_round,
         adversarial,
+        landed: landed.then(|| pass.pr_number_of.get(node_id).copied()),
         options,
-        settings_path: pass.settings_path.clone(),
-        device_id: pass.device_id.clone(),
+        store: pass.store.clone(),
         in_flight: Some(Arc::new(claim)),
         audit,
     })
+}
+
+/// EXP-1103 — everything one wave's FIX run needs, resolved on the
+/// background pass. `None` = something has not synced yet.
+#[allow(clippy::too_many_arguments)]
+fn fix_order(
+    pass: &Pass,
+    snapshot: &Snapshot,
+    wave: i64,
+    node_ids: &[String],
+    branch: String,
+    model: Option<String>,
+    member_workflow_id: String,
+    role: workflows::WfSessionRole,
+    account: Option<String>,
+    in_flight: &Arc<Mutex<HashSet<String>>>,
+    audit: LaunchAudit,
+) -> Option<FixOrder> {
+    let first = snapshot.nodes.iter().find(|node| node_ids.contains(&node.id))?;
+    let repo = match api::repositories::for_issue(&pass.trpc, &first.issue_id) {
+        Ok(Some(repo)) => repo,
+        Ok(None) | Err(_) => {
+            log::warn!("[workflows] fix run of wave {wave}: the workflow has no repository");
+            return None;
+        }
+    };
+    let findings: Vec<coding::action_prompt::WaveFinding> = node_ids
+        .iter()
+        .filter_map(|node_id| {
+            let review = pass.review_of.get(node_id)?;
+            Some(coding::action_prompt::WaveFinding {
+                identifier: snapshot
+                    .identifier
+                    .get(node_id)
+                    .cloned()
+                    .unwrap_or_else(|| node_id.clone()),
+                findings: review.findings.clone(),
+                failed_check: (review.oracle_passed == Some(false))
+                    .then(|| review.oracle_command.clone())
+                    .flatten(),
+            })
+        })
+        .collect();
+    if findings.is_empty() {
+        return None;
+    }
+    let claim = InFlight::claim(in_flight, &format!("{FIX_CLAIM_PREFIX}{wave}"))?;
+    let mut options = pass.options.clone();
+    if let Some(model) = model {
+        options.model = model;
+    }
+    workflows::apply_engine_start(
+        &mut options,
+        workflows::WorkflowMembership {
+            workflow_id: member_workflow_id,
+            node_id: None,
+            role,
+        },
+        account,
+    );
+    Some(FixOrder {
+        workflow_id: snapshot.workflow.id.clone(),
+        workflow_name: pass.name.clone(),
+        wave,
+        team_id: pass.team_id.clone(),
+        repo,
+        branch,
+        integration_branch: snapshot.workflow.integration_branch.clone(),
+        findings,
+        options,
+        store: pass.store.clone(),
+        in_flight: Some(Arc::new(claim)),
+        audit,
+    })
+}
+
+/// EXP-1106 — every `(node id, node branch, upstream branch)` the mechanical
+/// merge rule reads: a started node and its base, and a serialized node and
+/// each sibling it merges in first.
+fn upstream_pairs(snapshot: &Snapshot, branch_of: &HashMap<String, String>) -> Vec<(String, String, String)> {
+    let mut pairs = Vec::new();
+    for node in &snapshot.nodes {
+        let Some(branch) = node.branch.clone() else {
+            continue;
+        };
+        if let Some(base) = node.base_branch.clone() {
+            pairs.push((node.id.clone(), branch.clone(), base));
+        }
+        for after in &node.after_node_ids {
+            if let Some(sibling) = branch_of.get(after) {
+                pairs.push((node.id.clone(), branch.clone(), sibling.clone()));
+            }
+        }
+    }
+    pairs
+}
+
+/// EXP-1106 rule 3 — wake one node's run with `text`: steer it where it
+/// stands, resume it warm, or start a FRESH run of the node with a brief the
+/// host writes. `Queued` = handed to the foreground; `Done` = steered.
+#[allow(clippy::too_many_arguments)]
+fn wake(
+    pass: &Pass,
+    snapshot: &Snapshot,
+    repo: Option<&EngineRepo>,
+    node_id: &str,
+    session_id: &str,
+    mode: WakeMode,
+    text: String,
+    resumes: &mut Vec<ResumeOrder>,
+    orders: &mut PassOrders,
+    sink: &TrpcEventSink,
+) -> Outcome {
+    let workflow_id = snapshot.workflow.id.clone();
+    match mode {
+        WakeMode::Steer => match pass.engines.get(session_id) {
+            Some(engine) => {
+                engine.steer(text);
+                Outcome::Done
+            }
+            None => Outcome::Skipped, // a live run this app does not host
+        },
+        WakeMode::Resume => {
+            if pass.session_is_local.contains(session_id) {
+                return Outcome::Skipped; // live here after all
+            }
+            remember_resuming(pass, &workflow_id, session_id, snapshot.now_ms);
+            resumes.push(ResumeOrder {
+                session_id: session_id.to_string(),
+                prompt: text,
+                in_flight: None,
+            });
+            Outcome::Queued
+        }
+        WakeMode::Fresh => {
+            let Some(node) = snapshot.nodes.iter().find(|node| node.id == node_id) else {
+                return Outcome::Skipped;
+            };
+            let Some(issue_id) = pass.issue_of_node.get(node_id).cloned() else {
+                return Outcome::Skipped;
+            };
+            let members = pass.members_of_node.get(node_id).cloned().unwrap_or_default();
+            let repo_group = if members.is_empty() {
+                None
+            } else {
+                match api::repositories::for_issue(&pass.trpc, &issue_id) {
+                    Ok(Some(repo)) => Some(repo),
+                    Ok(None) | Err(_) => return Outcome::Skipped,
+                }
+            };
+            let Some(claim) = InFlight::claim(&pass.in_flight, node_id) else {
+                return Outcome::Skipped;
+            };
+            let identifier = snapshot
+                .identifier
+                .get(node_id)
+                .cloned()
+                .unwrap_or_else(|| node_id.to_string());
+            let base_branch = node
+                .base_branch
+                .clone()
+                .unwrap_or_else(|| snapshot.workflow.integration_branch.clone());
+            let branch = node.branch.clone().unwrap_or_default();
+            let diff_stat = repo
+                .zip(node.branch.as_deref())
+                .map(|(repo, branch)| {
+                    workflows::movement_note(
+                        &repo.clone_path,
+                        &format!("refs/remotes/origin/{base_branch}"),
+                        &format!("refs/remotes/origin/{branch}"),
+                        Some(&repo.url),
+                    )
+                })
+                .unwrap_or_default();
+            let brief = coding::prompt::wake_brief(
+                &identifier,
+                &branch,
+                &base_branch,
+                &diff_stat,
+                node.note.as_deref(),
+                &text,
+            );
+            let mut options = pass.options.clone();
+            if let Some(model) = workflows::node_model(&snapshot.workflow, &node.kind, &node.risk) {
+                options.model = model;
+            }
+            workflows::apply_engine_start(
+                &mut options,
+                workflows::WorkflowMembership {
+                    workflow_id: workflow_id.clone(),
+                    node_id: Some(node_id.to_string()),
+                    role: workflows::WfSessionRole::Author,
+                },
+                None,
+            );
+            orders.starts.push(StartOrder {
+                workflow_id: workflow_id.clone(),
+                workflow_name: pass.name.clone(),
+                decisions: pass.decisions.clone(),
+                blockers: blocker_identifiers(snapshot, node_id),
+                integration_branch: base_branch,
+                node_id: node_id.to_string(),
+                issue_id,
+                member_issue_ids: members,
+                repo: repo_group,
+                options,
+                trpc: Arc::clone(&pass.trpc),
+                in_flight: Some(Arc::new(claim)),
+                audit: LaunchAudit {
+                    decision: Decision::WakeRun {
+                        node_id: node_id.to_string(),
+                        session_id: session_id.to_string(),
+                        mode,
+                        reason: WakeReason::UpstreamConflict {
+                            base_branch: String::new(),
+                            sha: String::new(),
+                        },
+                    },
+                    sink: sink.clone(),
+                },
+                wake: Some(brief),
+            });
+            Outcome::Queued
+        }
+    }
 }
 
 /// EXP-1005 — `coding::prepare` moved an engine start off its launch
@@ -1503,7 +1953,7 @@ fn movement_note(
     sha: &str,
 ) -> String {
     let from = snapshot
-        .propagated
+        .merged
         .get(node_id)
         .and_then(|branches| branches.get(base_branch).cloned())
         .or_else(|| {
@@ -1521,31 +1971,33 @@ fn movement_note(
 }
 
 fn read_state(pass: &Pass, workflow_id: &str) -> workflows::WorkflowState {
-    workflows::read_states(&pass.settings_path, &pass.device_id)
-        .get(workflow_id)
-        .cloned()
-        .unwrap_or_default()
+    pass.store.read(workflow_id)
 }
 
 /// Read-modify-write one workflow's persisted engine state.
 fn update_state(pass: &Pass, workflow_id: &str, edit: impl FnOnce(&mut workflows::WorkflowState)) {
-    let mut states = workflows::read_states(&pass.settings_path, &pass.device_id);
-    edit(states.entry(workflow_id.to_string()).or_default());
-    if let Err(err) = workflows::write_states(&pass.settings_path, &pass.device_id, &states) {
+    if let Err(err) = pass.store.update(workflow_id, edit) {
         log::warn!("[workflows] state write failed: {err}");
     }
 }
 
-fn remember_propagated(
-    pass: &Pass,
-    workflow_id: &str,
-    node_id: &str,
-    branch: &str,
-    sha: &str,
-) {
+/// EXP-1106: `sha` of `branch` is IN the node's branch (cut at it, or merged
+/// by this host).
+fn remember_merged(pass: &Pass, workflow_id: &str, node_id: &str, branch: &str, sha: &str) {
     update_state(pass, workflow_id, |state| {
         state
-            .propagated
+            .merged
+            .entry(node_id.to_string())
+            .or_default()
+            .insert(branch.to_string(), sha.to_string());
+    });
+}
+
+/// EXP-1106: the run was woken for `sha` of `branch` conflicting — once.
+fn remember_woken(pass: &Pass, workflow_id: &str, node_id: &str, branch: &str, sha: &str) {
+    update_state(pass, workflow_id, |state| {
+        state
+            .woken
             .entry(node_id.to_string())
             .or_default()
             .insert(branch.to_string(), sha.to_string());
@@ -1576,6 +2028,7 @@ fn land(
     branch: &str,
     claim: InFlight,
     resumes: &mut Vec<ResumeOrder>,
+    orders: &mut PassOrders,
 ) {
     let outcome = match api::workflows::land_node(&pass.trpc, node_id) {
         Ok(outcome) => outcome,
@@ -1623,20 +2076,18 @@ fn land(
         return;
     };
     let prompt = conflict_prompt(branch);
-    // A LIVE run takes the text where it stands; an ended one has to be
-    // resumed, which only the foreground can do.
-    if let Some(engine) = pass.engines.get(&session_id) {
-        engine.steer(prompt);
-        return;
-    }
-    if !pass.session_is_local.contains(&session_id) {
-        remember_resuming(pass, &workflow_id, &session_id, snapshot.now_ms);
-        resumes.push(ResumeOrder {
-            session_id,
-            prompt,
-            in_flight: Some(Arc::new(claim)),
-        });
-    }
+    // EXP-1106 rule 3: steered where it stands, resumed warm, or a fresh run
+    // with a brief — one wake.
+    let Some(mode) = snapshot
+        .sessions
+        .get(&session_id)
+        .and_then(|session| workflows::wake_mode(session, snapshot.now_ms))
+    else {
+        return; // mid-turn or parked: next beat
+    };
+    drop(claim);
+    let sink = TrpcEventSink::new(Arc::clone(&pass.trpc));
+    let _ = wake(pass, snapshot, None, node_id, &session_id, mode, prompt, resumes, orders, &sink);
 }
 
 /// The run this host is about to RESUME reads as live to the engine until
@@ -1658,16 +2109,19 @@ fn remember_resuming(pass: &Pass, workflow_id: &str, session_id: &str, now_ms: i
 /// "not a workflow node" to every node tool. Take it BEFORE the run is
 /// ended. A run no node names is not a node run: nothing is written.
 pub(crate) fn hold_person_resume(session_id: &str, cx: &App) {
-    let Some((settings_path, device_id, nodes)) = person_resume_context(cx) else {
+    let Some((store, nodes)) = person_resume_context(cx) else {
         return;
     };
-    let mut states = workflows::read_states(&settings_path, &device_id);
+    let mut states = store.read_all();
     let now_ms = chrono::Local::now().timestamp_millis();
     let Some(workflow_id) = workflows::hold_resume(&mut states, nodes, session_id, now_ms) else {
         return;
     };
     log::info!("[workflows] {workflow_id}: holding node run {session_id} for a person's resume");
-    if let Err(err) = workflows::write_states(&settings_path, &device_id, &states) {
+    let held = session_id.to_string();
+    if let Err(err) = store.update(&workflow_id, move |state| {
+        state.resuming.insert(held, now_ms);
+    }) {
         log::warn!("[workflows] state write failed: {err}");
     }
 }
@@ -1676,21 +2130,25 @@ pub(crate) fn hold_person_resume(session_id: &str, cx: &App) {
 /// after the run ended, so the engine decides the node now, not after the
 /// grace.
 pub(crate) fn release_person_resume(session_id: &str, cx: &App) {
-    let Some((settings_path, device_id, _)) = person_resume_context(cx) else {
+    let Some((store, _)) = person_resume_context(cx) else {
         return;
     };
-    let mut states = workflows::read_states(&settings_path, &device_id);
-    if !workflows::release_resume(&mut states, session_id) {
-        return;
-    }
-    if let Err(err) = workflows::write_states(&settings_path, &device_id, &states) {
-        log::warn!("[workflows] state write failed: {err}");
+    for (workflow_id, state) in store.read_all() {
+        if !state.resuming.contains_key(session_id) {
+            continue;
+        }
+        let released = session_id.to_string();
+        if let Err(err) = store.update(&workflow_id, move |state| {
+            state.resuming.remove(&released);
+        }) {
+            log::warn!("[workflows] state write failed: {err}");
+        }
     }
 }
 
-/// Where the engine state lives on this machine, plus every synced
+/// The engine state store on this machine, plus every synced
 /// `(workflow id, session id)` node pair. `None` before sign-in/sync.
-fn person_resume_context(cx: &App) -> Option<(PathBuf, String, Vec<(String, String)>)> {
+fn person_resume_context(cx: &App) -> Option<(WorkflowStore, Vec<(String, String)>)> {
     let store = sync::Store::try_global(cx)?;
     let nodes: Vec<(String, String)> = store
         .collections()
@@ -1700,38 +2158,22 @@ fn person_resume_context(cx: &App) -> Option<(PathBuf, String, Vec<(String, Stri
         .filter_map(|row| Some((row.workflow_id.clone()?, row.session_id.clone()?)))
         .collect();
     let auth = crate::session::AuthContext::global(cx);
-    let device_id = steer::persistent_device_id(&auth.data_dir);
-    let settings_path = coding::Settings::default_path(&auth.data_dir);
-    Some((settings_path, device_id, nodes))
+    Some((WorkflowStore::open(&auth.data_dir), nodes))
 }
 
 fn remember_nudge(pass: &Pass, workflow_id: &str, session_id: &str, key: &str) {
-    let Ok(resets_at) = key.parse::<i64>() else {
-        return;
-    };
-    let mut states = workflows::read_states(&pass.settings_path, &pass.device_id);
-    states
-        .entry(workflow_id.to_string())
-        .or_default()
-        .nudged
-        .insert((session_id.to_string(), resets_at));
-    if let Err(err) = workflows::write_states(&pass.settings_path, &pass.device_id, &states) {
-        log::warn!("[workflows] state write failed: {err}");
-    }
+    let pair = (session_id.to_string(), key.to_string());
+    update_state(pass, workflow_id, move |state| {
+        state.nudged.insert(pair);
+    });
 }
 
 fn already_deleted(pass: &Pass, workflow_id: &str) -> bool {
-    workflows::read_states(&pass.settings_path, &pass.device_id)
-        .get(workflow_id)
-        .is_some_and(|state| state.branch_deleted)
+    pass.store.read(workflow_id).branch_deleted
 }
 
 fn remember_branch_deleted(pass: &Pass, workflow_id: &str) {
-    let mut states = workflows::read_states(&pass.settings_path, &pass.device_id);
-    states.entry(workflow_id.to_string()).or_default().branch_deleted = true;
-    if let Err(err) = workflows::write_states(&pass.settings_path, &pass.device_id, &states) {
-        log::warn!("[workflows] state write failed: {err}");
-    }
+    update_state(pass, workflow_id, |state| state.branch_deleted = true);
 }
 
 /// The resumes one pass produced, handed to the foreground by the next tick.
@@ -1792,6 +2234,7 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         trpc,
         in_flight,
         audit,
+        wake,
     } = order;
     let run = coding::WorkflowRun {
         workflow_id: workflow_id.clone(),
@@ -1799,11 +2242,12 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         decisions,
         blockers,
     };
-    // A compound node is ONE batch run over its parent plus its members;
-    // a plain node is an ordinary issue run. Both cut from the integration
-    // branch and both carry the `## Workflow` section.
+    // EXP-1106: a fresh WAKE keeps the node's state and attempt; only the
+    // node's `session_id` moves to the new run once it is up, and a wake
+    // that cannot come up is not a node failure (the next beat re-decides).
+    let is_wake = wake.is_some();
     let prepared = match repo {
-        None => build_issue_start(&issue_id, &integration_branch, run, options, cx),
+        None => build_issue_start(&issue_id, &integration_branch, run, options, wake, cx),
         Some(repo) => build_batch_start(
             &issue_id,
             &member_issue_ids,
@@ -1811,23 +2255,31 @@ fn launch_node(order: StartOrder, cx: &mut App) {
             &integration_branch,
             run,
             options,
+            wake,
             cx,
         ),
     };
     let Some((request, deps, subject)) = prepared else {
         let reason = "The run could not be prepared on this machine";
         audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
-        fail_node_async(&trpc, &node_id, reason, cx);
+        if !is_wake {
+            fail_node_async(&trpc, &node_id, reason, cx);
+        }
         return;
     };
     let Some(window) = crate::steer_wiring::find_team_window(cx) else {
         let reason = "No Exponential window is open on the runner";
         audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
-        fail_node_async(&trpc, &node_id, reason, cx);
+        if !is_wake {
+            fail_node_async(&trpc, &node_id, reason, cx);
+        }
         return;
     };
     let node = node_id.clone();
     let audit_for_lost_window = audit.clone();
+    // A start reports `running` with the new session; a wake keeps the
+    // node's state (in_review: its pull request is up) and only re-points it.
+    let node_state_for_report = if is_wake { "in_review" } else { "running" };
     cx.spawn(async move |cx| {
         let mut hold = in_flight;
         let prepared = cx
@@ -1862,7 +2314,7 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                         cx.background_executor()
                             .spawn(async move {
                                 let mut report =
-                                    api::workflows::NodeReport::new(&node, "running");
+                                    api::workflows::NodeReport::new(&node, node_state_for_report);
                                 report.session_id = api::patch::Patch::Set(session_id);
                                 report_node(&trpc, &report);
                                 drop(hold);
@@ -1871,19 +2323,25 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                     }
                     Err(err) => {
                         audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
-                        fail_node_async(&trpc, &node, &err, cx)
+                        if !is_wake {
+                            fail_node_async(&trpc, &node, &err, cx)
+                        }
                     }
                 }
             }
             Ok(coding::Prepared::Disabled(reason)) => {
                 let reason = reason.message();
                 audit.record(Outcome::Failed(reason.to_string()), cx.background_executor());
-                fail_node_async(&trpc, &node, &reason, cx)
+                if !is_wake {
+                    fail_node_async(&trpc, &node, &reason, cx)
+                }
             }
             Err(err) => {
                 let reason = err.to_string();
                 audit.record(Outcome::Failed(reason.clone()), cx.background_executor());
-                fail_node_async(&trpc, &node, &reason, cx)
+                if !is_wake {
+                    fail_node_async(&trpc, &node, &reason, cx)
+                }
             }
         });
         if updated.is_err() {
@@ -1893,15 +2351,17 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                 ),
                 cx.background_executor(),
             );
-            cx.background_executor()
-                .spawn(async move {
-                    fail_node(
-                        &trpc_for_lost_window,
-                        &node_for_lost_window,
-                        "The Exponential window closed before the run could start",
-                    )
-                })
-                .detach();
+            if !is_wake {
+                cx.background_executor()
+                    .spawn(async move {
+                        fail_node(
+                            &trpc_for_lost_window,
+                            &node_for_lost_window,
+                            "The Exponential window closed before the run could start",
+                        )
+                    })
+                    .detach();
+            }
         }
         drop(hold);
     })
@@ -1939,9 +2399,9 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
         review_branch,
         round_at_launch,
         adversarial,
+        landed,
         options,
-        settings_path,
-        device_id,
+        store,
         in_flight,
         audit,
     } = order;
@@ -1968,6 +2428,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
             base_branch,
             review_branch,
             adversarial,
+            landed,
         },
         trigger: None,
         automation_id: None,
@@ -1976,10 +2437,6 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
         options,
         prompt: None,
     });
-    let failed_node = node_id.clone();
-    let failed_workflow = workflow_id.clone();
-    let failed_settings = settings_path.clone();
-    let failed_device = device_id.clone();
     cx.spawn(async move |cx| {
         let hold = in_flight;
         let prepared = cx
@@ -2000,8 +2457,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                     Ok(()) => {
                         audit.record(Outcome::Done, cx.background_executor());
                         remember_review_run(
-                            &settings_path,
-                            &device_id,
+                            &store,
                             &workflow_id,
                             &node_id,
                             &session_id,
@@ -2011,12 +2467,6 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                     Err(err) => {
                         log::warn!("[workflows] review of {node_id} — {err}");
                         audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
-                        forget_reviewed_head(
-                            &failed_settings,
-                            &failed_device,
-                            &failed_workflow,
-                            &failed_node,
-                        );
                     }
                 }
             }
@@ -2026,22 +2476,10 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                     Outcome::Failed(reason.message().to_string()),
                     cx.background_executor(),
                 );
-                forget_reviewed_head(
-                    &failed_settings,
-                    &failed_device,
-                    &failed_workflow,
-                    &failed_node,
-                );
             }
             Err(err) => {
                 log::warn!("[workflows] review of {node_id} — {err}");
                 audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
-                forget_reviewed_head(
-                    &failed_settings,
-                    &failed_device,
-                    &failed_workflow,
-                    &failed_node,
-                );
             }
         });
         if updated.is_err() {
@@ -2057,50 +2495,136 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
     .detach();
 }
 
+/// EXP-1103 — start ONE review wave's fix run: the hidden `Fix review
+/// findings` builtin in a worktree of its own on the wave's fix branch. A
+/// failure leaves no record: the next beat decides the fix run again.
+fn launch_fix(order: FixOrder, cx: &mut App) {
+    let Some(deps) = coding_flow::build_action_deps(cx) else {
+        log::warn!("[workflows] fix run of wave {}: not signed in", order.wave);
+        order
+            .audit
+            .record(Outcome::Failed("not signed in".to_string()), cx.background_executor());
+        return;
+    };
+    let Some(window) = crate::steer_wiring::find_team_window(cx) else {
+        log::warn!("[workflows] fix run of wave {}: no window open", order.wave);
+        order.audit.record(
+            Outcome::Failed("no Exponential window is open on the runner".to_string()),
+            cx.background_executor(),
+        );
+        return;
+    };
+    let FixOrder {
+        workflow_id,
+        workflow_name,
+        wave,
+        team_id,
+        repo,
+        branch,
+        integration_branch,
+        findings,
+        options,
+        store,
+        in_flight,
+        audit,
+    } = order;
+    let request = coding::PrepareRequest::Action(coding::ActionLaunchRequest {
+        action_id: domain::contract::BUILTIN_FIX_REVIEW_FINDINGS_ID.to_string(),
+        run_id: coding::new_run_id(),
+        action_name: api::actions::builtin_action_name(
+            domain::contract::BUILTIN_FIX_REVIEW_FINDINGS_ID,
+        )
+        .unwrap_or("Fix review findings")
+        .to_string(),
+        team_id,
+        body: String::new(),
+        repo: Some(coding::RepoGroup {
+            repository_id: repo.repository_id,
+            full_name: repo.full_name,
+            default_branch: repo.default_branch,
+        }),
+        inputs: Vec::new(),
+        kind: coding::ActionRunKind::FixReviewFindings {
+            workflow_name,
+            wave,
+            branch,
+            integration_branch,
+            findings,
+        },
+        trigger: None,
+        automation_id: None,
+        device_label: coding::default_device_label(),
+        origin: LaunchOrigin::Local,
+        options,
+        prompt: None,
+    });
+    cx.spawn(async move |cx| {
+        let hold = in_flight;
+        let prepared = cx
+            .background_executor()
+            .spawn(async move { coding::prepare(&request, &deps) })
+            .await;
+        let audit_for_lost_window = audit.clone();
+        let updated = window.update(cx, |_, window, cx| match prepared {
+            Ok(coding::Prepared::Ready(ready)) => {
+                let session_id = ready.session_id.clone();
+                let subject = SessionSubject::Action(session_id.clone());
+                match coding_flow::spawn_into_window(ready, subject, window, cx) {
+                    Ok(()) => {
+                        audit.record(Outcome::Done, cx.background_executor());
+                        if let Err(err) = store.update(&workflow_id, move |state| {
+                            state.fix_runs.insert(wave, session_id);
+                        }) {
+                            log::warn!("[workflows] state write failed: {err}");
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("[workflows] fix run of wave {wave} — {err}");
+                        audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
+                    }
+                }
+            }
+            Ok(coding::Prepared::Disabled(reason)) => {
+                log::warn!("[workflows] fix run of wave {wave} — {}", reason.message());
+                audit.record(
+                    Outcome::Failed(reason.message().to_string()),
+                    cx.background_executor(),
+                );
+            }
+            Err(err) => {
+                log::warn!("[workflows] fix run of wave {wave} — {err}");
+                audit.record(Outcome::Failed(err.to_string()), cx.background_executor());
+            }
+        });
+        if updated.is_err() {
+            audit_for_lost_window.record(
+                Outcome::Failed(
+                    "The Exponential window closed before the fix run could start".to_string(),
+                ),
+                cx.background_executor(),
+            );
+        }
+        drop(hold);
+    })
+    .detach();
+}
+
 /// Remember which run reviews a node (so a live review is never doubled)
 /// and the node's round when it was launched (so a run that ends with the
 /// round unchanged is known to have submitted nothing).
 fn remember_review_run(
-    settings_path: &std::path::Path,
-    device_id: &str,
+    store: &WorkflowStore,
     workflow_id: &str,
     node_id: &str,
     session_id: &str,
     round_at_launch: i64,
 ) {
-    edit_states(settings_path, device_id, workflow_id, |state| {
-        state
-            .review_runs
-            .insert(node_id.to_string(), session_id.to_string());
-        state
-            .review_rounds
-            .insert(node_id.to_string(), round_at_launch);
-    });
-}
-
-/// A review that never came up reviewed nothing: drop the head it claimed so
-/// the next beat starts one again.
-fn forget_reviewed_head(
-    settings_path: &std::path::Path,
-    device_id: &str,
-    workflow_id: &str,
-    node_id: &str,
-) {
-    edit_states(settings_path, device_id, workflow_id, |state| {
-        state.reviewed_head.remove(node_id);
-    });
-}
-
-/// Read-modify-write one workflow's persisted engine state, off a Pass.
-fn edit_states(
-    settings_path: &std::path::Path,
-    device_id: &str,
-    workflow_id: &str,
-    edit: impl FnOnce(&mut workflows::WorkflowState),
-) {
-    let mut states = workflows::read_states(settings_path, device_id);
-    edit(states.entry(workflow_id.to_string()).or_default());
-    if let Err(err) = workflows::write_states(settings_path, device_id, &states) {
+    let node_id = node_id.to_string();
+    let session_id = session_id.to_string();
+    if let Err(err) = store.update(workflow_id, move |state| {
+        state.review_runs.insert(node_id.clone(), session_id);
+        state.review_rounds.insert(node_id, round_at_launch);
+    }) {
         log::warn!("[workflows] state write failed: {err}");
     }
 }
@@ -2110,10 +2634,11 @@ fn build_issue_start(
     integration_branch: &str,
     run: coding::WorkflowRun,
     options: LaunchOptions,
+    prompt: Option<String>,
     cx: &mut App,
 ) -> Option<(coding::PrepareRequest, coding::CodingDeps, SessionSubject)> {
     let (mut request, deps) =
-        coding_flow::build_launch(issue_id, LaunchOrigin::Local, options, false, None, None, cx)?;
+        coding_flow::build_launch(issue_id, LaunchOrigin::Local, options, false, prompt, None, cx)?;
     request.base_branch = Some(integration_branch.to_string());
     request.workflow = Some(run);
     Some((
@@ -2123,6 +2648,7 @@ fn build_issue_start(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_batch_start(
     issue_id: &str,
     member_issue_ids: &[String],
@@ -2130,6 +2656,7 @@ fn build_batch_start(
     integration_branch: &str,
     run: coding::WorkflowRun,
     options: LaunchOptions,
+    prompt: Option<String>,
     cx: &mut App,
 ) -> Option<(coding::PrepareRequest, coding::CodingDeps, SessionSubject)> {
     let collections = sync::Store::try_global(cx)?.collections().clone();
@@ -2168,7 +2695,7 @@ fn build_batch_start(
         device_label: coding::default_device_label(),
         origin: LaunchOrigin::Local,
         options,
-        prompt: None,
+        prompt,
         base_branch: Some(integration_branch.to_string()),
         workflow: Some(run),
     };

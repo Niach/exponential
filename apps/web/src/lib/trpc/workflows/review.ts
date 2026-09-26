@@ -4,9 +4,11 @@ import {
   and,
   eq,
   inArray,
+  isNull,
   sql,
 } from "drizzle-orm"
 import {
+  WORKFLOW_MAX_ISSUES,
   WORKFLOW_MAX_REVIEW_ROUNDS,
   wfReviewVerdictSchema,
   workflowReviewHeadSchema,
@@ -53,7 +55,7 @@ export const workflowReviewProcedures = {
       const node = await loadNode(input.nodeId)
       const workflow = await loadWorkflow(node.workflowId)
       await assertEngine(workflow, ctx.session.user.id)
-      if (node.state === `landed` || node.state === `skipped`) {
+      if (node.state === `skipped`) {
         throw bad(`That node is already settled`)
       }
       if (!(await isReviewRunOfNode(ctx.db, input.sessionId, node, workflow.id))) {
@@ -80,6 +82,40 @@ export const workflowReviewProcedures = {
         }
       }
       const oraclePassed = input.oracle ? input.oracle.passed : null
+      if (node.state === `landed`) {
+        // EXP-1103: a review WAVE's verdict on a landed node's diff. The node
+        // keeps its state; the verdict is recorded (once per wave — the round
+        // is the claim) and the engine hands every request of the wave to
+        // ONE fix run. `approved_at` stays with `clearReviewWave`.
+        return ctx.db.transaction(async (tx) => {
+          const [claimed] = await tx
+            .update(workflowNodes)
+            .set({ reviewRound: sql`${workflowNodes.reviewRound} + 1` })
+            .where(and(eq(workflowNodes.id, input.nodeId), eq(workflowNodes.state, `landed`)))
+            .returning({ round: workflowNodes.reviewRound })
+          if (!claimed) throw bad(`That node is not landed any more`)
+          const round = claimed.round
+          const review: WorkflowNodeReview = {
+            verdict: input.verdict,
+            findings: input.findings,
+            oracle: input.oracle ?? null,
+            model: input.model ?? null,
+            round,
+            at: new Date().toISOString(),
+            ...(input.head && { head: input.head }),
+          }
+          await tx.update(workflowNodes).set({ review }).where(eq(workflowNodes.id, input.nodeId))
+          const requested = input.verdict === `request_changes` || oraclePassed === false
+          return {
+            round,
+            approve: !requested,
+            state: `landed` as const,
+            note: requested
+              ? `Changes requested by the review wave; the wave's fix run takes them`
+              : `Review wave passed`,
+          }
+        })
+      }
       return ctx.db.transaction(async (tx) => {
         // The round is claimed IN the update (concurrent verdicts cannot share
         // one), and only a node that is under review or being updated moves:
@@ -129,5 +165,38 @@ export const workflowReviewProcedures = {
           .where(eq(workflowNodes.id, input.nodeId))
         return { round, ...outcome }
       })
+    }),
+
+  /** ENGINE (EXP-1103): a review wave is done — its reviewers answered and
+   *  its one fix run landed (or nothing was requested). Stamps `approved_at`
+   *  on the wave's landed nodes, which releases the layers behind it (a deep
+   *  graph) and, after the last wave, the final pull request. Idempotent:
+   *  a node already stamped keeps its stamp; a node that is not landed is
+   *  skipped. */
+  clearReviewWave: authedProcedure
+    .input(
+      z.object({
+        workflowId: z.string().uuid(),
+        wave: z.number().int().min(0).max(999),
+        nodeIds: z.array(z.string().uuid()).max(WORKFLOW_MAX_ISSUES),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const workflow = await loadWorkflow(input.workflowId)
+      await assertEngine(workflow, ctx.session.user.id)
+      if (input.nodeIds.length === 0) return { cleared: 0 }
+      const rows = await ctx.db
+        .update(workflowNodes)
+        .set({ approvedAt: new Date() })
+        .where(
+          and(
+            eq(workflowNodes.workflowId, workflow.id),
+            inArray(workflowNodes.id, input.nodeIds),
+            eq(workflowNodes.state, `landed`),
+            isNull(workflowNodes.approvedAt)
+          )
+        )
+        .returning({ id: workflowNodes.id })
+      return { cleared: rows.length }
     }),
 }

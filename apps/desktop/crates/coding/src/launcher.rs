@@ -47,7 +47,8 @@ use crate::action_prompt::{
     TriggerNote, WorkspaceNote,
 };
 use crate::action_prompt::{
-    create_action_prompt, fix_pr_conflicts_prompt, plan_workflow_prompt, review_node_prompt,
+    create_action_prompt, fix_pr_conflicts_prompt, fix_review_findings_prompt,
+    plan_workflow_prompt, review_landed_node_prompt, review_node_prompt,
     PLAN_WORKFLOW_PROMPT_PREFIX,
 };
 use crate::batch_launcher::{
@@ -495,6 +496,26 @@ pub enum ActionRunKind {
         /// the defect, and the engine already picked a model that is not the
         /// author's.
         adversarial: bool,
+        /// EXP-1103: `Some(pr)` = a review WAVE's review of a LANDED node —
+        /// `branch` is then the workflow's INTEGRATION branch, `base_branch`
+        /// the repository's default, and the reviewer judges the node's squash
+        /// commit (pull request `pr`, if known) as it sits in that branch.
+        /// `None` = the pre-wave review of a node's own branch.
+        landed: Option<Option<i64>>,
+    },
+    /// EXP-1103: the hidden "Fix review findings" builtin — a review WAVE's
+    /// ONE fix run, started by the workflow engine on the runner device and
+    /// by nothing else. It runs in a worktree of its own on `branch`, cut
+    /// from the integration branch, addresses every finding the wave's
+    /// reviewers raised, pushes `branch` and ends; the HOST then
+    /// fast-forwards the integration branch to it.
+    FixReviewFindings {
+        workflow_name: String,
+        wave: i64,
+        /// `exp/wf-<id8>-fix-w<wave>`, named by the engine.
+        branch: String,
+        integration_branch: String,
+        findings: Vec<crate::action_prompt::WaveFinding>,
     },
     /// The hidden "Chat" builtin (EXP-615): a conversation with the agent over
     /// the tracker's MCP tools, no PR contract. The repository is an OPTIONAL
@@ -2326,6 +2347,11 @@ fn prepare_action(
             "the review run needs the node's repository".to_string(),
         ));
     }
+    if matches!(req.kind, ActionRunKind::FixReviewFindings { .. }) && repo.is_none() {
+        return Err(CodingError::Io(
+            "the fix run needs the workflow's repository".to_string(),
+        ));
+    }
     // EXP-712: the fix-conflicts run is the only action shape that belongs to
     // a BOARD (the PR's). Everything else works the repo's own default.
     let fix_board_id = match &req.kind {
@@ -2340,7 +2366,9 @@ fn prepare_action(
     // run — unattended, and the only shape of action run that reports through
     // `exponential_sessions_end`.
     let run_reason = match &req.kind {
-        ActionRunKind::ReviewNode { .. } => Some(WORKFLOW_STARTED_REASON),
+        ActionRunKind::ReviewNode { .. } | ActionRunKind::FixReviewFindings { .. } => {
+            Some(WORKFLOW_STARTED_REASON)
+        }
         _ => started_reason(&req.origin, req.trigger.as_ref(), None),
     };
     let unattended = run_reason.is_some();
@@ -2542,6 +2570,29 @@ fn prepare_action(
                     base_branch = Some(node_branch.clone());
                     worktree
                 }
+                // EXP-1103: the wave's fix run works on its OWN branch cut
+                // from the integration branch; it pushes that branch and the
+                // host lands it. Its base for the cleanup below is the
+                // integration branch.
+                ActionRunKind::FixReviewFindings {
+                    branch: fix_branch,
+                    integration_branch,
+                    ..
+                } => {
+                    crate::git_worktree::validate_branch_arg(fix_branch, "fix run")?;
+                    crate::git_worktree::validate_branch_arg(integration_branch, "fix run base")?;
+                    launch_hold = Some(crate::launch_gate::hold(&clone));
+                    crate::git_worktree::fetch_base(&clone, integration_branch, &url)?;
+                    let worktree = crate::git_worktree::create_worktree(
+                        &clone,
+                        fix_branch,
+                        &format!("origin/{integration_branch}"),
+                        &url,
+                    )?;
+                    run_branch = Some(fix_branch.clone());
+                    base_branch = Some(integration_branch.clone());
+                    worktree
+                }
                 // EXP-637 (decision 1): a Team action or a Chat run gets its
                 // OWN worktree + branch cut from the repo's default, instead
                 // of writing into the trunk clone. Whatever the agent
@@ -2703,14 +2754,39 @@ fn prepare_action(
             identifier,
             base_branch,
             adversarial,
+            landed,
             ..
-        } => Some(review_node_prompt(
-            node_id,
-            identifier,
-            base_branch,
-            // A high-risk node's review is adversarial: the engine picks a
-            // model other than the author's, and the prompt says it in words.
-            *adversarial,
+        } => Some(match landed {
+            // EXP-1103: a review WAVE's look at a landed node's squash commit.
+            Some(pr_number) => review_landed_node_prompt(
+                node_id,
+                identifier,
+                base_branch,
+                *adversarial,
+                *pr_number,
+            ),
+            None => review_node_prompt(
+                node_id,
+                identifier,
+                base_branch,
+                // A high-risk node's review is adversarial: the prompt says
+                // it in words.
+                *adversarial,
+            ),
+        }),
+        // EXP-1103: the wave's one fix run — every requested finding, once.
+        ActionRunKind::FixReviewFindings {
+            workflow_name,
+            wave,
+            branch,
+            integration_branch,
+            findings,
+        } => Some(fix_review_findings_prompt(
+            workflow_name,
+            *wave,
+            branch,
+            integration_branch,
+            findings,
         )),
         ActionRunKind::FixConflicts {
             branch,
@@ -2870,7 +2946,10 @@ fn prepare_action(
     // committed nothing, so the cleanup's "left nothing behind" test passes.
     let run_cleanup = match (&req.kind, &trunk_clone, &run_branch, &base_branch) {
         (
-            ActionRunKind::Team | ActionRunKind::Chat | ActionRunKind::ReviewNode { .. },
+            ActionRunKind::Team
+            | ActionRunKind::Chat
+            | ActionRunKind::ReviewNode { .. }
+            | ActionRunKind::FixReviewFindings { .. },
             Some(clone),
             Some(branch),
             Some(base_branch),
@@ -2898,6 +2977,7 @@ fn prepare_action(
                 ActionRunKind::CreateAction => RunKind::CreateAction,
                 ActionRunKind::PlanWorkflow => RunKind::PlanWorkflow,
                 ActionRunKind::ReviewNode { .. } => RunKind::ReviewNode,
+                ActionRunKind::FixReviewFindings { .. } => RunKind::FixReviewFindings,
                 ActionRunKind::FixConflicts { .. } => RunKind::FixConflicts,
             },
             action_id: req.action_id.clone(),

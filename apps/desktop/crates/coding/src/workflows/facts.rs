@@ -141,6 +141,107 @@ pub fn detect_conflicts(
     found
 }
 
+/// EXP-1106 — which nodes' branches do NOT merge cleanly with their base's
+/// CURRENT tip: `git merge-tree` per (node, base) pair whose base moved
+/// (`merged` says which tip is already in), cached against both tips like the
+/// sibling verdicts. `pairs` = `(node id, node branch, base branch)`. A
+/// branch origin does not have is skipped.
+pub fn detect_base_conflicts(
+    clone: &Path,
+    pairs: &[(String, String, String)],
+    tips: &HashMap<String, String>,
+    merged: &HashMap<String, HashMap<String, String>>,
+    cache: &mut HashMap<String, bool>,
+    url: Option<&TokenUrl>,
+) -> HashSet<String> {
+    let mut found = HashSet::new();
+    for (node_id, branch, base) in pairs {
+        let (Some(node_sha), Some(base_sha)) = (tips.get(branch), tips.get(base)) else {
+            continue;
+        };
+        if merged.get(node_id).and_then(|known| known.get(base)) == Some(base_sha) {
+            continue;
+        }
+        let key = conflict_key((node_id, node_sha), (base, base_sha));
+        let verdict = match cache.get(&key) {
+            Some(cached) => *cached,
+            None => {
+                let ours = format!("refs/remotes/origin/{branch}");
+                let theirs = format!("refs/remotes/origin/{base}");
+                match merge_conflicts(clone, &ours, &theirs, url) {
+                    Ok(verdict) => {
+                        cache.insert(key, verdict);
+                        verdict
+                    }
+                    Err(err) => {
+                        log::warn!("[workflows] merge-tree {branch}/{base} — {err}");
+                        continue;
+                    }
+                }
+            }
+        };
+        if verdict {
+            found.insert(node_id.clone());
+        }
+    }
+    found
+}
+
+/// EXP-1106 — the `merged` cache re-derived from git: for every
+/// `(node id, node branch, base branch)` whose base tip is not known to be
+/// in the node's branch, `git merge-base --is-ancestor` says whether it is
+/// (a mechanical merge already landed, a branch cut at this tip). Fills
+/// `merged`; a pair the clone cannot answer is left alone.
+pub fn refresh_merged(
+    clone: &Path,
+    pairs: &[(String, String, String)],
+    tips: &HashMap<String, String>,
+    merged: &mut HashMap<String, HashMap<String, String>>,
+) {
+    for (node_id, branch, base) in pairs {
+        let (Some(node_sha), Some(base_sha)) = (tips.get(branch), tips.get(base)) else {
+            continue;
+        };
+        if merged.get(node_id).and_then(|known| known.get(base)) == Some(base_sha) {
+            continue;
+        }
+        match super::base::is_ancestor(clone, base_sha, node_sha) {
+            Ok(true) => {
+                merged
+                    .entry(node_id.clone())
+                    .or_default()
+                    .insert(base.clone(), base_sha.clone());
+            }
+            Ok(false) => {}
+            Err(err) => log::warn!("[workflows] merge-base {branch}/{base} — {err}"),
+        }
+    }
+}
+
+/// EXP-1106 — the debounce clock: `tips_seen` keeps, per branch, the tip
+/// the host saw and when it first saw it; a branch whose tip changed is
+/// re-stamped `now`, one that is gone is dropped. Returns `branch → first
+/// seen ms` for the snapshot.
+pub fn stamp_tips_seen(
+    tips_seen: &mut HashMap<String, (String, i64)>,
+    tips: &HashMap<String, String>,
+    now_ms: i64,
+) -> HashMap<String, i64> {
+    tips_seen.retain(|branch, _| tips.contains_key(branch));
+    for (branch, sha) in tips {
+        match tips_seen.get(branch) {
+            Some((seen, _)) if seen == sha => {}
+            _ => {
+                tips_seen.insert(branch.clone(), (sha.clone(), now_ms));
+            }
+        }
+    }
+    tips_seen
+        .iter()
+        .map(|(branch, (_, at))| (branch.clone(), *at))
+        .collect()
+}
+
 /// The branch a node's run pushes to, by CONVENTION: the launcher cuts
 /// `exp/<IDENTIFIER>` for an issue run. A node with no run yet has none.
 pub fn conventional_branch(identifier: &str) -> String {
@@ -277,6 +378,32 @@ mod tests {
         confine_branches_to_tips(&mut snapshot);
         assert!(snapshot.nodes.iter().all(|node| node.branch.is_none()));
         assert!(snapshot.pr_head.is_empty());
+    }
+
+    /// EXP-1106: the debounce clock stamps a NEW tip with now, keeps the
+    /// stamp of an unchanged one and forgets a branch that is gone.
+    #[test]
+    fn the_tip_clock_restamps_only_a_moved_tip() {
+        let mut seen: HashMap<String, (String, i64)> = [
+            ("exp/a".to_string(), ("sha-a1".to_string(), 10)),
+            ("exp/gone".to_string(), ("sha-g".to_string(), 10)),
+        ]
+        .into();
+        let tips: HashMap<String, String> = [
+            ("exp/a".to_string(), "sha-a1".to_string()),
+            ("exp/b".to_string(), "sha-b1".to_string()),
+        ]
+        .into();
+        let stamps = stamp_tips_seen(&mut seen, &tips, 50);
+        assert_eq!(stamps, [("exp/a".to_string(), 10), ("exp/b".to_string(), 50)].into());
+        let moved: HashMap<String, String> = [
+            ("exp/a".to_string(), "sha-a2".to_string()),
+            ("exp/b".to_string(), "sha-b1".to_string()),
+        ]
+        .into();
+        let stamps = stamp_tips_seen(&mut seen, &moved, 90);
+        assert_eq!(stamps, [("exp/a".to_string(), 90), ("exp/b".to_string(), 50)].into());
+        assert!(!seen.contains_key("exp/gone"));
     }
 
     /// A cached verdict costs no git at all, and the cache keeps only the

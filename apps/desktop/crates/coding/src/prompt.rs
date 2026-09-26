@@ -289,9 +289,11 @@ parallel on sibling branches and land into the same integration branch.
 
 - Your branch was cut from `{base_branch}`. Open your pull request with exponential_pr_open as \
 usual and pass NO base: it is derived from the workflow.
-- Never rebase and never force-push. When you are told that the integration branch moved, run \
-`git fetch origin` and `git merge origin/{base_branch}`, resolve any conflict in favour of what \
-already landed unless that breaks your issue, and push.
+- Never rebase and never force-push. Your branch is FROZEN on the `{base_branch}` tip you were \
+cut from: nobody merges a newer one into it while you run. If you need a newer upstream, run \
+`git fetch origin` and `git merge origin/{base_branch}` yourself, resolve any conflict in favour of \
+what already landed unless that breaks your issue, and push. Once your run has ended the scheduler \
+merges upstream into your branch for you and wakes you only for a conflict.
 - Stay inside your issue. Work you discover that is not yours: file it with \
 exponential_issues_create and mention it in your summary.
 - A question only a person can answer: exponential_sessions_ask_parent. It goes to the person \
@@ -306,13 +308,47 @@ Decisions so far:
     )
 }
 
-/// EXP-983 — what a run is told when the branch under it moved. The NOTE is
-/// the host's own `git log`/`git diff --stat` summary of the range: the
-/// agent never spends a token working out what changed.
+/// EXP-983/EXP-1106 — what a run is told when the branch under it moved AND
+/// the host's own merge of it CONFLICTS (a clean move is merged by the host,
+/// and nobody is told). The NOTE is the host's own `git log`/`git diff
+/// --stat` summary of the range: the agent never spends a token working out
+/// what changed.
 pub fn upstream_moved_prompt(base_branch: &str, note: &str) -> String {
     format!(
-        "Upstream moved: {note}. Run git fetch origin and git merge origin/{base_branch}, resolve \
-any conflict, run the tests you touched, and push."
+        "Upstream moved and does not merge cleanly into your branch: {note}. Run git fetch origin \
+and git merge origin/{base_branch}, resolve the conflict in favour of what already landed unless \
+that breaks your issue, run the tests you touched, and push."
+    )
+}
+
+/// EXP-1106 rule 3 — the BRIEF a FRESH run of a node opens with when its
+/// earlier run ended too long ago to resume warm. Written by the engine
+/// host, never by an agent: the node's branch and what it holds against its
+/// base (`git diff --stat`), the reason it is woken (`instruction`, one of
+/// the prompts above), and the node's own notes. Everything the agent needs
+/// to act in one turn, without its old transcript.
+pub fn wake_brief(
+    identifier: &str,
+    branch: &str,
+    base_branch: &str,
+    diff_stat: &str,
+    note: Option<&str>,
+    instruction: &str,
+) -> String {
+    let diff_stat = match diff_stat.trim() {
+        "" => "(no diff against the base yet)".to_string(),
+        text => text.to_string(),
+    };
+    let note = match note.map(str::trim).filter(|note| !note.is_empty()) {
+        Some(note) => format!("\nNote on the node: {note}\n"),
+        None => String::new(),
+    };
+    format!(
+        "You are picking up {identifier}, a node of a workflow, in its worktree on branch `{branch}` \
+(cut from `{base_branch}`). An earlier run of yours did the work below and ended; its conversation is \
+not here, so read the branch, not a memory. What the branch holds against `{base_branch}`:\n\n\
+{diff_stat}\n{note}\nWhat is asked of you now: {instruction}\n\nDo only that, run the tests you touch, \
+push, then end the run again."
     )
 }
 
@@ -506,9 +542,11 @@ parallel on sibling branches and land into the same integration branch.
 
 - Your branch was cut from `exp/wf-abcdef12`. Open your pull request with exponential_pr_open as \
 usual and pass NO base: it is derived from the workflow.
-- Never rebase and never force-push. When you are told that the integration branch moved, run \
-`git fetch origin` and `git merge origin/exp/wf-abcdef12`, resolve any conflict in favour of what \
-already landed unless that breaks your issue, and push.
+- Never rebase and never force-push. Your branch is FROZEN on the `exp/wf-abcdef12` tip you were \
+cut from: nobody merges a newer one into it while you run. If you need a newer upstream, run \
+`git fetch origin` and `git merge origin/exp/wf-abcdef12` yourself, resolve any conflict in favour \
+of what already landed unless that breaks your issue, and push. Once your run has ended the \
+scheduler merges upstream into your branch for you and wakes you only for a conflict.
 - Stay inside your issue. Work you discover that is not yours: file it with \
 exponential_issues_create and mention it in your summary.
 - A question only a person can answer: exponential_sessions_ask_parent. It goes to the person \
@@ -571,8 +609,9 @@ exponential_sessions_ask_parent.\n"
     fn the_upstream_prompt_names_the_branch_and_the_change() {
         assert_eq!(
             upstream_moved_prompt("exp/EXP-1", "a1b2c3 add the token parser"),
-            "Upstream moved: a1b2c3 add the token parser. Run git fetch origin and git merge \
-origin/exp/EXP-1, resolve any conflict, run the tests you touched, and push."
+            "Upstream moved and does not merge cleanly into your branch: a1b2c3 add the token parser. Run \
+git fetch origin and git merge origin/exp/EXP-1, resolve the conflict in favour of what already \
+landed unless that breaks your issue, run the tests you touched, and push."
         );
     }
 

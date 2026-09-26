@@ -307,9 +307,21 @@ describe(`workflows.update`, () => {
     await caller.update({ id: WF, name: `Renamed` })
     expect(written[0]!.values).toEqual({ name: `Renamed` })
 
-    selectQueue.push([workflow({ status: `running` })])
+    selectQueue.push([workflow({ status: `done` })])
     const error = await rejection(caller.update({ id: WF, deviceId: `dev-1` }))
     expect(error?.code).toBe(`PRECONDITION_FAILED`)
+  })
+
+  // EXP-1102: the runner is the one thing a RUNNING workflow may change — a
+  // host that went offline is replaced by the person, and the new host
+  // re-derives its state. The launch stays as it was.
+  it(`re-binds a running workflow's runner without touching its launch`, async () => {
+    selectQueue.push([workflow({ status: `running` })])
+    await caller.update({ id: WF, deviceId: `dev-2` })
+    const values = written[0]!.values as Record<string, unknown>
+    expect(values.deviceId).toBe(`dev-2`)
+    expect(values.launch).toBeUndefined()
+    expect(String(values.decisions)).toContain(`Runner moved to device dev-2`)
   })
 
   // EXP-1066/1090: `startOn` and `launch` are no inputs; an old client still
@@ -598,15 +610,44 @@ describe(`the engine's write path`, () => {
     expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
   })
 
-  it(`holds an unapproved node at the gate, server-side`, async () => {
+  // EXP-1103: no review gates a node — its RUN does (it lands once the run
+  // ended with its pull request up), and in a deep graph the review wave
+  // before its layer.
+  it(`holds a node whose run is still up at the gate, server-side`, async () => {
     selectQueue.push(
-      [node()],
+      [node({ sessionId: `66666666-6666-4666-8666-666666666666` })],
       [workflow({ status: `running`, deviceId: `dev-1` })],
-      [{ id: `device-row` }]
+      [{ id: `device-row` }],
+      [{ prState: `open` }],
+      [{ status: `running` }]
     )
     expect(await caller.landNode({ nodeId: NODE })).toEqual({
       merged: false,
-      reason: `Waiting for the agent review to clear it`,
+      reason: `Waiting for its run to end`,
+      retargeted: [],
+    })
+  })
+
+  it(`holds a node behind an uncleared review wave of a deep graph`, async () => {
+    selectQueue.push(
+      [node({ wave: 1 })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ prState: `open` }]
+    )
+    // Four layers: the contract landed but its wave has not cleared it.
+    h.loadWorkflowEdges.mockResolvedValueOnce({
+      nodes: [
+        { id: `c`, issueId: `i-c`, memberIssueIds: [], state: `landed`, baseBranch: null, wave: 0, approvedAt: null },
+        { id: `node-1`, issueId: A, memberIssueIds: [], state: `in_review`, baseBranch: null, wave: 1, approvedAt: null },
+        { id: `m`, issueId: `i-m`, memberIssueIds: [], state: `blocked`, baseBranch: null, wave: 2, approvedAt: null },
+        { id: `i`, issueId: `i-i`, memberIssueIds: [], state: `blocked`, baseBranch: null, wave: 3, approvedAt: null },
+      ] as never,
+      edges: [],
+    })
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: false,
+      reason: `Waiting for the review wave to clear`,
       retargeted: [],
     })
   })
@@ -758,12 +799,13 @@ describe(`the engine's write path`, () => {
 
   it(`a merge from before the workflow started lands nothing`, async () => {
     selectQueue.push(
-      [node()],
+      [node({ sessionId: `66666666-6666-4666-8666-666666666666` })],
       [workflow({ status: `running`, deviceId: `dev-1`, startedAt: new Date(`2026-09-21T10:00:00Z`) })],
       [{ id: `device-row` }],
-      [{ prState: `merged`, prMergedAt: new Date(`2026-09-01T10:00:00Z`) }]
+      [{ prState: `merged`, prMergedAt: new Date(`2026-09-01T10:00:00Z`) }],
+      [{ status: `running` }] // the node's run, still up: the old merge is not this attempt's
     )
-    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for the agent review to clear it`)
+    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for its run to end`)
     expect(written).toEqual([])
   })
 
@@ -1408,6 +1450,7 @@ describe(`node states (EXP-1082 §4)`, () => {
       [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }],
       [{ prState: `open` }],
+      [{ status: `ended` }], // the author's run ended
       // the landed write's decisions-log update
       [{ identifier: `APP-6` }],
       [{ decisions: `2026-09-19: ship the API first` }]
@@ -1446,11 +1489,17 @@ describe(`node states (EXP-1082 §4)`, () => {
     )
   })
 
-  it(`a node below the cap, or one whose checks passed, still waits for its review`, async () => {
-    expect(
-      (await land(capped({ verdict: `request_changes`, round: 2 }))).reason
-    ).toBe(`Waiting for the agent review to clear it`)
-    expect(h.mergePr).not.toHaveBeenCalled()
+  // EXP-1103: a review no longer gates the landing at all — the review wave
+  // looks at the landed result; a node below the old cap lands like any
+  // other once its run ended, carrying nothing.
+  it(`a node below the cap lands too: the review waves judge the landed result`, async () => {
+    expect(await land(capped({ verdict: `request_changes`, round: 2 }))).toEqual({
+      merged: true,
+      reason: null,
+      retargeted: [],
+    })
+    expect(h.mergePr).toHaveBeenCalledWith({ issueId: A, endSessions: true })
+    expect(decisionsWritten()).toBeUndefined()
   })
 
   it(`an open question never changes the node state, only the badge`, async () => {

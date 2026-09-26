@@ -465,7 +465,8 @@
     "fixConflictsId": "builtin:fix-conflicts",
     "chatId": "builtin:chat",
     "planWorkflowId": "builtin:plan-workflow",
-    "reviewNodeId": "builtin:review-node"
+    "reviewNodeId": "builtin:review-node",
+    "fixReviewFindingsId": "builtin:fix-review-findings"
   },
   "actionInputs": {
     "max": 10,
