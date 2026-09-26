@@ -245,6 +245,22 @@ export const workflowNodeProcedures = {
       // A skip releases its dependents exactly like a landing does: the ones
       // with no unlanded blocker left move onto the integration branch.
       if (input.action === `skip`) {
+        // EXP-1096: who took the node out, on the workflow's event log
+        // (once: a repeated skip is no news).
+        const [issue] = await ctx.db
+          .select({ identifier: issues.identifier })
+          .from(issues)
+          .where(eq(issues.id, node.issueId))
+          .limit(1)
+        const who = ctx.session.user.name?.trim() || ctx.session.user.email || `a member`
+        if (node.state !== `skipped`) await recordWorkflowEvent(ctx.db, {
+          workflowId: workflow.id,
+          teamId: workflow.teamId,
+          nodeId: node.id,
+          sessionId: node.sessionId,
+          kind: `skipped`,
+          message: `${issue?.identifier ?? `A node`} skipped by ${who}`,
+        })
         const { retargetReleasedDependents } = await import(`@/lib/workflow-final-pr`)
         await retargetReleasedDependents(ctx.db, workflow.id, node.id, ctx.session.user.id)
       }
@@ -437,7 +453,7 @@ export const workflowNodeProcedures = {
           })
         if (waitsOn) return waiting(`Waiting for its blockers to land`)
       }
-      const { issuesRouter } = await import(`@/lib/trpc/issues`)
+      const { issuesRouter, WORKFLOW_LANDING } = await import(`@/lib/trpc/issues`)
       const { ensureNodePrOnIntegrationBranch } = await import(`@/lib/workflow-final-pr`)
       try {
         if (merged) {
@@ -456,8 +472,10 @@ export const workflowNodeProcedures = {
           if (!base.ok) {
             return { merged: false, reason: base.reason, retargeted: [] as string[] }
           }
+          // EXP-1094: the train is the one caller a live node's PR merges
+          // through; the marker lets it past the hand-merge refusal.
           await issuesRouter
-            .createCaller(ctx)
+            .createCaller({ ...ctx, [WORKFLOW_LANDING]: true } as typeof ctx)
             .mergePr({ issueId: node.issueId, endSessions: true })
         }
       } catch (err) {
