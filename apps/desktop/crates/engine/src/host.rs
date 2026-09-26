@@ -2477,7 +2477,18 @@ fn start_turn(
         TurnPrompt::Localize(text) => (text.clone(), None, Some(text)),
     };
     match (&pending, &ready_blocks) {
-        (None, _) => announce_prompt(ctx, &announce),
+        // EXP-1098: the agent's replay may carry the LOCALIZED text (an
+        // image prompt's `Image #N: <path>` manifest) rather than the
+        // announce — both spellings retire the one echo, so the row stays
+        // single and keeps the person's own embeds.
+        (None, Some(blocks)) => {
+            let mut out = MapOut::default();
+            ctx.with_mapper(|mapper| {
+                mapper.on_prompt_with_agent_text(&announce, &blocks_text(blocks), &mut out)
+            });
+            ctx.dispatch(out);
+        }
+        (None, None) => announce_prompt(ctx, &announce),
         (Some(id), Some(blocks)) => {
             ctx.with_mapper(|mapper| mapper.on_prompt_sent(&blocks_text(blocks), &announce, id))
         }
@@ -2525,6 +2536,13 @@ fn start_turn(
                                     &announce,
                                     id,
                                 )
+                            });
+                        } else {
+                            // EXP-1098: the row went out before the agent's
+                            // text existed; arm its spelling now, still
+                            // ahead of the send, so the replay dedupes.
+                            ctx.with_mapper(|mapper| {
+                                mapper.also_echo(&announce, &blocks_text(&localized.blocks))
                             });
                         }
                         PromptRequest::new(session_id, localized.blocks)

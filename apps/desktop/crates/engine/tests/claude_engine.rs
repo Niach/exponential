@@ -318,3 +318,43 @@ fn background_subagents_keep_the_run_busy_past_the_turn_end() {
     );
     until("the run to read idle", || !harness.session.agent_busy());
 }
+
+/// EXP-1098: a seed prompt with an image — the host announces the person's
+/// text (`![image](/api/attachments/…)`, the issue ref, the mention) and the
+/// agent receives the LOCALIZED text (`Image #1: …` manifest). Claude's
+/// `--replay-user-messages` echo carries the localized spelling, and it must
+/// retire the announced row's echo instead of landing as a SECOND row —
+/// on the wire AND in the local feed.
+#[test]
+fn an_image_seed_publishes_exactly_one_user_row() {
+    let _session = one_session_at_a_time();
+    let attachment = "0f1e2d3c-4b5a-4968-8776-655443322110";
+    let seed = format!(
+        "Fix the header like #EXP-12 says, @dennis@example.com has the details:\n![image](/api/attachments/{attachment})"
+    );
+    let harness = start("image-seed", Some(seed.clone()));
+    until("the seed turn to end", || ended_turns(&harness.sink) >= 1);
+    // The fake received the localized text (the download failed, so the
+    // manifest line carries the URL — deterministic, and still a spelling
+    // that differs from the announce).
+    let stdin = std::fs::read_to_string(harness.work.join("stdin.jsonl")).unwrap_or_default();
+    assert!(stdin.contains("Image #1: "), "the agent got the manifest: {stdin}");
+    // Let the flush tick publish anything the replay coalesced.
+    std::thread::sleep(Duration::from_millis(600));
+
+    let rows = events_of(&harness.sink, "user_message");
+    assert_eq!(rows.len(), 1, "exactly ONE initial message on the wire: {rows:?}");
+    assert_eq!(rows[0]["text"], serde_json::json!(seed));
+
+    let mut local = Vec::new();
+    while let Ok(event) = harness.feed.try_recv() {
+        if let LocalFeedEvent::Activity { event, .. } = event {
+            let value = serde_json::to_value(&event).expect("an activity event serializes");
+            if value["kind"] == "user_message" {
+                local.push(value);
+            }
+        }
+    }
+    assert_eq!(local.len(), 1, "exactly ONE initial message in the local feed: {local:?}");
+    assert_eq!(local[0]["text"], serde_json::json!(seed));
+}
