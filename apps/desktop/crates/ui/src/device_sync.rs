@@ -45,7 +45,10 @@ const INVENTORY_BEATS: u32 = 10;
 
 #[derive(Default)]
 struct DeviceSyncState {
-    /// Stop flag per account (sign-out flips it; the loop retires itself).
+    /// Stop flag per account — the loop's generation guard. Sign-out flips it
+    /// and so does a restart for the same account (the newer loop replaces
+    /// the older one), and a loop exits ONLY on its flag: a tick without a
+    /// snapshot (EXP-1099) is skipped, never a reason to retire.
     by_account: HashMap<String, Arc<AtomicBool>>,
     /// EXP-490: the devices-shape watch per account (dropped on sign-out).
     watch_by_account: HashMap<String, gpui::Subscription>,
@@ -175,6 +178,10 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
         // and the token refresh run from (shared with a loopback sign-in
         // thread, which invalidates it when a token lands).
         let mcp_state = Arc::new(Mutex::new(coding::McpReadinessState::new()));
+        // EXP-1099: failure streak + the optional-payload back-off.
+        let health = Arc::new(Mutex::new(coding::logging::HeartbeatHealth::new()));
+        // EXP-1099: why the last tick had no snapshot (logged on change only).
+        let mut last_skip: Option<SnapshotSkip> = None;
         loop {
             cx.background_executor().timer(TICK).await;
             if stop.load(Ordering::SeqCst) {
@@ -188,9 +195,32 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             ticks_since_beat = 0;
 
             // Foreground snapshot: live sessions + the account's client.
-            let Some(snapshot) = cx.update(|cx| snapshot_for(&account_id, cx)) else {
-                // Account switched away — retire; connect_account restarts.
-                return;
+            // EXP-1099: a missing snapshot (another account active, the tRPC
+            // client absent for a tick) SKIPS this beat and retries on the
+            // cadence. It never retires the loop — that left a machine
+            // silently offline until the next sign-in. Only the stop flag
+            // above ends it (sign-out, or a newer loop for this account).
+            let snapshot = match cx.update(|cx| snapshot_for(&account_id, cx)) {
+                Ok(snapshot) => {
+                    if last_skip.take().is_some() {
+                        log::info!("[device-sync] heartbeat resumed for account {account_id}");
+                    }
+                    snapshot
+                }
+                Err(skip) => {
+                    if last_skip != Some(skip) {
+                        match skip {
+                            SnapshotSkip::NoClient => log::warn!(
+                                "[device-sync] no tRPC client for the active account {account_id} — heartbeat skipped, retrying"
+                            ),
+                            SnapshotSkip::NotActive => log::info!(
+                                "[device-sync] account {account_id} is not the active account — heartbeat paused"
+                            ),
+                        }
+                    }
+                    last_skip = Some(skip);
+                    continue;
+                }
             };
             beats_since_inventory = beats_since_inventory.saturating_add(1);
             let scan_due = snapshot.report_requested
@@ -200,20 +230,35 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             let worker_busy = worker_busy.clone();
             let sent_status = sent_status.clone();
             let mcp_state = mcp_state.clone();
+            let health = health.clone();
             let previous_fp = last_inventory_fp;
             let outcome = cx
                 .background_executor()
                 .spawn({
                     let snapshot = snapshot.clone();
                     async move {
-                        beat(
-                            &snapshot,
-                            scan_due,
-                            previous_fp,
-                            &worker_busy,
-                            &sent_status,
-                            &mcp_state,
-                        )
+                        // EXP-1099: a panic inside one beat (a collector, a
+                        // command body, a reconcile) must not kill this
+                        // detached loop without a trace — log it and beat
+                        // again on the next cadence.
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            beat(
+                                &snapshot,
+                                scan_due,
+                                previous_fp,
+                                &worker_busy,
+                                &sent_status,
+                                &mcp_state,
+                                &health,
+                            )
+                        }))
+                        .unwrap_or_else(|payload| {
+                            log::error!(
+                                "[device-sync] heartbeat beat panicked: {} — the loop continues",
+                                coding::logging::panic_message(payload.as_ref())
+                            );
+                            BeatOutcome::after_panic(previous_fp)
+                        })
                     }
                 })
                 .await;
@@ -421,16 +466,26 @@ fn pending_mcp_write(
     sent: &Mutex<AgentStatusSent>,
 ) -> Option<coding::mcp_servers::ReadinessSnapshot> {
     let snapshot = snapshot.filter(|snap| !snap.entries.is_empty())?;
-    let sent = sent.lock().ok()?;
+    let sent = lock_recover(sent);
     (sent.mcp_key.as_deref() != Some(snapshot.key.as_str())).then(|| snapshot.clone())
 }
 
-fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
-    let account = queries::active_account(cx)?;
+/// EXP-1099: why a tick had no [`BeatSnapshot`] — both are skips, never a
+/// reason to retire the loop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SnapshotSkip {
+    /// No active account, or a different one (an account switch).
+    NotActive,
+    /// The active account has no tRPC client right now.
+    NoClient,
+}
+
+fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, SnapshotSkip> {
+    let account = queries::active_account(cx).ok_or(SnapshotSkip::NotActive)?;
     if account.id != account_id {
-        return None;
+        return Err(SnapshotSkip::NotActive);
     }
-    let trpc = Arc::new(queries::trpc_client(cx)?);
+    let trpc = Arc::new(queries::trpc_client(cx).ok_or(SnapshotSkip::NoClient)?);
     let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
     let device_id = steer::persistent_device_id(&data_dir);
     let settings_path = coding::Settings::default_path(&data_dir);
@@ -447,7 +502,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
     };
     let inflight_logins = inflight_logins(cx);
     let doctor_soon = state(cx).read(cx).doctor_soon.clone();
-    Some(BeatSnapshot {
+    Ok(BeatSnapshot {
         trpc,
         device_id,
         account_id: account.id.clone(),
@@ -480,6 +535,38 @@ struct BeatOutcome {
     beat_again: bool,
 }
 
+impl BeatOutcome {
+    /// EXP-1099: a beat that panicked — keep the known inventory fingerprint
+    /// and change nothing else; the next cadence beats again.
+    fn after_panic(inventory_fp: Option<u64>) -> Self {
+        Self {
+            inventory_fp,
+            defaults_changed: false,
+            agent_status: None,
+            deferred: Vec::new(),
+            beat_again: false,
+        }
+    }
+}
+
+/// Clears the one-batch-at-a-time flag on drop — including a command body's
+/// panic (EXP-1099), which would otherwise leave every later command batch
+/// refused for the life of the process.
+struct BusyGuard<'a>(&'a AtomicBool);
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// A lock that survives an earlier beat's panic: the guarded state is plain
+/// bookkeeping, and a poisoned lock would silently drop the agent/MCP payload
+/// forever.
+fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// What [`run_device_command`] did with one command.
 enum CommandDisposition {
     /// Ran (or refused) it and reported back.
@@ -505,6 +592,7 @@ fn beat(
     worker_busy: &Arc<AtomicBool>,
     sent_status: &Mutex<AgentStatusSent>,
     mcp_state: &Arc<Mutex<coding::McpReadinessState>>,
+    health: &Mutex<coding::logging::HeartbeatHealth>,
 ) -> BeatOutcome {
     let mut last_fp = last_fp;
     let mut defaults_changed = false;
@@ -535,15 +623,22 @@ fn beat(
     // EXP-792: the MCP readiness sweep (a `listForDevice` copy every 5 min,
     // local secret reads otherwise, a refresh for tokens inside the margin)
     // — attached only when its key moved, like the two maps above.
-    let mcp_snapshot = mcp_state.lock().ok().and_then(|mut state| {
-        state.sweep(
-            &snapshot.data_dir,
-            &snapshot.account_id,
-            &snapshot.trpc,
-            &snapshot.device_id,
-        )
-    });
+    let mcp_snapshot = lock_recover(mcp_state).sweep(
+        &snapshot.data_dir,
+        &snapshot.account_id,
+        &snapshot.trpc,
+        &snapshot.device_id,
+    );
     writes.mcp = pending_mcp_write(mcp_snapshot.as_ref(), sent_status);
+    // EXP-1099: after the server refused a beat carrying this optional
+    // payload (a 4xx), the next beat(s) go out BARE so `last_seen_at` still
+    // lands; nothing is recorded as sent, so it rides again once a beat
+    // succeeds.
+    if !lock_recover(health).begin_beat() {
+        writes = StatusWrites::default();
+    }
+    let carried_optional =
+        writes.accounts.is_some() || writes.usage.is_some() || writes.mcp.is_some();
 
     match api::devices::heartbeat(
         &snapshot.trpc,
@@ -559,6 +654,7 @@ fn beat(
         },
     ) {
         Ok(result) => {
+            lock_recover(health).on_ok("[device-sync]", carried_optional);
             // Accepted — remember what the row now carries, so the next
             // unchanged pass sends nothing.
             record_status_sent(&writes, sent_status);
@@ -582,6 +678,7 @@ fn beat(
                     .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                     .is_ok()
                 {
+                    let _busy = BusyGuard(worker_busy);
                     for command in &result.commands {
                         match run_device_command(snapshot, command, mcp_state) {
                             CommandDisposition::Deferred(command) => deferred.push(command),
@@ -594,13 +691,13 @@ fn beat(
                             | CommandDisposition::Spawned => {}
                         }
                     }
-                    worker_busy.store(false, Ordering::SeqCst);
+                    drop(_busy);
                     // Commands change the inventory — rescan below.
                     last_fp = None;
                 }
             }
         }
-        Err(err) => log::debug!("[device-sync] heartbeat failed: {err}"),
+        Err(err) => lock_recover(health).on_err("[device-sync]", &err, carried_optional),
     }
 
     let inventory_fp = if scan_due || last_fp.is_none() {
@@ -631,9 +728,7 @@ fn pending_status_writes(
     let Some(status) = status else {
         return StatusWrites::default();
     };
-    let Ok(sent) = sent.lock() else {
-        return StatusWrites::default();
-    };
+    let sent = lock_recover(sent);
     let key = coding::agent_accounts::accounts_key(&status.accounts);
     let accounts = status
         .accounts_json()
@@ -652,9 +747,7 @@ fn pending_status_writes(
 /// Record what the server accepted (only after an `Ok` heartbeat — a failed
 /// beat must resend on the next one).
 fn record_status_sent(writes: &StatusWrites, sent: &Mutex<AgentStatusSent>) {
-    let Ok(mut sent) = sent.lock() else {
-        return;
-    };
+    let mut sent = lock_recover(sent);
     if let Some(key) = writes.accounts_key.clone() {
         sent.accounts_key = Some(key);
     }

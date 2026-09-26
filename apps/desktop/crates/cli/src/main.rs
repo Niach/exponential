@@ -25,33 +25,54 @@ pub fn cli_version() -> &'static str {
     option_env!("EXP_CLI_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
 }
 
-/// Minimal stderr logger — the daemon runs under systemd/launchd where
-/// stderr IS the journal; no logging deps beyond the `log` facade.
-struct StderrLogger;
-
-impl log::Log for StderrLogger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= max_level()
-    }
-
-    fn log(&self, record: &log::Record) {
-        if self.enabled(record.metadata()) {
-            eprintln!("[{}] {}", record.level().as_str().to_lowercase(), record.args());
-        }
-    }
-
-    fn flush(&self) {}
+/// The CLI's stderr line (`[info] message`), the terminal half of the
+/// logger.
+fn print_stderr(record: &log::Record) {
+    eprintln!("[{}] {}", record.level().as_str().to_lowercase(), record.args());
 }
 
-fn max_level() -> log::LevelFilter {
-    match std::env::var("EXP_LOG").ok().as_deref() {
-        Some("debug") => log::LevelFilter::Debug,
-        Some("trace") => log::LevelFilter::Trace,
-        _ => log::LevelFilter::Info,
+/// EXP-1099: stderr (as before) PLUS the rotating file under
+/// `{data_dir}/logs/` — `exponential-daemon.log` for the daemon itself,
+/// `exponential-cli.log` for every other command (the desktop app owns
+/// `exponential.log` in the same shared data dir; one writer per file keeps
+/// rotation race-free). A daemon under launchd/systemd (stderr not a
+/// terminal) echoes only warnings and errors to stderr — the service log
+/// file then holds crash traces, not a second copy of every line.
+fn install_logger(command: &str, rest: &[String]) {
+    use std::io::IsTerminal as _;
+    let level = coding::logging::level_from_env();
+    let is_daemon = command == "daemon"
+        && !matches!(
+            rest.first().map(String::as_str),
+            Some("install" | "uninstall" | "status")
+        );
+    let file_name = if is_daemon {
+        "exponential-daemon.log"
+    } else {
+        "exponential-cli.log"
+    };
+    let stderr_min = if is_daemon && !std::io::stderr().is_terminal() {
+        log::LevelFilter::Warn
+    } else {
+        log::LevelFilter::Trace
+    };
+    let logger = coding::logging::ExpLogger::new(level)
+        .with_file(&context::data_dir(), file_name)
+        .with_stderr(print_stderr, stderr_min);
+    if let Some(logger) = coding::logging::install(logger) {
+        // File only: an interactive command must not print a banner.
+        logger.file_only(
+            log::Level::Info,
+            "exponential",
+            format_args!(
+                "exponential {} `{command}` started (pid {})",
+                cli_version(),
+                std::process::id()
+            ),
+        );
     }
+    coding::logging::install_panic_hook();
 }
-
-static LOGGER: StderrLogger = StderrLogger;
 
 const USAGE: &str = "\
 exponential — Exponential from your terminal
@@ -105,8 +126,6 @@ fn maybe_prompt_auto_update() {
 }
 
 fn main() -> ExitCode {
-    let _ = log::set_logger(&LOGGER);
-    log::set_max_level(max_level());
     // The CLI is its own 426-gated platform: every request must say
     // `cli/<version>`, never ride the desktop's gate. Before any HTTP.
     domain::client_version::set_client_identity("cli", cli_version());
@@ -116,6 +135,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = args.first().map(String::as_str).unwrap_or("");
     let rest = &args[1.min(args.len())..];
+    install_logger(command, rest);
 
     // First interactive run: ask once whether to keep the CLI current
     // automatically (stored as `cliAutoUpdate` in settings.json; the daemon

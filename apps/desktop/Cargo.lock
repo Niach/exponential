@@ -281,6 +281,7 @@ dependencies = [
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
+ "log",
  "resvg 0.45.1",
  "rust-embed",
  "steer",
