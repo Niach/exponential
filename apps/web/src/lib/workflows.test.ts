@@ -7,6 +7,9 @@ import {
   loadWorkflowEdges,
   nodeEdges,
   isWorkflowReviewBranch,
+  liveWorkflowCoveringIssues,
+  proposeNodesForRelation,
+  unlinkedRootsToPropose,
   workflowIntegrationBranch,
   workflowReviewBranch,
 } from "@/lib/workflows"
@@ -146,5 +149,128 @@ describe(`loadWorkflowEdges`, () => {
     const graph = await loadWorkflowEdges(executor, `wf-1`)
     expect(graph.nodes.map((node) => node.id)).toEqual([`n1`, `n3`])
     expect(graph.edges).toEqual([[`n3`, `n1`]])
+  })
+})
+
+// FEED-57 (a): unlinking a node's last in-workflow blocker must not turn an
+// unstarted node into a root the engine starts at once.
+describe(`unlinkedRootsToPropose`, () => {
+  const node = (id: string, over: Partial<{ state: string; attempt: number; sessionId: string | null }> = {}) => ({
+    id,
+    state: `blocked`,
+    attempt: 0,
+    sessionId: null,
+    ...over,
+  })
+
+  it(`proposes an unstarted node that lost its last blocker`, () => {
+    expect(
+      unlinkedRootsToPropose([{ id: `b`, wave: 1 }], [node(`a`, { state: `running` }), node(`b`)], [])
+    ).toEqual([`b`])
+  })
+
+  it(`keeps a node that still has an admitted blocker`, () => {
+    expect(
+      unlinkedRootsToPropose([{ id: `c`, wave: 2 }], [node(`a`), node(`c`)], [[`a`, `c`]])
+    ).toEqual([])
+  })
+
+  it(`keeps a node that was a root already, or that started`, () => {
+    expect(
+      unlinkedRootsToPropose(
+        [
+          { id: `a`, wave: 0 },
+          { id: `b`, wave: 1 },
+          { id: `c`, wave: 1 },
+          { id: `d`, wave: 1 },
+        ],
+        [
+          node(`a`),
+          node(`b`, { state: `running`, sessionId: `s-1` }),
+          node(`c`, { attempt: 1 }),
+          node(`d`, { state: `ready`, sessionId: `s-2` }),
+        ],
+        []
+      )
+    ).toEqual([])
+  })
+
+  it(`treats a proposal as no blocker and cascades down an unstarted chain`, () => {
+    expect(
+      unlinkedRootsToPropose(
+        [{ id: `b`, wave: 1 }],
+        [node(`p`, { state: `proposed` }), node(`b`), node(`c`), node(`d`), node(`x`, { state: `landed` })],
+        [
+          [`p`, `b`],
+          [`b`, `c`],
+          [`c`, `d`],
+          [`x`, `d`],
+        ]
+      )
+    ).toEqual([`b`, `c`])
+  })
+})
+
+// A drizzle-ish fake: each awaited select pops the next result; inserts are
+// recorded.
+function fakeTx(results: unknown[][]) {
+  const queue = [...results]
+  const inserted: unknown[] = []
+  const chain = (rows: unknown[]) => {
+    const p = Promise.resolve(rows) as Promise<unknown[]> & Record<string, () => unknown>
+    for (const m of [`from`, `where`, `innerJoin`, `limit`]) p[m] = () => p
+    return p
+  }
+  const tx = {
+    select: () => chain(queue.shift() ?? []),
+    insert: () => ({
+      values: (value: unknown) => {
+        inserted.push(value)
+        return { onConflictDoNothing: () => Promise.resolve() }
+      },
+    }),
+  }
+  return { tx: tx as never, inserted }
+}
+
+describe(`proposeNodesForRelation`, () => {
+  const workflow = {
+    workflowId: `wf-1`,
+    teamId: `team-1`,
+    repositoryId: `repo-1`,
+    startedAt: new Date(`2026-09-01T00:00:00Z`),
+  }
+  const followUp = [{ status: `backlog`, createdAt: new Date(`2026-09-02T00:00:00Z`), repositoryId: `repo-1` }]
+
+  it(`admits a follow-up downstream of an admitted node`, async () => {
+    const { tx, inserted } = fakeTx([
+      [{ ...workflow, issueId: `a`, members: [], state: `running` }],
+      [{ issueId: `a`, members: [] }],
+      followUp,
+      [],
+    ])
+    await proposeNodesForRelation(tx, { issueId: `a`, relatedIssueId: `new` })
+    expect(inserted).toMatchObject([{ issueId: `new`, state: `blocked`, note: null }])
+  })
+
+  // FEED-57 (b)
+  it(`proposes a follow-up whose only blocker is itself a proposal`, async () => {
+    const { tx, inserted } = fakeTx([
+      [{ ...workflow, issueId: `p`, members: [], state: `proposed` }],
+      [{ issueId: `p`, members: [] }],
+      followUp,
+      [],
+    ])
+    await proposeNodesForRelation(tx, { issueId: `p`, relatedIssueId: `new` })
+    expect(inserted).toMatchObject([{ issueId: `new`, state: `proposed` }])
+  })
+})
+
+describe(`liveWorkflowCoveringIssues`, () => {
+  it(`answers nothing without ids and the first live node otherwise`, async () => {
+    expect(await liveWorkflowCoveringIssues(fakeTx([]).tx, [])).toBeNull()
+    const row = { workflowId: `wf-1`, nodeId: `n-1`, issueId: `a` }
+    expect(await liveWorkflowCoveringIssues(fakeTx([[row]]).tx, [`a`])).toEqual(row)
+    expect(await liveWorkflowCoveringIssues(fakeTx([[]]).tx, [`a`])).toBeNull()
   })
 })
