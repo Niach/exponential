@@ -2605,6 +2605,91 @@ describe(`codingSessions.start — workflow membership (EXP-1082)`, () => {
     ])
   })
 
+  // EXP-1093: a review run whose start the runner proof does not vouch for
+  // (another device, a host with no deviceId) still nests under its node.
+  it(`joins a review run to its node by the node it names, in the run's team`, async () => {
+    selectResults.push([{ label: `mac` }]) // device label
+    selectResults.push([]) // not the runner device
+    selectResults.push([
+      { nodeId: NODE, workflowId: WF, identifier: `EXP-7` },
+    ]) // the claimed node, team-scoped
+
+    await caller.start({
+      actionId: `builtin:review-node`,
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      startedReason: `workflow`,
+      branch: `exp/wf-77777777-review-EXP-7-r2`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    } as never)
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+      startedReason: `workflow`,
+    })
+    expect(whereShape(selectWheres[2])).toEqual([
+      `col:team_id`,
+      TEAM_ID,
+      `col:team_id`,
+      TEAM_ID,
+      `col:id`,
+      NODE,
+    ])
+  })
+
+  it(`joins a review run by its branch alone`, async () => {
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([{ nodeId: NODE, workflowId: WF, identifier: `EXP-7` }])
+
+    await caller.start({
+      actionId: `builtin:review-node`,
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      startedReason: `workflow`,
+      branch: `exp/wf-77777777-review-EXP-7-r1`,
+    } as never)
+
+    expect(inserts[0]!.values).toMatchObject({
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    })
+  })
+
+  it(`ignores a review claim whose node is not the team's or whose branch names another node`, async () => {
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not the runner
+    selectResults.push([]) // no such node in the run's team
+    await caller.start({
+      actionId: `builtin:review-node`,
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    } as never)
+    expect(inserts[0]!.values).toMatchObject({ workflowId: null, workflowNodeId: null, workflowRole: null })
+
+    inserts.length = 0
+    selectResults.push([{ label: `mac` }])
+    selectResults.push([]) // not the runner
+    selectResults.push([{ nodeId: NODE, workflowId: WF, identifier: `EXP-7` }])
+    await caller.start({
+      actionId: `builtin:review-node`,
+      teamId: TEAM_ID,
+      deviceId: `dev-2`,
+      branch: `exp/wf-77777777-review-EXP-70-r1`,
+      workflowId: WF,
+      workflowNodeId: NODE,
+      workflowRole: `review`,
+    } as never)
+    expect(inserts[0]!.values).toMatchObject({ workflowId: null, workflowRole: null })
+  })
+
   it(`honours a node-less plan role on a draft whose runner is not picked yet`, async () => {
     selectResults.push([{ label: `mac` }]) // device label
     selectResults.push([]) // not the runner device (the draft has none)

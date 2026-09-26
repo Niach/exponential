@@ -27,9 +27,11 @@ import {
   workflowNodes,
   workflows,
 } from "@/db/schema"
+import { isWorkflowReviewBranch } from "@/lib/workflows"
 import {
   JOINABLE_WORKFLOW_STATUSES,
   resolveWorkflowMembership,
+  reviewStartClaim,
   type WorkflowMembership,
 } from "@/lib/sessions/workflow-membership"
 import {
@@ -237,6 +239,8 @@ async function resolveStartMembership(
     workflowRole?: string
     deviceId?: string
     startedReason?: string
+    actionId?: string
+    branch?: string
   },
   teamId: string,
   issueIds: readonly string[],
@@ -311,8 +315,22 @@ async function resolveStartMembership(
       }
     }
   }
+  // EXP-1093: a review run the runner proof above did not vouch for still
+  // joins its node when the start names it (role + node, or its review
+  // branch) and the node is the run's team's.
+  const claim = explicit
+    ? null
+    : reviewStartClaim({
+        isReviewBuiltin: input.actionId === BUILTIN_REVIEW_NODE_ID,
+        workflowRole: input.workflowRole,
+        workflowNodeId: input.workflowNodeId,
+        branch: input.branch,
+      })
+  const reviewNode = claim
+    ? await resolveReviewNode(db, teamId, claim, input.branch ?? null, input.workflowId)
+    : null
   const needsNodes =
-    !explicit && !predecessor?.workflowId && issueIds.length > 0
+    !explicit && !reviewNode && !predecessor?.workflowId && issueIds.length > 0
   const nodes = needsNodes
     ? await db
         .select({
@@ -334,11 +352,53 @@ async function resolveStartMembership(
     : []
   return resolveWorkflowMembership({
     explicit,
+    reviewNode,
     predecessor,
     startedReason: input.startedReason ?? null,
     issueIds,
     nodes,
   })
+}
+
+/** EXP-1093: the node a review start claims, in the run's team only; a
+ *  claim whose node id and branch disagree, or naming another workflow than
+ *  the frame's, resolves to nothing (ignored, never refused). */
+async function resolveReviewNode(
+  db: Context[`db`],
+  teamId: string,
+  claim: NonNullable<ReturnType<typeof reviewStartClaim>>,
+  branch: string | null,
+  workflowId: string | undefined
+): Promise<{ workflowId: string; nodeId: string } | null> {
+  const rows = await db
+    .select({
+      nodeId: workflowNodes.id,
+      workflowId: workflowNodes.workflowId,
+      identifier: issues.identifier,
+    })
+    .from(workflowNodes)
+    .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
+    .innerJoin(issues, eq(issues.id, workflowNodes.issueId))
+    .where(
+      and(
+        eq(workflowNodes.teamId, teamId),
+        eq(workflows.teamId, teamId),
+        claim.nodeId
+          ? eq(workflowNodes.id, claim.nodeId)
+          : and(
+              eq(issues.identifier, claim.branch!.identifier),
+              sql`replace(${workflows.id}::text, '-', '') LIKE ${`${claim.branch!.workflowId8}%`}`
+            )
+      )
+    )
+    .limit(2)
+  if (rows.length !== 1) return null
+  const row = rows[0]!
+  if (workflowId && workflowId !== row.workflowId) return null
+  if (branch && claim.branch && !isWorkflowReviewBranch(row.workflowId, row.identifier, branch)) {
+    return null
+  }
+  return { workflowId: row.workflowId, nodeId: row.nodeId }
 }
 
 /** EXP-906: the predecessor's children now belong to the successor — the
