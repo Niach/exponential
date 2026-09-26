@@ -6,38 +6,77 @@
 //! the issue rows, the row/tab overflow menus): their geometry — 26px rows,
 //! 8px side padding — is the crate's, not ours; only `min_w`/`max_w` are.
 //! The tokens record the pointer density every other pointer surface (web at
-//! md+) draws, 36 / 8 / 8, so this entry is a LEFTOVER by decision: the IDE
-//! reads well at its size and patching the vendored crate is its own issue.
+//! md+) draws, 36 / 8 / 8, so the IDE's row height is a LEFTOVER by decision:
+//! the IDE reads well at its size and patching the vendored crate is its own
+//! issue.
 //!
-//! This still describes rather than paints; drawing the real `PopupMenu`
-//! here is EXP-1092 (entries get the window and the app since EXP-1063).
+//! EXP-1092: the demo is a REAL `PopupMenu`, built once and kept alive by
+//! `window.use_keyed_state` (a menu is an entity), drawn open in place: the
+//! header label, plain rows with their glyphs, a checked row, a submenu
+//! trigger, a disabled row and the red destructive row
+//! (`controls::danger_menu_item`) with no divider above it (EXP-697).
 
-use gpui::{div, App, Div, ParentElement as _, Window};
+use gpui::{div, App, Context, Div, Entity, IntoElement, ParentElement as _, Render, Window};
+use gpui_component::{
+    menu::{PopupMenu, PopupMenuItem},
+    Icon, Side,
+};
 
-use theme::tokens::menu::{pointer, touch};
+use crate::icons::{registry, ExpIcon};
 
 pub(crate) const ID: &str = "menu";
 pub(crate) const OWNER: &str = "EXP-1074";
 
-pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
-    div()
-        .child("Menu — the opaque card fill under a hairline, radius 12, no blur, no shadow;")
-        .child("rows on ONE geometry per density, a destructive row red with no divider above it.")
-        .child(format!(
-            "pointer (web ≥ md): {} row · {} pad · {} gap · {} glyph · {}–{} wide",
-            pointer::ITEM_HEIGHT,
-            pointer::ITEM_PADDING_X,
-            pointer::ITEM_GAP,
-            pointer::ICON_SIZE,
-            pointer::MIN_WIDTH,
-            pointer::MAX_WIDTH
-        ))
-        .child(format!(
-            "touch (phones): {} row · {} pad · {} gap · {} glyph",
-            touch::ITEM_HEIGHT,
-            touch::ITEM_PADDING_X,
-            touch::ITEM_GAP,
-            touch::ICON_SIZE
-        ))
-        .child("IDE: gpui_component::menu::PopupMenu — 26px rows / 8px pad, the crate's (leftover)")
+pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
+    let demo = window.use_keyed_state("sg-menu", cx, MenuDemo::new);
+    div().child(demo)
+}
+
+/// Holds the menu entity so it survives frames; draws it as-is.
+struct MenuDemo {
+    menu: Entity<PopupMenu>,
+}
+
+impl MenuDemo {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let menu = PopupMenu::build(window, cx, |menu, window, cx| {
+            menu.check_side(Side::Right)
+                .label("EXP-42")
+                .item(PopupMenuItem::new("Open issue").icon(Icon::from(ExpIcon::Pencil)))
+                .item(PopupMenuItem::new("Copy issue ID").icon(Icon::from(ExpIcon::Copy)))
+                .item(
+                    PopupMenuItem::new("Show sub-issues")
+                        .icon(Icon::new(registry::UI_ASSIGNEE))
+                        .checked(true),
+                )
+                .submenu_with_icon(
+                    Some(Icon::from(ExpIcon::Tag)),
+                    "Labels",
+                    window,
+                    cx,
+                    |menu, _, _| {
+                        menu.check_side(Side::Right)
+                            .item(PopupMenuItem::new("Bug").checked(true))
+                            .item(PopupMenuItem::new("Feature"))
+                    },
+                )
+                .item(
+                    PopupMenuItem::new("Move to board")
+                        .icon(Icon::from(ExpIcon::SquareKanban))
+                        .disabled(true),
+                )
+                .item(crate::controls::danger_menu_item(
+                    "Delete issue",
+                    Icon::new(registry::UI_DELETE),
+                    cx,
+                ))
+        });
+        Self { menu }
+    }
+}
+
+impl Render for MenuDemo {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        self.menu.clone()
+    }
 }

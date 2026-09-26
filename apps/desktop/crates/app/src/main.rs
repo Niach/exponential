@@ -30,6 +30,27 @@ mod x11_window_icon;
 mod windows_integration;
 
 fn main() {
+    // EXP-1099: THE logger, first — `{data_dir}/logs/exponential.log`
+    // (rotated at 5 MB, 3 kept; level from `EXP_LOG`, default info). Before
+    // this the app installed none, so every `log::` line (a failing
+    // heartbeat included) went nowhere. Panics land in the file too. The
+    // data dir resolves exactly as `AuthStore::load` sees it below.
+    let log_data_dir = api::default_data_dir();
+    let logger = coding::logging::ExpLogger::new(coding::logging::level_from_env())
+        .with_file(&log_data_dir, "exponential.log");
+    if let Some(logger) = coding::logging::install(logger) {
+        log::info!(
+            "Exponential desktop {} starting (pid {}, log {})",
+            domain::client_version::current_version(),
+            std::process::id(),
+            logger
+                .file_path()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "unavailable".to_string())
+        );
+    }
+    coding::logging::install_panic_hook();
+
     // Build the app's ONE HTTP client here, first, on the foreground thread
     // (EXP-304). `reqwest::blocking` must not be constructed from inside an
     // async context, and `crates/steer` reaches the api crate from tokio's

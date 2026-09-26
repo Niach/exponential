@@ -402,7 +402,14 @@ function OwnSessionPage({
       : undefined
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    // EXP-1112: on a phone the shell gives the outlet no definite height (the
+    // window scrolls, `app-shell.ts`), so `h-full` collapsed to the content
+    // and the feed — `overscroll-contain`, never overflowing — swallowed every
+    // swipe: the newest rows and the strips under them stayed below the fold.
+    // The Run face is a fixed-height screen, so it takes the DYNAMIC viewport
+    // here (never `100vh`, the large viewport behind iOS's toolbar) and the
+    // feed becomes its scroller again; md+ keeps filling the panel's outlet.
+    <div className="flex h-dvh min-h-0 flex-col md:h-full">
       {/* The run may END while this page is open — the view stays mounted and
           read-only, and its work tab stays until closed (EXP-870). Nothing
           navigates away underneath the user. EXP-877: Resume lives in the

@@ -185,7 +185,11 @@ pub struct Mapper {
     /// Prompts the HOST already published as `user_message` (it sends them,
     /// so it need not wait for an echo): an agent that replays the user's
     /// message (claude's `--replay-user-messages`) is deduped against this.
-    pending_echoes: std::collections::VecDeque<String>,
+    /// EXP-1098: ONE entry per prompt, holding every spelling its replay may
+    /// carry — the announced text and, for a prompt with images, the
+    /// localized `Image #N: <path>` text the agent actually received. Any
+    /// one of them matching retires the whole entry.
+    pending_echoes: std::collections::VecDeque<Vec<String>>,
     /// EXP-873: prompts the host sent MID-TURN and has NOT published yet —
     /// the `queue` bar's `sent` lines. The agent's replay of one is the
     /// moment it took the message in (claude inserts it at its next tool
@@ -1439,6 +1443,45 @@ impl Mapper {
         emit(out, ActivityEvent::user_message(text), None);
     }
 
+    /// EXP-1098: [`Mapper::on_prompt`] for a prompt whose AGENT text differs
+    /// from the announced one (image embeds localized into an
+    /// `Image #N: <path>` manifest). The row is the announce — the person's
+    /// own words, with the `![image](/api/attachments/…)` token every viewer
+    /// renders — and the agent's replay of EITHER text is swallowed. Without
+    /// the agent spelling armed, claude's replay of the localized text used
+    /// to land as a SECOND row showing a raw local path.
+    pub fn on_prompt_with_agent_text(&mut self, announce: &str, agent_text: &str, out: &mut MapOut) {
+        if announce.trim().is_empty() {
+            return;
+        }
+        self.on_prompt(announce, out);
+        self.also_echo(announce, agent_text);
+    }
+
+    /// EXP-1098: the prompt announced as `announce` reached the agent as
+    /// `agent_text` (a localization that finished AFTER the row went out):
+    /// its replay under that spelling is the same echo. A no-op when the
+    /// echo already retired or the two texts agree.
+    pub fn also_echo(&mut self, announce: &str, agent_text: &str) {
+        let announce = announce.trim();
+        let agent_text = agent_text.trim();
+        if agent_text.is_empty() || agent_text == announce {
+            return;
+        }
+        // The NEWEST entry for this announce: an older identical prompt's
+        // echo may still be outstanding, and it received its own text.
+        if let Some(entry) = self
+            .pending_echoes
+            .iter_mut()
+            .rev()
+            .find(|entry| entry.first().map(String::as_str) == Some(announce))
+        {
+            if !entry.iter().any(|text| text == agent_text) {
+                entry.push(agent_text.to_string());
+            }
+        }
+    }
+
     /// EXP-873: the host is sending `agent_text` to the agent MID-TURN as
     /// queue entry `id` — publish nothing now. The agent's replay of it (the
     /// moment it took the message in) becomes the `user_message` row, with
@@ -1474,7 +1517,7 @@ impl Mapper {
         if text.trim().is_empty() {
             return;
         }
-        self.pending_echoes.push_back(text.trim().to_string());
+        self.pending_echoes.push_back(vec![text.trim().to_string()]);
         if self.pending_echoes.len() > PENDING_ECHOES_MAX {
             self.pending_echoes.pop_front();
         }
@@ -1506,7 +1549,11 @@ impl Mapper {
             emit(out, ActivityEvent::user_message(text), None);
             return;
         }
-        if let Some(at) = self.pending_echoes.iter().position(|sent| sent == text.trim()) {
+        if let Some(at) = self
+            .pending_echoes
+            .iter()
+            .position(|sent| sent.iter().any(|spelling| spelling == text.trim()))
+        {
             // The agent replayed what the host already published.
             self.pending_echoes.remove(at);
             return;
@@ -3511,6 +3558,44 @@ mod tests {
             other.wire.iter().filter(|event| matches!(event, ActivityEvent::UserMessage { .. })).count(),
             1
         );
+    }
+
+    /// EXP-1098: an image prompt's replay carries the LOCALIZED text. Armed
+    /// up front (`on_prompt_with_agent_text`) or once the localization lands
+    /// (`also_echo`, the `Localize` path), either spelling retires the ONE
+    /// echo: a single row, the announce, and the other spelling is no
+    /// longer swallowed afterwards.
+    #[test]
+    fn an_image_prompts_localized_replay_is_the_same_echo() {
+        let announce = "crop this\n![image](/api/attachments/0f1e2d3c-4b5a-4968-8776-655443322110)";
+        let agent = "crop this\n\nImage #1: /wt/.exp-steer-images/a.png";
+        let user_rows = |out: &MapOut| {
+            out.wire
+                .iter()
+                .filter(|event| matches!(event, ActivityEvent::UserMessage { .. }))
+                .count()
+        };
+        let replay = |mapper: &mut Mapper, text: &str| {
+            let mut out = MapOut::default();
+            let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
+            mapper.on_update(&notify(SessionUpdate::UserMessageChunk(chunk)), &mut out);
+            mapper.on_stop(StopReason::EndTurn, &mut out);
+            out
+        };
+        for late in [false, true] {
+            let mut mapper = mapper();
+            let mut out = MapOut::default();
+            if late {
+                mapper.on_prompt(announce, &mut out);
+                mapper.also_echo(announce, agent);
+            } else {
+                mapper.on_prompt_with_agent_text(announce, agent, &mut out);
+            }
+            assert_eq!(user_rows(&out), 1);
+            assert_eq!(user_rows(&replay(&mut mapper, agent)), 0, "late={late}");
+            // The entry retired whole: the announce spelling is a new message.
+            assert_eq!(user_rows(&replay(&mut mapper, announce)), 1, "late={late}");
+        }
     }
 
     /// A replay (or any burst inside one flush window) delivers user,

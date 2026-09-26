@@ -47,7 +47,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _},
-    scroll::ScrollableElement as _,
     spinner::Spinner,
     v_flex, v_virtual_list, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
     VirtualListScrollHandle,
@@ -2433,7 +2432,7 @@ impl Render for RailView {
                 .gap_1()
                 .items_center()
                 .text_color(cx.theme().sidebar_foreground)
-                .child(crate::scroll_pane::v_scroll_pane(
+                .child(crate::scroll_pane::sidebar_scroll_pane(
                     "rail-scroll-compact",
                     &self.rail_scroll,
                     v_flex()
@@ -2539,9 +2538,11 @@ impl Render for RailView {
         let whats_new_clearance = whats_new_card.is_some();
         // EXP-997: the column's 8px gutter belongs to the SCROLL CONTENT and
         // the footer rows, not the column — the scroll pane spans the full
-        // column width, so its overlay scrollbar rides the column's right
-        // edge in that gutter, beside the rows instead of over them (the
-        // `ListNav` list's geometry).
+        // column width. EXP-1095: the vendored thumb (6-8px, inset 4 in a
+        // 16px track) still reached 2-4px into the rows, so the sidebar's
+        // scrollers take `sidebar_scroll_pane`'s slim variant: a 3-4px thumb
+        // inset 1px from the column's right edge in an 8px hit strip, i.e.
+        // wholly inside that gutter, beside the rows instead of over them.
         v_flex()
             .w(px(crate::shell::LEFT_COLUMN_WIDTH))
             .flex_shrink_0()
@@ -2567,7 +2568,7 @@ impl Render for RailView {
             //  Reviews, Agent]
             // / Pinned (EXP-778) / boards + "+" / Running (EXP-923) / This
             // device: [Files, Source Control].
-            .child(crate::scroll_pane::v_scroll_pane(
+            .child(crate::scroll_pane::sidebar_scroll_pane(
                 "rail-scroll",
                 &self.rail_scroll,
                 v_flex()
@@ -2675,7 +2676,7 @@ impl Render for RailView {
                     )),
             )
             // EXP-1022: the What's-new card, floating over the scroll area's
-            // bottom edge in the column's gutter; the `v_scroll_pane` shell
+            // bottom edge in the column's gutter; the `sidebar_scroll_pane` shell
             // is `relative`, so the card anchors to the pane's bounds.
             .children(whats_new_card.map(|card| {
                 div()
@@ -3155,13 +3156,11 @@ impl ListPanel {
                     queries::InboxEntry::Session(entry) => self.inbox_session_row(entry, cx),
                 })
                 .collect();
-            div()
-                .id("mini-inbox-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scrollbar()
-                .child(v_flex().p_1().gap_0p5().children(rows))
-                .into_any_element()
+            crate::scroll_pane::SidebarScrollArea::new(
+                "mini-inbox-scroll",
+                v_flex().p_1().gap_0p5().children(rows),
+            )
+            .into_any_element()
         };
 
         v_flex()
@@ -3874,14 +3873,12 @@ impl ListPanel {
                         .iter()
                         .map(|thread| self.support_row(thread, cx))
                         .collect();
-                    div()
-                        .id("support-scroll")
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scrollbar()
-                        // EXP-818: flat rows, no gap (web `ListRow` parity).
-                        .child(v_flex().p_2().children(rows))
-                        .into_any_element()
+                    // EXP-818: flat rows, no gap (web `ListRow` parity).
+                    crate::scroll_pane::SidebarScrollArea::new(
+                        "support-scroll",
+                        v_flex().p_2().children(rows),
+                    )
+                    .into_any_element()
                 }
             }
         };
@@ -4314,10 +4311,10 @@ impl ListPanel {
                         )
                         .track_scroll(&self.nav_list_scroll),
                     )
-                    .scrollbar(
+                    .child(crate::scroll_pane::sidebar_scrollbar_layer(
+                        (gpui::ElementId::from(scroll_id), "scrollbar"),
                         &self.nav_list_scroll,
-                        gpui_component::scroll::ScrollbarAxis::Vertical,
-                    ),
+                    )),
             )
             .into_any_element()
     }
@@ -4874,14 +4871,11 @@ impl ListPanel {
         rows: Vec<gpui::AnyElement>,
         _cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        div()
-            .id(id)
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .overflow_y_scrollbar()
-            .child(v_flex().w_full().min_w_0().px_2().gap_0p5().children(rows))
-            .into_any_element()
+        crate::scroll_pane::SidebarScrollArea::new(
+            id,
+            v_flex().w_full().min_w_0().px_2().gap_0p5().children(rows),
+        )
+        .into_any_element()
     }
 
     /// The `ListNav`'s body for `origin` (spec C's table).

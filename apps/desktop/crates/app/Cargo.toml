@@ -38,6 +38,8 @@ gpui-component-assets.workspace = true
 rust-embed.workspace = true
 anyhow.workspace = true
 flume.workspace = true
+# EXP-1099: the startup line of the log file `coding::logging` installs.
+log = "0.4"
 dirs.workspace = true
 
 # macOS: assert this bundle as the default `exponential://` handler at startup

@@ -483,6 +483,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let mut sent_usage: Option<String> = None;
     // EXP-792: the readiness key last accepted (same idea as the accounts).
     let mut sent_mcp: Option<String> = None;
+    // EXP-1099: warn-level failure logging + the optional-payload back-off
+    // (a 4xx on a beat carrying accounts/usage/MCP → the next goes out bare).
+    let mut heartbeat_health = coding::logging::HeartbeatHealth::new();
     // EXP-414: a failed register (network not up yet at boot) is retried on
     // the heartbeat cadence — otherwise the registry row goes stale (old
     // version/agents, a never-cleared update request) until the next restart.
@@ -737,14 +740,20 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 .filter(|_| accounts_json.is_some())
                 .map(|status| coding::agent_accounts::accounts_key(&status.accounts));
             let usage_text = usage_json.as_ref().map(|value| value.to_string());
-            let send_accounts = accounts_key.is_some() && accounts_key != sent_accounts;
-            let send_usage = usage_text.is_some() && usage_text != sent_usage;
+            // EXP-1099: a bare beat (after a payload 4xx) carries none of
+            // the three; nothing is recorded as sent, so they ride again.
+            let include_optional = heartbeat_health.begin_beat();
+            let send_accounts =
+                include_optional && accounts_key.is_some() && accounts_key != sent_accounts;
+            let send_usage = include_optional && usage_text.is_some() && usage_text != sent_usage;
             // EXP-792: the readiness snapshot rides only when its key moved
             // (an empty list is never worth a write).
             let mcp_snapshot = mcp_readiness.lock().ok().and_then(|slot| slot.clone());
-            let send_mcp = mcp_snapshot
-                .as_ref()
-                .is_some_and(|snap| !snap.entries.is_empty() && Some(&snap.key) != sent_mcp.as_ref());
+            let send_mcp = include_optional
+                && mcp_snapshot.as_ref().is_some_and(|snap| {
+                    !snap.entries.is_empty() && Some(&snap.key) != sent_mcp.as_ref()
+                });
+            let carried_optional = send_accounts || send_usage || send_mcp;
             match api::devices::heartbeat(
                 &ctx.trpc,
                 &api::devices::HeartbeatInput {
@@ -759,6 +768,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 },
             ) {
                 Ok(result) => {
+                    heartbeat_health.on_ok("devices.heartbeat", carried_optional);
                     // Only an ACCEPTED beat updates the last-sent copies: a
                     // failed one must resend on the next tick.
                     if send_accounts {
@@ -828,7 +838,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         log::warn!("devices.heartbeat: HTTP 426 — the server no longer accepts this build");
                     }
                 }
-                Err(err) => log::debug!("devices.heartbeat failed: {err}"),
+                Err(err) => heartbeat_health.on_err("devices.heartbeat", &err, carried_optional),
             }
             // EXP-484: collect for the NEXT beat, on the worker — never
             // here (a codex app-server probe blocks for seconds, and this
@@ -5887,6 +5897,15 @@ fn or_none(value: Option<String>) -> String {
 // Service management
 // ---------------------------------------------------------------------------
 
+/// EXP-1099: where the service manager appends the daemon's stdout/stderr.
+fn service_log_path(data_dir: &std::path::Path) -> PathBuf {
+    coding::logging::logs_dir(data_dir).join("daemon-service.log")
+}
+
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 fn service_exec() -> anyhow::Result<PathBuf> {
     super::update::running_exe().context("resolve the exponential binary path")
 }
@@ -5899,6 +5918,13 @@ fn install(args: &[String]) -> CommandResult {
     // Fail fast while interactive instead of from inside the service.
     let _ = context::load()?;
     let exe = service_exec()?;
+    // EXP-1099: the service's stdout/stderr go to a file under the data dir
+    // (launchd drops them otherwise), so a crash trace survives; the regular
+    // log lines are in the rotating `logs/exponential-daemon.log`.
+    let service_log = service_log_path(&context::data_dir());
+    if let Some(parent) = service_log.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let label_args_plist = label
         .as_deref()
         .map(|label| {
@@ -5934,10 +5960,13 @@ fn install(args: &[String]) -> CommandResult {
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>{log}</string>
+  <key>StandardErrorPath</key><string>{log}</string>
 </dict>
 </plist>
 "#,
-                exe = exe.display()
+                exe = exe.display(),
+                log = xml_escape(&service_log.display().to_string())
             ),
         )?;
         let loaded = std::process::Command::new("launchctl")
@@ -5961,8 +5990,9 @@ fn install(args: &[String]) -> CommandResult {
         std::fs::write(
             &unit,
             format!(
-                "[Unit]\nDescription=Exponential remote-start daemon\nAfter=network-online.target\n\n[Service]\nExecStart={exe} daemon --foreground{label_args_unit}\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n",
-                exe = exe.display()
+                "[Unit]\nDescription=Exponential remote-start daemon\nAfter=network-online.target\n\n[Service]\nExecStart={exe} daemon --foreground{label_args_unit}\nRestart=on-failure\nRestartSec=5\nStandardOutput=append:{log}\nStandardError=append:{log}\n\n[Install]\nWantedBy=default.target\n",
+                exe = exe.display(),
+                log = service_log.display()
             ),
         )?;
         println!("Wrote {}", unit.display());
