@@ -245,7 +245,7 @@ export const Everywhere: React.FC<{ l: number }> = ({ l }) => {
         </div>
       ))}
 
-      <Caption f={l} at={24} out={80} index="03 / Everywhere" line="One sync. Native on every platform." />
+      <Caption f={l} at={24} out={80} index="03 / Anywhere" line="Follow along from any device. Or just let it run." />
     </AbsoluteFill>
   )
 }

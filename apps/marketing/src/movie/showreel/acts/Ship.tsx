@@ -246,7 +246,7 @@ export const Ship: React.FC<{ l: number }> = ({ l }) => {
         Shipped.
       </div>
 
-      <Caption f={l} at={22} out={76} index="04 / Ship" line="Review, merge, done. In one place." />
+      <Caption f={l} at={22} out={76} index="04 / Ship" line="Reviewed, merged, shipped. End to end." />
     </AbsoluteFill>
   )
 }

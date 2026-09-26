@@ -171,12 +171,17 @@ export const Board: React.FC<{ l: number }> = ({ l }) => {
                   }
                   trailing={
                     isHero ? (
-                      <span style={{ scale: String(runPop), opacity: runPop > 0.01 ? 1 : 0, transformOrigin: `right center` }}>
-                        <Pill size={15} fill="rgba(217,119,87,0.14)" stroke="rgba(217,119,87,0.4)">
-                          <ClaudeMark size={14} />
-                          Running
-                          <LiveDot f={l} size={7} />
-                        </Pill>
+                      <span style={{ display: `inline-flex`, gap: 8 }}>
+                        <span style={{ scale: String(pop(l, TYPE_AT + 30, POP)), opacity: l >= TYPE_AT + 30 ? 1 : 0 }}>
+                          <Pill size={15} color={C.muted}>via widget</Pill>
+                        </span>
+                        <span style={{ scale: String(runPop), opacity: runPop > 0.01 ? 1 : 0, transformOrigin: `right center` }}>
+                          <Pill size={15} fill="rgba(217,119,87,0.14)" stroke="rgba(217,119,87,0.4)">
+                            <ClaudeMark size={14} />
+                            Auto-started
+                            <LiveDot f={l} size={7} />
+                          </Pill>
+                        </span>
                       </span>
                     ) : i === 1 ? (
                       <span style={{ scale: String(prPop), opacity: prPop > 0.01 ? 1 : 0 }}>
@@ -215,7 +220,7 @@ export const Board: React.FC<{ l: number }> = ({ l }) => {
         ) : null}
       </div>
 
-      <Caption f={l} at={20} out={82} index="01 / Board" line="One realtime board for the whole team." />
+      <Caption f={l} at={20} out={82} index="01 / Intake" line="Feedback files itself. Runs start on their own." />
     </AbsoluteFill>
   )
 }

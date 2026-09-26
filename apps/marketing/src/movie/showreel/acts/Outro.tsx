@@ -68,7 +68,7 @@ export const Outro: React.FC<{ l: number }> = ({ l }) => {
           ...enter(l, 21, 14, { rise: 14, blur: 6 }),
         }}
       >
-        Open source · Free for teams of three · Agents on your own hardware
+        Automate software end to end · Open source · Your hardware
       </div>
     </AbsoluteFill>
   )

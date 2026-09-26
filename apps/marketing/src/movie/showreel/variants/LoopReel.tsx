@@ -29,7 +29,7 @@ const STATIONS = [
   { id: `board`, label: `BOARD`, deg: 180, arrive: 0, leave: 58 },
   { id: `agent`, label: `AGENT`, deg: 270, arrive: 108, leave: 160 },
   { id: `review`, label: `REVIEW`, deg: 360, arrive: 210, leave: 262 },
-  { id: `merge`, label: `MERGE`, deg: 450, arrive: 312, leave: 362 },
+  { id: `merge`, label: `SHIP`, deg: 450, arrive: 312, leave: 362 },
   { id: `home`, label: `BOARD`, deg: 540, arrive: 402, leave: 450 },
 ] as const
 
@@ -251,7 +251,7 @@ const MergeStation: React.FC<{ sf: number }> = ({ sf }) => {
           Reviews
           <span style={{ color: C.dim, fontWeight: 500 }}>/ EXP-1100</span>
           <span style={{ flex: 1 }} />
-          <span style={{ fontFamily: MONO, fontSize: 14, color: merged ? C.statusDone : C.statusInReview, letterSpacing: `0.08em` }}>{merged ? `MERGED` : `CHECKS PASSED`}</span>
+          <span style={{ fontFamily: MONO, fontSize: 14, color: merged ? C.statusDone : C.statusInReview, letterSpacing: `0.08em` }}>{merged ? `MERGED · RELEASED` : `REVIEW WAVE PASSED`}</span>
         </div>
         <div style={{ display: `flex`, alignItems: `center`, justifyContent: `center`, height: 200, gap: 20 }}>
           {[`typecheck`, `test`, `build`].map((c, i) => (
@@ -264,7 +264,7 @@ const MergeStation: React.FC<{ sf: number }> = ({ sf }) => {
           <span style={{ width: 24 }} />
           <div
             style={{
-              width: 220,
+              width: 260,
               height: 56,
               borderRadius: 14,
               background: merged ? C.statusDone : C.primary,
@@ -279,7 +279,7 @@ const MergeStation: React.FC<{ sf: number }> = ({ sf }) => {
               boxShadow: merged ? `0 0 40px rgba(59,130,246,0.6)` : `0 12px 40px -10px rgba(255,255,255,0.35)`,
             }}
           >
-            {merged ? `Merged` : `Merge`}
+            {merged ? `Merged` : `Auto-merge`}
           </div>
         </div>
       </Glass>
@@ -408,7 +408,7 @@ export const LoopReel: React.FC<{ f: number }> = ({ f }) => {
             <ExpLogo size={130} drawT={seg(f, PULL_AT + 16, PULL_AT + 36)} />
           </div>
           <div style={{ fontFamily: DISPLAY, fontSize: 64, fontWeight: 600, letterSpacing: `-0.03em`, ...enter(f, PULL_AT + 24, 14, { rise: 20, blur: 10 }) }}>Exponential</div>
-          <div style={{ fontFamily: MONO, fontSize: 22, letterSpacing: `0.06em`, color: C.muted, ...enter(f, PULL_AT + 30, 12, { rise: 12, blur: 6 }) }}>exponential.at · the closed loop</div>
+          <div style={{ fontFamily: MONO, fontSize: 22, letterSpacing: `0.06em`, color: C.muted, ...enter(f, PULL_AT + 30, 12, { rise: 12, blur: 6 }) }}>exponential.at · your app on autopilot</div>
         </div>
       ) : null}
       <div style={{ position: `absolute`, left: 0, bottom: 0, height: 3, width: (f / 450) * 1920, background: `linear-gradient(to right, ${VIOLET}, ${C.green})`, opacity: 0.75 }} />

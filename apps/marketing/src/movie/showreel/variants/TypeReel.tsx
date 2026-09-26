@@ -1,9 +1,10 @@
 // variants/TypeReel.tsx — variation "Type" (EXP-1100 r2): kinetic
 // typography cut on a beat. Five statements land huge, each punched out by
 // a five-frame inverted flash; behind each word a low-opacity world of the
-// thing it names (the board, a scrolling tool stream, a rolling zero, a
-// platform roll, a PR chain that collapses into a check). A brand card ends
-// it. No captions, no chrome: the type IS the picture.
+// thing it names (the board, the automations that run it, a scrolling tool
+// stream, a PR chain that collapses into a check, the pipeline rolling
+// feedback → release). A brand card ends it. No captions, no chrome: the
+// type IS the picture. r3: aimed at the autopilot story.
 
 import React from "react"
 import { AbsoluteFill, random } from "remotion"
@@ -18,15 +19,15 @@ const FLASH = 5
 // Section windows: [at, out]; the flash occupies [out, out + FLASH].
 const S = {
   header: { at: 0, out: 30 },
-  board: { at: 30, out: 92 },
-  agents: { at: 97, out: 160 },
-  zero: { at: 165, out: 232 },
-  platforms: { at: 237, out: 302 },
-  shipped: { at: 307, out: 384 },
+  app: { at: 30, out: 80 },
+  autopilot: { at: 85, out: 142 },
+  agents: { at: 147, out: 214 },
+  ships: { at: 219, out: 300 },
+  end: { at: 305, out: 384 },
   brand: { at: 388, out: 450 },
 } as const
 
-const FLASHES = [S.board.out, S.agents.out, S.zero.out, S.platforms.out]
+const FLASHES = [S.app.out, S.autopilot.out, S.agents.out, S.ships.out]
 
 const inWin = (f: number, w: { at: number; out: number }) => f >= w.at && f < w.out + FLASH
 
@@ -141,14 +142,41 @@ const StreamWorld: React.FC<{ l: number }> = ({ l }) => (
   </div>
 )
 
-const PLATFORMS = [`macOS.`, `Windows.`, `Linux.`, `the web.`, `iOS.`, `Android.`]
-const ROLL_EVERY = 11
+const AUTOMATIONS: [string, string, string][] = [
+  [`⏱`, `nightly · 02:00`, `Triage the feedback inbox`],
+  [`⚡`, `on feedback`, `File the issue · start a run`],
+  [`⚡`, `on PR opened`, `Review wave · auto-merge`],
+  [`⏱`, `weekly · Mon`, `Plan the workflow from the backlog`],
+]
 
-const PlatformRoll: React.FC<{ l: number }> = ({ l }) => {
-  const idx = Math.min(PLATFORMS.length - 1, Math.floor(l / ROLL_EVERY))
+const AutoWorld: React.FC<{ l: number }> = ({ l }) => (
+  <div style={{ position: `absolute`, left: 260, top: 150, width: 1400, opacity: 0.34 * seg(l, 0, 14), filter: `blur(${mix(l, 0, 20, 8, 1.5)}px)`, scale: String(mix(l, 0, 57, 1.0, 1.06)) }}>
+    <Glass x={0} y={0} w={1400} h={780} r={20}>
+      <div style={{ display: `flex`, alignItems: `center`, height: 64, padding: `0 28px`, borderBottom: `1px solid ${C.strokeSection}`, fontFamily: UI, fontSize: 24, fontWeight: 600, color: C.text }}>
+        Automations <span style={{ color: C.dim, fontWeight: 500, marginLeft: 12 }}>/ macbook-pro</span>
+      </div>
+      {AUTOMATIONS.map(([glyph, when, what], i) => (
+        <div key={when} style={{ display: `flex`, alignItems: `center`, gap: 22, height: 120, padding: `0 28px`, borderBottom: `1px solid ${C.strokeRow}`, fontFamily: UI, fontSize: 30, color: C.text, ...enter(l, stagger(6, i, 5), 12, { rise: 0, x: -40, blur: 0 }) }}>
+          <span style={{ width: 44, textAlign: `center`, color: C.green, fontSize: 28 }}>{glyph}</span>
+          <span style={{ fontFamily: MONO, fontSize: 22, color: C.muted, width: 260 }}>{when}</span>
+          <span style={{ fontWeight: 500, flex: 1 }}>{what}</span>
+          <span style={{ width: 64, height: 32, borderRadius: 16, background: C.green, position: `relative` }}>
+            <span style={{ position: `absolute`, right: 4, top: 4, width: 24, height: 24, borderRadius: `50%`, background: C.text }} />
+          </span>
+        </div>
+      ))}
+    </Glass>
+  </div>
+)
+
+const STAGES = [`Feedback.`, `Issue.`, `Run.`, `Pull request.`, `Merge.`, `Release.`]
+const ROLL_EVERY = 12
+
+const StageRoll: React.FC<{ l: number }> = ({ l }) => {
+  const idx = Math.min(STAGES.length - 1, Math.floor(l / ROLL_EVERY))
   const p = seg(l - idx * ROLL_EVERY, 0, 5)
-  const prev = idx > 0 ? PLATFORMS[idx - 1] : null
-  const cur = PLATFORMS[idx]
+  const prev = idx > 0 ? STAGES[idx - 1] : null
+  const cur = STAGES[idx]
   const line = (text: string, y: number, o: number, b: number) => (
     <div
       key={text}
@@ -167,7 +195,7 @@ const PlatformRoll: React.FC<{ l: number }> = ({ l }) => {
     </div>
   )
   return (
-    <div style={{ position: `absolute`, left: 0, right: 0, top: 600, height: 260, overflow: `hidden`, fontFamily: DISPLAY, fontSize: 200, fontWeight: 600, letterSpacing: `-0.05em`, lineHeight: 1.2, color: C.text }}>
+    <div style={{ position: `absolute`, left: 0, right: 0, top: 560, height: 260, overflow: `hidden`, fontFamily: DISPLAY, fontSize: 190, fontWeight: 600, letterSpacing: `-0.05em`, lineHeight: 1.2, color: C.text }}>
       {prev ? line(prev, -240 * p, 1 - p, 12 * p) : null}
       {line(cur, 240 * (1 - p), p, 12 * (1 - p))}
     </div>
@@ -219,7 +247,7 @@ const ShippedWorld: React.FC<{ l: number }> = ({ l }) => {
             return <div key={i} style={{ position: `absolute`, left: x - p.s / 2, top: y - p.s / 2, width: p.s, height: p.s, borderRadius: i % 3 === 0 ? `50%` : 2, background: p.c, opacity: Math.max(0, 1 - t / 32) }} />
           })
         : null}
-      <Word f={l} at={50} text="Shipped." size={230} y={640} color={C.text} />
+      <Word f={l} at={50} text="Ships itself." size={210} y={640} color={C.text} />
     </>
   )
 }
@@ -232,7 +260,7 @@ export const TypeReel: React.FC<{ f: number }> = ({ f }) => {
   const ink = inverted ? `#0a0a0a` : C.text
 
   // Section index for the counter.
-  const sections = [S.board, S.agents, S.zero, S.platforms, S.shipped]
+  const sections = [S.app, S.autopilot, S.agents, S.ships, S.end]
   const idx = sections.reduce((acc, w, i) => (f >= w.at ? i : acc), -1)
 
   return (
@@ -260,60 +288,56 @@ export const TypeReel: React.FC<{ f: number }> = ({ f }) => {
         </div>
       ) : null}
 
-      {/* 01 — the board */}
-      {inWin(f, S.board) ? (
+      {/* 01 — your app */}
+      {inWin(f, S.app) ? (
         <>
-          {!inverted ? <BoardWorld l={f - S.board.at} /> : null}
-          <Word f={f} at={S.board.at + 2} text="One board." color={ink} />
+          {!inverted ? <BoardWorld l={f - S.app.at} /> : null}
+          <Word f={f} at={S.app.at + 2} text="Your app" color={ink} />
         </>
       ) : null}
 
-      {/* 02 — agents */}
+      {/* 02 — on autopilot */}
+      {inWin(f, S.autopilot) ? (
+        <>
+          {!inverted ? <AutoWorld l={f - S.autopilot.at} /> : null}
+          <Word f={f} at={S.autopilot.at + 2} text="on autopilot." color={ink} />
+        </>
+      ) : null}
+
+      {/* 03 — agents build it */}
       {inWin(f, S.agents) ? (
         <>
           {!inverted ? <StreamWorld l={f - S.agents.at} /> : null}
-          <Word f={f} at={S.agents.at + 2} text="Your agents." color={ink} y={500} />
-          <div style={{ position: `absolute`, left: 0, right: 0, top: 660, display: `flex`, justifyContent: `center`, gap: 18, ...enter(f, S.agents.at + 26, 14, { rise: 20, blur: 8 }) }}>
+          <Word f={f} at={S.agents.at + 2} text="Agents build it." size={190} color={ink} y={500} />
+          <div style={{ position: `absolute`, left: 0, right: 0, top: 660, display: `flex`, justifyContent: `center`, gap: 18, ...enter(f, S.agents.at + 28, 14, { rise: 20, blur: 8 }) }}>
             <Pill size={26} color={ink} fill={inverted ? `rgba(0,0,0,0.06)` : C.fillActive} stroke={inverted ? `rgba(0,0,0,0.2)` : C.strokeActive}>
               <ClaudeMark size={26} /> claude
             </Pill>
             <Pill size={26} color={ink} fill={inverted ? `rgba(0,0,0,0.06)` : C.fillActive} stroke={inverted ? `rgba(0,0,0,0.2)` : C.strokeActive}>
               <CodexMark size={26} /> codex
             </Pill>
+            <Pill size={26} color={ink} fill={inverted ? `rgba(0,0,0,0.06)` : C.fillActive} stroke={inverted ? `rgba(0,0,0,0.2)` : C.strokeActive}>
+              on your hardware · unattended
+            </Pill>
           </div>
         </>
       ) : null}
 
-      {/* 03 — zero cloud agents */}
-      {inWin(f, S.zero) ? (
+      {/* 04 — ships itself */}
+      {inWin(f, S.ships) ? <ShippedWorld l={f - S.ships.at} /> : null}
+
+      {/* 05 — end to end */}
+      {inWin(f, S.end) ? (
         <>
-          <div style={{ position: `absolute`, left: 0, right: 0, top: 540, translate: `0px -50%`, textAlign: `center`, fontFamily: DISPLAY, fontSize: 210, fontWeight: 600, letterSpacing: `-0.05em`, lineHeight: 1, color: ink, display: `flex`, justifyContent: `center`, alignItems: `baseline`, gap: 0 }}>
-            <span style={{ display: `inline-block`, ...enter(f, S.zero.at + 2, 14, { rise: 60, blur: 16 }), color: C.green }}>
-              <DigitRoll f={f} at={S.zero.at + 6} dur={30} from={9} to={0} size={210} />
-            </span>
-            <Kinetic text=" cloud agents." f={f} at={S.zero.at + 10} step={2} dur={16} rise={70} blur={18} />
-          </div>
-          <div style={{ position: `absolute`, left: 0, right: 0, top: 690, textAlign: `center`, fontFamily: MONO, fontSize: 26, letterSpacing: `0.1em`, color: inverted ? `#0a0a0a` : C.muted, ...enter(f, S.zero.at + 36, 14, { rise: 16, blur: 6 }) }}>
-            YOUR HARDWARE · YOUR SUBSCRIPTION · NOTHING IN OUR CLOUD
+          <Word f={f} at={S.end.at + 2} text="End to end." size={180} y={430} color={ink} />
+          <div style={{ color: ink, opacity: seg(f, S.end.at + 8, S.end.at + 16) }}>
+            <StageRoll l={f - S.end.at - 6} />
           </div>
         </>
       ) : null}
-
-      {/* 04 — platforms */}
-      {inWin(f, S.platforms) ? (
-        <>
-          <Word f={f} at={S.platforms.at + 2} text="Native on" size={200} y={470} color={ink} />
-          <div style={{ color: ink, opacity: seg(f, S.platforms.at + 8, S.platforms.at + 16) }}>
-            <PlatformRoll l={f - S.platforms.at - 6} />
-          </div>
-        </>
-      ) : null}
-
-      {/* 05 — shipped */}
-      {inWin(f, S.shipped) ? <ShippedWorld l={f - S.shipped.at} /> : null}
 
       {/* brand */}
-      {f >= S.brand.at ? <BrandCard f={f} at={S.brand.at} /> : null}
+      {f >= S.brand.at ? <BrandCard f={f} at={S.brand.at} sub="exponential.at · automate software end to end" /> : null}
 
       {/* the flash decay */}
       {inverted ? <AbsoluteFill style={{ backgroundColor: `#ffffff`, opacity: flashT * 0.5, pointerEvents: `none` }} /> : null}

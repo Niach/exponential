@@ -278,7 +278,7 @@ export const Agents: React.FC<{ l: number }> = ({ l }) => {
         </div>
       </div>
 
-      <Caption f={l} at={22} out={80} index="02 / Agents" line="Agents run on your hardware. Steer them live." />
+      <Caption f={l} at={22} out={80} index="02 / Build" line="Agents build it on your hardware. Steer only if you want." />
     </AbsoluteFill>
   )
 }

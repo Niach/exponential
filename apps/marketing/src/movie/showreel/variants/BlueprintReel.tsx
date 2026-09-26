@@ -127,7 +127,7 @@ export const BlueprintReel: React.FC<{ f: number }> = ({ f }) => {
 
       {/* header row */}
       <div style={{ position: `absolute`, left: 72, top: 48, fontSize: 18, letterSpacing: `0.22em`, color: INK }}>
-        <Decode text="EXPONENTIAL / SYSTEM DIAGRAM / REV 2026.09" f={f} at={2} dur={44} />
+        <Decode text="EXPONENTIAL / AUTOPILOT / SYSTEM DIAGRAM / REV 2026.09" f={f} at={2} dur={48} />
       </div>
       <div style={{ position: `absolute`, right: 72, top: 48, fontSize: 18, letterSpacing: `0.12em`, color: C.muted, opacity: seg(f, 10, 20) }}>
         TC {timecode(f)}
@@ -228,13 +228,13 @@ export const BlueprintReel: React.FC<{ f: number }> = ({ f }) => {
         </div>
 
         <div style={{ position: `absolute`, left: AGENT.x - 150, width: 300, top: AGENT.y - 60, textAlign: `center`, color: INK, fontSize: 16 }}>
-          <Decode text="AGENT · LOCAL DEVICE" f={f} at={244} dur={20} />
+          <Decode text="AGENT · UNATTENDED" f={f} at={244} dur={20} />
         </div>
         <div style={{ position: `absolute`, left: AGENT.x - 150, width: 300, top: AGENT.y - 12, textAlign: `center`, color: C.muted, fontSize: 14, lineHeight: `26px` }}>
-          <Decode text="CLAUDE · CODEX" f={f} at={256} dur={18} />
+          <Decode text="SCHEDULE · EVENT · WORKFLOW" f={f} at={256} dur={18} />
           <br />
           <span style={{ color: G }}>
-            <Decode text="0 CLOUD AGENTS" f={f} at={266} dur={18} />
+            <Decode text="0 CLOUD AGENTS · 0 HANDS" f={f} at={266} dur={18} />
           </span>
         </div>
 
@@ -245,19 +245,19 @@ export const BlueprintReel: React.FC<{ f: number }> = ({ f }) => {
           <Decode text="exp/EXP-1100 · #916" f={f} at={266} dur={18} />
           <br />
           <span style={{ color: G }}>
-            <Decode text="MERGE → DONE" f={f} at={276} dur={18} />
+            <Decode text="AUTO-MERGE → RELEASE" f={f} at={276} dur={18} />
           </span>
         </div>
 
         {/* leg annotations */}
         <div style={{ position: `absolute`, left: 520, top: 548, color: C.muted, fontSize: 13, opacity: loopT(0) }}>
-          <Decode text="ISSUE → RUN" f={f} at={262} dur={14} />
+          <Decode text="ISSUE → RUN · NO HANDS" f={f} at={262} dur={14} />
         </div>
         <div style={{ position: `absolute`, left: 880, top: 792, color: C.muted, fontSize: 13, opacity: loopT(1) }}>
           <Decode text="COMMIT · PUSH · OPEN PR" f={f} at={270} dur={16} />
         </div>
         <div style={{ position: `absolute`, left: 1220, top: 548, color: C.muted, fontSize: 13, opacity: loopT(2) }}>
-          <Decode text="MERGED → STATUS" f={f} at={278} dur={14} />
+          <Decode text="SHIPPED → STATUS" f={f} at={278} dur={14} />
         </div>
 
         {/* status ticker */}
@@ -279,7 +279,7 @@ export const BlueprintReel: React.FC<{ f: number }> = ({ f }) => {
       </div>
 
       {/* brand as the last stroke */}
-      {f >= 410 ? <BrandCard f={f} at={410} mono sub="exponential.at · OPEN SOURCE · APACHE-2.0" /> : null}
+      {f >= 410 ? <BrandCard f={f} at={410} mono sub="exponential.at · AUTOMATE SOFTWARE END TO END" /> : null}
 
       {/* scanlines + a sweeping scan line */}
       <AbsoluteFill style={{ backgroundImage: `repeating-linear-gradient(to bottom, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, transparent 1px, transparent 3px)`, pointerEvents: `none`, opacity: 0.6 }} />

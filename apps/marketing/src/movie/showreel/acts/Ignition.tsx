@@ -74,7 +74,7 @@ export const Ignition: React.FC<{ f: number }> = ({ f }) => {
           top: CY + 136,
           textAlign: `center`,
           fontFamily: UI,
-          fontSize: 38,
+          fontSize: 44,
           fontWeight: 500,
           letterSpacing: `-0.01em`,
           color: C.muted,
@@ -84,7 +84,7 @@ export const Ignition: React.FC<{ f: number }> = ({ f }) => {
           filter: tagOut > 0.02 ? `blur(${10 * tagOut}px)` : undefined,
         }}
       >
-        The next generation dev platform for teams
+        Your app on autopilot.
       </div>
     </AbsoluteFill>
   )
