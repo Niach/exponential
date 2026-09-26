@@ -798,7 +798,12 @@ pub fn team_status_options(cx: &App, team_id: &str) -> Vec<ResolvedStatus> {
 /// team-scoped). Falls back to the constructed default when the board/team is
 /// not synced yet.
 pub fn resolve_issue_status(cx: &App, issue: &domain::rows::Issue) -> ResolvedStatus {
-    let collections = Store::global(cx).collections();
+    // EXP-1092: `try_global` — with no Store (the styleguide's paint test)
+    // the issue resolves to its builtin anchor, like an unsynced board.
+    let Some(store) = cx.try_global::<Store>() else {
+        return domain::statuses::constructed_default(issue.status);
+    };
+    let collections = store.collections();
     let team_id = collections
         .boards
         .read(cx)

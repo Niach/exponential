@@ -2095,7 +2095,11 @@ fn assignee_menu(
 /// members ⨝ users, agents hidden — web `people`), current assignee first
 /// (web `orderedUsers`), then name-sorted.
 fn assignable_users(board_id: &str, current: Option<&str>, cx: &App) -> Vec<User> {
-    let collections = Store::global(cx).collections();
+    // EXP-1092: `try_global` — the styleguide builds this menu with no Store.
+    let Some(store) = cx.try_global::<Store>() else {
+        return Vec::new();
+    };
+    let collections = store.collections();
     let Some(board) = collections.boards.read(cx).get(board_id).cloned() else {
         return Vec::new();
     };
@@ -2286,7 +2290,11 @@ pub(crate) fn build_row_context_menu(
         let icon = Icon::from(ExpIcon::Tag);
         menu = menu.submenu_with_icon(Some(icon), "Labels", window, cx, move |menu, _, cx| {
             let mut menu = menu.check_side(Side::Right);
-            let collections = Store::global(cx).collections();
+            // EXP-1092: no Store (the styleguide) = no labels, not a panic.
+            let Some(store) = cx.try_global::<Store>() else {
+                return menu;
+            };
+            let collections = store.collections();
             let Some(board) = collections.boards.read(cx).get(&board_id).cloned() else {
                 return menu;
             };
@@ -2496,9 +2504,13 @@ fn due_date_presets(today: chrono::NaiveDate) -> [(&'static str, chrono::NaiveDa
 
 /// The move-to-board submenu's target list (EXP-57): the issue's
 /// team's boards in the shared sidebar order — empty (submenu hidden,
-/// web `boards.length > 1` gate) unless a move target exists.
+/// web `boards.length > 1` gate) unless a move target exists. EXP-1092: no
+/// Store (the styleguide's paint test) reads as no targets.
 pub(crate) fn move_target_boards(cx: &App, board_id: &str) -> Vec<Board> {
-    let collections = Store::global(cx).collections();
+    let Some(store) = cx.try_global::<Store>() else {
+        return Vec::new();
+    };
+    let collections = store.collections();
     let Some(team_id) = collections
         .boards
         .read(cx)
@@ -2632,7 +2644,8 @@ pub(crate) fn spawn_issue_delete(cx: &mut App, issue_id: String) {
 /// The team's estimate scale behind a board (`teams.estimation_type`), or
 /// `None` while the team does not estimate (EXP-630 `none`).
 fn estimate_scale_of(board_id: &str, cx: &App) -> Option<String> {
-    let collections = Store::global(cx).collections();
+    // EXP-1092: no Store (the styleguide) = not estimating.
+    let collections = cx.try_global::<Store>()?.collections();
     let team_id = collections.boards.read(cx).get(board_id)?.team_id.clone();
     let scale = collections.teams.read(cx).get(&team_id)?.estimation().to_string();
     (scale != domain::contract::ISSUE_ESTIMATION_NONE).then_some(scale)
