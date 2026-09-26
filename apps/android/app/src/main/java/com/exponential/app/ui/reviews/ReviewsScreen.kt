@@ -45,6 +45,9 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrStack
+import com.exponential.app.domain.ReviewMergeAction
+import com.exponential.app.domain.ReviewMergeInput
+import com.exponential.app.domain.ReviewsMerge
 import com.exponential.app.domain.TreeGuide
 import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.canOfferFixConflicts
@@ -359,6 +362,14 @@ private fun WorkflowReviewRow(
     onFixConflicts: () -> Unit,
 ) {
     val canFixConflicts = canOfferFixConflicts(failure, entry.branch)
+    // EXP-1094: a final PR merges only while it is open (the shared rule).
+    val canMerge = ReviewsMerge.reviewRowMergeAction(
+        ReviewMergeInput(
+            workflowStatus = entry.workflow.status,
+            finalPr = true,
+            finalPrState = entry.workflow.finalPrState,
+        ),
+    ) == ReviewMergeAction.MERGE
     Column(modifier = Modifier.fillMaxWidth().testTag("review-workflow-${entry.workflow.id}")) {
         Row(
             modifier = Modifier
@@ -406,14 +417,16 @@ private fun WorkflowReviewRow(
                     )
                 }
             }
-            Spacer(Modifier.width(6.dp))
-            GlassPill(
-                if (canFixConflicts) "Fix conflicts" else "Merge",
-                onClick = if (canFixConflicts) onFixConflicts else onMerge,
-                icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-                enabled = !merging,
-                loading = merging,
-            )
+            if (canFixConflicts || canMerge) {
+                Spacer(Modifier.width(6.dp))
+                GlassPill(
+                    if (canFixConflicts) "Fix conflicts" else ReviewsMerge.MERGE_LABEL,
+                    onClick = if (canFixConflicts) onFixConflicts else onMerge,
+                    icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                    enabled = !merging,
+                    loading = merging,
+                )
+            }
         }
 
         if (failure != null) {
@@ -554,6 +567,11 @@ private fun ReviewRow(
     // and it rebases the PR's branch, so it needs one recorded — desktop
     // applies the same guard on its Reviews rows.
     val canFixConflicts = canOfferFixConflicts(failure, entry.branch)
+    // EXP-1094: exactly ONE merge control per row, from the shared rule: a
+    // stack's bottom merges the stack, an upper member and a live workflow's
+    // node PR merge elsewhere (the reason reads as a muted caption).
+    val mergeAction = ReviewsMerge.reviewRowMergeAction(row.mergeInput)
+    val mergeReason = ReviewsMerge.reviewsMergeDisabledReason(row.mergeInput)
 
     // EXP-897: one stack level is 14dp of indent, on every client; EXP-965:
     // with the connector drawn in the gutter that indent leaves.
@@ -669,6 +687,16 @@ private fun ReviewRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (mergeReason != null && !canFixConflicts) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        mergeReason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        modifier = Modifier.testTag("review-merge-reason"),
+                    )
+                }
             }
             Spacer(Modifier.width(6.dp))
             // Inline merge — same confirm-gated flow as the long-press sheet
@@ -679,13 +707,32 @@ private fun ReviewRow(
             // just tapped.
             // EXP-698: the shared pill, not a second hand-rolled copy of it
             // (the steer screen's Merge control is the same component).
-            GlassPill(
-                if (canFixConflicts) "Fix conflicts" else "Merge",
-                onClick = if (canFixConflicts) onFixConflicts else onMerge,
-                icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-                enabled = !merging,
-                loading = merging,
-            )
+            when {
+                canFixConflicts -> GlassPill(
+                    "Fix conflicts",
+                    onClick = onFixConflicts,
+                    icon = ExpIcons.uiBranch,
+                    enabled = !merging,
+                    loading = merging,
+                )
+                mergeAction == ReviewMergeAction.MERGE -> GlassPill(
+                    ReviewsMerge.MERGE_LABEL,
+                    onClick = onMerge,
+                    icon = ExpIcons.prMerged,
+                    enabled = !merging,
+                    loading = merging,
+                    modifier = Modifier.testTag("review-merge"),
+                )
+                mergeAction == ReviewMergeAction.MERGE_STACK -> GlassPill(
+                    ReviewsMerge.MERGE_STACK_LABEL,
+                    onClick = onMergeStack,
+                    icon = ExpIcons.prStack,
+                    enabled = !merging,
+                    loading = merging,
+                    modifier = Modifier.testTag("review-merge-stack"),
+                )
+                else -> Unit
+            }
         }
 
         // A refused merge (conflicts, branch protection, GitHub App errors, an
@@ -733,17 +780,20 @@ private fun ReviewRow(
                 },
                 leading = { Icon(ExpIcons.navMyIssues, contentDescription = null, modifier = Modifier.size(18.dp)) },
             )
-            GlassSheetRow(
-                label = "Merge pull request",
-                onClick = {
-                    showActions = false
-                    onMerge()
-                },
-                leading = { Icon(ExpIcons.prOpen, contentDescription = null, modifier = Modifier.size(18.dp)) },
-            )
-            // EXP-897: the BOTTOM of a stack can take the whole chain in one
-            // go — merging it merges every pull request above it, bottom-up.
-            if (row.mergeStackIssueId != null) {
+            // EXP-1094: the sheet offers the row's ONE merge control too.
+            if (mergeAction == ReviewMergeAction.MERGE) {
+                GlassSheetRow(
+                    label = "Merge pull request",
+                    onClick = {
+                        showActions = false
+                        onMerge()
+                    },
+                    leading = { Icon(ExpIcons.prOpen, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                )
+            }
+            // EXP-897: the BOTTOM of a stack takes the whole chain in one go:
+            // merging it merges every pull request above it, bottom-up.
+            if (mergeAction == ReviewMergeAction.MERGE_STACK) {
                 GlassSheetRow(
                     label = PrStack.MERGE_STACK_LABEL,
                     onClick = {
