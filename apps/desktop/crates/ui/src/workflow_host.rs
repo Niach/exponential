@@ -367,12 +367,30 @@ struct LaunchAudit {
 impl LaunchAudit {
     /// Off the foreground: the sink is a blocking tRPC call.
     fn record(self, outcome: Outcome, executor: &gpui::BackgroundExecutor) {
+        self.finish(outcome, None, executor);
+    }
+
+    /// EXP-1108: the launch came up as `session_id` — the line names it.
+    fn record_launched(self, session_id: &str, executor: &gpui::BackgroundExecutor) {
+        self.finish(Outcome::Done, Some(session_id), executor);
+    }
+
+    fn finish(self, outcome: Outcome, session_id: Option<&str>, executor: &gpui::BackgroundExecutor) {
         if let (Outcome::Done, Some(woken)) = (&outcome, self.woken) {
             woken.stamp(executor);
         }
-        let Some(event) = events::launch_event_for(&self.decision, &outcome) else {
+        let Some(event) = events::launch_event_for(&self.decision, &outcome, session_id) else {
             return;
         };
+        // EXP-1108: an unchanged failure every beat is one line.
+        let (Decision::StartNode { workflow_id, .. } | Decision::StartReview { workflow_id, .. }) =
+            &self.decision
+        else {
+            return;
+        };
+        if !events::admit(workflow_id, &self.decision, &outcome) {
+            return;
+        }
         let sink = self.sink;
         executor.spawn(async move { sink.record(event) }).detach();
     }
@@ -1569,7 +1587,7 @@ fn run_pass(
         if matches!(outcome, Outcome::Queued) {
             continue;
         }
-        if let Some(event) = events::event_for(&workflow_id, &decided, &outcome) {
+        if let Some(event) = events::audit_line(&workflow_id, &decided, &outcome, None) {
             sink.record(event);
         }
     }
@@ -2432,7 +2450,7 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                 };
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
-                        audit.record(Outcome::Done, cx.background_executor());
+                        audit.record_launched(&session_id, cx.background_executor());
                         let trpc = Arc::clone(&trpc);
                         let node = node.clone();
                         // The in-flight claim rides along until the node
@@ -2589,7 +2607,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                 let subject = SessionSubject::Action(session_id.clone());
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
-                        audit.record(Outcome::Done, cx.background_executor());
+                        audit.record_launched(&session_id, cx.background_executor());
                         remember_review_run(
                             &store,
                             &workflow_id,
@@ -2705,7 +2723,7 @@ fn launch_fix(order: FixOrder, cx: &mut App) {
                 let subject = SessionSubject::Action(session_id.clone());
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
-                        audit.record(Outcome::Done, cx.background_executor());
+                        audit.record_launched(&session_id, cx.background_executor());
                         let now_ms = chrono::Utc::now().timestamp_millis();
                         if let Err(err) = store.update(&workflow_id, move |state| {
                             state.fix_runs.insert(wave, session_id.clone());

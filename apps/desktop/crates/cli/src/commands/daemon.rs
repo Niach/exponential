@@ -3707,6 +3707,8 @@ impl AutomationHost {
         for decision in coding::workflows::evaluate(&plan.snapshot) {
             // EXP-1082: what the host did with it, for the audit trail.
             let decided = decision.clone();
+            // EXP-1108: the run a start launched, named on its line.
+            let mut launched: Option<String> = None;
             let outcome: Outcome = 'decision: {
                 match decision {
                     // Handled above; the engine still emits it when the host
@@ -3772,8 +3774,8 @@ impl AutomationHost {
                             settings,
                             settings_path,
                         ) {
-                            Ok(true) => {}
-                            Ok(false) => break 'decision Outcome::Skipped,
+                            Ok(Some(session_id)) => launched = Some(session_id),
+                            Ok(None) => break 'decision Outcome::Skipped,
                             Err(err) => break 'decision Outcome::Failed(err),
                         }
                     }
@@ -3884,8 +3886,8 @@ impl AutomationHost {
                             settings,
                             settings_path,
                         ) {
-                            Ok(true) => {}
-                            Ok(false) => break 'decision Outcome::Skipped,
+                            Ok(Some(session_id)) => launched = Some(session_id),
+                            Ok(None) => break 'decision Outcome::Skipped,
                             Err(err) => break 'decision Outcome::Failed(err),
                         }
                     }
@@ -4078,7 +4080,9 @@ impl AutomationHost {
                 }
                 Outcome::Done
             };
-            if let Some(event) = events::event_for(&workflow_id, &decided, &outcome) {
+            if let Some(event) =
+                events::audit_line(&workflow_id, &decided, &outcome, launched.as_deref())
+            {
                 sink.record(event);
             }
         }
@@ -4201,9 +4205,9 @@ impl AutomationHost {
     /// compound one a BATCH over its parent plus its members. Both cut from
     /// the integration branch and carry the `## Workflow` prompt section.
     ///
-    /// EXP-1082 (the audit outcome): `Ok(true)` = launched, `Ok(false)` = not
-    /// attempted (the node or its `running` report is missing), `Err` = the
-    /// prepare/launch failed (the node is reported `failed` with it).
+    /// EXP-1082 (the audit outcome): `Ok(Some(session))` = launched as that
+    /// run, `Ok(None)` = not attempted (the node or its `running` report is
+    /// missing), `Err` = the prepare/launch failed (reported `failed`).
     #[allow(clippy::too_many_arguments)]
     fn start_workflow_node(
         &self,
@@ -4216,16 +4220,16 @@ impl AutomationHost {
         account: Option<String>,
         settings: &coding::Settings,
         settings_path: &Path,
-    ) -> Result<bool, String> {
+    ) -> Result<Option<String>, String> {
         let Some(node) = plan.nodes.get(node_id) else {
-            return Ok(false);
+            return Ok(None);
         };
         let mut report = api::workflows::NodeReport::new(node_id, "running");
         report.attempt = Some(attempt);
         report.base_branch = api::patch::Patch::Set(branch.to_string());
         report.note = api::patch::Patch::Null;
         if !self.report_node(&report) {
-            return Ok(false);
+            return Ok(None);
         }
         // EXP-983: the run is cut AT this tip, so it already has it —
         // recording that is what keeps the first beat quiet.
@@ -4265,11 +4269,11 @@ impl AutomationHost {
         match self.prepare_workflow_node(plan, node, run, options, branch, None) {
             Ok(Some(session_id)) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "running");
-                report.session_id = api::patch::Patch::Set(session_id);
+                report.session_id = api::patch::Patch::Set(session_id.clone());
                 self.report_node(&report);
-                Ok(true)
+                Ok(Some(session_id))
             }
-            Ok(None) => Ok(false),
+            Ok(None) => Ok(None),
             Err(err) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "failed");
                 report.note = api::patch::Patch::Set(one_line_note(&err.to_string()));
@@ -4378,7 +4382,7 @@ impl AutomationHost {
     /// is not a node failure (the node's own work is fine): it only drops
     /// the recorded head, so the next beat tries the review again.
     ///
-    /// EXP-1082 (the audit outcome): `Ok(true)` = launched, `Ok(false)` = not
+    /// EXP-1082 (the audit outcome): `Ok(Some(session))` = launched, `Ok(None)` = not
     /// attempted (something has not synced yet), `Err` = the lookup or the
     /// prepare/launch failed.
     #[allow(clippy::too_many_arguments)]
@@ -4392,19 +4396,19 @@ impl AutomationHost {
         account: Option<String>,
         settings: &coding::Settings,
         settings_path: &Path,
-    ) -> Result<bool, String> {
+    ) -> Result<Option<String>, String> {
         let workflow_id = plan.snapshot.workflow.id.clone();
         let Some(node) = plan.nodes.get(node_id) else {
-            return Ok(false);
+            return Ok(None);
         };
         let Some(identifier) = plan.snapshot.identifier.get(node_id).cloned() else {
-            return Ok(false);
+            return Ok(None);
         };
         let repo = match api::repositories::for_issue(&self.ctx.trpc, &node.issue_id) {
             Ok(Some(repo)) => repo,
             Ok(None) => {
                 log::warn!("workflow review of {node_id}: the node has no repository");
-                return Ok(false);
+                return Ok(None);
             }
             Err(err) => {
                 log::warn!("workflow review of {node_id}: repository — {err}");
@@ -4421,7 +4425,7 @@ impl AutomationHost {
             )
         } else {
             let Some(branch) = plan.branch_of.get(node_id).cloned() else {
-                return Ok(false);
+                return Ok(None);
             };
             (
                 branch,
@@ -4521,7 +4525,7 @@ impl AutomationHost {
                     // In flight until its row syncs (`pending_launches`).
                     state.launched.insert(session_id.clone(), now_ms);
                 });
-                Ok(true)
+                Ok(Some(session_id))
             }
             Err(err) => {
                 log::warn!("workflow review of {node_id} — {err}");

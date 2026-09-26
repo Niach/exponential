@@ -7,7 +7,8 @@
 //! nothing, so the trail only says what CHANGED. The message never names the
 //! node: the UI resolves `node_id`.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use api::TrpcClient;
 
@@ -76,6 +77,18 @@ fn with_account(message: &str, account: Option<&String>) -> String {
 /// The audit line one executed decision of `workflow_id` produces, if any
 /// (kinds = contract `wfEventKind`).
 pub fn event_for(workflow_id: &str, decision: &Decision, outcome: &Outcome) -> Option<WorkflowEvent> {
+    event_for_session(workflow_id, decision, outcome, None)
+}
+
+/// [`event_for`] with the run the decision launched: EXP-1108, a
+/// `node_started` / `retrying` / `review_started` line names its session
+/// once the host knows it (after the launch), so the trail links the run.
+pub fn event_for_session(
+    workflow_id: &str,
+    decision: &Decision,
+    outcome: &Outcome,
+    session_id: Option<&str>,
+) -> Option<WorkflowEvent> {
     match (decision, outcome) {
         // A queued order is recorded ONCE, at its launch site (`Outcome::Queued`
         // never reaches the sink either way); a skip changed nothing.
@@ -95,7 +108,7 @@ pub fn event_for(workflow_id: &str, decision: &Decision, outcome: &Outcome) -> O
             } else {
                 ("retrying", format!("Retrying (attempt {attempt}) on {base_branch}"))
             };
-            event(workflow_id, Some(node_id), None, kind, with_account(&message, account.as_ref()))
+            event(workflow_id, Some(node_id), session_id, kind, with_account(&message, account.as_ref()))
         }
         (Decision::StartNode { node_id, .. }, Outcome::Failed(err)) => event(
             workflow_id,
@@ -107,7 +120,7 @@ pub fn event_for(workflow_id: &str, decision: &Decision, outcome: &Outcome) -> O
         (Decision::StartReview { node_id, account, .. }, Outcome::Done) => event(
             workflow_id,
             Some(node_id),
-            None,
+            session_id,
             "review_started",
             with_account("Started the review", account.as_ref()),
         ),
@@ -155,14 +168,78 @@ pub fn event_for(workflow_id: &str, decision: &Decision, outcome: &Outcome) -> O
 }
 
 /// A FOREGROUND launch's own line (the desktop host's `LaunchAudit`): the
-/// start/review decision carries its workflow.
-pub fn launch_event_for(decision: &Decision, outcome: &Outcome) -> Option<WorkflowEvent> {
+/// start/review decision carries its workflow; `session_id` = the run it
+/// launched, when it did.
+pub fn launch_event_for(
+    decision: &Decision,
+    outcome: &Outcome,
+    session_id: Option<&str>,
+) -> Option<WorkflowEvent> {
     match decision {
         Decision::StartNode { workflow_id, .. } | Decision::StartReview { workflow_id, .. } => {
-            event_for(workflow_id, decision, outcome)
+            event_for_session(workflow_id, decision, outcome, session_id)
         }
         _ => None,
     }
+}
+
+/// EXP-1108 — a start the engine re-decides every beat and that keeps
+/// failing the SAME way writes ONE line, not one per beat. Keyed per
+/// `(workflow, node, start|review)`: a failure with the message the key
+/// last wrote is dropped; a different message, or a success in between
+/// (which clears the key), writes again.
+#[derive(Debug, Default)]
+pub struct FailureDedupe {
+    last: HashMap<(String, String, &'static str), String>,
+}
+
+impl FailureDedupe {
+    /// Whether the line for this outcome should be written.
+    pub fn admit(&mut self, workflow_id: &str, decision: &Decision, outcome: &Outcome) -> bool {
+        let (node_id, what) = match decision {
+            Decision::StartNode { node_id, .. } => (node_id, "start"),
+            Decision::StartReview { node_id, .. } => (node_id, "review"),
+            _ => return true,
+        };
+        let key = (workflow_id.to_string(), node_id.clone(), what);
+        match outcome {
+            Outcome::Failed(message) => {
+                if self.last.get(&key) == Some(message) {
+                    return false;
+                }
+                self.last.insert(key, message.clone());
+                true
+            }
+            Outcome::Done => {
+                self.last.remove(&key);
+                true
+            }
+            Outcome::Skipped | Outcome::Queued => true,
+        }
+    }
+}
+
+/// The process-wide [`FailureDedupe`] both hosts' audit paths go through
+/// (their sinks are rebuilt every pass, so the memory lives here).
+pub fn admit(workflow_id: &str, decision: &Decision, outcome: &Outcome) -> bool {
+    static DEDUPE: OnceLock<Mutex<FailureDedupe>> = OnceLock::new();
+    let mut dedupe = match DEDUPE.get_or_init(Default::default).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    dedupe.admit(workflow_id, decision, outcome)
+}
+
+/// The host's one call per executed decision: the mapped line (with the run
+/// it launched) unless it repeats an unchanged failure.
+pub fn audit_line(
+    workflow_id: &str,
+    decision: &Decision,
+    outcome: &Outcome,
+    session_id: Option<&str>,
+) -> Option<WorkflowEvent> {
+    let event = event_for_session(workflow_id, decision, outcome, session_id)?;
+    admit(workflow_id, decision, outcome).then_some(event)
 }
 
 /// The audit line a settled reviewer run produces, if any (both hosts'
@@ -261,6 +338,37 @@ mod tests {
 
     fn at(node: &str, kind: &str, message: &str) -> Option<(Option<String>, Option<String>, String, String)> {
         Some((Some(node.to_string()), None, kind.to_string(), message.to_string()))
+    }
+
+    /// EXP-1108: a start line names the run it launched.
+    #[test]
+    fn start_lines_carry_the_launched_session() {
+        let started = event_for_session("w", &start(1, None), &Outcome::Done, Some("s-1")).unwrap();
+        assert_eq!(started.session_id.as_deref(), Some("s-1"));
+        assert_eq!(started.kind, "node_started");
+        let review = launch_event_for(&review(None), &Outcome::Done, Some("s-2")).unwrap();
+        assert_eq!(review.session_id.as_deref(), Some("s-2"));
+        let failed = Outcome::Failed("no clone".to_string());
+        assert_eq!(event_for_session("w", &start(1, None), &failed, None).unwrap().session_id, None);
+    }
+
+    /// EXP-1108: the same failure every beat is ONE line; a new message or
+    /// a success in between writes again; nodes and kinds are separate.
+    #[test]
+    fn a_repeated_start_failure_is_written_once() {
+        let mut dedupe = FailureDedupe::default();
+        let failed = |msg: &str| Outcome::Failed(msg.to_string());
+        assert!(dedupe.admit("w", &start(1, None), &failed("no clone")));
+        assert!(!dedupe.admit("w", &start(1, None), &failed("no clone")));
+        assert!(!dedupe.admit("w", &start(2, None), &failed("no clone")));
+        assert!(dedupe.admit("w", &review(None), &failed("no clone")), "a review is its own key");
+        assert!(dedupe.admit("w", &start(1, None), &failed("token expired")));
+        assert!(dedupe.admit("w", &start(1, None), &Outcome::Done));
+        assert!(dedupe.admit("w", &start(1, None), &failed("token expired")), "a success resets it");
+        assert!(dedupe.admit("other", &start(1, None), &failed("token expired")));
+        let land = Decision::LandNode { node_id: "n1".to_string() };
+        assert!(dedupe.admit("w", &land, &failed("x")));
+        assert!(dedupe.admit("w", &land, &failed("x")), "only starts are deduped");
     }
 
     #[test]
@@ -387,10 +495,10 @@ mod tests {
     #[test]
     fn a_launch_line_uses_the_decisions_own_workflow() {
         assert_eq!(
-            line(launch_event_for(&start(1, None), &Outcome::Done)),
+            line(launch_event_for(&start(1, None), &Outcome::Done, None)),
             at("n1", "node_started", "Started on exp/wf-1")
         );
-        assert_eq!(launch_event_for(&Decision::OpenFinalPr, &Outcome::Done), None);
+        assert_eq!(launch_event_for(&Decision::OpenFinalPr, &Outcome::Done, None), None);
     }
 
     #[test]
