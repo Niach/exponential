@@ -583,20 +583,23 @@ fn spawn_tickers(
                 let agent = ctx.agent;
                 let rotation_host = ctx.rotation_host;
                 let settings_path = coding::Settings::default_path(&ctx.data_dir);
+                let data_dir = ctx.data_dir.clone();
                 Some(Arc::new(move |wall: Option<&steer::SessionBlocked>| {
                     // EXP-1005: `handled` = this HOST runs a rotation beat
                     // (desktop, daemon — never a foreground CLI run) and
-                    // will rotate the run to another account, or wait the
-                    // reset out itself, so the server sends the owner NO
-                    // rate-limit notification. The setting is read at the
-                    // wall edge (rare) so a toggle flipped mid-run counts;
-                    // codex never rotates and is never "handled" — its
-                    // owner hears about it, throttled.
+                    // has another eligible login to rotate the run to, so
+                    // the server sends the owner NO rate-limit
+                    // notification. The setting and the logins are read at
+                    // the wall edge (rare) so a toggle flipped mid-run
+                    // counts; codex never rotates and a one-login machine
+                    // cannot, so neither is "handled" — the owner hears
+                    // about it, throttled.
                     let handled = wall.map(|_| {
                         rotation_host
                             && coding::account_rotation::wall_handled_here(
                                 agent,
                                 &coding::Settings::load(&settings_path),
+                                &data_dir,
                             )
                     });
                     api::coding_sessions::set_blocked(

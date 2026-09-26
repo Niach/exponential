@@ -39,6 +39,13 @@ export const workflowFinalPrProcedures = {
       if (workflow.finalPrUrl && workflow.finalPrState !== `closed`) {
         return { url: workflow.finalPrUrl }
       }
+      // A cancelled or done workflow ships nothing more; a draft has nothing.
+      if (workflow.status !== `running` && workflow.status !== `paused`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `Only a started workflow opens its final pull request`,
+        })
+      }
       if (workflow.finalPrUrl) {
         const outcome = await reopenWorkflowFinalPr(ctx.db, input.id, ctx.session.user.id, {
           once: false,
@@ -60,6 +67,12 @@ export const workflowFinalPrProcedures = {
     .mutation(async ({ ctx, input }) => {
       const workflow = await loadWorkflow(input.id)
       await assertEngine(workflow, ctx.session.user.id)
+      if (workflow.status !== `running` && workflow.status !== `paused`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `Only a started workflow reopens its final pull request`,
+        })
+      }
       const { reopenWorkflowFinalPr } = await import(`@/lib/workflow-final-pr`)
       const outcome = await reopenWorkflowFinalPr(ctx.db, input.id, ctx.session.user.id, {
         once: true,
@@ -102,7 +115,9 @@ export const workflowFinalPrProcedures = {
       )
       return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
+        // The status guard IS the claim: a workflow that moved on between the
+        // read and this write (cancelled by a person, say) is left as it is.
+        const claimed = await tx
           .update(workflows)
           .set({
             status: `cancelled`,
@@ -110,6 +125,8 @@ export const workflowFinalPrProcedures = {
             decisions: appendDecisionLine(workflow.decisions, NOTHING_SHIPPED_DECISION, new Date()),
           })
           .where(and(eq(workflows.id, input.id), eq(workflows.status, workflow.status)))
+          .returning({ id: workflows.id })
+        if (claimed.length === 0) return { cancelled: false as const, txId }
         await recordWorkflowEventInTx(tx, {
           workflowId: input.id,
           teamId: workflow.teamId,

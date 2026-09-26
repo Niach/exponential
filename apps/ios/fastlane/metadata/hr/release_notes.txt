@@ -1,6 +1,5 @@
-- Odabiri: status, izvršitelj, oznake, board i ostalo otvaraju isti list s pretragom i običnim redovima, a višestruki odabir se vidi po isticanju, ne po krugu
-- Izvođenja agenta: popis aktivnih izvođenja se ugniježđuje, izvođenja workflowa stoje pod jednim redom koji otvara workflow, ona stacka pod drugim, a strelica sklapa oba
-- Workflowi: zaslon gubi blok postavki, čvor govori svoje stanje i otvara se u Issue, Run i Changes, a završni pull request se spaja odande
-- Postavke stroja: list je preslagan, a nova stranica „Workflow settings“ drži modele s kojima novi workflow kreće
-- Prebacivanje teamova: točka na strelici kad drugi team drži neko od vaših živih izvođenja, jantarna kad izvođenje čeka unos
-- Članovi: član s popisa kojeg još nitko nije pozvao piše „Not invited“ umjesto „Invite expired“
+- Workflowi: traka čipova bira čvor i otvara ga u Issue, Run, Changes i Results, pitanje planera prikazuje se u banneru, Pause i Dismiss nalaze se u izborniku s više opcija, a završni pull request pojavljuje se pod Reviews, gdje se spaja
+- Izvođenja agenta: izvođenja workflowa grupiraju se pod svojim čvorom s točkom statusa i opisom, izvođenja pregleda nose svoje naslove, izvođenje koje vas treba ima točku, a list Recent crta stablo
+- Issues: oznaka blokiranja otvara mini-graf nacrtan na jednoj zajedničkoj mreži, a zaglavlje stack ili skupnog izvođenja prikazuje prvi issue s brojem
+- Uređivač: upisivanjem --- odmah se umeće razdjelnik
+- Aktivnost: promjene procjene sažimaju se kao i svaka druga izmjena polja

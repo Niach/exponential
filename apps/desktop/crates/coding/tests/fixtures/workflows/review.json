@@ -275,5 +275,620 @@
         "model": "sonnet"
       }
     ]
+  },
+  {
+    "name": "rule 7 (wave): reviewers go out maxParallel at a time, in landing order",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 2,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b"
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "a",
+          "c"
+        ]
+      ]
+    },
+    "expected": [
+      {
+        "kind": "startReview",
+        "nodeId": "a",
+        "wave": 1,
+        "model": "fable",
+        "adversarial": false,
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "review"
+      },
+      {
+        "kind": "startReview",
+        "nodeId": "b",
+        "wave": 1,
+        "model": "fable",
+        "adversarial": false,
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "review"
+      }
+    ]
+  },
+  {
+    "name": "rule 7 (wave): a review in flight is never doubled, the rest of the wave goes out",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 2,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b"
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "a",
+          "c"
+        ]
+      ],
+      "reviewInFlight": [
+        "a",
+        "b"
+      ]
+    },
+    "expected": [
+      {
+        "kind": "startReview",
+        "nodeId": "c",
+        "wave": 1,
+        "model": "fable",
+        "adversarial": false,
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "review"
+      }
+    ]
+  },
+  {
+    "name": "rule 7 (wave): every member answered (a verdict, or reviewers that gave up): ONE fix run carries what was requested",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 2,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "review": {
+            "verdict": "approve",
+            "round": 1
+          }
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "review": {
+            "verdict": "request_changes",
+            "round": 1
+          }
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "a",
+          "c"
+        ]
+      ],
+      "reviewGaveUp": [
+        "c"
+      ]
+    },
+    "expected": [
+      {
+        "kind": "startFix",
+        "wave": 1,
+        "nodeIds": [
+          "b"
+        ],
+        "branch": "exp/wf-abcdef12-fix-w1",
+        "model": "fable",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "review"
+      }
+    ]
+  },
+  {
+    "name": "rule 7 (wave): the fix run is up, the wave waits",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 2,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "review": {
+            "verdict": "approve",
+            "round": 1
+          }
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "review": {
+            "verdict": "request_changes",
+            "round": 1
+          }
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "a",
+          "c"
+        ]
+      ],
+      "reviewGaveUp": [
+        "c"
+      ],
+      "fixRuns": [
+        {
+          "wave": 1,
+          "sessionId": "s-fix",
+          "live": true,
+          "landed": false
+        }
+      ]
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 7 (wave): the fix run ended, what it pushed lands",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 2,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "review": {
+            "verdict": "approve",
+            "round": 1
+          }
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "review": {
+            "verdict": "request_changes",
+            "round": 1
+          }
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "a",
+          "c"
+        ]
+      ],
+      "reviewGaveUp": [
+        "c"
+      ],
+      "fixRuns": [
+        {
+          "wave": 1,
+          "sessionId": "s-fix",
+          "live": false,
+          "landed": false
+        }
+      ]
+    },
+    "expected": [
+      {
+        "kind": "landFix",
+        "wave": 1,
+        "branch": "exp/wf-abcdef12-fix-w1"
+      }
+    ]
+  },
+  {
+    "name": "rule 7 (wave): the fix landed, the wave clears every member",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 2,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "review": {
+            "verdict": "approve",
+            "round": 1
+          }
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "review": {
+            "verdict": "request_changes",
+            "round": 1
+          }
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "a",
+          "c"
+        ]
+      ],
+      "reviewGaveUp": [
+        "c"
+      ],
+      "fixRuns": [
+        {
+          "wave": 1,
+          "sessionId": "s-fix",
+          "live": false,
+          "landed": true
+        }
+      ]
+    },
+    "expected": [
+      {
+        "kind": "clearWave",
+        "wave": 1,
+        "nodeIds": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "rule 7 (wave): stamped, the final pull request opens and no second round follows, whatever the verdicts still read",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 2,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "review": {
+            "verdict": "approve",
+            "round": 1
+          },
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "review": {
+            "verdict": "request_changes",
+            "round": 1
+          },
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-c",
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "a",
+          "c"
+        ]
+      ],
+      "reviewGaveUp": [
+        "c"
+      ],
+      "fixRuns": [
+        {
+          "wave": 1,
+          "sessionId": "s-fix",
+          "live": false,
+          "landed": true
+        }
+      ]
+    },
+    "expected": [
+      {
+        "kind": "openFinalPr"
+      }
+    ]
+  },
+  {
+    "name": "rule 7 (wave): a wave nobody asked anything of clears without a fix run",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "review": {
+            "verdict": "approve",
+            "round": 1
+          }
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "clearWave",
+        "wave": 0,
+        "nodeIds": [
+          "a"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "rule 7 (wave): a failed oracle under an approval counts as a request",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "review": {
+            "verdict": "approve",
+            "round": 1,
+            "oracle": {
+              "passed": false
+            }
+          }
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "startFix",
+        "wave": 0,
+        "nodeIds": [
+          "a"
+        ],
+        "branch": "exp/wf-abcdef12-fix-w0",
+        "model": "fable",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "review"
+      }
+    ]
   }
 ]

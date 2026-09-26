@@ -1,6 +1,5 @@
-- Výbery: stav, riešiteľ, štítky, board aj zvyšok otvárajú ten istý prehľadávateľný panel s jednoduchými riadkami a viacnásobný výber vidno podľa zvýraznenia, nie podľa krúžku
-- Behy agenta: zoznam bežiacich behov sa vnára, behy workflowu stoja pod jedným riadkom, ktorý workflow otvorí, behy stacku pod ďalším, a šípka oba zbalí
-- Workflowy: obrazovka stráca blok nastavení, uzol povie svoj vlastný stav a otvorí sa do Issue, Run a Changes, a finálny pull request sa mergne odtiaľ
-- Nastavenia stroja: panel je preusporiadaný a nová stránka „Workflow settings“ drží modely, s ktorými nový workflow štartuje
-- Prepínač teamov: na šípke sa objaví bodka, keď iný team drží niektorý z vašich živých behov, a je jantárová, keď beh čaká na vstup
-- Členovia: člen v zozname, ktorého zatiaľ nikto nepozval, hlási „Not invited“ namiesto „Invite expired“
+- Workflowy: pás čipov vyberie uzol a otvorí ho do Issue, Run, Changes a Results, otázka od plánovača sa zobrazí v banneri, Pause a Dismiss nájdete v ponuke Ďalšie a finálny pull request sa objaví v Reviews, kde ho mergnete
+- Behy agenta: behy workflowu sa zoskupujú pod svojím uzlom s bodkou stavu a popiskom, kontrolné behy nesú svoje názvy, beh, ktorý na vás čaká, má bodku a panel Recent kreslí strom
+- Issues: odznak blokovania otvorí mini-graf nakreslený na jednej spoločnej mriežke a hlavička stacku alebo dávkového behu ukazuje predné issue s počtom
+- Editor: napísaním --- sa hneď vloží oddeľovač
+- Aktivita: zmeny odhadu sa zlučujú rovnako ako úpravy každého iného poľa

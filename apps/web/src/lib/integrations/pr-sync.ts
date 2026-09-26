@@ -743,6 +743,8 @@ export async function endLiveIssueSessionsInTx(
       // EXP-848/850: an ended run is never busy and says nothing.
       agentBusy: false,
       agentCaption: null,
+      // An ended run asks nobody anything.
+      pendingQuestion: null,
       endedAt: new Date(),
       endedBy: `merge`,
       updatedAt: new Date(),
@@ -834,6 +836,8 @@ export async function endMergedPrSessions(
         // EXP-848/850: an ended run is never busy and says nothing.
         agentBusy: false,
         agentCaption: null,
+        // An ended run asks nobody anything.
+        pendingQuestion: null,
         endedAt: new Date(),
         endedBy: `merge`,
         updatedAt: new Date(),
@@ -933,6 +937,8 @@ export async function applySessionPrState(opts: {
         // EXP-848/850: an ended run is never busy and says nothing.
         agentBusy: false,
         agentCaption: null,
+        // An ended run asks nobody anything.
+        pendingQuestion: null,
         endedAt: new Date(),
         endedBy: `merge`,
         updatedAt: new Date(),

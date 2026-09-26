@@ -1,6 +1,5 @@
-- Auswahllisten: Status, zuständige Person, Labels, Board und der Rest öffnen dieselbe durchsuchbare Liste aus schlichten Zeilen, und eine Mehrfachauswahl zeigt sich als Hervorhebung statt als Kreis
-- Agent-Läufe: die Liste der laufenden Läufe ist verschachtelt, die Läufe eines Workflows stehen unter einer Zeile, die den Workflow öffnet, die eines Stapels unter einer weiteren, beide klappt der Pfeil zu
-- Workflows: der Bildschirm verliert seinen Einstellungsblock, ein Knoten nennt seinen eigenen Zustand und öffnet sich in Issue, Run und Changes, und der finale Pull Request wird von dort gemergt
-- Maschinen-Einstellungen: die Übersicht ist neu geordnet, und eine neue Seite „Workflow settings“ hält die Modelle, mit denen ein neuer Workflow startet
-- Team-Umschalter: ein Punkt auf dem Pfeil, wenn in einem anderen Team ein eigener Lauf läuft, bernsteinfarben, wenn er eine Eingabe braucht
-- Mitglieder: wer in der Liste steht und noch von niemandem eingeladen wurde, zeigt „Not invited“ statt „Invite expired“
+- Workflows: eine Chip-Leiste wählt einen Knoten und öffnet ihn in Issue, Run, Changes und Results, eine Frage des Planers erscheint in einem Banner, Pause und Dismiss liegen im Überlaufmenü, und der finale Pull Request steht unter Reviews, wo er gemergt wird
+- Agent-Läufe: die Läufe eines Workflows gruppieren sich unter ihrem Knoten mit Statuspunkt und Beschriftung, Review-Läufe tragen ihre Titel, ein Lauf, der dich braucht, bekommt einen Punkt, und die Übersicht Recent zeichnet den Baum
+- Issues: das Blockiert-Abzeichen öffnet einen Mini-Graphen auf einem gemeinsamen Raster, und der Kopf eines Stapel- oder Batch-Laufs zeigt das vorderste Issue mit einer Anzahl
+- Editor: wer --- tippt, fügt sofort eine Trennlinie ein
+- Aktivität: Änderungen an Schätzungen werden wie jede andere Feldänderung zusammengefasst

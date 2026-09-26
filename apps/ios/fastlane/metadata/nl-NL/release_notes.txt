@@ -1,6 +1,5 @@
-- Kiezers: status, toegewezene, labels, board en de rest openen hetzelfde doorzoekbare venster met gewone rijen, en meerdere kiezen zie je aan de markering in plaats van aan een rondje
-- Agentruns: de lijst met lopende runs nestelt, de runs van een workflow onder één rij die de workflow opent en die van een stack onder een andere, de pijl klapt beide dicht
-- Workflows: het scherm verliest zijn instellingenblok, een node noemt zijn eigen toestand en opent in Issue, Run en Changes, en de laatste pull request wordt daar gemerged
-- Machine-instellingen: het venster is opnieuw geordend, en een nieuwe pagina "Workflow settings" bewaart de modellen waarmee een nieuwe workflow start
-- Teamwisselaar: een stip op de pijl wanneer een ander team een van je lopende runs heeft, amberkleurig wanneer die invoer nodig heeft
-- Leden: een lid in de lijst dat nog niemand heeft uitgenodigd, leest "Not invited" in plaats van "Invite expired"
+- Workflows: een strook chips kiest een node en opent die in Issue, Run, Changes en Results, een vraag van de planner verschijnt in een banner, Pause en Dismiss zitten in het overloopmenu, en de laatste pull request staat onder Reviews, waar hij gemerged wordt
+- Agentruns: de runs van een workflow groeperen onder hun node met een statusstip en een bijschrift, reviewruns dragen hun titel, een run die jou nodig heeft krijgt een stip, en het venster Recent tekent de boom
+- Issues: de blokkeringsbadge opent een minigrafiek op één gedeeld raster, en de kop van een stack- of batchrun toont het voorste issue met een aantal
+- Editor: wie --- typt, voegt meteen een scheidingslijn in
+- Activiteit: wijzigingen in schattingen worden samengevoegd zoals elke andere veldwijziging

@@ -551,9 +551,11 @@ export function WorkflowDetail({
     )
   }
 
-  // EXP-1059: a final PR closed WITHOUT merging — the member's way back.
+  // EXP-1059: a final PR closed WITHOUT merging: the member's way back.
   // `workflows.openFinalPr` reopens it, or opens a fresh one when GitHub
-  // refuses; the synced row swaps the row's action back to Merge.
+  // refuses; the synced row swaps the row's action back to Merge. Only a
+  // live workflow (running or paused) offers it: the server refuses the
+  // reopen for a cancelled or done one, so the row shows nothing there.
   const openFinalPr = async () => {
     setError(null)
     setOpeningFinalPr(true)
@@ -592,7 +594,7 @@ export function WorkflowDetail({
     .map((device) => ({
       id: device.deviceId,
       name: `${device.deviceLabel || device.deviceId}${
-        device.owner ? ` — ${device.owner.name}` : ``
+        device.owner ? ` · ${device.owner.name}` : ``
       }`,
       icon: device.icon,
       kind: device.kind,
@@ -785,9 +787,10 @@ export function WorkflowDetail({
           {runnerOffline && (
             <p className="pl-7 text-xs text-destructive" data-testid="workflow-runner-offline">
               {runnerOfflineCaption(runner?.lastSeenAt ?? null)}{` `}
-              <button
-                type="button"
-                className="underline underline-offset-2"
+              <Button
+                variant="link"
+                size="inline"
+                className="text-destructive underline underline-offset-2"
                 data-testid="workflow-runner-rebind"
                 onClick={() => {
                   runsOnRequested.current = true
@@ -795,7 +798,7 @@ export function WorkflowDetail({
                 }}
               >
                 {REBIND_RUNNER_LABEL}
-              </button>
+              </Button>
             </p>
           )}
         </header>
@@ -883,7 +886,9 @@ export function WorkflowDetail({
                     {MERGE_FINAL_PR_LABEL}
                   </Button>
                 )}
-                {workflow.finalPrState === `closed` && (
+                {workflow.finalPrState === `closed` &&
+                  (workflow.status === `running` ||
+                    workflow.status === `paused`) && (
                   <Button
                     size="sm"
                     disabled={openingFinalPr}

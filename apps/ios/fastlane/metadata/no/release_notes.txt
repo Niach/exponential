@@ -1,6 +1,5 @@
-- Velgere: status, ansvarlig, labels, board og resten åpner det samme søkbare panelet med enkle rader, og velger du flere, vises det som en utheving i stedet for en sirkel
-- Agentkjøringer: listen over kjøringer nøstes, kjøringene til en workflow under én rad som åpner workflowen og en stacks under én rad, og pilen folder begge sammen
-- Workflows: skjermen mister innstillingsblokken, en node sier sin egen tilstand og åpnes i Issue, Run og Changes, og den siste pull requesten merges derfra
-- Maskininnstillinger: panelet er omordnet, og en ny side «Workflow settings» holder modellene en ny workflow starter på
-- Teambytter: en prikk på pilen når et annet team har en av kjøringene dine i gang, ravgul når den venter på svar
-- Medlemmer: et medlem i listen som ingen har invitert ennå, står som «Not invited» i stedet for «Invite expired»
+- Workflows: en rad med chips velger en node og åpner den i Issue, Run, Changes og Results, et spørsmål fra planleggeren vises i et banner, Pause og Dismiss ligger i overflytmenyen, og den siste pull requesten står under Reviews, der den merges
+- Agentkjøringer: kjøringene til en workflow grupperes under noden sin med en statusprikk og en bildetekst, review-kjøringer bærer titlene sine, en kjøring som venter på deg får en prikk, og panelet Recent tegner treet
+- Issues: blokkeringsmerket åpner en minigraf tegnet på ett felles rutenett, og toppen av en stack- eller batchkjøring viser det fremste issuet med et antall
+- Editor: skriver du ---, settes en skillelinje inn med en gang
+- Aktivitet: endringer i estimater slås sammen som alle andre feltendringer

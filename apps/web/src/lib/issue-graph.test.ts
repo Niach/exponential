@@ -8,6 +8,7 @@ import {
   ISSUE_GRAPH_GEOMETRY,
   ISSUE_GRAPH_MAX_NODES,
   issueGraphEdge,
+  issueGraphEdgePath,
   issueGraphOrigin,
   issueGraphSize,
   openBlockersOfSet,
@@ -107,6 +108,18 @@ describe(`issue graph geometry`, () => {
       expect(issueGraphOrigin(entry.wave, entry.lane)).toEqual({ x: entry.x, y: entry.y })
     }
   })
+  it(`draws the fixture's edge as the SVG cubic, inset-shifted for a padded grid`, () => {
+    const entry = geometry.edges[0]!
+    const { start, control1, control2, end } = issueGraphEdge(entry.from, entry.to)
+    expect(issueGraphEdgePath(entry.from, entry.to)).toBe(
+      `M ${start.x} ${start.y} C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${end.x} ${end.y}`
+    )
+    const inset = ISSUE_GRAPH_GEOMETRY.inset
+    expect(issueGraphEdgePath(entry.from, entry.to, { insetIncluded: false })).toBe(
+      `M ${start.x - inset} ${start.y - inset} C ${control1.x - inset} ${control1.y - inset}, ${control2.x - inset} ${control2.y - inset}, ${end.x - inset} ${end.y - inset}`
+    )
+  })
+
   for (const entry of geometry.edges) {
     it(`edge: ${entry.name}`, () => {
       const { name: _name, from, to, ...expected } = entry

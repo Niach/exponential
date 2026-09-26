@@ -619,7 +619,9 @@ describe(`the engine's write path`, () => {
       [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }],
       [{ prState: `open` }],
-      [{ status: `running` }]
+      [{ status: `running` }],
+      // The runner reads the wave answers.
+      [{ version: `0.14.52` }]
     )
     expect(await caller.landNode({ nodeId: NODE })).toEqual({
       merged: false,
@@ -628,12 +630,64 @@ describe(`the engine's write path`, () => {
     })
   })
 
+  // compat: an engine of 0.14.49..0.14.51 knows three refusal strings and
+  // treats any other as a merge conflict, so it gets the blockers answer
+  // for both wave waits. No version reads as old.
+  it(`answers an older runner engine with the blockers wait instead`, async () => {
+    for (const version of [`0.14.51`, `0.14.49-staging`, null]) {
+      selectQueue.push(
+        [node({ sessionId: `66666666-6666-4666-8666-666666666666` })],
+        [workflow({ status: `running`, deviceId: `dev-1` })],
+        [{ id: `device-row` }],
+        [{ prState: `open` }],
+        [{ status: `running` }],
+        [{ version }]
+      )
+      expect(await caller.landNode({ nodeId: NODE })).toEqual({
+        merged: false,
+        reason: `Waiting for its blockers to land`,
+        retargeted: [],
+      })
+    }
+    // The same for the wave gate.
+    selectQueue.push(
+      [node({ wave: 1 })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ prState: `open` }],
+      [{ version: `0.14.50` }]
+    )
+    h.loadWorkflowEdges.mockResolvedValueOnce({
+      nodes: [
+        { id: `c`, issueId: `i-c`, memberIssueIds: [], state: `landed`, baseBranch: null, wave: 0, approvedAt: null },
+        { id: `node-1`, issueId: A, memberIssueIds: [], state: `in_review`, baseBranch: null, wave: 1, approvedAt: null },
+        { id: `m`, issueId: `i-m`, memberIssueIds: [], state: `blocked`, baseBranch: null, wave: 2, approvedAt: null },
+        { id: `i`, issueId: `i-i`, memberIssueIds: [], state: `blocked`, baseBranch: null, wave: 3, approvedAt: null },
+      ] as never,
+      edges: [],
+    })
+    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for its blockers to land`)
+    // A current engine keeps the precise answer.
+    selectQueue.push([], [], [], [], [])
+    selectQueue.length = 0
+    selectQueue.push(
+      [node({ sessionId: `66666666-6666-4666-8666-666666666666` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ prState: `open` }],
+      [{ status: `running` }],
+      [{ version: `0.15.0` }]
+    )
+    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for its run to end`)
+  })
+
   it(`holds a node behind an uncleared review wave of a deep graph`, async () => {
     selectQueue.push(
       [node({ wave: 1 })],
       [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }],
-      [{ prState: `open` }]
+      [{ prState: `open` }],
+      [{ version: `0.14.52` }]
     )
     // Four layers: the contract landed but its wave has not cleared it.
     h.loadWorkflowEdges.mockResolvedValueOnce({
@@ -803,7 +857,8 @@ describe(`the engine's write path`, () => {
       [workflow({ status: `running`, deviceId: `dev-1`, startedAt: new Date(`2026-09-21T10:00:00Z`) })],
       [{ id: `device-row` }],
       [{ prState: `merged`, prMergedAt: new Date(`2026-09-01T10:00:00Z`) }],
-      [{ status: `running` }] // the node's run, still up: the old merge is not this attempt's
+      [{ status: `running` }], // the node's run, still up: the old merge is not this attempt's
+      [{ version: `0.14.52` }]
     )
     expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for its run to end`)
     expect(written).toEqual([])
@@ -1315,6 +1370,28 @@ describe(`workflow completion (EXP-1032)`, () => {
     expect(error?.code).toBe(`PRECONDITION_FAILED`)
   })
 
+  it(`never opens or reopens a cancelled workflow's final PR`, async () => {
+    selectQueue.push([running({ status: `cancelled`, finalPrUrl: null })])
+    let error = await rejection(caller.openFinalPr({ id: WF }))
+    expect(error?.code).toBe(`PRECONDITION_FAILED`)
+    expect(h.openWorkflowFinalPr).not.toHaveBeenCalled()
+
+    selectQueue.push([
+      running({ status: `cancelled`, finalPrUrl: `https://gh/pr/9`, finalPrNumber: 9, finalPrState: `closed` }),
+    ])
+    error = await rejection(caller.openFinalPr({ id: WF }))
+    expect(error?.code).toBe(`PRECONDITION_FAILED`)
+    expect(h.reopenWorkflowFinalPr).not.toHaveBeenCalled()
+
+    selectQueue.push(
+      [running({ status: `done`, finalPrUrl: `https://gh/pr/9`, finalPrNumber: 9, finalPrState: `closed` })],
+      [{ id: `device-row` }]
+    )
+    error = await rejection(caller.reopenFinalPr({ id: WF }))
+    expect(error?.code).toBe(`PRECONDITION_FAILED`)
+    expect(h.reopenWorkflowFinalPr).not.toHaveBeenCalled()
+  })
+
   it(`refuses to merge a cancelled workflow's final PR`, async () => {
     selectQueue.push([
       running({
@@ -1393,8 +1470,13 @@ describe(`workflows.appendEvent`, () => {
       }
       return p
     })
-    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
     const NODE = `55555555-5555-4555-8555-555555555555`
+    selectQueue.push(
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      // The node is the workflow's.
+      [{ id: NODE }]
+    )
     await caller.appendEvent({
       workflowId: WF,
       nodeId: NODE,
@@ -1425,6 +1507,132 @@ describe(`workflows.appendEvent`, () => {
       caller.appendEvent({ workflowId: WF, kind: `exploded` as never, message: `` })
     )
     expect(error?.code).toBe(`BAD_REQUEST`)
+  })
+
+  it(`refuses the kinds only the server writes`, async () => {
+    for (const kind of [`completed`, `final_pr_reopened`, `question_asked`, `review_verdict`] as const) {
+      selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
+      const error = await rejection(caller.appendEvent({ workflowId: WF, kind, message: `x` }))
+      expect(error?.code).toBe(`BAD_REQUEST`)
+    }
+    expect(fakeDb.insert).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a node outside the workflow and a run of another workflow`, async () => {
+    const NODE = `55555555-5555-4555-8555-555555555555`
+    const RUN = `66666666-6666-4666-8666-666666666666`
+    // No node row matched (id + workflow_id).
+    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }], [])
+    let error = await rejection(
+      caller.appendEvent({ workflowId: WF, nodeId: NODE, kind: `landed`, message: `x` })
+    )
+    expect(error?.code).toBe(`BAD_REQUEST`)
+    expect(error?.message).toContain(`node`)
+
+    // The run carries another workflow.
+    selectQueue.push(
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ workflowId: `other-workflow` }]
+    )
+    error = await rejection(
+      caller.appendEvent({ workflowId: WF, sessionId: RUN, kind: `failed`, message: `x` })
+    )
+    expect(error?.code).toBe(`BAD_REQUEST`)
+    expect(error?.message).toContain(`run`)
+    expect(fakeDb.insert).not.toHaveBeenCalled()
+
+    // A run of no workflow at all (an adopted one) passes.
+    selectQueue.push(
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ workflowId: null }]
+    )
+    await caller.appendEvent({ workflowId: WF, sessionId: RUN, kind: `adopting_run`, message: `x` })
+    expect(written).toContainEqual({
+      op: `insert`,
+      values: expect.objectContaining({ workflowId: WF, sessionId: RUN, kind: `adopting_run` }),
+    })
+  })
+})
+
+// compat: the person's gate the shipped clients still call — iOS <=0.14.43,
+// Android <=0.14.44 and desktop/CLI <=0.14.51 (`approveNode`); the metrics
+// report of the desktop/CLI engine <=0.14.51 (`reportMetrics`).
+describe(`workflows.approveNode (compat)`, () => {
+  const NODE = `55555555-5555-4555-8555-555555555555`
+  const node = (over: Record<string, unknown> = {}) => ({
+    id: NODE,
+    workflowId: WF,
+    issueId: A,
+    kind: `leaf`,
+    state: `in_review`,
+    approvedAt: null,
+    sessionId: `66666666-6666-4666-8666-666666666666`,
+    ...over,
+  })
+
+  it(`stamps approved_at on a node under review and logs the person's verdict`, async () => {
+    selectQueue.push([node()], [workflow({ status: `running`, deviceId: `dev-1` })])
+    const result = await caller.approveNode({ nodeId: NODE })
+    expect(result).toMatchObject({ nodeId: NODE })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
+    const update = written.find((w) => w.op === `update`)!.values as Record<string, unknown>
+    expect(Object.keys(update)).toEqual([`approvedAt`])
+    expect(update.approvedAt).toBeInstanceOf(Date)
+    expect(written).toContainEqual({
+      op: `insert`,
+      values: expect.objectContaining({
+        workflowId: WF,
+        nodeId: NODE,
+        sessionId: `66666666-6666-4666-8666-666666666666`,
+        kind: `review_verdict`,
+        message: `approved by a person`,
+      }),
+    })
+
+    // `updating` (an old engine's request_changes round) is under review too.
+    written.length = 0
+    selectQueue.push([node({ state: `updating` })], [workflow({ status: `running` })])
+    await caller.approveNode({ nodeId: NODE, approved: true })
+    expect(written.some((w) => w.op === `update`)).toBe(true)
+  })
+
+  it(`is idempotent, and approved=false takes the stamp back without a line`, async () => {
+    selectQueue.push([node({ approvedAt: new Date() })], [workflow({ status: `running` })])
+    await caller.approveNode({ nodeId: NODE })
+    expect(written).toEqual([])
+
+    selectQueue.push([node({ approvedAt: new Date() })], [workflow({ status: `running` })])
+    await caller.approveNode({ nodeId: NODE, approved: false })
+    expect(written).toEqual([{ op: `update`, values: { approvedAt: null } }])
+  })
+
+  it(`refuses a landed or skipped node, and an approval of one not under review`, async () => {
+    selectQueue.push([node({ state: `landed` })], [workflow({ status: `running` })])
+    expect((await rejection(caller.approveNode({ nodeId: NODE })))?.code).toBe(`BAD_REQUEST`)
+    selectQueue.push([node({ state: `skipped` })], [workflow({ status: `running` })])
+    expect((await rejection(caller.approveNode({ nodeId: NODE })))?.code).toBe(`BAD_REQUEST`)
+    selectQueue.push([node({ state: `running` })], [workflow({ status: `running` })])
+    expect((await rejection(caller.approveNode({ nodeId: NODE })))?.code).toBe(`BAD_REQUEST`)
+    expect(written).toEqual([])
+  })
+
+  it(`tolerates the keys an old client sends and defaults approved to true`, async () => {
+    selectQueue.push([node()], [workflow({ status: `running` })])
+    await caller.approveNode({ nodeId: NODE, extra: 1 } as never)
+    expect((written[0]!.values as Record<string, unknown>).approvedAt).toBeInstanceOf(Date)
+  })
+})
+
+describe(`workflows.reportMetrics (compat)`, () => {
+  it(`answers ok and writes nothing`, async () => {
+    expect(await caller.reportMetrics({ id: WF, deltas: { mergeIns: 1, whatever: 2 } })).toEqual({
+      ok: true,
+    })
+    expect(await caller.reportMetrics({ id: WF })).toEqual({ ok: true })
+    expect(fakeDb.update).not.toHaveBeenCalled()
+    expect(fakeDb.select).not.toHaveBeenCalled()
   })
 })
 
@@ -1642,6 +1850,18 @@ describe(`final PR (EXP-1082 §7)`, () => {
     )
     expect(await caller.cancelUnshipped({ id: WF })).toEqual({ cancelled: true })
     expect(written).toEqual([])
+
+    // The status guard lost (the workflow moved on between the read and the
+    // write): no event, and the answer says so.
+    h.recordWorkflowEventInTx.mockClear()
+    selectQueue.push(
+      [workflow({ status: `running`, deviceId: `dev-1`, decisions: `` })],
+      [{ id: `device-row` }],
+      [{ id: `node-1`, state: `skipped` }]
+    )
+    updateQueue.push([])
+    expect(await caller.cancelUnshipped({ id: WF })).toMatchObject({ cancelled: false })
+    expect(h.recordWorkflowEventInTx).not.toHaveBeenCalled()
   })
 
   it(`final merge flips member issues through the PR-merge helper`, async () => {

@@ -1583,6 +1583,8 @@ describe(`steer.killSession — owner OR host (EXP-432)`, () => {
       status: `ended`,
       endedBy: `user`,
       agentBusy: false,
+      // An ended run asks nobody anything.
+      pendingQuestion: null,
     })
   })
 

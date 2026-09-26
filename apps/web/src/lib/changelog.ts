@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-26-release-train`,
+    date: `2026-09-26`,
+    title: `Release train 2026-09-26`,
+    summary: `The workflow page is rebuilt around its nodes, agent runs group under their workflow node, the blocks rail is dots with a hover graph, accounts rotate on their own, and the desktop app keeps its engine state in its own store.`,
+    body: `- **Workflows**: a chip strip along the top picks a node, and each node opens into Issue, Run, Changes and Results. A question the planner asks shows in a banner with an Answer for the owner, Pause and Dismiss sit in the overflow, the decisions log lists every answer, and the page keeps its face as you step through nodes. No workflow waits for a person to approve a node any more: an agent review gates it, and the planner asks its questions before a run starts.
+- **Final pull request**: a workflow's final pull request is its own row under Reviews on every client, with Merge and Fix conflicts. A closed final pull request reopens once, and a workflow whose nodes all skipped cancels itself.
+- **Agent runs**: the running list, the recent sheet and the automations log group a workflow's runs under their node with a status dot and a caption, review runs carry their titles, a run waiting on you wears a dot, and every run says which account it runs on. A workflow's event log lists what the engine decided, one short line each.
+- **Accounts**: with account rotation on (the machine's toggle, on by default), every claude launch picks the signed-in account with the most headroom, and a run that hits its limit resumes on another account on its own.
+- **Issue lists**: the blocks rail on the web and in the desktop app shows dots only, and hovering one opens the mini-graph, drawn on one geometry on every client. Phones keep the badge, and its graph draws on the same grid.
+- **Work header**: a stacked or batch run's badge is the front issue's chip with a count.
+- **Editor**: typing \`---\` inserts a separator at once, and Escape closes the @, # and : menus inside a dialog.
+- **Activity**: estimate changes fold like every other field edit.
+- **Desktop app**: the workflow engine keeps its state in its own device store instead of settings.json, every writer to settings.json takes the lock, and a torn read never re-mints the device id.`,
+  },
+  {
     id: `2026-09-25-release-train`,
     date: `2026-09-25`,
     title: `Release train 2026-09-25`,

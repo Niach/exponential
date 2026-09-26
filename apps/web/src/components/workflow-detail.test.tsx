@@ -1128,6 +1128,39 @@ describe(`WorkflowDetail`, () => {
     expect(mutates.mergeFinalPr).not.toHaveBeenCalled()
   })
 
+  // The server refuses the reopen once the workflow is over: the row offers
+  // nothing on a cancelled or done workflow, only the GitHub link.
+  it(`offers no Open final PR once the workflow is cancelled or done`, () => {
+    for (const status of [`cancelled`, `done`] as const) {
+      const { unmount } = renderPage(
+        {
+          status,
+          finalPrUrl: `https://github.com/acme/app/pull/42`,
+          finalPrNumber: 42,
+          finalPrState: `closed`,
+        },
+        { initialFace: `changes` }
+      )
+      expect(screen.getByTestId(`workflow-final-pr`)).toBeTruthy()
+      expect(screen.queryByTestId(`workflow-final-pr-open`)).toBeNull()
+      expect(screen.queryByTestId(`workflow-final-pr-merge`)).toBeNull()
+      unmount()
+    }
+  })
+
+  it(`keeps Open final PR on a paused workflow`, () => {
+    renderPage(
+      {
+        status: `paused`,
+        finalPrUrl: `https://github.com/acme/app/pull/42`,
+        finalPrNumber: 42,
+        finalPrState: `closed`,
+      },
+      { initialFace: `changes` }
+    )
+    expect(screen.getByTestId(`workflow-final-pr-open`)).toBeTruthy()
+  })
+
   it(`offers no Merge on a merged final pull request`, () => {
     renderPage(
       {

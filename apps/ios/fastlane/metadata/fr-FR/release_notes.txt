@@ -1,6 +1,5 @@
-- Sélecteurs : statut, responsable, labels, board et le reste ouvrent la même feuille avec recherche et lignes simples, et un choix multiple se voit à la surbrillance plutôt qu'à un cercle
-- Runs de l'agent : la liste des runs en cours s'imbrique, ceux d'un workflow sous une ligne qui ouvre le workflow et ceux d'une stack sous une autre, la flèche replie les deux
-- Workflows : l'écran perd son bloc de réglages, un nœud dit son propre état et s'ouvre sur Issue, Run et Changes, et la pull request finale se fusionne depuis là
-- Réglages de la machine : la feuille est réorganisée, et une nouvelle page « Workflow settings » garde les modèles sur lesquels démarre un nouveau workflow
-- Sélecteur de team : un point sur la flèche quand une autre team a un de vos runs en cours, ambre quand il attend une entrée
-- Membres : un membre de la liste que personne n'a encore invité affiche « Not invited » au lieu de « Invite expired »
+- Workflows : une rangée de chips choisit un nœud et l'ouvre sur Issue, Run, Changes et Results, une question du planificateur s'affiche dans une bannière, Pause et Dismiss se trouvent dans le menu d'options, et la pull request finale apparaît dans Reviews, où elle se fusionne
+- Runs de l'agent : les runs d'un workflow se regroupent sous leur nœud avec un point d'état et une légende, les runs de revue portent leur titre, un run qui vous attend affiche un point, et la feuille Recent dessine l'arbre
+- Issues : le badge de blocage ouvre un mini-graphe dessiné sur une seule grille commune, et l'en-tête d'un run en stack ou par lot montre l'issue de tête avec un compteur
+- Éditeur : taper --- insère aussitôt un séparateur
+- Activité : les changements d'estimation se regroupent comme toute autre modification de champ

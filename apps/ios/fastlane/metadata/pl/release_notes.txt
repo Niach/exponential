@@ -1,6 +1,5 @@
-- Wybory: status, osoba odpowiedzialna, etykiety, board i reszta otwierają ten sam panel z wyszukiwaniem i zwykłymi wierszami, a wybór kilku pozycji widać po podświetleniu, nie po kółku
-- Przebiegi agenta: lista trwających przebiegów jest zagnieżdżona, przebiegi workflow stoją pod jednym wierszem, który otwiera workflow, a przebiegi stosu pod kolejnym, i strzałka zwija oba
-- Workflows: ekran traci blok ustawień, węzeł podaje własny stan i otwiera się w Issue, Run i Changes, a końcowy pull request scala się stamtąd
-- Ustawienia maszyny: panel jest uporządkowany na nowo, a nowa strona „Workflow settings” trzyma modele, na których startuje nowy workflow
-- Przełącznik teamów: kropka na strzałce, gdy inny team ma jeden z twoich trwających przebiegów, bursztynowa, gdy przebieg czeka na dane
-- Członkowie: osoba z listy, której nikt jeszcze nie zaprosił, pokazuje „Not invited” zamiast „Invite expired”
+- Workflows: pasek chipów wybiera węzeł i otwiera go w Issue, Run, Changes i Results, pytanie od planisty pojawia się w banerze, Pause i Dismiss są w menu dodatkowych opcji, a końcowy pull request trafia do Reviews, gdzie się go scala
+- Przebiegi agenta: przebiegi workflow grupują się pod swoim węzłem z kropką stanu i podpisem, przebiegi przeglądu noszą swoje tytuły, przebieg, który na ciebie czeka, ma kropkę, a panel Recent rysuje drzewo
+- Issues: plakietka blokad otwiera minigraf rysowany na jednej wspólnej siatce, a nagłówek przebiegu stosu lub partii pokazuje pierwsze issue z liczbą
+- Edytor: wpisanie --- od razu wstawia separator
+- Aktywność: zmiany szacunku zwijają się tak jak każda inna edycja pola

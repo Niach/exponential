@@ -274,6 +274,12 @@ pub fn pr_graph(
     issues: &[Issue],
     sessions: &[CodingSession],
 ) -> PrGraph {
+    // The subject ISSUE: the given one, else the one the subject run works
+    // (web `subjectIssue = input.issue ?? issues.find(session.issueId)`).
+    let issue = issue.or_else(|| {
+        let id = session?.issue_id.as_deref()?;
+        issues.iter().find(|row| row.id == id)
+    });
     // The subject PULL REQUEST: the subject issue's, else the issue(s) the
     // subject run's own `pr_url` closes (a batch run links none directly).
     let entries = pr_entries(issues);
@@ -582,6 +588,24 @@ mod tests {
         );
         // No badge = no chip.
         assert_eq!(badge_chip(&family, PrGraphFace::Issue), None);
+    }
+
+    /// Web parity: a run with no explicit issue still fronts the issue its
+    /// `issue_id` names, so the Run face's chip carries it.
+    #[test]
+    fn a_runs_subject_issue_comes_off_its_issue_id() {
+        let one = issue("ONE", Some("exp/ONE"), None);
+        let mut root = run("root", None);
+        root.issue_id = Some(one.id.clone());
+        let sessions = vec![root.clone(), run("child", Some("root"))];
+        let graph = pr_graph(None, Some(&root), std::slice::from_ref(&one), &sessions);
+        assert_eq!(
+            badge_chip(&graph, PrGraphFace::Run),
+            Some(BadgeChip {
+                issue: Some(one),
+                count: 1
+            })
+        );
     }
 
     #[test]

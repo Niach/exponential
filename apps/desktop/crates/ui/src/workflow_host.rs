@@ -187,6 +187,11 @@ pub fn start_workflow_host(account: &api::Account, cx: &mut App) {
                     .background_executor()
                     .spawn(async move { run_pass(pass, &in_flight, &final_pr_in_flight) })
                     .await;
+                // A host restarted while the pass ran: its successor owns
+                // the orders now, this loop launches nothing more.
+                if stop.load(Ordering::SeqCst) {
+                    return;
+                }
                 // The foreground half of the pass: the resumes it queued go
                 // out whether or not it also started anything.
                 cx.update(|cx| {
@@ -311,6 +316,9 @@ struct Pass {
     /// recorded: a resumed reviewer is followed, a stray one adopted, and
     /// neither is doubled ([`workflows::live_pending_reviews_on_branches`]).
     review_live_on_branch: HashMap<String, String>,
+    /// The `launched` records whose synced row is in: what the pass prunes
+    /// the map by ([`workflows::prune_launched`]).
+    launched_synced: HashSet<String>,
 }
 
 /// One node the pass decided to start — executed on the foreground, where
@@ -351,16 +359,53 @@ struct StartOrder {
 struct LaunchAudit {
     decision: Decision,
     sink: TrpcEventSink,
+    /// EXP-1106: a wake's `woken` stamp, written only once the launch came
+    /// up — a wake that failed to launch is decided again next beat.
+    woken: Option<WokenStamp>,
 }
 
 impl LaunchAudit {
     /// Off the foreground: the sink is a blocking tRPC call.
     fn record(self, outcome: Outcome, executor: &gpui::BackgroundExecutor) {
+        if let (Outcome::Done, Some(woken)) = (&outcome, self.woken) {
+            woken.stamp(executor);
+        }
         let Some(event) = events::launch_event_for(&self.decision, &outcome) else {
             return;
         };
         let sink = self.sink;
         executor.spawn(async move { sink.record(event) }).detach();
+    }
+}
+
+/// EXP-1106: `node_id`'s run was woken for `sha` of `branch` conflicting.
+/// Stamped where the wake EXECUTES (the steer, the resume, the fresh
+/// launch), never where it was decided: the engine skips a stamped
+/// collision for good, so a wake that never went out must not be stamped.
+#[derive(Clone)]
+struct WokenStamp {
+    store: WorkflowStore,
+    workflow_id: String,
+    node_id: String,
+    branch: String,
+    sha: String,
+}
+
+impl WokenStamp {
+    fn stamp(self, executor: &gpui::BackgroundExecutor) {
+        executor
+            .spawn(async move {
+                if let Err(err) = self.store.update(&self.workflow_id, move |state| {
+                    state
+                        .woken
+                        .entry(self.node_id)
+                        .or_default()
+                        .insert(self.branch, self.sha);
+                }) {
+                    log::warn!("[workflows] state write failed: {err}");
+                }
+            })
+            .detach();
     }
 }
 
@@ -370,6 +415,9 @@ struct ResumeOrder {
     session_id: String,
     prompt: String,
     in_flight: Option<Arc<InFlight>>,
+    /// EXP-1106: stamped as the resume goes out (the resume path reports
+    /// no outcome of its own).
+    woken: Option<WokenStamp>,
 }
 
 /// EXP-984: the in-flight key one node's REVIEW claims — deliberately
@@ -467,8 +515,12 @@ fn snapshot_for(
     let claimed = snapshot_of(in_flight);
     let final_claimed = snapshot_of(final_pr_in_flight);
 
-    // EXP-1102: a workflow that is gone takes its state document with it.
-    store.prune(&workflows_rows.iter().map(|row| row.id.clone()).collect());
+    // EXP-1102: a workflow that is gone takes its state document with it —
+    // judged only once the shape caught up: an empty collection before its
+    // first up-to-date is "still syncing", and would prune every document.
+    if workflows_rows.is_ready() {
+        store.prune(&workflows_rows.iter().map(|row| row.id.clone()).collect());
+    }
 
     let mut passes = Vec::new();
     for workflow in workflows_rows.iter() {
@@ -522,6 +574,25 @@ fn snapshot_for(
             let live = matches!(row.status.as_deref(), Some("running" | "in_review"));
             review_session_live.insert(session_id.clone(), live);
             if live {
+                review_in_flight.insert(node_id.clone());
+            }
+        }
+        // A reviewer or fix run this host launched whose row has not synced
+        // yet is in flight too (for one grace): the row lags the launch by
+        // seconds, and a pass in between would start it again.
+        let pending = workflows::pending_launches(
+            &engine_state.launched,
+            |session_id| session_rows.get(session_id).is_some(),
+            now_ms,
+        );
+        let launched_synced: HashSet<String> = engine_state
+            .launched
+            .keys()
+            .filter(|session_id| session_rows.get(session_id.as_str()).is_some())
+            .cloned()
+            .collect();
+        for (node_id, session_id) in &engine_state.review_runs {
+            if pending.contains(session_id) {
                 review_in_flight.insert(node_id.clone());
             }
         }
@@ -649,8 +720,13 @@ fn snapshot_for(
         );
         review_in_flight.extend(review_live_on_branch.keys().cloned());
         // EXP-1103: the waves' fix runs, found by their branch; the newest
-        // row per wave wins (a resume mints a new id on the same branch).
-        let fix_runs = fix_runs_by_branch(&workflow.id, session_rows.iter());
+        // row per wave wins (a resume mints a new id on the same branch),
+        // and one this host launched whose row has not synced reads live.
+        let fix_runs = workflows::with_pending_fix_runs(
+            fix_runs_by_branch(&workflow.id, session_rows.iter()),
+            &engine_state.fix_runs,
+            &pending,
+        );
         // EXP-984: a node whose reviewers kept ending without a verdict is
         // reviewed no further.
         let review_gave_up: HashSet<String> = engine_state
@@ -733,6 +809,7 @@ fn snapshot_for(
             pr_number_of,
             review_session_live,
             review_live_on_branch,
+            launched_synced,
         });
     }
     Some(passes)
@@ -894,6 +971,10 @@ fn run_pass(
     // per beat, plus the merge-tree tests a quiet beat does not need.
     let repo = engine_repo(&pass);
     let mut state = read_state(&pass, &workflow_id);
+    // The review records as this pass READ them: a foreground launch of the
+    // previous pass's order may record its run while the git calls below
+    // run, and the write-back must keep what it wrote.
+    let read = state.clone();
     if let Some(repo) = repo.as_ref() {
         snapshot.tips = git_tips(repo);
         // EXP-1106: the ancestry and merge tests below read the clone's
@@ -999,14 +1080,24 @@ fn run_pass(
     workflows::apply_resuming(&mut snapshot, &mut state.resuming, &state.review_runs);
     workflows::prune_land_refused(&mut state.land_refused, &snapshot.pr_head);
     snapshot.land_refused = state.land_refused.clone();
+    // A launched reviewer or fix run is waited for until its row synced, or
+    // the grace passed.
+    workflows::prune_launched(
+        &mut state.launched,
+        |session_id| pass.launched_synced.contains(session_id),
+        snapshot.now_ms,
+    );
     {
         let settled = state.clone();
         update_state(&pass, &workflow_id, move |persisted| {
             persisted.conflicts = settled.conflicts;
             persisted.merged = settled.merged;
             persisted.tips_seen = settled.tips_seen;
-            persisted.review_runs = settled.review_runs;
-            persisted.review_rounds = settled.review_rounds;
+            // Merged, never assigned: a review or fix run a foreground launch
+            // recorded since the read is kept.
+            workflows::merge_settled(&mut persisted.review_runs, &read.review_runs, settled.review_runs);
+            workflows::merge_settled(&mut persisted.review_rounds, &read.review_rounds, settled.review_rounds);
+            workflows::merge_settled(&mut persisted.launched, &read.launched, settled.launched);
             persisted.review_failures = settled.review_failures;
             workflows::merge_resuming(&mut persisted.resuming, &resuming_before, settled.resuming);
             persisted.land_refused = settled.land_refused;
@@ -1148,6 +1239,7 @@ fn run_pass(
                         audit: LaunchAudit {
                             decision: decided.clone(),
                             sink: sink.clone(),
+                            woken: None,
                         },
                         wake: None,
                     });
@@ -1210,7 +1302,17 @@ fn run_pass(
                         None => sha.clone(),
                     };
                     let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
-                    let outcome = wake(
+                    // The stamp goes where the wake executes: a steer stamps
+                    // at once, a resume as it goes out, a fresh launch once it
+                    // came up — never for an order that failed to launch.
+                    let woken = WokenStamp {
+                        store: pass.store.clone(),
+                        workflow_id: workflow_id.clone(),
+                        node_id: node_id.clone(),
+                        branch: base_branch,
+                        sha,
+                    };
+                    break 'decision wake(
                         &pass,
                         &snapshot,
                         repo.as_ref(),
@@ -1218,14 +1320,11 @@ fn run_pass(
                         &session_id,
                         mode,
                         text,
+                        Some(woken),
                         &mut resumes,
                         &mut orders,
                         &sink,
                     );
-                    if matches!(outcome, Outcome::Done | Outcome::Queued) {
-                        remember_woken(&pass, &workflow_id, &node_id, &base_branch, &sha);
-                    }
-                    break 'decision outcome;
                 }
                 // EXP-984: the agent review of one node — an ACTION run in a
                 // throwaway worktree, launched on the foreground.
@@ -1241,6 +1340,7 @@ fn run_pass(
                     let audit = LaunchAudit {
                         decision: decided.clone(),
                         sink: sink.clone(),
+                        woken: None,
                     };
                     let Some(order) = review_order(
                         &pass,
@@ -1275,6 +1375,7 @@ fn run_pass(
                     let audit = LaunchAudit {
                         decision: decided.clone(),
                         sink: sink.clone(),
+                        woken: None,
                     };
                     let Some(order) = fix_order(
                         &pass,
@@ -1654,6 +1755,7 @@ fn upstream_pairs(snapshot: &Snapshot, branch_of: &HashMap<String, String>) -> V
 /// stands, resume it warm, or start a FRESH run of the node with a brief the
 /// host writes. `Queued` = handed to the foreground; `Done` = steered.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn wake(
     pass: &Pass,
     snapshot: &Snapshot,
@@ -1662,6 +1764,7 @@ fn wake(
     session_id: &str,
     mode: WakeMode,
     text: String,
+    woken: Option<WokenStamp>,
     resumes: &mut Vec<ResumeOrder>,
     orders: &mut PassOrders,
     sink: &TrpcEventSink,
@@ -1671,6 +1774,9 @@ fn wake(
         WakeMode::Steer => match pass.engines.get(session_id) {
             Some(engine) => {
                 engine.steer(text);
+                if let Some(woken) = woken {
+                    remember_woken(pass, &woken.workflow_id, &woken.node_id, &woken.branch, &woken.sha);
+                }
                 Outcome::Done
             }
             None => Outcome::Skipped, // a live run this app does not host
@@ -1684,6 +1790,7 @@ fn wake(
                 session_id: session_id.to_string(),
                 prompt: text,
                 in_flight: None,
+                woken,
             });
             Outcome::Queued
         }
@@ -1772,6 +1879,7 @@ fn wake(
                         },
                     },
                     sink: sink.clone(),
+                    woken,
                 },
                 wake: Some(brief),
             });
@@ -1782,12 +1890,14 @@ fn wake(
 
 /// EXP-1005 — `coding::prepare` moved an engine start off its launch
 /// account (`PreparedLaunch::account_pick`): say so in the workflow's event
-/// trail (`account_picked`), beside the launcher's own log line.
+/// trail (`account_picked`), beside the launcher's own log line. The sink
+/// is a blocking tRPC call: it runs on `executor`, never the foreground.
 fn note_account_pick(
     trpc: &Arc<api::TrpcClient>,
     workflow_id: &str,
     node_id: &str,
     pick: coding::account_rotation::StartPick,
+    executor: &gpui::BackgroundExecutor,
 ) {
     log::info!(
         "[workflows] {workflow_id} node {node_id}: {} ({} → {})",
@@ -1795,13 +1905,15 @@ fn note_account_pick(
         pick.from,
         pick.to
     );
-    TrpcEventSink::new(Arc::clone(trpc)).record(api::workflows::WorkflowEvent {
+    let sink = TrpcEventSink::new(Arc::clone(trpc));
+    let event = api::workflows::WorkflowEvent {
         workflow_id: workflow_id.to_string(),
         node_id: Some(node_id.to_string()),
         session_id: None,
         kind: "account_picked".to_string(),
         message: pick.message,
-    });
+    };
+    executor.spawn(async move { sink.record(event) }).detach();
 }
 
 fn ensure_branch(
@@ -2087,7 +2199,7 @@ fn land(
     };
     drop(claim);
     let sink = TrpcEventSink::new(Arc::clone(&pass.trpc));
-    let _ = wake(pass, snapshot, None, node_id, &session_id, mode, prompt, resumes, orders, &sink);
+    let _ = wake(pass, snapshot, None, node_id, &session_id, mode, prompt, None, resumes, orders, &sink);
 }
 
 /// The run this host is about to RESUME reads as live to the engine until
@@ -2206,6 +2318,11 @@ static RESUME_QUEUE: std::sync::LazyLock<ResumeQueue> =
 fn drain_resumes(cx: &mut App) {
     for resume in RESUME_QUEUE.drain() {
         let keep = resume.in_flight;
+        // EXP-1106: stamped as the wake goes out — the resume path reports
+        // no outcome, and its `resuming` hold covers the launch window.
+        if let Some(woken) = resume.woken {
+            woken.stamp(cx.background_executor());
+        }
         crate::action_run::resume_run_on_account(
             resume.session_id,
             None,
@@ -2296,7 +2413,7 @@ fn launch_node(order: StartOrder, cx: &mut App) {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
                 if let Some(pick) = ready.account_pick.clone() {
-                    note_account_pick(&trpc, &workflow_id, &node_id, pick);
+                    note_account_pick(&trpc, &workflow_id, &node_id, pick, cx.background_executor());
                 }
                 let subject = match subject {
                     SessionSubject::Issue(id) => SessionSubject::Issue(id),
@@ -2449,7 +2566,13 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                 let session_id = ready.session_id.clone();
                 if let Some(pick) = ready.account_pick.clone() {
                     if let Some(trpc) = crate::queries::trpc_client(cx) {
-                        note_account_pick(&Arc::new(trpc), &workflow_id, &node_id, pick);
+                        note_account_pick(
+                            &Arc::new(trpc),
+                            &workflow_id,
+                            &node_id,
+                            pick,
+                            cx.background_executor(),
+                        );
                     }
                 }
                 let subject = SessionSubject::Action(session_id.clone());
@@ -2572,8 +2695,11 @@ fn launch_fix(order: FixOrder, cx: &mut App) {
                 match coding_flow::spawn_into_window(ready, subject, window, cx) {
                     Ok(()) => {
                         audit.record(Outcome::Done, cx.background_executor());
+                        let now_ms = chrono::Utc::now().timestamp_millis();
                         if let Err(err) = store.update(&workflow_id, move |state| {
-                            state.fix_runs.insert(wave, session_id);
+                            state.fix_runs.insert(wave, session_id.clone());
+                            // In flight until its row syncs (`pending_launches`).
+                            state.launched.insert(session_id, now_ms);
                         }) {
                             log::warn!("[workflows] state write failed: {err}");
                         }
@@ -2621,9 +2747,12 @@ fn remember_review_run(
 ) {
     let node_id = node_id.to_string();
     let session_id = session_id.to_string();
+    let now_ms = chrono::Utc::now().timestamp_millis();
     if let Err(err) = store.update(workflow_id, move |state| {
-        state.review_runs.insert(node_id.clone(), session_id);
+        state.review_runs.insert(node_id.clone(), session_id.clone());
         state.review_rounds.insert(node_id, round_at_launch);
+        // In flight until its row syncs (`pending_launches`).
+        state.launched.insert(session_id, now_ms);
     }) {
         log::warn!("[workflows] state write failed: {err}");
     }

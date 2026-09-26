@@ -21,10 +21,11 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    /// The CLI's persistent per-machine device id (`cliDeviceId` in the
-    /// shared settings.json). Deliberately DISTINCT from the desktop app's
-    /// `deviceId`: the relay evicts same-id reconnects (CLOSE_REPLACED), so
-    /// a desktop and a daemon on one machine must be two devices.
+    /// The CLI's persistent per-machine device id (`{data_dir}/cli-device-id`,
+    /// resolved once per process). Deliberately DISTINCT from the desktop
+    /// app's `device-id`: the relay evicts same-id reconnects
+    /// (CLOSE_REPLACED), so a desktop and a daemon on one machine must be
+    /// two devices.
     pub fn device_id(&self) -> String {
         api::device_identity::cli_device_id(&self.data_dir)
     }

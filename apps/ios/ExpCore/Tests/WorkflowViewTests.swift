@@ -902,4 +902,20 @@ final class WorkflowNodeWorkTests: XCTestCase {
         )
         XCTAssertEqual(noRun.faces, [.issue])
     }
+
+    // Web reads an EMPTY `deviceLabel` as absent (`deviceLabel ? ... : ...`).
+    func testAnEmptyDeviceLabelReadsAsAbsent() {
+        XCTAssertEqual(WorkflowView.primaryAction(status: DomainContract.wfStatusDraft, deviceLabel: ""), .pickDevice)
+        XCTAssertEqual(WorkflowView.primaryAction(status: DomainContract.wfStatusDraft, deviceLabel: nil), .pickDevice)
+        XCTAssertEqual(WorkflowView.primaryAction(status: DomainContract.wfStatusDraft, deviceLabel: "mac"), .start)
+        let nodes = [HeaderNode(state: DomainContract.wfNodeStateRunning)]
+        XCTAssertEqual(
+            WorkflowView.headerCaption(status: DomainContract.wfStatusRunning, nodes: nodes, deviceLabel: ""),
+            WorkflowView.headerCaption(status: DomainContract.wfStatusRunning, nodes: nodes, deviceLabel: nil)
+        )
+        XCTAssertTrue(
+            WorkflowView.headerCaption(status: DomainContract.wfStatusRunning, nodes: nodes, deviceLabel: "mac")
+                .hasPrefix("on mac · ")
+        )
+    }
 }

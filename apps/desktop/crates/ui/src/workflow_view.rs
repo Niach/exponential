@@ -51,7 +51,7 @@ use domain::workflow_view::{
     workflow_node_title, workflow_primary_action, workflow_start_blocker, HeaderNode, NodeChip,
     NodeChipAction, StartableWorkflow, StripNodeInput, StripWave, WorkflowNodeDisplayState,
     WorkflowPrimaryAction, CANCEL_WORKFLOW_CONFIRM, DELETE_WORKFLOW_LABEL, FINAL_PR_TITLE,
-    MERGE_FINAL_PR_CONFIRM, MERGE_FINAL_PR_LABEL, NEEDS_YOU_LABEL, NODE_UNSYNCED_TITLE,
+    MERGE_FINAL_PR_LABEL, NEEDS_YOU_LABEL, NODE_UNSYNCED_TITLE,
     PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, RESUME_WORKFLOW_LABEL, SKIP_NODE_CONFIRM,
     SKIP_NODE_LABEL, START_WORKFLOW_LABEL, DISMISS_NODE_CONFIRM, DISMISS_NODE_LABEL, NO_CHANGES_LABEL, ALL_NODES_LABEL, DECISIONS_LABEL, PICK_DEVICE_LABEL,
     REVIEW_FINAL_PR_LABEL, RUNS_ON_LABEL, STOP_WORKFLOW_LABEL, workflow_overflow_menu,
@@ -59,8 +59,10 @@ use domain::workflow_view::{
     WorkflowOverflowItem,
 };
 
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{nav_for_window, ChatSeed, Navigation, Screen};
+use crate::pr_merge::{FailedOp, MergeOp, MergeState};
 use crate::queries;
 use crate::work_header::Face;
 
@@ -101,6 +103,13 @@ fn strip_step(key: &str, modifiers: &Modifiers) -> Option<i64> {
         return None;
     }
     step_for_key(key)
+}
+
+/// Escape in the name field, UNMODIFIED, discards the edit (web
+/// `workflow-detail.tsx`: "Escape discards the edited name without saving").
+fn name_edit_discards(key: &str, modifiers: &Modifiers) -> bool {
+    key == "escape"
+        && !(modifiers.control || modifiers.alt || modifiers.shift || modifiers.platform)
 }
 
 /// The page-level step: j/k only (←/→ scroll or move carets elsewhere).
@@ -242,6 +251,10 @@ impl WorkflowView {
         )];
         let nav = nav_for_window(window, cx);
         subscriptions.push(cx.observe(&nav, |_, _, cx| cx.notify()));
+        // The final PR's Merge rides the shared merge state (the Reviews
+        // row's): its arm, in-flight and refusal changes repaint the chip.
+        let merge_state = MergeState::global(cx);
+        subscriptions.push(cx.observe(&merge_state, |_, _, cx| cx.notify()));
         if let Some(store) = Store::try_global(cx) {
             let collections = store.collections().clone();
             subscriptions.push(cx.observe_in(
@@ -340,6 +353,15 @@ impl WorkflowView {
         let mut input = api::workflows::WorkflowUpdate::new(self.workflow_id.clone());
         input.name = Some(name);
         spawn_update(input, window.window_handle(), cx);
+    }
+
+    /// Escape in the name field: back to the synced name, focus off the
+    /// field. The blur that follows finds the seeded name and saves nothing.
+    fn discard_name(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let seeded = self.name_seeded.clone();
+        self.name_input
+            .update(cx, |input, cx| input.set_value(seeded, window, cx));
+        window.focus(&self.page_focus, cx);
     }
 
     fn drop_run_view(&mut self, cx: &mut gpui::Context<Self>) {
@@ -545,10 +567,6 @@ impl Render for WorkflowView {
             )
             .into_any_element();
         };
-        // The merge's synced echo releases the in-flight guard.
-        if row.final_pr_state.as_deref() != Some("open") {
-            MergingFinalPrs::remove(&row.id, cx);
-        }
         let sessions = workflow_sessions(&self.workflow_id, cx);
         let questions = workflow_open_questions(&sessions, &self.workflow_id);
         let infos = self.node_infos(&sessions, cx);
@@ -662,7 +680,9 @@ impl Render for WorkflowView {
                                 cx,
                             )
                         });
-                        cx.observe(&screen, |_, _, cx| cx.notify()).detach();
+                        // No observe: the embedded view repaints itself, and
+                        // nothing here reads its state (a per-token re-derive
+                        // of the whole page otherwise).
                         self.run_view = Some((session_id.clone(), screen.clone()));
                         screen
                     }
@@ -979,6 +999,18 @@ impl WorkflowView {
                         div()
                             .flex_1()
                             .min_w_0()
+                            // Escape discards the edit (web parity); the
+                            // plain input binds no escape of its own, so the
+                            // key reaches this wrapper.
+                            .on_key_down(cx.listener(
+                                |this, event: &KeyDownEvent, window, cx| {
+                                    let keystroke = &event.keystroke;
+                                    if name_edit_discards(&keystroke.key, &keystroke.modifiers) {
+                                        cx.stop_propagation();
+                                        this.discard_name(window, cx);
+                                    }
+                                },
+                            ))
                             .child(crate::controls::glass_input(&self.name_input, window, cx)),
                     )
                     .children(primary)
@@ -1665,7 +1697,7 @@ fn render_question_banner(
 
 /// All × Changes: the final pull request — its number and state, Merge while
 /// it is open (the run's ONE human review), a click opens it on GitHub.
-fn render_final_pr(row: &WorkflowRow, cx: &App) -> AnyElement {
+fn render_final_pr(row: &WorkflowRow, cx: &mut App) -> AnyElement {
     let states: Vec<String> = queries::workflow_nodes(cx, &row.id)
         .iter()
         .map(|node| node.state_wire().to_string())
@@ -1682,6 +1714,24 @@ fn render_final_pr(row: &WorkflowRow, cx: &App) -> AnyElement {
         Some("closed") => cx.theme().muted_foreground,
         _ => cx.theme().foreground,
     };
+    // EXP-1072: ONE merge state with the Reviews row — in flight, armed,
+    // the refusal caption and the conflict swap all read off it.
+    let key = crate::pr_merge::workflow_merge_key(&row.id);
+    let (merging, armed, error, failed_op, is_conflict) = {
+        let state = MergeState::global(cx);
+        let state = state.read(cx);
+        (
+            state.merging(&key),
+            state.armed(&key),
+            state.error(&key),
+            state.failed_op(&key),
+            state.is_conflict(&key),
+        )
+    };
+    let (caption, tint) = match error {
+        Some(message) => (message.to_string(), cx.theme().danger),
+        None => (caption, tint),
+    };
     let mut chip = crate::issue_chip::issue_chip(
         "workflow-final-pr",
         row.final_pr_number
@@ -1693,7 +1743,9 @@ fn render_final_pr(row: &WorkflowRow, cx: &App) -> AnyElement {
     .slot(Icon::from(registry::PR_OPEN).xsmall().text_color(tint))
     .note(caption, tint);
     if row.final_pr_state.as_deref() == Some("open") {
-        chip = chip.trailing(merge_final_pr_button(row.id.clone(), cx));
+        chip = chip.trailing(merge_final_pr_slot(
+            row, merging, armed, failed_op, is_conflict, cx,
+        ));
     }
     // EXP-1059 — closed without merging: the chip offers the way back
     // (`workflows.openFinalPr` reopens it, or opens a fresh one).
@@ -2021,71 +2073,102 @@ fn issue_chip_element(issue_id: &str, cx: &App) -> crate::issue_chip::IssueChip 
 // Final PR merge
 // ---------------------------------------------------------------------------
 
-/// The workflows whose final PR merge is IN FLIGHT: from the confirm until
-/// the synced echo repaints (or the call is refused). Two quick clicks
-/// cannot become two merges.
-#[derive(Default)]
-struct MergingFinalPrs(HashSet<String>);
-
-impl gpui::Global for MergingFinalPrs {}
-
-impl MergingFinalPrs {
-    fn contains(workflow_id: &str, cx: &App) -> bool {
-        cx.try_global::<Self>()
-            .is_some_and(|merging| merging.0.contains(workflow_id))
-    }
-
-    fn insert(workflow_id: &str, cx: &mut App) {
-        cx.default_global::<Self>().0.insert(workflow_id.to_string());
-    }
-
-    fn remove(workflow_id: &str, cx: &mut App) {
-        if let Some(merging) = cx.try_global::<Self>() {
-            if merging.0.contains(workflow_id) {
-                cx.default_global::<Self>().0.remove(workflow_id);
-            }
-        }
-    }
-}
-
 /// EXP-1032 — Merge on the final pull request: squash-merging it is the
-/// whole run's single human review. Confirms first; inert while in flight.
-fn merge_final_pr_button(workflow_id: String, cx: &App) -> AnyElement {
-    if MergingFinalPrs::contains(&workflow_id, cx) {
-        return div()
-            .id("workflow-final-pr-merge")
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .opacity(0.5)
-            .cursor_default()
-            .child(MERGE_FINAL_PR_LABEL)
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .into_any_element();
+/// whole run's single human review. The Reviews row's two-click through the
+/// shared [`MergeState`] (EXP-1072): armed reads "Confirm merge", in flight
+/// "Merging…" until the synced `final_pr_state` echo, and a merge refused on
+/// a REAL conflict swaps "Fix conflicts" into the slot (the builtin's `pr`
+/// input takes the WORKFLOW id) with the merge demoted to a retry.
+fn merge_final_pr_slot(
+    row: &WorkflowRow,
+    merging: bool,
+    armed: bool,
+    failed_op: Option<FailedOp>,
+    is_conflict: bool,
+    cx: &App,
+) -> AnyElement {
+    let branch = row
+        .integration_branch
+        .clone()
+        .filter(|branch| !branch.is_empty());
+    let fixing = branch.as_deref().is_some_and(|branch| {
+        crate::coding_flow::LocalSessions::global_ref(cx)
+            .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
+    });
+    let swapped = crate::work_header::merge_slot_swapped(
+        true,
+        failed_op == Some(FailedOp::Merge),
+        is_conflict,
+        branch.is_some(),
+    );
+
+    let mut merge = Button::new(SharedString::from(format!(
+        "workflow-final-pr-merge-{}",
+        row.id
+    )))
+    .web_sm()
+    .cursor_pointer();
+    merge = if swapped { merge.ghost() } else { merge.outline() };
+    if merging {
+        merge = merge.label("Merging…").loading(true).disabled(true);
+    } else if armed {
+        merge = merge.label("Confirm merge").danger();
+    } else {
+        merge = merge
+            .icon(Icon::from(registry::PR_MERGED))
+            .label(if swapped {
+                crate::work_header::RETRY_MERGE_LABEL
+            } else {
+                MERGE_FINAL_PR_LABEL
+            });
     }
-    crate::controls::text_button(
-        "workflow-final-pr-merge",
-        MERGE_FINAL_PR_LABEL,
-        crate::controls::TextButtonVariant::Text,
-        cx,
-    )
-    .on_click(move |_, window, cx| {
+    let workflow_id = row.id.clone();
+    let merge = merge.on_click(move |_: &ClickEvent, _window, cx| {
+        // The chip behind opens the PR on GitHub; the button must not.
         cx.stop_propagation();
-        let workflow_id = workflow_id.clone();
-        crate::native_dialog::open_alert(
+        crate::pr_merge::two_click(
+            MergeOp::MergeWorkflowFinalPr {
+                workflow_id: workflow_id.clone(),
+            },
+            None,
+            None,
+            cx,
+        );
+    });
+    if !swapped {
+        return merge.into_any_element();
+    }
+
+    let mut fix = Button::new(SharedString::from(format!(
+        "workflow-final-pr-fix-{}",
+        row.id
+    )))
+    .web_sm()
+    .outline()
+    .cursor_pointer();
+    if fixing {
+        fix = fix.label("Fixing…").disabled(true);
+    } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
+        fix = fix.label("Fix conflicts").tooltip(reason).disabled(true);
+    } else {
+        fix = fix.label("Fix conflicts");
+    }
+    let workflow_id = row.id.clone();
+    let fix = fix.on_click(move |_: &ClickEvent, window, cx| {
+        cx.stop_propagation();
+        crate::navigation::navigate_to_chat(
             window,
             cx,
-            crate::native_dialog::AlertSpec::new(
-                format!("{MERGE_FINAL_PR_LABEL} {}", FINAL_PR_TITLE.to_lowercase()),
-                MERGE_FINAL_PR_CONFIRM,
-                MERGE_FINAL_PR_LABEL,
-            )
-            .on_ok(move |window, cx| {
-                spawn_merge_final_pr(workflow_id.clone(), window, cx);
-                true
-            }),
+            ChatSeed::fix_conflicts(workflow_id.clone()),
         );
-    })
-    .into_any_element()
+    });
+    h_flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap_1()
+        .child(merge)
+        .child(fix)
+        .into_any_element()
 }
 
 // ---------------------------------------------------------------------------
@@ -2193,36 +2276,6 @@ fn spawn_open_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) {
             .await;
         let _ = handle.update(cx, |_, window, cx| {
             if let Err(err) = result {
-                window.push_notification(
-                    Notification::error(SharedString::from(err.user_message())),
-                    cx,
-                );
-            }
-        });
-    })
-    .detach();
-}
-
-fn spawn_merge_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) {
-    if MergingFinalPrs::contains(&workflow_id, cx) {
-        return;
-    }
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return;
-    };
-    MergingFinalPrs::insert(&workflow_id, cx);
-    window.refresh();
-    let handle = window.window_handle();
-    let id = workflow_id.clone();
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move { api::workflows::merge_final_pr(&trpc, &workflow_id) })
-            .await;
-        let _ = handle.update(cx, |_, window, cx| {
-            if let Err(err) = result {
-                MergingFinalPrs::remove(&id, cx);
-                window.refresh();
                 window.push_notification(
                     Notification::error(SharedString::from(err.user_message())),
                     cx,
@@ -2459,6 +2512,16 @@ mod tests {
             ..Modifiers::default()
         };
         assert_eq!(strip_step("right", &function), Some(1), "macOS flags arrows with fn");
+    }
+
+    /// Web parity: Escape in the name field discards the edit; a modified
+    /// escape and every other key leave it alone.
+    #[test]
+    fn a_plain_escape_discards_the_name_edit() {
+        assert!(name_edit_discards("escape", &Modifiers::default()));
+        assert!(!name_edit_discards("escape", &Modifiers::shift()));
+        assert!(!name_edit_discards("escape", &Modifiers::secondary_key()));
+        assert!(!name_edit_discards("enter", &Modifiers::default()));
     }
 
     #[test]

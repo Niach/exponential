@@ -1,6 +1,5 @@
-- Választók: állapot, felelős, címkék, board és a többi ugyanazt a kereshető, egyszerű sorokból álló panelt nyitja meg, és a többes választást kiemelés jelzi, nem karika
-- Ügynökfutások: a futó lista egymásba ágyazódik, egy workflow futásai egy sor alatt állnak, ami megnyitja a workflow-t, egy stack futásai egy másik alatt, és a nyíl mindkettőt becsukja
-- Workflow-k: a képernyőről eltűnik a beállításblokk, egy csomópont a saját állapotát mondja és Issue, Run és Changes nézetre nyílik, a záró pull request pedig innen mergelhető
-- Gépbeállítások: a panel újrarendezve, és egy új „Workflow settings” oldal tartja a modelleket, amelyekkel egy új workflow indul
-- Teamváltó: pont a nyílon, ha egy másik teamben fut az egyik futásod, borostyánsárga, ha a futás bevitelre vár
-- Tagok: a listán az a tag, akit még senki nem hívott meg, „Not invited” feliratot kap az „Invite expired” helyett
+- Workflow-k: egy chipsáv kiválaszt egy csomópontot és megnyitja Issue, Run, Changes és Results nézetre, a tervező kérdése szalagcímben jelenik meg, a Pause és a Dismiss a további lehetőségek menüjében van, a záró pull request pedig a Reviews alatt látszik, ahol mergelhető
+- Ügynökfutások: egy workflow futásai a csomópontjuk alá csoportosulnak állapotponttal és felirattal, az ellenőrző futások viselik a címüket, a rád váró futás pontot kap, a Recent panel pedig kirajzolja a fát
+- Issue-k: a blokkolásjelvény egy közös rácsra rajzolt minigráfot nyit meg, egy stack vagy kötegelt futás fejléce pedig az első issue-t mutatja egy darabszámmal
+- Szerkesztő: a --- begépelése azonnal elválasztót szúr be
+- Tevékenység: a becslésmódosítások ugyanúgy összevonódnak, mint bármely más mező szerkesztése

@@ -289,16 +289,29 @@ object WorkflowView {
     /** The chip suffix a node whose run waits on a person wears. */
     const val NEEDS_YOU_LABEL = "needs you"
 
+    /**
+     * The fold from every contract `wfNodeState` to the display state. ONE
+     * entry per generated value, no more, no less: `WorkflowViewTest` locks
+     * the key set against `DomainContract.wfNodeStateValues`, so a new node
+     * state fails the build instead of silently reading as queued.
+     */
+    internal val NODE_DISPLAY_STATES: Map<String, WorkflowNodeDisplayState> = mapOf(
+        DomainContract.wfNodeStateProposed to WorkflowNodeDisplayState.QUEUED,
+        DomainContract.wfNodeStateBlocked to WorkflowNodeDisplayState.QUEUED,
+        DomainContract.wfNodeStateReady to WorkflowNodeDisplayState.QUEUED,
+        DomainContract.wfNodeStateRunning to WorkflowNodeDisplayState.RUNNING,
+        DomainContract.wfNodeStateWaiting to WorkflowNodeDisplayState.RUNNING,
+        DomainContract.wfNodeStateInReview to WorkflowNodeDisplayState.RUNNING,
+        DomainContract.wfNodeStateUpdating to WorkflowNodeDisplayState.RUNNING,
+        DomainContract.wfNodeStateLanded to WorkflowNodeDisplayState.DONE,
+        DomainContract.wfNodeStateFailed to WorkflowNodeDisplayState.FAILED,
+        DomainContract.wfNodeStateSkipped to WorkflowNodeDisplayState.SKIPPED,
+    )
+
     /** The FIVE states a person sees, folded from the internal `wfNodeState`.
-     *  An unknown state reads as queued, never nothing. */
-    fun nodeDisplayState(state: String): WorkflowNodeDisplayState = when (state) {
-        "proposed", "blocked", "ready" -> WorkflowNodeDisplayState.QUEUED
-        "running", "waiting", "in_review", "updating" -> WorkflowNodeDisplayState.RUNNING
-        "landed" -> WorkflowNodeDisplayState.DONE
-        "failed" -> WorkflowNodeDisplayState.FAILED
-        "skipped" -> WorkflowNodeDisplayState.SKIPPED
-        else -> WorkflowNodeDisplayState.QUEUED
-    }
+     *  An unknown (off-contract) state reads as queued, never nothing. */
+    fun nodeDisplayState(state: String): WorkflowNodeDisplayState =
+        NODE_DISPLAY_STATES[state] ?: WorkflowNodeDisplayState.QUEUED
 
     /**
      * The strip IS the graph: waves left to right (only the waves that hold a
@@ -361,7 +374,7 @@ object WorkflowView {
         val done = tally(WorkflowNodeDisplayState.DONE)
         if (status == DomainContract.wfStatusRunning || status == DomainContract.wfStatusPaused) {
             val parts = ArrayList<String>()
-            if (deviceLabel != null) parts.add("on $deviceLabel")
+            if (!deviceLabel.isNullOrEmpty()) parts.add("on $deviceLabel")
             parts.add("$done of ${admitted.size} done")
             val running = tally(WorkflowNodeDisplayState.RUNNING)
             if (running > 0) parts.add("$running running")
@@ -389,7 +402,7 @@ object WorkflowView {
         finalPrState: String? = null,
     ): WorkflowPrimaryAction? = when (status) {
         DomainContract.wfStatusDraft ->
-            if (deviceLabel != null) WorkflowPrimaryAction.START else WorkflowPrimaryAction.PICK_DEVICE
+            if (!deviceLabel.isNullOrEmpty()) WorkflowPrimaryAction.START else WorkflowPrimaryAction.PICK_DEVICE
         DomainContract.wfStatusRunning, DomainContract.wfStatusPaused -> when {
             finalPrState == DomainContract.prStateOpen -> WorkflowPrimaryAction.REVIEW_FINAL_PR
             status == DomainContract.wfStatusRunning -> WorkflowPrimaryAction.PAUSE

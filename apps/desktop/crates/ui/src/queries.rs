@@ -16,7 +16,6 @@ use sync::Store;
 
 use domain::board::build_status_groups;
 use domain::issue_graph::{block_counts, BlockCounts, GraphIssue, GraphRelation};
-use domain::issue_rail::{block_edges, BlockEdge};
 use domain::issue_nesting::{nest_issue_rows, NestingRelation};
 use domain::rows::{Issue, IssueStatusRow, Label};
 use domain::statuses::{resolve_status_sorted, sort_team_statuses, ResolvedStatus};
@@ -39,9 +38,6 @@ pub struct BoardData {
     /// query over the synced relations and EVERY synced issue (a blocker on
     /// another board still counts). An issue with neither count is absent.
     pub block_counts: HashMap<String, BlockCounts>,
-    /// EXP-998: every open `blocks` edge, labelled and cycle-flagged, off the
-    /// same pass — the list's rail lays its lanes over the visible ones.
-    pub block_edges: Rc<Vec<BlockEdge>>,
 }
 
 /// One status group as the views consume it — [`domain::board::IssueGroup`]
@@ -159,7 +155,6 @@ fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> Board
         })
         .collect();
     let block_counts = block_counts(&graph_relations, &graph_issues);
-    let block_edges = Rc::new(block_edges(&graph_relations, &graph_issues));
 
     // EXP-980: sub-issues leave their own status group and follow their
     // parent. The ROOT decided the group and the sort position above; this
@@ -223,7 +218,6 @@ fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> Board
         groups,
         labels_by_issue,
         block_counts,
-        block_edges,
     }
 }
 

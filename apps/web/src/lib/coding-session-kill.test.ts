@@ -84,6 +84,8 @@ describe(`endForeignHostedSessions`, () => {
       status: `ended`,
       endedAt: expect.any(Date),
       updatedAt: expect.any(Date),
+      // An ended run asks nobody anything.
+      pendingQuestion: null,
     })
     // Hosted BY this user, requested by SOMEONE ELSE, in the unshared team,
     // and still live.

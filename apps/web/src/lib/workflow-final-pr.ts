@@ -14,7 +14,8 @@ import {
   type WfEventKind,
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
-import { carriedReview } from "@/lib/trpc/workflows/shared"
+import { appendDecisionLine, carriedReview } from "@/lib/trpc/workflows/shared"
+import { reviewWaveGate } from "@/lib/workflow-waves"
 import { writeWorkflowEvent } from "@/lib/workflows/record-event"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import {
@@ -271,11 +272,16 @@ export async function reopenWorkflowFinalPr(
       finalPrNumber: workflows.finalPrNumber,
       finalPrState: workflows.finalPrState,
       decisions: workflows.decisions,
+      status: workflows.status,
     })
     .from(workflows)
     .where(eq(workflows.id, workflowId))
     .limit(1)
   if (!workflow) return { reopened: false, reason: `Workflow not found`, gaveUp: false }
+  // A cancelled or done workflow ships nothing more.
+  if (workflow.status !== `running` && workflow.status !== `paused`) {
+    return { reopened: false, reason: `The workflow is not running`, gaveUp: false }
+  }
   if (!workflow.finalPrUrl || workflow.finalPrNumber == null) {
     return { reopened: false, reason: `The workflow has no final pull request yet`, gaveUp: false }
   }
@@ -480,12 +486,10 @@ export async function prepareWorkflowFinalPrConflictFix(
   }
 }
 
-/** `2026-09-25: <text>` appended to the decisions log — the same shape
- *  `trpc/workflows/shared.ts` `appendDecisionLine` writes, kept local so this
- *  module never imports the router. */
+/** `2026-09-25: <text>` appended to the decisions log: `appendDecisionLine`
+ *  (trpc/workflows/shared.ts), so the log keeps its one trim here too. */
 export function appendWorkflowDecision(log: string, text: string, now = new Date()): string {
-  const line = `${now.toISOString().slice(0, 10)}: ${text.replace(/\s+/g, ` `).trim()}`
-  return log.trim() ? `${log.trimEnd()}\n${line}` : line
+  return appendDecisionLine(log, text, now)
 }
 
 export async function openWorkflowFinalPr(
@@ -501,12 +505,21 @@ export async function openWorkflowFinalPr(
       repositoryId: workflows.repositoryId,
       integrationBranch: workflows.integrationBranch,
       decisions: workflows.decisions,
+      status: workflows.status,
+      deviceId: workflows.deviceId,
     })
     .from(workflows)
     .where(eq(workflows.id, workflowId))
     .limit(1)
   if (!workflow?.repositoryId) {
     throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `The workflow's repository is gone` })
+  }
+  // A cancelled or done workflow ships nothing more; a draft has nothing.
+  if (workflow.status !== `running` && workflow.status !== `paused`) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `Only a started workflow opens its final pull request`,
+    })
   }
   const nodes = await db
     .select({
@@ -520,6 +533,7 @@ export async function openWorkflowFinalPr(
       reviewRound: workflowNodes.reviewRound,
       review: workflowNodes.review,
       approvedAt: workflowNodes.approvedAt,
+      wave: workflowNodes.wave,
     })
     .from(workflowNodes)
     .innerJoin(issues, eq(issues.id, workflowNodes.issueId))
@@ -534,6 +548,17 @@ export async function openWorkflowFinalPr(
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
       message: `${open.map((node) => node.identifier).join(`, `)} has not landed yet`,
+    })
+  }
+  // EXP-1103: the last review wave reviews the landed result before the one
+  // human review; only a workflow with no runner left (nothing to run the
+  // wave) opens without it.
+  const admitted = nodes.filter((node) => node.state !== `proposed`)
+  const depth = admitted.reduce((max, node) => Math.max(max, node.wave + 1), 0)
+  if (workflow.deviceId && reviewWaveGate(admitted, depth) !== null) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The review wave has not cleared yet`,
     })
   }
 
@@ -637,19 +662,23 @@ export async function applyWorkflowFinalPrState(
         id: workflows.id,
         teamId: workflows.teamId,
         finalPrState: workflows.finalPrState,
+        status: workflows.status,
       })
       .from(workflows)
       .where(eq(workflows.finalPrUrl, prUrl))
       .limit(1)
     if (!workflow) return false
     if (workflow.finalPrState === `merged`) return true
+    // A cancelled workflow records what GitHub did to its PR and stays
+    // cancelled: the merge completes nothing and moves no issue.
+    const completes = state === `merged` && workflow.status !== `cancelled`
 
     await db.transaction(async (tx) => {
       const claimed = await tx
         .update(workflows)
         .set({
           finalPrState: state,
-          ...(state === `merged` && { status: `done`, endedAt: new Date() }),
+          ...(completes && { status: `done`, endedAt: new Date() }),
         })
         .where(
           and(
@@ -658,7 +687,7 @@ export async function applyWorkflowFinalPrState(
           )
         )
         .returning({ id: workflows.id })
-      if (claimed.length === 0 || state !== `merged`) return
+      if (claimed.length === 0 || !completes) return
 
       // Only what LANDED shipped with this PR: a skipped node's work never
       // reached the branch, a proposed one was never part of the workflow.

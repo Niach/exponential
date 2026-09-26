@@ -1,6 +1,5 @@
-- Selectoare: starea, responsabilul, etichetele, board-ul și restul deschid același panou cu căutare și rânduri simple, iar alegerea mai multor elemente se vede prin evidențiere, nu printr-un cerc
-- Rulări ale agentului: lista rulărilor în curs se imbrică, rulările unui workflow stau sub un rând care deschide workflow-ul, cele ale unui stack sub altul, iar săgeata le pliază pe amândouă
-- Workflow-uri: ecranul pierde blocul de setări, un nod își spune propria stare și se deschide în Issue, Run și Changes, iar pull request-ul final se îmbină de acolo
-- Setările mașinii: panoul este rearanjat, iar o pagină nouă „Workflow settings” ține modelele cu care pornește un workflow nou
-- Comutatorul de team: un punct pe săgeată când alt team are una dintre rulările tale în curs, chihlimbariu când rularea așteaptă o intrare
-- Membri: un membru din listă pe care nu l-a invitat încă nimeni apare „Not invited” în loc de „Invite expired”
+- Workflow-uri: un șir de chipuri alege un nod și îl deschide în Issue, Run, Changes și Results, o întrebare a planificatorului apare într-un banner, Pause și Dismiss stau în meniul cu opțiuni suplimentare, iar pull request-ul final apare în Reviews, unde se îmbină
+- Rulări ale agentului: rulările unui workflow se grupează sub nodul lor cu un punct de stare și o descriere, rulările de revizuire își poartă titlurile, o rulare care are nevoie de tine primește un punct, iar panoul Recent desenează arborele
+- Issue-uri: insigna de blocare deschide un minigraf desenat pe o singură grilă comună, iar antetul unei rulări de stack sau în lot arată issue-ul din față cu un număr
+- Editor: tastând --- se inserează imediat un separator
+- Activitate: modificările de estimare se comasează ca orice altă editare de câmp

@@ -189,7 +189,6 @@ impl IssueQuery {
                 groups: Vec::new(),
                 labels_by_issue: HashMap::new(),
                 block_counts: HashMap::new(),
-                block_edges: Rc::new(Vec::new()),
             },
             IssueQuery::Board { board_id } => queries::board_board(cx, board_id),
             IssueQuery::MyIssues { team_id, user_id } => {

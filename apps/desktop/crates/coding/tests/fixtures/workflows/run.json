@@ -1031,5 +1031,432 @@
         "model": "sonnet"
       }
     ]
+  },
+  {
+    "name": "rule 7 (wave gate): the contract layer's wave is due and not cleared: it reviews the contract, a released node waits with the gate's note, a finished one does not land",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-c"
+        },
+        {
+          "id": "n",
+          "issueId": "i-n",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 1
+        },
+        {
+          "id": "m",
+          "issueId": "i-m",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 2,
+          "lane": 0
+        },
+        {
+          "id": "i",
+          "issueId": "i-i",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 3,
+          "lane": 0
+        },
+        {
+          "id": "l",
+          "issueId": "i-l",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-l",
+          "baseBranch": "exp/wf-abcdef12",
+          "branch": "exp/EXP-l"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "c",
+          "l"
+        ],
+        [
+          "c",
+          "n"
+        ],
+        [
+          "l",
+          "m"
+        ],
+        [
+          "m",
+          "i"
+        ]
+      ],
+      "issues": {
+        "i-l": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-l": {
+          "live": false,
+          "endedAtMs": 0
+        }
+      },
+      "tips": {
+        "exp/EXP-l": "sha-l",
+        "exp/wf-abcdef12": "sha-c"
+      },
+      "merged": {
+        "l": {
+          "exp/wf-abcdef12": "sha-c"
+        }
+      }
+    },
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "n",
+        "state": "blocked",
+        "note": "Waiting for the review wave after layer 1"
+      },
+      {
+        "kind": "setNodeState",
+        "nodeId": "m",
+        "state": "blocked",
+        "note": "Waiting for the review wave after layer 1"
+      },
+      {
+        "kind": "startReview",
+        "nodeId": "c",
+        "wave": 0,
+        "model": "fable",
+        "adversarial": false,
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "review"
+      }
+    ]
+  },
+  {
+    "name": "rule 7 (wave gate): cleared, the finished node lands, the released one starts and the note goes with the hold",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        }
+      },
+      "nodes": [
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-c",
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        },
+        {
+          "id": "n",
+          "issueId": "i-n",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 1,
+          "lane": 1,
+          "note": "Waiting for the review wave after layer 1"
+        },
+        {
+          "id": "m",
+          "issueId": "i-m",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 2,
+          "lane": 0
+        },
+        {
+          "id": "i",
+          "issueId": "i-i",
+          "kind": "leaf",
+          "state": "blocked",
+          "wave": 3,
+          "lane": 0
+        },
+        {
+          "id": "l",
+          "issueId": "i-l",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-l",
+          "baseBranch": "exp/wf-abcdef12",
+          "branch": "exp/EXP-l"
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "edges": [
+        [
+          "c",
+          "l"
+        ],
+        [
+          "c",
+          "n"
+        ],
+        [
+          "l",
+          "m"
+        ],
+        [
+          "m",
+          "i"
+        ]
+      ],
+      "issues": {
+        "i-l": {
+          "prState": "open"
+        }
+      },
+      "sessions": {
+        "s-l": {
+          "live": false,
+          "endedAtMs": 0
+        }
+      },
+      "tips": {
+        "exp/EXP-l": "sha-l",
+        "exp/wf-abcdef12": "sha-c"
+      },
+      "merged": {
+        "l": {
+          "exp/wf-abcdef12": "sha-c"
+        }
+      }
+    },
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "n",
+        "state": "ready"
+      },
+      {
+        "kind": "setNodeState",
+        "nodeId": "m",
+        "state": "ready"
+      },
+      {
+        "kind": "startNode",
+        "nodeId": "n",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "opus",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author"
+      },
+      {
+        "kind": "startNode",
+        "nodeId": "m",
+        "attempt": 1,
+        "baseBranch": "exp/EXP-l",
+        "model": "opus",
+        "workflowId": "abcdef12-3456-7890-abcd-ef1234567890",
+        "role": "author"
+      },
+      {
+        "kind": "landNode",
+        "nodeId": "l"
+      }
+    ]
+  },
+  {
+    "name": "rule 9 (EXP-1059): a final PR closed without merging is reopened once",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        },
+        "finalPrUrl": "https://github.com/o/r/pull/9",
+        "finalPrState": "closed"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "skipped",
+          "wave": 0,
+          "lane": 1
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "reopenFinalPr"
+      }
+    ]
+  },
+  {
+    "name": "rule 9 (EXP-1059): a reopen already in flight is not asked again",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        },
+        "finalPrUrl": "https://github.com/o/r/pull/9",
+        "finalPrState": "closed"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "skipped",
+          "wave": 0,
+          "lane": 1
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "finalPrInFlight": true
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 9 (EXP-1059): a closed episode already put to the server is a person's decision, not reopened again",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        },
+        "finalPrUrl": "https://github.com/o/r/pull/9",
+        "finalPrState": "closed"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "skipped",
+          "wave": 0,
+          "lane": 1
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000,
+      "finalPrCloseHandled": true
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 9 (EXP-1059): a merged final PR is never reopened",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "launch": {
+          "model": "opus",
+          "strongModel": "fable"
+        },
+        "finalPrUrl": "https://github.com/o/r/pull/9",
+        "finalPrState": "merged"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "approvedAt": "2026-09-25T12:00:00.000Z"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "skipped",
+          "wave": 0,
+          "lane": 1
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
   }
 ]

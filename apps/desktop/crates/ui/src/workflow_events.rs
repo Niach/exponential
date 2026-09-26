@@ -74,6 +74,15 @@ pub(crate) fn event_icon(kind: &str) -> ExpIcon {
     }
 }
 
+/// The kinds that mean something went wrong: painted amber (web
+/// `WARNING_KINDS`, the same four).
+pub(crate) fn event_is_warning(kind: &str) -> bool {
+    matches!(
+        kind,
+        "failed" | "gave_up" | "review_no_verdict" | "waiting_reset"
+    )
+}
+
 /// The trail's order: newest `at` first, ties on the id (descending).
 pub(crate) fn newest_first(events: &mut [WorkflowEventRow]) {
     events.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| b.id.cmp(&a.id)));
@@ -98,8 +107,10 @@ impl RenderOnce for WorkflowEventList {
         let muted = theme.muted_foreground;
         let foreground = theme.foreground;
         let row_hover = theme.list_hover;
+        let amber = theme::tokens::YELLOW.to_hsla();
         let rows = events.into_iter().enumerate().map(|(index, event)| {
             let kind = event.kind.clone().unwrap_or_default();
+            let glyph_tint = if event_is_warning(&kind) { amber } else { muted };
             let identifier = event
                 .node_id
                 .as_deref()
@@ -129,7 +140,7 @@ impl RenderOnce for WorkflowEventList {
                 .child(
                     div()
                         .flex_shrink_0()
-                        .child(Icon::from(event_icon(&kind)).xsmall().text_color(muted)),
+                        .child(Icon::from(event_icon(&kind)).xsmall().text_color(glyph_tint)),
                 )
                 .children(identifier.map(|identifier| {
                     div()
@@ -195,6 +206,16 @@ mod tests {
         assert_eq!(path(event_icon("landed")), path(registry::UI_CHECK));
         assert_eq!(path(event_icon("gave_up")), path(registry::UI_WARNING));
         assert_eq!(path(event_icon("something_new")), path(registry::UI_INFO));
+    }
+
+    #[test]
+    fn only_the_four_warning_kinds_tint_amber() {
+        for kind in ["failed", "gave_up", "review_no_verdict", "waiting_reset"] {
+            assert!(event_is_warning(kind), "{kind}");
+        }
+        for kind in ["node_started", "landed", "cancelled", "something_new"] {
+            assert!(!event_is_warning(kind), "{kind}");
+        }
     }
 
     #[test]

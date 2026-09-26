@@ -44,12 +44,16 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoDefaultBranchCached: vi.fn(),
 }))
 
+import { WORKFLOW_DECISIONS_MAX } from "@exp/db-schema/domain"
+import { createPullRequest } from "@/lib/integrations/github-pr"
 import {
+  appendWorkflowDecision,
   applyWorkflowFinalPrState,
   ensureNodePrOnIntegrationBranch,
   finalPrBody,
   FINAL_PR_CLOSED_AGAIN_DECISION,
   NODE_PR_OFF_BRANCH_REASON,
+  openWorkflowFinalPr,
   pickAuditNodes,
   prepareWorkflowFinalPrConflictFix,
   reopenWorkflowFinalPr,
@@ -442,6 +446,14 @@ describe(`applyWorkflowFinalPrState`, () => {
     expect(claim).toMatch(/"final_pr_state" is distinct from 'merged'/i)
   })
 
+  it(`records a cancelled workflow's merge without completing it`, async () => {
+    selectQueue.push([{ id: WF, teamId: `team-1`, finalPrState: `open`, status: `cancelled` }])
+    expect(await applyWorkflowFinalPrState(fakeDb, `https://gh/pr/1`, `merged`)).toBe(true)
+    expect(updates).toEqual([{ finalPrState: `merged` }])
+    expect(h.applyPrLifecycleStatusInTx).not.toHaveBeenCalled()
+    expect(inserts).toEqual([])
+  })
+
   it(`records a close or a reopen without completing anything`, async () => {
     for (const state of [`closed`, `open`] as const) {
       updates.length = 0
@@ -470,7 +482,22 @@ describe(`reopenWorkflowFinalPr`, () => {
     finalPrNumber: 9,
     finalPrState: `closed`,
     decisions: ``,
+    status: `running`,
     ...over,
+  })
+
+  it(`never reopens a cancelled or done workflow's final PR`, async () => {
+    for (const status of [`cancelled`, `done`]) {
+      selectQueue.push([closedRow({ status })])
+      expect(await reopenWorkflowFinalPr(fakeDb, WF, `user-1`, { once: true })).toEqual({
+        reopened: false,
+        reason: `The workflow is not running`,
+        gaveUp: false,
+      })
+    }
+    expect(h.reopenPullRequest).not.toHaveBeenCalled()
+    expect(updates).toEqual([])
+    expect(inserts).toEqual([])
   })
 
   it(`the engine reopens it once: GitHub PATCHed, state open, a final_pr_reopened event`, async () => {
@@ -556,6 +583,93 @@ describe(`reopenWorkflowFinalPr`, () => {
 })
 
 // EXP-1072 — the fix-conflicts launcher treats the final PR like a linked PR.
+// EXP-1103: the last review wave reviews the landed result before the final
+// pull request; a member's `openFinalPr` cannot skip it while a runner is
+// there to run it.
+describe(`openWorkflowFinalPr`, () => {
+  const running = (over: Record<string, unknown> = {}) => ({
+    id: WF,
+    teamId: `team-1`,
+    name: `Login rework`,
+    repositoryId: `repo-1`,
+    integrationBranch: INTEGRATION,
+    decisions: ``,
+    status: `running`,
+    deviceId: `dev-1`,
+    ...over,
+  })
+  const landed = (over: Record<string, unknown> = {}) => ({
+    id: `node-1`,
+    state: `landed`,
+    kind: `leaf`,
+    identifier: `APP-6`,
+    title: `Leaf`,
+    prUrl: null,
+    reviewRound: 0,
+    review: null,
+    approvedAt: null,
+    wave: 0,
+    ...over,
+  })
+  const repo = { id: `repo-1`, fullName: `o/r`, teamId: `team-1` }
+
+  beforeEach(() => {
+    vi.mocked(createPullRequest).mockResolvedValue({ url: `https://gh/pr/9`, number: 9 } as never)
+  })
+
+  it(`refuses a workflow that is not running`, async () => {
+    for (const status of [`cancelled`, `done`, `draft`]) {
+      selectQueue.push([running({ status })])
+      const error = await openWorkflowFinalPr(fakeDb, WF, `user-1`).then(
+        () => null,
+        (e: unknown) => e as { code: string }
+      )
+      expect(error?.code).toBe(`PRECONDITION_FAILED`)
+    }
+    expect(createPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`waits for the last review wave while a runner is there to run it`, async () => {
+    selectQueue.push([running()], [landed()])
+    const error = await openWorkflowFinalPr(fakeDb, WF, `user-1`).then(
+      () => null,
+      (e: unknown) => e as { code: string; message: string }
+    )
+    expect(error?.code).toBe(`PRECONDITION_FAILED`)
+    expect(error?.message).toBe(`The review wave has not cleared yet`)
+    expect(createPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`opens once the wave cleared, or when no runner is left to review`, async () => {
+    // The wave stamped every landed node.
+    selectQueue.push([running()], [landed({ approvedAt: new Date() })], [repo], [])
+    expect(await openWorkflowFinalPr(fakeDb, WF, `user-1`)).toEqual({ url: `https://gh/pr/9` })
+    expect(createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ head: INTEGRATION, base: `main`, title: `Workflow: Login rework` })
+    )
+    expect(updates.at(-1)).toMatchObject({ finalPrUrl: `https://gh/pr/9`, finalPrNumber: 9, finalPrState: `open` })
+
+    // No runner: nothing would ever run the wave.
+    vi.mocked(createPullRequest).mockClear()
+    selectQueue.push([running({ deviceId: null })], [landed()], [repo], [])
+    expect(await openWorkflowFinalPr(fakeDb, WF, `user-1`)).toEqual({ url: `https://gh/pr/9` })
+    expect(createPullRequest).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe(`appendWorkflowDecision`, () => {
+  it(`appends one dated line and keeps the log inside its cap, oldest lines first out`, () => {
+    const now = new Date(`2026-09-26T10:00:00Z`)
+    expect(appendWorkflowDecision(``, `keep  the\nenum`, now)).toBe(`2026-09-26: keep the enum`)
+    const full = Array.from({ length: 2000 }, (_, i) => `2026-09-01: line ${i} ${`x`.repeat(60)}`).join(`\n`)
+    expect(full.length).toBeGreaterThan(WORKFLOW_DECISIONS_MAX)
+    const out = appendWorkflowDecision(full, `the newest`, now)
+    expect(out.length).toBeLessThanOrEqual(WORKFLOW_DECISIONS_MAX)
+    expect(out.endsWith(`\n2026-09-26: the newest`)).toBe(true)
+    expect(out.startsWith(`2026-09-01: line 0 `)).toBe(false)
+  })
+})
+
 describe(`prepareWorkflowFinalPrConflictFix`, () => {
   const row = (over: Record<string, unknown> = {}) => ({
     teamId: `team-1`,

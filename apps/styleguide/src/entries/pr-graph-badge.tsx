@@ -28,7 +28,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1058`,
   title: `Work header badge`,
-  blurb: `What this work is PART OF, as the stacked issue chip (EXP-1058): the front chip names the subject pull request's representative issue, the ghosts behind it and \`+N\` count every other issue on its stack or batch, or every other run of its family on the Run face (a run without an issue names itself, with the session-tree glyph). Absent when there is nothing to say. Hover on pointer platforms, tap on phones: the overlay lists the face's section — Blocked by and In batch with on Issue, Runs on Run, the pull request stack bottom-up on Changes.`,
+  blurb: `What this work is PART OF, as the stacked issue chip (EXP-1058): the front chip names the subject pull request's representative issue, the ghosts behind it and \`+N\` count every other issue on its stack or batch, or every other run of its family on the Run face (a run without an issue names itself, with the session-tree glyph). Absent when there is nothing to say. Hover on pointer platforms, tap on phones: the overlay lists the face's section: Blocked by and In batch with on Issue, Runs on Run, the pull request stack bottom-up on Changes.`,
   status: {
     web: {
       state: `ok`,

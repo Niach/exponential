@@ -2392,6 +2392,38 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
     )
   })
 
+  // A child a node run started on a chat or action subject inherits the
+  // node id (rule c) with no role: it asks its parent like any child.
+  it(`a node run's chat child asks its parent, no Proposal needed`, async () => {
+    const PARENT = `77777777-7777-4777-8777-777777777777`
+    const RELAY = { url: `https://relay.test`, secret: `s` }
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+    selectsInOrder(
+      [childRow({ startedReason: `agent`, parentSessionId: PARENT, parentStatus: `running`, issueIdentifier: null })],
+      [{ workflowId: WF, workflowNodeId: NODE, workflowRole: null }]
+    )
+    const result = await collectTools(USER, SESSION, WORKFLOW_RUN).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `Which env?` })
+    expect(parseOk(result)).toMatchObject({ delivered: true })
+    expect(relayPostInput).toHaveBeenCalledWith(RELAY, PARENT, expect.stringContaining(`Which env?`))
+    expect(updateSet).not.toHaveBeenCalled()
+  })
+
+  it(`a node's author run resumed under a parent is still the node's`, async () => {
+    const PARENT = `77777777-7777-4777-8777-777777777777`
+    selectsInOrder(
+      [childRow({ startedReason: `agent`, parentSessionId: PARENT, parentStatus: `running` })],
+      [{ workflowId: WF, workflowNodeId: NODE, workflowRole: `author` }]
+    )
+    const result = await collectTools(USER, SESSION, WORKFLOW_RUN).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `Keep the enum?` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Proposal:`)
+  })
+
   it(`a workflow node's question still needs a Proposal line`, async () => {
     selectsInOrder(
       [childRow({ startedReason: `workflow` })],
@@ -3991,28 +4023,76 @@ describe(`exponential_sessions_start`, () => {
         return { where: async () => undefined }
       },
     }))
-    // 1 = the poll, 2 = the parent's membership, 3 = the child's row.
-    db.select.mockImplementation(() => {
-      call += 1
-      dbRows.current =
-        call === 1
-          ? [{ ...startedRow }]
-          : call === 2
-            ? [{ workflowId: WF, workflowNodeId: NODE }]
-            : [{ workflowId: null, issueId: UUID, batchIssueIds: null, startedReason: `agent` }]
-      return builder
-    })
+    // 1 = the poll, 2 = the parent's membership + owner, 3 = the child's
+    // row, 4 = the workflow's team.
+    const stage = (rows: {
+      parent?: Record<string, unknown>
+      child?: Record<string, unknown>
+      workflow?: Record<string, unknown>
+    }) => {
+      call = 0
+      sets.length = 0
+      db.select.mockImplementation(() => {
+        call += 1
+        dbRows.current =
+          call === 1
+            ? [{ ...startedRow }]
+            : call === 2
+              ? [{ workflowId: WF, workflowNodeId: NODE, userId: `user-1`, hostUserId: null, ...rows.parent }]
+              : call === 3
+                ? [
+                    {
+                      workflowId: null,
+                      issueId: UUID,
+                      batchIssueIds: null,
+                      startedReason: `agent`,
+                      teamId: WS,
+                      ...rows.child,
+                    },
+                  ]
+                : [{ teamId: WS, ...rows.workflow }]
+        return builder
+      })
+    }
     try {
+      stage({})
       await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
         deviceId: `mac-1`,
         issueId: UUID,
       })
+      expect(sets).toEqual([
+        { parentSessionId: RUN, workflowId: WF, workflowNodeId: NODE, workflowRole: `author` },
+      ])
+
+      // The header names a run that is not the caller's: the parent link
+      // stays (history), the membership is not stamped.
+      stage({ parent: { userId: `user-9`, hostUserId: `user-8` } })
+      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+        deviceId: `mac-1`,
+        issueId: UUID,
+      })
+      expect(sets).toEqual([{ parentSessionId: RUN }])
+
+      // The host of the calling run is the caller: that counts as its own.
+      stage({ parent: { userId: `user-9`, hostUserId: `user-1` } })
+      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+        deviceId: `mac-1`,
+        issueId: UUID,
+      })
+      expect(sets).toEqual([
+        { parentSessionId: RUN, workflowId: WF, workflowNodeId: NODE, workflowRole: `author` },
+      ])
+
+      // The child runs in another team than the workflow's.
+      stage({ workflow: { teamId: `other-team` } })
+      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+        deviceId: `mac-1`,
+        issueId: UUID,
+      })
+      expect(sets).toEqual([{ parentSessionId: RUN }])
     } finally {
       db.select.mockImplementation(() => builder)
     }
-    expect(sets).toEqual([
-      { parentSessionId: RUN, workflowId: WF, workflowNodeId: NODE, workflowRole: `author` },
-    ])
   })
 
   // EXP-1082 §1: only a run that belongs to the workflow (the host) may name
@@ -4022,10 +4102,11 @@ describe(`exponential_sessions_start`, () => {
     const WF = `77777777-7777-4777-8777-777777777777`
     const builder = db.select()
     let call = 0
-    // 1 = the calling run's own membership, 2+ = the poll.
+    // 1 = the calling run's own membership + owner, 2+ = the poll.
     db.select.mockImplementation(() => {
       call += 1
-      dbRows.current = call === 1 ? [{ workflowId: WF }] : [{ ...startedRow }]
+      dbRows.current =
+        call === 1 ? [{ workflowId: WF, userId: `user-1`, hostUserId: null }] : [{ ...startedRow }]
       return builder
     })
     try {
@@ -4041,6 +4122,32 @@ describe(`exponential_sessions_start`, () => {
     expect(caller.steer.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ workflowId: WF, workflowRole: `review` })
     )
+  })
+
+  it(`drops the membership keys when the named run is somebody else's`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    const WF = `77777777-7777-4777-8777-777777777777`
+    const builder = db.select()
+    let call = 0
+    db.select.mockImplementation(() => {
+      call += 1
+      dbRows.current =
+        call === 1 ? [{ workflowId: WF, userId: `user-9`, hostUserId: `user-8` }] : [{ ...startedRow }]
+      return builder
+    })
+    try {
+      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+        deviceId: `mac-1`,
+        issueId: UUID,
+        workflowId: WF,
+        workflowRole: `review`,
+      })
+    } finally {
+      db.select.mockImplementation(() => builder)
+    }
+    const sent = caller.steer.startSession.mock.calls.at(-1)![0] as Record<string, unknown>
+    expect(`workflowId` in sent).toBe(false)
+    expect(`workflowRole` in sent).toBe(false)
   })
 
   it(`drops the membership keys when the calling run is not in that workflow`, async () => {

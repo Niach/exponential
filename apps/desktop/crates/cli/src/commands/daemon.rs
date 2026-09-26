@@ -556,7 +556,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
         personal_key: personal_key.clone(),
         device_id: device_id.clone(),
         sync_manager: sync_manager.clone(),
-        tracker: Arc::new(Mutex::new(coding::account_rotation::RotationTracker::new())),
+        reservations: reservations.clone(),
+        // Persisted: an auto-update re-exec keeps every chain's cap.
+        tracker: Arc::new(Mutex::new(coding::account_rotation::RotationTracker::load(
+            &ctx.data_dir,
+            chrono::Utc::now().timestamp_millis(),
+        ))),
         inflight: Arc::new(Mutex::new(HashSet::new())),
         holds: HoldLog::default(),
         last_beat: Instant::now(),
@@ -1314,7 +1319,8 @@ const ROTATION_BEAT: Duration = Duration::from_secs(5);
 
 /// One live run's wall in the rotation's vocabulary — `None` unless the
 /// wall is a rate limit. `account` = the run registry's recorded login
-/// (`None` = the ambient one, `system`).
+/// (`None` = the ambient one, `system`); a record with no clone (a scratch
+/// run), or no record at all, is a run a switch could not resume.
 fn walled_run(
     session_id: &str,
     worktree: &Path,
@@ -1337,6 +1343,7 @@ fn walled_run(
             .as_deref()
             .and_then(coding::agent_accounts::unix_millis_from_iso),
         idle,
+        repo_less: record.map_or(true, |record| record.clone.is_none()),
     })
 }
 
@@ -1347,6 +1354,7 @@ fn hold_key(hold: &coding::account_rotation::Hold) -> &'static str {
     match hold {
         Hold::Off => "off",
         Hold::AgentNeverRotates => "agent_never_rotates",
+        Hold::ScratchRun => "scratch_run",
         Hold::MidTurn => "mid_turn",
         Hold::CoolingDown { .. } => "cooling_down",
         Hold::Capped => "capped",
@@ -1398,6 +1406,10 @@ struct RotationHost {
     personal_key: Option<String>,
     device_id: String,
     sync_manager: Option<Arc<sync::SyncManager>>,
+    /// The same start claims the inbox takes: a rotation's resume holds
+    /// `resume:<id>` like a relay resume frame, so the two never relaunch
+    /// one run twice.
+    reservations: StartReservations,
     tracker: Arc<Mutex<coding::account_rotation::RotationTracker>>,
     /// Chains with a probe (and its switch) in flight: never probed twice,
     /// and kept in the tracker while the switch has ended the old run but
@@ -1503,6 +1515,7 @@ impl RotationHost {
             .and_then(|manager| manager.store(&ctx.account.id));
         let tracker = Arc::clone(&self.tracker);
         let inflight = Arc::clone(&self.inflight);
+        let reservations = self.reservations.clone();
         std::thread::spawn(move || {
             log::info!(
                 "account rotation [{}]: {} hit its {} wall between turns — reading every profile's usage",
@@ -1517,7 +1530,14 @@ impl RotationHost {
             let profiles =
                 coding::agent_usage::collect_now(run.agent, &ctx.data_dir, &settings, &doctor, now_secs);
             let now_ms = chrono::Utc::now().timestamp_millis();
-            let decision = lock_or_recover(&tracker).decide(&run, &profiles, now_ms);
+            let decision = {
+                let mut tracker = lock_or_recover(&tracker);
+                let decision = tracker.decide(&run, &profiles, now_ms);
+                // The decision counted: written before it acts, so a re-exec
+                // in the middle of the switch still remembers it.
+                tracker.save(&ctx.data_dir, now_ms);
+                decision
+            };
             let workflow = store
                 .as_deref()
                 .and_then(|store| session_workflow(store, &run.session_id));
@@ -1551,6 +1571,23 @@ impl RotationHost {
                         claimant: ctx.account.id.clone(),
                         started_by: None,
                         started_reason: None,
+                    };
+                    // REV-9: the resume claim a relay resume frame takes.
+                    // Held by a frame in flight = that resume is already
+                    // moving the run; the tracker counted this rotation,
+                    // so its cooldown keeps the next beat from retrying.
+                    let _reservation = match reservations
+                        .claim(vec![format!("resume:{}", run.session_id)])
+                    {
+                        Ok(reservation) => reservation,
+                        Err(clash) => {
+                            log::warn!(
+                                "account rotation [{}]: switch skipped, a start holding {clash} is in flight",
+                                run.session_id
+                            );
+                            lock_or_recover(&inflight).remove(&run.chain_key);
+                            return;
+                        }
                     };
                     match remote_resume_start(
                         &ctx,
@@ -3602,10 +3639,18 @@ impl AutomationHost {
             );
             coding::workflows::prune_land_refused(&mut state.land_refused, &plan.snapshot.pr_head);
             plan.snapshot.land_refused = state.land_refused.clone();
+            // A launched reviewer or fix run is waited for until its row
+            // synced, or the grace passed.
+            coding::workflows::prune_launched(
+                &mut state.launched,
+                |session_id| plan.launched_synced.contains(session_id),
+                plan.snapshot.now_ms,
+            );
             update_workflow_state(settings_path, &self.device_id, &workflow_id, move |persisted| {
                 persisted.review_runs = state.review_runs;
                 persisted.review_rounds = state.review_rounds;
                 persisted.review_failures = state.review_failures;
+                persisted.launched = state.launched;
                 coding::workflows::merge_resuming(
                     &mut persisted.resuming,
                     &resuming_before,
@@ -4418,6 +4463,7 @@ impl AutomationHost {
         let round_at_launch = node.review_round;
         match started {
             Ok(session_id) => {
+                let now_ms = chrono::Utc::now().timestamp_millis();
                 update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
                     state
                         .review_runs
@@ -4427,6 +4473,8 @@ impl AutomationHost {
                     state
                         .review_rounds
                         .insert(node_id.to_string(), round_at_launch);
+                    // In flight until its row syncs (`pending_launches`).
+                    state.launched.insert(session_id.clone(), now_ms);
                 });
                 Ok(true)
             }
@@ -4551,8 +4599,11 @@ impl AutomationHost {
         })();
         match started {
             Ok(session_id) => {
+                let now_ms = chrono::Utc::now().timestamp_millis();
                 update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
                     state.fix_runs.insert(wave, session_id.clone());
+                    // In flight until its row syncs (`pending_launches`).
+                    state.launched.insert(session_id.clone(), now_ms);
                 });
                 Ok(true)
             }
@@ -4828,6 +4879,9 @@ struct WorkflowPlan {
     /// recorded: a resumed reviewer is followed, a stray one adopted, and
     /// neither is doubled ([`coding::workflows::live_pending_reviews_on_branches`]).
     review_live_on_branch: HashMap<String, String>,
+    /// The `launched` records whose synced row is in: what the pass prunes
+    /// the map by ([`coding::workflows::prune_launched`]).
+    launched_synced: HashSet<String>,
     name: String,
     team_id: String,
     decisions: String,
@@ -4999,6 +5053,17 @@ fn workflow_plan(
         &review_round_of,
         live_session_branches(session_rows),
     );
+    // A reviewer or fix run this daemon launched whose row has not synced
+    // yet is in flight too (for one grace): the row lags the launch by
+    // seconds, and a pass in between would start it again.
+    let row_synced = |session_id: &str| session_rows.iter().any(|row| row.id == session_id);
+    let pending = coding::workflows::pending_launches(&engine_state.launched, row_synced, now_ms);
+    let launched_synced: HashSet<String> = engine_state
+        .launched
+        .keys()
+        .filter(|session_id| row_synced(session_id))
+        .cloned()
+        .collect();
     Some(WorkflowPlan {
         snapshot: coding::workflows::Snapshot {
             workflow: coding::workflows::WorkflowFacts {
@@ -5038,9 +5103,16 @@ fn workflow_plan(
             review_in_flight: live_reviews(&engine_state, session_rows)
                 .into_iter()
                 .chain(review_live_on_branch.keys().cloned())
+                .chain(engine_state.review_runs.iter().filter_map(|(node_id, session_id)| {
+                    pending.contains(session_id).then(|| node_id.clone())
+                }))
                 .collect(),
             pr_head: HashMap::new(),
-            fix_runs: workflow_fix_runs_by_branch(&workflow.id, session_rows),
+            fix_runs: coding::workflows::with_pending_fix_runs(
+                workflow_fix_runs_by_branch(&workflow.id, session_rows),
+                &engine_state.fix_runs,
+                &pending,
+            ),
             review_gave_up,
             land_refused: engine_state.land_refused.clone(),
             now_ms,
@@ -5052,6 +5124,7 @@ fn workflow_plan(
         pr_number_of,
         review_session_live: review_session_liveness(&engine_state, session_rows),
         review_live_on_branch,
+        launched_synced,
         name: workflow.name.clone().unwrap_or_default(),
         team_id,
         decisions: workflow.decisions.clone().unwrap_or_default(),
