@@ -201,6 +201,9 @@ fn gated_update_due(gated: bool, last_attempt: Option<Instant>, now: Instant) ->
 /// One live session the daemon supervises (the desktop's `LocalSessions`).
 struct LiveSession {
     issue_id: Option<String>,
+    /// FEED-47/57: the issues a BATCH run covers (empty otherwise), so an
+    /// issue start beside it is refused like one beside the issue's own run.
+    batch_issue_ids: Vec<String>,
     /// EXP-530: the `actions` row this run executes (from the prepared
     /// launch's `action_id`) — the automation host's defer check ("never
     /// launch a second run of an action already running here").
@@ -259,8 +262,15 @@ fn lock_sessions(sessions: &Sessions) -> std::sync::MutexGuard<'_, Vec<LiveSessi
 /// (a finished entry awaiting the reaper tick must not block a restart).
 fn issue_is_coding_here(sessions: &Sessions, issue_id: &str) -> bool {
     lock_sessions(sessions).iter().any(|live| {
-        live.issue_id.as_deref() == Some(issue_id) && !live.session.is_done()
+        covers_issue(live.issue_id.as_deref(), &live.batch_issue_ids, issue_id)
+            && !live.session.is_done()
     })
+}
+
+/// FEED-47/57: a run holds an issue when it IS the issue's run or a batch
+/// run covering it.
+fn covers_issue(run_issue: Option<&str>, batch_issue_ids: &[String], issue_id: &str) -> bool {
+    run_issue == Some(issue_id) || batch_issue_ids.iter().any(|id| id == issue_id)
 }
 
 /// REV-9: in-flight remote-start reservations. The handler's dedup checks
@@ -1771,10 +1781,11 @@ fn issue_resume_record(
     issue_id: &str,
     start_resume: bool,
 ) -> Option<coding::run_registry::RunRecord> {
-    if !start_resume {
-        return None;
-    }
-    coding::run_registry::latest_for_issue(data_dir, account_id, issue_id)
+    // FEED-47: only the explicit flag reads the registry; a fresh start on an
+    // issue with a recorded run is a NEW run in the reused worktree.
+    coding::launcher::recorded_run_for_start(start_resume, || {
+        coding::run_registry::latest_for_issue(data_dir, account_id, issue_id)
+    })
 }
 
 /// EXP-862 — the accounts the runs this daemon hosts are using right now
@@ -1809,7 +1820,7 @@ fn remote_issue_start(
     hold: NodeHold<'_>,
 ) -> anyhow::Result<()> {
     if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
-        log::info!("{reason}");
+        log::warn!("{reason}");
         return Ok(());
     }
     let fetched = api::issues::issues_get(&ctx.trpc, &issue_id).context("resolve the issue")?;
@@ -1938,11 +1949,12 @@ fn remote_batch_start(
         base_branch: None,
         workflow: None,
     };
+    let covered: Vec<String> = request.issues.iter().map(|issue| issue.issue_id.clone()).collect();
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
     let request = PrepareRequest::Batch(request);
     let prepared = coding::prepare(&request, &deps)
         .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(ctx, runtime, sessions, personal_key, prepared, None, false)
+    spawn_prepared_covering(ctx, runtime, sessions, personal_key, prepared, None, covered, false)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2237,6 +2249,21 @@ fn spawn_prepared(
     issue_id: Option<String>,
     is_fix_run: bool,
 ) -> anyhow::Result<()> {
+    spawn_prepared_covering(ctx, runtime, sessions, personal_key, prepared, issue_id, Vec::new(), is_fix_run)
+}
+
+/// [`spawn_prepared`] for a BATCH run, which records the issues it covers.
+#[allow(clippy::too_many_arguments)]
+fn spawn_prepared_covering(
+    ctx: &Ctx,
+    runtime: Option<&Arc<steer::SteerRuntime>>,
+    sessions: &Sessions,
+    personal_key: Option<String>,
+    prepared: Prepared,
+    issue_id: Option<String>,
+    batch_issue_ids: Vec<String>,
+    is_fix_run: bool,
+) -> anyhow::Result<()> {
     let prepared = match prepared {
         Prepared::Ready(prepared) => prepared,
         Prepared::Disabled(reason) => {
@@ -2268,6 +2295,7 @@ fn spawn_prepared(
         sessions,
         LiveSession {
             issue_id,
+            batch_issue_ids,
             action_id,
             branch: session.branch.clone(),
             is_fix_run,
@@ -6062,6 +6090,27 @@ fn status(args: &[String]) -> CommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEED-47/57: a batch run covering the issue holds it like the issue's
+    /// own run; a batch over other issues does not.
+    #[test]
+    fn a_batch_run_covering_the_issue_holds_it() {
+        let batch = vec!["i-1".to_string(), "i-2".to_string()];
+        assert!(covers_issue(Some("i-1"), &[], "i-1"));
+        assert!(covers_issue(None, &batch, "i-2"));
+        assert!(!covers_issue(None, &batch, "i-3"));
+        assert!(!covers_issue(Some("i-9"), &[], "i-1"));
+    }
+
+    /// FEED-47: a fresh remote start never reads the run registry, so a
+    /// recorded run on the issue cannot turn it into a resume.
+    #[test]
+    fn a_fresh_issue_start_resolves_no_recorded_run() {
+        let dir = std::env::temp_dir().join(format!("exp-daemon-feed47-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(issue_resume_record(&dir, "acct", "issue-1", false).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn advert(agents: &[&str]) -> coding::AgentAdvertisement {
         coding::AgentAdvertisement {

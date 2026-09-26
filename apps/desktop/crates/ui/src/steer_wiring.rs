@@ -730,7 +730,7 @@ fn remote_issue_start(
         .get(&issue_id)
         .is_some()
     {
-        log::info!("steer: remote start for {issue_id} ignored — already coding this issue");
+        log::warn!("steer: remote start for {issue_id} ignored — already coding this issue");
         return;
     }
     // REV2-24: the cross-device half of the same rule, mirroring the dialog's
@@ -741,8 +741,15 @@ fn remote_issue_start(
     // `exp/<ID>` branch.
     let now = chrono::Utc::now().timestamp();
     if let Some(device) = queries::live_session_device_for_issue(cx, &issue_id, now) {
-        log::info!(
+        log::warn!(
             "steer: remote start for {issue_id} ignored — live session on {device} (one session per issue)"
+        );
+        return;
+    }
+    // FEED-47/57: a live BATCH run covering the issue holds it too.
+    if let Some(device) = coding_flow::live_batch_device_for_issue(cx, &issue_id, now) {
+        log::warn!(
+            "steer: remote start for {issue_id} ignored — a batch run on {device} covers it (one session per issue)"
         );
         return;
     }
@@ -775,15 +782,13 @@ fn remote_issue_start(
     // — the newest resumable record for this issue on this account relaunches
     // that exact transcript; with no record the flag degrades to a fresh
     // session seeded with the resume prompt, so an optimistic flag is always
-    // safe.
+    // safe. FEED-47: ONLY the explicit flag does; a fresh start on an issue
+    // with a recorded run is a NEW run in the reused worktree.
     let data_dir = coding_flow::coding_data_dir(cx);
-    let resume_record = start
-        .resume
-        .then(|| queries::active_account(cx))
-        .flatten()
-        .and_then(|account| {
-            coding::run_registry::latest_for_issue(&data_dir, &account.id, &issue_id)
-        });
+    let account = start.resume.then(|| queries::active_account(cx)).flatten();
+    let resume_record = coding::launcher::recorded_run_for_start(start.resume, || {
+        coding::run_registry::latest_for_issue(&data_dir, &account?.id, &issue_id)
+    });
     let Some((prepare_request, deps)) = (match resume_record {
         Some(record) => coding_flow::build_resume_deps(&record, cx).map(|deps| {
             (
@@ -920,7 +925,9 @@ fn remote_batch_start(
                 );
                 return;
             }
-            if let Some(device) = queries::live_session_device_for_issue(cx, issue_id, now) {
+            if let Some(device) = queries::live_session_device_for_issue(cx, issue_id, now)
+                .or_else(|| coding_flow::live_batch_device_for_issue(cx, issue_id, now))
+            {
                 log::warn!(
                     "steer: remote batch start aborted — {} has a live session on {device}",
                     issue.identifier

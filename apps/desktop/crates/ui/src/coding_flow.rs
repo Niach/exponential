@@ -2066,9 +2066,72 @@ impl Render for StartCodingControl {
     }
 }
 
+/// FEED-47/57 — the device holding a LIVE batch run that covers `issue_id`
+/// (`batch_issue_ids`), off the synced rows. The per-issue probe
+/// ([`queries::live_session_device_for_issue`]) only reads `issue_id`, and a
+/// batch row has none, so an issue start beside a live batch on the same
+/// issue passed it and put a second agent on the work.
+pub(crate) fn live_batch_device_covering<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+    issue_id: &str,
+    now_epoch: i64,
+) -> Option<String> {
+    let session = sessions
+        .filter(|session| session.issue_id.is_none())
+        .filter(|session| {
+            domain::batch_run::parse_batch_issue_ids(session.batch_issue_ids.as_ref())
+                .iter()
+                .any(|id| id == issue_id)
+        })
+        .find(|session| queries::coding_session_is_live(session, now_epoch))?;
+    Some(
+        queries::session_device_presentation(session, devices, now_epoch * 1_000)
+            .label
+            .unwrap_or_else(|| "another device".to_string()),
+    )
+}
+
+/// [`live_batch_device_covering`] against the global store.
+pub(crate) fn live_batch_device_for_issue(cx: &App, issue_id: &str, now_epoch: i64) -> Option<String> {
+    let collections = Store::global(cx).collections();
+    let sessions = collections.coding_sessions.read(cx);
+    let devices = collections.devices.read(cx);
+    live_batch_device_covering(sessions.iter(), devices.iter(), issue_id, now_epoch)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEED-47/57: a live batch covering the issue holds it; an ended
+    /// batch, an issue row and a batch over other issues do not.
+    #[test]
+    fn a_live_batch_covering_the_issue_holds_it() {
+        let now = chrono::Utc::now();
+        let fresh = now.to_rfc3339();
+        let row = |id: &str, status: &str, issue: Option<&str>, batch: &[&str]| {
+            serde_json::from_value::<domain::rows::CodingSession>(serde_json::json!({
+                "id": id, "team_id": "t-1", "status": status,
+                "issue_id": issue, "batch_issue_ids": batch,
+                "device_label": "Studio", "updated_at": fresh,
+            }))
+            .unwrap()
+        };
+        let rows = vec![
+            row("s-ended", "ended", None, &["i-1"]),
+            row("s-issue", "running", Some("i-9"), &[]),
+            row("s-other", "running", None, &["i-2", "i-3"]),
+        ];
+        let epoch = now.timestamp();
+        assert_eq!(live_batch_device_covering(rows.iter(), std::iter::empty(), "i-1", epoch), None);
+        let mut rows = rows;
+        rows.push(row("s-live", "running", None, &["i-4", "i-1"]));
+        assert_eq!(
+            live_batch_device_covering(rows.iter(), std::iter::empty(), "i-1", epoch),
+            Some("Studio".to_string())
+        );
+    }
 
     /// Build the claim list a branch's holders reduce to (`true` = that
     /// holder IS a fix-conflicts run), labelled so a failure names the holder.
