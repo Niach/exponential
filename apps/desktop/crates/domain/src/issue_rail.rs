@@ -10,130 +10,14 @@
 //! ENTRIES in order (issue rows, group headers and the like), one slice per
 //! entry, so a virtual list can paint each row alone.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::issue_graph::{geometry, open_edges, BlockCounts, GraphIssue, GraphRelation};
+use crate::issue_graph::{geometry, BlockCounts};
 
 /// The node column, at the rail's RIGHT edge: the dot centred in it.
 pub const RAIL_NODE_WIDTH: f32 = geometry::RAIL_NODE_WIDTH;
 /// The blank between the cell before the rail and the node column.
 pub const RAIL_GUTTER: f32 = geometry::RAIL_GUTTER;
-
-/// One open `blocks` edge, blocker → blocked, computed ONCE per query over
-/// every synced issue (a blocker on another board is still in the way).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BlockEdge {
-    pub from: String,
-    pub to: String,
-    /// `EXP-1 blocks EXP-2` — the hover label. Byte-identical ×4.
-    pub label: String,
-    /// Part of a blocking cycle — drawn red.
-    pub cycle: bool,
-}
-
-/// `EXP-1 blocks EXP-2`. Byte-identical ×4.
-pub fn rail_edge_label(from: &str, to: &str) -> String {
-    format!("{from} blocks {to}")
-}
-
-/// Every open `blocks` edge, deduplicated, with its label and whether it
-/// sits on a cycle (strongly connected components over the open edges: an
-/// edge whose ends share a component is cyclic).
-pub fn block_edges<'a>(
-    relations: &[GraphRelation<'a>],
-    issues: &[GraphIssue<'a>],
-) -> Vec<BlockEdge> {
-    let open = open_edges(relations, issues, &HashSet::new());
-    let identifier_of: HashMap<&str, &str> = issues
-        .iter()
-        .map(|issue| (issue.id, issue.identifier))
-        .collect();
-    let component = components(&open);
-    open.into_iter()
-        .map(|(from, to)| BlockEdge {
-            from: from.to_string(),
-            to: to.to_string(),
-            label: rail_edge_label(
-                identifier_of.get(from).copied().unwrap_or(from),
-                identifier_of.get(to).copied().unwrap_or(to),
-            ),
-            cycle: component.get(from) == component.get(to),
-        })
-        .collect()
-}
-
-/// Tarjan's strongly connected components, iteratively (a deep chain must
-/// not overflow the stack): node → component number.
-fn components<'a>(edges: &[(&'a str, &'a str)]) -> HashMap<&'a str, usize> {
-    let mut out: HashMap<&str, Vec<&str>> = HashMap::new();
-    let mut order: Vec<&str> = Vec::new();
-    for &(from, to) in edges {
-        if !out.contains_key(from) {
-            order.push(from);
-        }
-        out.entry(from).or_default().push(to);
-        if !out.contains_key(to) {
-            order.push(to);
-            out.insert(to, Vec::new());
-        }
-    }
-    let mut index: HashMap<&str, usize> = HashMap::new();
-    let mut low: HashMap<&str, usize> = HashMap::new();
-    let mut component: HashMap<&str, usize> = HashMap::new();
-    let mut stack: Vec<&str> = Vec::new();
-    let mut on_stack: HashSet<&str> = HashSet::new();
-    let mut next = 0usize;
-    let mut components = 0usize;
-    for &start in &order {
-        if index.contains_key(start) {
-            continue;
-        }
-        let mut frames: Vec<(&str, usize)> = vec![(start, 0)];
-        index.insert(start, next);
-        low.insert(start, next);
-        next += 1;
-        stack.push(start);
-        on_stack.insert(start);
-        while let Some(&(id, at)) = frames.last() {
-            let targets = out.get(id).map(Vec::as_slice).unwrap_or(&[]);
-            if at < targets.len() {
-                let target = targets[at];
-                frames.last_mut().expect("frame").1 += 1;
-                if !index.contains_key(target) {
-                    index.insert(target, next);
-                    low.insert(target, next);
-                    next += 1;
-                    stack.push(target);
-                    on_stack.insert(target);
-                    frames.push((target, 0));
-                } else if on_stack.contains(target) {
-                    let candidate = index[target];
-                    let entry = low.entry(id).or_insert(candidate);
-                    *entry = (*entry).min(candidate);
-                }
-                continue;
-            }
-            frames.pop();
-            if let Some(&(parent, _)) = frames.last() {
-                let child_low = low[id];
-                let entry = low.entry(parent).or_insert(child_low);
-                *entry = (*entry).min(child_low);
-            }
-            if low[id] == index[id] {
-                loop {
-                    let member = stack.pop().expect("member");
-                    on_stack.remove(member);
-                    component.insert(member, components);
-                    if member == id {
-                        break;
-                    }
-                }
-                components += 1;
-            }
-        }
-    }
-    component
-}
 
 /// One visible entry of the list, top to bottom.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -227,7 +111,7 @@ pub fn issue_rail(entries: &[RailEntry<'_>], counts: &HashMap<String, BlockCount
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::issue_graph::block_counts;
+    use crate::issue_graph::{block_counts, GraphIssue, GraphRelation};
 
     fn issue<'a>(id: &'a str, identifier: &'a str, status: &'a str) -> GraphIssue<'a> {
         GraphIssue {
@@ -335,14 +219,6 @@ mod tests {
     }
 
     #[test]
-    fn labels_every_edge_blocker_first() {
-        let edges = block_edges(&[blocks("a", "b")], &[A, B]);
-        assert_eq!(edges[0].label, "EXP-A blocks EXP-B");
-        assert!(!edges[0].cycle);
-        assert_eq!(rail_edge_label("EXP-1", "EXP-2"), "EXP-1 blocks EXP-2");
-    }
-
-    #[test]
     fn keeps_a_node_for_an_edge_whose_other_end_is_not_in_the_list() {
         let z = issue("z", "EXP-Z", "backlog");
         let out = rail(
@@ -371,21 +247,5 @@ mod tests {
             &[done, B],
         );
         assert!(!out.has_nodes);
-    }
-
-    #[test]
-    fn marks_a_blocking_cycle_on_every_edge_of_it() {
-        let edges = block_edges(
-            &[blocks("a", "b"), blocks("b", "a"), blocks("b", "c")],
-            &[A, B, C],
-        );
-        let cycles: Vec<(&str, &str, bool)> = edges
-            .iter()
-            .map(|edge| (edge.from.as_str(), edge.to.as_str(), edge.cycle))
-            .collect();
-        assert_eq!(
-            cycles,
-            vec![("a", "b", true), ("b", "a", true), ("b", "c", false)]
-        );
     }
 }

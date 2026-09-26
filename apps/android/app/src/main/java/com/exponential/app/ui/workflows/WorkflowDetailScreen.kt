@@ -1,5 +1,6 @@
 package com.exponential.app.ui.workflows
 
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
@@ -58,10 +59,10 @@ import androidx.hilt.navigation.HiltViewModelFactory
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.HasDefaultViewModelProviderFactory
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.db.CodingSessionEntity
@@ -1344,17 +1345,23 @@ private fun AllChangesFace(
 /**
  * A [ViewModelStoreOwner] that lives exactly as long as the calling
  * composition: its view models are cleared on dispose (a pick elsewhere, a
- * face change, the question closing), not when the whole page leaves. Hilt
- * view models resolve through the host's factory and creation extras.
+ * face change, the question closing), not when the whole page leaves. The
+ * store itself is leased from the page's [ScopedViewModelStores] (a view
+ * model of the nav entry), so a configuration change hands the SAME store to
+ * the recreated composition: a comment draft typed on a node survives a
+ * rotation the way it does on the Work screen. Hilt view models resolve
+ * through the host's factory and creation extras.
  */
 @Composable
 private fun rememberScopedViewModelStoreOwner(key: String): ViewModelStoreOwner {
     val parent = checkNotNull(LocalViewModelStoreOwner.current) { "No ViewModelStoreOwner" }
     val context = LocalContext.current
+    val activity = LocalActivity.current
+    val stores: ScopedViewModelStores = viewModel(viewModelStoreOwner = parent)
     val owner = remember(key, parent) {
         val host = parent as? HasDefaultViewModelProviderFactory
         object : ViewModelStoreOwner, HasDefaultViewModelProviderFactory {
-            override val viewModelStore = ViewModelStore()
+            override val viewModelStore = stores.store(key)
             override val defaultViewModelProviderFactory: ViewModelProvider.Factory =
                 HiltViewModelFactory(
                     context,
@@ -1364,6 +1371,8 @@ private fun rememberScopedViewModelStoreOwner(key: String): ViewModelStoreOwner 
                 host?.defaultViewModelCreationExtras ?: CreationExtras.Empty
         }
     }
-    DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
+    DisposableEffect(owner) {
+        onDispose { stores.release(key, retain = activity?.isChangingConfigurations == true) }
+    }
     return owner
 }

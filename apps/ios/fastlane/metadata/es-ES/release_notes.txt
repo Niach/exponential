@@ -1,6 +1,5 @@
-- Selectores: estado, responsable, etiquetas, board y el resto abren el mismo panel con búsqueda y filas simples, y elegir varios se ve como un resaltado en lugar de un círculo
-- Ejecuciones del agente: la lista de ejecuciones en curso se anida, las de un workflow bajo una fila que abre el workflow y las de un stack bajo otra, y la flecha pliega ambas
-- Workflows: la pantalla pierde su bloque de ajustes, un nodo dice su propio estado y se abre en Issue, Run y Changes, y el pull request final se fusiona desde ahí
-- Ajustes de la máquina: el panel está reordenado, y una nueva página «Workflow settings» guarda los modelos con los que arranca un workflow nuevo
-- Cambio de team: un punto en la flecha cuando otro team tiene una de tus ejecuciones en vivo, ámbar cuando espera una entrada
-- Miembros: un miembro de la lista al que nadie ha invitado todavía aparece como «Not invited» en lugar de «Invite expired»
+- Workflows: una tira de chips elige un nodo y lo abre en Issue, Run, Changes y Results, una pregunta del planificador aparece en un banner, Pause y Dismiss están en el menú de más opciones, y el pull request final aparece en Reviews, donde se fusiona
+- Ejecuciones del agente: las ejecuciones de un workflow se agrupan bajo su nodo con un punto de estado y un rótulo, las ejecuciones de revisión llevan su título, una ejecución que te necesita lleva un punto y el panel Recent dibuja el árbol
+- Issues: la insignia de bloqueos abre un minigráfico dibujado sobre una única cuadrícula compartida, y la cabecera de una ejecución de stack o por lotes muestra el issue principal con un recuento
+- Editor: al escribir --- se inserta un separador al instante
+- Actividad: los cambios de estimación se agrupan como cualquier otra edición de campo

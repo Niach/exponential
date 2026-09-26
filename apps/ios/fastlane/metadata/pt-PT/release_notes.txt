@@ -1,6 +1,5 @@
-- Seletores: estado, responsável, etiquetas, board e os restantes abrem o mesmo painel com pesquisa e linhas simples, e escolher vários vê-se pelo destaque em vez de um círculo
-- Execuções do agente: a lista de execuções a decorrer fica aninhada, as de um workflow sob uma linha que abre o workflow e as de uma stack sob outra, e a seta fecha ambas
-- Workflows: o ecrã perde o bloco de definições, um nó diz o seu próprio estado e abre em Issue, Run e Changes, e o pull request final é integrado a partir dali
-- Definições da máquina: o painel está reordenado, e uma nova página «Workflow settings» guarda os modelos com que arranca um workflow novo
-- Troca de team: um ponto na seta quando outro team tem uma das suas execuções a decorrer, âmbar quando espera uma entrada
-- Membros: um membro da lista que ainda ninguém convidou aparece como «Not invited» em vez de «Invite expired»
+- Workflows: uma fila de chips escolhe um nó e abre-o em Issue, Run, Changes e Results, uma pergunta do planeador aparece num banner, Pause e Dismiss estão no menu de mais opções, e o pull request final aparece em Reviews, onde é integrado
+- Execuções do agente: as execuções de um workflow agrupam-se sob o seu nó com um ponto de estado e uma legenda, as execuções de revisão levam os seus títulos, uma execução que precisa de si tem um ponto, e o painel Recent desenha a árvore
+- Issues: o distintivo de bloqueios abre um minigráfico desenhado numa única grelha partilhada, e o cabeçalho de uma execução em stack ou em lote mostra o issue da frente com uma contagem
+- Editor: escrever --- insere logo um separador
+- Atividade: as alterações de estimativa agrupam-se como qualquer outra edição de campo

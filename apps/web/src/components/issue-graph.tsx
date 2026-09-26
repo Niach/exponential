@@ -8,6 +8,7 @@ import {
   blockGraph,
   ISSUE_GRAPH_CYCLE_NOTE,
   ISSUE_GRAPH_GEOMETRY,
+  issueGraphEdgePath,
   issueGraphSize,
   ISSUE_GRAPH_TRUNCATED_NOTE,
   type IssueGraph,
@@ -40,7 +41,10 @@ import { cn } from "@/lib/utils"
 // EXP-1057: the geometry is THE one of `issue-graph-geometry.json` (identical
 // ×4). The grid sits `inset` inside its scroll box, so the rings on the edge
 // columns are never clipped, and the box is sized from the grid, capped at
-// the contract's viewport.
+// the contract's viewport. The EDGES draw through the contract too: `pathFor`
+// hands `WaveGraph` the fixture-locked cubic (`issueGraphEdgePath`) and the
+// stroke is the fixture's `edgeStroke`, so the web bends exactly as the
+// natives do.
 
 export function IssueGraphView({
   graph,
@@ -87,6 +91,10 @@ export function IssueGraphView({
           nodeHeight={g.nodeHeight}
           waveGap={g.waveGap}
           laneGap={g.laneGap}
+          edgeStrokeWidth={g.edgeStroke}
+          pathFor={(_edge, { from, to }) =>
+            issueGraphEdgePath(from, to, { insetIncluded: false })
+          }
           renderNode={(id) => {
             const issue = issueById.get(id)
             return issue ? renderNode(issue) : null

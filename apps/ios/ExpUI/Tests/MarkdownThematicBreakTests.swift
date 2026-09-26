@@ -105,4 +105,79 @@ final class MarkdownThematicBreakTests: XCTestCase {
         XCTAssertNil(MarkdownFormatOps.thematicBreakDeletionRange(
             in: text, deleting: NSRange(location: 1, length: 1)))
     }
+
+    // MARK: - Typing after the rule (the typing-attribute leak)
+
+    private var glyphLength: Int { (MarkdownStyle.thematicBreakGlyph as NSString).length }
+
+    /// The editor sanitizes typing attributes on every selection change; a
+    /// caret parked after the glyph must not type the next paragraph AS the
+    /// rule.
+    func testSanitizedTypingAttributesDropTheBreakMarker() {
+        let clean = MarkdownChipDecorator.sanitizedTypingAttributes(MarkdownStyle.thematicBreakAttributes)
+        XCTAssertNil(clean[.markdownThematicBreak])
+        XCTAssertEqual(clean[.foregroundColor] as? PlatformColor, MarkdownStyle.textColor)
+        XCTAssertNotNil(clean[.font])
+        let plain = MarkdownChipDecorator.sanitizedTypingAttributes(MarkdownStyle.baseAttributes)
+        XCTAssertEqual(plain.count, MarkdownStyle.baseAttributes.count)
+    }
+
+    /// Typing `---`, then a paragraph, then Backspace at that paragraph's
+    /// start removes ONLY the rule, whether the paragraph was typed with
+    /// clean typing attributes or with the break's leaked ones.
+    func testBackspaceAtTheStartOfTheParagraphTypedAfterTheRuleKeepsIt() {
+        for leaked in [false, true] {
+            let text = NSMutableAttributedString(string: "alpha\n--", attributes: MarkdownStyle.baseAttributes)
+            guard let content = MarkdownFormatOps.thematicBreakShortcutRange(
+                in: text, replacing: NSRange(location: 8, length: 0), with: "-") else {
+                return XCTFail("expected the shortcut to fire")
+            }
+            let caret = MarkdownFormatOps.applyThematicBreak(to: text, content: content)
+            let typing = leaked
+                ? MarkdownStyle.thematicBreakAttributes
+                : MarkdownChipDecorator.sanitizedTypingAttributes(MarkdownStyle.thematicBreakAttributes)
+            if leaked {
+                // The worst case: the newline after the glyph carries the marker too.
+                text.setAttributes(typing, range: NSRange(location: caret - 1, length: 1))
+            }
+            text.insert(NSAttributedString(string: "beta", attributes: typing), at: caret)
+            XCTAssertEqual(MarkdownConversion.attributedStringToMarkdown(text), "alpha\n\n---\n\nbeta", "leaked=\(leaked)")
+
+            let backspace = NSRange(location: caret - 1, length: 1)
+            let atom = MarkdownFormatOps.thematicBreakDeletionRange(in: text, deleting: backspace)
+            XCTAssertEqual(atom, NSRange(location: 6, length: glyphLength + 1), "leaked=\(leaked)")
+            text.replaceCharacters(in: atom ?? backspace, with: "")
+            XCTAssertEqual(text.string, "alpha\nbeta", "leaked=\(leaked)")
+            XCTAssertEqual(MarkdownConversion.attributedStringToMarkdown(text), "alpha\n\nbeta", "leaked=\(leaked)")
+        }
+    }
+
+    /// Text that landed ON the glyph line with the marker (an older leak) is
+    /// the paragraph below: the atom is the glyph alone, and a Backspace at
+    /// the glyph's start keeps the newline that separates the two paragraphs.
+    func testTextOnTheGlyphLineSurvivesDeletingTheRule() {
+        func text() -> NSMutableAttributedString {
+            let text = NSMutableAttributedString(string: "alpha\n", attributes: MarkdownStyle.baseAttributes)
+            text.append(NSAttributedString(
+                string: MarkdownStyle.thematicBreakGlyph + "beta", attributes: MarkdownStyle.thematicBreakAttributes))
+            return text
+        }
+        XCTAssertEqual(MarkdownConversion.attributedStringToMarkdown(text()), "alpha\n\n---\n\nbeta")
+        let glyph = NSRange(location: 6, length: glyphLength)
+
+        let beforeBeta = text()
+        let lastGlyphChar = NSRange(location: 6 + glyphLength - 1, length: 1)
+        XCTAssertEqual(MarkdownFormatOps.thematicBreakDeletionRange(in: beforeBeta, deleting: lastGlyphChar), glyph)
+        beforeBeta.replaceCharacters(in: glyph, with: "")
+        XCTAssertEqual(MarkdownConversion.attributedStringToMarkdown(beforeBeta), "alpha\n\nbeta")
+
+        let atGlyphStart = text()
+        XCTAssertEqual(
+            MarkdownFormatOps.thematicBreakDeletionRange(in: atGlyphStart, deleting: NSRange(location: 5, length: 1)),
+            glyph)
+
+        // Deleting the `b` itself leaves the rule alone.
+        XCTAssertNil(MarkdownFormatOps.thematicBreakDeletionRange(
+            in: text(), deleting: NSRange(location: 6 + glyphLength, length: 1)))
+    }
 }

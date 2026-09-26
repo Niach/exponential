@@ -1682,8 +1682,68 @@ impl Editor {
                     return;
                 }
                 let prev = visible_before[current_visible_index - 1].entity.clone();
+                let prev_kind = prev.read(cx).kind();
                 let quote_related = self.block_is_quote_structure_related(&block, cx)
                     || self.block_is_quote_structure_related(&prev, cx);
+
+                // Backspace at the start of the block below a horizontal rule
+                // removes the rule (mirror of the RequestMergeWithNext
+                // branch): the caret block keeps its text at offset 0 and the
+                // rule's children re-parent in its place. Merging into the
+                // Separator appended the text to a title the serializer
+                // discards (`---` is bare), so it vanished on save; removing
+                // exactly one block takes exactly one newline (EXP-1018).
+                if prev_kind.is_separator() {
+                    self.prepare_undo_capture(
+                        crate::components::UndoCaptureKind::NonCoalescible,
+                        cx,
+                    );
+                    let adopted_children = super::tree::DocumentTree::take_children(&prev, cx);
+                    self.document.with_structure_mutation(cx, |document, cx| {
+                        if let Some((_, location)) =
+                            document.remove_block_by_id_raw(prev.entity_id(), cx)
+                        {
+                            document.insert_blocks_at_raw(
+                                location.parent,
+                                location.index,
+                                adopted_children.clone(),
+                                cx,
+                            );
+                        }
+                    });
+                    Self::reset_block_cursor(&block, 0, cx);
+                    self.focus_block(block.entity_id());
+                    if quote_related {
+                        self.normalize_rendered_quote_structure(cx);
+                    }
+                    self.mark_dirty(cx);
+                    self.finalize_pending_undo_capture(cx);
+                    cx.notify();
+                    return;
+                }
+
+                // Web parity with the forward path (EXP-285): Backspace at the
+                // start of the block below a rendered image selects the image
+                // instead of splicing the caret text onto its `![alt](src)`
+                // source; the next Backspace on the focused image removes it.
+                if prev.read(cx).showing_rendered_image() {
+                    Self::reset_block_cursor(&prev, 0, cx);
+                    self.focus_block(prev.entity_id());
+                    cx.notify();
+                    return;
+                }
+
+                // Tables serialize their cells and drop the block title,
+                // footnote definitions only their `[^label]: ` — a merge
+                // would lose or mangle the caret text. They stay untouched,
+                // like the forward path's structural neighbours.
+                if matches!(
+                    prev_kind,
+                    BlockKind::Table | BlockKind::FootnoteDefinition
+                ) {
+                    return;
+                }
+
                 self.prepare_undo_capture(crate::components::UndoCaptureKind::NonCoalescible, cx);
 
                 let cursor_pos = prev.read(cx).display_text().len();
@@ -2772,6 +2832,154 @@ mod tests {
             assert_eq!(visible[0].entity.read(cx).display_text(), "alpha");
             assert_eq!(visible[1].entity.read(cx).display_text(), "beta");
             assert_eq!(editor.document.markdown_text(cx), "alpha\n\nbeta");
+        });
+    }
+
+    // Backspace at the start of the paragraph below a rule removes the rule
+    // and keeps the paragraph: the old merge appended "beta" to the
+    // Separator's title, which serializes as a bare `---`, so the text was
+    // lost on save ("alpha\n\n---").
+    #[gpui::test]
+    async fn backspace_at_start_of_paragraph_below_a_separator_removes_the_rule(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "alpha\n\n---\n\nbeta".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let visible = editor.document.visible_blocks();
+                assert_eq!(visible.len(), 3);
+                assert_eq!(visible[1].entity.read(cx).kind(), BlockKind::Separator);
+                let below = visible[2].entity.clone();
+                below.update(cx, |block, block_cx| {
+                    block.move_to(0, block_cx);
+                    block.on_delete_back(&DeleteBack, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            // Exactly one block goes, the caret block keeps its text.
+            assert_eq!(visible.len(), 2);
+            assert_eq!(visible[0].entity.read(cx).display_text(), "alpha");
+            assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::Paragraph);
+            let below = visible[1].entity.clone();
+            assert_eq!(below.read(cx).display_text(), "beta");
+            assert_eq!(below.read(cx).kind(), BlockKind::Paragraph);
+            // The caret stays in the paragraph below, at offset 0.
+            assert_eq!(editor.pending_focus, Some(below.entity_id()));
+            assert_eq!(below.read(cx).cursor_offset(), 0);
+            // A deleted break takes exactly one newline (EXP-1018).
+            assert_eq!(editor.document.markdown_text(cx), "alpha\n\nbeta");
+        });
+    }
+
+    // The rule's children re-parent in its place, like the forward path.
+    // A separator's children are always visible right after it, so the
+    // keyboard never reaches this arm with one; the handler is driven
+    // directly on the cached visible snapshot to lock the re-parenting.
+    #[gpui::test]
+    async fn backspace_below_a_separator_reparents_its_children(cx: &mut TestAppContext) {
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "alpha\n\n---\n\nbeta".to_string(), None));
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks().to_vec();
+            let separator = visible[1].entity.clone();
+            let below = visible[2].entity.clone();
+            let child = Editor::new_block(cx, BlockRecord::paragraph("child"));
+            // Attached without a structure rebuild so the snapshot still
+            // lists the separator directly before `beta`.
+            separator.update(cx, |block, _cx| block.children.push(child.clone()));
+
+            let content = below.read(cx).record.title.clone();
+            editor.on_block_event(
+                below.clone(),
+                &BlockEvent::RequestMergeIntoPrev { content },
+                cx,
+            );
+
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 3);
+            assert_eq!(visible[0].entity.read(cx).display_text(), "alpha");
+            assert_eq!(visible[1].entity.entity_id(), child.entity_id());
+            assert_eq!(visible[1].entity.read(cx).display_text(), "child");
+            assert_eq!(visible[2].entity.entity_id(), below.entity_id());
+            assert_eq!(visible[2].entity.read(cx).display_text(), "beta");
+            assert!(
+                editor
+                    .document
+                    .visible_blocks()
+                    .iter()
+                    .all(|block| block.entity.read(cx).kind() != BlockKind::Separator)
+            );
+            assert_eq!(editor.pending_focus, Some(below.entity_id()));
+            assert_eq!(editor.document.markdown_text(cx), "alpha\n\nchild\n\nbeta");
+        });
+    }
+
+    // Backspace at the start of the paragraph below a table leaves both
+    // untouched: a table serializes its cells and drops the block title, so
+    // the old merge lost the paragraph on save.
+    #[gpui::test]
+    async fn backspace_at_start_of_paragraph_below_a_table_is_a_no_op(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let markdown = "| A | B |\n| --- | --- |\n| 1 | 2 |\n\nbeta".to_string();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, markdown.clone(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let visible = editor.document.visible_blocks();
+                assert_eq!(visible.len(), 2);
+                assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::Table);
+                let below = visible[1].entity.clone();
+                below.update(cx, |block, block_cx| {
+                    block.move_to(0, block_cx);
+                    block.on_delete_back(&DeleteBack, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 2);
+            assert_eq!(visible[1].entity.read(cx).display_text(), "beta");
+            assert_eq!(editor.document.markdown_text(cx), markdown);
+        });
+    }
+
+    // Web parity with the forward path (EXP-285): Backspace at the start of
+    // the paragraph below a rendered image selects the image; the old merge
+    // spliced "beta" onto the `![a](p.png)` source.
+    #[gpui::test]
+    async fn backspace_at_start_of_paragraph_below_an_image_focuses_the_image(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+        let editor =
+            cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)\n\nbeta".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let below = editor.document.visible_blocks()[1].entity.clone();
+                below.update(cx, |block, block_cx| {
+                    block.move_to(0, block_cx);
+                    block.on_delete_back(&DeleteBack, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 2);
+            let image = visible[0].entity.clone();
+            assert!(image.read(cx).renders_as_standalone_image());
+            assert_eq!(editor.pending_focus, Some(image.entity_id()));
+            assert_eq!(visible[1].entity.read(cx).display_text(), "beta");
+            assert_eq!(editor.document.markdown_text(cx), "![a](p.png)\n\nbeta");
         });
     }
 

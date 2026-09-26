@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNotNull, isNull, or } from "drizzle-orm"
+import { and, eq, gte, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { applyWorkflowFinalPrState } from "@/lib/workflow-final-pr"
 import { issues, boards, codingSessions, workflows } from "@/db/schema"
@@ -236,11 +236,16 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
       // EXP-1059: a CLOSED final PR is polled too — the engine's reopen and
       // a member's `openFinalPr` write `open` themselves, but a reopen done
       // on github.com has only this mirror on a self-host without webhooks.
+      // Bounded like the issue lane (REV2-74): a final PR closed longer ago
+      // than the window is not asked about again.
       .where(
         and(
           isNotNull(workflows.finalPrUrl),
           isNotNull(workflows.finalPrNumber),
-          inArray(workflows.finalPrState, [`open`, `closed`])
+          or(
+            eq(workflows.finalPrState, `open`),
+            and(eq(workflows.finalPrState, `closed`), gte(workflows.updatedAt, closedCutoff))
+          )
         )
       )
     for (const row of workflowRows) {

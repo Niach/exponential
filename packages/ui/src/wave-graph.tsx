@@ -77,6 +77,47 @@ export interface WaveGraphMetrics {
   laneGap?: number
 }
 
+/** What a custom edge painter (`pathFor`) sees: both nodes, where their
+ *  boxes sit in the grid's own coordinates (no inset; the host pads), and
+ *  the metrics the grid was laid out with. */
+export interface WaveGraphEdgeGeometry extends Required<WaveGraphMetrics> {
+  from: WaveGraphNode
+  to: WaveGraphNode
+  /** The blocker box's top-left. */
+  fromAt: { x: number; y: number }
+  /** The blocked box's top-left. */
+  toAt: { x: number; y: number }
+}
+
+/** The default edge: a level stub from the anchor to its cell's edge, then a
+ *  cubic bowed inside the GAP between the two columns, so an edge never cuts
+ *  through a label that sits beside (or under) its anchor. A cycle edge that
+ *  runs backwards (or inside one wave) has no gap to curve in and bows half a
+ *  gap instead. */
+function defaultEdgePath(
+  geometry: WaveGraphEdgeGeometry,
+  out: { x: number; y: number },
+  into: { x: number; y: number }
+): string {
+  const { fromAt, toAt, nodeWidth, waveGap } = geometry
+  const x1 = fromAt.x + out.x
+  const y1 = fromAt.y + out.y
+  const x2 = toAt.x + into.x
+  const y2 = toAt.y + into.y
+  const gapStart = fromAt.x + nodeWidth
+  const gapEnd = toAt.x
+  const forward = gapEnd > gapStart
+  const c1 = forward ? gapStart : x1
+  const c2 = forward ? gapEnd : x2
+  const bend = forward
+    ? (c2 - c1) / 2
+    : Math.max(waveGap / 2, Math.abs(x2 - x1) / 2)
+  return `M ${x1} ${y1} L ${c1} ${y1} C ${c1 + bend} ${y1}, ${c2 - bend} ${y2}, ${c2} ${y2} L ${x2} ${y2}`
+}
+
+/** The default stroke; the issue flavour passes the contract's constant. */
+const EDGE_STROKE_WIDTH = 1.25
+
 /**
  * The grid's NATURAL size, with nothing drawn: a host that has to fit the
  * whole picture into a fixed width (the workflow screen scales it down rather
@@ -117,6 +158,8 @@ export function WaveGraph({
   laneGap = LANE_GAP,
   edgeOut,
   edgeIn,
+  edgeStrokeWidth = EDGE_STROKE_WIDTH,
+  pathFor,
   idPrefix = `issue-graph`,
   renderNode,
   nodeProps,
@@ -131,6 +174,13 @@ export function WaveGraph({
    *  Boxes default to their side middles. */
   edgeOut?: { x: number; y: number }
   edgeIn?: { x: number; y: number }
+  /** The edges' stroke width. */
+  edgeStrokeWidth?: number
+  /** EXP-1057: the edge's SVG path, when the caller owns the curve (the
+   *  issue flavour draws THE contract's cubic, `lib/issue-graph.ts`
+   *  `issueGraphEdge`, so the web and the natives bend alike). Absent, the
+   *  grid bows the edge inside the gap itself. */
+  pathFor?: (edge: WaveGraphEdge, geometry: WaveGraphEdgeGeometry) => string
   /** Names the edge paths and any unnamed node box in the DOM. */
   idPrefix?: string
   renderNode: (id: string) => ReactNode
@@ -139,7 +189,9 @@ export function WaveGraph({
 }) {
   const layout = useMemo(() => {
     const at = new Map<string, { x: number; y: number }>()
+    const byId = new Map<string, WaveGraphNode>()
     for (const node of nodes) {
+      byId.set(node.id, node)
       at.set(node.id, {
         x: node.wave * (nodeWidth + waveGap),
         y: node.lane * (nodeHeight + laneGap),
@@ -153,6 +205,7 @@ export function WaveGraph({
     }
     return {
       at,
+      byId,
       onCycle,
       ...waveGraphSize(nodes, { nodeWidth, nodeHeight, waveGap, laneGap }),
     }
@@ -173,33 +226,30 @@ export function WaveGraph({
         height={layout.height}
       >
         {edges.map((edge) => {
-          const from = layout.at.get(edge.from)
-          const to = layout.at.get(edge.to)
-          if (!from || !to) return null
-          const x1 = from.x + out.x
-          const y1 = from.y + out.y
-          const x2 = to.x + into.x
-          const y2 = to.y + into.y
-          // The curve lives in the GAP between two cells: a level stub runs
-          // from the anchor to its cell's edge first, so an edge never cuts
-          // through a label that sits beside (or under) its anchor. A cycle
-          // edge that runs backwards (or inside one wave) has no gap to
-          // curve in and bows half a gap instead.
-          const gapStart = from.x + nodeWidth
-          const gapEnd = to.x
-          const forward = gapEnd > gapStart
-          const c1 = forward ? gapStart : x1
-          const c2 = forward ? gapEnd : x2
-          const bend = forward
-            ? (c2 - c1) / 2
-            : Math.max(waveGap / 2, Math.abs(x2 - x1) / 2)
-          const d = `M ${x1} ${y1} L ${c1} ${y1} C ${c1 + bend} ${y1}, ${c2 - bend} ${y2}, ${c2} ${y2} L ${x2} ${y2}`
+          const fromAt = layout.at.get(edge.from)
+          const toAt = layout.at.get(edge.to)
+          const from = layout.byId.get(edge.from)
+          const to = layout.byId.get(edge.to)
+          if (!fromAt || !toAt || !from || !to) return null
+          const geometry: WaveGraphEdgeGeometry = {
+            from,
+            to,
+            fromAt,
+            toAt,
+            nodeWidth,
+            nodeHeight,
+            waveGap,
+            laneGap,
+          }
+          const d = pathFor
+            ? pathFor(edge, geometry)
+            : defaultEdgePath(geometry, out, into)
           return (
             <path
               key={`${edge.from}:${edge.to}`}
               d={d}
               fill="none"
-              strokeWidth={1.25}
+              strokeWidth={edgeStrokeWidth}
               stroke={EDGE_STROKE[edge.style]}
               strokeDasharray={
                 edge.style === `speculative` ? `4 3` : undefined

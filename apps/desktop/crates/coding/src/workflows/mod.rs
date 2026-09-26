@@ -72,8 +72,9 @@ pub use facts::{
     detect_conflicts, prune_conflict_cache, refresh_merged, stamp_tips_seen, NodeGit,
 };
 pub use state::{
-    conflict_key, final_pr_close_handled, hold_resume, merge_resuming, release_resume,
-    WorkflowState, WorkflowStore, WORKFLOW_ENGINE_KEY,
+    conflict_key, final_pr_close_handled, hold_resume, merge_resuming, merge_settled,
+    pending_launches, prune_launched, release_resume, WorkflowState, WorkflowStore,
+    WORKFLOW_ENGINE_KEY,
 };
 
 /// The `exp/*` branches one workflow's tips call covers — every branch the
@@ -370,6 +371,32 @@ pub struct FixRunFacts {
     /// nothing and its branch is not up at all). Nothing left to land.
     #[serde(default)]
     pub landed: bool,
+}
+
+/// EXP-1103: `runs` (the fix runs found by branch on the synced rows) plus
+/// the ones this host launched whose row has not synced yet — `stored` =
+/// `WorkflowState::fix_runs`, `pending` = [`pending_launches`]. A pending
+/// launch reads LIVE with nothing landed, and replaces the wave's synced
+/// entry (an earlier run of the same wave that ended).
+pub fn with_pending_fix_runs(
+    mut runs: Vec<FixRunFacts>,
+    stored: &HashMap<i64, String>,
+    pending: &HashSet<String>,
+) -> Vec<FixRunFacts> {
+    for (wave, session_id) in stored {
+        if !pending.contains(session_id) {
+            continue;
+        }
+        runs.retain(|fix| fix.wave != *wave);
+        runs.push(FixRunFacts {
+            wave: *wave,
+            session_id: session_id.clone(),
+            live: true,
+            landed: false,
+        });
+    }
+    runs.sort_by_key(|fix| fix.wave);
+    runs
 }
 
 /// One evaluation pass's inputs — everything, including the clock.

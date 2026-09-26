@@ -542,7 +542,7 @@ extension WorkflowView {
             var parts = ["\(done) of \(admitted.count) done"]
             let running = tally(.running)
             if running > 0 { parts.append("\(running) running") }
-            if let deviceLabel { parts.insert("on \(deviceLabel)", at: 0) }
+            if let deviceLabel, !deviceLabel.isEmpty { parts.insert("on \(deviceLabel)", at: 0) }
             return parts.joined(separator: " · ")
         }
         let word = statusWords[status] ?? (status.prefix(1).uppercased() + status.dropFirst())
@@ -562,7 +562,7 @@ extension WorkflowView {
         status: String, deviceLabel: String?, finalPrState: String? = nil
     ) -> WorkflowPrimaryAction? {
         switch status {
-        case DomainContract.wfStatusDraft: return deviceLabel == nil ? .pickDevice : .start
+        case DomainContract.wfStatusDraft: return (deviceLabel ?? "").isEmpty ? .pickDevice : .start
         case DomainContract.wfStatusRunning, DomainContract.wfStatusPaused:
             if finalPrState == "open" { return .reviewFinalPr }
             return status == DomainContract.wfStatusRunning ? .pause : .resume

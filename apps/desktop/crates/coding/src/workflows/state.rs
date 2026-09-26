@@ -29,7 +29,8 @@
 //!   "fixRuns": { "<wave>": "<sessionId>" },
 //!   "finalPrCloseHandled": false,
 //!   "landRefused": { "<nodeId>": "<sha>" },
-//!   "resuming": { "<sessionId>": 1726000000000 }
+//!   "resuming": { "<sessionId>": 1726000000000 },
+//!   "launched": { "<sessionId>": 1726000000000 }
 //! }
 //! ```
 //!
@@ -102,6 +103,64 @@ pub struct WorkflowState {
     /// `session id → ms epoch` of the runs this host is RESUMING: they read
     /// as live until the node names the new run, or the grace passes.
     pub resuming: HashMap<String, i64>,
+    /// `session id → ms epoch` of the reviewer and fix runs this host
+    /// LAUNCHED: a run whose synced `coding_sessions` row has not landed
+    /// yet reads as in flight until it does, or the grace passes
+    /// ([`pending_launches`]) — the row lags the launch by seconds, and a
+    /// pass in between would start the same review or fix again.
+    pub launched: HashMap<String, i64>,
+}
+
+/// The reviewer and fix runs in `launched` still WAITING for their synced
+/// row: `synced(id)` = the row is there. A run past
+/// [`super::RESUME_GRACE_MS`] without a row never came up and is not
+/// waited for.
+pub fn pending_launches(
+    launched: &HashMap<String, i64>,
+    synced: impl Fn(&str) -> bool,
+    now_ms: i64,
+) -> HashSet<String> {
+    launched
+        .iter()
+        .filter(|(session_id, at)| {
+            !synced(session_id) && now_ms - **at < super::RESUME_GRACE_MS
+        })
+        .map(|(session_id, _)| session_id.clone())
+        .collect()
+}
+
+/// Drop every `launched` entry whose row synced or whose grace passed.
+pub fn prune_launched(
+    launched: &mut HashMap<String, i64>,
+    synced: impl Fn(&str) -> bool,
+    now_ms: i64,
+) {
+    launched.retain(|session_id, at| !synced(session_id) && now_ms - *at < super::RESUME_GRACE_MS);
+}
+
+/// The pass's write-back of one settled map, merged three ways rather than
+/// assigned: a key another writer changed since the pass READ it (`before`)
+/// — a foreground launch recording its run, a hold a person's resume took —
+/// keeps that newer value, every other key takes the pass's verdict
+/// (updated, or dropped when the pass dropped it).
+pub fn merge_settled<K, V>(persisted: &mut HashMap<K, V>, before: &HashMap<K, V>, settled: HashMap<K, V>)
+where
+    K: std::hash::Hash + Eq + Clone,
+    V: PartialEq,
+{
+    let dropped: Vec<K> = before
+        .keys()
+        .filter(|key| !settled.contains_key(*key) && persisted.get(*key) == before.get(*key))
+        .cloned()
+        .collect();
+    for key in dropped {
+        persisted.remove(&key);
+    }
+    for (key, value) in settled {
+        if persisted.get(&key) == before.get(&key) {
+            persisted.insert(key, value);
+        }
+    }
 }
 
 /// The conflict cache's key: the pair and the tips it was decided at, both
@@ -361,6 +420,7 @@ fn encode(state: &WorkflowState) -> Value {
         "fixRuns": fix_runs,
         "landRefused": state.land_refused,
         "resuming": state.resuming,
+        "launched": state.launched,
     })
 }
 
@@ -442,6 +502,7 @@ fn decode(value: &Value) -> WorkflowState {
             .unwrap_or_default(),
         land_refused: read_string_map(value.get("landRefused")),
         resuming: read_round_map(value.get("resuming")),
+        launched: read_round_map(value.get("launched")),
     }
 }
 
@@ -708,6 +769,46 @@ mod tests {
         assert_eq!(persisted, [("s".to_string(), 42)].into_iter().collect::<HashMap<_, _>>());
     }
 
+    /// The pass's review records are merged three ways: a record a
+    /// foreground launch wrote since the read is kept whatever the pass
+    /// settled, while the keys the pass dropped or re-pointed follow it.
+    #[test]
+    fn a_settled_map_never_overwrites_what_changed_since_the_read() {
+        let map = |pairs: &[(&str, &str)]| -> HashMap<String, String> {
+            pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        };
+        let before = map(&[("a", "s-a"), ("b", "s-b"), ("c", "s-c")]);
+        // Since the read: `n` was launched, `b` re-pointed at a fresh run.
+        let mut persisted = map(&[("a", "s-a"), ("b", "s-b2"), ("c", "s-c"), ("n", "s-n")]);
+        // The pass: `a` ended (dropped), `b` ended (dropped), `c` followed
+        // its resume, `d` adopted.
+        let settled = map(&[("c", "s-c2"), ("d", "s-d")]);
+        merge_settled(&mut persisted, &before, settled);
+        assert_eq!(persisted, map(&[("b", "s-b2"), ("c", "s-c2"), ("d", "s-d"), ("n", "s-n")]));
+        // A plain assignment when nothing moved meanwhile.
+        let mut same = before.clone();
+        merge_settled(&mut same, &before, map(&[("a", "s-a")]));
+        assert_eq!(same, map(&[("a", "s-a")]));
+    }
+
+    /// A launched reviewer or fix run reads as in flight until its row
+    /// syncs, for one resume grace; synced or aged entries fall out.
+    #[test]
+    fn launched_runs_are_pending_until_their_row_syncs_or_the_grace_passes() {
+        let now = 1_000_000;
+        let mut launched: HashMap<String, i64> = [
+            ("s-fresh".to_string(), now - 1_000),
+            ("s-synced".to_string(), now - 1_000),
+            ("s-old".to_string(), now - super::super::RESUME_GRACE_MS),
+        ]
+        .into_iter()
+        .collect();
+        let synced = |id: &str| id == "s-synced";
+        assert_eq!(pending_launches(&launched, synced, now), HashSet::from(["s-fresh".to_string()]));
+        prune_launched(&mut launched, synced, now);
+        assert_eq!(launched.keys().collect::<Vec<_>>(), vec!["s-fresh"]);
+    }
+
     /// EXP-1059: one closed episode is put to the server once; the flag
     /// clears itself the moment the PR reads open again.
     #[test]
@@ -757,6 +858,7 @@ mod tests {
         mine.final_pr_close_handled = true;
         mine.land_refused.insert("node-1".to_string(), "sha-a2".to_string());
         mine.resuming.insert("sess-1".to_string(), 1_726_000_000_000);
+        mine.launched.insert("sess-r1".to_string(), 1_726_000_000_000);
         mine.nudged.insert(("sess-1".to_string(), "freeze".to_string()));
         store.write("wf-1", &mine).unwrap();
         assert_eq!(store.read("wf-1"), mine);

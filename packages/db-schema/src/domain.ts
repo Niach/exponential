@@ -1086,59 +1086,6 @@ export interface WorkflowLaunchStored {
   reviewModel?: string | null
 }
 
-/**
- * EXP-1002: what a NEW workflow starts configured as, PER AGENT. Explicit on
- * every field a run reads, so a person opening the panel sees the launch
- * rather than five rows reading "Default".
- *
- * @deprecated EXP-1029 — a new workflow takes `model` / `strongModel` from the
- * creating device's agent defaults (`DeviceWorkflowDefaults`); EXP-1014
- * replaces this table with `WORKFLOW_LAUNCH_DEFAULTS`.
- */
-export const WORKFLOW_DEFAULT_LAUNCH_BY_AGENT: Record<string, WorkflowLaunchStored> = {
-  claude: {
-    agent: `claude`,
-    model: `opus`,
-    contractModel: `fable`,
-    integrationModel: `fable`,
-    riskModel: `fable`,
-    subagentModel: `opus`,
-  },
-  // Codex has no subagent model to pin (claude-only), so its entry is the
-  // four that a node run actually reads.
-  codex: {
-    agent: `codex`,
-    model: `gpt-5.6-sol`,
-    contractModel: `gpt-5.6-luna`,
-    integrationModel: `gpt-5.6-luna`,
-    riskModel: `gpt-5.6-luna`,
-  },
-}
-
-/** The launch a new workflow is created with: the default agent's entry.
- *  @deprecated EXP-1029 — see `WORKFLOW_DEFAULT_LAUNCH_BY_AGENT`. */
-export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunchStored =
-  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT.claude!
-
-/** The stored shape's wire schema (`workflows.update`). Keys stay `.strict()`
- *  so a typo is refused; the deprecated keys stay accepted for old clients
- *  (EXP-1032 normalizes them away before anything is stored). */
-export const workflowLaunchSchema = z
-  .object({
-    agent: z.string().max(16).nullish(),
-    model: z.string().max(64).nullish(),
-    strongModel: z.string().max(64).nullish(),
-    contractModel: z.string().max(64).nullish(),
-    integrationModel: z.string().max(64).nullish(),
-    riskModel: z.string().max(64).nullish(),
-    subagentModel: z.string().max(64).nullish(),
-    effort: z.string().max(32).nullish(),
-    account: z.string().max(64).nullish(),
-    maxParallel: z.number().int().min(1).max(WORKFLOW_MAX_PARALLEL_CAP).nullish(),
-    reviewModel: z.string().max(64).nullish(),
-  })
-  .strict()
-
 /** EXP-1029: a device's WORKFLOW model defaults — `launch_defaults.workflow`
  *  on the synced devices row, `workflowModel` / `workflowStrongModel` in the
  *  desktop's settings.json. What a new workflow's launch is seeded from

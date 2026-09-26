@@ -42,7 +42,10 @@ public enum SessionTree {
         for key in childrenOf.keys {
             childrenOf[key]?.sort { a, b in
                 let (sa, sb) = (sessions[a], sessions[b])
-                let (ta, tb) = (startedAt(sa) ?? "", startedAt(sb) ?? "")
+                // Parsed, never the raw string (web `startStamp`): a `.5Z`
+                // fractional stamp and a Postgres `+00` text form sort by
+                // instant, an unparseable one reads as 0 and the id decides.
+                let (ta, tb) = (stamp(startedAt(sa)), stamp(startedAt(sb)))
                 return ta != tb ? ta < tb : id(sa) < id(sb)
             }
         }

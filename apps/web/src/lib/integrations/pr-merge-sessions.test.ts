@@ -129,6 +129,8 @@ describe(`endLiveIssueSessionsInTx`, () => {
       endedAt: expect.any(Date),
       endedBy: `merge`,
       updatedAt: expect.any(Date),
+      // An ended run asks nobody anything.
+      pendingQuestion: null,
     })
     // EXP-637: the sweep spares the session that merged its own PR. EXP-888:
     // a stale-swept row is a target like any live one — the sweep's end is
@@ -170,6 +172,8 @@ describe(`endMergedPrSessions`, () => {
       endedAt: expect.any(Date),
       endedBy: `merge`,
       updatedAt: expect.any(Date),
+      // An ended run asks nobody anything.
+      pendingQuestion: null,
     })
     expect(whereShape(h.updates[0]!.where)).toEqual([
       `col:issue_id`,

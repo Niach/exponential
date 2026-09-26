@@ -477,6 +477,14 @@ class WorkflowViewTest {
     }
 
     @Test
+    fun `every contract node state has an explicit display fold`() {
+        // A regenerated contract with a new `wfNodeState` value must land
+        // here, not silently read as queued through the fallback.
+        assertEquals(DomainContract.wfNodeStateValues.toSet(), WorkflowView.NODE_DISPLAY_STATES.keys)
+        assertEquals(DomainContract.wfNodeStateValues.size, WorkflowView.NODE_DISPLAY_STATES.size)
+    }
+
+    @Test
     fun `the needs-you label is byte exact`() {
         assertEquals(fixture.getValue("needsYouLabel").jsonPrimitive.content, WorkflowView.NEEDS_YOU_LABEL)
     }
@@ -558,6 +566,20 @@ class WorkflowViewTest {
                 )?.wire,
             )
         }
+    }
+
+    @Test
+    fun `an empty device label is no runner, like web`() {
+        // Web's `deviceLabel ? ... : ...` treats "" as absent; so does the
+        // header caption and the primary action here.
+        val nodes = listOf(HeaderNode(DomainContract.wfNodeStateRunning, 0))
+        assertEquals(
+            WorkflowView.headerCaption(DomainContract.wfStatusRunning, nodes, null),
+            WorkflowView.headerCaption(DomainContract.wfStatusRunning, nodes, ""),
+        )
+        assertFalse(WorkflowView.headerCaption(DomainContract.wfStatusRunning, nodes, "").startsWith("on "))
+        assertEquals(WorkflowPrimaryAction.PICK_DEVICE, WorkflowView.primaryAction(DomainContract.wfStatusDraft, ""))
+        assertEquals(WorkflowPrimaryAction.START, WorkflowView.primaryAction(DomainContract.wfStatusDraft, "Mac"))
     }
 
     @Test

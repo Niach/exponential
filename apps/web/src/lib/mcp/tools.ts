@@ -529,11 +529,15 @@ const sessionColumns = {
  * (when the row has none) and, when the row joined no workflow itself and
  * the calling run belongs to one, the parent's workflow + node through
  * `resolveWorkflowMembership` (role `author` for an issue or batch child,
- * else none). History only: the caller swallows a failure.
+ * else none). The membership is stamped only when the calling run is the
+ * caller's own (owner or host) and the child is in the workflow's team: the
+ * header names a run, it proves nothing. History only: the caller swallows
+ * a failure.
  */
 async function stampChildOfRun(
   row: { id: unknown; parentSessionId?: unknown },
-  sessionId: string
+  sessionId: string,
+  userId: string
 ): Promise<void> {
   const rowId = row.id as string
   const patch: {
@@ -547,31 +551,44 @@ async function stampChildOfRun(
     .select({
       workflowId: codingSessions.workflowId,
       workflowNodeId: codingSessions.workflowNodeId,
+      userId: codingSessions.userId,
+      hostUserId: codingSessions.hostUserId,
     })
     .from(codingSessions)
     .where(eq(codingSessions.id, sessionId))
     .limit(1)
-  const [child] = parent?.workflowId
-    ? await db
-        .select({
-          workflowId: codingSessions.workflowId,
-          issueId: codingSessions.issueId,
-          batchIssueIds: codingSessions.batchIssueIds,
-          startedReason: codingSessions.startedReason,
-        })
-        .from(codingSessions)
-        .where(eq(codingSessions.id, rowId))
-        .limit(1)
-    : []
+  const parentIsMine =
+    !!parent && (parent.userId === userId || parent.hostUserId === userId)
+  const [child] =
+    parent?.workflowId && parentIsMine
+      ? await db
+          .select({
+            workflowId: codingSessions.workflowId,
+            issueId: codingSessions.issueId,
+            batchIssueIds: codingSessions.batchIssueIds,
+            startedReason: codingSessions.startedReason,
+            teamId: codingSessions.teamId,
+          })
+          .from(codingSessions)
+          .where(eq(codingSessions.id, rowId))
+          .limit(1)
+      : []
   if (child && !child.workflowId && parent?.workflowId) {
-    const membership = resolveWorkflowMembership({
-      parent,
-      startedReason: child.startedReason,
-      issueIds: child.issueId ? [child.issueId] : (child.batchIssueIds ?? []),
-    })
-    patch.workflowId = membership.workflowId
-    patch.workflowNodeId = membership.workflowNodeId
-    patch.workflowRole = membership.workflowRole
+    const [workflow] = await db
+      .select({ teamId: workflows.teamId })
+      .from(workflows)
+      .where(eq(workflows.id, parent.workflowId))
+      .limit(1)
+    if (workflow && workflow.teamId === child.teamId) {
+      const membership = resolveWorkflowMembership({
+        parent,
+        startedReason: child.startedReason,
+        issueIds: child.issueId ? [child.issueId] : (child.batchIssueIds ?? []),
+      })
+      patch.workflowId = membership.workflowId
+      patch.workflowNodeId = membership.workflowNodeId
+      patch.workflowRole = membership.workflowRole
+    }
   }
   if (Object.keys(patch).length === 0) return
   await db.update(codingSessions).set(patch).where(eq(codingSessions.id, rowId))
@@ -3180,8 +3197,16 @@ export function registerExponentialTools(
             !membership?.workflowNodeId && child.startedReason === `workflow`
               ? await loadWorkflowNodeForSession(sessionId)
               : null
+          // A node's OWN run has no parent, or is its author or reviewer; a
+          // child a node run started on a chat or action subject inherits
+          // the node id (rule c) but asks its parent like any child.
+          const isNodeRun =
+            !!membership?.workflowNodeId &&
+            (!child.parentSessionId ||
+              membership.workflowRole === `author` ||
+              membership.workflowRole === `review`)
           const workflowNode: { workflowId: string; workflowNodeId: string } | null =
-            membership?.workflowNodeId
+            isNodeRun && membership?.workflowNodeId
               ? { workflowId: membership.workflowId, workflowNodeId: membership.workflowNodeId }
               : legacyNode
                 ? { workflowId: legacyNode.workflowId, workflowNodeId: legacyNode.nodeId }
@@ -3986,8 +4011,10 @@ export function registerExponentialTools(
           stackOn = { issueId: lowerId }
         }
         // EXP-1082 §1: only the workflow HOST names a membership — the
-        // calling run must itself belong to that workflow. Anyone else's
-        // keys are dropped silently (ignored, never refused).
+        // calling run must itself belong to that workflow and be the
+        // caller's own (owner or host: the header names a run, it proves
+        // nothing). Anyone else's keys are dropped silently (ignored, never
+        // refused).
         const {
           stackOnIssueId: _stackOnIssueId,
           workflowRole,
@@ -4002,11 +4029,16 @@ export function registerExponentialTools(
         } = {}
         if (workflowId && sessionId) {
           const [me] = await db
-            .select({ workflowId: codingSessions.workflowId })
+            .select({
+              workflowId: codingSessions.workflowId,
+              userId: codingSessions.userId,
+              hostUserId: codingSessions.hostUserId,
+            })
             .from(codingSessions)
             .where(eq(codingSessions.id, sessionId))
             .limit(1)
-          if (me?.workflowId === workflowId) {
+          const mine = !!me && (me.userId === user.id || me.hostUserId === user.id)
+          if (mine && me.workflowId === workflowId) {
             membership = {
               workflowId,
               ...(workflowNodeId ? { workflowNodeId } : {}),
@@ -4051,7 +4083,7 @@ export function registerExponentialTools(
             // stamped here — history only, never worth failing the start.
             if (sessionId) {
               try {
-                await stampChildOfRun(row, sessionId)
+                await stampChildOfRun(row, sessionId, user.id)
               } catch {
                 // ignored
               }

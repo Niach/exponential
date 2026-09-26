@@ -81,6 +81,28 @@ final class SessionTreeTests: XCTestCase {
             ["self@0", "a@0+", "b@1"]
         )
     }
+
+    // Children sort by the PARSED instant (web `startStamp`), never the raw
+    // string: `.5Z` sorts before `Z` as text but after it in time, a Postgres
+    // `+00` text form sorts before every ISO `T` form as text whatever its
+    // instant, and an unparseable stamp reads as 0 so the id decides.
+    func testSortsChildrenByTheParsedInstantNotTheRawString() {
+        let rows = nest([
+            Row(id: "p", parent: nil),
+            Row(id: "half", parent: "p", startedAt: "2026-09-10T10:00:00.5Z"),
+            Row(id: "whole", parent: "p", startedAt: "2026-09-10T10:00:00Z"),
+            Row(id: "pg", parent: "p", startedAt: "2026-09-10 10:00:02+00"),
+            Row(id: "iso", parent: "p", startedAt: "2026-09-10T10:00:01Z"),
+        ])
+        XCTAssertEqual(shape(rows), ["p@0+", "whole@1", "half@1", "iso@1", "pg@1"])
+        let unparseable = nest([
+            Row(id: "p", parent: nil),
+            Row(id: "b", parent: "p", startedAt: "2026-09-10T10:00:00Z"),
+            Row(id: "z", parent: "p", startedAt: "not a stamp"),
+            Row(id: "a", parent: "p", startedAt: ""),
+        ])
+        XCTAssertEqual(shape(unparseable), ["p@0+", "a@1", "z@1", "b@1"])
+    }
 }
 
 // EXP-996 (contract EXP-1029) — the NODE tree: `SessionTree.sessionTree`,

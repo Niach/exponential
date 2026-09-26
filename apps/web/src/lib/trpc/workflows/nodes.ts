@@ -14,8 +14,9 @@ import {
   wfRiskSchema,
 } from "@exp/db-schema/domain"
 import { authedProcedure, generateTxId } from "@/lib/trpc"
-import { codingSessions, issues, workflowNodes, workflows } from "@/db/schema"
+import { codingSessions, devices, issues, workflowNodes, workflows } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
+import { parseVersionTuple } from "@/lib/client-version"
 import { loadWorkflowEdges, replanWorkflow } from "@/lib/workflows"
 import {
   reviewWaveGate,
@@ -48,7 +49,102 @@ async function runEnded(db: Db, sessionId: string | null): Promise<boolean> {
   return !run || (run.status !== `running` && run.status !== `in_review`)
 }
 
+/**
+ * compat: the first engine that reads `landNode`'s run and review-wave
+ * answers (`WAITING_FOR_RUN_TO_END` / `WAITING_FOR_REVIEW_WAVE`). An older
+ * desktop/CLI engine (0.14.49..0.14.51) knows three refusal strings and
+ * treats any other as a GitHub merge conflict, trapping the node in
+ * `updating`, so it gets the blockers answer instead. Delete once
+ * CLIENT_MIN_VERSION_DESKTOP/_CLI >= 0.14.52 and _ANDROID >= 0.14.45 and
+ * _IOS >= 0.14.44.
+ */
+const WAVE_AWARE_ENGINE: [number, number, number] = [0, 14, 52]
+const LEGACY_WAIT = `Waiting for its blockers to land`
+
+/** Whether the workflow's runner (the caller's device row, `assertEngine`
+ *  proved it) predates the wave-aware engine. No version counts as old. */
+async function runnerPredatesWaves(
+  db: Db,
+  workflow: { deviceId: string | null },
+  userId: string
+): Promise<boolean> {
+  if (!workflow.deviceId) return true
+  const [device] = await db
+    .select({ version: devices.version })
+    .from(devices)
+    .where(and(eq(devices.deviceId, workflow.deviceId), eq(devices.userId, userId)))
+    .limit(1)
+  const version = device?.version ? parseVersionTuple(device.version) : null
+  if (!version) return true
+  for (let i = 0; i < 3; i++) {
+    if (version[i] !== WAVE_AWARE_ENGINE[i]) return version[i]! < WAVE_AWARE_ENGINE[i]!
+  }
+  return false
+}
+
 export const workflowNodeProcedures = {
+
+  /**
+   * compat: a MEMBER clears a node by hand. iOS <=0.14.43, Android <=0.14.44
+   * and desktop/CLI <=0.14.51 show "Approve" on an `in_review` node without
+   * `approved_at` and call this; an engine of those builds lands a node only
+   * once `approved_at` is set, so this is the person's way past its review
+   * cap. `approved_at` non-null is what the wave gate reads as cleared, so
+   * the new engine reads a person's approval the same way. Delete once
+   * CLIENT_MIN_VERSION_DESKTOP/_CLI >= 0.14.52 and _ANDROID >= 0.14.45 and
+   * _IOS >= 0.14.44.
+   */
+  approveNode: authedProcedure
+    .input(z.object({ nodeId: z.string().uuid(), approved: z.boolean().optional().default(true) }))
+    .mutation(async ({ ctx, input }) => {
+      const node = await loadNode(input.nodeId)
+      const workflow = await loadWorkflow(node.workflowId)
+      await assertTeamMember(ctx.session.user.id, workflow.teamId)
+      if (node.state === `landed`) throw bad(`That node already landed`)
+      if (node.state === `skipped`) throw bad(`That node was skipped`)
+      if (input.approved && node.state !== `in_review` && node.state !== `updating`) {
+        throw bad(`Only a node under review can be approved`)
+      }
+      // Idempotent: a second approval, or a withdrawal of none, writes nothing.
+      const already = input.approved ? node.approvedAt !== null : node.approvedAt === null
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        if (!already) {
+          await tx
+            .update(workflowNodes)
+            .set({ approvedAt: input.approved ? new Date() : null })
+            .where(eq(workflowNodes.id, input.nodeId))
+        }
+        return { txId, nodeId: node.id }
+      })
+      if (input.approved && !already) {
+        await recordWorkflowEvent(ctx.db, {
+          workflowId: workflow.id,
+          teamId: workflow.teamId,
+          nodeId: node.id,
+          sessionId: node.sessionId,
+          kind: `review_verdict`,
+          message: `approved by a person`,
+        })
+      }
+      return result
+    }),
+
+  /**
+   * compat: the metrics counters left with migration 0146; a desktop/CLI
+   * engine <=0.14.51 still reports them every beat and logs a warning on a
+   * refusal. Accepted, nothing written. Delete once
+   * CLIENT_MIN_VERSION_DESKTOP/_CLI >= 0.14.52 and _ANDROID >= 0.14.45 and
+   * _IOS >= 0.14.44.
+   */
+  reportMetrics: authedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        deltas: z.record(z.string(), z.number()).optional(),
+      })
+    )
+    .mutation(async () => ({ ok: true as const })),
 
   /** What the planner declares per node. Addressed by ISSUE (a member's id
    *  resolves to its compound node). */
@@ -273,6 +369,14 @@ export const workflowNodeProcedures = {
           retriedAt: node.retriedAt,
         })
       const waiting = (reason: string) => ({ merged: false, reason, retargeted: [] as string[] })
+      // compat: an engine that predates the wave answers gets the one wait it
+      // knows (`runnerPredatesWaves`).
+      const waveWaiting = async (reason: string) =>
+        waiting(
+          (await runnerPredatesWaves(ctx.db, workflow, ctx.session.user.id))
+            ? LEGACY_WAIT
+            : reason
+        )
       const graph = await loadWorkflowEdges(ctx.db, workflow.id)
       if (!merged) {
         // EXP-1103: no review gates a node any more — the waves review the
@@ -280,11 +384,11 @@ export const workflowNodeProcedures = {
         // ended with its pull request up) and the review wave before its
         // layer, in a deep graph.
         if (!(await runEnded(ctx.db, node.sessionId))) {
-          return waiting(WAITING_FOR_RUN_TO_END)
+          return waveWaiting(WAITING_FOR_RUN_TO_END)
         }
         if (reviewWaveGate(graph.nodes, node.wave) !== null) {
           // The literal is matched by shipped engines (`LandOutcome::is_waiting`).
-          return waiting(WAITING_FOR_REVIEW_WAVE)
+          return waveWaiting(WAITING_FOR_REVIEW_WAVE)
         }
       }
       if (merged) {

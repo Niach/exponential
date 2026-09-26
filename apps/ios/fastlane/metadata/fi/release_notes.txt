@@ -1,6 +1,5 @@
-- Valitsimet: tila, vastuuhenkilö, labelit, board ja muut avaavat saman haettavan paneelin, jossa on pelkkiä rivejä, ja monivalinta näkyy korostuksena ympyrän sijaan
-- Agenttiajot: käynnissä olevien ajojen lista on sisäkkäinen, workflown ajot yhden rivin alla, joka avaa workflown, ja stackin ajot toisen alla, ja nuoli taittaa molemmat kokoon
-- Workflowt: näytöltä katoaa asetuslohko, solmu kertoo oman tilansa ja avautuu näkymiin Issue, Run ja Changes, ja viimeinen pull request mergetään sieltä
-- Koneen asetukset: paneeli on järjestetty uudelleen, ja uusi sivu "Workflow settings" pitää mallit, joilla uusi workflow käynnistyy
-- Teamin vaihtaja: nuolessa on piste, kun toisessa teamissa on käynnissä oma ajosi, ja meripihkanvärinen, kun ajo odottaa syötettä
-- Jäsenet: listan jäsen, jota kukaan ei ole vielä kutsunut, lukee "Not invited" eikä "Invite expired"
+- Workflowt: chip-rivistä valitaan solmu ja avataan se näkymiin Issue, Run, Changes ja Results, suunnittelijan kysymys näkyy bannerissa, Pause ja Dismiss löytyvät lisävalikosta, ja viimeinen pull request näkyy kohdassa Reviews, jossa se mergetään
+- Agenttiajot: workflown ajot ryhmittyvät solmunsa alle tilapisteen ja kuvatekstin kanssa, katselmointiajoilla on omat otsikkonsa, sinua odottavassa ajossa on piste, ja Recent-paneeli piirtää puun
+- Issuet: estomerkki avaa minigraafin, joka piirretään yhteiselle ruudukolle, ja stack- tai eräajon otsakkeessa näkyy ensimmäinen issue ja lukumäärä
+- Editori: kun kirjoitat ---, erotin lisätään heti
+- Aktiviteetti: arviomuutokset yhdistetään kuten kaikki muutkin kenttämuutokset

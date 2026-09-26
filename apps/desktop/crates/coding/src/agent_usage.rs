@@ -926,17 +926,17 @@ pub fn profile_usage_snapshot(
                     }
                 }
             }
-            let label = account
+            // The label is what the devices row shows; the email stays on
+            // this device (the run note, the log), never in a team event.
+            let label = if profile.is_system() {
+                crate::agent_profiles::SYSTEM_LABEL.to_string()
+            } else {
+                profile.label.clone()
+            };
+            let email = account
                 .and_then(|account| account.email.clone())
                 .map(|email| email.trim().to_string())
-                .filter(|email| !email.is_empty())
-                .unwrap_or_else(|| {
-                    if profile.is_system() {
-                        crate::agent_profiles::SYSTEM_LABEL.to_string()
-                    } else {
-                        profile.label.clone()
-                    }
-                });
+                .filter(|email| !email.is_empty());
             ProfileUsage {
                 profile_id: profile.id,
                 agent,
@@ -944,6 +944,7 @@ pub fn profile_usage_snapshot(
                 health,
                 windows,
                 label,
+                email,
             }
         })
         .collect()
@@ -4801,7 +4802,11 @@ mod tests {
         assert_eq!(row.profile_id, work.id);
         assert_eq!(row.health, crate::agent_accounts::Health::Ok);
         assert!(row.signed_in);
-        assert_eq!(row.label, "work@example.com");
+        // The label is the profile's (what the devices row shows); the
+        // probed email rides beside it, for this device only.
+        assert_eq!(row.label, work.label);
+        assert_eq!(row.email.as_deref(), Some("work@example.com"));
+        assert_eq!(profiles[0].email, None);
         assert_eq!(row.windows.session.as_ref().map(|w| w.percent), Some(42));
         assert!(row.windows.session.as_ref().unwrap().resets_at.is_some());
         assert_eq!(row.windows.weekly.as_ref().map(|w| (w.percent, w.resets_at)), Some((7, None)));

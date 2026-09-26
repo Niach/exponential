@@ -25,6 +25,8 @@ let mockSessionRows: Array<{
   teamId: string
 }> = []
 let capturedSessionWhere: unknown = null
+// EXP-982: the third lane's predicate (the workflows' final PRs).
+let capturedWorkflowWhere: unknown = null
 vi.mock(`@/db/connection`, () => ({
   db: {
     select: () => ({
@@ -39,6 +41,7 @@ vi.mock(`@/db/connection`, () => ({
           // EXP-982: the THIRD lane (workflows' final PRs) is join-less too;
           // told apart by the table the select reads. No workflow rows here.
           if (table[Symbol.for(`drizzle:Name`)] === `workflows`) {
+            capturedWorkflowWhere = clause
             return Promise.resolve([])
           }
           capturedSessionWhere = clause
@@ -172,7 +175,19 @@ describe(`runPrPollPass`, () => {
     mockSessionRows = []
     capturedWhere = null
     capturedSessionWhere = null
+    capturedWorkflowWhere = null
     baseWrites = []
+  })
+
+  // REV2-74 for the final PR lane too: a closed final PR is re-checked only
+  // within the window, never forever.
+  it(`polls workflow final PRs: open ones, and closed ones within the window`, async () => {
+    const now = new Date(`2026-09-04T12:00:00Z`)
+    await runPrPollPass(now)
+    const params = sqlParams(capturedWorkflowWhere)
+    expect(params).toContain(`open`)
+    expect(params).toContain(`closed`)
+    expect(params).toContainEqual(new Date(now.getTime() - CLOSED_PR_RECHECK_WINDOW_MS))
   })
 
   // EXP-734: the chore PR of an action/chat run lives on its session row.

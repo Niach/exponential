@@ -348,3 +348,20 @@ export function issueGraphEdge(
     end,
   }
 }
+
+/**
+ * `issueGraphEdge` as the SVG path the web draws (`WaveGraph` `pathFor`).
+ * The contract's points include the grid's `inset`; a host that pads the
+ * grid by it (`IssueGraphView` does) passes `insetIncluded: false` so the
+ * curve lands in the grid's own coordinates.
+ */
+export function issueGraphEdgePath(
+  from: { wave: number; lane: number },
+  to: { wave: number; lane: number },
+  options: { insetIncluded?: boolean } = {}
+): string {
+  const shift = options.insetIncluded === false ? ISSUE_GRAPH_GEOMETRY.inset : 0
+  const curve = issueGraphEdge(from, to)
+  const point = (p: GraphPoint) => `${p.x - shift} ${p.y - shift}`
+  return `M ${point(curve.start)} C ${point(curve.control1)}, ${point(curve.control2)}, ${point(curve.end)}`
+}

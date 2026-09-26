@@ -110,8 +110,7 @@ fn is_closed(status: &str) -> bool {
 }
 
 /// The usable `blocks` edges, deduplicated, in relation order. `keep` names the
-/// ids that survive whatever their status (the subjects). EXP-998: the rail's
-/// [`crate::issue_rail::block_edges`] reads the same list.
+/// ids that survive whatever their status (the subjects).
 pub(crate) fn open_edges<'a>(
     relations: &[GraphRelation<'a>],
     issues: &[GraphIssue<'a>],

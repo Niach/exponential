@@ -527,6 +527,8 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
     expect(requested!.values).toMatchObject({
       status: `ended`,
       endedAt: expect.any(Date),
+      // An ended run asks nobody anything.
+      pendingQuestion: null,
     })
     // user_id := host_user_id, so the row outlives the users-row cascade as a
     // host-owned ended row the hosting daemon still polls.
@@ -563,7 +565,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
     )
 
     const hosted = updatesTo(codingSessions)[1]
-    expect(hosted!.values).toMatchObject({ status: `ended` })
+    expect(hosted!.values).toMatchObject({ status: `ended`, pendingQuestion: null })
     expect(`userId` in hosted!.values).toBe(false)
     expect(whereShape(hosted!.where)).toEqual([
       `col:host_user_id`,

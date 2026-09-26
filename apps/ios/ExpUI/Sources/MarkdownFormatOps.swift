@@ -579,10 +579,13 @@ public enum MarkdownFormatOps {
 
     /// The span a deletion of `range` really removes when it touches a
     /// thematic break (a glyph char, or the newline joining the break to a
-    /// neighbour): the whole break line plus exactly ONE of its newlines, the
+    /// neighbour): the glyph itself plus exactly ONE of its newlines, the
     /// one the deletion touched, else the one after it, else the one before.
     /// A partial `──` or a neighbour merged onto the glyph line would save as
-    /// literal text. `nil` when no break is touched.
+    /// literal text. The atom is the GLYPH's own range, never the attribute
+    /// run's: text that inherited the marker (typed with leaked typing
+    /// attributes) is the paragraph below and stays. `nil` when no break is
+    /// touched.
     public static func thematicBreakDeletionRange(
         in text: NSAttributedString,
         deleting range: NSRange
@@ -591,6 +594,8 @@ public enum MarkdownFormatOps {
         let window = NSRange(
             location: max(0, range.location - 1),
             length: min(text.length, NSMaxRange(range) + 1) - max(0, range.location - 1))
+        let ns = text.string as NSString
+        let glyphLength = (MarkdownStyle.thematicBreakGlyph as NSString).length
         var found: NSRange?
         text.enumerateAttribute(.markdownThematicBreak, in: window) { value, run, stop in
             guard value as? Bool == true else { return }
@@ -598,13 +603,31 @@ public enum MarkdownFormatOps {
             _ = text.attribute(.markdownThematicBreak, at: run.location,
                                longestEffectiveRange: &full,
                                in: NSRange(location: 0, length: text.length))
-            if range.location <= NSMaxRange(full), NSMaxRange(range) >= full.location {
-                found = full
+            // The rule = the glyph at the run's start; a run that grew past
+            // it (a newline or text carrying the marker) is not the rule.
+            var line = full
+            if full.length > glyphLength,
+               ns.substring(with: NSRange(location: full.location, length: glyphLength))
+                == MarkdownStyle.thematicBreakGlyph {
+                line = NSRange(location: full.location, length: glyphLength)
+            }
+            if range.location <= NSMaxRange(line), NSMaxRange(range) >= line.location {
+                found = line
                 stop.pointee = true
             }
         }
         guard let line = found else { return nil }
-        let ns = text.string as NSString
+        // Text on the glyph line after the rule reads as the paragraph below:
+        // only the rule goes, and a Backspace at the glyph's start keeps the
+        // newline that separates that text from the paragraph above.
+        if NSMaxRange(line) < ns.length, ns.character(at: NSMaxRange(line)) != 0x0A {
+            // Deleting inside that text, even its first character, leaves the rule.
+            guard range.location < NSMaxRange(line) else { return nil }
+            if line.location > 0, range == NSRange(location: line.location - 1, length: 1) {
+                return line
+            }
+            return NSUnionRange(line, range)
+        }
         let atom: NSRange
         if NSMaxRange(range) <= line.location, line.location > 0 {
             atom = NSRange(location: line.location - 1, length: line.length + 1)

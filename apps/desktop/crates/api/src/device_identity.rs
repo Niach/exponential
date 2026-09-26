@@ -13,8 +13,16 @@
 //! settings.json that still carries the key MIGRATES that id into the file;
 //! it never mints a second one.
 
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// The ids this process resolved, by identity file — ONE answer per file
+/// for the process lifetime. Only a read or a mint that persisted lands
+/// here: a temporary id served over an unreadable file is never cached,
+/// so the real id comes back the moment the file parses again.
+static RESOLVED: Mutex<BTreeMap<PathBuf, String>> = Mutex::new(BTreeMap::new());
 
 /// The stable per-install device UUID: `{data_dir}/device-id`, migrated from
 /// the `deviceId` key of `{data_dir}/settings.json` when the file is not
@@ -83,8 +91,41 @@ fn read_legacy_key(path: &Path, key: &str) -> Read<Option<String>> {
     }
 }
 
+/// What one resolution of an identity file came back with.
+enum Resolved {
+    /// Read from the file, or minted AND written: the id for good.
+    Stable(String),
+    /// Served over a file that could not be read or written: this call's
+    /// only, never remembered.
+    Temporary(String),
+}
+
+fn resolved_lock() -> std::sync::MutexGuard<'static, BTreeMap<PathBuf, String>> {
+    match RESOLVED.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// The id of `file`, answered from [`RESOLVED`] once it is known: every
+/// caller in the process (the daemon's per-launch `Ctx::device_id`, the
+/// desktop's direct reads) sees the ONE id, and a file that turns unreadable
+/// later never hands them a fresh unpersisted uuid.
 fn stable_id(data_dir: &Path, file: &str, legacy_key: &str) -> String {
     let path = data_dir.join(file);
+    if let Some(id) = resolved_lock().get(&path) {
+        return id.clone();
+    }
+    match resolve_id(data_dir, &path, legacy_key) {
+        Resolved::Stable(id) => {
+            resolved_lock().insert(path, id.clone());
+            id
+        }
+        Resolved::Temporary(id) => id,
+    }
+}
+
+fn resolve_id(data_dir: &Path, path: &Path, legacy_key: &str) -> Resolved {
     let legacy = data_dir.join("settings.json");
     // EXP-781: read, mint and write under ONE machine-wide section. The
     // desktop app and the CLI daemon share a data dir (REV-20), so on a first
@@ -93,20 +134,20 @@ fn stable_id(data_dir: &Path, file: &str, legacy_key: &str) -> String {
     // whole function: dropped before the read completes, the lock would
     // guard nothing.
     let _guard = crate::settings_lock::locked(data_dir);
-    match read_identity_file(&path) {
-        Read::Found(id) => return id,
+    match read_identity_file(path) {
+        Read::Found(id) => return Resolved::Stable(id),
         Read::Fresh => {}
         Read::Unreadable => {
             // A torn read is over in microseconds: retry once, then serve an
             // unpersisted id for this run rather than write over a file we
             // could not read.
             std::thread::sleep(std::time::Duration::from_millis(50));
-            match read_identity_file(&path) {
-                Read::Found(id) => return id,
+            match read_identity_file(path) {
+                Read::Found(id) => return Resolved::Stable(id),
                 Read::Fresh => {}
                 Read::Unreadable => {
                     log::warn!("{} is unreadable; using a temporary id for this run", path.display());
-                    return uuid::Uuid::new_v4().to_string();
+                    return Resolved::Temporary(uuid::Uuid::new_v4().to_string());
                 }
             }
         }
@@ -128,17 +169,21 @@ fn stable_id(data_dir: &Path, file: &str, legacy_key: &str) -> String {
                         "{} is unreadable; using a temporary {legacy_key} for this run",
                         legacy.display()
                     );
-                    return uuid::Uuid::new_v4().to_string();
+                    return Resolved::Temporary(uuid::Uuid::new_v4().to_string());
                 }
             }
         }
     };
     let id = migrated.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    // Written ONCE, by rename, and never again by anyone.
-    if let Err(err) = crate::atomic_file::write_atomic(&path, &format!("{id}\n")) {
-        log::warn!("{} could not be written: {err}", path.display());
+    // Written ONCE, by rename, and never again by anyone. Unwritten, the id
+    // is this call's only: the next call mints and writes again.
+    match crate::atomic_file::write_atomic(path, &format!("{id}\n")) {
+        Ok(()) => Resolved::Stable(id),
+        Err(err) => {
+            log::warn!("{} could not be written: {err}", path.display());
+            Resolved::Temporary(id)
+        }
     }
-    id
 }
 
 #[cfg(test)]
@@ -255,6 +300,29 @@ mod tests {
         assert_eq!(device_id(&dir.0), id);
         fs::write(dir.0.join("settings.json"), "").unwrap();
         assert_eq!(device_id(&dir.0), id);
+    }
+
+    /// Once resolved, the id is answered from memory for the process: a
+    /// file torn or gone AFTER the first read never hands a caller a fresh
+    /// temporary uuid (the daemon reads its id per launch).
+    #[test]
+    fn a_resolved_id_is_the_same_for_the_whole_process() {
+        let dir = TempDir::new("device-cached");
+        let id = device_id(&dir.0);
+        assert_eq!(device_id(&dir.0), id);
+        fs::write(dir.0.join("device-id"), "").unwrap();
+        assert_eq!(device_id(&dir.0), id, "a torn file after the fact changes nothing");
+        fs::remove_file(dir.0.join("device-id")).unwrap();
+        assert_eq!(device_id(&dir.0), id, "nor a missing one");
+        // A temporary id was never remembered: once the file is readable
+        // the real id is served (see the torn-legacy test above).
+        let torn = TempDir::new("device-cached-torn");
+        fs::write(torn.0.join("device-id"), "").unwrap();
+        let temporary = device_id(&torn.0);
+        assert_ne!(device_id(&torn.0), temporary, "a temporary id is per call");
+        fs::write(torn.0.join("device-id"), "real-id\n").unwrap();
+        assert_eq!(device_id(&torn.0), "real-id");
+        assert_eq!(device_id(&torn.0), "real-id");
     }
 
     #[test]

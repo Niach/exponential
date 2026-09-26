@@ -1,6 +1,5 @@
-- Selettori: stato, assegnatario, label, board e il resto aprono lo stesso foglio con ricerca e righe semplici, e scegliere più voci si vede dall'evidenziazione invece che da un cerchio
-- Esecuzioni dell'agente: l'elenco delle esecuzioni in corso si annida, quelle di un workflow sotto una riga che apre il workflow e quelle di uno stack sotto un'altra, la freccia chiude entrambe
-- Workflow: la schermata perde il blocco delle impostazioni, un nodo dice il proprio stato e si apre su Issue, Run e Changes, e la pull request finale si unisce da lì
-- Impostazioni della macchina: il foglio è riordinato, e una nuova pagina «Workflow settings» tiene i modelli con cui parte un nuovo workflow
-- Cambio team: un punto sulla freccia quando un altro team ha una tua esecuzione in corso, ambra quando attende un input
-- Membri: un membro dell'elenco che nessuno ha ancora invitato riporta «Not invited» invece di «Invite expired»
+- Workflow: una fila di chip sceglie un nodo e lo apre su Issue, Run, Changes e Results, una domanda del pianificatore compare in un banner, Pause e Dismiss stanno nel menu delle altre opzioni, e la pull request finale compare in Reviews, dove si unisce
+- Esecuzioni dell'agente: le esecuzioni di un workflow si raggruppano sotto il loro nodo con un punto di stato e una didascalia, le esecuzioni di revisione portano il proprio titolo, un'esecuzione che ha bisogno di te mostra un punto e il foglio Recent disegna l'albero
+- Issue: il badge dei blocchi apre un mini-grafico disegnato su un'unica griglia condivisa, e l'intestazione di un'esecuzione in stack o in batch mostra l'issue in testa con un conteggio
+- Editor: digitando --- si inserisce subito un separatore
+- Attività: le modifiche alla stima si raggruppano come ogni altra modifica di campo

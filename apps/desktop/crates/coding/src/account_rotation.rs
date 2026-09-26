@@ -20,20 +20,27 @@
 //!   the predecessor, EXP-1082 §1).
 //!
 //! Guards, each enforced ONCE here: claude only (codex keeps one login per
-//! session by contract and waits for its reset); between turns only (the
-//! turn slot, EXP-848, is the authority — the host reads it and passes
-//! `idle`); a per-run cooldown and a cap on rotations; never into a profile
-//! that hit the SAME window inside its own reset; the device toggle
+//! session by contract and waits for its reset); repo-backed runs only (a
+//! scratch run's dir is purged when the switch ends it, so its resume has
+//! nowhere to go); between turns only (the turn slot, EXP-848, is the
+//! authority — the host reads it and passes `idle`); a per-run cooldown and
+//! a cap on rotations, both persisted ([`RotationTracker::load`]) so a
+//! restart does not reset them; never into a profile that hit the SAME
+//! window inside its own reset; the device toggle
 //! `Settings.auto_rotate_accounts` (default ON, Danny 2026-09-25) turns the
 //! whole thing off. The hop is SAID in the run ([`switch_prompt`]) and, for
 //! a workflow run, in the workflow's event trail ([`switch_event_message`],
-//! [`waiting_event_message`]).
+//! [`waiting_event_message`]) — the trail is a team shape, so it names the
+//! profile's LABEL, never the login's email.
 //!
 //! A START pick only: a resume (merge-upstream, review findings, a refused
 //! land, a conflict relaunch) keeps its RECORDED account (EXP-906) and never
 //! re-picks; moving a run that hit a wall is the mid-run switch above.
 
 use std::collections::BTreeMap;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
 
 use crate::agent_accounts::Health;
 use crate::CodingAgent;
@@ -112,15 +119,24 @@ pub struct ProfileUsage {
     pub signed_in: bool,
     pub health: Health,
     pub windows: UsageWindows,
-    /// What a person calls this login — the email when the probe named
-    /// one, else the profile's label. Rides the run's switch note and the
-    /// workflow event; never a decision input.
+    /// The profile's own label (`Default`, `Work`) — what the devices row
+    /// shows. Rides every message that leaves the device (the workflow
+    /// event trail, a team shape); never a decision input.
     pub label: String,
+    /// The login's email when the probe named one. Local only: the run's
+    /// own switch note and this device's log lines.
+    pub email: Option<String>,
 }
 
 impl ProfileUsage {
     fn eligible(&self, agent: CodingAgent) -> bool {
         self.agent == agent && self.signed_in && self.health == Health::Ok
+    }
+
+    /// What a person on THIS device calls the login: the email when known,
+    /// else the label.
+    fn local_name(&self) -> &str {
+        self.email.as_deref().unwrap_or(&self.label)
     }
 
     /// The ordering key — lowest 5h percent, then weekly, then the model
@@ -187,12 +203,33 @@ pub fn rotates(agent: CodingAgent) -> bool {
 }
 
 /// EXP-1005 — whether THIS device handles a wall on `agent` itself (rotates
-/// the run between turns, or waits the reset out), which is what tells the
-/// server to send the owner no rate-limit notification (`setBlocked
-/// { handled }`). Codex never rotates, so its owner hears about the wall —
-/// throttled server-side to one per profile per hour.
-pub fn wall_handled_here(agent: CodingAgent, settings: &crate::settings::Settings) -> bool {
-    settings.auto_rotate_accounts && rotates(agent)
+/// the run between turns), which is what tells the server to send the owner
+/// no rate-limit notification (`setBlocked { handled }`). True only when
+/// rotation is on, the agent rotates AND `profiles` hold at least two
+/// eligible logins (signed in, healthy): a one-login machine has nowhere to
+/// move the run, so its owner hears about the wall (EXP-980), as codex's
+/// always does — throttled server-side to one per profile per hour.
+pub fn wall_handled_by(
+    agent: CodingAgent,
+    settings: &crate::settings::Settings,
+    profiles: &[ProfileUsage],
+) -> bool {
+    settings.auto_rotate_accounts
+        && rotates(agent)
+        && profiles.iter().filter(|profile| profile.eligible(agent)).count() >= 2
+}
+
+/// [`wall_handled_by`] off the usage cache under `data_dir`.
+pub fn wall_handled_here(
+    agent: CodingAgent,
+    settings: &crate::settings::Settings,
+    data_dir: &Path,
+) -> bool {
+    wall_handled_by(
+        agent,
+        settings,
+        &crate::agent_usage::profile_usage_snapshot(agent, data_dir),
+    )
 }
 
 /// The account a fresh start should run on: the signed-in, healthy profile
@@ -283,8 +320,9 @@ pub struct StartPick {
     /// The profile it runs on instead.
     pub to: String,
     pub to_label: String,
-    /// One sentence: which account, why (the log line and the
-    /// `account_picked` event).
+    /// One sentence: which account, why (the log line, the run note and
+    /// the `account_picked` event) — profile labels only, the event is a
+    /// team shape.
     pub message: String,
 }
 
@@ -348,7 +386,9 @@ pub fn start_pick(
 
 /// Apply [`start_pick`] to a launch: rewrite `account` in place and hand
 /// back what changed. The ONE call `coding::prepare` makes for every fresh
-/// issue, batch and action launch on the device.
+/// issue, batch and action launch on the device. An account the launch
+/// named explicitly (a composer or automation pick) is kept only on a
+/// headroom TIE: a login with strictly more headroom overrides it.
 pub fn apply_start_pick(
     account: &mut Option<String>,
     profiles: &[ProfileUsage],
@@ -426,6 +466,10 @@ pub struct WalledRun {
     pub resets_at_ms: Option<i64>,
     /// The turn slot: `true` = between turns.
     pub idle: bool,
+    /// No clone to re-create a worktree from (a repo-less scratch run, or a
+    /// run this host has no record of): the switch's end purges the run
+    /// and its resume has nowhere to go, so it waits for the reset.
+    pub repo_less: bool,
 }
 
 /// Why a walled run is NOT being rotated right now — logged once per change
@@ -436,6 +480,9 @@ pub enum Hold {
     Off,
     /// Codex: one login per session by contract; it waits for the reset.
     AgentNeverRotates,
+    /// A repo-less run: ending it purges its dir, so it cannot be resumed
+    /// on another account. It waits for the reset.
+    ScratchRun,
     /// A turn is in flight — the switch waits for it to finish.
     MidTurn,
     /// Rotated recently; the chain is left alone until `until_ms`.
@@ -472,7 +519,8 @@ pub enum Decision {
     Wait { until_ms: i64, event_message: String },
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 struct ChainState {
     /// Unix ms of every rotation inside the cap window, oldest first.
     rotations: Vec<i64>,
@@ -485,9 +533,49 @@ struct ChainState {
     last_live_ms: i64,
 }
 
-/// The per-host memory the beat needs: one entry per run chain. In-process
-/// only — a restarted host starts with a clean slate, which at worst costs
-/// one extra probe.
+impl ChainState {
+    /// The newest moment this chain still matters from: its last rotation,
+    /// its park, or its last live sighting.
+    fn last_touched_ms(&self) -> i64 {
+        self.rotations
+            .iter()
+            .copied()
+            .chain(self.no_target_until)
+            .chain(Some(self.last_live_ms))
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+/// The on-disk form of the chains: `{"chains": {"<chain key>": ...}}`.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct StoredChains {
+    chains: BTreeMap<String, ChainState>,
+}
+
+/// The chain memory's file, beside `agent-usage.json`.
+const STORE_FILE: &str = "account-rotation.json";
+
+fn store_path(data_dir: &Path) -> std::path::PathBuf {
+    data_dir.join(STORE_FILE)
+}
+
+fn store_lock_path(data_dir: &Path) -> std::path::PathBuf {
+    data_dir.join(format!("{STORE_FILE}.lock"))
+}
+
+fn read_stored(data_dir: &Path) -> StoredChains {
+    std::fs::read_to_string(store_path(data_dir))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+/// The per-host memory the beat needs: one entry per run chain. The cooldown
+/// and the cap are PERSISTED ([`Self::load`], [`Self::save`]): a daemon's
+/// self-update re-exec or an IDE restart must not hand a thrashing chain a
+/// fresh cap.
 #[derive(Clone, Debug, Default)]
 pub struct RotationTracker {
     chains: BTreeMap<String, ChainState>,
@@ -496,6 +584,41 @@ pub struct RotationTracker {
 impl RotationTracker {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The tracker as the store under `data_dir` remembers it, pruned to
+    /// the chains touched inside [`ROTATION_WINDOW_MS`]: anything older
+    /// cannot count against a cap or a cooldown any more. A missing or
+    /// unreadable file is an empty tracker.
+    pub fn load(data_dir: &Path, now_ms: i64) -> Self {
+        let _guard = api::settings_lock::locked_at(&store_lock_path(data_dir));
+        let mut chains = read_stored(data_dir).chains;
+        chains.retain(|_, state| now_ms - state.last_touched_ms() < ROTATION_WINDOW_MS);
+        Self { chains }
+    }
+
+    /// Persist this tracker's chains: a read-modify-write under the store's
+    /// lock, so the daemon and the IDE (one data dir, REV-20) each keep the
+    /// chains they host without clobbering the other's. Chains nobody
+    /// touched inside [`ROTATION_WINDOW_MS`] are dropped on the way.
+    /// Best-effort: a failed write costs at most one extra rotation after a
+    /// restart.
+    pub fn save(&self, data_dir: &Path, now_ms: i64) {
+        let _guard = api::settings_lock::locked_at(&store_lock_path(data_dir));
+        let mut stored = read_stored(data_dir);
+        for (key, state) in &self.chains {
+            stored.chains.insert(key.clone(), state.clone());
+        }
+        stored
+            .chains
+            .retain(|_, state| now_ms - state.last_touched_ms() < ROTATION_WINDOW_MS);
+        let Ok(mut json) = serde_json::to_string_pretty(&stored) else {
+            return;
+        };
+        json.push('\n');
+        if let Err(err) = api::atomic_file::write_atomic(&store_path(data_dir), &json) {
+            log::warn!("account rotation: {} could not be written: {err}", STORE_FILE);
+        }
     }
 
     /// The guard for `chain_key` as [`pick_rotation_target`] reads it.
@@ -529,6 +652,9 @@ impl RotationTracker {
         if !rotates(run.agent) {
             return Step::Hold(Hold::AgentNeverRotates);
         }
+        if run.repo_less {
+            return Step::Hold(Hold::ScratchRun);
+        }
         if !run.idle {
             return Step::Hold(Hold::MidTurn);
         }
@@ -559,11 +685,9 @@ impl RotationTracker {
         let guard = self.guard(&run.chain_key, now_ms);
         let state = self.chains.entry(run.chain_key.clone()).or_default();
         state.last_live_ms = now_ms;
-        let from_label = profiles
-            .iter()
-            .find(|profile| profile.profile_id == run.account)
-            .map(|profile| profile.label.clone())
-            .unwrap_or_else(|| run.account.clone());
+        let from = profiles.iter().find(|profile| profile.profile_id == run.account);
+        let from_label = from.map(|profile| profile.label.clone()).unwrap_or_else(|| run.account.clone());
+        let from_name = from.map(|profile| profile.local_name().to_string()).unwrap_or_else(|| run.account.clone());
         match pick_rotation_target(
             &run.account,
             run.agent,
@@ -574,17 +698,16 @@ impl RotationTracker {
             now_ms,
         ) {
             Some(target) => {
-                let target_label = profiles
-                    .iter()
-                    .find(|profile| profile.profile_id == target)
-                    .map(|profile| profile.label.clone())
-                    .unwrap_or_else(|| target.clone());
+                let to = profiles.iter().find(|profile| profile.profile_id == target);
+                let target_label = to.map(|profile| profile.label.clone()).unwrap_or_else(|| target.clone());
+                let target_name = to.map(|profile| profile.local_name().to_string()).unwrap_or_else(|| target.clone());
                 state.rotations.retain(|at| now_ms - *at < ROTATION_WINDOW_MS);
                 state.rotations.push(now_ms);
                 state.no_target_until = None;
                 state.no_target_wall = None;
                 Decision::Switch {
-                    prompt: switch_prompt(&from_label, &target_label, &run.window, run.resets_at_ms),
+                    // The run's own note may name the login; the event may not.
+                    prompt: switch_prompt(&from_name, &target_name, &run.window, run.resets_at_ms),
                     event_message: switch_event_message(
                         &from_label,
                         &target_label,
@@ -682,7 +805,8 @@ mod tests {
                 }),
                 model: BTreeMap::new(),
             },
-            label: format!("{id}@example.com"),
+            label: id.to_string(),
+            email: Some(format!("{id}@example.com")),
         }
     }
 
@@ -696,6 +820,24 @@ mod tests {
             window: window.to_string(),
             resets_at_ms: Some(NOW + 3_600_000),
             idle,
+            repo_less: false,
+        }
+    }
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("exp-rotation-{tag}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn settings(auto_rotate: bool) -> crate::settings::Settings {
+        crate::settings::Settings {
+            auto_rotate_accounts: auto_rotate,
+            ..crate::settings::Settings::default()
         }
     }
 
@@ -852,8 +994,10 @@ mod tests {
         let pick = start_pick(&walled, true, CodingAgent::Claude, None, None, NOW).unwrap();
         assert_eq!(pick.from, "system");
         assert_eq!(pick.to, "b");
-        assert!(pick.run_note().starts_with("Note: Exponential moved this run to another account before it started — Starting on b@example.com"), "{}", pick.run_note());
-        assert!(pick.message.starts_with("Starting on b@example.com — system@example.com hit its 5h limit"), "{}", pick.message);
+        // Labels, never emails: the message reaches the workflow's event trail.
+        assert!(pick.run_note().starts_with("Note: Exponential moved this run to another account before it started — Starting on b"), "{}", pick.run_note());
+        assert!(pick.message.starts_with("Starting on b — system hit its 5h limit"), "{}", pick.message);
+        assert!(!pick.message.contains("@example.com"), "{}", pick.message);
         // Less headroom, not walled: move too (Danny: most headroom, always).
         let less = vec![profile("system", 60, 10), profile("b", 20, 10)];
         let pick = start_pick(&less, true, CodingAgent::Claude, None, None, NOW).unwrap();
@@ -881,11 +1025,15 @@ mod tests {
         assert_eq!(tracker.step(&run, true, NOW), Step::Probe);
 
         let profiles = vec![profile("a", 100, 10), profile("b", 10, 10)];
-        let Decision::Switch { target, prompt, .. } = tracker.decide(&run, &profiles, NOW) else {
+        let Decision::Switch { target, prompt, event_message, .. } = tracker.decide(&run, &profiles, NOW) else {
             panic!("expected a switch");
         };
         assert_eq!(target, "b");
+        // The run's own note names the logins; the workflow event (a team
+        // shape) names the profiles' labels only.
         assert!(prompt.starts_with("Exponential moved this run from a@example.com to b@example.com: the 5h window hit its limit"), "{prompt}");
+        assert!(event_message.starts_with("Moved from a to b after the 5h window hit its limit"), "{event_message}");
+        assert!(!event_message.contains('@'), "{event_message}");
         // The chain keeps its state while its run is momentarily absent (the
         // switch ended the row, the resume has not registered yet) — only a
         // chain unseen past the grace is forgotten.
@@ -955,5 +1103,82 @@ mod tests {
         assert!(waiting_event_message("model", Some(NOW)).contains("(resets "));
         assert_eq!(window_label("session"), "5h");
         assert_eq!(until_suffix(None), "");
+    }
+
+    /// A repo-less run is never rotated: the switch would purge its scratch
+    /// dir and the resume would have nowhere to go. It waits like codex.
+    #[test]
+    fn a_scratch_run_holds_for_the_reset() {
+        let tracker = RotationTracker::new();
+        let mut scratch = walled("a", "session", true);
+        scratch.repo_less = true;
+        assert_eq!(tracker.step(&scratch, true, NOW), Step::Hold(Hold::ScratchRun));
+        // The hold ranks after the agent check and before the turn slot: a
+        // mid-turn scratch run is still a scratch run.
+        scratch.idle = false;
+        assert_eq!(tracker.step(&scratch, true, NOW), Step::Hold(Hold::ScratchRun));
+        assert_eq!(tracker.step(&walled("a", "session", true), true, NOW), Step::Probe);
+    }
+
+    /// `handled` mutes the owner's wall push, so it is true only when this
+    /// device can actually move the run: two or more eligible claude logins.
+    #[test]
+    fn a_wall_is_handled_only_with_two_eligible_logins() {
+        let two = vec![profile("a", 100, 10), profile("b", 10, 10)];
+        assert!(wall_handled_by(CodingAgent::Claude, &settings(true), &two));
+        assert!(!wall_handled_by(CodingAgent::Claude, &settings(false), &two));
+        assert!(!wall_handled_by(CodingAgent::Codex, &settings(true), &two));
+        // One login, or a second one that is signed out or unhealthy: the
+        // owner hears about the wall (EXP-980).
+        assert!(!wall_handled_by(CodingAgent::Claude, &settings(true), &two[..1]));
+        let mut signed_out = profile("b", 10, 10);
+        signed_out.signed_in = false;
+        assert!(!wall_handled_by(CodingAgent::Claude, &settings(true), &[profile("a", 100, 10), signed_out]));
+        let mut unhealthy = profile("b", 10, 10);
+        unhealthy.health = Health::NeedsRelogin;
+        assert!(!wall_handled_by(CodingAgent::Claude, &settings(true), &[profile("a", 100, 10), unhealthy]));
+        // A spent second login still counts: the cap and the cooldown, not
+        // the wall push, decide what happens next.
+        assert!(wall_handled_by(CodingAgent::Claude, &settings(true), &[profile("a", 100, 10), profile("b", 100, 100)]));
+        assert!(!wall_handled_by(CodingAgent::Claude, &settings(true), &[]));
+    }
+
+    /// The cap and the cooldown survive a host restart: the chains are
+    /// written after every decision and read back, pruned to the 5h window.
+    #[test]
+    fn the_chains_survive_a_restart_and_age_out_of_the_window() {
+        let dir = temp_dir("persist");
+        let run = walled("a", "session", true);
+        let profiles = vec![profile("a", 100, 10), profile("b", 10, 10)];
+        let mut tracker = RotationTracker::load(&dir, NOW);
+        assert!(tracker.chains.is_empty(), "no file yet reads empty");
+        assert!(matches!(tracker.decide(&run, &profiles, NOW), Decision::Switch { .. }));
+        tracker.save(&dir, NOW);
+        assert!(dir.join(STORE_FILE).is_file());
+        // A fresh host: still cooling down.
+        let restarted = RotationTracker::load(&dir, NOW + 1);
+        assert!(matches!(
+            restarted.step(&run, true, NOW + 1),
+            Step::Hold(Hold::CoolingDown { .. })
+        ));
+        assert_eq!(restarted.guard(&run.chain_key, NOW + 1).rotations_this_wall, 1);
+        // Another host's chain in the same file is kept by a save.
+        let mut other = RotationTracker::new();
+        let mut elsewhere = run.clone();
+        elsewhere.chain_key = "/tmp/other".to_string();
+        assert!(matches!(other.decide(&elsewhere, &profiles, NOW + 2), Decision::Switch { .. }));
+        other.save(&dir, NOW + 2);
+        let both = RotationTracker::load(&dir, NOW + 3);
+        assert_eq!(both.chains.len(), 2);
+        // Past the window nothing counts any more, and the file shrinks.
+        let later = NOW + 3 + ROTATION_WINDOW_MS;
+        let aged = RotationTracker::load(&dir, later);
+        assert!(aged.chains.is_empty());
+        aged.save(&dir, later);
+        assert!(read_stored(&dir).chains.is_empty());
+        // A corrupt file reads empty rather than failing the beat.
+        std::fs::write(dir.join(STORE_FILE), "{not json").unwrap();
+        assert!(RotationTracker::load(&dir, NOW).chains.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -196,14 +196,19 @@ public enum MarkdownChipDecorator {
     /// restored, so the NEXT character the user types is never chip-styled.
     /// UITextView recomputes typing attributes on selection changes too, which
     /// is why callers must apply this from both the decoration pass and
-    /// `textViewDidChangeSelection`.
+    /// `textViewDidChangeSelection`. A thematic break's marker (EXP-1018) is
+    /// stripped the same way: a caret parked after the `───` glyph would
+    /// otherwise type the next paragraph AS the rule, and one Backspace then
+    /// took the rule and that paragraph together.
     public static func sanitizedTypingAttributes(
         _ attrs: [NSAttributedString.Key: Any]
     ) -> [NSAttributedString.Key: Any] {
-        guard attrs[.markdownChip] != nil || attrs[.attachment] != nil else { return attrs }
+        guard attrs[.markdownChip] != nil || attrs[.attachment] != nil
+            || attrs[.markdownThematicBreak] != nil else { return attrs }
         var out = attrs
         let base = out[.markdownChipBaseColor] as? PlatformColor
         out[.markdownChip] = nil
+        out[.markdownThematicBreak] = nil
         out[.markdownChipBaseColor] = nil
         out[.markdownIssueRef] = nil
         out[.markdownIssueRefTitle] = nil
