@@ -248,10 +248,10 @@ impl RunTreeMarks {
                     domain::session_tree::session_row_is_live(session.status.as_deref().unwrap_or_default()),
                 ))
             });
-        let needs_you = session
-            .pending_question
-            .as_ref()
-            .is_some_and(|question| !question.is_null());
+        let needs_you = domain::session_tree::session_needs_you(
+            session.status.as_deref().unwrap_or_default(),
+            session.pending_question.as_ref().is_some_and(|question| !question.is_null()),
+        );
         let account = collections
             .as_ref()
             .and_then(|collections| run_account_label(session, collections, cx))
@@ -265,47 +265,58 @@ impl RunTreeMarks {
     }
 }
 
-/// EXP-1068 — `account <label>` for a run that spends an account OTHER than
-/// its device's default for that agent (the launch rule: the stored
-/// `default_account` belongs to `default_agent` only, every other agent runs
-/// on its ambient login). The label is the login's `accountName`, else the
-/// profile id. `None` for the default, the ambient login, or no account.
+/// EXP-1108 — `account <label>` for a WORKFLOW run that spends an account
+/// other than its device's default for that agent: the shared rule
+/// ([`domain::session_tree::workflow_run_account_caption`]), fed the synced
+/// device rows. `None` outside a workflow, for the default or no account.
 fn run_account_label(
     session: &domain::rows::CodingSession,
     collections: &sync::collections::Collections,
     cx: &App,
 ) -> Option<String> {
-    let account = session
-        .agent_account
-        .as_deref()
-        .filter(|id| !id.is_empty() && *id != coding::SYSTEM_PROFILE)?;
-    let agent = session.agent.as_deref().and_then(coding::CodingAgent::parse);
+    session.workflow_id.as_deref()?;
     let devices = collections.devices.read(cx);
-    let device = queries::session_device_row(session, devices.iter());
-    let mut label = account.to_string();
-    if let Some(device) = device {
-        let settings = queries::device_launch_settings(device.launch_defaults.as_ref());
-        let default = agent
-            .filter(|agent| *agent == settings.default_agent)
-            .and_then(|_| settings.default_account.clone());
-        if default.as_deref() == Some(account) {
-            return None;
-        }
-        let accounts: coding::agent_accounts::AgentAccounts =
-            crate::device_settings::parse_agent_map(device.agent_accounts.as_ref());
-        if let Some(option) = coding::flatten_accounts(
-            &accounts,
-            &Default::default(),
-            Some(settings.default_agent.id()),
-            settings.default_account.as_deref(),
-        )
-        .into_iter()
-        .find(|option| option.id == account && agent.is_none_or(|agent| option.agent == agent))
-        {
-            label = option.email;
-        }
+    let marks: Vec<domain::session_tree::MarkDevice> = devices
+        .iter()
+        .filter(|row| row.device_id.is_some() && row.device_id == session.device_id)
+        .map(mark_device)
+        .collect();
+    domain::session_tree::workflow_run_account_caption(&mark_session(session), &marks)
+}
+
+/// The caption's session columns off a synced row.
+pub(crate) fn mark_session(session: &domain::rows::CodingSession) -> domain::session_tree::MarkSession {
+    domain::session_tree::MarkSession {
+        agent: session.agent.clone(),
+        agent_account: session.agent_account.clone(),
+        device_id: session.device_id.clone(),
+        user_id: session.user_id.clone(),
+        workflow_id: session.workflow_id.clone(),
     }
-    Some(format!("account {label}"))
+}
+
+/// The caption's device columns off a synced row (tolerant: a garbage
+/// jsonb reads as absent, one bad agent entry drops only that agent).
+pub(crate) fn mark_device(row: &domain::rows::DeviceRow) -> domain::session_tree::MarkDevice {
+    let launch_defaults = row
+        .launch_defaults
+        .as_ref()
+        .and_then(|value| match value {
+            serde_json::Value::String(raw) => serde_json::from_str::<serde_json::Value>(raw).ok(),
+            other => Some(other.clone()),
+        })
+        .and_then(|value| serde_json::from_value(value).ok());
+    let agent_accounts = row.agent_accounts.as_ref().map(|value| {
+        crate::device_settings::parse_agent_map::<domain::session_tree::MarkAgentAccount>(Some(value))
+            .into_iter()
+            .collect()
+    });
+    domain::session_tree::MarkDevice {
+        device_id: row.device_id.clone(),
+        user_id: row.user_id.clone(),
+        launch_defaults,
+        agent_accounts,
+    }
 }
 
 /// A LIVE run's row facts. `local_caption` and `local_busy` are the engine's
