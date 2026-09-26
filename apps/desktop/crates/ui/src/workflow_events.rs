@@ -3,8 +3,8 @@
 //! first. One flat row per line: the kind's concept glyph, the node's
 //! identifier (when the caller resolves it), the message on one line and the
 //! local `HH:mm` at the trailing edge. A line that names a run opens it.
-//! Mounted by the workflow screen (a later node); an empty trail draws
-//! nothing.
+//! Mounted under the workflow page's strip on every issue body (EXP-1096),
+//! filtered to the picked nodes; an empty trail draws nothing.
 
 #![allow(dead_code)]
 
@@ -86,6 +86,26 @@ pub(crate) fn event_is_warning(kind: &str) -> bool {
 /// The trail's order: newest `at` first, ties on the id (descending).
 pub(crate) fn newest_first(events: &mut [WorkflowEventRow]) {
     events.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| b.id.cmp(&a.id)));
+}
+
+/// EXP-1096: the events naming one of `node_ids` (a node panel); `None` =
+/// every event (web `filterWorkflowEvents`).
+pub(crate) fn filter_to_nodes(
+    events: Vec<WorkflowEventRow>,
+    node_ids: Option<&[String]>,
+) -> Vec<WorkflowEventRow> {
+    match node_ids {
+        None => events,
+        Some(ids) => events
+            .into_iter()
+            .filter(|event| {
+                event
+                    .node_id
+                    .as_deref()
+                    .is_some_and(|node| ids.iter().any(|id| id == node))
+            })
+            .collect(),
+    }
 }
 
 /// `at` as local wall-clock `HH:mm`; empty when it does not parse.
@@ -196,6 +216,20 @@ mod tests {
             events.iter().map(|event| event.id.as_str()).collect::<Vec<_>>(),
             ["c", "b", "a"]
         );
+    }
+
+    #[test]
+    fn filters_to_the_picked_nodes() {
+        let with_node = |id: &str, node: Option<&str>| -> WorkflowEventRow {
+            serde_json::from_value(serde_json::json!({ "id": id, "node_id": node })).unwrap()
+        };
+        let events = vec![with_node("a", Some("n1")), with_node("b", Some("n2")), with_node("c", None)];
+        let picked = vec!["n2".to_string()];
+        let ids = |events: Vec<WorkflowEventRow>| {
+            events.into_iter().map(|event| event.id).collect::<Vec<_>>()
+        };
+        assert_eq!(ids(filter_to_nodes(events.clone(), Some(&picked))), ["b"]);
+        assert_eq!(ids(filter_to_nodes(events, None)), ["a", "b", "c"]);
     }
 
     #[test]
