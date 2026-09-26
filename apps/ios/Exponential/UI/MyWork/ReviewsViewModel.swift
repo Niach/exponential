@@ -39,12 +39,29 @@ struct ReviewRow: Identifiable {
     /// How many pull requests the stack this row roots holds (1 = not a
     /// stack). Only meaningful on the bottom row — the "Merge stack" copy.
     var stackSize: Int = 1
+    /// EXP-1094: the status of the workflow whose node covers this PR's
+    /// issue(s), else nil (`ReviewsMerge.reviewWorkflowStatus`).
+    var workflowStatus: String?
     var id: String { entry.id }
 
     /// The LOWEST row of a real stack: the one that offers "Merge stack".
     /// Its own issue id is what `mergePr({mergeStack: true})` takes — the
     /// server resolves the top of the chain from it.
     var isStackBottom: Bool { depth == 0 && hasChildren }
+
+    /// EXP-1094: what the ONE merge control rule reads off this row.
+    var mergeInput: ReviewsMerge.Input {
+        ReviewsMerge.Input(
+            stack: isStackBottom ? .bottom : depth > 0 ? .upper : .none,
+            workflowStatus: workflowStatus
+        )
+    }
+
+    /// The row's ONE merge control (`merge` / `merge_stack` / none).
+    var mergeAction: ReviewsMerge.Action { ReviewsMerge.reviewRowMergeAction(mergeInput) }
+
+    /// Why the row offers no merge control; a muted caption.
+    var mergeDisabledReason: String? { ReviewsMerge.reviewsMergeDisabledReason(mergeInput) }
 }
 
 /// EXP-734: one AGENT RUN's own open pull request — the chore PR an action or
@@ -71,6 +88,15 @@ struct WorkflowReviewEntry: Identifiable {
     var prUrl: String? { workflow.finalPrUrl }
     var prNumber: Int? { workflow.finalPrNumber }
     var branch: String { workflow.integrationBranch }
+
+    /// EXP-1094: a final PR row merges only while that PR is open.
+    var mergeAction: ReviewsMerge.Action {
+        ReviewsMerge.reviewRowMergeAction(
+            ReviewsMerge.Input(
+                workflowStatus: workflow.status, finalPr: true, finalPrState: workflow.finalPrState
+            )
+        )
+    }
 }
 
 /// One board's review entries — Reviews groups by board like the other
@@ -100,6 +126,10 @@ final class ReviewsViewModel {
     var runSessions: [CodingSessionEntity] = []
     /// EXP-1072: workflows whose ONE final pull request is open.
     var workflows: [WorkflowEntity] = []
+    /// EXP-1094: every synced workflow + node, so a node's PR row merges
+    /// through its running/paused workflow instead of from the row.
+    var allWorkflows: [WorkflowEntity] = []
+    var workflowNodes: [WorkflowNodeEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
@@ -108,6 +138,8 @@ final class ReviewsViewModel {
     private var boardTask: Task<Void, Never>?
     private var sessionTask: Task<Void, Never>?
     private var workflowTask: Task<Void, Never>?
+    private var allWorkflowTask: Task<Void, Never>?
+    private var nodeTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager) {
         self.accountId = accountId
@@ -174,6 +206,29 @@ final class ReviewsViewModel {
                 }
             } catch {}
         }
+
+        // EXP-1094: which PRs are workflow node PRs, and whether their
+        // workflow still runs.
+        let allWorkflowObservation = ValueObservation.tracking { db in
+            try WorkflowEntity.fetchAll(db)
+        }
+        allWorkflowTask = Task { [weak self] in
+            do {
+                for try await workflows in allWorkflowObservation.values(in: pool) {
+                    self?.allWorkflows = workflows
+                }
+            } catch {}
+        }
+        let nodeObservation = ValueObservation.tracking { db in
+            try WorkflowNodeEntity.fetchAll(db)
+        }
+        nodeTask = Task { [weak self] in
+            do {
+                for try await nodes in nodeObservation.values(in: pool) {
+                    self?.workflowNodes = nodes
+                }
+            } catch {}
+        }
     }
 
     func stopObserving() {
@@ -185,6 +240,10 @@ final class ReviewsViewModel {
         sessionTask = nil
         workflowTask?.cancel()
         workflowTask = nil
+        allWorkflowTask?.cancel()
+        allWorkflowTask = nil
+        nodeTask?.cancel()
+        nodeTask = nil
     }
 
     /// Review entries grouped by board, scoped to `teamId`. Entries
@@ -228,6 +287,12 @@ final class ReviewsViewModel {
         // Walk the nested list once: a row's board is its ROOT's board, and
         // the entry directly below it is the nearest preceding row one level
         // shallower (`ancestors`).
+        let workflowStatusByIssue = ReviewsMerge.workflowStatusByIssue(
+            workflows: allWorkflows.map { (id: $0.id, status: $0.status) },
+            nodes: workflowNodes.map {
+                (workflowId: $0.workflowId, issueId: $0.issueId, memberIssueIds: $0.memberIssueIds)
+            }
+        )
         var rows: [ReviewRow] = []
         var boardOfRow: [String] = []
         var ancestors: [ReviewEntry] = []
@@ -243,7 +308,10 @@ final class ReviewsViewModel {
                 entry: entry,
                 depth: nestedRow.depth,
                 hasChildren: nestedRow.hasChildren,
-                stackedOn: below?.representative.identifier
+                stackedOn: below?.representative.identifier,
+                workflowStatus: ReviewsMerge.reviewWorkflowStatus(
+                    issueIds: entry.issues.map(\.id), byIssue: workflowStatusByIssue
+                )
             ))
             boardOfRow.append(rootBoardId)
             ancestors.append(entry)
