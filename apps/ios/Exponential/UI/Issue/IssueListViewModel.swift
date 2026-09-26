@@ -29,6 +29,12 @@ final class IssueListViewModel {
     // team_members shape hasn't synced yet — drives a "Syncing team…"
     // banner instead of silently rendering everything as a permission denial.
     var permissionsPending = false
+    /// EXP-1115: true once the issues shape has reached up-to-date at least
+    /// once for this account (a zero-row snapshot counts). Until then an
+    /// empty group list means "still syncing", not "empty board" — the view
+    /// shows a spinner instead of the empty state + getting-started cards,
+    /// which a full resync otherwise flashes while the snapshot lands.
+    var issuesSynced = false
     /// True when the board's team has one human member: the selection bar's
     /// assignee button and the row assignee avatar are hidden (EXP-50 parity).
     var singleMemberTeam = false
@@ -92,6 +98,21 @@ final class IssueListViewModel {
                     guard let self else { return }
                     self.issues = issues
                     self.rebuildRows()
+                }
+            } catch {}
+        })
+
+        // EXP-1115: the issues shape's "up-to-date seen" flag — the same
+        // offset-row read the permissions banner makes for "team-members".
+        // A missing row (fresh install, or a full resync's wipe) is not synced.
+        let issuesLiveObservation = ValueObservation.tracking { db in
+            try ElectricOffset.fetchOne(db, key: "issues")?.isLive ?? false
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await live in issuesLiveObservation.values(in: pool) {
+                    guard let self else { return }
+                    self.issuesSynced = live
                 }
             } catch {}
         })

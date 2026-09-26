@@ -33,6 +33,13 @@ struct IssuesHomeView: View {
     // observation delivers) — drives the zero-team empty state (EXP-188:
     // signups get no auto-created team, so an account can be team-less).
     @State private var syncedTeams: [TeamEntity]?
+    // EXP-1115: true once the active account's boards shape has reached
+    // up-to-date at least once (initial snapshot done, even at zero rows).
+    // Until then a board-less-looking account is still syncing — the root
+    // shows the spinner rather than flashing "No boards yet" (or, right after
+    // a full resync's wipe, "No team yet") plus the getting-started checklist
+    // while the snapshot lands. Android parity: `activeAccountBoardsSynced`.
+    @State private var boardsSynced = false
 
     /// What the switcher parked for after it closes.
     private enum SwitcherAction {
@@ -58,7 +65,7 @@ struct IssuesHomeView: View {
                     // Remount on switch so the list view model rebinds to the
                     // selected board (it captures boardId at creation).
                     .id(current)
-            } else if syncing {
+            } else if syncing || !boardsSynced {
                 VStack(spacing: 12) {
                     ProgressView()
                         .tint(.white)
@@ -400,17 +407,25 @@ struct IssuesHomeView: View {
     }
 
     /// Long-lived teams observation for the active account (cancelled and
-    /// restarted by `.task(id:)` when the account switches).
+    /// restarted by `.task(id:)` when the account switches). Tracks the
+    /// boards shape's offset row too (EXP-1115): both feed the same
+    /// empty-state decision, so they land in one emission.
     private func observeTeams() async {
         syncedTeams = nil
+        boardsSynced = false
         guard let accountId = deps.auth.activeAccountId,
               let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-        let obs = ValueObservation.tracking { db in
-            try TeamEntity.fetchAll(db)
+        let obs = ValueObservation.tracking { db -> ([TeamEntity], Bool) in
+            let teams = try TeamEntity.fetchAll(db)
+            let live = try ElectricOffset.fetchOne(db, key: "boards")?.isLive ?? false
+            return (teams, live)
         }
         do {
-            for try await teams in obs.values(in: pool) {
-                await MainActor.run { syncedTeams = teams }
+            for try await (teams, live) in obs.values(in: pool) {
+                await MainActor.run {
+                    syncedTeams = teams
+                    boardsSynced = live
+                }
             }
         } catch {
             // Observation ended (pool closed on sign-out) — leave the last

@@ -209,7 +209,16 @@ struct IssueListView: View {
             // EXP-980: the rows come back NESTED — sub-issues follow their
             // root wherever it sits, so a group a nesting emptied is gone.
             let groups = vm.renderGroups
-            if groups.isEmpty {
+            if groups.isEmpty && !vm.issuesSynced {
+                // EXP-1115: nothing to show until the issues shape has
+                // snapshotted at least once — a full resync (or a fresh
+                // install) would otherwise flash "No issues yet" plus the
+                // getting-started checklist for as long as the snapshot
+                // takes. A bare spinner, like Android's `LoadingState`.
+                ProgressView()
+                    .tint(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if groups.isEmpty {
                 // An empty board says so instead of
                 // rendering a blank list — and, since EXP-698 r5, carries the
                 // getting-started checklist underneath, exactly like web and

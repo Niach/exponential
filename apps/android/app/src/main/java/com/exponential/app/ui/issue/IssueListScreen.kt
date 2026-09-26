@@ -758,6 +758,15 @@ private fun IssueListContent(
 ) {
     val usersById = remember(state.users) { state.users.associateBy { it.id } }
 
+    // EXP-1115: nothing to show until the issues shape has snapshotted at
+    // least once — a full resync (or a fresh install) would otherwise flash
+    // "No issues yet" plus the getting-started checklist for as long as the
+    // snapshot takes. A spinner, like the root's board-resolving state.
+    if (state.groups.isEmpty() && !state.issuesSynced) {
+        LoadingState()
+        return
+    }
+
     PullToRefreshBox(
         isRefreshing = state.isRefreshing,
         onRefresh = viewModel::refresh,
