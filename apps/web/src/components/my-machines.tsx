@@ -1,7 +1,7 @@
 // "My devices" (EXP-403): the caller's registered devices — desktops and
 // headless `exponential` daemon servers — with live online state, last-seen
 // fallback, and the "Add device" dialog (EXP-697: desktop download + the
-// CLI install one-liner). Since EXP-481 the rows ride the synced devices
+// CLI install one-liner; EXP-1111: `add-device-dialog.tsx`). Since EXP-481 the rows ride the synced devices
 // shape (useRemoteStart composes them); rename, team sharing (EXP-432),
 // agent defaults, worktrees, Update and Remove all live in the Device
 // settings dialog. Teammates' shared servers render read-only under "Team
@@ -30,11 +30,6 @@ import {
   Pill,
   GlassSectionHeader,
   ListRow,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
   LiveDot,
 } from "@exp/ui"
 import { relativeTime } from "@/components/comment-rows/format"
@@ -49,7 +44,11 @@ import {
   UPDATE_QUEUED_LINE,
 } from "@/lib/steer-devices"
 import { useNow } from "@/hooks/use-now"
-import { desktopDownloadHref } from "@/lib/desktop-download"
+import {
+  AddDeviceDialog,
+  buildServerInstallSnippet,
+  CopyIconButton,
+} from "@/components/add-device-dialog"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { DeviceLogins } from "@/components/device-logins"
 import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
@@ -67,46 +66,14 @@ const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
 // EXP-909 follow-up: the row's ONE control is the settings gear, ×4.
 const SettingsIcon = conceptIcon(`nav-settings`)
-const CopyIcon = conceptIcon(`ui-copy`)
-const CheckIcon = conceptIcon(`ui-check`)
 // EXP-944: the fold chevron — the same affordance the session tree uses.
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 
 
-// The install script is served by the CLOUD marketing site for every
-// instance — self-hosted deployments ship only the web app (no marketing
-// pages), so the one-liner always names the target instance explicitly via
-// EXP_INSTANCE and the script itself is identical everywhere.
-export function buildServerInstallSnippet(origin: string): string {
-  return `curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=${origin} sh`
-}
-
-/** The icon-only copy control living INSIDE the install-snippet box
- * (EXP-697 — the add-device dialog, shared layout with the IDE's). */
-export function CopyIconButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <Button
-      variant="glass"
-      size="icon-sm"
-      className="absolute top-1.5 right-1.5"
-      aria-label="Copy install command"
-      title="Copy install command"
-      onClick={() => {
-        void navigator.clipboard.writeText(text)
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), 1_500)
-      }}
-    >
-      {copied ? (
-        <CheckIcon className="size-3.5" />
-      ) : (
-        <CopyIcon className="size-3.5" />
-      )}
-    </Button>
-  )
-}
+// Moved beside the dialog (EXP-1111); re-exported for the other install
+// surfaces (onboarding, getting-started cards).
+export { buildServerInstallSnippet, CopyIconButton }
 
 // The row's second line (native `deviceStatusLine` parity): a live dot +
 // "Online", or the last-seen caption for offline devices. EXP-862: it says
@@ -220,8 +187,6 @@ export function MyMachines({
         : window.location.origin,
     []
   )
-  const snippet = buildServerInstallSnippet(origin)
-  const userAgent = typeof navigator === `undefined` ? `` : navigator.userAgent
 
   return (
     <div className="mb-6">
@@ -447,35 +412,15 @@ export function MyMachines({
       )}
 
       {/* EXP-697: the add-device dialog — byte-matched copy and layout with
-          the IDE's (`machines.rs` open_add_server_dialog). Desktop download
-          first, then the CLI one-liner shown on two fixed lines (never a
-          horizontal scroll) with the copy control inside the box. No footer. */}
-      <Dialog open={addServerOpen} onOpenChange={setAddServerOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add device</DialogTitle>
-            <DialogDescription>
-              To run coding sessions, install the desktop app.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-4">
-            <Button asChild className="w-fit">
-              <a href={desktopDownloadHref(userAgent)} target="_blank" rel="noreferrer">
-                Download desktop app
-              </a>
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Or install the Exponential CLI on a server:
-            </p>
-            <div className="relative">
-              <pre className="rounded-md border bg-muted/30 p-3 pr-10 text-left text-xs whitespace-pre-wrap">
-                {`curl -fsSL https://exponential.at/install.sh |\n  EXP_INSTANCE=${origin} sh`}
-              </pre>
-              <CopyIconButton text={snippet} />
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          the IDE's (`machines.rs` open_add_server_dialog). EXP-1111: the CLI
+          one-liner carries a one-time install token, and a CLI's device code
+          can be approved in place. */}
+      <AddDeviceDialog
+        open={addServerOpen}
+        onOpenChange={setAddServerOpen}
+        devices={mine}
+        origin={origin}
+      />
 
       {/* EXP-909 follow-up: Update and Remove live in here now, as the
           dialog's last two sections. */}

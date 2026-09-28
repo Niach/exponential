@@ -68,6 +68,10 @@ import {
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { applyMcpOauthCommandCompletion } from "@/lib/mcp-oauth/flows"
 import {
+  createInstallToken,
+  installTokenMintLimiter,
+} from "@/lib/auth/cli-install-token"
+import {
   applyReadinessReport,
   mcpReadinessEntriesSchema,
 } from "@/lib/mcp-oauth/readiness"
@@ -1634,4 +1638,22 @@ export const devicesRouter = router({
       })
       return { ok: true, txid }
     }),
+
+  // EXP-1111: a one-time `expi_` token for the Add device dialog's install
+  // one-liner (EXP_INSTALL_TOKEN). The new daemon redeems it ONCE at the
+  // anonymous POST /api/cli/install-token/redeem for a session token of the
+  // caller — no device-code round trip. 15-minute TTL; only the sha256 is
+  // stored (lib/auth/cli-install-token.ts).
+  createInstallToken: authedProcedure.mutation(async ({ ctx }) => {
+    const userId = ctx.session.user.id
+    const limit = installTokenMintLimiter.tryTake(userId)
+    if (!limit.ok) {
+      throw new TRPCError({
+        code: `TOO_MANY_REQUESTS`,
+        message: `Too many install commands. Try again in ${limit.retryAfterSeconds}s.`,
+      })
+    }
+    const { token, expiresAt } = await createInstallToken(ctx.db, userId)
+    return { token, expiresAt: expiresAt.toISOString() }
+  }),
 })

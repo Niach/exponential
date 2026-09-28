@@ -1653,6 +1653,30 @@ export const deviceCommands = pgTable(
   ]
 )
 
+// EXP-1111: one-time CLI install tokens (SERVER-ONLY, never synced). The Add
+// device dialog mints one (`devices.createInstallToken`) and bakes it into
+// the install one-liner as EXP_INSTALL_TOKEN; the freshly installed daemon
+// trades it ONCE at the anonymous `POST /api/cli/install-token/redeem` for a
+// regular Better Auth session token — the same credential the device-code
+// login yields. Only the sha256 hex of the token is stored; `used_at` is the
+// atomic single-use claim; rows are short-lived (15-minute TTL).
+export const cliInstallTokens = pgTable(
+  `cli_install_tokens`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    tokenHash: text(`token_hash`).notNull().unique(),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+    usedAt: timestamp(`used_at`, { withTimezone: true }),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index(`idx_cli_install_tokens_user`).on(table.userId)]
+)
+
 // GitHub App installations (server-only, not synced). Mirrored from the setup
 // redirect, the OAuth claim callback, and installation webhooks; token
 // resolution itself is storage-free (the App JWT looks up a repo's installation
