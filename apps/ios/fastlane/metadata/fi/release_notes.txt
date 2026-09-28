@@ -1,4 +1,3 @@
-- Reviews: jokaisella pull request -rivillä on yksi ohjain, Merge, tai Merge stack stackin pohjalla, ja workflow-solmun pull request kertoo mergeytyvänsä workflown kautta
-- Workflowt: Open final PR ilmestyy, kun workflown viimeinen pull request on suljettu, tapahtumaloki on graafin alla ja valittu solmu näyttää vain omat tapahtumansa, ja epäonnistuneet tai odottavat tilat näkyvät meripihkana
-- Agenttiajot: vastaustasi odottavassa ajossa on punainen piste, ja toisella tilillä kulkeva workflow-ajo kertoo millä
-- Jos aloitat issuen, jolla on jo käynnissä oleva ajo, siitä kerrotaan toisen ajon aloittamisen sijaan
+- Boardit: uuden kirjautumisen tai täyden uudelleensynkronoinnin jälkeen board näyttää latausilmaisimen, kunnes sen issuet saapuvat, sen sijaan että se välähtäisi ”No issues yet” -tekstin ja aloitusmuistilistan
+- Agenttiajot: suunnittelutilassa olevat claude-ajot päivitetyssä työpöytäsovelluksessa tai CLI:ssä käyttävät taas työkalujaan sen sijaan, että hylkäisivät jokaisen kutsun
+- Agenttiajot: tyhjässä repositoriossa käynnistetty ajo luo ensimmäisen commitinsa ja käynnistyy sen sijaan, että jäisi jumiin

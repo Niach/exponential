@@ -1,0 +1,1 @@
+Boards: after a fresh sign-in or a full resync a board shows a spinner until its issues arrive, instead of flashing an empty board and the getting-started checklist. Plan-mode claude runs on an updated desktop app or CLI use their tools again, and a run on an empty repository starts instead of hanging.

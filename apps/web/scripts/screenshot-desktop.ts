@@ -607,6 +607,9 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
         version: DEMO_DEVICE_VERSION,
         isDefault: true,
         agents: AGENTS,
+        // The natives' machine picker reads the ACP-runnable list; without it
+        // every composer shot says "Not ready on Alex's MacBook Pro".
+        acpAgents: AGENTS,
         caps: CAPS,
         agentAccounts: report.agentAccounts,
         agentUsage: report.agentUsage,
@@ -622,6 +625,7 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
           version: DEMO_DEVICE_VERSION,
           isDefault: true,
           agents: AGENTS,
+          acpAgents: AGENTS,
           caps: CAPS,
           agentAccounts: report.agentAccounts,
           agentUsage: report.agentUsage,

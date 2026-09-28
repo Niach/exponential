@@ -245,7 +245,16 @@ function AgentPage() {
               className="absolute top-3 left-3 z-10 hidden size-8 text-muted-foreground hover:text-foreground md:flex"
               aria-label="Recent runs"
               data-testid="recent-runs-toggle"
-              onClick={() => setRecentRunsPanelOpen(true)}
+              onClick={() => {
+                setRecentRunsPanelOpen(true)
+                // This button unmounts while the panel is up: focus the
+                // panel's back row, which is the way out.
+                requestAnimationFrame(() =>
+                  document
+                    .querySelector<HTMLElement>(`[aria-label="Back to Agent"]`)
+                    ?.focus(),
+                )
+              }}
             >
               <RecentRunsIcon className="size-4" />
             </Button>

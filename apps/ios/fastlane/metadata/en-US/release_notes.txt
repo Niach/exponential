@@ -1,4 +1,3 @@
-- Reviews: every pull request row carries one control, Merge or Merge stack at the bottom of a stack, and a workflow node's pull request says it merges through the workflow
-- Workflows: Open final PR appears when a workflow's final pull request was closed, the event log sits under the graph and a picked node shows only its own events, and failed or waiting states read amber
-- Agent runs: a run waiting on your answer wears a red dot, and a workflow run on another account says which one
-- Starting an issue that already has a live run says so instead of starting a second one
+- Boards: after a fresh sign-in or a full resync a board shows a spinner until its issues arrive, instead of flashing "No issues yet" and the getting-started checklist
+- Agent runs: plan-mode claude runs on an updated desktop app or CLI use their tools again instead of refusing every call
+- Agent runs: a run on an empty repository creates its first commit and starts instead of hanging

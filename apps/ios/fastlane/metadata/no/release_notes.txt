@@ -1,4 +1,3 @@
-- Reviews: hver pull request-rad har én kontroll, Merge, eller Merge stack nederst i en stack, og pull requesten til en workflow-node sier at den merges gjennom workflowen
-- Workflows: Open final PR vises når den siste pull requesten til en workflow ble lukket, hendelsesloggen ligger under grafen og en valgt node viser bare sine egne hendelser, og mislykkede eller ventende tilstander vises i rav
-- Agentkjøringer: en kjøring som venter på svaret ditt får en rød prikk, og en workflowkjøring på en annen konto sier hvilken
-- Starter du et issue som allerede har en aktiv kjøring, får du beskjed i stedet for at en ny startes
+- Boards: etter en ny innlogging eller en full resynkronisering viser et board en lasteindikator til issuene er kommet, i stedet for å blinke med «No issues yet» og kom-i-gang-sjekklisten
+- Agentkjøringer: claude-kjøringer i planmodus på en oppdatert skrivebordsapp eller CLI bruker verktøyene sine igjen i stedet for å avvise hvert kall
+- Agentkjøringer: en kjøring på et tomt repository lager sin første commit og starter i stedet for å henge

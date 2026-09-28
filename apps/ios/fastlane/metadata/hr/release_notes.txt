@@ -1,4 +1,3 @@
-- Reviews: svaki redak pull requesta ima jednu kontrolu, Merge, ili Merge stack na dnu stacka, a pull request čvora workflowa navodi da se spaja kroz workflow
-- Workflowi: Open final PR pojavljuje se kada je završni pull request workflowa zatvoren, zapisnik događaja nalazi se ispod grafa i odabrani čvor prikazuje samo svoje događaje, a stanja neuspjeha ili čekanja prikazuju se jantarno
-- Izvođenja agenta: izvođenje koje čeka vaš odgovor ima crvenu točku, a izvođenje workflowa na drugom računu navodi na kojem
-- Pokretanje issuea koji već ima aktivno izvođenje to javlja umjesto da pokrene drugo
+- Boardovi: nakon nove prijave ili potpune ponovne sinkronizacije board prikazuje indikator učitavanja dok ne stignu njegovi issuei, umjesto da nakratko bljesne „No issues yet“ i popis za početak
+- Izvođenja agenta: claude izvođenja u načinu plana na ažuriranoj desktop aplikaciji ili CLI-ju ponovno koriste svoje alate umjesto da odbijaju svaki poziv
+- Izvođenja agenta: izvođenje na praznom repozitoriju stvara svoj prvi commit i pokreće se umjesto da zapne

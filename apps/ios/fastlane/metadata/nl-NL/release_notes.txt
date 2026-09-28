@@ -1,4 +1,3 @@
-- Reviews: elke pull request-rij heeft één knop, Merge, of Merge stack onderaan een stack, en de pull request van een workflow-node meldt dat hij via de workflow gemerged wordt
-- Workflows: Open final PR verschijnt wanneer de laatste pull request van een workflow gesloten is, het gebeurtenislogboek staat onder de graaf en een gekozen node toont alleen zijn eigen gebeurtenissen, en mislukte of wachtende statussen kleuren amber
-- Agentruns: een run die op jouw antwoord wacht krijgt een rode stip, en een workflowrun op een ander account zegt welk
-- Een issue starten dat al een actieve run heeft, meldt dat in plaats van een tweede te starten
+- Boards: na een nieuwe aanmelding of een volledige hersynchronisatie toont een board een laadindicator tot de issues binnen zijn, in plaats van kort “No issues yet” en de checklist om te beginnen te tonen
+- Agentruns: claude-runs in planmodus op een bijgewerkte desktopapp of CLI gebruiken hun tools weer in plaats van elke aanroep te weigeren
+- Agentruns: een run op een lege repository maakt zijn eerste commit en start in plaats van vast te lopen

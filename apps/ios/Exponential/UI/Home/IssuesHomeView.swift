@@ -414,7 +414,12 @@ struct IssuesHomeView: View {
         syncedTeams = nil
         boardsSynced = false
         guard let accountId = deps.auth.activeAccountId,
-              let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+              let pool = try? deps.db.pool(forAccountId: accountId) else {
+            // No pool means no shape will ever report live: fall through to
+            // the empty state as before EXP-1115, never an endless spinner.
+            boardsSynced = true
+            return
+        }
         let obs = ValueObservation.tracking { db -> ([TeamEntity], Bool) in
             let teams = try TeamEntity.fetchAll(db)
             let live = try ElectricOffset.fetchOne(db, key: "boards")?.isLive ?? false

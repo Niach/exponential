@@ -31,7 +31,16 @@ export function RecentRunsSidebar({
     <>
       <SidebarBackRow
         label="Agent"
-        onBack={() => setRecentRunsPanelOpen(false)}
+        onBack={() => {
+          setRecentRunsPanelOpen(false)
+          // The panel (and this row) unmounts: hand focus back to the page's
+          // history button so a keyboard user is not dropped on <body>.
+          requestAnimationFrame(() =>
+            document
+              .querySelector<HTMLElement>(`[data-testid="recent-runs-toggle"]`)
+              ?.focus(),
+          )
+        }}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
         <GlassSectionHeader label="Recent" />
