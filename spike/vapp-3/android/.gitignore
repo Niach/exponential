@@ -1,0 +1,8 @@
+/out
+/PeerHello/.gradle
+/PeerHello/build
+/PeerHello/app/build
+/PeerHello/local.properties
+/PeerHello/app/src/main/jniLibs
+/PeerHello/app/src/main/java/uniffi
+/PeerHello/app/src/main/java/at/exponential/peerhello/DevTickets.kt

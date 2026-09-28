@@ -1,0 +1,4 @@
+{"kind": "coldstart", "at": "2026-09-28T03:51:12Z", "platform": "android-emu", "variant": "baseline", "samplesMs": [417, 221, 200, 196, 201, 221, 257, 235, 200, 195, 251, 474, 283, 313, 1305], "medianMs": 235, "method": "am start -W TotalTime"}
+{"kind": "coldstart", "at": "2026-09-28T03:53:12Z", "platform": "android-emu", "variant": "with-core", "samplesMs": [242, 414, 237, 204, 269, 257, 241, 203, 243, 264, 205, 227, 215, 332, 280], "medianMs": 242, "method": "am start -W TotalTime"}
+{"kind": "coldstart", "at": "2026-09-28T03:55:12Z", "platform": "android-emu", "variant": "baseline", "samplesMs": [295, 241, 244, 268, 207, 225, 260, 235, 258, 210, 233, 282, 207, 412, 250], "medianMs": 244, "method": "am start -W TotalTime"}
+{"kind": "coldstart", "at": "2026-09-28T03:57:12Z", "platform": "android-emu", "variant": "with-core", "samplesMs": [202, 298, 238, 211, 276, 194, 215, 370, 217, 406, 204, 216, 207, 218, 219], "medianMs": 217, "method": "am start -W TotalTime"}

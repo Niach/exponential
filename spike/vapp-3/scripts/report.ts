@@ -6,11 +6,19 @@ const here = new URL("..", import.meta.url).pathname
 const dir = join(here, "results")
 type Row = Record<string, any>
 const rows: Row[] = []
+const seen = new Set<string>()
 for (const f of readdirSync(dir).filter((f) => f.endsWith(".jsonl")).sort()) {
   for (const line of readFileSync(join(dir, f), "utf8").split("\n")) {
     const t = line.trim()
     if (!t) continue
-    try { rows.push({ ...JSON.parse(t), _file: f }) } catch { /* skip */ }
+    try {
+      const r = { ...JSON.parse(t), _file: f }
+      // The phone apps deliver each result twice (relay envelope + HTTP POST fallback); keep one.
+      const key = `${r.kind}|${r.source}|${r.at}`
+      if (r.kind === "bench" && seen.has(key)) continue
+      seen.add(key)
+      rows.push(r)
+    } catch { /* skip */ }
   }
 }
 const q = (xs: number[], p: number) => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * (s.length - 1) + 0.5))] }

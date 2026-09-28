@@ -53,6 +53,12 @@ val releaseStorePassword = releaseProp("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = releaseProp("RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseProp("RELEASE_KEY_PASSWORD")
 
+// VAPP-3 spike (throwaway): `-PpeerSpike=true` links the Rust peer core (libpeer_ffi.so per ABI +
+// UniFFI Kotlin + JNA) from spike/vapp-3/android/out to measure the APK delta and cold start.
+// Without the property nothing below changes the build (PEER_SPIKE=false).
+val peerSpike = project.hasProperty("peerSpike")
+val peerSpikeOut = "../../../spike/vapp-3/android"
+
 android {
     namespace = "com.exponential.app"
     compileSdk = 36
@@ -75,6 +81,12 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        buildConfigField("boolean", "PEER_SPIKE", if (peerSpike) "true" else "false")
+    }
+
+    if (peerSpike) {
+        sourceSets["main"].jniLibs.srcDir("$peerSpikeOut/out/jniLibs")
+        sourceSets["main"].java.srcDir("$peerSpikeOut/out/kotlin")
     }
 
     signingConfigs {
@@ -102,7 +114,11 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (releaseStoreFile != null) {
                 signingConfig = signingConfigs.getByName("release")
+            } else if (peerSpike) {
+                // VAPP-3: debug-signed so the spike release APK installs for the cold-start test.
+                signingConfig = signingConfigs.getByName("debug")
             }
+            if (peerSpike) proguardFiles("$peerSpikeOut/real-app/proguard-peer-spike.pro")
             // Package native symbol tables into the AAB so Play can symbolicate
             // crashes/ANRs in dependency .so libs (stripped before delivery).
             ndk {
@@ -168,6 +184,7 @@ kotlin {
 }
 
 dependencies {
+    if (peerSpike) implementation("net.java.dev.jna:jna:5.17.0@aar") // VAPP-3 spike only
     implementation(libs.core.ktx)
     implementation(libs.core.splashscreen)
     implementation(libs.lifecycle.runtime.ktx)

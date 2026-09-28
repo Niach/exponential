@@ -1,0 +1,4 @@
+# Kotlin-only bindgen config (peer-ffi is frozen, so the fix lives here): the exported
+# `PeerLink.close()` collides with the AutoCloseable.close() every UniFFI Kotlin object implements.
+[crates.peer_ffi.bindings.kotlin.rename]
+"PeerLink.close" = "closeLink"

@@ -36,6 +36,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        com.exponential.app.spike.PeerSpike.touch() // VAPP-3 spike, no-op unless -PpeerSpike=true
         createIssueNotificationChannel()
         cleanupLegacyAccountDatabases()
         // Self-heal a device that already carries a duplicate server row, before
