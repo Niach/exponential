@@ -9,7 +9,7 @@ renders `RESULTS.md`. Steps marked **(you)** need Danny.
 | Piece | Local run (done by the spike) | Off-LAN run (cellular / office / hotel) |
 |---|---|---|
 | Signaling relay | docker dev relay `ws://192.168.178.71:4002`, secret `dev-steer-secret` | the staging relay (public, `wss://…/steer` on next.exponential.at) with tickets minted using ITS secret, or the dev relay exposed via a tunnel |
-| TURN/STUN | `spike/vapp-3/coturn` on the Mac (`192.168.178.71:3478`) | coturn on the Hetzner box (one-liner below); phones on cellular cannot reach the Mac's coturn |
+| TURN/STUN | native coturn on the Mac (`scripts/coturn-native.sh`, `192.168.178.71:3478`) | coturn on the Hetzner box (one-liner below); phones on cellular cannot reach the Mac's coturn |
 | Daemon (the "desktop" side) | `peer-cli daemon` on this Mac, home Wi-Fi | same Mac, home Wi-Fi (that IS the scenario "home ↔ X") |
 | Peers | browser on the Mac, iPhone Air on Wi-Fi, Android emulator | PeerHello on the iPhone / an Android phone on cellular or another Wi-Fi |
 

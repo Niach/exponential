@@ -81,11 +81,13 @@ The dev room `vapp3-dev` (7 days) is in `results/.tickets-dev.json` (gitignored;
 
 ## Running the local matrix
 
-1. `./spike/vapp-3/scripts/coturn-up.sh` (coturn on the LAN IP, user `exp` / pass `spike` / realm `exponential.local`, UDP 3478 + 49160-49200).
+1. `./spike/vapp-3/scripts/coturn-native.sh` (coturn NATIVE on the LAN IP via `brew install coturn`, user `exp` / pass `spike` / realm `exponential.local`, UDP 3478 + 49160-49200). The Docker variant (`scripts/coturn-up.sh`) is only usable on a Linux host: on macOS OrbStack/Docker NAT makes coturn see Mac peers as 192.168.107.1, every CREATE_PERMISSION then fails on the reply path (403 Forbidden IP) and the loss stalls SCTP. Lesson for #VAPP-38: coturn needs real source addresses (host networking).
 2. Docker dev relay is up on `ws://localhost:4002` (`docker compose --profile steer up -d`); tickets as above.
 3. Daemon: `CARGO_TARGET_DIR=$PWD/spike/vapp-3/rust/target cargo run --release --manifest-path spike/vapp-3/rust/Cargo.toml -p peer-cli -- daemon --relay ws://localhost:4002 --ticket <publisher> --session vapp3-dev --turn 192.168.178.71:3478 --turn-user exp --turn-pass spike --turn-realm exponential.local --out spike/vapp-3/results/daemon.jsonl`
 4. Web: `bun spike/vapp-3/web/serve.ts` then `bun spike/vapp-3/web/run.ts --runs 20 --policy all` and `--policy relay` (Playwright: chromium headless shell + webkit); Safari: open the printed URL once.
 5. Phones: see `ios/README.md` and `android/README.md` (PeerHello apps: Connect · Bench · Reconnect · Send results).
 6. `bun spike/vapp-3/scripts/report.ts` regenerates `RESULTS.md`.
 
-## The matrix that needs a person (Danny's runbook lives at the bottom of RESULTS.md once generated)
+## The matrix that needs a person
+
+See `RUNBOOK.md`. Lane reports and gotchas: `ios/README.md`, `android/README.md`.
