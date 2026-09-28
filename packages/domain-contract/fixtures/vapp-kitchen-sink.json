@@ -1,0 +1,170 @@
+{
+  "$comment": "VAPP-4 spike fixture. ONE tree read by the Rust core (include_str!), the web renderer, and through the core by SwiftUI/Compose/gpui. Node = {id, kind, style?, props?, children?}. `style` = StyleX-subset object (camelCase CSS names, numbers = px, strings for %/keywords/track lists); nested `\"@media (min-width: Npx)\"` = SURFACE width breakpoint, `\":pressed\"` = client pressed state. Kinds: box|card (containers), text|button|textfield|textarea|toggle|select|listrow|badge|pill|avatar|image|divider|progress|markdown (measured leaves). Colours: `#hex` or `$group.token` into design-tokens. Absolute children come LAST among their siblings (painters draw pre-order).",
+  "id": "root",
+  "kind": "box",
+  "style": {
+    "display": "flex",
+    "flexDirection": "column",
+    "gap": 16,
+    "padding": 16,
+    "width": "100%",
+    "backgroundColor": "$palette.background",
+    "direction": "ltr"
+  },
+  "children": [
+    {
+      "id": "header",
+      "kind": "box",
+      "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 12 },
+      "children": [
+        { "id": "hdr-avatar", "kind": "avatar", "props": { "name": "Alex Chen", "size": 32 } },
+        {
+          "id": "hdr-text",
+          "kind": "box",
+          "style": { "display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0, "gap": 2 },
+          "children": [
+            { "id": "hdr-title", "kind": "text", "props": { "text": "Reddit radar", "variant": "title" } },
+            { "id": "hdr-sub", "kind": "text", "props": { "text": "Kitchen sink · one taffy layout on every client", "variant": "muted" } }
+          ]
+        },
+        { "id": "hdr-badge", "kind": "badge", "props": { "count": 3 } },
+        {
+          "id": "hdr-scan",
+          "kind": "button",
+          "props": { "label": "Scan now", "variant": "primary" },
+          "style": { "flexShrink": 0, ":pressed": { "opacity": 0.6 } }
+        }
+      ]
+    },
+    {
+      "id": "grid",
+      "kind": "box",
+      "style": {
+        "display": "grid",
+        "gap": 12,
+        "gridTemplateColumns": "1fr",
+        "gridTemplateAreas": ["nav", "main", "footer"],
+        "@media (min-width: 600px)": {
+          "gridTemplateColumns": "minmax(180px, 1fr) 2fr",
+          "gridTemplateRows": "auto auto",
+          "gridTemplateAreas": ["nav main", "nav footer"]
+        }
+      },
+      "children": [
+        {
+          "id": "nav-card",
+          "kind": "card",
+          "style": { "gridArea": "nav", "display": "flex", "flexDirection": "column", "gap": 8, "padding": 12 },
+          "children": [
+            { "id": "nav-heading", "kind": "text", "props": { "text": "Sources", "variant": "label" } },
+            { "id": "row-1", "kind": "listrow", "props": { "title": "r/selfhosted", "meta": "312 posts" } },
+            { "id": "row-2", "kind": "listrow", "props": { "title": "r/opensource", "meta": "88 posts" } },
+            { "id": "row-3", "kind": "listrow", "props": { "title": "r/webdev", "meta": "1.2k posts" } },
+            { "id": "nav-div", "kind": "divider" },
+            { "id": "nav-toggle", "kind": "toggle", "props": { "label": "Auto-scan", "checked": true } }
+          ]
+        },
+        {
+          "id": "main-card",
+          "kind": "card",
+          "style": { "gridArea": "main", "display": "flex", "flexDirection": "column", "gap": 10, "padding": 12, "minWidth": 0 },
+          "children": [
+            { "id": "main-heading", "kind": "text", "props": { "text": "Drafts", "variant": "label" } },
+            {
+              "id": "media",
+              "kind": "box",
+              "style": { "position": "relative", "width": "100%", "aspectRatio": 1.7777778, "borderRadius": 12, "overflow": "hidden", "backgroundColor": "$semantic.blue" },
+              "children": [
+                { "id": "media-img", "kind": "image", "props": { "placeholder": "$semantic.blue", "alt": "Cover" }, "style": { "width": "100%", "height": "100%" } },
+                {
+                  "id": "media-badge",
+                  "kind": "pill",
+                  "props": { "label": "LIVE", "tone": "live" },
+                  "style": { "position": "absolute", "top": 8, "right": 8 }
+                }
+              ]
+            },
+            {
+              "id": "main-md",
+              "kind": "markdown",
+              "props": { "text": "**Looking for a Linear alternative** — self-hostable, with agents.\n\n- Draft reply ready\n- 2 sources cited" },
+              "style": { "minWidth": 0 }
+            },
+            { "id": "main-progress", "kind": "progress", "props": { "value": 0.62 }, "style": { "width": "100%" } }
+          ]
+        },
+        {
+          "id": "footer-card",
+          "kind": "card",
+          "style": { "gridArea": "footer", "display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "gap": 8, "padding": 12, "minWidth": 0 },
+          "children": [
+            { "id": "pill-1", "kind": "pill", "props": { "label": "All", "selected": true } },
+            { "id": "pill-2", "kind": "pill", "props": { "label": "Drafts" } },
+            { "id": "pill-3", "kind": "pill", "props": { "label": "Sent" } },
+            { "id": "pill-4", "kind": "pill", "props": { "label": "Archived" } },
+            { "id": "footer-spacer", "kind": "box", "style": { "flexGrow": 1, "flexBasis": 120, "minWidth": 40, "height": 1 } },
+            { "id": "footer-more", "kind": "button", "props": { "label": "More", "variant": "ghost" }, "style": { ":pressed": { "opacity": 0.6 } } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "form",
+      "kind": "card",
+      "style": { "display": "flex", "flexDirection": "column", "gap": 10, "padding": 12 },
+      "children": [
+        { "id": "form-heading", "kind": "text", "props": { "text": "Draft reply", "variant": "label" } },
+        { "id": "echo-field", "kind": "textfield", "props": { "placeholder": "Title (echoes after 150 ms)", "echo": true }, "style": { "width": "100%" } },
+        { "id": "form-body", "kind": "textarea", "props": { "placeholder": "Body" }, "style": { "width": "100%", "minHeight": 72 } },
+        {
+          "id": "form-row",
+          "kind": "box",
+          "style": { "display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "gap": 8 },
+          "children": [
+            { "id": "form-sub", "kind": "select", "props": { "options": ["r/selfhosted", "r/opensource", "r/webdev"], "value": "r/selfhosted" }, "style": { "flexGrow": 1, "flexBasis": 160, "maxWidth": 320 } },
+            {
+              "id": "form-actions",
+              "kind": "box",
+              "style": { "display": "flex", "flexDirection": "row", "gap": 8, "marginLeft": "auto" },
+              "children": [
+                { "id": "form-cancel", "kind": "button", "props": { "label": "Cancel", "variant": "outline" }, "style": { ":pressed": { "opacity": 0.6 } } },
+                { "id": "form-send", "kind": "button", "props": { "label": "Send", "variant": "primary" }, "style": { ":pressed": { "opacity": 0.6 } } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "flex-demo",
+      "kind": "box",
+      "style": { "display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": 8 },
+      "children": [
+        {
+          "id": "fx-1",
+          "kind": "box",
+          "style": { "flexBasis": "30%", "flexGrow": 1, "minWidth": 96, "height": 40, "borderRadius": 8, "backgroundColor": "$semantic.green", "display": "flex", "alignItems": "center", "justifyContent": "center" },
+          "children": [{ "id": "fx-1-t", "kind": "text", "props": { "text": "basis 30% · grow 1", "variant": "caption" } }]
+        },
+        {
+          "id": "fx-2",
+          "kind": "box",
+          "style": { "width": 160, "flexShrink": 0, "height": 40, "borderRadius": 8, "backgroundColor": "$semantic.orange", "display": "flex", "alignItems": "center", "justifyContent": "center" },
+          "children": [{ "id": "fx-2-t", "kind": "text", "props": { "text": "160 · shrink 0", "variant": "caption" } }]
+        },
+        {
+          "id": "fx-3",
+          "kind": "box",
+          "style": { "flexGrow": 2, "flexBasis": 80, "maxWidth": "50%", "height": 40, "borderRadius": 8, "backgroundColor": "$semantic.red", "display": "flex", "alignItems": "center", "justifyContent": "center" },
+          "children": [{ "id": "fx-3-t", "kind": "text", "props": { "text": "grow 2 · max 50%", "variant": "caption" } }]
+        },
+        {
+          "id": "fx-4",
+          "kind": "box",
+          "style": { "width": "25%", "minWidth": 64, "height": 40, "borderRadius": 8, "backgroundColor": "$semantic.yellow", "display": "flex", "alignItems": "center", "justifyContent": "center" },
+          "children": [{ "id": "fx-4-t", "kind": "text", "props": { "text": "25%", "variant": "caption" } }]
+        }
+      ]
+    }
+  ]
+}

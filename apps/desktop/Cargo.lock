@@ -8502,6 +8502,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vapp-spike"
+version = "0.14.54"
+dependencies = [
+ "serde",
+ "serde_json",
+ "taffy",
+]
+
+[[package]]
 name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"

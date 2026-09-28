@@ -34,3 +34,8 @@ apps/web/public/widget/
 # Raw capture output for the screenshot store (EXP-566) — only the optimized
 # shots/**.webp are committed; regenerate with `bun run shots`.
 /.shots-raw/
+
+# VAPP-4 spike binaries (rebuilt by spikes/vapp-ffi/build-*.sh)
+/apps/ios/VappSpikeKit/VappSpikeFFI.xcframework/
+/apps/android/app/src/main/jniLibs/
+/spikes/*/node_modules/

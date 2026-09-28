@@ -1,0 +1,18 @@
+[package]
+name = "vapp-spike"
+version.workspace = true
+# Stated explicitly (VAPP-4 spike crate): it is also consumed from the standalone
+# `spikes/vapp-ffi` workspace, which cannot inherit this workspace's fields.
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "VAPP-4 spike: StyleX-subset style objects → taffy layout → placed frames (throwaway)"
+
+[dependencies]
+# Same exact version gpui pins (Cargo.lock 7279) — one taffy in the tree.
+taffy = "=0.12.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[example]]
+name = "dump_frames"

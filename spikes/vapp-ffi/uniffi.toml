@@ -1,0 +1,6 @@
+[bindings.swift]
+module_name = "VappSpikeFFI"
+
+[bindings.kotlin]
+package_name = "uniffi.vapp_spike_ffi"
+cdylib_name = "vapp_spike_ffi"
