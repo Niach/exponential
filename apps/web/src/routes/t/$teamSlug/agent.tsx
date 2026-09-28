@@ -26,7 +26,6 @@ import {
 import { pageTitle } from "@/lib/page-title"
 import {
   setRecentRunsPanelOpen,
-  toggleRecentRunsPanel,
   useRecentRunsPanelOpen,
 } from "@/lib/recent-runs-panel"
 
@@ -235,23 +234,25 @@ function AgentPage() {
     >
       {/* EXP-923: the page's ONE history control — it slides the sidebar's
           Recent panel in beside the compact rail (md+; the phone reaches the
-          same list through the topbar's sheet). */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-3 left-3 z-10 hidden size-8 text-muted-foreground hover:text-foreground md:flex"
-            aria-label="Recent runs"
-            aria-pressed={recentOpen}
-            data-testid="recent-runs-toggle"
-            onClick={() => toggleRecentRunsPanel()}
-          >
-            <RecentRunsIcon className="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">Recent runs</TooltipContent>
-      </Tooltip>
+          same list through the topbar's sheet). EXP-1119: hidden while the
+          panel is up — the panel's own back row shuts it. */}
+      {!recentOpen && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute top-3 left-3 z-10 hidden size-8 text-muted-foreground hover:text-foreground md:flex"
+              aria-label="Recent runs"
+              data-testid="recent-runs-toggle"
+              onClick={() => setRecentRunsPanelOpen(true)}
+            >
+              <RecentRunsIcon className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Recent runs</TooltipContent>
+        </Tooltip>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div
           className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6 md:min-h-full md:justify-center ${

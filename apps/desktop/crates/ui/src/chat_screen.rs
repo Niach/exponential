@@ -49,17 +49,17 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::{
-    div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent, Entity,
+    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::input::{InputEvent, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Selectable as _,
-    Sizable as _, WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Sizable as _,
+    WindowExt as _,
 };
 use sync::Store;
 
@@ -2851,7 +2851,8 @@ impl ChatScreenView {
     /// That button is the page's one piece of chrome: a ghost history glyph
     /// in the content area's top-left corner, over the composer column
     /// rather than in it (the column is centred; the button is not). It
-    /// toggles `LeftOccupant::RecentRuns` in the left column.
+    /// opens `LeftOccupant::RecentRuns` in the left column, and hides while
+    /// that panel is up — its back row puts it away (EXP-1119).
     fn render_page(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let launcher = self.render_launcher(window, cx);
         let history_open = crate::navigation::recent_runs_open(window, cx);
@@ -2860,7 +2861,6 @@ impl ChatScreenView {
             .cursor_pointer()
             .small()
             .icon(Icon::from(registry::SETTINGS_SESSIONS))
-            .selected(history_open)
             .tooltip(RECENT_RUNS_LABEL)
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 crate::navigation::toggle_recent_runs(window, cx);
@@ -2893,7 +2893,9 @@ impl ChatScreenView {
                             .child(launcher),
                     ),
             ))
-            .child(div().absolute().top_2().left_2().child(history))
+            .when(!history_open, |page| {
+                page.child(div().absolute().top_2().left_2().child(history))
+            })
             .into_any_element()
     }
 

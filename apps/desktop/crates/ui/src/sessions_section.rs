@@ -28,8 +28,9 @@
 use std::collections::HashSet;
 
 use gpui::{
-    div, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Task, Window,
+    div, App, AppContext as _, ClickEvent, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Task, Window,
 };
 use gpui_component::{scroll::ScrollableElement as _, v_flex};
 
@@ -507,21 +508,35 @@ impl RecentRunsNav {
 }
 
 impl Render for RecentRunsNav {
-    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        div()
-            .id("recent-runs-scroll")
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-1119: the back row every left-column panel wears; it puts the
+        // panel away (the page's history button hides while it is up).
+        let back = crate::settings::nav_back_row("recent-runs-back", "Agent", cx).on_click(
+            |_: &ClickEvent, window, cx| crate::navigation::toggle_recent_runs(window, cx),
+        );
+        v_flex()
             .size_full()
-            .min_h_0()
             .min_w_0()
-            .overflow_y_scrollbar()
+            .overflow_hidden()
+            .child(back)
+            .child(crate::settings::nav_back_rule(cx))
             .child(
-                v_flex()
+                div()
+                    .id("recent-runs-scroll")
+                    .flex_1()
+                    .min_h_0()
                     .w_full()
                     .min_w_0()
-                    .px_2()
-                    .pt_2()
-                    .pb_2()
-                    .child(self.past.clone()),
+                    .overflow_y_scrollbar()
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .min_w_0()
+                            .px_2()
+                            .pt_2()
+                            .pb_2()
+                            .child(self.past.clone()),
+                    ),
             )
     }
 }

@@ -2,6 +2,8 @@ import { GlassSectionHeader } from "@exp/ui"
 import { SessionTree } from "@/components/session-tree"
 import { usePastRuns } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
+import { SidebarBackRow } from "@/components/team/sidebar-back-row"
+import { setRecentRunsPanelOpen } from "@/lib/recent-runs-panel"
 
 // EXP-923: the Agent page's RECENT runs, as a sidebar panel.
 //
@@ -13,6 +15,8 @@ import { useOpenSession } from "@/hooks/use-open-session"
 //
 // A row opens its run exactly as before, with the `agent` origin, so Back
 // returns to the Agent page and a tab is created like any other opened work.
+// EXP-1119: the panel wears the back row every slid-in panel does; it shuts
+// the panel (the page's history button hides while it is up).
 
 export function RecentRunsSidebar({
   teamId,
@@ -24,14 +28,22 @@ export function RecentRunsSidebar({
   const { past } = usePastRuns(teamId, currentUserId)
   const openSession = useOpenSession()
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
-      <GlassSectionHeader label="Recent" />
-      <SessionTree
-        rows={past}
-        onOpen={(session) => openSession(session, { origin: { kind: `agent` } })}
-        emptyNote="Nothing has finished yet."
+    <>
+      <SidebarBackRow
+        label="Agent"
+        onBack={() => setRecentRunsPanelOpen(false)}
       />
-    </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
+        <GlassSectionHeader label="Recent" />
+        <SessionTree
+          rows={past}
+          onOpen={(session) =>
+            openSession(session, { origin: { kind: `agent` } })
+          }
+          emptyNote="Nothing has finished yet."
+        />
+      </div>
+    </>
   )
 }
 
