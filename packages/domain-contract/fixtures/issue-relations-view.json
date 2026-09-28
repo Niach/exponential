@@ -1,0 +1,1518 @@
+{
+  "copy": {
+    "subIssues": "Sub-issues",
+    "subIssueOf": "Sub-issue of",
+    "addSubIssues": "Add sub-issues",
+    "relations": "Relations",
+    "add": "Add",
+    "blockedBy": "Blocked by",
+    "blocking": "Blocking",
+    "duplicateOf": "Duplicate of",
+    "duplicatedBy": "Duplicated by",
+    "related": "Related",
+    "showLess": "Show less",
+    "showMore(4)": "Show 4 more",
+    "progress(2,5)": "2/5",
+    "cap": "3"
+  },
+  "cases": [
+    {
+      "name": "default fold: open blockers expanded capped at 3, related + duplicates folded, parent + sub-issue progress",
+      "input": {
+        "subjectId": "i1097",
+        "issues": [
+          {
+            "id": "i1097",
+            "identifier": "EXP-1097",
+            "title": "Related issues view is too much",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1080",
+            "identifier": "EXP-1080",
+            "title": "Issue detail: one relations block",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1131",
+            "identifier": "EXP-1131",
+            "title": "Issue 1131",
+            "status": "done"
+          },
+          {
+            "id": "i1132",
+            "identifier": "EXP-1132",
+            "title": "Issue 1132",
+            "status": "done"
+          },
+          {
+            "id": "i1133",
+            "identifier": "EXP-1133",
+            "title": "Issue 1133",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1134",
+            "identifier": "EXP-1134",
+            "title": "Issue 1134",
+            "status": "backlog"
+          },
+          {
+            "id": "i1135",
+            "identifier": "EXP-1135",
+            "title": "Issue 1135",
+            "status": "cancelled"
+          },
+          {
+            "id": "i1121",
+            "identifier": "EXP-1121",
+            "title": "Issue 1121",
+            "status": "in_review"
+          },
+          {
+            "id": "i1103",
+            "identifier": "EXP-1103",
+            "title": "Issue 1103",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1076",
+            "identifier": "EXP-1076",
+            "title": "Issue 1076",
+            "status": "backlog"
+          },
+          {
+            "id": "i9",
+            "identifier": "EXP-9",
+            "title": "Issue 9",
+            "status": "done"
+          },
+          {
+            "id": "i10",
+            "identifier": "EXP-10",
+            "title": "Issue 10",
+            "status": "backlog"
+          },
+          {
+            "id": "i1140",
+            "identifier": "EXP-1140",
+            "title": "Issue 1140",
+            "status": "backlog"
+          },
+          {
+            "id": "i1142",
+            "identifier": "EXP-1142",
+            "title": "Issue 1142",
+            "status": "backlog"
+          },
+          {
+            "id": "i760",
+            "identifier": "EXP-760",
+            "title": "Issue 760",
+            "status": "done"
+          },
+          {
+            "id": "i736",
+            "identifier": "EXP-736",
+            "title": "Issue 736",
+            "status": "done"
+          },
+          {
+            "id": "i980",
+            "identifier": "EXP-980",
+            "title": "Issue 980",
+            "status": "done"
+          },
+          {
+            "id": "i700",
+            "identifier": "EXP-700",
+            "title": "Issue 700",
+            "status": "backlog"
+          },
+          {
+            "id": "i701",
+            "identifier": "EXP-701",
+            "title": "Issue 701",
+            "status": "backlog"
+          },
+          {
+            "id": "i702",
+            "identifier": "EXP-702",
+            "title": "Issue 702",
+            "status": "backlog"
+          },
+          {
+            "id": "i500",
+            "identifier": "EXP-500",
+            "title": "Issue 500",
+            "status": "duplicate"
+          }
+        ],
+        "relations": [
+          {
+            "type": "parent",
+            "issueId": "i1080",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1133"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1131"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1135"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1132"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1134"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1121",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1103",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1076",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i9",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1097",
+            "relatedIssueId": "i1140"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1097",
+            "relatedIssueId": "i1142"
+          },
+          {
+            "type": "related",
+            "issueId": "i760",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "related",
+            "issueId": "i1097",
+            "relatedIssueId": "i736"
+          },
+          {
+            "type": "related",
+            "issueId": "i980",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "related",
+            "issueId": "i1097",
+            "relatedIssueId": "i700"
+          },
+          {
+            "type": "related",
+            "issueId": "i701",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "related",
+            "issueId": "i1097",
+            "relatedIssueId": "i702"
+          },
+          {
+            "type": "duplicate",
+            "issueId": "i500",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1121",
+            "relatedIssueId": "i1076"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1097",
+            "relatedIssueId": "i99999"
+          },
+          {
+            "type": "mystery",
+            "issueId": "i1097",
+            "relatedIssueId": "i10"
+          }
+        ],
+        "toggled": [],
+        "showAll": []
+      },
+      "expected": {
+        "parent": {
+          "id": "i1080",
+          "identifier": "EXP-1080",
+          "title": "Issue detail: one relations block",
+          "status": "in_progress",
+          "open": true
+        },
+        "subIssues": {
+          "rows": [
+            {
+              "id": "i1131",
+              "identifier": "EXP-1131",
+              "title": "Issue 1131",
+              "status": "done",
+              "open": false
+            },
+            {
+              "id": "i1132",
+              "identifier": "EXP-1132",
+              "title": "Issue 1132",
+              "status": "done",
+              "open": false
+            },
+            {
+              "id": "i1133",
+              "identifier": "EXP-1133",
+              "title": "Issue 1133",
+              "status": "in_progress",
+              "open": true
+            },
+            {
+              "id": "i1134",
+              "identifier": "EXP-1134",
+              "title": "Issue 1134",
+              "status": "backlog",
+              "open": true
+            },
+            {
+              "id": "i1135",
+              "identifier": "EXP-1135",
+              "title": "Issue 1135",
+              "status": "cancelled",
+              "open": false
+            }
+          ],
+          "done": 3,
+          "total": 5,
+          "progress": "3/5"
+        },
+        "bands": [
+          {
+            "key": "blocked_by",
+            "title": "Blocked by",
+            "count": 4,
+            "openCount": 3,
+            "expanded": true,
+            "rows": [
+              {
+                "id": "i1076",
+                "identifier": "EXP-1076",
+                "title": "Issue 1076",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "i1103",
+                "identifier": "EXP-1103",
+                "title": "Issue 1103",
+                "status": "in_progress",
+                "open": true
+              },
+              {
+                "id": "i1121",
+                "identifier": "EXP-1121",
+                "title": "Issue 1121",
+                "status": "in_review",
+                "open": true
+              }
+            ],
+            "more": "Show 1 more",
+            "less": null
+          },
+          {
+            "key": "blocking",
+            "title": "Blocking",
+            "count": 2,
+            "openCount": 2,
+            "expanded": true,
+            "rows": [
+              {
+                "id": "i1140",
+                "identifier": "EXP-1140",
+                "title": "Issue 1140",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "i1142",
+                "identifier": "EXP-1142",
+                "title": "Issue 1142",
+                "status": "backlog",
+                "open": true
+              }
+            ],
+            "more": null,
+            "less": null
+          },
+          {
+            "key": "duplicated_by",
+            "title": "Duplicated by",
+            "count": 1,
+            "openCount": 0,
+            "expanded": false,
+            "rows": [],
+            "more": null,
+            "less": null
+          },
+          {
+            "key": "related",
+            "title": "Related",
+            "count": 7,
+            "openCount": 4,
+            "expanded": false,
+            "rows": [],
+            "more": null,
+            "less": null
+          }
+        ],
+        "relationCount": 14
+      }
+    },
+    {
+      "name": "toggled bands flip their default; show all lifts the cap and offers Show less",
+      "input": {
+        "subjectId": "i1097",
+        "issues": [
+          {
+            "id": "i1097",
+            "identifier": "EXP-1097",
+            "title": "Related issues view is too much",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1080",
+            "identifier": "EXP-1080",
+            "title": "Issue detail: one relations block",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1131",
+            "identifier": "EXP-1131",
+            "title": "Issue 1131",
+            "status": "done"
+          },
+          {
+            "id": "i1132",
+            "identifier": "EXP-1132",
+            "title": "Issue 1132",
+            "status": "done"
+          },
+          {
+            "id": "i1133",
+            "identifier": "EXP-1133",
+            "title": "Issue 1133",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1134",
+            "identifier": "EXP-1134",
+            "title": "Issue 1134",
+            "status": "backlog"
+          },
+          {
+            "id": "i1135",
+            "identifier": "EXP-1135",
+            "title": "Issue 1135",
+            "status": "cancelled"
+          },
+          {
+            "id": "i1121",
+            "identifier": "EXP-1121",
+            "title": "Issue 1121",
+            "status": "in_review"
+          },
+          {
+            "id": "i1103",
+            "identifier": "EXP-1103",
+            "title": "Issue 1103",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1076",
+            "identifier": "EXP-1076",
+            "title": "Issue 1076",
+            "status": "backlog"
+          },
+          {
+            "id": "i9",
+            "identifier": "EXP-9",
+            "title": "Issue 9",
+            "status": "done"
+          },
+          {
+            "id": "i10",
+            "identifier": "EXP-10",
+            "title": "Issue 10",
+            "status": "backlog"
+          },
+          {
+            "id": "i1140",
+            "identifier": "EXP-1140",
+            "title": "Issue 1140",
+            "status": "backlog"
+          },
+          {
+            "id": "i1142",
+            "identifier": "EXP-1142",
+            "title": "Issue 1142",
+            "status": "backlog"
+          },
+          {
+            "id": "i760",
+            "identifier": "EXP-760",
+            "title": "Issue 760",
+            "status": "done"
+          },
+          {
+            "id": "i736",
+            "identifier": "EXP-736",
+            "title": "Issue 736",
+            "status": "done"
+          },
+          {
+            "id": "i980",
+            "identifier": "EXP-980",
+            "title": "Issue 980",
+            "status": "done"
+          },
+          {
+            "id": "i700",
+            "identifier": "EXP-700",
+            "title": "Issue 700",
+            "status": "backlog"
+          },
+          {
+            "id": "i701",
+            "identifier": "EXP-701",
+            "title": "Issue 701",
+            "status": "backlog"
+          },
+          {
+            "id": "i702",
+            "identifier": "EXP-702",
+            "title": "Issue 702",
+            "status": "backlog"
+          },
+          {
+            "id": "i500",
+            "identifier": "EXP-500",
+            "title": "Issue 500",
+            "status": "duplicate"
+          }
+        ],
+        "relations": [
+          {
+            "type": "parent",
+            "issueId": "i1080",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1133"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1131"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1135"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1132"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1134"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1121",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1103",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1076",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i9",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1097",
+            "relatedIssueId": "i1140"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1097",
+            "relatedIssueId": "i1142"
+          },
+          {
+            "type": "related",
+            "issueId": "i760",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "related",
+            "issueId": "i1097",
+            "relatedIssueId": "i736"
+          },
+          {
+            "type": "related",
+            "issueId": "i980",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "related",
+            "issueId": "i1097",
+            "relatedIssueId": "i700"
+          },
+          {
+            "type": "related",
+            "issueId": "i701",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "related",
+            "issueId": "i1097",
+            "relatedIssueId": "i702"
+          },
+          {
+            "type": "duplicate",
+            "issueId": "i500",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1121",
+            "relatedIssueId": "i1076"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1097",
+            "relatedIssueId": "i99999"
+          },
+          {
+            "type": "mystery",
+            "issueId": "i1097",
+            "relatedIssueId": "i10"
+          }
+        ],
+        "toggled": [
+          "related",
+          "blocking"
+        ],
+        "showAll": [
+          "blocked_by",
+          "related"
+        ]
+      },
+      "expected": {
+        "parent": {
+          "id": "i1080",
+          "identifier": "EXP-1080",
+          "title": "Issue detail: one relations block",
+          "status": "in_progress",
+          "open": true
+        },
+        "subIssues": {
+          "rows": [
+            {
+              "id": "i1131",
+              "identifier": "EXP-1131",
+              "title": "Issue 1131",
+              "status": "done",
+              "open": false
+            },
+            {
+              "id": "i1132",
+              "identifier": "EXP-1132",
+              "title": "Issue 1132",
+              "status": "done",
+              "open": false
+            },
+            {
+              "id": "i1133",
+              "identifier": "EXP-1133",
+              "title": "Issue 1133",
+              "status": "in_progress",
+              "open": true
+            },
+            {
+              "id": "i1134",
+              "identifier": "EXP-1134",
+              "title": "Issue 1134",
+              "status": "backlog",
+              "open": true
+            },
+            {
+              "id": "i1135",
+              "identifier": "EXP-1135",
+              "title": "Issue 1135",
+              "status": "cancelled",
+              "open": false
+            }
+          ],
+          "done": 3,
+          "total": 5,
+          "progress": "3/5"
+        },
+        "bands": [
+          {
+            "key": "blocked_by",
+            "title": "Blocked by",
+            "count": 4,
+            "openCount": 3,
+            "expanded": true,
+            "rows": [
+              {
+                "id": "i1076",
+                "identifier": "EXP-1076",
+                "title": "Issue 1076",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "i1103",
+                "identifier": "EXP-1103",
+                "title": "Issue 1103",
+                "status": "in_progress",
+                "open": true
+              },
+              {
+                "id": "i1121",
+                "identifier": "EXP-1121",
+                "title": "Issue 1121",
+                "status": "in_review",
+                "open": true
+              },
+              {
+                "id": "i9",
+                "identifier": "EXP-9",
+                "title": "Issue 9",
+                "status": "done",
+                "open": false
+              }
+            ],
+            "more": null,
+            "less": "Show less"
+          },
+          {
+            "key": "blocking",
+            "title": "Blocking",
+            "count": 2,
+            "openCount": 2,
+            "expanded": false,
+            "rows": [],
+            "more": null,
+            "less": null
+          },
+          {
+            "key": "duplicated_by",
+            "title": "Duplicated by",
+            "count": 1,
+            "openCount": 0,
+            "expanded": false,
+            "rows": [],
+            "more": null,
+            "less": null
+          },
+          {
+            "key": "related",
+            "title": "Related",
+            "count": 7,
+            "openCount": 4,
+            "expanded": true,
+            "rows": [
+              {
+                "id": "i10",
+                "identifier": "EXP-10",
+                "title": "Issue 10",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "i700",
+                "identifier": "EXP-700",
+                "title": "Issue 700",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "i701",
+                "identifier": "EXP-701",
+                "title": "Issue 701",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "i702",
+                "identifier": "EXP-702",
+                "title": "Issue 702",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "i736",
+                "identifier": "EXP-736",
+                "title": "Issue 736",
+                "status": "done",
+                "open": false
+              },
+              {
+                "id": "i760",
+                "identifier": "EXP-760",
+                "title": "Issue 760",
+                "status": "done",
+                "open": false
+              },
+              {
+                "id": "i980",
+                "identifier": "EXP-980",
+                "title": "Issue 980",
+                "status": "done",
+                "open": false
+              }
+            ],
+            "more": null,
+            "less": "Show less"
+          }
+        ],
+        "relationCount": 14
+      }
+    },
+    {
+      "name": "a band whose blockers are all closed starts folded",
+      "input": {
+        "subjectId": "i1097",
+        "issues": [
+          {
+            "id": "i1097",
+            "identifier": "EXP-1097",
+            "title": "Related issues view is too much",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1080",
+            "identifier": "EXP-1080",
+            "title": "Issue detail: one relations block",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1131",
+            "identifier": "EXP-1131",
+            "title": "Issue 1131",
+            "status": "done"
+          },
+          {
+            "id": "i1132",
+            "identifier": "EXP-1132",
+            "title": "Issue 1132",
+            "status": "done"
+          },
+          {
+            "id": "i1133",
+            "identifier": "EXP-1133",
+            "title": "Issue 1133",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1134",
+            "identifier": "EXP-1134",
+            "title": "Issue 1134",
+            "status": "backlog"
+          },
+          {
+            "id": "i1135",
+            "identifier": "EXP-1135",
+            "title": "Issue 1135",
+            "status": "cancelled"
+          },
+          {
+            "id": "i1121",
+            "identifier": "EXP-1121",
+            "title": "Issue 1121",
+            "status": "in_review"
+          },
+          {
+            "id": "i1103",
+            "identifier": "EXP-1103",
+            "title": "Issue 1103",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1076",
+            "identifier": "EXP-1076",
+            "title": "Issue 1076",
+            "status": "backlog"
+          },
+          {
+            "id": "i9",
+            "identifier": "EXP-9",
+            "title": "Issue 9",
+            "status": "done"
+          },
+          {
+            "id": "i10",
+            "identifier": "EXP-10",
+            "title": "Issue 10",
+            "status": "backlog"
+          },
+          {
+            "id": "i1140",
+            "identifier": "EXP-1140",
+            "title": "Issue 1140",
+            "status": "backlog"
+          },
+          {
+            "id": "i1142",
+            "identifier": "EXP-1142",
+            "title": "Issue 1142",
+            "status": "backlog"
+          },
+          {
+            "id": "i760",
+            "identifier": "EXP-760",
+            "title": "Issue 760",
+            "status": "done"
+          },
+          {
+            "id": "i736",
+            "identifier": "EXP-736",
+            "title": "Issue 736",
+            "status": "done"
+          },
+          {
+            "id": "i980",
+            "identifier": "EXP-980",
+            "title": "Issue 980",
+            "status": "done"
+          },
+          {
+            "id": "i700",
+            "identifier": "EXP-700",
+            "title": "Issue 700",
+            "status": "backlog"
+          },
+          {
+            "id": "i701",
+            "identifier": "EXP-701",
+            "title": "Issue 701",
+            "status": "backlog"
+          },
+          {
+            "id": "i702",
+            "identifier": "EXP-702",
+            "title": "Issue 702",
+            "status": "backlog"
+          },
+          {
+            "id": "i500",
+            "identifier": "EXP-500",
+            "title": "Issue 500",
+            "status": "duplicate"
+          }
+        ],
+        "relations": [
+          {
+            "type": "blocks",
+            "issueId": "i9",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "blocks",
+            "issueId": "i1097",
+            "relatedIssueId": "i760"
+          }
+        ],
+        "toggled": [],
+        "showAll": []
+      },
+      "expected": {
+        "parent": null,
+        "subIssues": {
+          "rows": [],
+          "done": 0,
+          "total": 0,
+          "progress": null
+        },
+        "bands": [
+          {
+            "key": "blocked_by",
+            "title": "Blocked by",
+            "count": 1,
+            "openCount": 0,
+            "expanded": false,
+            "rows": [],
+            "more": null,
+            "less": null
+          },
+          {
+            "key": "blocking",
+            "title": "Blocking",
+            "count": 1,
+            "openCount": 0,
+            "expanded": false,
+            "rows": [],
+            "more": null,
+            "less": null
+          }
+        ],
+        "relationCount": 2
+      }
+    },
+    {
+      "name": "a sub-issue with no relations: parent line only, no sub-issues, no bands",
+      "input": {
+        "subjectId": "i1133",
+        "issues": [
+          {
+            "id": "i1097",
+            "identifier": "EXP-1097",
+            "title": "Related issues view is too much",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1080",
+            "identifier": "EXP-1080",
+            "title": "Issue detail: one relations block",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1131",
+            "identifier": "EXP-1131",
+            "title": "Issue 1131",
+            "status": "done"
+          },
+          {
+            "id": "i1132",
+            "identifier": "EXP-1132",
+            "title": "Issue 1132",
+            "status": "done"
+          },
+          {
+            "id": "i1133",
+            "identifier": "EXP-1133",
+            "title": "Issue 1133",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1134",
+            "identifier": "EXP-1134",
+            "title": "Issue 1134",
+            "status": "backlog"
+          },
+          {
+            "id": "i1135",
+            "identifier": "EXP-1135",
+            "title": "Issue 1135",
+            "status": "cancelled"
+          },
+          {
+            "id": "i1121",
+            "identifier": "EXP-1121",
+            "title": "Issue 1121",
+            "status": "in_review"
+          },
+          {
+            "id": "i1103",
+            "identifier": "EXP-1103",
+            "title": "Issue 1103",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1076",
+            "identifier": "EXP-1076",
+            "title": "Issue 1076",
+            "status": "backlog"
+          },
+          {
+            "id": "i9",
+            "identifier": "EXP-9",
+            "title": "Issue 9",
+            "status": "done"
+          },
+          {
+            "id": "i10",
+            "identifier": "EXP-10",
+            "title": "Issue 10",
+            "status": "backlog"
+          },
+          {
+            "id": "i1140",
+            "identifier": "EXP-1140",
+            "title": "Issue 1140",
+            "status": "backlog"
+          },
+          {
+            "id": "i1142",
+            "identifier": "EXP-1142",
+            "title": "Issue 1142",
+            "status": "backlog"
+          },
+          {
+            "id": "i760",
+            "identifier": "EXP-760",
+            "title": "Issue 760",
+            "status": "done"
+          },
+          {
+            "id": "i736",
+            "identifier": "EXP-736",
+            "title": "Issue 736",
+            "status": "done"
+          },
+          {
+            "id": "i980",
+            "identifier": "EXP-980",
+            "title": "Issue 980",
+            "status": "done"
+          },
+          {
+            "id": "i700",
+            "identifier": "EXP-700",
+            "title": "Issue 700",
+            "status": "backlog"
+          },
+          {
+            "id": "i701",
+            "identifier": "EXP-701",
+            "title": "Issue 701",
+            "status": "backlog"
+          },
+          {
+            "id": "i702",
+            "identifier": "EXP-702",
+            "title": "Issue 702",
+            "status": "backlog"
+          },
+          {
+            "id": "i500",
+            "identifier": "EXP-500",
+            "title": "Issue 500",
+            "status": "duplicate"
+          }
+        ],
+        "relations": [
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1133"
+          }
+        ],
+        "toggled": [],
+        "showAll": []
+      },
+      "expected": {
+        "parent": {
+          "id": "i1097",
+          "identifier": "EXP-1097",
+          "title": "Related issues view is too much",
+          "status": "in_progress",
+          "open": true
+        },
+        "subIssues": {
+          "rows": [],
+          "done": 0,
+          "total": 0,
+          "progress": null
+        },
+        "bands": [],
+        "relationCount": 0
+      }
+    },
+    {
+      "name": "duplicate rows and a double parent keep one row each, the lowest parent wins",
+      "input": {
+        "subjectId": "i1097",
+        "issues": [
+          {
+            "id": "i1097",
+            "identifier": "EXP-1097",
+            "title": "Related issues view is too much",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1080",
+            "identifier": "EXP-1080",
+            "title": "Issue detail: one relations block",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1131",
+            "identifier": "EXP-1131",
+            "title": "Issue 1131",
+            "status": "done"
+          },
+          {
+            "id": "i1132",
+            "identifier": "EXP-1132",
+            "title": "Issue 1132",
+            "status": "done"
+          },
+          {
+            "id": "i1133",
+            "identifier": "EXP-1133",
+            "title": "Issue 1133",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1134",
+            "identifier": "EXP-1134",
+            "title": "Issue 1134",
+            "status": "backlog"
+          },
+          {
+            "id": "i1135",
+            "identifier": "EXP-1135",
+            "title": "Issue 1135",
+            "status": "cancelled"
+          },
+          {
+            "id": "i1121",
+            "identifier": "EXP-1121",
+            "title": "Issue 1121",
+            "status": "in_review"
+          },
+          {
+            "id": "i1103",
+            "identifier": "EXP-1103",
+            "title": "Issue 1103",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1076",
+            "identifier": "EXP-1076",
+            "title": "Issue 1076",
+            "status": "backlog"
+          },
+          {
+            "id": "i9",
+            "identifier": "EXP-9",
+            "title": "Issue 9",
+            "status": "done"
+          },
+          {
+            "id": "i10",
+            "identifier": "EXP-10",
+            "title": "Issue 10",
+            "status": "backlog"
+          },
+          {
+            "id": "i1140",
+            "identifier": "EXP-1140",
+            "title": "Issue 1140",
+            "status": "backlog"
+          },
+          {
+            "id": "i1142",
+            "identifier": "EXP-1142",
+            "title": "Issue 1142",
+            "status": "backlog"
+          },
+          {
+            "id": "i760",
+            "identifier": "EXP-760",
+            "title": "Issue 760",
+            "status": "done"
+          },
+          {
+            "id": "i736",
+            "identifier": "EXP-736",
+            "title": "Issue 736",
+            "status": "done"
+          },
+          {
+            "id": "i980",
+            "identifier": "EXP-980",
+            "title": "Issue 980",
+            "status": "done"
+          },
+          {
+            "id": "i700",
+            "identifier": "EXP-700",
+            "title": "Issue 700",
+            "status": "backlog"
+          },
+          {
+            "id": "i701",
+            "identifier": "EXP-701",
+            "title": "Issue 701",
+            "status": "backlog"
+          },
+          {
+            "id": "i702",
+            "identifier": "EXP-702",
+            "title": "Issue 702",
+            "status": "backlog"
+          },
+          {
+            "id": "i500",
+            "identifier": "EXP-500",
+            "title": "Issue 500",
+            "status": "duplicate"
+          }
+        ],
+        "relations": [
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1134"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1097",
+            "relatedIssueId": "i1134"
+          },
+          {
+            "type": "parent",
+            "issueId": "i1080",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "parent",
+            "issueId": "i760",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "related",
+            "issueId": "i700",
+            "relatedIssueId": "i1097"
+          },
+          {
+            "type": "related",
+            "issueId": "i1097",
+            "relatedIssueId": "i700"
+          }
+        ],
+        "toggled": [],
+        "showAll": []
+      },
+      "expected": {
+        "parent": {
+          "id": "i760",
+          "identifier": "EXP-760",
+          "title": "Issue 760",
+          "status": "done",
+          "open": false
+        },
+        "subIssues": {
+          "rows": [
+            {
+              "id": "i1134",
+              "identifier": "EXP-1134",
+              "title": "Issue 1134",
+              "status": "backlog",
+              "open": true
+            }
+          ],
+          "done": 0,
+          "total": 1,
+          "progress": "0/1"
+        },
+        "bands": [
+          {
+            "key": "related",
+            "title": "Related",
+            "count": 1,
+            "openCount": 1,
+            "expanded": false,
+            "rows": [],
+            "more": null,
+            "less": null
+          }
+        ],
+        "relationCount": 1
+      }
+    },
+    {
+      "name": "nothing related",
+      "input": {
+        "subjectId": "i1097",
+        "issues": [
+          {
+            "id": "i1097",
+            "identifier": "EXP-1097",
+            "title": "Related issues view is too much",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1080",
+            "identifier": "EXP-1080",
+            "title": "Issue detail: one relations block",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1131",
+            "identifier": "EXP-1131",
+            "title": "Issue 1131",
+            "status": "done"
+          },
+          {
+            "id": "i1132",
+            "identifier": "EXP-1132",
+            "title": "Issue 1132",
+            "status": "done"
+          },
+          {
+            "id": "i1133",
+            "identifier": "EXP-1133",
+            "title": "Issue 1133",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1134",
+            "identifier": "EXP-1134",
+            "title": "Issue 1134",
+            "status": "backlog"
+          },
+          {
+            "id": "i1135",
+            "identifier": "EXP-1135",
+            "title": "Issue 1135",
+            "status": "cancelled"
+          },
+          {
+            "id": "i1121",
+            "identifier": "EXP-1121",
+            "title": "Issue 1121",
+            "status": "in_review"
+          },
+          {
+            "id": "i1103",
+            "identifier": "EXP-1103",
+            "title": "Issue 1103",
+            "status": "in_progress"
+          },
+          {
+            "id": "i1076",
+            "identifier": "EXP-1076",
+            "title": "Issue 1076",
+            "status": "backlog"
+          },
+          {
+            "id": "i9",
+            "identifier": "EXP-9",
+            "title": "Issue 9",
+            "status": "done"
+          },
+          {
+            "id": "i10",
+            "identifier": "EXP-10",
+            "title": "Issue 10",
+            "status": "backlog"
+          },
+          {
+            "id": "i1140",
+            "identifier": "EXP-1140",
+            "title": "Issue 1140",
+            "status": "backlog"
+          },
+          {
+            "id": "i1142",
+            "identifier": "EXP-1142",
+            "title": "Issue 1142",
+            "status": "backlog"
+          },
+          {
+            "id": "i760",
+            "identifier": "EXP-760",
+            "title": "Issue 760",
+            "status": "done"
+          },
+          {
+            "id": "i736",
+            "identifier": "EXP-736",
+            "title": "Issue 736",
+            "status": "done"
+          },
+          {
+            "id": "i980",
+            "identifier": "EXP-980",
+            "title": "Issue 980",
+            "status": "done"
+          },
+          {
+            "id": "i700",
+            "identifier": "EXP-700",
+            "title": "Issue 700",
+            "status": "backlog"
+          },
+          {
+            "id": "i701",
+            "identifier": "EXP-701",
+            "title": "Issue 701",
+            "status": "backlog"
+          },
+          {
+            "id": "i702",
+            "identifier": "EXP-702",
+            "title": "Issue 702",
+            "status": "backlog"
+          },
+          {
+            "id": "i500",
+            "identifier": "EXP-500",
+            "title": "Issue 500",
+            "status": "duplicate"
+          }
+        ],
+        "relations": [],
+        "toggled": [],
+        "showAll": []
+      },
+      "expected": {
+        "parent": null,
+        "subIssues": {
+          "rows": [],
+          "done": 0,
+          "total": 0,
+          "progress": null
+        },
+        "bands": [],
+        "relationCount": 0
+      }
+    }
+  ]
+}

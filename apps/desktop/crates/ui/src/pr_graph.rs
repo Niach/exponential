@@ -5,11 +5,15 @@
 //! ([`crate::issue_chip`], the workflow graph's deck of ghosts) naming the
 //! subject pull request's representative issue, with `+N` for every other
 //! issue riding the stack or batch ([`domain::pr_graph::badge_chip`], ×4) —
-//! or, on the Run face of a run with no issue, the same chip box with the
-//! `session-tree` concept and the run's own title, `+N` = the other runs. The
-//! chip is INERT: hovering it (desktop = a pointer platform) or clicking it
-//! opens a popover whose SECTION depends on the face that is up, built from
-//! the same row primitives and the same copy so the three read as one thing:
+//! or, for a run family with no issue, the same chip box with the
+//! `session-tree` concept and the run's own title, `+N` = the other runs; or
+//! (EXP-1097) the subject's FIRST open blocker, `+N` = the other blockers.
+//! EXP-1097 made the chip FACE-INDEPENDENT: the same chip on Issue, Run and
+//! Changes. The chip is INERT: hovering it (desktop = a pointer platform) or
+//! clicking it opens a popover listing EVERY relation the subject has
+//! ([`domain::pr_graph::overlay_sections`]), the face that is up choosing
+//! which section LEADS, built from the same row primitives and the same copy
+//! so the three read as one thing:
 //!
 //! * **Issue** — "Blocked by" (EXP-980: the transitive `blocks` GRAPH around
 //!   this issue, `crate::issue_graph`, where a flat chip list used to sit)
@@ -39,20 +43,19 @@ use crate::icons::registry;
 use crate::issue_chip::{issue_chip, ISSUE_CHIP_ICON_MAX, ISSUE_CHIP_STACK_STEP};
 use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
 
-/// Which face the badge is rendered on — it decides the overlay's sections
-/// (the domain's `PrGraphFace`, which the chip rule reads too).
+/// Which face the badge is rendered on — it orders the overlay's sections
+/// (the domain's `PrGraphFace`; the chip rule itself ignores it, EXP-1097).
 pub(crate) use domain::pr_graph::PrGraphFace as BadgeFace;
 
-/// Everything one badge draws: the graph, the face, and the blocked-by
-/// relations (the only part of the Issue face that is not in the graph).
+/// Everything one badge draws: the graph (its `blocked_by` included,
+/// EXP-1097) and the face.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BadgeSpec {
     pub graph: PrGraph,
     pub face: BadgeFace,
-    pub blocked_by: Vec<Issue>,
     /// EXP-980: the transitive `blocks` graph around the subject issue — the
-    /// Issue face draws THIS where a flat chip list used to sit. Empty on the
-    /// Run and Changes faces (and for an issue-less run).
+    /// "Blocked by" section draws THIS where a flat chip list used to sit.
+    /// Empty when the subject has no open blocker (and for an issue-less run).
     pub blocks_graph: domain::issue_graph::IssueGraph,
     /// The subject run's own title — what the front chip names when there is
     /// no issue to name (an issue-less run's family). `None` on issue faces.
@@ -60,21 +63,10 @@ pub(crate) struct BadgeSpec {
 }
 
 impl BadgeSpec {
-    /// What the chip draws on this face — [`pr_graph::badge_chip`], plus the
-    /// desktop's Issue face for blockers alone (the overlay's "Blocked by"),
-    /// which names the subject issue with nothing behind it.
-    fn chip(&self) -> Option<BadgeChip> {
-        if let Some(chip) = pr_graph::badge_chip(&self.graph, self.face) {
-            return Some(chip);
-        }
-        (self.face == BadgeFace::Issue && !self.blocked_by.is_empty()).then(|| BadgeChip {
-            issue: self
-                .graph
-                .entry
-                .as_ref()
-                .map(|entry| entry.representative().clone()),
-            count: 0,
-        })
+    /// What the chip draws — [`pr_graph::badge_chip`], the SAME on every face
+    /// (EXP-1097).
+    pub(crate) fn chip(&self) -> Option<BadgeChip> {
+        pr_graph::badge_chip(&self.graph)
     }
 }
 
@@ -125,7 +117,11 @@ pub(crate) fn blocked_by(issue_id: &str, cx: &App) -> Vec<Issue> {
             .filter(|blocker| !status_is_closed(blocker))
             .cloned()
             .collect();
-    blockers.sort_by(|a, b| sync::cmp_identifiers(&a.identifier, &b.identifier));
+    // EXP-1097: plain identifier order, byte-for-byte web `openBlockers`
+    // (`lib/stack-start.ts`) and the natives' — the `blocked` chip's front
+    // issue is the FIRST blocker, so a natural sort here led with a
+    // different issue than the other three clients.
+    blockers.sort_by(|a, b| a.identifier.cmp(&b.identifier));
     blockers.dedup_by(|a, b| a.id == b.id);
     blockers
 }
@@ -150,14 +146,19 @@ pub(crate) fn issue_spec(
     let sessions: Vec<CodingSession> = sync::Store::try_global(cx)
         .map(|store| store.collections().coding_sessions.read(cx).iter().cloned().collect())
         .unwrap_or_default();
+    let mut graph = pr_graph::pr_graph(Some(issue), session, &issues, &sessions);
+    // EXP-1097: the open blockers ride the GRAPH (web `blockedBy`) — they
+    // earn the chip on every face, not just the Issue one.
+    graph.blocked_by = blocked_by(&issue.id, cx);
+    let blocks_graph = if graph.blocked_by.is_empty() {
+        domain::issue_graph::IssueGraph::default()
+    } else {
+        crate::issue_graph::graph_for(&[issue.id.as_str()], cx)
+    };
     BadgeSpec {
-        graph: pr_graph::pr_graph(Some(issue), session, &issues, &sessions),
+        graph,
         face,
-        blocked_by: blocked_by(&issue.id, cx),
-        blocks_graph: match face {
-            BadgeFace::Issue => crate::issue_graph::graph_for(&[issue.id.as_str()], cx),
-            _ => domain::issue_graph::IssueGraph::default(),
-        },
+        blocks_graph,
         run_title: None,
     }
 }
@@ -178,7 +179,6 @@ pub(crate) fn session_spec(session: &CodingSession, face: BadgeFace, cx: &App) -
     BadgeSpec {
         graph: pr_graph::pr_graph(None, Some(session), &issues, &sessions),
         face,
-        blocked_by: Vec::new(),
         blocks_graph: domain::issue_graph::IssueGraph::default(),
         run_title: Some(crate::run_rows::run_title(
             session,
@@ -257,8 +257,8 @@ pub(crate) fn chip_face(id: &str, face: ChipFace, muted: Hsla) -> gpui::Div {
         })
 }
 
-/// The header chip: the stacked issue chip for this face, opening the
-/// face's overlay on hover or click. `None` when there is nothing to show.
+/// The header chip: the stacked issue chip (the same on every face), opening
+/// the overlay on hover or click. `None` when there is nothing to show.
 pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyElement> {
     let chip = spec.chip()?;
     let face = ChipFace {
@@ -426,47 +426,44 @@ impl RenderOnce for ChipTrigger {
 /// identifier, a title and a state, narrow enough to stay a popover.
 const OVERLAY_W: f32 = 320.;
 
+/// EXP-1097: every section the subject has, the face's own first
+/// ([`pr_graph::overlay_sections`]).
 fn overlay(spec: &BadgeSpec, _window: &mut Window, cx: &App) -> AnyElement {
+    use pr_graph::OverlaySection;
     let mut column = v_flex().w(px(OVERLAY_W)).min_w_0().gap_2();
-    match spec.face {
-        BadgeFace::Issue => {
+    for part in pr_graph::overlay_sections(&spec.graph, spec.face) {
+        column = column.child(match part {
             // EXP-980: the transitive blocks GRAPH, not a flat chip list —
             // "blocked by EXP-11" never said what blocks EXP-11.
-            if !spec.blocked_by.is_empty() {
-                column = column.child(section(
-                    "Blocked by",
-                    vec![crate::issue_graph::graph_overlay(
-                        &spec.blocks_graph,
-                        OVERLAY_W,
-                        cx,
-                    )],
+            OverlaySection::Blocked => section(
+                "Blocked by",
+                vec![crate::issue_graph::graph_overlay(
+                    &spec.blocks_graph,
+                    OVERLAY_W,
                     cx,
-                ));
-            }
-            if let Some(batch) = spec.graph.batch.as_ref() {
-                let others: Vec<Issue> = batch.issues.clone();
-                column = column.child(section("In batch with", issue_rows(&others, cx), cx));
-            }
-            if !spec.graph.stack.is_empty() {
-                column = column.child(section("In this stack", stack_rows(spec, cx), cx));
-            }
-        }
-        BadgeFace::Run => {
-            if !spec.graph.tree.is_empty() {
-                column = column.child(section("Runs", run_rows(spec, cx), cx));
-            }
-            if let Some(batch) = spec.graph.batch.as_ref() {
-                column = column.child(section("In batch with", issue_rows(&batch.issues, cx), cx));
-            }
-        }
-        BadgeFace::Changes => {
-            if !spec.graph.stack.is_empty() {
-                column = column.child(section("Pull request stack", stack_rows(spec, cx), cx));
-            }
-            if let Some(batch) = spec.graph.batch.as_ref() {
-                column = column.child(section("In batch with", issue_rows(&batch.issues, cx), cx));
-            }
-        }
+                )],
+                cx,
+            ),
+            OverlaySection::Batch => section(
+                "In batch with",
+                spec.graph
+                    .batch
+                    .as_ref()
+                    .map(|batch| issue_rows(&batch.issues, cx))
+                    .unwrap_or_default(),
+                cx,
+            ),
+            OverlaySection::Runs => section("Runs", run_rows(spec, cx), cx),
+            OverlaySection::Stack => section(
+                if spec.face == BadgeFace::Changes {
+                    "Pull request stack"
+                } else {
+                    "In this stack"
+                },
+                stack_rows(spec, cx),
+                cx,
+            ),
+        });
     }
     column.into_any_element()
 }
@@ -628,12 +625,29 @@ fn run_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
 fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
     let muted = cx.theme().muted_foreground;
     let foreground = cx.theme().foreground;
-    let size = spec.graph.stack.len();
+    // EXP-1097: the Changes face leads with its pull request even when it is
+    // not stacked — a lone entry is then the one row.
+    let lone: Vec<pr_graph::StackEntry>;
+    let stack: &[pr_graph::StackEntry] = if spec.graph.stack.is_empty() {
+        lone = spec
+            .graph
+            .entry
+            .iter()
+            .map(|entry| pr_graph::StackEntry {
+                entry: entry.clone(),
+                depth: 0,
+            })
+            .collect();
+        &lone
+    } else {
+        &spec.graph.stack
+    };
+    let size = stack.len();
     // EXP-965: the connector needs the WHOLE visible sequence up front — a
     // batch member folds its issues out one level deeper, so the rows are
     // interleaved and the depths cannot be read off the stack alone.
     let mut depths: Vec<usize> = Vec::with_capacity(size * 2);
-    for member in spec.graph.stack.iter() {
+    for member in stack.iter() {
         depths.push(member.depth);
         if member.entry.is_batch() {
             depths.extend(std::iter::repeat_n(member.depth + 1, member.entry.issues.len()));
@@ -642,7 +656,7 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
     let guides = domain::tree_guides::guides_for(&depths);
     let guide_at = |position: usize| guides.get(position).cloned().unwrap_or_default();
     let mut rows: Vec<AnyElement> = Vec::with_capacity(size * 2);
-    for (index, member) in spec.graph.stack.iter().enumerate() {
+    for (index, member) in stack.iter().enumerate() {
         let entry = &member.entry;
         let issue_id = entry.representative().id.clone();
         // The member the badge is ON reads in full foreground.
@@ -818,31 +832,36 @@ mod tests {
         BadgeSpec {
             graph: pr_graph::pr_graph(Some(&issues[0]), None, issues, &[]),
             face,
-            blocked_by: Vec::new(),
             blocks_graph: domain::issue_graph::IssueGraph::default(),
             run_title: None,
         }
     }
 
-    /// The Changes face only exists to show a PR relationship: with none, the
-    /// badge stays away. The Issue face still opens for blockers alone.
+    const FACES: [BadgeFace; 3] = [BadgeFace::Issue, BadgeFace::Run, BadgeFace::Changes];
+
+    /// EXP-1097: with nothing around the issue the badge stays away — on
+    /// every face alike; open blockers alone earn it on every face too.
     #[test]
-    fn the_badge_hides_when_a_face_has_nothing_to_say() {
+    fn the_badge_is_face_independent() {
         let lone = vec![issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
-        assert!(!spec(BadgeFace::Changes, &lone).chip().is_some());
-        assert!(!spec(BadgeFace::Issue, &lone).chip().is_some());
-        let mut blocked = spec(BadgeFace::Issue, &lone);
-        blocked.blocked_by = vec![issue("EXP-29", None, None)];
-        assert!(blocked.chip().is_some());
+        for face in FACES {
+            assert!(spec(face, &lone).chip().is_none(), "{face:?}");
+            let mut blocked = spec(face, &lone);
+            blocked.graph.blocked_by = vec![issue("EXP-29", None, None)];
+            assert!(blocked.chip().is_some(), "{face:?}");
+        }
         let stacked = vec![
             issue("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
             issue("EXP-11", Some("exp/EXP-11"), Some("master")),
         ];
-        assert!(spec(BadgeFace::Changes, &stacked).chip().is_some());
+        for face in FACES {
+            assert_eq!(spec(face, &stacked).chip(), spec(BadgeFace::Issue, &stacked).chip());
+        }
     }
 
     /// EXP-1058 — the chip names the subject PR's representative issue and
-    /// counts the rest; blockers alone still earn the Issue face a chip.
+    /// counts the rest; EXP-1097: blockers alone front the FIRST blocker and
+    /// count the others.
     #[test]
     fn the_chip_names_the_front_issue_and_the_rest() {
         let stacked = vec![
@@ -853,10 +872,10 @@ mod tests {
         assert_eq!(chip.issue.unwrap().identifier, "EXP-12");
         assert_eq!(chip.count, 1);
         let lone = vec![issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
-        let mut blocked = spec(BadgeFace::Issue, &lone);
-        blocked.blocked_by = vec![issue("EXP-29", None, None)];
+        let mut blocked = spec(BadgeFace::Run, &lone);
+        blocked.graph.blocked_by = vec![issue("EXP-28", None, None), issue("EXP-29", None, None)];
         let chip = blocked.chip().unwrap();
-        assert_eq!(chip.issue.unwrap().identifier, "EXP-30");
-        assert_eq!(chip.count, 0);
+        assert_eq!(chip.issue.unwrap().identifier, "EXP-28");
+        assert_eq!(chip.count, 1);
     }
 }

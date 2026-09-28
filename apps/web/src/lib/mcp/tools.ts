@@ -3216,12 +3216,8 @@ export function registerExponentialTools(
           // decision relayed. EXP-1089: a workflow's PLANNER run asks the
           // person too (its batched question set needs no proposal line).
           // The membership comes off the run's own row (the contract's
-          // columns); rows stamped before them fall back to the node lookup.
+          // columns).
           const membership = await loadWorkflowMembershipForSession(sessionId)
-          const legacyNode =
-            !membership?.workflowNodeId && child.startedReason === `workflow`
-              ? await loadWorkflowNodeForSession(sessionId)
-              : null
           // A node's OWN run has no parent, or is its author or reviewer; a
           // child a node run started on a chat or action subject inherits
           // the node id (rule c) but asks its parent like any child.
@@ -3233,9 +3229,7 @@ export function registerExponentialTools(
           const workflowNode: { workflowId: string; workflowNodeId: string } | null =
             isNodeRun && membership?.workflowNodeId
               ? { workflowId: membership.workflowId, workflowNodeId: membership.workflowNodeId }
-              : legacyNode
-                ? { workflowId: legacyNode.workflowId, workflowNodeId: legacyNode.nodeId }
-                : null
+              : null
           const planner =
             !workflowNode &&
             membership?.workflowId &&

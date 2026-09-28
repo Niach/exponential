@@ -12,10 +12,10 @@ import UniformTypeIdentifiers
 /// switcher the screen passes in.
 enum IssueBarTrailing: Equatable {
     case hidden
-    /// Startable: relay on, member, repo-backed board, a desktop online.
-    case start
-    /// Same gates but no desktop online — dimmed, tap explains.
-    case noDevices
+    /// EXP-1121: Start coding, always drawn for a member while remote start
+    /// is on. Ready = the plain circle; not ready = a dashed edge + an amber
+    /// dot (the tap opens "Ready to code?"); loading = plain, muted, inert.
+    case start(CodingReadiness.Readiness)
     /// The Work screen's face switcher circle (`switcher` slot).
     case switcher
 }
@@ -69,7 +69,6 @@ struct IssueDetailBottomBar<Switcher: View>: View {
     /// into the markdown body — they upload on send and ride `attachmentIds`.
     @State private var pendingAttachments: [PendingCommentAttachment] = []
     @State private var attachmentError: String?
-    @State private var showNoDeviceAlert = false
     // True while ANY keyboard is up (title, description, or a comment-edit
     // editor included — they all install the markdown toolbar as the keyboard
     // accessory). The bar hides then, unless its own composer is expanded.
@@ -147,11 +146,6 @@ struct IssueDetailBottomBar<Switcher: View>: View {
             guard draft.isEmpty, pendingAttachments.isEmpty, composerEditor.pendingImages.isEmpty else { return }
             collapse()
         }
-        .alert("No desktop online", isPresented: $showNoDeviceAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Open the Exponential desktop app to run here.")
-        }
         .onAppear { configureComposer() }
     }
 
@@ -188,17 +182,30 @@ struct IssueDetailBottomBar<Switcher: View>: View {
             EmptyView()
         case .switcher:
             switcher()
-        case .start:
-            FloatingBarCircle(accessibilityLabel: "Start coding", action: onStartCoding) {
-                AppIcon(AppIcons.actionRun, size: FloatingBarTokens.glyph, weight: .medium)
-                    .foregroundStyle(.white)
-            }
-        case .noDevices:
-            FloatingBarCircle(accessibilityLabel: "Start coding", action: { showNoDeviceAlert = true }) {
-                AppIcon(AppIcons.actionRun, size: FloatingBarTokens.glyph, weight: .medium)
-                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+        case let .start(readiness):
+            startCircle(readiness)
+        }
+    }
+
+    /// EXP-1121: the Start coding circle in its three looks. The tap always
+    /// reaches the host (`onStartCoding`), which starts when ready and opens
+    /// the checklist otherwise; while loading the circle is inert.
+    private func startCircle(_ readiness: CodingReadiness.Readiness) -> some View {
+        let notReady = !readiness.loading && !readiness.ready
+        return FloatingBarCircle(
+            accessibilityLabel: CodingReadiness.Copy.start,
+            dashed: notReady,
+            action: { if !readiness.loading { onStartCoding() } }
+        ) {
+            AppIcon(AppIcons.actionRun, size: FloatingBarTokens.glyph, weight: .medium)
+                .foregroundStyle(.white.opacity(readiness.ready ? TextOpacity.primary : TextOpacity.tertiary))
+        } badge: {
+            if notReady {
+                CodingReadinessBadgeDot()
             }
         }
+        .accessibilityValue(readiness.caption ?? "")
+        .accessibilityIdentifier("issue-start-coding")
     }
 
     // MARK: - Expanded composer

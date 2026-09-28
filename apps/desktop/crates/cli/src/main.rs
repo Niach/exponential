@@ -80,30 +80,39 @@ exponential — Exponential from your terminal
 Usage: exponential <command> [options]
 
 Commands:
-  login [--instance <url>]                Sign in (device code, approved in any browser)
+  login [--instance <url>] [--install-token <t>] [--no-browser]
+                                          Sign in (device code, approved in any browser)
   logout                                  Sign out and drop local credentials
   whoami                                  Show the signed-in account
-  status                                  Account + daemon + tooling summary
+  status                                  Account + device + daemon + tooling summary
   doctor                                  Check git and the agent CLIs
   code <ISSUE> [options]                  Start a coding session for an issue
-  run <action> [options]                  Run a team action (or a builtin)
+  run <action> [options]                  Run a team action (or a builtin: chat,
+                                          create-action, fix-conflicts)
+  devices [--team <team-id>]              Your devices: online, agents, running sessions
+  sessions [--device <d>] [--status <s>] [--all]
+                                          Coding sessions, newest first
+  sessions show|log|message|kill <id>     Inspect, tail (--follow), steer or stop one
   mcp list|login|set-secret|status        Team MCP servers + this machine's credentials
   daemon [--foreground] [--label <name>]  Run the remote-start daemon
   daemon install|uninstall|status         Manage the systemd/launchd service
-  update                                  Self-update from the latest cli release
+  update [--auto on|off]                  Self-update now, or switch auto-update
   uninstall [--yes]                       Remove the daemon service and delete this binary
   version                                 Print the CLI version
 
 Options for code/run:
   --agent claude|codex      --model <m>   --effort <e>
   --plan                    --detach      (headless; steer it from the web)
+  --device <label|id>       start it on ANOTHER device instead (see `devices`);
+                            with --account <profile> and --follow (tail it)
 Options for run:
   --team <team-id>          --input k=v   (repeatable; the action's pick inputs)
   --prompt <text>           (additional instructions; the whole request for
-                             create-action)
+                             chat and create-action)
 Environment:
   EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → Security, or a session
-  token; non-interactive login), EXP_LOG=debug
+  token; non-interactive login), EXP_INSTALL_TOKEN (one-time expi_… token from
+  the web's Add device dialog), EXP_LOG=debug
 ";
 
 fn maybe_prompt_auto_update() {
@@ -158,6 +167,8 @@ fn main() -> ExitCode {
         "doctor" => commands::doctor::run(rest),
         "code" => commands::code::run(rest),
         "run" => commands::run::run(rest),
+        "devices" => commands::devices::run(rest),
+        "sessions" => commands::sessions::run(rest),
         "mcp" => commands::mcp::run(rest),
         "daemon" => commands::daemon::run(rest),
         "update" => commands::update::run(rest),

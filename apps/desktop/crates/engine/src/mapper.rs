@@ -1872,9 +1872,11 @@ impl Mapper {
     ///
     /// EXP-920: plus the entity `refs` the answer named
     /// ([`crate::exp_tool_refs::exp_tool_refs`], read off the answer and the
-    /// retained input) — the chips every client renders. The legacy subject
-    /// fields stay beside them for a pre-EXP-920 viewer; a preview with ONLY
-    /// refs is still published.
+    /// retained input) — the chips every client renders. The subject fields
+    /// stay beside them: they are no pre-EXP-920 relic, the web transcript's
+    /// SETTLED caption reads `title`/`identifier` even when refs are present
+    /// (`agent-session.tsx` `ExpToolRow`), and a preview with no refs renders
+    /// off them on every client. A preview with ONLY refs is still published.
     fn exp_tool_preview(&self, id: &str, result: &Value) -> Option<steer::ToolPreview> {
         let state = self.tools.get(id)?;
         let title = state.title.as_str();
@@ -4250,7 +4252,7 @@ mod tests {
                 _ => None,
             })
             .expect("the settle carries a preview");
-        // The legacy subject still rides along for an older viewer.
+        // The subject rides along: the web settled caption reads it.
         assert_eq!(preview.identifier.as_deref(), Some("EXP-42"));
         let mut expected = steer::EntityRef::new("issue", "i-1");
         expected.identifier = Some("EXP-42".to_string());

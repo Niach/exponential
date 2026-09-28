@@ -23,6 +23,7 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.NO_ESTIMATE
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.estimateLabel
@@ -75,11 +76,18 @@ fun PropertiesSheet(
     onOpenLabels: () -> Unit,
     onOpenMoveBoard: () -> Unit,
     onToggleLabel: (labelId: String, assigned: Boolean) -> Unit,
-    // EXP-736: relations live ONLY here on mobile — the detail page keeps the
-    // chip tray, so the sheet is where an edge is added or dropped.
-    relations: List<RelationRow>,
+    // EXP-736/EXP-1097: the relations OTHER than parent / sub-issues (those
+    // live on the detail page) as foldable bands — where an edge is added or
+    // dropped (long press) on mobile.
+    relationBands: List<IssueRelationsView.Band>,
+    relationIssues: Map<String, IssueEntity>,
+    users: List<UserEntity>,
+    teamStatuses: List<ResolvedIssueStatus>,
     onOpenRelations: () -> Unit,
-    onRemoveRelation: (RelationRow) -> Unit,
+    onToggleRelationBand: (IssueRelationsView.BandKey) -> Unit,
+    onShowAllRelations: (IssueRelationsView.BandKey, Boolean) -> Unit,
+    onOpenIssue: (String) -> Unit,
+    onRemoveRelation: (IssueRelationsView.BandKey, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     GlassSheet(title = "Properties", onDismiss = onDismiss) {
@@ -215,9 +223,15 @@ fun PropertiesSheet(
             )
             Spacer(Modifier.height(16.dp))
             RelationsSection(
-                relations = relations,
-                onOpenRelations = onOpenRelations,
-                onRemoveRelation = onRemoveRelation,
+                bands = relationBands,
+                issuesById = relationIssues,
+                users = users,
+                statuses = teamStatuses,
+                onAdd = onOpenRelations,
+                onToggle = onToggleRelationBand,
+                onShowAll = onShowAllRelations,
+                onOpenIssue = onOpenIssue,
+                onRemove = onRemoveRelation,
             )
             Spacer(Modifier.height(8.dp))
         }

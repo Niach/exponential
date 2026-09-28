@@ -4,6 +4,7 @@ import { useState } from "react"
 import { authClient, fetchSessionOnce } from "@/lib/auth/client"
 import { Button, Input, Label, AuthFormShell } from "@exp/ui"
 import { pageTitle } from "@/lib/page-title"
+import { deviceErrorMessage, normalizeUserCode } from "@/lib/auth/device-code"
 
 // RFC 8628 device verification page (EXP-403): the `exponential` CLI prints
 // `Visit <instance>/auth/device and enter XXXX-XXXX`. Claiming happens via
@@ -39,34 +40,9 @@ export const Route = createFileRoute(`/auth/device`)({
 
 type Step = `enter` | `confirm` | `approved` | `denied`
 
-// Better Auth resolves to `{ data, error }` — it does not throw. Map the
-// plugin's RFC 8628 error codes to human copy.
-function deviceErrorMessage(error: { error?: string; message?: string } | null): string {
-  const code = error?.error ?? ``
-  if (code === `expired_token`) {
-    return `That code has expired. Run the login command again to get a new one.`
-  }
-  if (code === `invalid_request` || code === `invalid_grant`) {
-    return `That code isn't valid. Check for typos, or run the login command again.`
-  }
-  if (code === `access_denied`) {
-    return `This code was requested from a different account.`
-  }
-  return error?.message || `Something went wrong. Try again.`
-}
-
-// Codes are always 8 chars (printed XXXX-XXXX); the server strips dashes
-// and the generated charset is uppercase-only. Auto-insert the dash while
-// typing — but only once a 5th char exists, so backspacing over it deletes
-// instead of fighting the formatter — and pasting a dashed code stays
-// stable because the dash is stripped before re-inserting.
-export function normalizeUserCode(input: string): string {
-  const bare = input
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, ``)
-    .slice(0, 8)
-  return bare.length >= 5 ? `${bare.slice(0, 4)}-${bare.slice(4)}` : bare
-}
+// The shared code helpers (the Add device dialog uses them too, EXP-1111);
+// re-exported so the page's tests keep importing from here.
+export { normalizeUserCode }
 
 export function DeviceVerificationView({
   initialCode,

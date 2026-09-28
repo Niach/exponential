@@ -121,6 +121,7 @@ import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$
 import { Route as ApiIssueDraftsDraftIdFilesRouteImport } from './routes/api/issue-drafts/$draftId/files'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
+import { Route as ApiCliInstallTokenRedeemRouteImport } from './routes/api/cli/install-token/redeem'
 import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
 import { Route as AuthenticatedIntegrationsGithubClaimRouteImport } from './routes/_authenticated/integrations/github/claim'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
@@ -723,6 +724,12 @@ const ApiIntegrationsGithubCallbackRoute =
     path: '/api/integrations/github/callback',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiCliInstallTokenRedeemRoute =
+  ApiCliInstallTokenRedeemRouteImport.update({
+    id: '/api/cli/install-token/redeem',
+    path: '/api/cli/install-token/redeem',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedIntegrationsGithubInstalledRoute =
   AuthenticatedIntegrationsGithubInstalledRouteImport.update({
     id: '/integrations/github/installed',
@@ -863,6 +870,7 @@ export interface FileRoutesByFullPath {
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
+  '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
@@ -982,6 +990,7 @@ export interface FileRoutesByTo {
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
+  '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
@@ -1106,6 +1115,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/_authenticated/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
   '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
+  '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
@@ -1230,6 +1240,7 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/integrations/github/claim'
     | '/integrations/github/installed'
+    | '/api/cli/install-token/redeem'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issue-drafts/$draftId/files'
@@ -1349,6 +1360,7 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/integrations/github/claim'
     | '/integrations/github/installed'
+    | '/api/cli/install-token/redeem'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issue-drafts/$draftId/files'
@@ -1472,6 +1484,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/users_/$userId'
     | '/_authenticated/integrations/github/claim'
     | '/_authenticated/integrations/github/installed'
+    | '/api/cli/install-token/redeem'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issue-drafts/$draftId/files'
@@ -1576,6 +1589,7 @@ export interface RootRouteChildren {
   ApiWebhooksSesRoute: typeof ApiWebhooksSesRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
+  ApiCliInstallTokenRedeemRoute: typeof ApiCliInstallTokenRedeemRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
   ApiIssueDraftsDraftIdFilesRoute: typeof ApiIssueDraftsDraftIdFilesRoute
@@ -2370,6 +2384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIntegrationsGithubCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cli/install-token/redeem': {
+      id: '/api/cli/install-token/redeem'
+      path: '/api/cli/install-token/redeem'
+      fullPath: '/api/cli/install-token/redeem'
+      preLoaderRoute: typeof ApiCliInstallTokenRedeemRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/integrations/github/installed': {
       id: '/_authenticated/integrations/github/installed'
       path: '/integrations/github/installed'
@@ -2654,6 +2675,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksSesRoute: ApiWebhooksSesRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
+  ApiCliInstallTokenRedeemRoute: ApiCliInstallTokenRedeemRoute,
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
   ApiIssueDraftsDraftIdFilesRoute: ApiIssueDraftsDraftIdFilesRoute,

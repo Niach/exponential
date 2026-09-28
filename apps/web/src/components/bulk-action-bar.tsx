@@ -30,8 +30,12 @@ import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useRemoteStart } from "@/hooks/use-remote-start"
-import { useSteerConfig } from "@/components/agent-session"
-import { useIsTeamMember } from "@/components/issue-coding-rows"
+import { useCodingReadiness } from "@/hooks/use-coding-readiness"
+import {
+  CodingReadinessOverlay,
+  ReadinessStartPill,
+} from "@/components/coding-readiness-checklist"
+import { READINESS_COPY } from "@/lib/coding-readiness"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import { trpc } from "@/lib/trpc-client"
@@ -573,6 +577,7 @@ export function BulkActionBar({
 }
 
 const StartCodingIcon = conceptIcon(`action-run`)
+const START_CODING_LABEL = READINESS_COPY.start
 // ×4 concepts (iOS `IssueListView` bulk bar): status, assignee, labels.
 const StatusIcon = conceptIcon(`ui-checklist`)
 const AssigneeIcon = conceptIcon(`ui-assignee`)
@@ -584,6 +589,12 @@ const LabelsIcon = conceptIcon(`settings-labels`)
 // one matters because the composer (EXP-825) seeds its chips from the ids
 // but only LISTS repo-backed boards, so an unfiltered seed would silently
 // include issues the composer can neither show nor start.
+//
+// EXP-1121: a missing step no longer hides the button. The readiness model
+// (`useCodingReadiness`, judged by the first repo-backed board of the
+// selection, else the first board) keeps the pill up: dashed amber with the
+// "Ready to code?" checklist while GitHub, a repository or a device is
+// missing, the play MENU once every step is met.
 function BulkStartCodingButton({
   teamId,
   issues,
@@ -597,9 +608,19 @@ function BulkStartCodingButton({
 }) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id
-  const steer = useSteerConfig()
-  const isMember = useIsTeamMember(teamId, currentUserId ?? ``)
   const boards = useTeamBoards(teamId)
+  const boardIds = useMemo(
+    () => [...new Set(issues.map((issue) => issue.boardId))],
+    [issues]
+  )
+  const readinessState = useCodingReadiness({
+    teamId,
+    boardIds,
+    currentUserId: currentUserId ?? ``,
+    enabled: Boolean(currentUserId),
+  })
+  const { readiness } = readinessState
+  const [open, setOpen] = useState(false)
 
   const startableIds = useMemo(() => {
     const repoBacked = new Set(
@@ -610,22 +631,41 @@ function BulkStartCodingButton({
       .map((issue) => issue.id)
   }, [boards, issues])
 
-  if (
-    !currentUserId ||
-    !isMember ||
-    !steer?.enabled ||
-    startableIds.length === 0
-  ) {
-    return null
+  if (!currentUserId || !readiness.visible) return null
+
+  if (readiness.ready && startableIds.length > 0) {
+    return (
+      <BulkStartCodingControl
+        teamId={teamId}
+        currentUserId={currentUserId}
+        issueIds={startableIds}
+        onClear={onClear}
+        iconOnly={iconOnly}
+      />
+    )
   }
   return (
-    <BulkStartCodingControl
-      teamId={teamId}
-      currentUserId={currentUserId}
-      issueIds={startableIds}
-      onClear={onClear}
-      iconOnly={iconOnly}
-    />
+    <CodingReadinessOverlay
+      state={readinessState}
+      open={open}
+      onOpenChange={setOpen}
+      // The checklist's own Start coding only lights once ready — by then
+      // the menu above has replaced this pill, so it just closes.
+      onStart={() => setOpen(false)}
+    >
+      <ReadinessStartPill
+        readiness={readiness}
+        tone="primary"
+        onClick={() => setOpen((value) => !value)}
+        icon={<StartCodingIcon className="size-4" />}
+        label={START_CODING_LABEL}
+        hideLabel={iconOnly}
+        testId="bulk-start-coding"
+        className={`mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs${
+          iconOnly ? ` px-2!` : ``
+        }`}
+      />
+    </CodingReadinessOverlay>
   )
 }
 

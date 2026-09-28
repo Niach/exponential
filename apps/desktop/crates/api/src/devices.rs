@@ -138,15 +138,13 @@ pub struct HeartbeatInput<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct PendingCommand {
     pub id: String,
-    /// `worktree_remove` | `worktree_prune` | `agent_login` |
-    /// `agent_login_code` | `mcp_oauth_start` | `mcp_oauth_code` |
+    /// `agent_login` | `agent_login_code` | `mcp_oauth_start` | `mcp_oauth_code` |
     /// `agent_usage_refresh` | `agent_profile_use` |
     /// `agent_profile_remove` | `update_now` | `agent_update`; unknown kinds
     /// are completed `ok: false` ("unsupported") by the executor, never
     /// dropped silently.
     #[serde(default)]
     pub kind: String,
-    /// `worktree_remove`: `{repoFullName, branch}`; `worktree_prune`: `{}`;
     /// `agent_login`: `{agent, switch}` (both STRINGS — the payload column is
     /// a `Record<string,string>`); `agent_login_code`: `{agent, code}`
     /// (EXP-765). EXP-792: `mcp_oauth_start`: `{serverId, state,
@@ -865,7 +863,7 @@ mod tests {
     fn heartbeat_decodes_commands_and_defaults() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"ok":true,"updateRequested":false,"commands":[{"id":"cmd-1","kind":"worktree_remove","payload":{"repoFullName":"acme/web","branch":"exp/EXP-7"}},{"id":"cmd-2","kind":"worktree_prune","payload":{}}],"launchDefaults":{"defaultAgent":"codex"},"launchDefaultsUpdatedAt":"2026-08-11T10:00:00.000Z"}}}"#,
+            r#"{"result":{"data":{"ok":true,"updateRequested":false,"commands":[{"id":"cmd-1","kind":"agent_usage_refresh","payload":{"agent":"claude","profileId":"system"}},{"id":"cmd-2","kind":"update_now","payload":{}}],"launchDefaults":{"defaultAgent":"codex"},"launchDefaultsUpdatedAt":"2026-08-11T10:00:00.000Z"}}}"#,
         );
         let result = heartbeat(
             &client(&base),
@@ -878,9 +876,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.commands.len(), 2);
-        assert_eq!(result.commands[0].kind, "worktree_remove");
-        assert_eq!(result.commands[0].payload["branch"], "exp/EXP-7");
-        assert_eq!(result.commands[1].kind, "worktree_prune");
+        assert_eq!(result.commands[0].kind, "agent_usage_refresh");
+        assert_eq!(result.commands[0].payload["profileId"], "system");
+        assert_eq!(result.commands[1].kind, "update_now");
         assert_eq!(
             result.launch_defaults.as_ref().unwrap()["defaultAgent"],
             "codex"
@@ -1290,11 +1288,11 @@ mod tests {
 
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"id":"cmd-9","kind":"worktree_prune","payload":{},"status":"done","result":"Pruned 2 worktrees","completedAt":"2026-08-11T10:00:00.000Z","createdAt":"2026-08-11T09:59:00.000Z"}}}"#,
+            r#"{"result":{"data":{"id":"cmd-9","kind":"agent_update","payload":{"agent":"claude"},"status":"done","result":"Updated claude","completedAt":"2026-08-11T10:00:00.000Z","createdAt":"2026-08-11T09:59:00.000Z"}}}"#,
         );
         let row = get_command(&client(&base), "cmd-9").unwrap();
         assert!(row.is_terminal());
-        assert_eq!(row.result.as_deref(), Some("Pruned 2 worktrees"));
+        assert_eq!(row.result.as_deref(), Some("Updated claude"));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/devices.getCommand"));
     }

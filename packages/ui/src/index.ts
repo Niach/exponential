@@ -82,6 +82,8 @@ export * from "./pill"
 export * from "./popover"
 export * from "./pr-github-button"
 export * from "./progress"
+// EXP-1097: the sub-issue completion ring.
+export * from "./progress-ring"
 export * from "./rich-tab"
 export * from "./search-field"
 export * from "./segmented-bar"

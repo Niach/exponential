@@ -1592,9 +1592,8 @@ export const deviceWorktrees = pgTable(
 // devices.createCommand, delivered on the device's heartbeat (plus a relay
 // check_in nudge for immediacy), completed via devices.completeCommand.
 // Rows stay `pending` until completed — redelivery on a missed cycle is free
-// idempotency. `kind` is a documented varchar: `worktree_remove` (payload
-// {repoFullName, branch}) | `worktree_prune` (payload {}) | `agent_login`
-// (EXP-484, payload {agent, switch: "true"|"false", profileId?,
+// idempotency. `kind` is a documented varchar (EXP-1060 retired
+// `worktree_remove`/`worktree_prune`): `agent_login` (EXP-484, payload {agent, switch: "true"|"false", profileId?,
 // newProfileLabel?}: the device runs the agent CLI's own login flow inside
 // the named account profile (EXP-827: `profileId` = an existing profile,
 // `newProfileLabel` = create one first, neither = the ambient login) and
@@ -1651,6 +1650,30 @@ export const deviceCommands = pgTable(
       .on(table.deviceRowId)
       .where(sql`status = 'pending'`),
   ]
+)
+
+// EXP-1111: one-time CLI install tokens (SERVER-ONLY, never synced). The Add
+// device dialog mints one (`devices.createInstallToken`) and bakes it into
+// the install one-liner as EXP_INSTALL_TOKEN; the freshly installed daemon
+// trades it ONCE at the anonymous `POST /api/cli/install-token/redeem` for a
+// regular Better Auth session token — the same credential the device-code
+// login yields. Only the sha256 hex of the token is stored; `used_at` is the
+// atomic single-use claim; rows are short-lived (15-minute TTL).
+export const cliInstallTokens = pgTable(
+  `cli_install_tokens`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    tokenHash: text(`token_hash`).notNull().unique(),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+    usedAt: timestamp(`used_at`, { withTimezone: true }),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index(`idx_cli_install_tokens_user`).on(table.userId)]
 )
 
 // GitHub App installations (server-only, not synced). Mirrored from the setup
@@ -2427,10 +2450,6 @@ export const workflows = pgTable(
     // draft nobody bound yet.
     deviceId: varchar(`device_id`, { length: 128 }),
     launch: jsonb().$type<WorkflowLaunchStored>().notNull().default(sql`'{}'::jsonb`),
-    // EXP-1010: the review gate setting is GONE — every node gets an agent
-    // review. The column stays pinned to `agent` (and synced) only because
-    // engines older than that release still read it; drop it with them.
-    gate: varchar({ length: 16 }).notNull().default(`agent`),
     // `exp/wf-<id8>`, stamped at create.
     integrationBranch: varchar(`integration_branch`, { length: 255 }).notNull(),
     // The ONE final PR integration → default branch.

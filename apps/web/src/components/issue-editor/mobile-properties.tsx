@@ -14,11 +14,7 @@ import { displayUserName } from "@/lib/user-display"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
-import {
-  IssueRelationsAdd,
-  IssueRelationGroups,
-  useIssueRelations,
-} from "@/components/issue-relations-card"
+import { MobileRelationBands } from "@/components/issue-relations-card"
 import {
   getPriorityConfig,
   priorities,
@@ -388,39 +384,10 @@ export function IssueEditorMobileProperties({
         </div>
       </div>
 
-      {relations && <MobileRelationsSection {...relations} />}
-    </div>
-  )
-}
-
-// The phone's Relations block: the shared list plus the shared picker, in the
-// same header + chips shape the Labels block above uses.
-function MobileRelationsSection({
-  issueId,
-  readOnly = false,
-}: {
-  issueId: string
-  readOnly?: boolean
-}) {
-  const rows = useIssueRelations(issueId)
-  if (readOnly && rows.length === 0) return null
-
-  return (
-    <div className="flex flex-col gap-2">
-      <GlassSectionHeader label="Relations" className="px-4 pb-0" />
-      <div className="flex flex-col gap-1.5 px-4">
-        <IssueRelationGroups rows={rows} readOnly={readOnly} />
-        {!readOnly && (
-          <IssueRelationsAdd
-            issueId={issueId}
-            trigger={
-              <Pill size="sm" mode="action" leading={<AddGlyph />} className="self-start">
-                Add relation
-              </Pill>
-            }
-          />
-        )}
-      </div>
+      {/* EXP-1097: the relation bands (Blocked by, Blocking, Duplicate
+          of/by, Related) live HERE on phones, under a "Relations" heading
+          with "Add"; sub-issues and the parent stay on the detail itself. */}
+      {relations && <MobileRelationBands {...relations} />}
     </div>
   )
 }

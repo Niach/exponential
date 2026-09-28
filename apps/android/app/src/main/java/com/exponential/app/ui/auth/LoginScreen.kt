@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -46,6 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.R
 import com.exponential.app.data.api.AuthWebUrls
+import com.exponential.app.domain.EmailCodeSignUpCopy
 import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
@@ -60,6 +62,8 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    // EXP-1026: the sign-up name the kept code resubmits with.
+    var name by remember { mutableStateOf("") }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -220,7 +224,66 @@ fun LoginScreen(
                     }
 
                     if (codeFlow) {
-                        if (state.emailStep == LoginEmailStep.CodeSent) {
+                        if (state.emailStep == LoginEmailStep.Name) {
+                            // EXP-1026: the code belongs to an address with no
+                            // account yet — ask for its name, then resubmit it.
+                            Text(
+                                EmailCodeSignUpCopy.TITLE,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                EmailCodeSignUpCopy.BODY,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                EmailCodeSignUpCopy.FIELD_LABEL,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            GlassTextField(
+                                value = name,
+                                onValueChange = { name = it },
+                                singleLine = true,
+                                placeholder = EmailCodeSignUpCopy.PLACEHOLDER,
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Words,
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("login-name-field"),
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = { viewModel.submitName(name) },
+                                enabled = !state.loading,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("login-create-account-button"),
+                            ) {
+                                Text(if (state.loading) busyLabel else EmailCodeSignUpCopy.BUTTON)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        code = ""
+                                        name = ""
+                                        viewModel.changeEmail()
+                                    },
+                                    enabled = !state.loading,
+                                    modifier = Modifier.testTag("login-change-email"),
+                                ) {
+                                    Text("Use a different email")
+                                }
+                            }
+                        } else if (state.emailStep == LoginEmailStep.CodeSent) {
                             Text(
                                 "We sent a 6-digit code to ${state.codeEmail}.",
                                 style = MaterialTheme.typography.bodyMedium,

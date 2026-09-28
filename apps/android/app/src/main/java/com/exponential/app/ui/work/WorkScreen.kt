@@ -15,13 +15,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ActivityFeedState
@@ -47,7 +47,10 @@ import com.exponential.app.domain.shouldAutoBack
 import com.exponential.app.domain.switcherBadge
 import com.exponential.app.domain.switcherMode
 import com.exponential.app.domain.switcherTargets
+import com.exponential.app.domain.CodingReadiness
 import com.exponential.app.ui.issue.ChangesLoadState
+import com.exponential.app.ui.issue.CodingReadinessSheet
+import com.exponential.app.ui.issue.CodingReadinessViewModel
 import com.exponential.app.ui.issue.ChangesViewModel
 import com.exponential.app.ui.issue.CommentThreadViewModel
 import com.exponential.app.ui.issue.IssueDetailViewModel
@@ -64,7 +67,6 @@ import com.exponential.app.ui.session.sessionDotTone
 import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.steer.ActionRunState
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
 
 // EXP-893: the phone WORK SCREEN — one screen per subject (an issue, or a
 // session) with up to three FACES held as screen state, never as navigation:
@@ -90,6 +92,14 @@ fun WorkScreen(
     onOpenChanges: (issueId: String) -> Unit,
     // EXP-825: every start / fix-conflicts goes through the Agent page composer.
     onOpenAgent: (AgentComposerSeed) -> Unit,
+    // EXP-1121: the "Ready to code?" fixes that leave the screen — team
+    // settings (board repositories + the GitHub connection) for the issue's
+    // team, and the Devices tab. Null hides the fix (never a dead button).
+    onOpenTeamSettings: ((teamId: String) -> Unit)? = null,
+    onOpenDevices: (() -> Unit)? = null,
+    // EXP-1097: the Sub-issues `+` — the create screen on the parent's board
+    // with the parent preset. Null hides the `+`.
+    onCreateSubIssue: ((boardId: String, parentId: String) -> Unit)? = null,
 ) {
     // ── Screen state (survives rotation and process death) ─────────────────
     var faceName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -104,7 +114,6 @@ fun WorkScreen(
     var graphSheetOpen by remember { mutableStateOf(false) }
     var resumeConfirmOpen by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     // ── The shown run's model, one per id ──────────────────────────────────
     val sessionVm: AgentSessionViewModel? = shownSessionId?.let { id ->
@@ -154,8 +163,33 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
     val steerEnabled by (issueVm?.steerEnabled ?: remember { MutableStateFlow(null) })
         .collectAsStateWithLifecycle()
-    val steerDevices by (issueVm?.steerDevices ?: remember { MutableStateFlow(null) })
+    // EXP-1121: whether this issue can Start coding right now (the three
+    // readiness steps), fed from the issue's synced board + membership.
+    val readinessVm: CodingReadinessViewModel? = issueId?.let { id ->
+        hiltViewModel<CodingReadinessViewModel>(key = "readiness:$id")
+    }
+    val readinessBoard = issueState?.board
+    val readinessMember = permissions?.isMember == true
+    LaunchedEffect(readinessVm, readinessBoard, readinessMember, steerEnabled) {
+        readinessVm?.bind(
+            CodingReadinessViewModel.Host(
+                board = readinessBoard,
+                isMember = readinessMember,
+                remoteStartEnabled = steerEnabled,
+            ),
+        )
+    }
+    val readinessState by (readinessVm?.state ?: remember { MutableStateFlow(null) })
         .collectAsStateWithLifecycle()
+    val readiness = readinessState?.readiness
+    var readinessSheetOpen by rememberSaveable { mutableStateOf(false) }
+    // Back from settings, Devices or the GitHub hop: re-probe, the rows tick.
+    var readinessResumed by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(readinessVm) {
+        if (readinessResumed) readinessVm?.reload()
+        readinessResumed = true
+        onPauseOrDispose {}
+    }
 
     // `codingTarget`: the bound run when it is mine and live, else my newest
     // live run on the issue, else my newest run at all — followed only while
@@ -262,32 +296,25 @@ fun WorkScreen(
     // the run row went): changes → run → issue.
     LaunchedEffect(face, wantedFace) { if (face != wantedFace) faceName = face.name }
 
-    // Start: only for an issue subject that can be coded on (steer on, a
-    // member, a repo-backed board); dimmed without an online desktop.
-    val canStart = issueId != null && steerEnabled == true && permissions?.isMember == true &&
-        issueState?.board?.repositoryId != null
-    val startUi: StartButtonUi? = when {
-        !canStart -> null
-        steerDevices == null -> null
-        else -> StartButtonUi.Start(enabled = steerDevices.orEmpty().isNotEmpty())
-    }
+    // EXP-1121: Start coding ALWAYS renders for a member while remote start
+    // is on (`readiness.visible`) — solid and white once every step is met,
+    // dashed with an amber dot while one is missing, inert while loading.
+    val startUi: StartButtonUi? = if (issueId == null) null else readiness?.let(StartButtonUi::from)
     fun startCoding() {
         val id = issueId ?: return
-        if (steerDevices.isNullOrEmpty()) {
-            scope.launch {
-                snackbarHostState.showSnackbar(
-                    "No desktop online. Open the Exponential desktop app to run here.",
-                )
-            }
-        } else {
+        val r = readiness ?: return
+        when {
+            !r.visible || r.loading -> Unit
             // EXP-825: the composer IS the launcher.
-            onOpenAgent(AgentComposerSeed(issueIds = listOf(id)))
+            r.ready -> onOpenAgent(AgentComposerSeed(issueIds = listOf(id)))
+            else -> readinessSheetOpen = true
         }
     }
 
     // The switcher: the other faces, one row per own run with two or more,
     // and Start coding once the shown run ended for good.
-    val offerStart = sessionEnded && ownShown && resumeTarget == null && canStart
+    val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
+        readiness?.visible == true
     val targets = switcherTargets(
         faces = faces,
         shown = face,
@@ -394,8 +421,8 @@ fun WorkScreen(
     val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
-    // EXP-1058: the header chip's front issue, resolved against its team.
-    val graphLeadStatus by graphVm.leadStatus.collectAsStateWithLifecycle()
+    // EXP-1058/EXP-1097: the header chip's front issue, resolved against its team.
+    val graphChipStatus by graphVm.chipStatus.collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
@@ -439,12 +466,12 @@ fun WorkScreen(
                         { GithubHeaderAction(url) }
                     },
                     // EXP-1058: the STACKED issue chip; a run with no issue
-                    // fronts it with the run's own name.
+                    // fronts it with the run's own name. EXP-1097: the same
+                    // compact chip on every face, beside the `…`.
                     badge = {
                         PrGraphBadge(
                             graph = graph,
-                            face = face,
-                            leadStatus = graphLeadStatus,
+                            chipStatus = graphChipStatus,
                             runTitle = shownSession?.let { sessionRowTitle(it, issue, batchIssues) },
                         ) { graphSheetOpen = true }
                     },
@@ -476,6 +503,9 @@ fun WorkScreen(
                             if (hasChanges) faceName = WorkFaceKind.Changes.name else issueId?.let(onOpenChanges)
                         },
                         trailingBarSlot = trailingSlot,
+                        onAddSubIssue = onCreateSubIssue?.let { create ->
+                            issue?.let { parent -> { create(parent.boardId, parent.id) } }
+                        },
                     )
                 }
                 WorkFaceKind.Run -> key(shownSessionId) {
@@ -594,6 +624,41 @@ fun WorkScreen(
             },
             onMergeStack = graphVm::mergeStack,
             onDismiss = { graphSheetOpen = false },
+        )
+    }
+
+    // EXP-1121: the "Ready to code?" checklist behind a not-ready Start coding.
+    if (readinessSheetOpen && readinessVm != null && readiness?.visible == true) {
+        val teamId = readinessState?.board?.teamId
+        val openTeamSettings = onOpenTeamSettings?.takeIf { teamId != null }
+        val fixes = CodingReadiness.Fix.entries.filterTo(mutableSetOf()) { fix ->
+            when (fix) {
+                // Team settings is where Android edits a board's repository
+                // (member-level `boards.setRepository`) and connects GitHub.
+                CodingReadiness.Fix.CONNECT_GITHUB, CodingReadiness.Fix.BOARD_SETTINGS -> openTeamSettings != null
+                CodingReadiness.Fix.OPEN_DEVICES -> onOpenDevices != null
+                // `boards.setRepository` = `mutate_resources`: any member.
+                CodingReadiness.Fix.CHOOSE_REPOSITORY -> permissions?.isMember == true
+                CodingReadiness.Fix.GET_DESKTOP_APP, CodingReadiness.Fix.SET_UP_SERVER -> true
+            }
+        }
+        CodingReadinessSheet(
+            viewModel = readinessVm,
+            availableFixes = fixes,
+            onNavigateFix = { fix ->
+                readinessSheetOpen = false
+                when (fix) {
+                    CodingReadiness.Fix.CONNECT_GITHUB, CodingReadiness.Fix.BOARD_SETTINGS ->
+                        teamId?.let { openTeamSettings?.invoke(it) }
+                    CodingReadiness.Fix.OPEN_DEVICES -> onOpenDevices?.invoke()
+                    else -> Unit
+                }
+            },
+            onStart = {
+                readinessSheetOpen = false
+                issueId?.let { onOpenAgent(AgentComposerSeed(issueIds = listOf(it))) }
+            },
+            onDismiss = { readinessSheetOpen = false },
         )
     }
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { badgeChip, badgeKind, badgeShape, prGraph } from "./pr-graph"
+import {
+  badgeChip,
+  badgeKind,
+  badgeShape,
+  overlaySections,
+  prGraph,
+} from "./pr-graph"
 
 // EXP-897 Part 4 — the badge model. Every `it` name here is mirrored by iOS
 // PrGraphTests, Android PrGraphTest and the desktop `pr_graph` tests.
@@ -170,21 +176,19 @@ describe(`prGraph`, () => {
     expect(badgeKind(graph)).toBeNull()
   })
 
-  // EXP-1079: the desktop's `is_visible` + `badge_glyphs` — a run with a
-  // family earns the pill on the Run face alone, and a PR relation always
-  // wins over it.
-  it(`shapes a runs badge for a run with a family, on the run face only`, () => {
+  // EXP-1079 / EXP-1097: a run with a family earns the chip — on EVERY face
+  // now, the shape no longer reads the face — and a PR relation always wins
+  // over it.
+  it(`shapes a runs badge for a run with a family, on every face`, () => {
     const sessions = [session(`child`, `root`), session(`root`)]
     const family = prGraph({ session: sessions[0], issues: [], sessions })
-    expect(badgeShape(family, `run`)).toBe(`runs`)
-    expect(badgeShape(family, `changes`)).toBeNull()
-    expect(badgeShape(family, `issue`)).toBeNull()
+    expect(badgeShape(family)).toBe(`runs`)
     const alone = prGraph({
       session: session(`alone`),
       issues: [],
       sessions: [session(`alone`)],
     })
-    expect(badgeShape(alone, `run`)).toBeNull()
+    expect(badgeShape(alone)).toBeNull()
     const batchA = issue(`bata`, { prUrl: `https://github.com/acme/app/pull/9` })
     const batchB = issue(`batb`, { prUrl: `https://github.com/acme/app/pull/9` })
     const batched = prGraph({
@@ -193,7 +197,58 @@ describe(`prGraph`, () => {
       issues: [batchA, batchB],
       sessions,
     })
-    expect(badgeShape(batched, `run`)).toBe(`batch`)
+    expect(badgeShape(batched)).toBe(`batch`)
+  })
+
+  // EXP-1097: open blockers alone earn the chip, behind the PR relations and
+  // the run family; the front chip is the first open blocker.
+  it(`shapes a blocked badge for an issue with open blockers`, () => {
+    const me = issue(`me`)
+    const b1 = issue(`b1`)
+    const b2 = issue(`b2`)
+    const closed = issue(`closed`, { status: `done` })
+    const relations = [
+      { type: `blocks`, issueId: `b2`, relatedIssueId: `me` },
+      { type: `blocks`, issueId: `b1`, relatedIssueId: `me` },
+      { type: `blocks`, issueId: `closed`, relatedIssueId: `me` },
+    ]
+    const graph = prGraph({
+      issue: me,
+      issues: [me, b1, b2, closed],
+      sessions: [],
+      relations,
+    })
+    expect(badgeShape(graph)).toBe(`blocked`)
+    expect(badgeChip(graph)?.issue?.id).toBe(`b1`)
+    expect(badgeChip(graph)?.count).toBe(1)
+    // Only closed blockers: no chip.
+    const done = prGraph({
+      issue: me,
+      issues: [me, closed],
+      sessions: [],
+      relations,
+    })
+    expect(badgeShape(done)).toBeNull()
+    // A run family wins over the blockers.
+    const runs = [session(`r1`, null, `me`), session(`r2`, `r1`)]
+    expect(
+      badgeShape(
+        prGraph({ issue: me, issues: [me, b1], sessions: runs, relations })
+      )
+    ).toBe(`runs`)
+    // A batch wins over both.
+    const batchA = issue(`me`, { prUrl: `https://github.com/acme/app/pull/9` })
+    const batchB = issue(`batb`, { prUrl: `https://github.com/acme/app/pull/9` })
+    expect(
+      badgeShape(
+        prGraph({
+          issue: batchA,
+          issues: [batchA, batchB, b1],
+          sessions: runs,
+          relations,
+        })
+      )
+    ).toBe(`batch`)
   })
 
   // EXP-1058: the header's stacked chip — front issue + how many behind.
@@ -214,17 +269,45 @@ describe(`prGraph`, () => {
     // A batch inside a stack: the subject PR's representative, every other
     // issue on the stack behind it.
     const both = prGraph({ issue: two, issues: [lower, one, two], sessions: [] })
-    expect(badgeChip(both, `issue`)?.issue?.id).toBe(`one`)
-    expect(badgeChip(both, `issue`)?.count).toBe(2)
+    expect(badgeChip(both)?.issue?.id).toBe(`one`)
+    expect(badgeChip(both)?.count).toBe(2)
     // A plain batch: the others of the batch.
     const batch = prGraph({ issue: one, issues: [one, { ...two, prBaseBranch: null }], sessions: [] })
-    expect(badgeChip(batch, `changes`)?.count).toBe(1)
+    expect(badgeChip(batch)?.count).toBe(1)
     // A run family with no issue: no front issue, the other runs behind.
     const sessions = [session(`child`, `root`), session(`root`)]
     const family = prGraph({ session: sessions[0], issues: [], sessions })
-    expect(badgeChip(family, `run`)).toEqual({ issue: null, count: 1 })
+    expect(badgeChip(family)).toEqual({ issue: null, count: 1 })
     // No badge = no chip.
-    expect(badgeChip(family, `issue`)).toBeNull()
+    const lone = issue(`lone`)
+    expect(badgeChip(prGraph({ issue: lone, issues: [lone], sessions: [] }))).toBeNull()
+  })
+
+  // EXP-1097: the face only decides which overlay section LEADS.
+  it(`orders the overlay's sections by face`, () => {
+    const url = `https://github.com/acme/app/pull/9`
+    const me = issue(`me`, { prUrl: url })
+    const partner = issue(`partner`, { prUrl: url })
+    const blocker = issue(`blocker`)
+    const runs = [session(`r1`, null, `me`), session(`r2`, `r1`)]
+    const graph = prGraph({
+      issue: me,
+      issues: [me, partner, blocker],
+      sessions: runs,
+      relations: [{ type: `blocks`, issueId: `blocker`, relatedIssueId: `me` }],
+    })
+    expect(overlaySections(graph, `issue`)).toEqual([`blocked`, `batch`, `runs`])
+    expect(overlaySections(graph, `run`)).toEqual([`batch`, `runs`, `blocked`])
+    expect(overlaySections(graph, `changes`)).toEqual([
+      `stack`,
+      `batch`,
+      `runs`,
+      `blocked`,
+    ])
+    const lone = issue(`lone`)
+    expect(
+      overlaySections(prGraph({ issue: lone, issues: [lone], sessions: [] }), `issue`)
+    ).toEqual([])
   })
 
   it(`nests the subject run's whole tree, from its root`, () => {

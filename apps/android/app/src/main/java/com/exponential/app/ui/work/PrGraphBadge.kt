@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueGraph
+import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.PrStack
@@ -35,7 +36,6 @@ import com.exponential.app.domain.TreeGuide
 import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.ResolvedIssueStatus
-import com.exponential.app.domain.WorkflowView
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.IssueChipStack
 import com.exponential.app.ui.markdown.MdStyle
@@ -63,10 +63,12 @@ import com.exponential.app.ui.theme.flatRow
 // (`components/pr-graph-badge.tsx`, `PrGraphBadge.swift`, `pr_graph.rs`).
 
 /**
- * EXP-1058: the badge is the STACKED issue chip — the subject pull request's
- * representative issue in front, `+N` for everything behind it
- * ([PrGraph.badgeChip]), ghost outlines saying there is more than one. A run
- * with no issue (the run tree alone) fronts the same chip box with the
+ * EXP-1058: the badge is the STACKED issue chip — the front issue
+ * ([PrGraph.badgeChip]) with ghost outlines saying there is more than one,
+ * `+N` BESIDE the stack for everything behind it. EXP-1097: the SAME chip on
+ * every face ([PrGraph.badgeShape] is face-independent: a stack/batch, a run
+ * family, else open blockers) and COMPACT — glyph + identifier, no title. A
+ * run with no issue (the run tree alone) fronts the same chip box with the
  * session-tree glyph and the run's own name ([runTitle]). The chip is inert:
  * the WHOLE thing is one tap target that opens the overlay ([onOpen]).
  * Nothing at all when [PrGraph.badgeChip] is null.
@@ -74,50 +76,62 @@ import com.exponential.app.ui.theme.flatRow
 @Composable
 fun PrGraphBadge(
     graph: PrGraph.Graph,
-    face: WorkFaceKind,
-    leadStatus: ResolvedIssueStatus?,
+    /** The front chip's issue resolved against its team ([PrGraphViewModel.chipStatus]). */
+    chipStatus: ResolvedIssueStatus?,
     runTitle: String?,
     onOpen: () -> Unit,
 ) {
-    val spec = PrGraph.badgeChip(graph, face) ?: return
+    val spec = PrGraph.badgeChip(graph) ?: return
     val front = spec.issue
-    val chip: @Composable () -> Unit = if (front != null) {
-        {
-            IssueChip(
-                identifier = WorkflowView.nodeTitle(front.identifier, spec.count),
-                title = null,
-                status = leadStatus,
-            )
-        }
-    } else {
-        {
-            IssueChip(
-                identifier = "",
-                title = WorkflowView.nodeTitle(runTitle ?: "Run", spec.count),
-                status = null,
-                leading = {
-                    Icon(
-                        ExpIcons.sessionTree,
-                        contentDescription = null,
-                        modifier = Modifier.size(MdStyle.chipIconSize),
-                        tint = MdStyle.ChipToken,
-                    )
-                },
-            )
-        }
-    }
-    IssueChipStack(
+    Row(
         modifier = Modifier
             .clickable(role = Role.Button, onClick = onOpen)
             .testTag("pr-graph-badge"),
-        chip = chip,
-    )
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IssueChipStack {
+            if (front != null) {
+                IssueChip(
+                    identifier = front.identifier,
+                    title = null,
+                    status = chipStatus,
+                )
+            } else {
+                IssueChip(
+                    identifier = "",
+                    title = runTitle ?: "Run",
+                    status = null,
+                    leading = {
+                        Icon(
+                            ExpIcons.sessionTree,
+                            contentDescription = null,
+                            modifier = Modifier.size(MdStyle.chipIconSize),
+                            tint = MdStyle.ChipToken,
+                        )
+                    },
+                )
+            }
+        }
+        if (spec.count > 0) {
+            // Beside the stack, clear of the ghost that peeks out on the right
+            // (web `IssueChipStack`'s count slot).
+            Text(
+                "+${spec.count}",
+                style = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                maxLines = 1,
+                modifier = Modifier.padding(start = 6.dp).testTag("pr-graph-badge-count"),
+            )
+        }
+    }
 }
 
 /**
- * The overlay: a bottom sheet whose content is the section this [face] is
- * about — the reader never has to hunt for the part that matches what is on
- * screen, and the rows are the same primitives everywhere.
+ * The overlay: a bottom sheet listing every relation the subject HAS, the
+ * section this [face] is about FIRST ([PrGraph.overlaySections]) — the reader
+ * never has to hunt for the part that matches what is on screen, and the
+ * rows are the same primitives everywhere.
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -128,7 +142,7 @@ fun PrGraphSheet(
     merging: Boolean,
     mergeError: MergeFailure?,
     // EXP-980: the subject's blocks graph and the pool its nodes resolve
-    // against — the Issue face draws the CHAIN instead of a flat chip row.
+    // against — "Blocked by" draws the CHAIN instead of a flat chip row.
     blocksGraph: IssueGraph.Graph,
     issuesById: Map<String, IssueEntity>,
     onOpenIssue: (String) -> Unit,
@@ -136,128 +150,136 @@ fun PrGraphSheet(
     onMergeStack: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val runFace = face == WorkFaceKind.Run || face == WorkFaceKind.Results
     GlassSheet(
-        title = when (PrGraph.badgeKind(graph)) {
-            PrGraph.BadgeKind.BATCH -> "Batch pull request"
-            // EXP-1058: the run tree alone earns the chip on the Run face.
-            null -> "Runs"
-            else -> "Stacked pull requests"
+        title = when (PrGraph.badgeShape(graph)) {
+            PrGraph.BadgeShape.BATCH -> "Batch pull request"
+            PrGraph.BadgeShape.STACK, PrGraph.BadgeShape.STACK_AND_BATCH -> "Stacked pull requests"
+            PrGraph.BadgeShape.BLOCKED -> IssueRelationsView.Copy.BLOCKED_BY
+            // EXP-1058: the run tree alone earns the chip.
+            PrGraph.BadgeShape.RUNS, null -> "Runs"
         },
         onDismiss = onDismiss,
     ) {
-        when (face) {
-            WorkFaceKind.Issue -> {
+        val sections = PrGraph.overlaySections(graph, face)
+        var drewAny = false
+        sections.forEach { section ->
+            when (section) {
                 // EXP-980: the flat "Blocked by" chip row became the MINI-GRAPH
                 // — the same one the list badges and the blocked-start dialog
-                // draw, so a chain of blockers reads as a chain. "In batch
-                // with" stays a chip row: a batch has no order to show.
-                val blocked = graph.blockedBy.isNotEmpty()
-                if (blocked) {
-                    SectionHeader("Blocked by")
+                // draw, so a chain of blockers reads as a chain.
+                PrGraph.OverlaySection.BLOCKED -> {
+                    drewAny = true
+                    SectionHeader(IssueRelationsView.Copy.BLOCKED_BY)
                     IssueGraphList(
                         graph = blocksGraph,
                         issuesById = issuesById,
                         onOpenIssue = { onDismiss(); onOpenIssue(it) },
                     )
                 }
-                val siblings = graph.batch?.issues.orEmpty()
-                    .filter { it.id != graph.subjectIssueId }
-                if (siblings.isNotEmpty()) {
-                    SectionHeader("In batch with")
-                    IssueChipRow(siblings) { onDismiss(); onOpenIssue(it) }
-                }
-                if (!blocked && siblings.isEmpty()) {
-                    EmptyNote("Nothing else is linked to this issue.")
-                }
-            }
 
-            // EXP-879: Results is a SUB-FACE of Run, so its overlay is the
-            // run family too — there is no results-shaped graph.
-            WorkFaceKind.Run, WorkFaceKind.Results -> {
-                // EXP-930: the pill on a BATCH run says `3 issues`, so the
-                // first thing behind it is those three issues — the run tree
-                // alone answered a question nobody asked. The Issue face lists
-                // the subject's siblings; this is the run's own subject, so
-                // the WHOLE covered set is here, not "everything but me".
-                val covered = graph.batch?.issues.orEmpty()
-                if (covered.isNotEmpty()) {
-                    SectionHeader("Issues")
-                    IssueChipRow(covered) { onDismiss(); onOpenIssue(it) }
+                // EXP-930: on a run the batch is the run's own subject, so the
+                // WHOLE covered set is listed ("Issues"); elsewhere it reads
+                // from the subject's side ("In batch with" = everything but
+                // me). A batch has no order to show, so it stays a chip row.
+                PrGraph.OverlaySection.BATCH -> {
+                    val covered = graph.batch?.issues.orEmpty()
+                    val rows = if (runFace) covered else covered.filter { it.id != graph.subjectIssueId }
+                    if (rows.isNotEmpty()) {
+                        drewAny = true
+                        SectionHeader(if (runFace) "Issues" else "In batch with")
+                        IssueChipRow(rows) { onDismiss(); onOpenIssue(it) }
+                    }
                 }
-                SectionHeader("Runs")
-                if (graph.tree.isEmpty()) {
-                    EmptyNote("No runs on this work yet.")
+
+                PrGraph.OverlaySection.RUNS -> {
+                    drewAny = true
+                    RunsSection(graph, nowMs, onDismiss, onOpenRun)
                 }
-                // EXP-968: the row's NAME rides the graph — one snapshot for
-                // the tree and the issues it was joined against, so a label
-                // can never disagree with the row it sits on.
-                val runGuides = remember(graph.tree) {
-                    TreeGuides.compute(graph.tree.map { it.depth })
-                }
-                graph.tree.forEachIndexed { index, row ->
-                    val session = row.session
-                    // The sheet's column stacks its rows flush, so the
-                    // connector needs no gap to bridge (EXP-965).
-                    TreeGuidesRow(depth = row.depth, guide = runGuides.getOrNull(index)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                // EXP-818: an overlay row is a LIST row.
-                                .flatRow()
-                                .clickable {
-                                    onDismiss()
-                                    onOpenRun(session.id)
-                                }
-                                .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            val tone = sessionDotTone(session, null, nowMs, awaitingInput = false)
-                                ?: SessionDotTone.Muted
-                            SessionToneDot(tone, busy = session.agentBusy)
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                row.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+
+                PrGraph.OverlaySection.STACK -> {
+                    drewAny = true
+                    SectionHeader("Pull requests")
+                    // EXP-965: the chain's own connector, the same one the run
+                    // tree draws.
+                    val stackGuides = remember(graph.stack) {
+                        TreeGuides.compute(graph.stack.map { it.depth })
+                    }
+                    // BOTTOM-UP: the foundation first, the way it merges.
+                    graph.stack.forEachIndexed { index, member ->
+                        StackMemberRow(
+                            member = member,
+                            guide = stackGuides.getOrNull(index),
+                            isSubject = member.entry.issues.any { it.id == graph.subjectIssueId },
+                            // Only the BOTTOM of a real stack takes the whole chain.
+                            mergeStackIssueId = member.entry.representative.id
+                                .takeIf { member.depth == 0 && graph.stack.size > 1 },
+                            merging = merging,
+                            onMergeStack = onMergeStack,
+                        )
+                    }
+                    mergeError?.let { failure ->
+                        Text(
+                            failure.message,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
                     }
                 }
             }
-
-            WorkFaceKind.Changes -> {
-                SectionHeader("Pull requests")
-                // EXP-965: the chain's own connector, the same one the run
-                // tree above draws.
-                val stackGuides = remember(graph.stack) {
-                    TreeGuides.compute(graph.stack.map { it.depth })
-                }
-                // BOTTOM-UP: the foundation first, the way it merges.
-                graph.stack.forEachIndexed { index, member ->
-                    StackMemberRow(
-                        member = member,
-                        guide = stackGuides.getOrNull(index),
-                        isSubject = member.entry.issues.any { it.id == graph.subjectIssueId },
-                        // Only the BOTTOM of a real stack takes the whole chain.
-                        mergeStackIssueId = member.entry.representative.id
-                            .takeIf { member.depth == 0 && graph.stack.size > 1 },
-                        merging = merging,
-                        onMergeStack = onMergeStack,
-                    )
-                }
-                mergeError?.let { failure ->
-                    Text(
-                        failure.message,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    )
-                }
-            }
+        }
+        if (!drewAny) {
+            EmptyNote(
+                if (runFace) "No runs on this work yet." else "Nothing else is linked to this issue.",
+            )
         }
         Spacer(Modifier.size(8.dp))
+    }
+}
+
+/** The run family, nested — its rows NAMED by the graph (EXP-968). */
+@Composable
+private fun RunsSection(
+    graph: PrGraph.Graph,
+    nowMs: Long,
+    onDismiss: () -> Unit,
+    onOpenRun: (String) -> Unit,
+) {
+    SectionHeader("Runs")
+    val runGuides = remember(graph.tree) {
+        TreeGuides.compute(graph.tree.map { it.depth })
+    }
+    graph.tree.forEachIndexed { index, row ->
+        val session = row.session
+        // The sheet's column stacks its rows flush, so the connector needs no
+        // gap to bridge (EXP-965).
+        TreeGuidesRow(depth = row.depth, guide = runGuides.getOrNull(index)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // EXP-818: an overlay row is a LIST row.
+                    .flatRow()
+                    .clickable {
+                        onDismiss()
+                        onOpenRun(session.id)
+                    }
+                    .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val tone = sessionDotTone(session, null, nowMs, awaitingInput = false)
+                    ?: SessionDotTone.Muted
+                SessionToneDot(tone, busy = session.agentBusy)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    row.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 

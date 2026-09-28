@@ -250,6 +250,23 @@ describe(`IssueChipStack`, () => {
     expect(container.textContent).toBe(`EXP-1+2`)
   })
 
+  // EXP-1097: the ghosts used to span the whole stack, count included, and
+  // painted over the `+N`. They wrap the chip alone now; the count is their
+  // sibling, beside the stack.
+  it(`keeps the count clear of the ghosts`, () => {
+    render(
+      <IssueChipStack testId="stack" count={2}>
+        <span className="issue-chip">EXP-1</span>
+      </IssueChipStack>
+    )
+    const stack = screen.getByTestId(`stack`)
+    const count = stack.querySelector(`[data-slot=issue-chip-stack-count]`)!
+    expect(count.textContent).toBe(`+2`)
+    const ghost = stack.querySelector(`[data-slot=issue-chip-stack-ghost]`)!
+    expect(ghost.parentElement?.contains(count)).toBe(false)
+    expect(count.parentElement).toBe(stack)
+  })
+
   it(`says no number when it was given none`, () => {
     const { container } = render(
       <IssueChipStack>

@@ -9,7 +9,8 @@ import SwiftUI
 /// this sheet (EXP-687 retired the dismiss-and-re-present hand-off; dismissing
 /// the child returns here, exactly like Android) — followed by the shared
 /// `IssueLabelsSelector`, whose pills toggle inline and whose add chip opens
-/// the searchable Labels sheet, and by `IssueRelationsSection` (EXP-736). The
+/// the searchable Labels sheet, and by `IssueRelationsSection` (EXP-736; the
+/// EXP-1097 foldable bands). The
 /// Board row hides when there is nowhere to move.
 struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     let issue: IssueEntity
@@ -19,9 +20,10 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     /// The issue's team's labels, name-sorted by the caller.
     let labels: [LabelEntity]
     let assignedIds: Set<String>
-    /// EXP-736: this issue's relations, read from its own side. Mobile shows
-    /// them ONLY here — the detail page keeps chips + timeline.
-    let relations: [IssueRelationRow]
+    /// EXP-736/EXP-1097: the view model the Relations bands read
+    /// (`relationsView`, fold state, counterpart rows). The detail page draws
+    /// the parent line + Sub-issues; every other relation is listed here.
+    let relationsSource: IssueDetailViewModel
     let singleMemberTeam: Bool
     /// EXP-630: the team's estimate scale; the row hides while it is `none`.
     let estimationType: String
@@ -30,6 +32,8 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     let hasMoveTargets: Bool
     let onToggleLabel: (String) -> Void
     let onRemoveRelation: (IssueRelationRow) -> Void
+    /// A relation row was tapped: the host dismisses and opens that issue.
+    let onOpenRelation: (String) -> Void
     /// The picker stacked OVER this sheet. Host-owned: a picker that hands off
     /// to another one (duplicate status) is promoted by the host on dismiss.
     @Binding var activeChild: IssuePropertyChild?
@@ -132,10 +136,13 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
                     onAdd: { activeChild = .labels }
                 )
 
-                // EXP-736: relations sit under the labels, entry point first.
+                // EXP-736/EXP-1097: relations sit under the labels — the
+                // "Relations" heading with its Add, then one foldable band per
+                // side.
                 IssueRelationsSection(
-                    relations: relations,
+                    vm: relationsSource,
                     onAdd: { activeChild = .addRelation },
+                    onOpen: onOpenRelation,
                     onRemove: onRemoveRelation
                 )
             }

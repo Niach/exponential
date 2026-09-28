@@ -299,19 +299,29 @@ impl AuthClient {
     /// fallback) as the password path; a wrong/expired/burnt code comes back
     /// as `ApiError::Http` carrying the contract's copy (see
     /// [`otp_error_message`]).
+    ///
+    /// EXP-1026: the request opts in to the name step (`X-Exp-Ask-Name: 1`).
+    /// A NEW address sent without a `name` answers 400 `NAME_REQUIRED` with
+    /// the code left intact — see [`is_name_required`] — and the caller
+    /// resubmits the SAME code with the typed `name`.
     pub fn sign_in_with_email_code(
         &self,
         instance_url: &str,
         email: &str,
         code: &str,
+        name: Option<&str>,
     ) -> Result<SignInSuccess, ApiError> {
         let base = normalize_instance_url(instance_url);
-        let payload = serde_json::json!({ "email": email, "otp": code });
+        let mut payload = serde_json::json!({ "email": email, "otp": code });
+        if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
+            payload["name"] = serde_json::Value::String(name.to_string());
+        }
         let response = send(
             versioned(self.client.post(format!("{base}/api/auth/sign-in/email-otp")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .header("Origin", &base)
+                .header(ASK_NAME_HEADER, "1")
                 .body(payload.to_string()),
         )?;
         if !(200..300).contains(&response.status) {
@@ -394,6 +404,47 @@ impl AuthClient {
         Ok(DevicePoll::Authorized {
             token: parsed.access_token,
         })
+    }
+
+    /// EXP-1111: `POST /api/cli/install-token/redeem` — trade the web "Add
+    /// device" dialog's one-time `expi_…` token (15-min TTL, single use,
+    /// scoped to the user who minted it) for a Better Auth session token: the
+    /// SAME kind [`Self::poll_device_token`] yields on approval, so the
+    /// caller persists it exactly like a device-code login. Unauthenticated.
+    /// `400 {"error":"invalid_token"}` (unknown, used or expired) comes back
+    /// as [`ApiError::Http`] with a sentence that says what to do.
+    pub fn redeem_install_token(&self, instance_url: &str, token: &str) -> Result<String, ApiError> {
+        let base = normalize_instance_url(instance_url);
+        let payload = serde_json::json!({ "token": token.trim() });
+        let response = send(
+            versioned(self.client.post(format!("{base}/api/cli/install-token/redeem")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("Origin", &base)
+                .body(payload.to_string()),
+        )?;
+        if response.status == 400 {
+            #[derive(Deserialize)]
+            struct RedeemError {
+                #[serde(default)]
+                error: String,
+            }
+            let code = serde_json::from_str::<RedeemError>(&response.body)
+                .map(|parsed| parsed.error)
+                .unwrap_or_default();
+            return Err(ApiError::Http {
+                status: 400,
+                message: install_token_error_message(&code),
+            });
+        }
+        let response = response.ok_or_status()?;
+        #[derive(Deserialize)]
+        struct TokenBody {
+            access_token: String,
+        }
+        let parsed: TokenBody = serde_json::from_str(&response.body)
+            .map_err(|e| ApiError::Decode(format!("install-token/redeem: {e}")))?;
+        Ok(parsed.access_token)
     }
 
     /// `GET /api/auth/get-session` with the bearer. `Ok(Some(user))` = the
@@ -481,6 +532,17 @@ impl AuthClient {
     }
 }
 
+/// EXP-1111: the sentence for a refused install-token redeem (pure, tested).
+pub fn install_token_error_message(code: &str) -> String {
+    match code {
+        "invalid_token" => "The install token is invalid, already used or expired (they last 15 minutes). \
+             Create a new one with Add device in the web app and run the command again."
+            .to_string(),
+        "" => "The server refused the install token.".to_string(),
+        other => format!("The server refused the install token ({other})."),
+    }
+}
+
 /// The shared `{token, user}` reader behind every sign-in endpoint
 /// (`/sign-in/email`, `/sign-in/email-otp`): the bearer plugin's JSON token
 /// wins, and when it is absent the session token is lifted out of
@@ -507,6 +569,21 @@ fn parse_sign_in_success(response: AuthResponse) -> Result<SignInSuccess, ApiErr
             "sign-in succeeded but no user returned".to_string(),
         )),
     }
+}
+
+/// EXP-1026: the header an email-code sign-in sends to opt in to the name
+/// step (web `lib/auth/sign-up-copy.ts` `ASK_NAME_HEADER`).
+pub const ASK_NAME_HEADER: &str = "X-Exp-Ask-Name";
+/// EXP-1026: the Better Auth error `code` a name-less first sign-in answers.
+pub const NAME_REQUIRED_CODE: &str = "NAME_REQUIRED";
+/// The resolved message of a `NAME_REQUIRED` refusal — the marker
+/// [`is_name_required`] reads (never shown: the caller shows the name step).
+pub const NAME_REQUIRED_MESSAGE: &str = "A name is required to create this account.";
+
+/// EXP-1026: whether a [`AuthClient::sign_in_with_email_code`] refusal means
+/// "new account, ask for a name" (the code was NOT consumed).
+pub fn is_name_required(err: &ApiError) -> bool {
+    matches!(err, ApiError::Http { status: 400, message } if message == NAME_REQUIRED_MESSAGE)
 }
 
 /// A failed one-time-code request as an [`ApiError`], with the message already
@@ -538,6 +615,7 @@ pub fn otp_error_message(status: u16, body: &str) -> String {
 
     let parsed = serde_json::from_str::<OtpError>(body).ok();
     match parsed.as_ref().and_then(|e| e.code.as_deref()) {
+        Some(NAME_REQUIRED_CODE) => return NAME_REQUIRED_MESSAGE.to_string(),
         Some("INVALID_OTP") => {
             return "That code is not right. Check the email and try again.".to_string()
         }
@@ -862,6 +940,34 @@ mod tests {
         );
     }
 
+    /// EXP-1026: `NAME_REQUIRED` is recognisable, every other refusal is not.
+    #[test]
+    fn name_required_refusal_is_recognised() {
+        let err = otp_response_error(
+            400,
+            r#"{"code":"NAME_REQUIRED","message":"A name is required to create this account."}"#,
+        );
+        assert!(is_name_required(&err));
+        assert!(!is_name_required(&otp_response_error(400, r#"{"code":"INVALID_OTP"}"#)));
+    }
+
+    /// EXP-1026: the sign-in opts in with the header and carries the name.
+    #[test]
+    fn email_code_sign_in_sends_the_ask_name_header_and_name() {
+        use crate::trpc::tests::one_shot_server;
+        let (base, captured) = one_shot_server(
+            400,
+            r#"{"code":"NAME_REQUIRED","message":"A name is required to create this account."}"#,
+        );
+        let err = AuthClient::new()
+            .sign_in_with_email_code(&base, "new@example.com", "123456", Some(" Ada "))
+            .unwrap_err();
+        assert!(is_name_required(&err));
+        let request = captured.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(request.to_ascii_lowercase().contains("x-exp-ask-name: 1"), "{request}");
+        assert!(request.contains(r#""name":"Ada""#), "{request}");
+    }
+
     #[test]
     fn otp_response_error_keeps_the_upgrade_gate() {
         // EXP-104: a 426 on the OTP routes is the stale-build gate, never an
@@ -1072,5 +1178,32 @@ mod tests {
         // EXP-857: an older server without the fields offers neither method.
         assert!(!sparse.email_otp_enabled);
         assert!(!sparse.passkey_enabled);
+    }
+    /// EXP-1111: the redeem posts the pinned body and returns the session
+    /// token; `invalid_token` reads as the actionable sentence.
+    #[test]
+    fn install_token_redeem_returns_the_session_token() {
+        use crate::trpc::tests::one_shot_server;
+        let (base, captured) =
+            one_shot_server(200, r#"{"access_token":"sess-1","token_type":"Bearer"}"#);
+        let token = AuthClient::new().redeem_install_token(&base, " expi_abc ").unwrap();
+        assert_eq!(token, "sess-1");
+        let request = captured.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/cli/install-token/redeem HTTP/1.1"), "{request}");
+        assert!(request.ends_with(r#"{"token":"expi_abc"}"#), "{request}");
+    }
+
+    #[test]
+    fn install_token_refusal_names_the_fix() {
+        use crate::trpc::tests::one_shot_server;
+        let (base, _captured) = one_shot_server(400, r#"{"error":"invalid_token"}"#);
+        match AuthClient::new().redeem_install_token(&base, "expi_used") {
+            Err(ApiError::Http { status, message }) => {
+                assert_eq!(status, 400);
+                assert!(message.starts_with("The install token is invalid, already used or expired"), "{message}");
+            }
+            other => panic!("expected the refusal, got {other:?}"),
+        }
+        assert_eq!(install_token_error_message(""), "The server refused the install token.");
     }
 }

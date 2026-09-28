@@ -575,7 +575,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             &ctx.data_dir,
             chrono::Utc::now().timestamp_millis(),
         ))),
-        inflight: Arc::new(Mutex::new(HashSet::new())),
+        inflight: Arc::new(Mutex::new(coding::account_rotation::InflightProbes::new())),
         holds: HoldLog::default(),
         last_beat: Instant::now(),
     };
@@ -1391,6 +1391,7 @@ fn hold_key(hold: &coding::account_rotation::Hold) -> &'static str {
         Hold::CoolingDown { .. } => "cooling_down",
         Hold::Capped => "capped",
         Hold::WaitingForReset { .. } => "waiting_for_reset",
+        Hold::RetryingSwitch { .. } => "retrying_switch",
     }
 }
 
@@ -1431,6 +1432,9 @@ fn session_workflow(
 /// what to do, and — on a probe — spends the forced usage read OFF the loop
 /// (one HTTPS GET per profile), then switches the run (a resume naming the
 /// target, the same path a remote "switch account" takes) or parks it.
+/// EXP-1107: ONE read per AGENT per beat, every walled run of that agent
+/// decided off it (`plan_beat` / `decide_batch`); a switch that fails or is
+/// skipped is undone (`undo_switch`).
 struct RotationHost {
     ctx: Arc<Ctx>,
     runtime: Option<Arc<steer::SteerRuntime>>,
@@ -1443,10 +1447,10 @@ struct RotationHost {
     /// one run twice.
     reservations: StartReservations,
     tracker: Arc<Mutex<coding::account_rotation::RotationTracker>>,
-    /// Chains with a probe (and its switch) in flight: never probed twice,
-    /// and kept in the tracker while the switch has ended the old run but
-    /// not yet registered the new one.
-    inflight: Arc<Mutex<HashSet<String>>>,
+    /// The agents with a probe batch (and its switches) in flight: never
+    /// probed twice, their chains kept in the tracker while a switch has
+    /// ended the old run but not yet registered the new one.
+    inflight: Arc<Mutex<coding::account_rotation::InflightProbes>>,
     holds: HoldLog,
     last_beat: Instant,
 }
@@ -1484,9 +1488,9 @@ impl RotationHost {
             (live_chains, candidates)
         };
         let now_ms = chrono::Utc::now().timestamp_millis();
-        let inflight: HashSet<String> = lock_or_recover(&self.inflight).clone();
+        let inflight = lock_or_recover(&self.inflight).clone();
         let mut keep = live_chains;
-        keep.extend(inflight.iter().cloned());
+        keep.extend(inflight.chains());
         // Grace-based: a chain between an ended row and its resumed
         // successor keeps its cooldown and cap (see `CHAIN_GRACE_MS`).
         lock_or_recover(&self.tracker).retain_chains(&keep, now_ms);
@@ -1500,39 +1504,40 @@ impl RotationHost {
             .collect();
         self.holds
             .retain(&walled.iter().map(|run| run.session_id.clone()).collect());
+        // An agent whose batch is in flight is decided again once it lands.
+        let walled: Vec<_> = walled.into_iter().filter(|run| !inflight.busy(run.agent)).collect();
         if walled.is_empty() {
             return;
         }
         // Re-read at beat time: the toggle moves at runtime (remote_admin).
         let settings = coding::Settings::load(&coding::Settings::default_path(&self.ctx.data_dir));
-        for run in walled {
-            if inflight.contains(&run.chain_key) {
+        let plan = lock_or_recover(&self.tracker).plan_beat(walled, settings.auto_rotate_accounts, now_ms);
+        for (run, hold) in plan.holds {
+            if self.holds.changed(&run.session_id, hold_key(&hold)) {
+                log::info!(
+                    "account rotation [{}]: walled on {} ({}), holding: {hold:?}",
+                    run.session_id,
+                    run.account,
+                    run.window
+                );
+            }
+        }
+        for batch in plan.probes {
+            if !lock_or_recover(&self.inflight).claim(&batch) {
                 continue;
             }
-            let step = lock_or_recover(&self.tracker).step(&run, settings.auto_rotate_accounts, now_ms);
-            match step {
-                coding::account_rotation::Step::Hold(hold) => {
-                    if self.holds.changed(&run.session_id, hold_key(&hold)) {
-                        log::info!(
-                            "account rotation [{}]: walled on {} ({}), holding: {hold:?}",
-                            run.session_id,
-                            run.account,
-                            run.window
-                        );
-                    }
-                }
-                coding::account_rotation::Step::Probe => {
-                    self.holds.clear(&run.session_id);
-                    lock_or_recover(&self.inflight).insert(run.chain_key.clone());
-                    self.spawn_probe(run, doctor.clone(), settings.clone());
-                }
+            for run in &batch.runs {
+                self.holds.clear(&run.session_id);
             }
+            self.spawn_probe(batch, doctor.clone(), settings.clone());
         }
     }
 
+    /// ONE forced read of `batch.agent`'s profiles, however many of its
+    /// runs are walled, then every run decided off it and switched in turn.
     fn spawn_probe(
         &self,
-        run: coding::account_rotation::WalledRun,
+        batch: coding::account_rotation::ProbeBatch,
         doctor: coding::DoctorReport,
         settings: coding::Settings,
     ) {
@@ -1549,108 +1554,147 @@ impl RotationHost {
         let inflight = Arc::clone(&self.inflight);
         let reservations = self.reservations.clone();
         std::thread::spawn(move || {
+            let ids: Vec<&str> = batch.runs.iter().map(|run| run.session_id.as_str()).collect();
             log::info!(
-                "account rotation [{}]: {} hit its {} wall between turns — reading every profile's usage",
-                run.session_id,
-                run.account,
-                run.window
+                "account rotation [{}]: {} run(s) walled between turns — reading every {} profile's usage once",
+                ids.join(", "),
+                batch.runs.len(),
+                batch.agent.id()
             );
             let now_secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|elapsed| elapsed.as_secs())
                 .unwrap_or(0);
             let profiles =
-                coding::agent_usage::collect_now(run.agent, &ctx.data_dir, &settings, &doctor, now_secs);
+                coding::agent_usage::collect_now(batch.agent, &ctx.data_dir, &settings, &doctor, now_secs);
             let now_ms = chrono::Utc::now().timestamp_millis();
-            let decision = {
+            let decisions = {
                 let mut tracker = lock_or_recover(&tracker);
-                let decision = tracker.decide(&run, &profiles, now_ms);
-                // The decision counted: written before it acts, so a re-exec
-                // in the middle of the switch still remembers it.
+                let decisions = tracker.decide_batch(&batch.runs, &profiles, now_ms);
+                // The decisions counted: written before they act, so a
+                // re-exec in the middle of a switch still remembers them.
                 tracker.save(&ctx.data_dir, now_ms);
-                decision
+                decisions
             };
-            let workflow = store
-                .as_deref()
-                .and_then(|store| session_workflow(store, &run.session_id));
-            let record = |kind: &str, message: String| {
-                if let Some((workflow_id, node_id)) = workflow.clone() {
-                    TrpcEventSink::new(Arc::clone(&ctx.trpc)).record(api::workflows::WorkflowEvent {
-                        workflow_id,
-                        node_id,
-                        session_id: Some(run.session_id.clone()),
-                        kind: kind.to_string(),
-                        message,
-                    });
-                }
-            };
-            match decision {
-                coding::account_rotation::Decision::Switch {
-                    target,
-                    target_label,
-                    prompt,
-                    event_message,
-                } => {
-                    log::info!(
-                        "account rotation [{}]: switching {} -> {target} ({target_label})",
-                        run.session_id,
-                        run.account
-                    );
-                    // The server inherits started_reason, the parent and the
-                    // workflow membership from the predecessor (EXP-1082 §1).
-                    let origin = coding::LaunchOrigin::Relay {
-                        device_id: device_id.clone(),
-                        claimant: ctx.account.id.clone(),
-                        started_by: None,
-                        started_reason: None,
-                    };
-                    // REV-9: the resume claim a relay resume frame takes.
-                    // Held by a frame in flight = that resume is already
-                    // moving the run; the tracker counted this rotation,
-                    // so its cooldown keeps the next beat from retrying.
-                    let _reservation = match reservations
-                        .claim(vec![format!("resume:{}", run.session_id)])
-                    {
-                        Ok(reservation) => reservation,
-                        Err(clash) => {
-                            log::warn!(
-                                "account rotation [{}]: switch skipped, a start holding {clash} is in flight",
-                                run.session_id
-                            );
-                            lock_or_recover(&inflight).remove(&run.chain_key);
-                            return;
-                        }
-                    };
-                    match remote_resume_start(
-                        &ctx,
-                        runtime.as_ref(),
-                        &sessions,
-                        personal_key,
-                        origin,
-                        run.session_id.clone(),
-                        Some(target),
-                        Some(prompt),
-                        NodeHold { store: store.as_deref(), device_id: &device_id },
-                    ) {
-                        Ok(()) => record("account_switched", event_message),
-                        // The tracker already counted the rotation: its
-                        // cooldown keeps the next beat from retrying at once.
-                        Err(err) => log::warn!(
-                            "account rotation [{}]: switch failed: {err:#}",
-                            run.session_id
-                        ),
-                    }
-                }
-                coding::account_rotation::Decision::Wait { until_ms, event_message } => {
-                    log::info!(
-                        "account rotation [{}]: no profile has headroom — waiting until {until_ms}: {event_message}",
-                        run.session_id
-                    );
-                    record("waiting_reset", event_message);
+            for (run, decision) in batch.runs.iter().zip(decisions) {
+                let switched = act_on_rotation(
+                    &ctx,
+                    runtime.as_ref(),
+                    &sessions,
+                    personal_key.clone(),
+                    &device_id,
+                    store.as_deref(),
+                    &reservations,
+                    run,
+                    decision,
+                );
+                if !switched {
+                    // EXP-1107: a switch that did not happen spends neither
+                    // the cap nor the cooldown; the chain retries after the
+                    // short spacing.
+                    let mut tracker = lock_or_recover(&tracker);
+                    let now = chrono::Utc::now().timestamp_millis();
+                    tracker.undo_switch(&run.chain_key, now_ms, now);
+                    tracker.save(&ctx.data_dir, now);
                 }
             }
-            lock_or_recover(&inflight).remove(&run.chain_key);
+            lock_or_recover(&inflight).release(batch.agent);
         });
+    }
+}
+
+/// Act on one rotation decision for `run`. `false` = a switch that did NOT
+/// happen (skipped for a resume already in flight, or failed): the caller
+/// undoes the rotation the tracker counted. A wait, or a switch made, is
+/// `true`.
+#[allow(clippy::too_many_arguments)]
+fn act_on_rotation(
+    ctx: &Arc<Ctx>,
+    runtime: Option<&Arc<steer::SteerRuntime>>,
+    sessions: &Sessions,
+    personal_key: Option<String>,
+    device_id: &str,
+    store: Option<&sync::store::ShapeStore>,
+    reservations: &StartReservations,
+    run: &coding::account_rotation::WalledRun,
+    decision: coding::account_rotation::Decision,
+) -> bool {
+    let workflow = store.and_then(|store| session_workflow(store, &run.session_id));
+    let record = |kind: &str, message: String| {
+        if let Some((workflow_id, node_id)) = workflow.clone() {
+            TrpcEventSink::new(Arc::clone(&ctx.trpc)).record(api::workflows::WorkflowEvent {
+                workflow_id,
+                node_id,
+                session_id: Some(run.session_id.clone()),
+                kind: kind.to_string(),
+                message,
+            });
+        }
+    };
+    match decision {
+        coding::account_rotation::Decision::Switch {
+            target,
+            target_label,
+            prompt,
+            event_message,
+        } => {
+            log::info!(
+                "account rotation [{}]: switching {} -> {target} ({target_label})",
+                run.session_id,
+                run.account
+            );
+            // The server inherits started_reason, the parent and the
+            // workflow membership from the predecessor (EXP-1082 §1).
+            let origin = coding::LaunchOrigin::Relay {
+                device_id: device_id.to_string(),
+                claimant: ctx.account.id.clone(),
+                started_by: None,
+                started_reason: None,
+            };
+            // REV-9: the resume claim a relay resume frame takes. Held by a
+            // frame in flight = that resume is already moving the run.
+            let _reservation = match reservations.claim(vec![format!("resume:{}", run.session_id)]) {
+                Ok(reservation) => reservation,
+                Err(clash) => {
+                    log::warn!(
+                        "account rotation [{}]: switch skipped, a start holding {clash} is in flight",
+                        run.session_id
+                    );
+                    return false;
+                }
+            };
+            match remote_resume_start(
+                ctx,
+                runtime,
+                sessions,
+                personal_key,
+                origin,
+                run.session_id.clone(),
+                Some(target),
+                Some(prompt),
+                NodeHold { store, device_id },
+            ) {
+                Ok(()) => {
+                    record("account_switched", event_message);
+                    true
+                }
+                Err(err) => {
+                    log::warn!(
+                        "account rotation [{}]: switch failed, retrying soon: {err:#}",
+                        run.session_id
+                    );
+                    false
+                }
+            }
+        }
+        coding::account_rotation::Decision::Wait { until_ms, event_message } => {
+            log::info!(
+                "account rotation [{}]: no profile has headroom — waiting until {until_ms}: {event_message}",
+                run.session_id
+            );
+            record("waiting_reset", event_message);
+            true
+        }
     }
 }
 
@@ -2318,12 +2362,12 @@ fn spawn_prepared_covering(
 }
 
 /// EXP-758 (EXP-478): register a launched run, THEN release its launch gate.
-/// The ORDER is the point. `run_device_command` builds the prune's `held` set
-/// from the live-session list, so a `worktree_prune` arriving between the
-/// launch and this push sees a branch with no unique commits and no live
-/// session and removes the worktree under a run that just started. The gate
-/// covers exactly that window, and this is where it ends (desktop parity:
-/// `ui/src/coding_flow.rs` inserts into `LocalSessions`, then drops).
+/// The ORDER is the point: a prune builds its `held` set from the
+/// live-session list, so one arriving between the launch and this push sees
+/// a branch with no unique commits and no live session and removes the
+/// worktree under a run that just started. The gate covers exactly that
+/// window, and this is where it ends (desktop parity: `ui/src/coding_flow.rs`
+/// inserts into `LocalSessions`, then drops).
 fn register_session(sessions: &Sessions, live: LiveSession) {
     let session = Arc::clone(&live.session);
     lock_sessions(sessions).push(live);
@@ -2604,30 +2648,7 @@ fn run_device_command(
     slots: &CommandSlots<'_>,
 ) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-    let repos_root = settings.repos_root_path();
-    let held: std::collections::HashSet<String> = lock_sessions(sessions)
-        .iter()
-        .filter(|live| !live.session.is_done())
-        .map(|live| live.branch.clone())
-        .collect();
     let (ok, message) = match command.kind.as_str() {
-        // EXP-1020: no client in THIS release queues these two; they stay
-        // for machines on an older build. EXP-1060 retires them once the
-        // version floors pass.
-        "worktree_remove" => {
-            let repo = command.payload["repoFullName"].as_str().unwrap_or_default();
-            let branch = command.payload["branch"].as_str().unwrap_or_default();
-            if repo.is_empty() || branch.is_empty() {
-                (false, "Malformed command payload.".to_string())
-            } else {
-                let clone = coding::clone_path(&repos_root, repo);
-                match coding::remove_worktree_remote(&clone, branch, &held) {
-                    Ok(()) => (true, format!("Removed the {branch} worktree.")),
-                    Err(err) => (false, err.message()),
-                }
-            }
-        }
-        "worktree_prune" => run_prune(&settings, &repos_root, &ctx.data_dir, held),
         // EXP-484: a sign-in on this machine, requested from anywhere. The
         // PTY lives for minutes, so the host owns its own thread and its own
         // completion — this arm never falls through to the one below.
@@ -2919,43 +2940,6 @@ fn mcp_host<'a>(ctx: &'a Ctx, device_id: &'a str) -> coding::mcp_servers::HostCo
         trpc: &ctx.trpc,
         device_id,
     }
-}
-
-/// The prune command body: the conservative (git-truth-only) policy over
-/// every clone; aggregate one human-readable summary.
-fn run_prune(
-    settings: &coding::Settings,
-    repos_root: &std::path::Path,
-    data_dir: &std::path::Path,
-    held: std::collections::HashSet<String>,
-) -> (bool, String) {
-    let policy =
-        coding::conservative_prune_policy(
-            &settings.branch_prefix,
-            held,
-            Vec::new(),
-            // EXP-637: nominate this install's recorded run branches too
-            // (git still confirms they landed before anything is removed).
-            Some(data_dir.to_path_buf()),
-        );
-    let mut removed = 0usize;
-    let mut skipped = 0usize;
-    let mut blocked = false;
-    for clone in coding::scan_clones(repos_root) {
-        let report = coding::prune_landed(&clone.path, &policy);
-        removed += report.removed_worktrees.len();
-        skipped += report.skipped.len();
-        blocked |= report.blocked_by_launch;
-    }
-    let mut message = format!("Pruned {removed} worktree{}", if removed == 1 { "" } else { "s" });
-    if skipped > 0 {
-        message.push_str(&format!(", kept {skipped} (unmerged or busy)"));
-    }
-    if blocked {
-        message.push_str("; one repo was busy launching — try again");
-    }
-    message.push('.');
-    (true, message)
 }
 
 /// Scan + report the worktree inventory when its fingerprint moved.
@@ -5932,6 +5916,15 @@ fn install(args: &[String]) -> CommandResult {
     // Fail fast while interactive instead of from inside the service.
     let _ = context::load()?;
     let exe = service_exec()?;
+    // EXP-1111: a re-install (the installer re-run over a new binary)
+    // restarts the running daemon onto it — unless that would kill live
+    // agent sessions, which keep the old process until they end.
+    let data_dir = context::data_dir();
+    let previous = daemon_pid(&data_dir);
+    let live = previous
+        .map(|pid| registry::sessions_owned_by(&data_dir, pid))
+        .unwrap_or(0);
+    let keep_running = live > 0;
     // EXP-1099: the service's stdout/stderr go to a file under the data dir
     // (launchd drops them otherwise), so a crash trace survives; the regular
     // log lines are in the rotating `logs/exponential-daemon.log`.
@@ -5983,19 +5976,33 @@ fn install(args: &[String]) -> CommandResult {
                 log = xml_escape(&service_log.display().to_string())
             ),
         )?;
-        let loaded = std::process::Command::new("launchctl")
-            .args(["load", "-w"])
-            .arg(&plist)
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
         println!("Wrote {}", plist.display());
-        if loaded {
-            println!("Daemon loaded — it starts at login from now on.");
+        if keep_running {
+            println!("{}", keep_running_notice(previous.unwrap_or_default(), live));
         } else {
-            println!("Load it with: launchctl load -w {}", plist.display());
+            // Unload first (a no-op when it was never loaded): `load` on an
+            // already-loaded label fails and would leave the old process.
+            let _ = std::process::Command::new("launchctl")
+                .args(["unload"])
+                .arg(&plist)
+                .stderr(std::process::Stdio::null())
+                .status();
+            let loaded = std::process::Command::new("launchctl")
+                .args(["load", "-w"])
+                .arg(&plist)
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+            if loaded {
+                println!("Daemon loaded — it starts at login from now on.");
+            } else {
+                println!("Load it with: launchctl load -w {}", plist.display());
+            }
         }
     } else {
+        // EXP-1111: linger FIRST — it also brings up the user manager a
+        // headless SSH/provisioning shell may not have yet.
+        ensure_linger();
         let unit_dir = dirs::config_dir()
             .context("resolve XDG config dir")?
             .join("systemd/user");
@@ -6010,24 +6017,115 @@ fn install(args: &[String]) -> CommandResult {
             ),
         )?;
         println!("Wrote {}", unit.display());
-        let enabled = std::process::Command::new("systemctl")
-            .args(["--user", "daemon-reload"])
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
-            && std::process::Command::new("systemctl")
-                .args(["--user", "enable", "--now", "exponential-daemon"])
+        let systemctl = |args: &[&str]| {
+            std::process::Command::new("systemctl")
+                .arg("--user")
+                .args(args)
                 .status()
                 .map(|status| status.success())
-                .unwrap_or(false);
-        if enabled {
-            println!("Daemon enabled and started (systemd user unit `exponential-daemon`).");
-            println!("Survive logout with: loginctl enable-linger $USER");
+                .unwrap_or(false)
+        };
+        let enabled = systemctl(&["daemon-reload"]) && systemctl(&["enable", "exponential-daemon"]);
+        // `restart` starts a stopped unit too, and moves a running one onto
+        // the new binary + unit.
+        let started = enabled && (keep_running || systemctl(&["restart", "exponential-daemon"]));
+        if started {
+            println!("Daemon enabled (systemd user unit `exponential-daemon`, starts at boot).");
+            if keep_running {
+                println!("{}", keep_running_notice(previous.unwrap_or_default(), live));
+            }
         } else {
             println!("Enable it with: systemctl --user daemon-reload && systemctl --user enable --now exponential-daemon");
         }
     }
+    // EXP-1111: say whether it actually came up — the installer's summary
+    // and a person at a terminal both need "running", not "unit written".
+    match wait_for_daemon(&data_dir, if keep_running { None } else { previous }) {
+        Some(pid) => println!("Daemon running (pid {pid}) — this machine is registered as a device."),
+        None => println!(
+            "The daemon is not running yet — check `exponential daemon status` and {}",
+            service_log_path(&data_dir).display()
+        ),
+    }
     Ok(ExitCode::SUCCESS)
+}
+
+/// EXP-1111: the daemon keeps its process (live agent sessions) — what to do.
+fn keep_running_notice(pid: u32, live: usize) -> String {
+    format!(
+        "The running daemon (pid {pid}) hosts {live} live session(s), so it was not restarted; it keeps the previous binary until you restart it: {}",
+        restart_hint()
+    )
+}
+
+/// Poll up to 15s for a daemon pid other than `replaced` (the process a
+/// restart just stopped). At the deadline any live daemon counts: one
+/// started by hand outside the service keeps running, and the service's
+/// own instance defers to it.
+fn wait_for_daemon(data_dir: &Path, replaced: Option<u32>) -> Option<u32> {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if let Some(pid) = daemon_pid(data_dir).filter(|pid| Some(*pid) != replaced) {
+            return Some(pid);
+        }
+        if Instant::now() >= deadline {
+            return daemon_pid(data_dir);
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+}
+
+/// The one-line instruction when this process may not enable lingering.
+fn linger_hint(user: &str) -> String {
+    format!("To keep the daemon running after logout and start it at boot, run once: sudo loginctl enable-linger {user}")
+}
+
+/// EXP-1111 (Linux): a systemd USER unit stops with the last login session
+/// and never starts at boot unless the user lingers. Enable it when this
+/// user may (polkit usually allows it for oneself; `--no-ask-password` keeps
+/// a headless install from hanging on a prompt), else print the one line
+/// that does it with sudo.
+fn ensure_linger() {
+    let user = std::env::var("USER")
+        .ok()
+        .filter(|user| !user.is_empty())
+        .or_else(|| {
+            std::process::Command::new("id")
+                .arg("-un")
+                .output()
+                .ok()
+                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+                .filter(|user| !user.is_empty())
+        });
+    let Some(user) = user else {
+        println!("{}", linger_hint("$USER"));
+        return;
+    };
+    let lingering = match std::process::Command::new("loginctl")
+        .args(["show-user", &user, "--property=Linger", "--value"])
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim() == "yes",
+        Err(_) => {
+            println!("No loginctl on this machine: the daemon runs while you are logged in.");
+            return;
+        }
+    };
+    if lingering {
+        return;
+    }
+    let enabled = std::process::Command::new("loginctl")
+        .args(["--no-ask-password", "enable-linger", &user])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if enabled {
+        println!("Enabled lingering for {user}: the daemon keeps running after logout and starts at boot.");
+    } else {
+        println!("{}", linger_hint(&user));
+    }
 }
 
 fn uninstall(args: &[String]) -> CommandResult {
@@ -6130,6 +6228,7 @@ fn status(args: &[String]) -> CommandResult {
         }
         None => {
             println!("Daemon not running.");
+            println!("{}", super::account::NOT_REGISTERED_HINT);
             Ok(ExitCode::FAILURE)
         }
     }

@@ -46,7 +46,9 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex,
+    input::InputState,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 use terminal::TerminalManager;
@@ -1788,6 +1790,22 @@ pub struct StartCodingControl {
     /// the issue header while a PR is open, where Merge is the action the
     /// user came for and two white pills side by side would name neither.
     demoted: bool,
+    /// EXP-1121: the board's `repository_id` the current probe answers for —
+    /// a repo linked (or unlinked) under the open issue re-probes.
+    probed_repo_id: Option<String>,
+    /// EXP-1121: the team's GitHub facts, read while the board has no repo.
+    github: crate::coding_readiness::GithubProbe,
+    github_generation: u64,
+    /// EXP-1121: the "Ready to code?" popover is up — it keeps rendering
+    /// (rows ticking) even once every step is met.
+    readiness_open: bool,
+    /// The repository row's inline picker is showing.
+    picker_open: bool,
+    /// Its search field (created on first open — it needs a window).
+    repo_query: Option<Entity<InputState>>,
+    /// `boards.setRepository` in flight / its refusal.
+    linking: bool,
+    link_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1800,16 +1818,30 @@ impl StartCodingControl {
         let hub = CodingHub::global(cx);
         let sessions = LocalSessions::global(cx);
         let synced_sessions = Store::global(cx).collections().coding_sessions.clone();
+        // EXP-1121: the readiness rows tick live off the synced board (a repo
+        // linked anywhere) and devices rows.
+        let boards = Store::global(cx).collections().boards.clone();
+        let devices = Store::global(cx).collections().devices.clone();
         let subscriptions = vec![
             cx.observe(&hub, |_, _, cx| cx.notify()),
             cx.observe(&sessions, |_, _, cx| cx.notify()),
             cx.observe(&synced_sessions, |_, _, cx| cx.notify()),
+            cx.observe(&boards, |_, _, cx| cx.notify()),
+            cx.observe(&devices, |_, _, cx| cx.notify()),
         ];
         Self {
             issue_id: None,
             probe: RepoProbe::Idle,
             probe_generation: 0,
             demoted: false,
+            probed_repo_id: None,
+            github: crate::coding_readiness::GithubProbe::Idle,
+            github_generation: 0,
+            readiness_open: false,
+            picker_open: false,
+            repo_query: None,
+            linking: false,
+            link_error: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1830,6 +1862,8 @@ impl StartCodingControl {
         }
         self.issue_id = issue_id;
         self.probe = RepoProbe::Idle;
+        self.picker_open = false;
+        self.link_error = None;
         cx.notify();
     }
 
@@ -1846,6 +1880,7 @@ impl StartCodingControl {
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
+        self.probed_repo_id = issue_board(&issue_id, cx).and_then(|board| board.repository_id);
         self.probe = RepoProbe::Loading;
         self.probe_generation += 1;
         let generation = self.probe_generation;
@@ -1901,18 +1936,250 @@ impl StartCodingControl {
         );
     }
 
-    /// Whether the control renders anything at all: an issue is set AND its
-    /// board is repo-backed (or not yet synced — never hide on a sync race).
-    /// The issue header gates its whole agent row on this so an empty control
+    /// Whether the control renders anything at all: an issue is set. The
+    /// issue header gates its whole agent row on this so an empty control
     /// never leaves an orphaned row.
-    pub fn is_visible(&self, cx: &App) -> bool {
-        let Some(issue_id) = self.issue_id.as_deref() else {
-            return false;
+    ///
+    /// EXP-1121: a repo-less board no longer hides Start coding — it renders
+    /// NOT READY (the dashed amber capsule + caption) and its click opens the
+    /// "Ready to code?" checklist. The desktop can always run on itself and
+    /// needs no relay, so for a member (anyone who sees the issue) it always
+    /// renders.
+    pub fn is_visible(&self, _cx: &App) -> bool {
+        self.issue_id.is_some()
+    }
+
+    /// EXP-1121: the board the checklist is about, off the synced rows.
+    fn readiness_subject(&self, cx: &App) -> Option<crate::coding_readiness::ReadinessSubject> {
+        let board = issue_board(self.issue_id.as_deref()?, cx)?;
+        let team_name = Store::global(cx)
+            .collections()
+            .teams
+            .read(cx)
+            .get(&board.team_id)
+            .map(|team| team.name.clone())
+            .unwrap_or_default();
+        Some(crate::coding_readiness::ReadinessSubject {
+            team_id: board.team_id.clone(),
+            team_name,
+            board_id: board.id.clone(),
+            board_name: board.name.clone(),
+            board_slug: board.slug.clone().unwrap_or_default(),
+            repository_id: board.repository_id.clone(),
+        })
+    }
+
+    /// EXP-1121: the readiness model right now (`None` = the board has not
+    /// synced — the plain launcher renders, never hide on a sync race).
+    fn readiness(
+        &self,
+        local_device_label: &str,
+        cx: &App,
+    ) -> Option<(
+        domain::coding_readiness::CodingReadiness,
+        crate::coding_readiness::ReadinessSubject,
+    )> {
+        let subject = self.readiness_subject(cx)?;
+        let probed = match &self.probe {
+            RepoProbe::Ready(Some(repo))
+                if subject.repository_id.as_deref() == Some(repo.repository_id.as_str()) =>
+            {
+                Some(repo.full_name.as_str())
+            }
+            _ => None,
         };
-        match issue_board(issue_id, cx) {
-            Some(board) => board.repository_id.is_some(),
-            None => true,
+        let github = if subject.repository_id.is_none() {
+            self.github.facts_for(&subject.team_id)
+        } else {
+            None
+        };
+        let input = crate::coding_readiness::readiness_input(
+            &subject,
+            probed,
+            github,
+            local_device_label,
+            chrono::Utc::now().timestamp_millis(),
+        );
+        Some((domain::coding_readiness::coding_readiness(&input), subject))
+    }
+
+    /// EXP-1121: read the team's GitHub facts. `keep` = a refresh behind
+    /// facts already on screen (the popover opening) — they stay up while it
+    /// runs, so the trigger never flips to the inert loading state under an
+    /// open popover.
+    fn fetch_github(&mut self, team_id: String, keep: bool, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        if !(keep && self.github.facts_for(&team_id).is_some()) {
+            self.github = crate::coding_readiness::GithubProbe::Loading {
+                team_id: team_id.clone(),
+            };
         }
+        self.github_generation += 1;
+        let generation = self.github_generation;
+        cx.spawn(async move |this, cx| {
+            let fetch_team = team_id.clone();
+            let facts = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::coding_readiness::fetch_github_facts(&trpc, &fetch_team)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.github_generation != generation {
+                    return;
+                }
+                this.github = crate::coding_readiness::GithubProbe::Ready { team_id, facts };
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Re-read the GitHub facts behind the ones on screen (the picker's
+    /// retry, the popover opening — a connect finishes in the browser).
+    pub(crate) fn refresh_github(&mut self, cx: &mut gpui::Context<Self>) {
+        if let Some(subject) = self.readiness_subject(cx) {
+            self.fetch_github(subject.team_id, true, cx);
+        }
+    }
+
+    /// The popover opened or closed.
+    fn set_readiness_open(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
+        if self.readiness_open == open {
+            return;
+        }
+        self.readiness_open = open;
+        if open {
+            if self
+                .readiness_subject(cx)
+                .is_some_and(|subject| subject.repository_id.is_none())
+            {
+                self.refresh_github(cx);
+            }
+        } else {
+            self.picker_open = false;
+            self.link_error = None;
+        }
+        cx.notify();
+    }
+
+    /// "Choose repository": the inline picker, search focused.
+    pub(crate) fn open_repo_picker(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let query = match &self.repo_query {
+            Some(query) => query.clone(),
+            None => {
+                let query = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .placeholder(domain::coding_readiness::copy::PICKER_SEARCH)
+                });
+                self._subscriptions.push(cx.observe(&query, |_, _, cx| cx.notify()));
+                self.repo_query = Some(query.clone());
+                query
+            }
+        };
+        use gpui::Focusable as _;
+        query.update(cx, |input, cx| input.set_value("", window, cx));
+        query.read(cx).focus_handle(cx).focus(window, cx);
+        self.picker_open = true;
+        self.link_error = None;
+        cx.notify();
+    }
+
+    /// A picked repository: `boards.setRepository` (the Board settings
+    /// pane's call). Success needs nothing — the synced board row's echo
+    /// ticks the row and re-probes; a refusal shows under the row.
+    pub(crate) fn link_repository(&mut self, repository_id: String, cx: &mut gpui::Context<Self>) {
+        let Some(subject) = self.readiness_subject(cx) else {
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.linking = true;
+        self.link_error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::boards::boards_set_repository(
+                        &trpc,
+                        &subject.board_id,
+                        Some(&repository_id),
+                        None,
+                    )
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.linking = false;
+                match result {
+                    Ok(_) => this.picker_open = false,
+                    Err(err) => {
+                        log::warn!("[ui] readiness: boards.setRepository failed: {err}");
+                        this.link_error = Some(err.user_message().into());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The popover footer's Start coding — the control's own launch.
+    pub(crate) fn launch_from_readiness(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.readiness_open = false;
+        self.launch(window, cx);
+    }
+
+    /// Everything the popover draws, read fresh on each of its renders.
+    pub(crate) fn popover_facts(
+        control: &Entity<Self>,
+        cx: &mut App,
+    ) -> Option<crate::coding_readiness::PopoverFacts> {
+        let local = local_device_label(cx);
+        let this = control.read(cx);
+        let (readiness, subject) = this.readiness(&local, cx)?;
+        let repos = this
+            .github
+            .facts_for(&subject.team_id)
+            .map(|facts| facts.repos.clone());
+        Some(crate::coding_readiness::PopoverFacts {
+            readiness,
+            subject,
+            picker_open: this.picker_open,
+            linking: this.linking,
+            link_error: this.link_error.clone(),
+            repos,
+            query: this.repo_query.clone(),
+            launch_blocked: this.disabled_reason(cx),
+        })
+    }
+
+    /// EXP-1121: the not-ready (or open) render — the trigger wrapped in the
+    /// "Ready to code?" popover.
+    fn render_readiness(
+        &mut self,
+        readiness: &domain::coding_readiness::CodingReadiness,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let control = cx.entity();
+        let open_control = control.clone();
+        gpui_component::popover::Popover::new("start-coding-readiness-popover")
+            .anchor(gpui::Anchor::TopRight)
+            .p_0()
+            .on_open_change(move |open, _window, cx| {
+                let open = *open;
+                open_control.update(cx, |this, cx| this.set_readiness_open(open, cx));
+            })
+            .trigger(crate::coding_readiness::ReadinessTrigger::new(
+                readiness.caption.clone(),
+            ))
+            .content(move |state, window, cx| {
+                crate::coding_readiness::render_popover(&control, state, window, cx)
+            })
+            .into_any_element()
     }
 
     /// The disabled reason right now, `None` when the button may launch
@@ -1957,6 +2224,30 @@ impl StartCodingControl {
             RepoProbe::Error(_) => None,
         }
     }
+}
+
+/// EXP-1121: THIS machine's name for the readiness device row — its synced
+/// row's label, else "This device" (the heartbeat may not have landed).
+fn local_device_label(cx: &mut App) -> String {
+    const FALLBACK: &str = "This device";
+    // The device id derives from the data dir; no auth context (headless
+    // tests) = no id to look up.
+    if !cx.has_global::<AuthContext>() {
+        return FALLBACK.to_string();
+    }
+    let own = queries::own_device_id(cx);
+    Store::try_global(cx)
+        .and_then(|store| {
+            store
+                .collections()
+                .devices
+                .read(cx)
+                .iter()
+                .find(|row| row.device_id.as_deref() == Some(own.as_str()))
+                .and_then(|row| row.label.clone())
+        })
+        .filter(|label| !label.trim().is_empty())
+        .unwrap_or_else(|| FALLBACK.to_string())
 }
 
 impl CodingHub {
@@ -2011,7 +2302,49 @@ impl Render for StartCodingControl {
         // Lazy kicks: the hub (doctor) exists once anything coding renders;
         // the probe follows the current issue.
         let _ = CodingHub::global(cx);
+        // EXP-1121: a repo linked/unlinked under the open issue re-probes.
+        if !matches!(self.probe, RepoProbe::Idle) {
+            let current = self
+                .issue_id
+                .as_deref()
+                .and_then(|id| issue_board(id, cx))
+                .and_then(|board| board.repository_id);
+            if current != self.probed_repo_id {
+                self.probe = RepoProbe::Idle;
+            }
+        }
         self.ensure_probe(cx);
+
+        // EXP-1121: the readiness checklist. A repo-less board reads the
+        // team's GitHub facts first (the caption names the FIRST missing
+        // step); loading = inert; not ready (or the popover up) = the dashed
+        // amber trigger + popover; ready = the launcher below.
+        if let Some(subject) = self.readiness_subject(cx) {
+            if subject.repository_id.is_none() && !self.github.covers(&subject.team_id) {
+                self.fetch_github(subject.team_id.clone(), false, cx);
+            }
+        }
+        let local = local_device_label(cx);
+        if let Some((readiness, _)) = self.readiness(&local, cx) {
+            if self.readiness_open || (!readiness.loading && !readiness.ready) {
+                return self.render_readiness(&readiness, cx);
+            }
+            if readiness.loading {
+                return crate::surface::glass_pill_button(
+                    "start-coding",
+                    crate::surface::PillSize::Sm,
+                    cx,
+                )
+                .icon(
+                    Icon::new(registry::ACTION_RUN)
+                        .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .label(domain::coding_readiness::copy::START)
+                .disabled(true)
+                .into_any_element();
+            }
+        }
 
         // EXP-877: this control is ONLY the launcher. A live run of mine puts
         // Stop in this slot and an ended resumable one Resume — the header

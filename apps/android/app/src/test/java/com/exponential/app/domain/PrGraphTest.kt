@@ -2,6 +2,8 @@ package com.exponential.app.domain
 
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueRelationEntity
+import com.exponential.app.domain.PrGraph.OverlaySection
 import com.exponential.app.ui.session.sessionRowTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -18,13 +20,14 @@ class PrGraphTest {
         branch: String? = null,
         base: String? = null,
         prUrl: String? = null,
+        status: String = "backlog",
     ) = IssueEntity(
         id = id,
         boardId = "board-1",
         number = 1,
         identifier = identifier,
         title = "Issue $identifier",
-        status = "backlog",
+        status = status,
         priority = "none",
         sortOrder = 1.0,
         prUrl = prUrl,
@@ -62,7 +65,19 @@ class PrGraphTest {
         issues: List<IssueEntity>,
         session: CodingSessionEntity? = null,
         sessions: List<CodingSessionEntity> = emptyList(),
-    ) = PrGraph.build(issue, session, issues, sessions, emptyList())
+        relations: List<IssueRelationEntity> = emptyList(),
+    ) = PrGraph.build(issue, session, issues, sessions, relations)
+
+    private fun blocks(blocker: String, blocked: String) = IssueRelationEntity(
+        id = "$blocker-blocks-$blocked",
+        issueId = blocker,
+        relatedIssueId = blocked,
+        type = "blocks",
+        source = "user",
+        teamId = "team-1",
+        createdAt = "2026-09-10T10:00:00Z",
+        updatedAt = "2026-09-10T10:00:00Z",
+    )
 
     @Test
     fun reportsAStackBadgeForAStackedPr() {
@@ -111,17 +126,101 @@ class PrGraphTest {
         // A batch inside a stack: the subject PR's representative, every other
         // issue on the stack behind it.
         val both = graph(two, listOf(lower, one, two))
-        assertEquals("one", PrGraph.badgeChip(both, WorkFaceKind.Issue)?.issue?.id)
-        assertEquals(2, PrGraph.badgeChip(both, WorkFaceKind.Issue)?.count)
+        assertEquals("one", PrGraph.badgeChip(both)?.issue?.id)
+        assertEquals(2, PrGraph.badgeChip(both)?.count)
         // A plain batch: the others of the batch.
         val batch = graph(one, listOf(one, two.copy(prBaseBranch = null)))
-        assertEquals(1, PrGraph.badgeChip(batch, WorkFaceKind.Changes)?.count)
+        assertEquals(1, PrGraph.badgeChip(batch)?.count)
         // A run family with no issue: no front issue, the other runs behind.
         val sessions = listOf(session("child", parent = "root"), session("root"))
         val family = graph(null, emptyList(), session = sessions[0], sessions = sessions)
-        assertEquals(PrGraph.BadgeChip(null, 1), PrGraph.badgeChip(family, WorkFaceKind.Run))
+        assertEquals(PrGraph.BadgeChip(null, 1), PrGraph.badgeChip(family))
         // No badge = no chip.
-        assertNull(PrGraph.badgeChip(family, WorkFaceKind.Issue))
+        val lone = issue("lone")
+        assertNull(PrGraph.badgeChip(graph(lone, listOf(lone))))
+    }
+
+    // EXP-1079 / EXP-1097: a run with a family earns the chip — on EVERY face
+    // now, the shape no longer reads the face — and a PR relation always wins
+    // over it.
+    @Test
+    fun `shapes a runs badge for a run with a family, on every face`() {
+        val sessions = listOf(session("child", parent = "root"), session("root"))
+        val family = graph(null, emptyList(), session = sessions[0], sessions = sessions)
+        assertEquals(PrGraph.BadgeShape.RUNS, PrGraph.badgeShape(family))
+        val alone = session("alone")
+        assertNull(PrGraph.badgeShape(graph(null, emptyList(), session = alone, sessions = listOf(alone))))
+        val url = "https://github.com/acme/app/pull/9"
+        val batchA = issue("bata", prUrl = url)
+        val batchB = issue("batb", prUrl = url)
+        val batched = graph(batchA, listOf(batchA, batchB), session = sessions[0], sessions = sessions)
+        assertEquals(PrGraph.BadgeShape.BATCH, PrGraph.badgeShape(batched))
+    }
+
+    // EXP-1097: open blockers alone earn the chip, behind the PR relations and
+    // the run family; the front chip is the first open blocker.
+    @Test
+    fun `shapes a blocked badge for an issue with open blockers`() {
+        val me = issue("me")
+        val b1 = issue("b1")
+        val b2 = issue("b2")
+        val closed = issue("closed", status = "done")
+        val relations = listOf(blocks("b2", "me"), blocks("b1", "me"), blocks("closed", "me"))
+        val blocked = graph(me, listOf(me, b1, b2, closed), relations = relations)
+        assertEquals(PrGraph.BadgeShape.BLOCKED, PrGraph.badgeShape(blocked))
+        assertEquals("b1", PrGraph.badgeChip(blocked)?.issue?.id)
+        assertEquals(1, PrGraph.badgeChip(blocked)?.count)
+        // Only closed blockers: no chip.
+        assertNull(PrGraph.badgeShape(graph(me, listOf(me, closed), relations = relations)))
+        // A run family wins over the blockers.
+        val runs = listOf(session("r1", issueId = "me"), session("r2", parent = "r1"))
+        assertEquals(
+            PrGraph.BadgeShape.RUNS,
+            PrGraph.badgeShape(
+                graph(me, listOf(me, b1), session = runs[0], sessions = runs, relations = relations),
+            ),
+        )
+        // A batch wins over both.
+        val url = "https://github.com/acme/app/pull/9"
+        val batchA = issue("me", prUrl = url)
+        val batchB = issue("batb", prUrl = url)
+        assertEquals(
+            PrGraph.BadgeShape.BATCH,
+            PrGraph.badgeShape(
+                graph(
+                    batchA,
+                    listOf(batchA, batchB, b1),
+                    session = runs[0],
+                    sessions = runs,
+                    relations = relations,
+                ),
+            ),
+        )
+    }
+
+    // EXP-1097: the face only decides which overlay section LEADS.
+    @Test
+    fun `orders the overlay's sections by face`() {
+        val url = "https://github.com/acme/app/pull/9"
+        val me = issue("me", prUrl = url)
+        val partner = issue("partner", prUrl = url)
+        val blocker = issue("blocker")
+        val runs = listOf(session("r1", issueId = "me"), session("r2", parent = "r1"))
+        val built = graph(
+            me,
+            listOf(me, partner, blocker),
+            session = runs[0],
+            sessions = runs,
+            relations = listOf(blocks("blocker", "me")),
+        )
+        assertEquals(listOf(OverlaySection.BLOCKED, OverlaySection.BATCH, OverlaySection.RUNS), PrGraph.overlaySections(built, WorkFaceKind.Issue))
+        assertEquals(listOf(OverlaySection.BATCH, OverlaySection.RUNS, OverlaySection.BLOCKED), PrGraph.overlaySections(built, WorkFaceKind.Run))
+        assertEquals(
+            listOf(OverlaySection.STACK, OverlaySection.BATCH, OverlaySection.RUNS, OverlaySection.BLOCKED),
+            PrGraph.overlaySections(built, WorkFaceKind.Changes),
+        )
+        val lone = issue("lone")
+        assertEquals(emptyList<PrGraph.OverlaySection>(), PrGraph.overlaySections(graph(lone, listOf(lone)), WorkFaceKind.Issue))
     }
 
     @Test

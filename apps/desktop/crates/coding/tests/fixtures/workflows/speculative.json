@@ -2040,7 +2040,7 @@
     ]
   },
   {
-    "name": "rule 4: a run parked on a question is left alone, and its stale waiting state is mirrored",
+    "name": "rule 4: a run parked on a question is left alone",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
@@ -2067,7 +2067,7 @@
           "id": "b",
           "issueId": "i-b",
           "kind": "leaf",
-          "state": "waiting",
+          "state": "running",
           "wave": 1,
           "lane": 0,
           "sessionId": "s-b",
@@ -2118,13 +2118,7 @@
         ]
       ]
     },
-    "expected": [
-      {
-        "kind": "setNodeState",
-        "nodeId": "b",
-        "state": "running"
-      }
-    ]
+    "expected": []
   },
   {
     "name": "rule 5: a colliding pair the DAG already orders gets no serialization edge",

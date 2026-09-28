@@ -59,7 +59,17 @@ struct WorkScreen: View {
     /// opened from a list stays browsable.
     @State private var sawLiveSession = false
     @State private var steerEnabled = false
+    /// `steerEnabled` is an answer, not the `false` default — the readiness
+    /// model reads nil (loading) until then.
+    @State private var steerConfigLoaded = false
     @State private var markedRead = false
+    /// EXP-1121: the "Ready to code?" inputs (repositories, GitHub, live
+    /// devices) — shared by the Start circle, the switcher row and the sheet.
+    @State private var readinessModel: CodingReadinessModel?
+    @State private var showReadiness = false
+    /// What the sheet asked for, run once it has dismissed (a push from
+    /// under a dismissing sheet is dropped).
+    @State private var readinessFollowUp: ReadinessFollowUp?
     /// EXP-897 Part 4: the stack / batch / run-tree the subject is entangled
     /// with — ONE badge in the header, ONE overlay behind it, sections per
     /// face.
@@ -220,23 +230,28 @@ struct WorkScreen: View {
         steerEnabled && shownEnded && resumeDevice != nil
     }
 
-    /// Relay on, member, repo-backed board — the Start gate (EXP-240).
-    private var canStartCoding: Bool {
-        guard let vm = issueVM else { return false }
-        return vm.steerConfig?.enabled == true
-            && vm.permissions.isMember
-            && vm.board?.repositoryId != nil
+    /// EXP-1121: whether Start coding can run right now, and what is missing
+    /// when not. nil before the issue's view model exists.
+    private var readiness: CodingReadiness.Readiness? {
+        guard let vm = issueVM, let readinessModel else { return nil }
+        return readinessModel.readiness(
+            vm: vm, remoteStartEnabled: steerConfigLoaded ? steerEnabled : nil
+        )
     }
+
+    /// Member + remote start on — Start coding renders (EXP-1121 dropped the
+    /// repo/device gates: a missing step is the checklist's job now).
+    private var startVisible: Bool { readiness?.visible == true }
 
     private var primaryAction: WorkFaces.PrimaryAction {
         WorkFaces.primaryAction(
-            ownLive: ownLive, ownEndedResumable: ownEndedResumable, canStart: canStartCoding
+            ownLive: ownLive, ownEndedResumable: ownEndedResumable, canStart: startVisible
         )
     }
 
     /// The switcher offers Start coding once the shown run ended for good.
     private var offerStart: Bool {
-        shownEnded && !ownEndedResumable && canStartCoding
+        shownEnded && !ownEndedResumable && startVisible
     }
 
     private var switcherTargets: [WorkFaces.SwitcherTarget] {
@@ -353,10 +368,11 @@ struct WorkScreen: View {
     }
 
     /// EXP-1058: the header's stacked issue chip, when there IS a stack, a
-    /// batch, or (Run face) a run tree to name.
+    /// batch, a run tree or (EXP-1097) an open blocker to name — the same on
+    /// every face.
     @ViewBuilder
     private var prGraphBadge: some View {
-        if let graph = prGraph, let chip = PrGraph.badgeChip(graph, face: face) {
+        if let graph = prGraph, let chip = PrGraph.badgeChip(graph) {
             PrGraphBadge(
                 chip: chip,
                 runName: chip.issue == nil
@@ -364,7 +380,7 @@ struct WorkScreen: View {
                         sessionRowTitle(issue: nil, session: $0, batchIssues: graphIssuePool)
                     }
                     : nil,
-                accessibilityName: PrGraphBadge.accessibilityName(PrGraph.badgeKind(graph))
+                accessibilityName: PrGraphBadge.accessibilityName(PrGraph.badgeShape(graph))
             ) {
                 prGraphOpen = true
             }
@@ -412,7 +428,7 @@ struct WorkScreen: View {
                 vm: vm,
                 issue: issue,
                 barTrailing: issueBarTrailing,
-                onStartCoding: openComposer,
+                onStartCoding: startCodingTapped,
                 onOpenChanges: { switchFace(.changes) },
                 switcher: { switcherView }
             )
@@ -497,12 +513,19 @@ struct WorkScreen: View {
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    HStack(spacing: 6) {
-                        WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
-                        // EXP-897 Part 4: the ONE stack/batch badge, beside
-                        // the title on every face.
-                        prGraphBadge
-                    }
+                    WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
+                }
+                // EXP-1097: the ONE graph chip (compact: glyph · identifier ·
+                // `+N`) sits on the action edge, left of `…` / Stop, on EVERY
+                // face. Always mounted (EXP-942: an action-edge item that
+                // comes and goes sometimes failed to reappear) and drawn
+                // WITHOUT the bar's shared capsule — it is a chip, not a
+                // button glyph.
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
                 }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
@@ -634,6 +657,7 @@ struct WorkScreen: View {
                                 ) ?? IssueGraph.Graph(
                                     nodes: [], edges: [], hasCycle: false, truncated: false
                                 ),
+                                subjectIssueId: issue?.id,
                                 onOpenIssue: { id in
                                     prGraphOpen = false
                                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
@@ -645,6 +669,29 @@ struct WorkScreen: View {
                                 onMergeStack: { id in
                                     prGraphOpen = false
                                     mergeStack(issueId: id)
+                                }
+                            )
+                        }
+                    }
+            }
+            // EXP-1121: "Ready to code?" — its own node (EXP-240). Its
+            // fixes that leave the issue run AFTER the dismiss.
+            .background {
+                Color.clear
+                    .sheet(isPresented: $showReadiness, onDismiss: runReadinessFollowUp) {
+                        if let vm = issueVM, let readinessModel {
+                            CodingReadinessSheet(
+                                model: readinessModel,
+                                vm: vm,
+                                remoteStartEnabled: steerConfigLoaded ? steerEnabled : nil,
+                                accountId: accountId,
+                                onStart: {
+                                    readinessFollowUp = .start
+                                    showReadiness = false
+                                },
+                                onRoute: { route in
+                                    readinessFollowUp = .route(route)
+                                    showReadiness = false
                                 }
                             )
                         }
@@ -779,6 +826,17 @@ struct WorkScreen: View {
             .task(id: accountId) {
                 let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
                 steerEnabled = config.enabled
+                steerConfigLoaded = true
+            }
+            // EXP-1121: the readiness inputs follow the issue's team, and its
+            // board's repository edge (a pick, a retarget) re-reads the
+            // server half — the devices ride their own live observation.
+            .onChange(of: issueVM?.board?.teamId, initial: true) { _, _ in
+                ensureReadinessModel()
+            }
+            .task(id: "\(issueVM?.board?.id ?? "")|\(issueVM?.board?.repositoryId ?? "")") {
+                ensureReadinessModel()
+                await readinessModel?.boardChanged(issueVM?.board)
             }
             // A session subject learns its issue off its row.
             .onChange(of: subjectModel?.issueId, initial: true) { _, _ in
@@ -887,6 +945,7 @@ struct WorkScreen: View {
         ensureIssueViewModel()
         issueVM?.startObserving()
         ensurePrGraphModel()
+        ensureReadinessModel()
         // EXP-952: re-arm the PR-files observation like every other one here.
         prChangesModel?.startObserving()
     }
@@ -926,6 +985,7 @@ struct WorkScreen: View {
         UIApplication.endEditing()
         subjectModel?.stop()
         prGraphModel?.stop()
+        readinessModel?.stop()
         prChangesModel?.stopObserving()
         continuation.stop()
         if let vm = issueVM {
@@ -1023,7 +1083,7 @@ struct WorkScreen: View {
             shownSessionId = id
             switchFace(.run)
         case .startCoding:
-            openComposer()
+            startCodingTapped()
         }
     }
 
@@ -1041,9 +1101,56 @@ struct WorkScreen: View {
             if case .hidden = switcherMode { return .hidden }
             return .switcher
         }
-        guard canStartCoding, let vm = issueVM else { return .hidden }
-        guard let devices = vm.steerDevices else { return .hidden }
-        return devices.isEmpty ? .noDevices : .start
+        guard let readiness, readiness.visible else { return .hidden }
+        return .start(readiness)
+    }
+
+    /// EXP-1121: every Start coding tap — the bar circle, the switcher row.
+    /// Ready starts (the composer); still loading does nothing; anything
+    /// missing opens "Ready to code?".
+    private func startCodingTapped() {
+        guard let readiness, readiness.visible, !readiness.loading else { return }
+        if readiness.ready {
+            openComposer()
+        } else {
+            UIApplication.endEditing()
+            showReadiness = true
+        }
+    }
+
+    /// The sheet's ask, run on its dismiss.
+    private func runReadinessFollowUp() {
+        guard let followUp = readinessFollowUp else { return }
+        readinessFollowUp = nil
+        switch followUp {
+        case .start:
+            openComposer()
+        case let .route(route):
+            switch route {
+            // Repositories (and the GitHub connect) + the boards' repository
+            // controls both live in Team settings on iOS.
+            case .connectGithub, .boardSettings:
+                guard let teamId else { return }
+                pushRoute(.teamSettings(accountId: accountId, teamId: teamId))
+            case .openDevices:
+                pushRoute(.agents)
+            }
+        }
+    }
+
+    /// Arm (or re-arm) the readiness inputs once the issue's team is known.
+    private func ensureReadinessModel() {
+        guard let teamId = issueVM?.board?.teamId else { return }
+        if readinessModel == nil {
+            readinessModel = CodingReadinessModel(
+                accountId: accountId,
+                userId: deps.auth.userId,
+                db: deps.db,
+                repositoriesApi: deps.repositoriesApi,
+                integrationsApi: deps.integrationsApi
+            )
+        }
+        readinessModel?.start(teamId: teamId)
     }
 
     /// EXP-825: Start coding is NAVIGATION — the Agent page composer with
@@ -1103,4 +1210,10 @@ struct WorkScreen: View {
         pendingMoveTarget = nil
         moveTarget = target
     }
+}
+
+/// EXP-1121: what "Ready to code?" asked the screen to do once it closed.
+private enum ReadinessFollowUp {
+    case start
+    case route(CodingReadinessRoute)
 }

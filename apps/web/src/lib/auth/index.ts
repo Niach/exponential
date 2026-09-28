@@ -47,6 +47,7 @@ import {
 } from "@/lib/placeholder-members"
 import { mintAppleClientSecret } from "./apple"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
+import { askNameBeforeHook, fallbackUserName } from "./ask-name"
 import {
   resolveDesktopCardDismissal,
   resolveOnboardingCompletedAt,
@@ -140,6 +141,10 @@ if (
     `[creem] CREEM_API_KEY is set but CREEM_WEBHOOK_SECRET is not — the webhook endpoint is NOT registered, so subscription events 404 and paid subscriptions never activate. Set CREEM_WEBHOOK_SECRET.\n`
   )
 }
+
+// EXP-857: a code burns after this many wrong tries (the plugin's
+// `allowedAttempts`; the EXP-1026 name gate reads the same bound).
+const EMAIL_OTP_ALLOWED_ATTEMPTS = 5
 
 export const auth = betterAuth({
   database: withAuthDbFailureSignal(
@@ -355,15 +360,17 @@ export const auth = betterAuth({
     },
     user: {
       create: {
-        // EXP-857: a first sign-in with a one-time code creates the account
-        // with no name (the code flow never asks for one) — default it from
-        // the mailbox so the chrome never shows an empty identity. Apple's
-        // name-less accounts already fall back to the email in the UI; this
-        // only fills what would otherwise be the empty string.
+        // EXP-857: a first sign-in with a one-time code from a client that
+        // never asks for a name (API-driven or pre-EXP-1026 — current ones
+        // pause on the name step, `ask-name.ts`) creates the account with no
+        // name — default it from the mailbox so the chrome never shows an
+        // empty identity. Apple's name-less accounts already fall back to
+        // the email in the UI; this only fills what would otherwise be the
+        // empty string.
         before: async (user) => {
-          if (user.name && user.name.trim().length > 0) return
-          const local = user.email?.split(`@`)[0] ?? ``
-          return { data: { ...user, name: local || user.email || `` } }
+          const name = fallbackUserName(user)
+          if (name === null) return
+          return { data: { ...user, name } }
         },
         after: async (user, ctx) => {
           try {
@@ -411,6 +418,12 @@ export const auth = betterAuth({
     },
   },
   hooks: {
+    // EXP-1026: a name-less first sign-in with a code, from a client that
+    // sends `X-Exp-Ask-Name: 1`, answers NAME_REQUIRED with the code intact.
+    before: askNameBeforeHook({
+      signUpDisabled: isPasswordSignupDisabled(),
+      allowedAttempts: EMAIL_OTP_ALLOWED_ATTEMPTS,
+    }),
     after: createAuthMiddleware(async (ctx) => {
       // Re-evaluate admin status after every OIDC sign-in, so that group
       // changes upstream (added or revoked) take effect on next login.
@@ -470,7 +483,7 @@ export const auth = betterAuth({
           emailOTP({
             otpLength: 6,
             expiresIn: 60 * 10,
-            allowedAttempts: 5,
+            allowedAttempts: EMAIL_OTP_ALLOWED_ATTEMPTS,
             // Stored hashed: a live sign-in code in `verifications.value` is
             // a 10-minute session for anyone with a database read.
             storeOTP: `hashed`,

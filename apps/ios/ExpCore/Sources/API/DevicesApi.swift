@@ -175,10 +175,10 @@ private struct CreateCommandInput: Encodable {
     /// `agent_login` (EXP-484: `agent` required, `switch` optional) |
     /// `agent_login_code` (EXP-765: `agent` + `code` required).
     /// EXP-1042: this client no longer emits `worktree_remove` /
-    /// `worktree_prune` — the worktree inventory is an IDE surface now. Those
-    /// kinds (and the `repoFullName`/`branch` fields they alone need) survive
-    /// only for machines running an older build; EXP-1060 retires the wire
-    /// once the version floors pass.
+    /// `worktree_prune` — the worktree inventory is an IDE surface now, and
+    /// EXP-1060 (compat round 26) retired those kinds server-side; the
+    /// `repoFullName`/`branch` fields they alone needed are always nil (the
+    /// server ignores them).
     let kind: String
     let repoFullName: String?
     let branch: String?
@@ -352,9 +352,8 @@ public final class DevicesApi: Sendable {
     /// offline.
     /// EXP-1042: the app sends only the `agent_login*` kinds. It no longer
     /// emits `worktree_remove` / `worktree_prune` (the inventory left the
-    /// phone for the IDE); those kinds — and `repoFullName`/`branch` with
-    /// them — stay on the wire only for machines running an older build, and
-    /// EXP-1060 retires them once the version floors pass.
+    /// phone for the IDE); EXP-1060 (compat round 26) retired those kinds
+    /// server-side, so `repoFullName`/`branch` stay nil.
     /// EXP-484: `agent_login` needs `agent` (and optionally `switchAccount`) —
     /// the device runs the agent's own sign-in and completes the command early
     /// with the URL/code as its `result`.

@@ -19,11 +19,15 @@
 //! * [`board`] — `apps/web/src/lib/board-view.ts` grouping/sorting;
 //! * [`relations`] — EXP-736 relation picks, per-side labels and the two
 //!   timeline phrases (locked to the generated contract's label slices);
+//! * [`relations_view`] — EXP-1097's issue-detail relations view (the
+//!   "Sub-issue of" line, the Sub-issues section, one foldable band per side),
+//!   byte-locked ×4 by `fixtures/issue-relations-view.json`;
 //! * [`pr_stack`] — EXP-897 PR STACKS: the `pr_base_branch` edge, the
 //!   bottom-up chain, the nesting rule and the stack copy (web
 //!   `lib/pr-stack.ts`'s twin);
-//! * [`pr_graph`] — EXP-897 §4: stack + batch + session tree for ONE subject,
-//!   the model behind the work header's badge and its overlay;
+//! * [`pr_graph`] — EXP-897 §4: stack + batch + session tree (+ EXP-1097's
+//!   open blockers) for ONE subject, the model behind the work header's
+//!   face-independent badge and its overlay;
 //! * [`batch_run`] — EXP-876 `coding_sessions.batch_issue_ids`: which issues
 //!   a batch run covers and the `EXP-874 +2` name every list shows for it
 //!   (web `lib/batch-run.ts`'s twin);
@@ -83,6 +87,8 @@ pub mod activity_fold;
 pub mod batch_run;
 pub mod board;
 pub mod client_version;
+// EXP-1121: the Start coding readiness checklist, fixture-locked ×4.
+pub mod coding_readiness;
 pub mod diff;
 pub mod diff_tree;
 pub mod edit_card;
@@ -100,6 +106,8 @@ pub mod placeholder_status;
 pub mod pr_graph;
 pub mod pr_stack;
 pub mod relations;
+// EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
+pub mod relations_view;
 pub mod reviews_merge;
 pub mod rows;
 pub mod session_results;

@@ -85,9 +85,6 @@ export function foldCompoundNodes(
       if (picked.has(cursor)) root = cursor
       cursor = parentOf.get(cursor)
     }
-    // A parent CYCLE (legacy rows; EXP-980 refuses new ones) folds nothing:
-    // each member would otherwise claim the other.
-    if (cursor === id) return id
     return root
   }
   const members = new Map<string, Set<string>>()

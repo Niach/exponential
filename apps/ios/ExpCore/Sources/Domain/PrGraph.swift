@@ -152,7 +152,9 @@ public enum PrGraph {
         return Graph(
             stack: chain,
             batch: batch,
-            tree: sessionTree(session: session, sessions: sessions),
+            tree: session != nil
+                ? sessionTree(session: session, sessions: sessions)
+                : issueTree(subject, sessions: sessions),
             blockers: blockers,
             entry: subjectEntry
         )
@@ -168,14 +170,49 @@ public enum PrGraph {
         return nil
     }
 
-    /// EXP-1058: what the header's STACKED issue chip draws in place of the
-    /// old pill — the front chip's issue and how many ride behind it (`+N`).
+    /// EXP-1079/EXP-1097: what the header chip DRAWS, the SAME on every face —
+    /// Issue, Run and Changes alike. First match wins:
+    ///
+    /// 1. a PR relation (`badgeKind`: stack, batch, stack+batch);
+    /// 2. `runs` — the session tree has a FAMILY (the tree carries the
+    ///    subject itself, so "a family" is more than one row);
+    /// 3. `blocked` — the subject issue has OPEN blockers (`graph.blockers`);
+    /// 4. nil = no chip.
+    ///
+    /// Byte-identical ×4: web `badgeShape` (`pr-graph.ts`), desktop
+    /// `pr_graph::badge_shape`, Android `PrGraph.badgeShape`.
+    public enum BadgeShape: Equatable {
+        case stack
+        case batch
+        case stackAndBatch
+        case runs
+        case blocked
+    }
+
+    public static func badgeShape(_ graph: Graph) -> BadgeShape? {
+        switch badgeKind(graph) {
+        case .stack: return .stack
+        case .batch: return .batch
+        case .stackAndBatch: return .stackAndBatch
+        case nil: break
+        }
+        if graph.tree.count > 1 { return .runs }
+        if !graph.blockers.isEmpty { return .blocked }
+        return nil
+    }
+
+    /// EXP-1058: what the header's STACKED issue chip draws — the front chip's
+    /// issue and how many ride behind it (`+N`).
+    ///
+    /// - stack / batch: `issue` = the subject PR's representative row, `count`
+    ///   = every OTHER issue on the stack (all its entries) or batch;
+    /// - `runs`: `issue` = that representative (nil for a run with no issue,
+    ///   where the front chip names the run instead), `count` = every other
+    ///   run of the tree;
+    /// - `blocked` (EXP-1097): `issue` = the FIRST open blocker, `count` = the
+    ///   other open blockers.
     public struct BadgeChip: Equatable {
-        /// The subject PR's representative row; nil only for a run family
-        /// with no issue (the front chip names the run instead).
         public let issue: IssueEntity?
-        /// Every OTHER issue on the stack (all entries) or batch, or every
-        /// other run of the tree for a runs-only family.
         public let count: Int
 
         public static func == (a: BadgeChip, b: BadgeChip) -> Bool {
@@ -183,22 +220,51 @@ public enum PrGraph {
         }
     }
 
-    /// The stacked chip for `face`, nil exactly when there is no badge: a
-    /// stack/batch on every face, else a run tree (2+ runs) on the Run face
-    /// (Results = the run's face). Mirrors web `badgeChip` (`pr-graph.ts`),
-    /// desktop `pr_graph::badge_chip`, Android `PrGraph.badgeChip`.
-    public static func badgeChip(_ graph: Graph, face: WorkFaceKind) -> BadgeChip? {
-        let issue = graph.entry?.representative
-        guard badgeKind(graph) != nil else {
-            let runFace = face == .run || face == .results
-            guard runFace, graph.tree.count > 1 else { return nil }
-            return BadgeChip(issue: issue, count: graph.tree.count - 1)
+    /// The chip, nil exactly when `badgeShape` is nil. Face-INDEPENDENT
+    /// (EXP-1097): the face only picks the overlay's lead section
+    /// (`overlaySections`). Mirrors web `badgeChip` (`pr-graph.ts`), desktop
+    /// `pr_graph::badge_chip`, Android `PrGraph.badgeChip`.
+    public static func badgeChip(_ graph: Graph) -> BadgeChip? {
+        guard let shape = badgeShape(graph) else { return nil }
+        if shape == .blocked {
+            return BadgeChip(issue: graph.blockers.first, count: graph.blockers.count - 1)
         }
+        let issue = graph.entry?.representative
+        if shape == .runs { return BadgeChip(issue: issue, count: graph.tree.count - 1) }
         if graph.stack.count >= 2 {
             let total = graph.stack.reduce(0) { $0 + $1.entry.issues.count }
             return BadgeChip(issue: issue, count: total - 1)
         }
         return BadgeChip(issue: issue, count: (graph.batch?.issues.count ?? 1) - 1)
+    }
+
+    /// One section of the chip's overlay.
+    public enum OverlaySection: String, Equatable, Sendable {
+        case blocked, batch, runs, stack
+    }
+
+    /// EXP-1097: the overlay's sections — every relation the subject HAS, the
+    /// face's own section first (Issue: Blocked by; Run: the run's issues and
+    /// its tree; Changes: the pull requests). A section with nothing to list
+    /// is left out, save the face's own lead on Run (its tree, even of one
+    /// run) and on Changes (its pull request, even a lone one). Results = the
+    /// run's face. Mirrors web `overlaySections`.
+    public static func overlaySections(_ graph: Graph, face: WorkFaceKind) -> [OverlaySection] {
+        let runFace = face == .run || face == .results
+        let order: [OverlaySection]
+        switch face {
+        case .issue: order = [.blocked, .batch, .stack, .runs]
+        case .run, .results: order = [.batch, .runs, .stack, .blocked]
+        case .changes: order = [.stack, .batch, .runs, .blocked]
+        }
+        return order.filter { section in
+            switch section {
+            case .blocked: !graph.blockers.isEmpty
+            case .batch: graph.batch != nil
+            case .runs: graph.tree.count > 1 || (runFace && !graph.tree.isEmpty)
+            case .stack: graph.stack.count >= 2 || (face == .changes && graph.entry != nil)
+            }
+        }
     }
 
     // MARK: - Pieces
@@ -275,6 +341,32 @@ public enum PrGraph {
             subtree.append(row)
         }
         return subtree
+    }
+
+    /// No session to anchor on (an issue alone): every run OF the issue with
+    /// its whole subtree, nested — web `prGraph`'s issue-only branch.
+    private static func issueTree(
+        _ issue: IssueEntity?, sessions: [CodingSessionEntity]
+    ) -> [SessionTree.Row<CodingSessionEntity>] {
+        guard let issue else { return [] }
+        var childrenOf: [String: [CodingSessionEntity]] = [:]
+        for row in sessions {
+            guard let parent = row.parentSessionId, parent != row.id else { continue }
+            childrenOf[parent, default: []].append(row)
+        }
+        var ids = Set<String>()
+        for row in sessions where row.issueId == issue.id {
+            var queue = [row.id]
+            ids.insert(row.id)
+            while !queue.isEmpty {
+                let id = queue.removeFirst()
+                for child in childrenOf[id] ?? [] where ids.insert(child.id).inserted {
+                    queue.append(child.id)
+                }
+            }
+        }
+        guard !ids.isEmpty else { return [] }
+        return SessionTree.nest(sessions.filter { ids.contains($0.id) })
     }
 
     /// Newest-first by `createdAt` (Postgres wire text compares

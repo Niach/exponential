@@ -25,7 +25,7 @@ public enum DomainContract {
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply", "agent_message", "session_blocked"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let wfStatusValues: [String] = ["draft", "running", "paused", "done", "cancelled"]
-    public static let wfNodeStateValues: [String] = ["proposed", "blocked", "ready", "running", "waiting", "in_review", "updating", "landed", "failed", "skipped"]
+    public static let wfNodeStateValues: [String] = ["proposed", "blocked", "ready", "running", "in_review", "updating", "landed", "failed", "skipped"]
     public static let wfNodeKindValues: [String] = ["contract", "leaf", "integration"]
     public static let wfRiskValues: [String] = ["low", "medium", "high"]
     public static let wfReviewVerdictValues: [String] = ["approve", "request_changes"]
@@ -200,7 +200,6 @@ public enum DomainContract {
     public static let wfNodeStateBlocked: String = "blocked"
     public static let wfNodeStateReady: String = "ready"
     public static let wfNodeStateRunning: String = "running"
-    public static let wfNodeStateWaiting: String = "waiting"
     public static let wfNodeStateInReview: String = "in_review"
     public static let wfNodeStateUpdating: String = "updating"
     public static let wfNodeStateLanded: String = "landed"

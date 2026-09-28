@@ -6,6 +6,11 @@ import { captureOAuthResumeUrl } from "@/lib/auth/oauth-resume"
 import { withFirstTouchParams } from "@/lib/conversion/first-touch"
 import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 import { authErrorMessage } from "@/lib/auth/error-messages"
+import {
+  ASK_NAME_HEADER,
+  NAME_REQUIRED_CODE,
+  SIGN_UP_NAME_COPY,
+} from "@/lib/auth/sign-up-copy"
 import { oauthErrorMessage } from "@/lib/deep-link"
 import { useState } from "react"
 import { conceptIcon, Button, Input, Label, AuthFormShell, PasswordInput } from "@exp/ui"
@@ -65,7 +70,10 @@ export const Route = createFileRoute(`/auth/login`)({
   }),
 })
 
-type Step = `methods` | `email` | `code`
+// `name` (EXP-1026): a first sign-in with a code for an address that has no
+// account yet — the server answered NAME_REQUIRED and left the code intact,
+// so the same code is resubmitted with the typed name.
+type Step = `methods` | `email` | `code` | `name`
 type EmailMode = `otp` | `password`
 
 // ONE screen for signing in AND signing up (EXP-188, reworded in EXP-857):
@@ -240,16 +248,26 @@ function LoginPage() {
     }
   }
 
-  const handleCodeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  // EXP-1026: every code submit opts in to the name step. With no name the
+  // server asks for one (new address, valid code); with one it creates the
+  // account under it.
+  const submitCode = async (signUpName?: string) => {
     setIsLoading(true)
     setError(``)
     try {
       const { error: otpError } = await authClient.signIn.emailOtp(
-        { email: sentTo, otp: code.trim() },
-        { onSuccess: finishLogin }
+        {
+          email: sentTo,
+          otp: code.trim(),
+          ...(signUpName ? { name: signUpName } : {}),
+        },
+        { headers: { [ASK_NAME_HEADER]: `1` }, onSuccess: finishLogin }
       )
       if (otpError) {
+        if ((otpError as { code?: string }).code === NAME_REQUIRED_CODE) {
+          setStep(`name`)
+          return
+        }
         setError(authErrorMessage(otpError, `Couldn't check the code. Try again.`))
       }
     } catch {
@@ -257,6 +275,21 @@ function LoginPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await submitCode()
+  }
+
+  const handleNameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) {
+      setError(SIGN_UP_NAME_COPY.emptyNameError)
+      return
+    }
+    await submitCode(trimmed)
   }
 
   const signInWithPasskey = async () => {
@@ -287,19 +320,23 @@ function LoginPage() {
   const MailIcon = conceptIcon(`ui-mail`)
 
   const title =
-    step === `code`
-      ? `Check your email`
-      : isSignup
-        ? `Create an account`
-        : `Continue to Exponential`
-  const description =
-    step === `code`
-      ? `We sent a 6-digit code to ${sentTo}.`
-      : nativeHandoff
-        ? `You'll be sent back to the app once you continue.`
+    step === `name`
+      ? SIGN_UP_NAME_COPY.title
+      : step === `code`
+        ? `Check your email`
         : isSignup
-          ? `Enter your details to get started`
-          : `Sign in or create your account`
+          ? `Create an account`
+          : `Continue to Exponential`
+  const description =
+    step === `name`
+      ? SIGN_UP_NAME_COPY.body
+      : step === `code`
+        ? `We sent a 6-digit code to ${sentTo}.`
+        : nativeHandoff
+          ? `You'll be sent back to the app once you continue.`
+          : isSignup
+            ? `Enter your details to get started`
+            : `Sign in or create your account`
 
   const footer =
     step === `email` && emailMode === `password` && passwordEnabled && signupEnabled ? (
@@ -513,6 +550,47 @@ function LoginPage() {
               >
                 Resend code
               </Button>
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                onClick={() => {
+                  setError(``)
+                  setCode(``)
+                  setStep(`email`)
+                }}
+              >
+                Use a different email
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {step === `name` && (
+          <form onSubmit={handleNameSubmit} className="space-y-4" noValidate>
+            <div className="space-y-2">
+              <Label htmlFor="signup-name">{SIGN_UP_NAME_COPY.fieldLabel}</Label>
+              <Input
+                id="signup-name"
+                type="text"
+                autoComplete="name"
+                autoFocus
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  if (error) setError(``)
+                }}
+                placeholder={SIGN_UP_NAME_COPY.placeholder}
+              />
+            </div>
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
+
+            <Button type="submit" className="w-full" disabled={busy}>
+              {isLoading ? `Creating account…` : SIGN_UP_NAME_COPY.button}
+            </Button>
+
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <Button
                 type="button"
                 variant="link"

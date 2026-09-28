@@ -5,9 +5,10 @@
 // more. `model` is the CHEAP one (leaf nodes, and the `Task` subagents inside
 // every node run), `strongModel` the capable one (contract nodes, integration
 // nodes, `risk: high` nodes and EVERY agent review). The per-phase pins of
-// EXP-1002, `subagentModel` and `reviewModel` are deprecated; the gate choice
-// is gone (the agent reviews every node, the one human review is the final
-// PR); dependents always start on the blockers' contract (EXP-1066).
+// EXP-1002, `subagentModel` and `reviewModel` are gone (migration 0149
+// rewrote every stored row, compat round 26); the gate choice is gone (the
+// agent reviews every node, the one human review is the final PR);
+// dependents always start on the blockers' contract (EXP-1066).
 //
 // Mirrored in Rust as `coding::workflows::launch` (the same three functions,
 // same test names), so the desktop engine and the CLI daemon pick models from
@@ -29,15 +30,6 @@ export type {
 } from "@exp/db-schema/domain"
 export { WORKFLOW_LAUNCH_DEFAULTS, workflowLaunchAgentValues }
 
-/** The stored jsonb keys that fold into `strongModel`, in precedence order:
- *  the first one set wins. */
-export const STRONG_MODEL_LEGACY_KEYS = [
-  `reviewModel`,
-  `riskModel`,
-  `contractModel`,
-  `integrationModel`,
-] as const satisfies readonly (keyof WorkflowLaunchStored)[]
-
 /**
  * The stored `workflows.launch` (any vintage, or garbage) → the strict
  * launch every run reads.
@@ -47,10 +39,9 @@ export const STRONG_MODEL_LEGACY_KEYS = [
  * - `account`: a non-empty string stays, anything else is absent.
  * - `model`: the stored `model` when set, else that agent's
  *   `WORKFLOW_LAUNCH_DEFAULTS` model.
- * - `strongModel`: the stored `strongModel` when set; else the first set of
- *   `STRONG_MODEL_LEGACY_KEYS` (an old row's pins); else that agent's
+ * - `strongModel`: the stored `strongModel` when set, else that agent's
  *   default strong model.
- * - `subagentModel`, `effort`, `maxParallel` are dropped.
+ * - Any other key is ignored.
  */
 export function normalizeWorkflowLaunch(raw: unknown): WorkflowLaunch {
   const stored: WorkflowLaunchStored =
@@ -60,10 +51,7 @@ export function normalizeWorkflowLaunch(raw: unknown): WorkflowLaunch {
   const launch: WorkflowLaunch = {
     agent,
     model: text(stored.model) ?? defaults.model,
-    strongModel:
-      text(stored.strongModel) ??
-      STRONG_MODEL_LEGACY_KEYS.map((key) => text(stored[key])).find(Boolean) ??
-      defaults.strongModel,
+    strongModel: text(stored.strongModel) ?? defaults.strongModel,
   }
   const account = text(stored.account)
   if (account) launch.account = account

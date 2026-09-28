@@ -24,7 +24,7 @@ object DomainContract {
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply", "agent_message", "session_blocked")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val wfStatusValues: List<String> = listOf("draft", "running", "paused", "done", "cancelled")
-    val wfNodeStateValues: List<String> = listOf("proposed", "blocked", "ready", "running", "waiting", "in_review", "updating", "landed", "failed", "skipped")
+    val wfNodeStateValues: List<String> = listOf("proposed", "blocked", "ready", "running", "in_review", "updating", "landed", "failed", "skipped")
     val wfNodeKindValues: List<String> = listOf("contract", "leaf", "integration")
     val wfRiskValues: List<String> = listOf("low", "medium", "high")
     val wfReviewVerdictValues: List<String> = listOf("approve", "request_changes")
@@ -199,7 +199,6 @@ object DomainContract {
     const val wfNodeStateBlocked: String = "blocked"
     const val wfNodeStateReady: String = "ready"
     const val wfNodeStateRunning: String = "running"
-    const val wfNodeStateWaiting: String = "waiting"
     const val wfNodeStateInReview: String = "in_review"
     const val wfNodeStateUpdating: String = "updating"
     const val wfNodeStateLanded: String = "landed"

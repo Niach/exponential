@@ -22,8 +22,6 @@ import { nodeEdges, replanWorkflow, workflowIntegrationBranch } from "@/lib/work
 import {
   bad,
   WORKFLOW_DEVICE,
-  normalizeLaunchLenient,
-  storedLaunchFor,
   launchFromDeviceDefaults,
   seedLaunchFromBoundDevice,
   wireColumns,
@@ -150,7 +148,7 @@ export const workflowCreateProcedures = {
             creatorId: ctx.session.user.id,
             name,
             ...(input.deviceId && { deviceId: input.deviceId }),
-            launch: storedLaunchFor(launch),
+            launch,
             integrationBranch: workflowIntegrationBranch(id),
           })
           .returning(wireColumns)
@@ -175,10 +173,8 @@ export const workflowCreateProcedures = {
         id: z.string().uuid(),
         name: z.string().trim().min(1).max(255).optional(),
         deviceId: z.string().min(1).max(128).nullable().optional(),
-        // EXP-1066: `launch`, `startOn` and `gate` are no inputs any more —
-        // the launch is seeded from the runner device, dependents start on
-        // the blockers' contract, every node gets the agent review. An old
-        // client still sending them is stripped by zod, nothing written.
+        // EXP-1066: the launch is no input — it is seeded from the runner
+        // device (`deviceId`).
         // EXP-982: an answer worth keeping. Appended as a dated line to the
         // log every node prompt carries, at ANY status: a decision is not
         // configuration.
@@ -220,18 +216,8 @@ export const workflowCreateProcedures = {
           WORKFLOW_DEVICE
         )
       }
-      // A patch of nothing (an old client sending only removed fields) leaves
-      // nothing to set, which drizzle refuses with a 500. Answer with the row
-      // as it is.
       if (name === undefined && input.deviceId === undefined && decision === undefined) {
-        return ctx.db.transaction(async (tx) => {
-          const txId = await generateTxId(tx)
-          const [workflow] = await tx
-            .select(wireColumns)
-            .from(workflows)
-            .where(eq(workflows.id, id))
-          return { txId, workflow: workflow! }
-        })
+        throw bad(`Nothing to update`)
       }
       return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -240,7 +226,7 @@ export const workflowCreateProcedures = {
           .set({
             ...(name !== undefined && { name }),
             ...(input.deviceId !== undefined && { deviceId: input.deviceId }),
-            ...(nextLaunch !== undefined && { launch: storedLaunchFor(nextLaunch) }),
+            ...(nextLaunch !== undefined && { launch: nextLaunch }),
             ...((decision !== undefined || rebinding) && {
               decisions: appendDecisionLine(
                 existing.decisions ?? ``,
@@ -364,13 +350,7 @@ export const workflowCreateProcedures = {
       assertDraft(existing.status, `Starting`)
       if (!existing.repositoryId) throw bad(`The workflow's repository is gone`)
       if (!existing.deviceId) throw bad(`Pick the device that runs this workflow first`)
-      // compat: a row an old client saved with a claude review pin on a codex
-      // workflow folds to a `strongModel` the engine cannot start on; it is
-      // healed to the agent's default here, and written back so the engine
-      // reads the same (see `normalizeLaunchLenient` for the trigger).
-      const launch = normalizeLaunchLenient(existing.launch)
-      const healed =
-        launch.strongModel !== normalizeWorkflowLaunch(existing.launch).strongModel
+      const launch = normalizeWorkflowLaunch(existing.launch)
       await assertDeviceUsable(
         existing.deviceId,
         existing.teamId,
@@ -407,7 +387,6 @@ export const workflowCreateProcedures = {
             status: `running`,
             startedAt: new Date(),
             endedAt: null,
-            ...(healed && { launch: storedLaunchFor(launch) }),
           })
           .where(eq(workflows.id, input.id))
           .returning(wireColumns)

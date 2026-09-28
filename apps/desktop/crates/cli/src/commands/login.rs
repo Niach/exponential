@@ -3,7 +3,10 @@
 //! provisioning. One mechanism covers local terminals, SSH, password users
 //! and OIDC users: approval happens in ANY browser where the user is signed
 //! in. EXP-238 removed the `--password`/EXP_EMAIL/EXP_PASSWORD path — the
-//! non-interactive credential is an API key now.
+//! non-interactive credential is an API key now. EXP-1111 added the web
+//! "Add device" dialog's one-time `expi_…` install token (`--install-token` /
+//! `EXP_INSTALL_TOKEN`), redeemed for a session. Without a tty the device
+//! flow still works: it prints the URL + code and waits for approval.
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -20,6 +23,9 @@ const DEFAULT_INSTANCE: &str = "https://app.exponential.at";
 /// How to sign in, given the environment and the server's capabilities.
 #[derive(Debug, PartialEq, Eq)]
 enum LoginMode {
+    /// EXP-1111: a one-time `expi_…` token from the web "Add device" dialog
+    /// (`--install-token` / `EXP_INSTALL_TOKEN`) — redeemed for a session.
+    InstallToken(String),
     /// `EXP_TOKEN` is set — skip authentication entirely.
     Token(String),
     /// The default: RFC 8628 device code.
@@ -28,9 +34,17 @@ enum LoginMode {
     Unsupported,
 }
 
-/// Pure precedence decision, unit-tested below: a non-blank `EXP_TOKEN`
-/// always wins; otherwise the device flow, when the server offers it.
-fn login_mode(env_token: Option<&str>, device_flow_enabled: bool) -> LoginMode {
+/// Pure precedence decision, unit-tested below: a non-blank install token
+/// wins (it is the one credential minted FOR this install), then a non-blank
+/// `EXP_TOKEN`; otherwise the device flow, when the server offers it.
+fn login_mode(
+    install_token: Option<&str>,
+    env_token: Option<&str>,
+    device_flow_enabled: bool,
+) -> LoginMode {
+    if let Some(token) = install_token.map(str::trim).filter(|token| !token.is_empty()) {
+        return LoginMode::InstallToken(token.to_string());
+    }
     if let Some(token) = env_token {
         let token = token.trim();
         if !token.is_empty() {
@@ -47,6 +61,11 @@ fn login_mode(env_token: Option<&str>, device_flow_enabled: bool) -> LoginMode {
 pub fn run(args: &[String]) -> CommandResult {
     let mut args = args.to_vec();
     let instance_flag = take_value(&mut args, "--instance");
+    let install_token = take_value(&mut args, "--install-token")
+        .or_else(|| std::env::var("EXP_INSTALL_TOKEN").ok());
+    // EXP-1111: never try to open a browser (the installer's headless path;
+    // implied anyway on a machine with no display).
+    let no_browser = take_flag(&mut args, "--no-browser");
     // Removed by EXP-238 — a bespoke message beats "unknown flag" for the
     // provisioning scripts that still pass it.
     if take_flag(&mut args, "--password") {
@@ -81,8 +100,20 @@ pub fn run(args: &[String]) -> CommandResult {
     // The value is an API key (`expu_…`, minted under Settings → Security)
     // or a raw session token — the server resolves both to a session, and
     // everything downstream rides the same Bearer path.
-    if let LoginMode::Token(token) = login_mode(std::env::var("EXP_TOKEN").ok().as_deref(), true) {
-        return finish(&auth_client, &instance, token);
+    match login_mode(
+        install_token.as_deref(),
+        std::env::var("EXP_TOKEN").ok().as_deref(),
+        true,
+    ) {
+        LoginMode::InstallToken(token) => {
+            let session = auth_client
+                .redeem_install_token(&instance, &token)
+                .map_err(|err| anyhow::anyhow!(err.user_message()))
+                .with_context(|| format!("redeem the install token on {instance}"))?;
+            return finish(&auth_client, &instance, session);
+        }
+        LoginMode::Token(token) => return finish(&auth_client, &instance, token),
+        LoginMode::Device | LoginMode::Unsupported => {}
     }
 
     // Also the reachability check — a wrong instance URL fails here, not
@@ -91,9 +122,9 @@ pub fn run(args: &[String]) -> CommandResult {
         .fetch_auth_config(&instance)
         .with_context(|| format!("reach {instance} — is the instance URL right?"))?;
 
-    match login_mode(None, config.device_flow_enabled) {
-        LoginMode::Token(_) => unreachable!("no token in this branch"),
-        LoginMode::Device => device_login(&auth_client, &instance),
+    match login_mode(None, None, config.device_flow_enabled) {
+        LoginMode::Token(_) | LoginMode::InstallToken(_) => unreachable!("no token in this branch"),
+        LoginMode::Device => device_login(&auth_client, &instance, no_browser),
         LoginMode::Unsupported => bail!(
             "This server offers no device-code login. Update the server, or set EXP_TOKEN \
              to a personal API key (Settings → Security in the web app) and rerun \
@@ -102,7 +133,7 @@ pub fn run(args: &[String]) -> CommandResult {
     }
 }
 
-fn device_login(auth_client: &AuthClient, instance: &str) -> CommandResult {
+fn device_login(auth_client: &AuthClient, instance: &str, no_browser: bool) -> CommandResult {
     let grant = auth_client
         .request_device_code(instance)
         .context("start the device-code flow")?;
@@ -114,7 +145,7 @@ fn device_login(auth_client: &AuthClient, instance: &str) -> CommandResult {
     if let Some(complete) = &grant.verification_uri_complete {
         // Best-effort browser open — useful on a local machine, harmless
         // no-op on a headless server.
-        if local_display_available() {
+        if !no_browser && local_display_available() {
             let _ = open::that(complete);
         }
     }
@@ -179,7 +210,15 @@ fn finish(auth_client: &AuthClient, instance: &str, token: String) -> CommandRes
     }
 
     println!("Signed in as {} on {}", account.email, account.instance_url);
-    println!("Next: `exponential doctor`, then `exponential daemon install` to register this machine.");
+    // EXP-1110: signing in does NOT make this machine a device — only a
+    // running daemon registers it (and keeps it online).
+    match super::daemon::daemon_pid(&crate::context::data_dir()) {
+        Some(_) => println!("The daemon is running: this machine is registered as a device."),
+        None => {
+            println!("{}", super::account::NOT_REGISTERED_HINT);
+            println!("Next: `exponential doctor`, then `exponential daemon install`.");
+        }
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -190,28 +229,39 @@ mod tests {
     #[test]
     fn token_wins_over_everything() {
         assert_eq!(
-            login_mode(Some("expu_abc"), false),
+            login_mode(None, Some("expu_abc"), false),
             LoginMode::Token("expu_abc".to_string())
         );
         assert_eq!(
-            login_mode(Some("  session-token  "), true),
+            login_mode(None, Some("  session-token  "), true),
             LoginMode::Token("session-token".to_string())
         );
     }
 
     #[test]
     fn blank_token_is_ignored() {
-        assert_eq!(login_mode(Some("   "), true), LoginMode::Device);
-        assert_eq!(login_mode(Some(""), false), LoginMode::Unsupported);
+        assert_eq!(login_mode(None, Some("   "), true), LoginMode::Device);
+        assert_eq!(login_mode(None, Some(""), false), LoginMode::Unsupported);
+        assert_eq!(login_mode(Some("  "), None, true), LoginMode::Device);
     }
 
     #[test]
     fn device_is_the_default() {
-        assert_eq!(login_mode(None, true), LoginMode::Device);
+        assert_eq!(login_mode(None, None, true), LoginMode::Device);
     }
 
     #[test]
     fn no_device_flow_and_no_token_is_unsupported() {
-        assert_eq!(login_mode(None, false), LoginMode::Unsupported);
+        assert_eq!(login_mode(None, None, false), LoginMode::Unsupported);
+    }
+
+    /// EXP-1111: the install token is minted FOR this install — it beats a
+    /// stale `EXP_TOKEN` in the environment and needs no device flow.
+    #[test]
+    fn install_token_wins_over_everything() {
+        assert_eq!(
+            login_mode(Some(" expi_abc "), Some("expu_old"), false),
+            LoginMode::InstallToken("expi_abc".to_string())
+        );
     }
 }

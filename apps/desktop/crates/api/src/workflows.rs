@@ -15,55 +15,30 @@ use crate::error::ApiError;
 use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 
-/// `workflows.launch` AS STORED — the jsonb of any vintage. The wire struct
-/// only, kept tolerant: nothing here decides anything.
+/// `workflows.launch` AS STORED — the wire struct only, kept tolerant:
+/// nothing here decides anything.
 ///
 /// EXP-1029: what a run actually READS is
 /// [`coding::workflows::launch::WorkflowLaunch`], which
 /// `normalize_workflow_launch` makes of this — an agent, an optional account
-/// and TWO models (`model` cheap, `strong_model` capable). Everything below
-/// `strong_model` is DEPRECATED: the per-phase pins and `review_model` fold
-/// into `strong_model`, `subagent_model`, `effort` and `max_parallel` are
-/// dropped. Nothing writes them any more (the server stores the normalized
-/// four keys); they stay declared so an older row still decodes and so a
-/// carried launch round-trips unharmed.
+/// and TWO models (`model` cheap, `strong_model` capable). Migration 0149
+/// (compat round 26) rewrote every stored row to exactly these four keys; an
+/// unknown key is ignored.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowLaunch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
-    /// The model every node's run spawns on, unless its PHASE overrides it.
+    /// The CHEAP model: leaves, and the `Task` subagents inside every run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// EXP-1029: the STRONG model — contract, integration and `risk: high`
     /// nodes, and EVERY agent review (`coding::workflows::launch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strong_model: Option<String>,
-    /// EXP-1002: the model `contract` nodes run on. Absent = `model`.
-    #[serde(default)]
-    pub contract_model: Option<String>,
-    /// EXP-1002: the model `integration` nodes run on. Absent = `model`.
-    #[serde(default)]
-    pub integration_model: Option<String>,
-    /// EXP-1002: the model a `risk: high` node runs on, whatever its kind.
-    /// Absent = the node's phase model.
-    #[serde(default)]
-    pub risk_model: Option<String>,
-    /// Claude only: the model its SUBAGENTS run on — never the node run's own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subagent_model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
     /// An agent profile id on the runner device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_parallel: Option<u32>,
-    /// EXP-984: the model AGENT REVIEWS run on. Absent = the engine picks
-    /// one (fable on claude, else the author's); a `risk: high` node is always reviewed on a model
-    /// other than its author's, whatever this says.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub review_model: Option<String>,
 }
 
 /// One `workflows` row as the wire carries it (the shape's column set;
@@ -828,11 +803,11 @@ mod tests {
         assert!(waiting.is_waiting());
     }
 
-    /// The launch is a DECODED shape only (the synced row's jsonb of any
-    /// vintage): absent and null both read as unset.
+    /// The launch is a DECODED shape only: absent and null both read as
+    /// unset, and a retired key is ignored.
     #[test]
     fn the_launch_decodes_tolerantly() {
-        for raw in [r#"{}"#, r#"{"contractModel":null,"riskModel":null}"#] {
+        for raw in [r#"{}"#, r#"{"model":null,"strongModel":null,"contractModel":"opus"}"#] {
             let launch: WorkflowLaunch = serde_json::from_str(raw).unwrap();
             assert_eq!(launch, WorkflowLaunch::default(), "{raw}");
         }
@@ -848,7 +823,7 @@ mod tests {
             "name": "EXP-1 +2",
             "status": "draft",
             "device_id": "dev-1",
-            "launch": r#"{"agent":"claude","subagentModel":"sonnet","maxParallel":5}"#,
+            "launch": r#"{"agent":"claude","model":"opus","strongModel":"fable"}"#,
             "metrics": r#"{"nodes":3,"edges":2,"depth":2,"width":2,"cycles":[]}"#,
         }))
         .unwrap();
@@ -856,8 +831,8 @@ mod tests {
         assert_eq!(workflow.name, "EXP-1 +2");
         assert_eq!(workflow.device_id.as_deref(), Some("dev-1"));
         assert_eq!(workflow.launch.agent.as_deref(), Some("claude"));
-        assert_eq!(workflow.launch.subagent_model.as_deref(), Some("sonnet"));
-        assert_eq!(workflow.launch.max_parallel, Some(5));
+        assert_eq!(workflow.launch.model.as_deref(), Some("opus"));
+        assert_eq!(workflow.launch.strong_model.as_deref(), Some("fable"));
         assert_eq!(row.shape().nodes, 3);
         assert_eq!(row.shape().depth, 2);
 

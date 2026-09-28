@@ -411,6 +411,16 @@ private fun AuthenticatedNav(
     // `nav-workflows` button (the phone has no sidebar), and the draft detail
     // the bulk bar's "Create workflow…" lands on.
     val openWorkflow: (String) -> Unit = { id -> navController.navigate("workflow/$id") }
+    // EXP-1121: the "Ready to code?" fixes. Team settings shows the SELECTED
+    // team, so the issue's team is selected first (a no-op when it already
+    // is); both are PUSHED over the issue, so Back returns to Start coding.
+    val openReadinessTeamSettings: (String) -> Unit = { teamId ->
+        if (teamSelection.selectedId.value != teamId) teamSelection.select(teamId)
+        navController.navigate("team-settings") { launchSingleTop = true }
+    }
+    val openReadinessDevices: () -> Unit = {
+        navController.navigate("agents") { launchSingleTop = true }
+    }
 
     // The single add-issue affordance. EXP-973: it rides EVERY tab, not just
     // the board ones — a pushed board route still wins (the reader is looking
@@ -737,9 +747,16 @@ private fun AuthenticatedNav(
             // section of My Work). Optional query arg, declared nullable the
             // same way the Agent route's seed args are, so a plain
             // `board/{boardId}/new` still matches.
-            "board/{boardId}/new?draft={draft}",
+            // EXP-1097: `&parent={id}` files it as a sub-issue (the detail's
+            // Sub-issues `+`), same optional-arg shape.
+            "board/{boardId}/new?draft={draft}&parent={parent}",
             arguments = listOf(
                 navArgument("draft") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("parent") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -756,6 +773,7 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onCreated = { issueId -> navController.openCreatedIssue(issueId) },
                 draftId = entry.arguments?.getString("draft")?.takeIf { it.isNotBlank() },
+                parentIssueId = entry.arguments?.getString("parent")?.takeIf { it.isNotBlank() },
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { teamSelection.consumePendingShare() },
             )
@@ -780,6 +798,11 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
                 onOpenAgent = openAgent,
+                onOpenTeamSettings = openReadinessTeamSettings,
+                onOpenDevices = openReadinessDevices,
+                onCreateSubIssue = { boardId, parentId ->
+                    navController.navigate("board/$boardId/new?parent=$parentId")
+                },
             )
         }
         composable("issue/{issueId}/changes") { entry ->
@@ -802,6 +825,11 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
                 onOpenAgent = openAgent,
+                onOpenTeamSettings = openReadinessTeamSettings,
+                onOpenDevices = openReadinessDevices,
+                onCreateSubIssue = { boardId, parentId ->
+                    navController.navigate("board/$boardId/new?parent=$parentId")
+                },
             )
         }
         composable("invite/{token}") { entry ->

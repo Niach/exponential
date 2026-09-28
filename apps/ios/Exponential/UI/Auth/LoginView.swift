@@ -9,7 +9,7 @@ struct LoginView: View {
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
-        case email, password, code
+        case email, password, code, name
     }
 
     var body: some View {
@@ -173,7 +173,9 @@ struct LoginView: View {
     @ViewBuilder
     private func emailCodeForm(_ vm: LoginViewModel, config: AuthConfig) -> some View {
         VStack(spacing: 12) {
-            if vm.emailStep == .code {
+            if vm.emailStep == .name {
+                nameStep(vm)
+            } else if vm.emailStep == .code {
                 Text("We sent a 6-digit code to \(vm.codeSentTo ?? vm.email).")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -242,6 +244,53 @@ struct LoginView: View {
                 }
             }
         }
+    }
+
+    /// EXP-1026: the code belongs to an address with no account yet — ask for
+    /// the name the account is created with, then resubmit the SAME code.
+    @ViewBuilder
+    private func nameStep(_ vm: LoginViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(EmailCodeSignUpCopy.title)
+                .font(.headline)
+                .foregroundStyle(.white)
+            Text(EmailCodeSignUpCopy.body)
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text(EmailCodeSignUpCopy.fieldLabel)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            GlassTextField(EmailCodeSignUpCopy.placeholder, text: Binding(
+                get: { vm.name },
+                set: { vm.name = $0 }
+            ), accessibilityIdentifier: "login-name-field")
+                .textContentType(.name)
+                .textInputAutocapitalization(.words)
+                .focused($focusedField, equals: .name)
+                .onSubmit {
+                    Task { await vm.submitName() }
+                }
+        }
+        .onAppear { focusedField = .name }
+
+        GlassSubmitButton(
+            EmailCodeSignUpCopy.button,
+            enabled: !vm.verifyingCode,
+            loading: vm.verifyingCode
+        ) {
+            Task { await vm.submitName() }
+        }
+        .accessibilityIdentifier("login-create-account-button")
+
+        actionLink("Use a different email", identifier: "login-change-email-link") {
+            focusedField = .email
+            vm.changeEmail()
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder

@@ -129,23 +129,33 @@ export function IssueChipStack({
   className?: string
   testId?: string
 }): ReactNode {
+  // The ghosts are absolutely positioned, so they wrap the CHIP alone: were
+  // they sized off the whole stack they would reach under the `+N` and paint
+  // over it (EXP-1097). The count sits BESIDE the stack, clear of the 6px the
+  // back ghost peeks out on the right.
   return (
     <span
       data-slot="issue-chip-stack"
       data-testid={testId}
-      className={cn(`relative inline-flex min-w-0 max-w-full items-center`, className)}
+      className={cn(`inline-flex min-w-0 max-w-full items-center`, className)}
     >
-      {STACK_OFFSETS.map((offset) => (
-        <span
-          key={offset}
-          aria-hidden
-          className="issue-chip pointer-events-none absolute"
-          style={{ top: -offset, right: -offset, left: offset, bottom: offset }}
-        />
-      ))}
-      <span className="relative flex min-w-0 flex-1">{children}</span>
+      <span className="relative inline-flex min-w-0 flex-1 self-stretch">
+        {STACK_OFFSETS.map((offset) => (
+          <span
+            key={offset}
+            aria-hidden
+            data-slot="issue-chip-stack-ghost"
+            className="issue-chip pointer-events-none absolute"
+            style={{ top: -offset, right: -offset, left: offset, bottom: offset }}
+          />
+        ))}
+        <span className="relative flex min-w-0 flex-1">{children}</span>
+      </span>
       {count !== undefined && count > 0 && (
-        <span className="shrink-0 pl-1 font-mono text-xs text-muted-foreground">
+        <span
+          data-slot="issue-chip-stack-count"
+          className="relative shrink-0 pl-2 font-mono text-xs text-muted-foreground"
+        >
           {`+${count}`}
         </span>
       )}

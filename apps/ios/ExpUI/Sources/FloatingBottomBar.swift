@@ -45,18 +45,33 @@ public enum FloatingBarTokens {
     public static let badgeSize: CGFloat = 8
     /// Where the badge sits, re-based on the 52pt square (the launcher's rule).
     public static let badgeOffset: CGFloat = 12
+    /// EXP-1121: the not-ready circle's dashed edge (1pt, 3 on / 3 off).
+    public static let dashedStrokeWidth: CGFloat = 1
+    public static let dashPattern: [CGFloat] = [3, 3]
 }
 
 // MARK: - Chrome
 
 extension View {
-    /// The 52pt opaque glass circle every bar circle wears.
-    public func floatingBarCircleChrome() -> some View {
+    /// The 52pt opaque glass circle every bar circle wears. `dashed` (EXP-1121,
+    /// a Start coding that is not ready yet) swaps the hairline for a 1pt
+    /// 3-on/3-off dash in the same colour.
+    public func floatingBarCircleChrome(dashed: Bool = false) -> some View {
         frame(width: FloatingBarTokens.slot, height: FloatingBarTokens.slot)
             .background(GlassTokens.opaqueCardFill, in: Circle())
-            .overlay(
-                Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-            )
+            .overlay {
+                if dashed {
+                    Circle().stroke(
+                        GlassTokens.strokeStrong,
+                        style: StrokeStyle(
+                            lineWidth: FloatingBarTokens.dashedStrokeWidth,
+                            dash: FloatingBarTokens.dashPattern
+                        )
+                    )
+                } else {
+                    Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
+                }
+            }
             .contentShape(Circle())
     }
 }
@@ -68,6 +83,8 @@ extension View {
 public struct FloatingBarCircle<Content: View, Badge: View>: View {
     let accessibilityLabel: String
     let enabled: Bool
+    /// EXP-1121: the dashed edge of a Start coding that is not ready yet.
+    let dashed: Bool
     let action: () -> Void
     let content: Content
     let badge: Badge
@@ -75,12 +92,14 @@ public struct FloatingBarCircle<Content: View, Badge: View>: View {
     public init(
         accessibilityLabel: String,
         enabled: Bool = true,
+        dashed: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder content: () -> Content,
         @ViewBuilder badge: () -> Badge
     ) {
         self.accessibilityLabel = accessibilityLabel
         self.enabled = enabled
+        self.dashed = dashed
         self.action = action
         self.content = content()
         self.badge = badge()
@@ -89,7 +108,7 @@ public struct FloatingBarCircle<Content: View, Badge: View>: View {
     public var body: some View {
         Button(action: action) {
             content
-                .floatingBarCircleChrome()
+                .floatingBarCircleChrome(dashed: dashed)
                 .overlay(alignment: .topTrailing) {
                     badge.offset(
                         x: -FloatingBarTokens.badgeOffset, y: FloatingBarTokens.badgeOffset
@@ -106,12 +125,14 @@ extension FloatingBarCircle where Badge == EmptyView {
     public init(
         accessibilityLabel: String,
         enabled: Bool = true,
+        dashed: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder content: () -> Content
     ) {
         self.init(
             accessibilityLabel: accessibilityLabel,
             enabled: enabled,
+            dashed: dashed,
             action: action,
             content: content,
             badge: { EmptyView() }

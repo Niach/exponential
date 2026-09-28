@@ -237,7 +237,6 @@
       "blocked",
       "ready",
       "running",
-      "waiting",
       "in_review",
       "updating",
       "landed",

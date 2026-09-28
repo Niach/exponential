@@ -532,8 +532,10 @@ data class WorkflowEntity(
     @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String? = null,
     @Serializable(with = JsonAsStringSerializer::class) val launch: String? = null,
     // EXP-1010: a relic. The review gate setting is gone (every node gets an
-    // agent review); the server still syncs the column for older engines and
-    // it stays here only so the Room schema does not move. Nothing reads it.
+    // agent review) and the server dropped the column (migration 0149, compat
+    // round 26), so a synced row never carries it and the default stands. It
+    // stays only so the Room schema does not move: drop it with the next
+    // Room version bump. Nothing reads it.
     val gate: String = "agent",
     @ColumnInfo(name = "integration_branch") @SerialName("integration_branch") @JsonNames("integrationBranch") val integrationBranch: String = "",
     @ColumnInfo(name = "final_pr_url") @SerialName("final_pr_url") @JsonNames("finalPrUrl") val finalPrUrl: String? = null,

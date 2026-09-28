@@ -154,6 +154,7 @@ import {
   nodeChipMenu,
   workflowCycleNote,
   workflowHeaderCaption,
+  workflowNodeDisplayLabel,
   workflowNodeDisplayState,
   workflowNodeStrip,
   workflowPrimaryAction,
@@ -1242,6 +1243,44 @@ function NodeChipView({ chip, issue }: { chip: NodeChip; issue: Issue | undefine
   return chip.stacked ? <IssueChipStack>{view}</IssueChipStack> : view
 }
 
+/** EXP-1123: the node popover's floor. The mini-graph draws only OPEN blocks
+ *  relations, so on a done workflow (every blocker landed) it had nothing to
+ *  draw and the hover opened an empty box. The node always says what it is:
+ *  identifier + title (EXP-1011: the chip truncates it), its state, and its
+ *  note when one is set. */
+function NodeHoverSummary({
+  chip,
+  state,
+  issue,
+}: {
+  chip: NodeChip
+  state: string | undefined
+  issue: Issue | undefined
+}) {
+  const label = workflowNodeDisplayLabel(state ?? ``)
+  return (
+    <div
+      className="flex max-w-[28rem] min-w-0 flex-col gap-1.5"
+      data-testid={`workflow-summary-${chip.id}`}
+    >
+      <div className="flex min-w-0 items-start gap-1.5">
+        <StatusGlyph {...nodeDisplayGlyph(chip.display)} />
+        <div className="min-w-0 text-sm">
+          <span className="mr-1.5 font-mono text-muted-foreground">
+            {chip.title}
+          </span>
+          <span className="break-words">
+            {issue?.title ?? NODE_UNSYNCED_TITLE}
+          </span>
+        </div>
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {chip.caption === label ? label : `${label} · ${chip.caption}`}
+      </div>
+    </div>
+  )
+}
+
 function NodeStrip({
   strip,
   nodeById,
@@ -1377,6 +1416,13 @@ function NodeStrip({
                     label={chip.title}
                     trigger={trigger}
                     openOnHover={hoverOpensGraph}
+                    empty={
+                      <NodeHoverSummary
+                        chip={chip}
+                        state={node.state}
+                        issue={issue}
+                      />
+                    }
                   />
                 ) : (
                   trigger

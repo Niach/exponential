@@ -161,6 +161,40 @@ impl TrpcClient {
         ))
     }
 
+    /// POST a raw JSON body to a NON-tRPC route on the same instance (`path`
+    /// starts with `/`) with the same call-time bearer, and hand back the
+    /// response body once the status passed the AUTHED policy (401 =
+    /// [`ApiError::Unauthorized`], 426 = upgrade). EXP-1110: the CLI's
+    /// `/api/mcp` tool calls ride this (`crate::mcp_tools`). `accept` is the
+    /// `Accept` header verbatim — the MCP transport refuses a request that
+    /// does not list both JSON and SSE.
+    pub fn post_json(
+        &self,
+        path: &str,
+        body: &str,
+        accept: &str,
+        timeout: Duration,
+    ) -> Result<String, ApiError> {
+        let url = format!("{}{path}", self.base_url);
+        let response = self
+            .authorize(
+                self.client
+                    .post(&url)
+                    .header("Accept", accept)
+                    .header("Content-Type", "application/json"),
+            )
+            .body(body.to_string())
+            .timeout(timeout)
+            .send()
+            .map_err(transport_error)?;
+        let status = response.status().as_u16();
+        let body = read_body(response)?;
+        if !(200..300).contains(&status) {
+            return Err(status_error_authed(status, &body));
+        }
+        Ok(body)
+    }
+
     /// Attach the bearer read **at call time** (§5.7). No token → the request
     /// goes out unauthenticated and the server answers 401 for authed procs —
     /// which correctly surfaces as [`ApiError::Unauthorized`].

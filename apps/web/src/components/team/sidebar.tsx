@@ -49,7 +49,6 @@ import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarRunningSection } from "@/components/team/sidebar-running"
 import { RecentRunsSidebar } from "@/components/team/recent-runs-nav"
 import {
-  AgentRunningBadge,
   DraftsCountBadge,
   InboxUnreadBadge,
   ReviewsOpenBadge,
@@ -460,9 +459,9 @@ export function TeamSidebar({
                             />
                           </SidebarMenuItem>
                           {/* EXP-818: the Agent page — the composer over the
-                              caller's running and past runs (the IDE rail's
-                              Agent entry). EXP-880: its badge is the live-run
-                              dot, and the runs themselves are work tabs. */}
+                              caller's past runs (the IDE rail's Agent entry).
+                              EXP-1120: no live-run dot — live runs already list
+                              in the sidebar's Running section. */}
                           <SidebarMenuItem>
                             <SidebarMenuButton
                               asChild
@@ -480,7 +479,6 @@ export function TeamSidebar({
                                 <span>Agent</span>
                               </Link>
                             </SidebarMenuButton>
-                            <AgentRunningBadge teamId={team?.id} placement="row" />
                           </SidebarMenuItem>
                         </SidebarMenu>
                       </SidebarGroupContent>

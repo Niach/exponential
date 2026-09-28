@@ -87,6 +87,14 @@ public enum SignInResult: Sendable {
     case failure(message: String)
 }
 
+/// A one-time code verify (EXP-857): signed in, the server asking for the
+/// sign-up name step first (EXP-1026, the code is NOT consumed), or a failure.
+public enum EmailCodeSignInResult: Sendable {
+    case success(token: String, user: AuthUser)
+    case nameRequired
+    case failure(message: String)
+}
+
 /// The served WebAuthn assertion options, or why there are none. A failure is
 /// never fatal on the login screen: it falls back to the browser handoff.
 public enum PasskeyOptionsResult: Sendable {
@@ -176,16 +184,31 @@ public final class AuthApi: Sendable {
     }
 
     /// Redeem a mailed one-time code for a session. Same `{token, user}` body
-    /// (and Set-Cookie fallback) as the password sign-in.
-    public func signInWithEmailCode(instanceUrl: String, email: String, code: String) async -> SignInResult {
+    /// (and Set-Cookie fallback) as the password sign-in. EXP-1026: always
+    /// asks for the name step (`X-Exp-Ask-Name`); an unknown address without
+    /// `name` answers `.nameRequired` and the code stays redeemable.
+    public func signInWithEmailCode(
+        instanceUrl: String, email: String, code: String, name: String? = nil
+    ) async -> EmailCodeSignInResult {
         guard let url = URL(string: "\(instanceUrl)/api/auth/sign-in/email-otp") else {
             return .failure(message: "Invalid instance URL")
         }
         do {
-            let body = try JSONEncoder().encode(["email": email, "otp": code])
-            let (data, response) = try await httpClient.postUnauthenticated(url, body: body)
+            let body = try JSONEncoder().encode(
+                EmailCodeSignUp.requestBody(email: email, otp: code, name: name)
+            )
+            let (data, response) = try await httpClient.postUnauthenticated(
+                url,
+                body: body,
+                headers: [EmailCodeSignUp.askNameHeader: EmailCodeSignUp.askNameValue]
+            )
 
             guard (200...299).contains(response.statusCode) else {
+                if EmailCodeSignUp.isNameRequired(
+                    status: response.statusCode, code: Self.authErrorCode(from: data)
+                ) {
+                    return .nameRequired
+                }
                 return .failure(message: EmailCodeCopy.message(
                     code: Self.authErrorCode(from: data),
                     serverMessage: Self.authErrorMessage(from: data)

@@ -14,6 +14,7 @@ import com.exponential.app.data.api.AuthConfigApi
 import com.exponential.app.data.api.SignInResult
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.domain.EmailCodeSignUpCopy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.net.URI
 import javax.inject.Inject
@@ -59,12 +60,14 @@ private fun String?.normalizedHost(): String? =
  *
  * [Hidden] is the provider-buttons-only screen; [Email] reveals the address
  * form (a code request, or the password form when the instance has no mail);
- * [CodeSent] is the 6-digit code form.
+ * [CodeSent] is the 6-digit code form; [Name] (EXP-1026) asks a new account's
+ * name before the SAME code is resubmitted.
  */
 enum class LoginEmailStep {
     Hidden,
     Email,
     CodeSent,
+    Name,
 }
 
 /** What the in-flight submit is doing — drives the button's loading label. */
@@ -89,6 +92,8 @@ data class LoginState(
     val emailStep: LoginEmailStep = LoginEmailStep.Hidden,
     /** The address the current code was mailed to — the "We sent a …" line. */
     val codeEmail: String? = null,
+    /** EXP-1026: the accepted-but-unconsumed code the name step resubmits. */
+    val pendingCode: String? = null,
     /** The user chose the password form over the code flow on an instance offering both. */
     val usePassword: Boolean = false,
     /**
@@ -167,6 +172,7 @@ class LoginViewModel @Inject constructor(
         _state.value = _state.value.copy(
             emailStep = LoginEmailStep.Email,
             codeEmail = null,
+            pendingCode = null,
             error = null,
         )
     }
@@ -211,9 +217,41 @@ class LoginViewModel @Inject constructor(
             return
         }
         val email = _state.value.codeEmail ?: return
+        val trimmed = code.trim()
         _state.value = _state.value.copy(loading = true, busy = LoginBusy.Checking, error = null)
         viewModelScope.launch {
-            finish(api.signInWithEmailCode(instanceUrl = instanceUrl, email = email, code = code.trim()))
+            val result = api.signInWithEmailCode(instanceUrl = instanceUrl, email = email, code = trimmed)
+            if (result is SignInResult.NameRequired) {
+                // The server did not consume the code: keep it for the resubmit.
+                _state.value = _state.value.copy(
+                    loading = false,
+                    busy = LoginBusy.None,
+                    emailStep = LoginEmailStep.Name,
+                    pendingCode = trimmed,
+                )
+            } else {
+                finish(result)
+            }
+        }
+    }
+
+    /** EXP-1026: the name step's "Create account" — the SAME code, now with `name`. */
+    fun submitName(name: String) {
+        if (_state.value.loading) return
+        val instanceUrl = auth.instanceUrl.value ?: run {
+            _state.value = _state.value.copy(error = "No instance URL set")
+            return
+        }
+        val email = _state.value.codeEmail ?: return
+        val code = _state.value.pendingCode ?: return
+        val given = name.trim()
+        if (given.isEmpty()) {
+            _state.value = _state.value.copy(error = EmailCodeSignUpCopy.EMPTY_NAME_ERROR)
+            return
+        }
+        _state.value = _state.value.copy(loading = true, busy = LoginBusy.Checking, error = null)
+        viewModelScope.launch {
+            finish(api.signInWithEmailCode(instanceUrl = instanceUrl, email = email, code = code, name = given))
         }
     }
 
@@ -301,6 +339,10 @@ class LoginViewModel @Inject constructor(
                 _state.value.copy(loading = false, busy = LoginBusy.None, successEmail = result.email)
             is SignInResult.Failure ->
                 _state.value.copy(loading = false, busy = LoginBusy.None, error = result.message)
+            // Only a code verify asks for a name; the password / passkey paths
+            // never answer it, and the name step's own resubmit carries one.
+            SignInResult.NameRequired ->
+                _state.value.copy(loading = false, busy = LoginBusy.None, emailStep = LoginEmailStep.Name)
         }
     }
 

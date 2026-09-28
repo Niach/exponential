@@ -86,14 +86,23 @@ struct CreateIssueView: View {
     /// which mints its own id up front (`draftKey`) so eager uploads have
     /// something to hang off.
     let draftId: String?
+    /// EXP-1097: the issue this one is filed UNDER (the detail's Sub-issues
+    /// `+`); nil = a top-level issue.
+    let parentId: String?
     /// The page is done: the created issue's id so the host can land on it
     /// (EXP-596), or nil when nothing was filed (the draft, if any, was
     /// already persisted by then).
     let onFinish: (String?) -> Void
 
-    init(boardId: String, draftId: String? = nil, onFinish: @escaping (String?) -> Void) {
+    init(
+        boardId: String,
+        draftId: String? = nil,
+        parentId: String? = nil,
+        onFinish: @escaping (String?) -> Void
+    ) {
         self.boardId = boardId
         self.draftId = draftId
+        self.parentId = parentId
         self.onFinish = onFinish
         // The id is the VIEW's, minted once: a reopened draft keeps its row,
         // a blank compose gets a fresh lowercase uuid it can already upload
@@ -160,6 +169,8 @@ struct CreateIssueView: View {
     @State private var picker: CreateIssuePicker?
     /// Non-nil once this page filed its issue — Back then lands on it.
     @State private var createdIssueId: String?
+    /// EXP-1097: the parent row `parentId` names, for the "Sub-issue of" line.
+    @State private var parentIssue: IssueEntity?
     @FocusState private var titleFocused: Bool
 
     /// The title as it would be filed: a run of spaces is not a title, and
@@ -203,6 +214,22 @@ struct CreateIssueView: View {
                     // the focus-brightened stroke with it. The font and the
                     // focus binding stay the caller's, as every GlassTextField
                     // behaviour modifier does.
+                    // EXP-1097: filed from a Sub-issues `+` — say so, the same
+                    // line the detail draws above its title.
+                    if let parentIssue {
+                        IssueParentLine(
+                            parent: IssueRelationsView.Row(
+                                id: parentIssue.id,
+                                identifier: parentIssue.identifier ?? "",
+                                title: parentIssue.title,
+                                status: parentIssue.status,
+                                open: true
+                            ),
+                            status: IssueStatusResolver.resolve(parentIssue, team: teamStatuses),
+                            onOpen: nil
+                        )
+                    }
+
                     GlassTextField(
                         "Issue title",
                         text: $title,
@@ -408,6 +435,11 @@ struct CreateIssueView: View {
                     // re-pinning Backlog, and the solo-team pre-assign must
                     // not overwrite the assignee the draft carries.
                     await seedFromDraftIfNeeded(pool: pool)
+                    if let parentId, parentIssue == nil {
+                        parentIssue = (try? await pool.read { db in
+                            try IssueEntity.fetchOne(db, key: parentId)
+                        }) ?? nil
+                    }
                     let team: TeamEntity? = (try? await pool.read({ db -> TeamEntity? in
                         guard let board = try BoardEntity.fetchOne(db, key: boardId) else {
                             return nil
@@ -954,7 +986,8 @@ struct CreateIssueView: View {
             // attachments and deletes the row in the create's transaction, and
             // tolerates an id no row was ever written for (a compose that
             // never uploaded anything).
-            draftId: draftKey
+            draftId: draftKey,
+            parentId: parentId
         )
 
         do {

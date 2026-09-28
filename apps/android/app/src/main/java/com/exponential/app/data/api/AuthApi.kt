@@ -39,9 +39,6 @@ data class SignInResponse(val token: String? = null, val user: AuthUser? = null)
 @Serializable
 data class EmailOtpSendRequest(val email: String, val type: String = "sign-in")
 
-@Serializable
-data class EmailOtpSignInRequest(val email: String, val otp: String)
-
 // EXP-857 passkey verify answer: the token sits one level down, under `session`.
 @Serializable
 data class PasskeySession(val token: String? = null)
@@ -77,6 +74,12 @@ data class OauthExchangeResponse(val token: String? = null)
 sealed interface SignInResult {
     data class Success(val token: String, val email: String) : SignInResult
     data class Failure(val message: String) : SignInResult
+
+    /**
+     * EXP-1026: the one-time code belongs to an address with no account and no
+     * name was sent — ask for it, then resubmit the SAME (unconsumed) code.
+     */
+    data object NameRequired : SignInResult
 }
 
 @Singleton
@@ -172,17 +175,28 @@ class AuthApi @Inject constructor(
      * and [completeLogin] hand-off are identical; only the error copy differs
      * (the code-specific wording in [AuthWire.otpErrorMessage]).
      */
-    suspend fun signInWithEmailCode(instanceUrl: String, email: String, code: String): SignInResult {
+    suspend fun signInWithEmailCode(
+        instanceUrl: String,
+        email: String,
+        code: String,
+        name: String? = null,
+    ): SignInResult {
         val baseUrl = instanceUrl
 
         return try {
             val response = client.post("$baseUrl/api/auth/sign-in/email-otp") {
                 contentType(ContentType.Application.Json)
                 header("Origin", baseUrl.trimEnd('/'))
-                setBody(EmailOtpSignInRequest(email = email, otp = code))
+                // EXP-1026: an unknown address without `name` answers
+                // NAME_REQUIRED instead of creating a nameless account.
+                header(EmailCodeSignUp.ASK_NAME_HEADER, EmailCodeSignUp.ASK_NAME_VALUE)
+                setBody(EmailCodeSignUp.requestBody(email = email, otp = code, name = name))
             }
             if (!response.status.isSuccess()) {
                 val body = response.bodyAsText()
+                if (EmailCodeSignUp.isNameRequired(response.status.value, authErrorCode(body))) {
+                    return SignInResult.NameRequired
+                }
                 return SignInResult.Failure(
                     AuthWire.otpErrorMessage(authErrorCode(body), authErrorMessage(body)),
                 )

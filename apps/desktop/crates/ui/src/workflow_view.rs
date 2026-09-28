@@ -1570,22 +1570,31 @@ fn strip_chip(
             on_pick(&id, event.modifiers(), window, cx)
         });
     }
-    // The hover: the chip's caption through the app's own tooltip; a node
-    // with blocks edges adds the mini-graph under that caption.
+    // The hover (EXP-1123): the node ALWAYS says what it is — identifier +
+    // title (the chip truncates it) over its state (+ note) — and a node with
+    // blocks edges adds the mini-graph under that. It used to be the bare
+    // caption, which on a done workflow said nothing but "Done".
     let subjects = facts.issue_ids.clone();
-    let caption = chip_facts.caption.clone();
+    let (heading, state_line) = node_hover_lines(
+        &chip_facts.title,
+        &facts.issue_title,
+        chip_facts.display,
+        &chip_facts.caption,
+    );
     let cell = div()
         .id(SharedString::from(format!("workflow-chip-cell-{}", chip_facts.id)))
         .child(chip)
-        .hoverable_tooltip(move |window, cx| {
+        .hoverable_tooltip(move |_window, cx| {
             let ids: Vec<&str> = subjects.iter().map(String::as_str).collect();
             let graph = crate::issue_graph::graph_for(&ids, cx);
-            if graph.nodes.len() > 1 {
-                let caption = caption.clone();
-                cx.new(|_| NodeGraphTip { graph, caption }).into()
-            } else {
-                gpui_component::tooltip::Tooltip::new(caption.clone()).build(window, cx)
-            }
+            let graph = (graph.nodes.len() > 1).then_some(graph);
+            let (heading, state_line) = (heading.clone(), state_line.clone());
+            cx.new(|_| NodeTip {
+                heading,
+                state_line,
+                graph,
+            })
+            .into()
         });
     if let Some(handlers) = handlers {
         if !facts.menu.is_empty() {
@@ -1637,30 +1646,60 @@ fn muted_outline(cx: &App) -> gpui::Hsla {
     cx.theme().muted_foreground
 }
 
-/// The hover over a chip whose issue has blocks edges: its caption over the
-/// frozen EXP-980 mini-graph.
-struct NodeGraphTip {
-    graph: domain::issue_graph::IssueGraph,
-    caption: String,
+/// EXP-1123 — a node hover's two text lines: `EXP-12 · Title` (the chip
+/// truncates the title), then the display state, `State · note` while the
+/// caption is a note rather than the state's own label (web
+/// `NodeHoverSummary`'s rule).
+fn node_hover_lines(
+    chip_title: &str,
+    issue_title: &str,
+    display: WorkflowNodeDisplayState,
+    caption: &str,
+) -> (String, String) {
+    let heading = if issue_title.trim().is_empty() {
+        chip_title.to_string()
+    } else {
+        format!("{chip_title} \u{b7} {issue_title}")
+    };
+    let label = display.label();
+    let state_line = if caption.is_empty() || caption == label {
+        label.to_string()
+    } else {
+        format!("{label} \u{b7} {caption}")
+    };
+    (heading, state_line)
 }
 
-impl Render for NodeGraphTip {
+/// The hover over a chip: the node's identifier + title and state, over the
+/// frozen EXP-980 mini-graph when the issue has blocks edges.
+struct NodeTip {
+    heading: String,
+    state_line: String,
+    graph: Option<domain::issue_graph::IssueGraph>,
+}
+
+impl Render for NodeTip {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         v_flex()
             .gap_1()
             .p_2()
+            .max_w(px(448.))
             .rounded(px(8.))
             .border_1()
             .border_color(theme.border)
             .bg(theme.popover)
             .text_color(theme.popover_foreground)
-            .child(div().text_xs().child(SharedString::from(self.caption.clone())))
-            .child(crate::issue_graph::graph_overlay(
-                &self.graph,
-                crate::issue_graph::VIEW_W,
-                cx,
-            ))
+            .child(div().text_sm().child(SharedString::from(self.heading.clone())))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(SharedString::from(self.state_line.clone())),
+            )
+            .children(self.graph.as_ref().map(|graph| {
+                crate::issue_graph::graph_overlay(graph, crate::issue_graph::VIEW_W, cx)
+            }))
     }
 }
 
@@ -2395,7 +2434,10 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> AnyElement {
     use domain::statuses::constructed_default;
     use domain::IssueStatus;
 
+    // `asks` = a running node parked on an open question: not live, and the
+    // `needs you` badge beside its chip.
     let node = |id: &str, identifier: &str, state: &str, wave: i64, lane: i64, members: usize| {
+        let asks = id == "asks";
         StripNodeInput {
             id: id.to_string(),
             identifier: identifier.to_string(),
@@ -2403,8 +2445,8 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> AnyElement {
             wave,
             lane,
             members,
-            live: state == "running",
-            needs_you: state == "waiting",
+            live: state == "running" && !asks,
+            needs_you: asks,
             note: None,
         }
     };
@@ -2412,7 +2454,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> AnyElement {
         node("contract", "EXP-1029", "landed", 0, 0, 0),
         node("deck", "EXP-1032", "ready", 1, 0, 2),
         node("running", "EXP-1034", "running", 1, 1, 0),
-        node("asks", "EXP-1035", "waiting", 1, 2, 0),
+        node("asks", "EXP-1035", "running", 1, 2, 0),
         node("failed", "EXP-1036", "failed", 2, 0, 0),
     ];
     let strip = workflow_node_strip(&inputs);
@@ -2484,6 +2526,24 @@ mod tests {
             .into_iter()
             .cloned()
             .collect()
+    }
+
+    /// EXP-1123: a done node's hover names the issue and its state — never
+    /// the bare caption (which read "Done" and nothing else).
+    #[test]
+    fn a_node_hover_names_identifier_title_and_state() {
+        assert_eq!(
+            node_hover_lines("EXP-1103", "Workflow reviews", WorkflowNodeDisplayState::Done, "Done"),
+            ("EXP-1103 \u{b7} Workflow reviews".to_string(), "Done".to_string())
+        );
+        assert_eq!(
+            node_hover_lines("EXP-2 +1", "Issue", WorkflowNodeDisplayState::Skipped, "Superseded"),
+            ("EXP-2 +1 \u{b7} Issue".to_string(), "Skipped \u{b7} Superseded".to_string())
+        );
+        assert_eq!(
+            node_hover_lines("EXP-3", "", WorkflowNodeDisplayState::Queued, ""),
+            ("EXP-3".to_string(), "Queued".to_string())
+        );
     }
 
     #[test]

@@ -251,46 +251,58 @@ export function badgeKind<I, S>(graph: PrGraph<I, S>): BadgeKind {
   return null
 }
 
-/** Which face the badge is drawn on — it decides the overlay's sections and,
- *  on the Run face, whether the session tree alone earns a pill. */
+/** Which face the badge is drawn on. EXP-1097: it no longer decides WHETHER
+ *  the chip draws (`badgeShape` is face-independent), only which overlay
+ *  section leads when it opens (`overlaySections`). */
 export type PrGraphFace = `issue` | `run` | `changes`
 
-/** EXP-1079: what the header pill DRAWS — a PR relation (`badgeKind`), or,
- *  on the Run face of a run that has a family, the session tree alone
- *  (`runs`: the desktop's `BadgeGlyph::Runs`, the `session-tree` concept).
- *  `null` = no pill. The desktop twin is `BadgeSpec::is_visible` +
- *  `badge_glyphs`: there a lone run has an EMPTY tree, here the tree carries
- *  the subject itself, so "a family" is more than one row. */
-export type BadgeShape = Exclude<BadgeKind, null> | `runs` | null
+/** EXP-1079/EXP-1097: what the header chip DRAWS, the SAME on every face —
+ *  Issue, Run and Changes alike. First match wins:
+ *
+ *    1. a PR relation (`badgeKind`: stack, batch, stack+batch);
+ *    2. `runs` — the session tree has a FAMILY (the desktop's
+ *       `BadgeGlyph::Runs`, the `session-tree` concept). Here the tree
+ *       carries the subject itself, so "a family" is more than one row;
+ *    3. `blocked` — the subject issue has OPEN blockers (`graph.blockedBy`);
+ *    4. `null` = no chip.
+ *
+ *  The same rule, byte for byte, in desktop `pr_graph.rs` (`badge_shape`),
+ *  iOS `PrGraph.swift` and Android `PrGraph.kt` (`badgeShape`). */
+export type BadgeShape = Exclude<BadgeKind, null> | `runs` | `blocked` | null
 
-export function badgeShape<I, S>(
-  graph: PrGraph<I, S>,
-  face: PrGraphFace
-): BadgeShape {
+export function badgeShape<I, S>(graph: PrGraph<I, S>): BadgeShape {
   const kind = badgeKind(graph)
   if (kind) return kind
-  return face === `run` && graph.tree.length > 1 ? `runs` : null
+  if (graph.tree.length > 1) return `runs`
+  if (graph.blockedBy.length > 0) return `blocked`
+  return null
 }
 
 /** EXP-1058: what the header's STACKED issue chip draws in place of the old
  *  pill — the front chip's issue and how many ride behind it (`+N`).
- *  `issue` = the subject's pull request's representative row; `null` only on
- *  the Run face of a run with no issue (the tree alone), where the front chip
- *  names the run instead. `count` = every OTHER issue on the stack (all its
- *  entries' issues) or batch, or every other run of the tree for `runs`.
- *  `null` = no chip, exactly when `badgeShape` is null. Byte-identical ×4
- *  (`pr_graph::badge_chip`, `PrGraph.badgeChip` ×2). */
+ *
+ *  · stack / batch — `issue` = the subject's pull request's representative
+ *    row, `count` = every OTHER issue on the stack (all its entries' issues)
+ *    or batch;
+ *  · `runs` — `issue` = that representative (null for a run with no issue,
+ *    where the front chip names the run instead), `count` = every other run
+ *    of the tree;
+ *  · `blocked` (EXP-1097) — `issue` = the FIRST open blocker in `blockedBy`
+ *    order, `count` = the other open blockers.
+ *
+ *  `null` = no chip, exactly when `badgeShape` is null. Face-independent and
+ *  byte-identical ×4 (`pr_graph::badge_chip`, `PrGraph.badgeChip` ×2). */
 export interface BadgeChip<I> {
   issue: I | null
   count: number
 }
 
-export function badgeChip<I, S>(
-  graph: PrGraph<I, S>,
-  face: PrGraphFace
-): BadgeChip<I> | null {
-  const shape = badgeShape(graph, face)
+export function badgeChip<I, S>(graph: PrGraph<I, S>): BadgeChip<I> | null {
+  const shape = badgeShape(graph)
   if (!shape) return null
+  if (shape === `blocked`) {
+    return { issue: graph.blockedBy[0] ?? null, count: graph.blockedBy.length - 1 }
+  }
   const issue = graph.entry?.issue ?? null
   if (shape === `runs`) return { issue, count: graph.tree.length - 1 }
   if (graph.stack.length >= 2) {
@@ -298,4 +310,32 @@ export function badgeChip<I, S>(
     return { issue, count: total - 1 }
   }
   return { issue, count: (graph.batch?.issues.length ?? 1) - 1 }
+}
+
+/** One section of the chip's overlay. */
+export type OverlaySection = `blocked` | `batch` | `runs` | `stack`
+
+const FACE_SECTION_ORDER: Record<PrGraphFace, OverlaySection[]> = {
+  issue: [`blocked`, `batch`, `stack`, `runs`],
+  run: [`batch`, `runs`, `stack`, `blocked`],
+  changes: [`stack`, `batch`, `runs`, `blocked`],
+}
+
+/** EXP-1097: the overlay's sections — every relation the subject HAS, the
+ *  face's own section first (Issue: Blocked by; Run: the run's issues and
+ *  its tree; Changes: the pull requests). A section with nothing to list is
+ *  left out, save the face's own lead on Run (its tree, even of one run) and
+ *  on Changes (its pull request, even a lone one). */
+export function overlaySections<I, S>(
+  graph: PrGraph<I, S>,
+  face: PrGraphFace
+): OverlaySection[] {
+  const present: Record<OverlaySection, boolean> = {
+    blocked: graph.blockedBy.length > 0,
+    batch: graph.batch !== null,
+    runs: graph.tree.length > 1 || (face === `run` && graph.tree.length > 0),
+    stack:
+      graph.stack.length >= 2 || (face === `changes` && graph.entry !== null),
+  }
+  return FACE_SECTION_ORDER[face].filter((section) => present[section])
 }

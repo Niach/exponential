@@ -63,8 +63,9 @@ fun WorkTopBar(
      */
     action: (@Composable () -> Unit)? = null,
     /**
-     * EXP-897: the stack/batch badge, right of the title — the ONE mark for
-     * everything this pull request is entangled with, on every face.
+     * EXP-897: the stack/batch badge — the ONE mark for everything this work
+     * is entangled with, on every face. EXP-1097: in the actions, beside the
+     * `…` (a compact chip), no longer after the title.
      */
     badge: (@Composable () -> Unit)? = null,
     /** The issue `…` menu, for an issue subject. */
@@ -83,14 +84,14 @@ fun WorkTopBar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.testTag("work-title"),
                 )
-                if (badge != null) {
-                    Spacer(Modifier.width(8.dp))
-                    badge()
-                }
             }
         },
         navigationIcon = { TopBarBackButton(onClick = onBack) },
         actions = {
+            // EXP-1097: the graph chip sits beside the `…` on every face.
+            if (badge != null) {
+                Box(Modifier.padding(end = 8.dp)) { badge() }
+            }
             when (verb) {
                 // EXP-818: ONE word for ending a run, wherever it is watched
                 // from — a red pill beside the `…`, confirm-gated by the host.

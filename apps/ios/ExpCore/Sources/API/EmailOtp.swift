@@ -27,3 +27,40 @@ public enum EmailCodeCopy {
         }
     }
 }
+
+/// EXP-1026: a one-time code for an address with no account creates one, and
+/// the account needs a name. The natives ASK for it (`X-Exp-Ask-Name: 1` on
+/// every `/sign-in/email-otp`): the server then answers an unknown address
+/// sent without a `name` with 400 `code: "NAME_REQUIRED"` WITHOUT consuming the
+/// code, the login screen shows the name step, and the SAME code is resubmitted
+/// as `{email, otp, name}`. Existing accounts never see the step.
+public enum EmailCodeSignUp {
+    public static let askNameHeader = "X-Exp-Ask-Name"
+    public static let askNameValue = "1"
+    public static let nameRequiredCode = "NAME_REQUIRED"
+
+    /// The `/sign-in/email-otp` body; `name` rides only once the user gave one.
+    public static func requestBody(email: String, otp: String, name: String?) -> [String: String] {
+        var body = ["email": email, "otp": otp]
+        if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            body["name"] = name
+        }
+        return body
+    }
+
+    /// Whether a failed verify is the server asking for the name step.
+    public static func isNameRequired(status: Int, code: String?) -> Bool {
+        status == 400 && code?.uppercased() == nameRequiredCode
+    }
+}
+
+/// EXP-1026: the name step's copy, byte-identical across the natives (Android
+/// `EmailCodeSignUpCopy`); `EmailCodeSignUpTests` locks the literals.
+public enum EmailCodeSignUpCopy {
+    public static let title = "What should we call you?"
+    public static let body = "This is how your teammates see you."
+    public static let fieldLabel = "Name"
+    public static let placeholder = "Your name"
+    public static let button = "Create account"
+    public static let emptyNameError = "Enter your name to continue."
+}

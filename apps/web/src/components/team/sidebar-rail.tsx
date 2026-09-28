@@ -26,10 +26,7 @@ import {
   useUnreadNotificationCount,
   useUnreadSupportCount,
 } from "@/hooks/use-unread-notifications"
-import {
-  useAgentsRunningCount,
-  useReviewsOpenPrCount,
-} from "@/hooks/use-nav-counts"
+import { useReviewsOpenPrCount } from "@/hooks/use-nav-counts"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 import { workflowOpenQuestions } from "@/lib/workflows/open-questions"
@@ -88,9 +85,10 @@ function NavDot({
 
 /** EXP-1075: live runs of MINE in ANOTHER team — the team picker's dot
  * (`lib/sessions/team-live-runs.ts` decides where it hangs). Same tones as
- * `AgentRunningBadge`: amber while one of those runs waits on the person,
- * green otherwise. A dot, never a count — the picker only says "look over
- * there"; the team you are in counts its runs in the Running section.
+ * the mobile tab bar's Agent badge: amber while one of those runs waits on
+ * the person, green otherwise. A dot, never a count — the picker only says
+ * "look over there"; the team you are in counts its runs in the Running
+ * section.
  * `corner` hangs it off an icon (the switcher chevron), `trailing` sits at
  * the right edge of a team row. */
 export function TeamLiveDot({
@@ -231,26 +229,6 @@ export function WorkflowsQuestionBadge({
 }) {
   if (!asking) return null
   return <NavDot className="bg-red-500" placement={placement} />
-}
-
-/** My live runs in the team (`useMyLiveRuns`) — the Agent entry's dot (EXP-880:
- *  no count). Amber while a run waits on the person, green otherwise. */
-export function AgentRunningBadge({
-  teamId,
-  placement,
-}: {
-  teamId?: string
-  placement: BadgePlacement
-}) {
-  const { data: session } = useSession()
-  const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
-  if (count === 0) return null
-  return (
-    <NavDot
-      className={needsInput ? `bg-yellow-400` : `bg-green-500`}
-      placement={placement}
-    />
-  )
 }
 
 /** The account menu's items — one list for the expanded footer and the
@@ -447,7 +425,6 @@ export function TeamSidebarRail({
           )}
         >
           <NavAgentIcon className="size-4" />
-          <AgentRunningBadge teamId={team?.id} placement="icon" />
         </RailItem>
 
         {team && (

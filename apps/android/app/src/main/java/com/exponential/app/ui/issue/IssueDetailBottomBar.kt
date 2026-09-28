@@ -6,6 +6,28 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.testTag
+import com.exponential.app.domain.CodingReadiness
+import com.exponential.app.ui.components.FloatingBarRung
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.GlassTokens
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,7 +42,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -65,34 +86,133 @@ import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
-// What the Work screen's start circle renders (EXP-240/EXP-893): the play
-// launcher (dimmed while no desktop is online) or the in-flight spinner. Null
-// hides the circle (steer off / non-member / repo-less board) — the host owns
-// the mapping. A LIVE run is not a state of this control any more: with one,
-// the circle is the face switcher and the run is a face of the same screen.
+// What the Work screen's start circle renders (EXP-240/EXP-893, EXP-1121):
+// derived from the "Ready to code?" model. Null hides the circle (steer off /
+// non-member, `readiness.visible == false`) — the host owns the mapping. A LIVE
+// run is not a state of this control: with one, the circle is the face
+// switcher and the run is a face of the same screen.
 sealed interface StartButtonUi {
-    data class Start(val enabled: Boolean) : StartButtonUi
-    data object Sending : StartButtonUi
+    /** Every step met: the white play glyph, a tap opens the composer. */
+    data object Ready : StartButtonUi
+
+    /** Inputs still loading: the plain circle, a muted glyph, inert. */
+    data object Loading : StartButtonUi
+
+    /** A step is missing: dashed stroke + amber dot, a tap opens the checklist. */
+    data class NotReady(val caption: String?) : StartButtonUi
+
+    companion object {
+        fun from(readiness: CodingReadiness.Readiness): StartButtonUi? = when {
+            !readiness.visible -> null
+            readiness.loading -> Loading
+            readiness.ready -> Ready
+            else -> NotReady(readiness.caption)
+        }
+    }
+}
+
+/** Test tag of a READY Start coding circle (the store-screenshot flow waits on it). */
+const val START_CODING_READY_TAG = "start-coding-ready"
+
+/** The dashed ring + amber badge a not-ready Start coding wears (EXP-1121). */
+internal object StartReadinessStyle {
+    val Amber: Color = DesignTokens.Semantic.Yellow
+    val DashOn = 3.dp
+    val DashOff = 3.dp
+    val DashWidth = 1.dp
+    val BadgeSize = 8.dp
+    val BadgeRing = 1.5.dp
+}
+
+/** A 1dp dashed outline in the circle's hairline colour, following [shape]'s outline. */
+internal fun Modifier.dashedOutline(shape: Shape, color: Color = GlassTokens.StrokeStrong): Modifier =
+    drawWithContent {
+        drawContent()
+        val stroke = StartReadinessStyle.DashWidth.toPx()
+        val inset = stroke / 2f
+        val outline = shape.createOutline(
+            Size(size.width - stroke, size.height - stroke),
+            layoutDirection,
+            this,
+        )
+        val path = Path().apply { addOutline(outline) }
+        translate(inset, inset) {
+            drawPath(
+                path,
+                color = color,
+                style = Stroke(
+                    width = stroke,
+                    pathEffect = PathEffect.dashPathEffect(
+                        floatArrayOf(StartReadinessStyle.DashOn.toPx(), StartReadinessStyle.DashOff.toPx()),
+                    ),
+                ),
+            )
+        }
+    }
+
+/** The small amber dot riding a not-ready control's top-right corner, ringed
+ *  with the page background so it reads as cut out of the stroke. */
+@Composable
+internal fun ReadinessBadgeDot(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(StartReadinessStyle.BadgeSize + StartReadinessStyle.BadgeRing * 2)
+            .clip(CircleShape)
+            .background(GlassTokens.BackgroundBottom)
+            .padding(StartReadinessStyle.BadgeRing)
+            .clip(CircleShape)
+            .background(StartReadinessStyle.Amber),
+    )
 }
 
 /** The 52dp Start-coding circle for the bar's right slot (EXP-893 host). */
 @Composable
 fun StartCircle(ui: StartButtonUi, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    BarCircle(onClick = onClick, modifier = modifier) {
-        when (ui) {
-            is StartButtonUi.Start -> Icon(
+    val caption = (ui as? StartButtonUi.NotReady)?.caption
+    // On the clickable node itself, so TalkBack reads "Start coding" plus
+    // the first missing step as its state.
+    val a11y = Modifier.semantics {
+        contentDescription = CodingReadiness.Copy.START
+        caption?.let { stateDescription = it }
+    }
+    Box(modifier = modifier.size(FloatingBarRung)) {
+        val glyph: @Composable () -> Unit = {
+            Icon(
                 ExpIcons.actionRun,
-                contentDescription = "Start coding",
+                contentDescription = null,
                 modifier = Modifier.size(22.dp),
                 tint = Color.White.copy(
-                    alpha = if (ui.enabled) 1f else TextEmphasis.Quaternary,
+                    alpha = if (ui is StartButtonUi.Ready) 1f else TextEmphasis.Quaternary,
                 ),
             )
-            is StartButtonUi.Sending -> CircularProgressIndicator(
-                modifier = Modifier.size(18.dp),
-                strokeWidth = 2.dp,
-                color = Color.White,
-            )
+        }
+        when (ui) {
+            is StartButtonUi.NotReady -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(CircleShape)
+                        .background(GlassTokens.OpaqueCardFill)
+                        .dashedOutline(CircleShape)
+                        .then(a11y)
+                        .clickable(role = Role.Button, onClick = onClick),
+                    contentAlignment = Alignment.Center,
+                ) { glyph() }
+                ReadinessBadgeDot(
+                    Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 2.dp),
+                )
+            }
+            // Loading stays inert: no dashed/amber flash while the inputs land.
+            else -> BarCircle(
+                onClick = onClick,
+                enabled = ui is StartButtonUi.Ready,
+                // A test tag only once every step is met: an instrumented tap
+                // on the (inert) loading circle would silently do nothing.
+                modifier = Modifier
+                    .matchParentSize()
+                    .then(a11y)
+                    .then(if (ui is StartButtonUi.Ready) Modifier.testTag(START_CODING_READY_TAG) else Modifier),
+            ) { glyph() }
         }
     }
 }

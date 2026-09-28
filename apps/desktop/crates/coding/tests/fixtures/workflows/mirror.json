@@ -600,7 +600,7 @@
           "id": "a",
           "issueId": "i-a",
           "kind": "leaf",
-          "state": "waiting",
+          "state": "running",
           "wave": 0,
           "lane": 0,
           "sessionId": "s-a",

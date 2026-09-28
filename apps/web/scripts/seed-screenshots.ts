@@ -69,10 +69,7 @@ import {
   buildAttachmentUrl,
 } from "@/lib/storage/issue-attachments"
 import { generateWidgetKey } from "@/lib/widget/key"
-import {
-  launchFromDeviceDefaults,
-  storedLaunchFor,
-} from "@/lib/trpc/workflows/shared"
+import { launchFromDeviceDefaults } from "@/lib/trpc/workflows/shared"
 import { replanWorkflow, workflowIntegrationBranch } from "@/lib/workflows"
 import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
 import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
@@ -814,7 +811,7 @@ async function main() {
       repositoryId: repo.id,
       creatorId: demoId,
       name: DEMO_WORKFLOW.name,
-      launch: storedLaunchFor(launchFromDeviceDefaults(null)),
+      launch: launchFromDeviceDefaults(null),
       integrationBranch: workflowIntegrationBranch(DEMO_WORKFLOW.id),
       createdAt: daysAgo(1),
     })

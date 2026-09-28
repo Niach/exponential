@@ -22,7 +22,8 @@ const UiAddIcon = conceptIcon(`ui-add`)
 // relation lands in the create transaction rather than as a second write the
 // user can see arrive late.
 //
-// Desktop only and members only (the caller gates both). Deliberately STAYS
+// Members only (the caller gates it; EXP-1097: opened from the Sub-issues
+// band on phones too, where it is the one way to file a child). Deliberately STAYS
 // OPEN after a create with the chips intact: filing sub-issues is a run, not a
 // single act — only the title and the description clear, and focus returns to
 // the title so the next one can be typed straight away. The `#IDENT` autocomplete,
@@ -33,13 +34,27 @@ export function SubIssueComposer({
   parent,
   teamId,
   users,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   parent: Issue
   teamId: string
   users: User[]
+  /** EXP-1097: CONTROLLED by the Sub-issues band (its `+` and its "Add
+   *  sub-issues" row open it) — the composer then draws no trigger of its
+   *  own and no column padding (the band's block already has it). Omitted =
+   *  the old self-contained form with its own "Add sub-issues" button. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
   const { resolve: resolveStatus } = useTeamStatusesContext()
-  const [open, setOpen] = useState(false)
+  const controlled = controlledOpen !== undefined
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = controlled ? controlledOpen : uncontrolledOpen
+  const setOpen = (next: boolean) => {
+    if (!controlled) setUncontrolledOpen(next)
+    onOpenChange?.(next)
+  }
   const [title, setTitle] = useState(``)
   const [description, setDescription] = useState(``)
   const [creating, setCreating] = useState(false)
@@ -104,6 +119,7 @@ export function SubIssueComposer({
   }
 
   if (!open) {
+    if (controlled) return null
     return (
       <div className="mx-auto w-full max-w-4xl px-4 pt-3">
         <Button
@@ -120,7 +136,11 @@ export function SubIssueComposer({
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 pt-3">
+    <div
+      className={
+        controlled ? `pt-2` : `mx-auto w-full max-w-4xl px-4 pt-3`
+      }
+    >
       <div className="flex flex-col gap-2 rounded-xl border border-glass-stroke-card bg-popover/40 p-3">
         <div className="flex min-w-0 items-center gap-2">
           <StatusIcon option={status} className="size-4 shrink-0" />

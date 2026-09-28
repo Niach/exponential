@@ -245,7 +245,6 @@ object WorkflowView {
 
     private val STARTED_STATES = setOf(
         DomainContract.wfNodeStateRunning,
-        DomainContract.wfNodeStateWaiting,
         DomainContract.wfNodeStateInReview,
         DomainContract.wfNodeStateUpdating,
     )
@@ -300,7 +299,6 @@ object WorkflowView {
         DomainContract.wfNodeStateBlocked to WorkflowNodeDisplayState.QUEUED,
         DomainContract.wfNodeStateReady to WorkflowNodeDisplayState.QUEUED,
         DomainContract.wfNodeStateRunning to WorkflowNodeDisplayState.RUNNING,
-        DomainContract.wfNodeStateWaiting to WorkflowNodeDisplayState.RUNNING,
         DomainContract.wfNodeStateInReview to WorkflowNodeDisplayState.RUNNING,
         DomainContract.wfNodeStateUpdating to WorkflowNodeDisplayState.RUNNING,
         DomainContract.wfNodeStateLanded to WorkflowNodeDisplayState.DONE,

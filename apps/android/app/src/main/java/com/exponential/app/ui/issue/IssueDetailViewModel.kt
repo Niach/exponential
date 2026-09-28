@@ -36,6 +36,7 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueRelationType
+import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.RelationPick
@@ -111,6 +112,20 @@ data class RelationRow(
     val otherTitle: String,
     val otherStatus: ResolvedIssueStatus,
 )
+
+/**
+ * EXP-1097: the relations view model ([IssueRelationsView.View]) with the
+ * synced issues its rows name — each row's status glyph and assignee resolve
+ * off [issuesById].
+ */
+data class RelationsUi(
+    val view: IssueRelationsView.View,
+    val issuesById: Map<String, IssueEntity>,
+) {
+    companion object {
+        val EMPTY = RelationsUi(IssueRelationsView.View.EMPTY, emptyMap())
+    }
+}
 
 /**
  * What to show while the issue isn't in the local cache. [Loading] is the
@@ -354,6 +369,70 @@ class IssueDetailViewModel @AssistedInject constructor(
                 compareBy({ relationSortKey(it.type, it.inverse) }, { it.otherIdentifier }),
             )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // EXP-1097: the band fold state of THIS issue's relations — view state,
+    // so it survives the properties sheet closing and a face switch.
+    private val _relationsToggled = MutableStateFlow<Set<IssueRelationsView.BandKey>>(emptySet())
+    private val _relationsShowAll = MutableStateFlow<Set<IssueRelationsView.BandKey>>(emptySet())
+
+    /** Fold / unfold one relation band (flips its default). */
+    fun toggleRelationBand(key: IssueRelationsView.BandKey) {
+        _relationsToggled.value = _relationsToggled.value.let { if (key in it) it - key else it + key }
+    }
+
+    /** "Show N more" (true) / "Show less" (false) on one band. */
+    fun setRelationBandShowAll(key: IssueRelationsView.BandKey, all: Boolean) {
+        _relationsShowAll.value = _relationsShowAll.value.let { if (all) it + key else it - key }
+    }
+
+    /**
+     * EXP-1097: what the detail DRAWS for its relations — the "Sub-issue of"
+     * parent line, the Sub-issues section and the sheet's foldable bands —
+     * off the ONE fixture-locked model ([IssueRelationsView]), plus the
+     * synced rows its rows resolve against (status glyph, assignee).
+     */
+    val relationsUi: StateFlow<RelationsUi> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.issueRelationDao().observeForIssue(issueId) },
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        _relationsToggled,
+        _relationsShowAll,
+    ) { rows, issues, toggled, showAll ->
+        val view = IssueRelationsView.build(
+            IssueRelationsView.Input(
+                subjectId = issueId,
+                relations = rows.map { IssueRelationsView.Relation(it.type, it.issueId, it.relatedIssueId) },
+                issues = issues.map { IssueRelationsView.Issue(it.id, it.identifier, it.title, it.status) },
+                toggled = toggled,
+                showAll = showAll,
+            ),
+        )
+        val named = buildSet {
+            view.parent?.let { add(it.id) }
+            view.subIssues.rows.forEach { add(it.id) }
+            view.bands.forEach { band -> band.rows.forEach { add(it.id) } }
+        }
+        RelationsUi(view, issues.filter { it.id in named }.associateBy { it.id })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RelationsUi.EMPTY)
+
+    /**
+     * The stored relation a band row stands for — what its remove acts on.
+     * The band key names the SIDE: Blocked by = an inverse `blocks`, Duplicate
+     * of = a forward `duplicate`, Related = `related` or an unknown type.
+     */
+    fun relationForBandRow(
+        rows: List<RelationRow>,
+        key: IssueRelationsView.BandKey,
+        otherIssueId: String,
+    ): RelationRow? = rows.firstOrNull { row ->
+        row.otherIssueId == otherIssueId && when (key) {
+            IssueRelationsView.BandKey.BlockedBy -> row.type == IssueRelationType.Blocks && row.inverse
+            IssueRelationsView.BandKey.Blocking -> row.type == IssueRelationType.Blocks && !row.inverse
+            IssueRelationsView.BandKey.DuplicateOf -> row.type == IssueRelationType.Duplicate && !row.inverse
+            IssueRelationsView.BandKey.DuplicatedBy -> row.type == IssueRelationType.Duplicate && row.inverse
+            IssueRelationsView.BandKey.Related ->
+                row.type == IssueRelationType.Related || row.type == null
+        }
+    }
 
     private fun relationRow(
         row: IssueRelationEntity,

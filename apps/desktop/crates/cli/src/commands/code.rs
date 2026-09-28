@@ -30,12 +30,24 @@ pub fn run(args: &[String]) -> CommandResult {
         plan: take_flag(&mut args, "--plan"),
     };
     let detach = take_flag(&mut args, "--detach");
+    // EXP-1110: `--device` starts the run on another registered machine.
+    let remote = super::remote::RemoteFlags::take(&mut args);
     reject_unknown_flags(&args)?;
     let Some(issue_ref) = args.first() else {
-        anyhow::bail!("usage: exponential code <ISSUE> [--agent claude|codex] [--model m] [--effort e] [--plan] [--detach]");
+        anyhow::bail!("usage: exponential code <ISSUE> [--device <label|id> [--account <profile>] [--follow]] [--agent claude|codex] [--model m] [--effort e] [--plan] [--detach]");
     };
 
+    if remote.device.is_none() {
+        remote.reject_local()?;
+    }
     let ctx = context::load()?;
+    if remote.device.is_some() {
+        let issue_ref = issue_ref.clone();
+        return super::remote::start(&ctx, &flags, &remote, |input| {
+            // Identifiers resolve server-side (`exponential_sessions_start`).
+            input.issue_id = Some(issue_ref);
+        });
+    }
     let interactive = !detach && term::stdin_is_tty() && term::stdout_is_tty();
     let options = launch::agent_options(&ctx.settings, &flags, interactive)?;
     // EXP-746: the shared registry decision for every end this process
@@ -165,7 +177,7 @@ fn print_exit(exit: &session_host::SessionExit) -> CommandResult {
 /// The attach's shared memory: what the composer needs from the printer, plus
 /// the latest-wins state whose re-emission must NOT scroll the transcript.
 #[derive(Default)]
-struct AttachState {
+pub(crate) struct AttachState {
     /// The newest answerable question card, numbered exactly as printed.
     pending: Option<PendingQuestion>,
     /// The `/` names the AGENT advertised (`config_state.commands`) — the
@@ -223,7 +235,9 @@ fn print_event(event: &engine::LocalFeedEvent, state: &Mutex<AttachState>) {
     }
 }
 
-fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
+/// Also the renderer of `exponential sessions log` (EXP-1110): a relayed
+/// transcript reads exactly like a local attach.
+pub(crate) fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
     match event {
         steer::ActivityEvent::Narration { text, .. } => println!("{}", text.trim_end()),
         steer::ActivityEvent::Tool { name, detail, .. } => match detail {

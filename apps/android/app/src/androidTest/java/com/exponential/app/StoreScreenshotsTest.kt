@@ -2,6 +2,7 @@ package com.exponential.app
 
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
+import com.exponential.app.ui.issue.START_CODING_READY_TAG
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onFirst
@@ -174,12 +175,14 @@ class StoreScreenshotsTest {
         // --- Start coding (EXP-825): from a repo-backed issue the demo user
         // is NOT already coding on, the bottom bar's start circle PUSHES the
         // Agent page with that issue chipped into the composer (the ONE
-        // launcher). Needs an online desktop — without one the circle only
-        // shows the no-desktop snackbar. The store slide keeps its filename.
+        // launcher). Needs an online desktop — EXP-1121: until every
+        // readiness step is met the circle opens the "Ready to code?"
+        // checklist instead, and it is inert while the inputs load, so the
+        // flow waits for the READY circle. The store slide keeps its filename.
         flow.waitFor(hasText(START_CODING_ISSUE_TITLE), NAV_TIMEOUT)
         composeRule.onAllNodes(hasText(START_CODING_ISSUE_TITLE)).onFirst().performClick()
-        flow.waitFor(hasContentDescription("Start coding"), NAV_TIMEOUT)
-        composeRule.onNode(hasContentDescription("Start coding")).performClick()
+        flow.waitFor(hasTestTag(START_CODING_READY_TAG), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag(START_CODING_READY_TAG)).performClick()
         flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
         // The chip proves the seed landed, not just the page.
         flow.waitFor(hasTestTag("agent-composer-chip-issue-APP-3"), SYNC_TIMEOUT)

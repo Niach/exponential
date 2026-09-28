@@ -203,8 +203,14 @@ pub fn parse_ps(text: &str) -> Vec<Proc> {
 /// and the ClaudeCode helper were both observed to ignore SIGTERM. Bounded
 /// and best-effort: this runs on the quit path, so it must never be the thing
 /// that hangs a quit.
+///
+/// EXP-1011: the quit path's ONE sweep also kills this process's in-flight
+/// network gits ([`crate::git_worktree::kill_inflight_network_ops`]): each
+/// leads its own process group, out of reach of the terminal's Ctrl-C, and
+/// would outlive the daemon's SIGINT/SIGTERM exit (and the IDE's quit).
 #[cfg(unix)]
 pub fn reap(data_dir: &Path) -> usize {
+    kill_inflight_git();
     let marker = hook_marker(data_dir);
     let Some(procs) = process_table() else {
         return 0;
@@ -389,8 +395,17 @@ pub fn reap_recorded(_data_dir: &Path) -> usize {
 #[cfg(not(unix))]
 pub fn reap(_data_dir: &Path) -> usize {
     // The coalition/ASN mechanic is macOS-only, and Windows has no equivalent
-    // orphan-holds-the-registration behaviour.
+    // orphan-holds-the-registration behaviour. The in-flight network gits
+    // (EXP-1011) still go: a quit must not orphan a hung transport helper.
+    kill_inflight_git();
     0
+}
+
+fn kill_inflight_git() {
+    let killed = crate::git_worktree::kill_inflight_network_ops();
+    if killed > 0 {
+        log::info!("quit: killed {killed} in-flight network git operation(s)");
+    }
 }
 
 #[cfg(test)]

@@ -23,6 +23,10 @@ import { buildServerInstallSnippet } from "@/components/my-machines"
 import { WidgetLauncherPreview } from "@/components/widget-launcher-preview"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import type { Team } from "@/db/schema"
+import { useSession } from "@/hooks/use-session"
+import { useTeamBoards } from "@/hooks/use-team-data"
+import { useCodingReadiness } from "@/hooks/use-coding-readiness"
+import { ReadinessSteps } from "@/components/coding-readiness-checklist"
 
 // The in-app "what to do next" checklist (EXP-88, rebuilt dynamic in
 // EXP-141, machines/invite goals in EXP-470, action goal in EXP-548): ten
@@ -127,6 +131,36 @@ function GettingStartedCard({
   )
 }
 
+// EXP-1121: the coding entry reuses the "Ready to code?" steps — the SAME
+// three rows Start coding opens, judged by the team's first repo-backed
+// board (else its first board), each unmet row carrying its fix.
+function CodingReadinessSummary({ teamId }: { teamId: string }) {
+  const { data: session } = useSession()
+  const currentUserId = session?.user?.id ?? ``
+  const boards = useTeamBoards(teamId)
+  const boardIds = useMemo(
+    () => [
+      ...boards.filter((board) => board.repositoryId),
+      ...boards.filter((board) => !board.repositoryId),
+    ]
+      .slice(0, 1)
+      .map((board) => board.id),
+    [boards]
+  )
+  const state = useCodingReadiness({
+    teamId,
+    boardIds,
+    currentUserId,
+    enabled: Boolean(currentUserId),
+  })
+  if (!state.readiness.visible || state.readiness.loading) return null
+  return (
+    <div className="-mx-4 border-y border-glass-stroke">
+      <ReadinessSteps state={state} />
+    </div>
+  )
+}
+
 export function GettingStartedCards({
   team,
   teamSlug,
@@ -194,17 +228,20 @@ export function GettingStartedCards({
     ),
 
     coding: (
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" asChild>
-          <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
-            <TerminalIcon className="mr-1.5 size-4" />
-            {GETTING_STARTED_COPY.coding.action}
-          </Link>
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          Or open any issue in the desktop app and press Start coding.
-        </p>
-      </div>
+      <>
+        <CodingReadinessSummary teamId={team.id} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" asChild>
+            <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
+              <TerminalIcon className="mr-1.5 size-4" />
+              {GETTING_STARTED_COPY.coding.action}
+            </Link>
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Or open any issue in the desktop app and press Start coding.
+          </p>
+        </div>
+      </>
     ),
 
     action: (

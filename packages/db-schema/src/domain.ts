@@ -982,10 +982,9 @@ export const wfNodeStateValues = [
   `blocked`,
   // Every blocker announced its contract (or landed); the scheduler may start it.
   `ready`,
+  // EXP-1065: every hold (a question, a rate limit) is `running` plus a
+  // note; `waiting` is gone (migration 0149, compat round 26).
   `running`,
-  // Needs a person: a question, a rate limit, a login. The ONLY amber state
-  // and the only one that pushes.
-  `waiting`,
   `in_review`,
   // Merging a moved upstream in.
   `updating`,
@@ -1048,42 +1047,21 @@ export const WORKFLOW_LAUNCH_DEFAULTS: Record<
 }
 
 /**
- * `workflows.launch` AS STORED (jsonb, so no migration): every field is
- * optional; an absent one falls back to the runner device's defaults.
- *
- * EXP-1029 adds `strongModel` and DEPRECATES the per-phase pins,
- * `subagentModel`, `reviewModel`, `effort` and `maxParallel`: none of them is
- * part of [`WorkflowLaunch`] any more. `normalizeWorkflowLaunch` folds a set
- * `contractModel` / `integrationModel` / `riskModel` / `reviewModel` into
- * `strongModel` and drops the rest. EXP-1032 removed them from every writer
- * and every settings UI (`workflows.update` stores the normalized four keys
- * and nothing else); older clients still SEND them, so the schema keeps
- * accepting them.
+ * `workflows.launch` AS STORED (jsonb): the four [`WorkflowLaunch`] keys,
+ * every one optional so `normalizeWorkflowLaunch` can fill an absent one
+ * from the contract defaults. The EXP-1002/EXP-1029 per-phase pins,
+ * `subagentModel`, `reviewModel`, `effort` and `maxParallel` were rewritten
+ * away by migration 0149 (compat round 26) and are ignored if they ever
+ * reappear.
  */
 export interface WorkflowLaunchStored {
   agent?: string | null
   /** The cheap model (`WorkflowLaunch.model`). */
   model?: string | null
-  /** EXP-1029: the strong model. Absent on rows written before it. */
+  /** The strong model (`WorkflowLaunch.strongModel`). */
   strongModel?: string | null
-  /** @deprecated EXP-1029 — folds into `strongModel`; EXP-1014 removes it. */
-  contractModel?: string | null
-  /** @deprecated EXP-1029 — folds into `strongModel`; EXP-1014 removes it. */
-  integrationModel?: string | null
-  /** @deprecated EXP-1029 — folds into `strongModel`; EXP-1014 removes it. */
-  riskModel?: string | null
-  /** @deprecated EXP-1029 — subagents run on `model`; EXP-1014 removes it. */
-  subagentModel?: string | null
-  /** @deprecated EXP-1029 — not part of `WorkflowLaunch`; EXP-1014 removes it. */
-  effort?: string | null
   /** An agent profile id on the runner device. */
   account?: string | null
-  /** @deprecated EXP-1029 — not part of `WorkflowLaunch` (the engine caps at
-   *  contract `workflow.maxParallelDefault`); EXP-1014 removes it. */
-  maxParallel?: number | null
-  /** @deprecated EXP-1029 — every review runs on `strongModel`; EXP-1014
-   *  removes it. */
-  reviewModel?: string | null
 }
 
 /** EXP-1029: a device's WORKFLOW model defaults — `launch_defaults.workflow`
@@ -1239,8 +1217,7 @@ export const WORKFLOW_EVENT_MESSAGE_MAX = 500
 
 // Node states, KISS (EXP-1082 §4, Danny 2026-09-25): a person sees FIVE
 // states. The stored `wfNodeState` vocabulary stays the engine's INTERNAL
-// one (nothing to migrate; `waiting` is never written again from EXP-1065
-// on — every hold is `running` with a note), and every client renders ONLY
+// one (every hold is `running` with a note), and every client renders ONLY
 // these captions, through `workflowNodeDisplayState` ×4 (locked in
 // `fixtures/workflow-view.json` `displayStates`). An open question is a
 // `needs you` BADGE beside the chip, never a state.
@@ -1257,7 +1234,6 @@ export const WF_NODE_DISPLAY_STATE: Record<WfNodeState, WfNodeDisplayState> = {
   blocked: `queued`,
   ready: `queued`,
   running: `running`,
-  waiting: `running`,
   in_review: `running`,
   updating: `running`,
   landed: `done`,

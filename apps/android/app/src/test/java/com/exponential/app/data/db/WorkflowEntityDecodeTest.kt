@@ -1,6 +1,7 @@
 package com.exponential.app.data.db
 
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.WorkflowLaunch
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.workflowNodeReview
@@ -37,8 +38,7 @@ class WorkflowEntityDecodeTest {
               "name": "EXP-14 +3",
               "status": "draft",
               "device_id": "dev-1",
-              "launch": {"agent":"claude","model":"opus","subagentModel":"fable","maxParallel":5},
-              "gate": "human",
+              "launch": {"agent":"claude","model":"opus","strongModel":"fable","account":"p-1"},
               "integration_branch": "exp/wf-abcd1234",
               "final_pr_url": null,
               "final_pr_number": null,
@@ -64,8 +64,8 @@ class WorkflowEntityDecodeTest {
         val launch = entity.launchOptions
         assertEquals("claude", launch.agent)
         assertEquals("opus", launch.model)
-        assertEquals("fable", launch.subagentModel)
-        assertEquals(5, launch.maxParallel)
+        assertEquals("fable", launch.strongModel)
+        assertEquals("p-1", launch.account)
 
         val shape = entity.shape
         assertEquals(4, shape.nodes)
@@ -95,7 +95,7 @@ class WorkflowEntityDecodeTest {
         assertEquals(DomainContract.wfStatusRunning, entity.status)
         assertEquals(42, entity.finalPrNumber)
         // Absent jsonb reads as the defaults, never as a dropped row.
-        assertEquals(DomainContract.workflowMaxParallelDefault, entity.launchOptions.maxParallel)
+        assertEquals(WorkflowLaunch(), entity.launchOptions)
         assertEquals(0, entity.shape.nodes)
         assertTrue(entity.shape.cycles.isEmpty())
     }
@@ -107,7 +107,7 @@ class WorkflowEntityDecodeTest {
               "id": "wf-3",
               "team_id": "team-1",
               "name": "EXP-1",
-              "launch": {"agent":"codex","somethingNew":true,"maxParallel":"7"},
+              "launch": {"agent":"codex","somethingNew":true,"maxParallel":"7","reviewModel":"opus"},
               "metrics": {"nodes":"3","depth":1,"width":3,"cycles":[],"newCounter":9},
               "integration_branch": "exp/wf-11111111",
               "created_at": "2026-09-19 10:00:00+00",
@@ -115,12 +115,10 @@ class WorkflowEntityDecodeTest {
             }
         """.trimIndent()
         val entity = json.decodeFromString(WorkflowEntity.serializer(), row)
-        assertEquals("codex", entity.launchOptions.agent)
+        // A retired key (compat round 26) is as unknown as a new one.
+        assertEquals(WorkflowLaunch(agent = "codex"), entity.launchOptions)
         // Postgres sometimes hands an integer over as its TEXT form.
-        assertEquals(7, entity.launchOptions.maxParallel)
         assertEquals(3, entity.shape.nodes)
-        // Everything the row did not say keeps its default.
-        assertEquals("", entity.launchOptions.subagentModel)
     }
 
     @Test
@@ -261,28 +259,6 @@ class WorkflowEntityDecodeTest {
         )
         assertNull(workflowNodeReview(nodeWith("null").review))
         assertNull(workflowNodeReview(nodeWith("\"not an object\"").review))
-    }
-
-    @Test
-    fun `the launch options carry the review model`() {
-        val row = """
-            {
-              "id": "wf-4",
-              "team_id": "team-1",
-              "name": "EXP-984",
-              "launch": {"agent":"claude","reviewModel":"opus","maxParallel":4},
-              "integration_branch": "exp/wf-22222222",
-              "created_at": "2026-09-19 10:00:00+00",
-              "updated_at": "2026-09-19 10:00:00+00"
-            }
-        """.trimIndent()
-        val entity = json.decodeFromString(WorkflowEntity.serializer(), row)
-        assertEquals("opus", entity.launchOptions.reviewModel)
-        // Absent = the engine picks the review model itself.
-        assertEquals("", json.decodeFromString(
-            WorkflowEntity.serializer(),
-            row.replace("""{"agent":"claude","reviewModel":"opus","maxParallel":4}""", """{"agent":"claude"}"""),
-        ).launchOptions.reviewModel)
     }
 
     @Test

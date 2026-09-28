@@ -1,10 +1,13 @@
 pub mod account;
 pub mod code;
 pub mod daemon;
+pub mod devices;
 pub mod doctor;
 pub mod login;
 pub mod mcp;
+pub mod remote;
 pub mod run;
+pub mod sessions;
 pub mod uninstall;
 pub mod update;
 

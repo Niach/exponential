@@ -6,9 +6,22 @@
 #
 # ONE script for cloud and self-hosted: a self-hosted deployment ships only
 # the web app (no marketing pages), so the script always lives on the cloud
-# site and the target instance rides EXP_INSTANCE. Installs the latest
-# `cli-v*` release binary to ~/.local/bin/exponential (checksum-verified),
-# then signs in via the device-code flow unless non-interactive.
+# site and the target instance rides EXP_INSTANCE. EXP-1111: it installs the
+# latest `cli-v*` release binary to ~/.local/bin/exponential
+# (checksum-verified), turns CLI auto-update on, signs in (a terminal or
+# not: the device code is printed and approved in any browser), then
+# installs the daemon as a login/boot service so this machine shows up as a
+# device, and ends with a summary.
+#
+# Environment:
+#   EXP_INSTANCE        the instance URL (default: the cloud)
+#   EXP_INSTALL_TOKEN   one-time expi_... token from the web's Add device
+#                       dialog: signs in without any approval step
+#   EXP_TOKEN           an existing expu_... API key (or session token)
+#   EXP_DEVICE_LABEL    the name this machine gets in the Devices list
+#   EXP_NO_DAEMON=1     skip the daemon service
+#   EXP_NO_AUTOUPDATE=1 leave auto-update off
+#   EXP_INSTALL_DIR     where the binary goes (default ~/.local/bin)
 
 set -eu
 
@@ -111,19 +124,84 @@ case ":$PATH:" in
     ;;
 esac
 
-# --- Sign in (interactive only) ----------------------------------------------
-# EXP_INSTANCE flows through to `exponential login`. Under `curl | sh` stdin
-# is the script pipe, so the login attaches to the controlling terminal;
-# EXP_TOKEN (an API key from Settings -> API keys) or no controlling
-# terminal = scripted setup. The probe actually OPENS /dev/tty — a
-# permission test alone passes in CI/cron where the open would fail with
-# "no such device or address".
-if [ -n "${EXP_TOKEN:-}" ] || ! ( : < /dev/tty ) 2>/dev/null; then
-  say "Done. Sign in with: $INSTALL_DIR/$BIN_NAME login"
-  [ -n "${EXP_INSTANCE:-}" ] && say "  (EXP_INSTANCE=$EXP_INSTANCE)"
-  exit 0
+# --- Auto-update (default on) ----------------------------------------------
+# Set BEFORE the first command that would otherwise ask about it.
+bin="$INSTALL_DIR/$BIN_NAME"
+if [ "${EXP_NO_AUTOUPDATE:-}" = "1" ]; then
+  "$bin" update --auto off >/dev/null
+  autoupdate="off"
+else
+  "$bin" update --auto on >/dev/null
+  autoupdate="on"
 fi
-# exec replaces the shell, so the EXIT trap would never fire — clean up first.
-rm -rf "$tmp"
-trap - EXIT
-exec "$INSTALL_DIR/$BIN_NAME" login < /dev/tty
+
+# --- Sign in ---------------------------------------------------------------
+# EXP_INSTANCE / EXP_INSTALL_TOKEN / EXP_TOKEN flow through the environment
+# (never argv, so no token shows up in `ps`). Under `curl | sh` stdin is the
+# script pipe, so an interactive login attaches to the controlling terminal;
+# with none (CI, cloud-init, a provisioning run) the login still happens:
+# it prints the device code and waits for the approval. The tty probe
+# actually OPENS /dev/tty — a permission test alone passes in CI/cron where
+# the open would fail with "no such device or address".
+has_tty=0
+( : < /dev/tty ) 2>/dev/null && has_tty=1
+
+# A re-run keeps an existing sign-in — for the SAME instance only.
+signed_in=0
+instance="${EXP_INSTANCE:-}"
+instance="${instance%/}"
+if [ -z "${EXP_INSTALL_TOKEN:-}" ] && [ -z "${EXP_TOKEN:-}" ]; then
+  if who=$("$bin" whoami 2>/dev/null); then
+    case "$who" in
+      *"$instance"*) signed_in=1 ;;
+    esac
+  fi
+fi
+
+if [ "$signed_in" = "1" ]; then
+  say "Already signed in."
+elif [ -n "${EXP_INSTALL_TOKEN:-}" ] || [ -n "${EXP_TOKEN:-}" ]; then
+  "$bin" login </dev/null || fail "sign-in failed"
+elif [ "$has_tty" = "1" ]; then
+  "$bin" login </dev/tty || fail "sign-in failed — rerun: $bin login"
+else
+  say "No terminal attached: approve this device code from any browser."
+  "$bin" login --no-browser </dev/null || fail "sign-in failed — rerun: $bin login"
+fi
+
+# --- Daemon (default on) ---------------------------------------------------
+# The service registers this machine as a device (remote starts from the
+# web, mobile and other CLIs) and starts at login/boot; on Linux it also
+# enables lingering, or prints the one sudo line that does.
+if [ "${EXP_NO_DAEMON:-}" = "1" ]; then
+  daemon="skipped (EXP_NO_DAEMON=1; run \`$bin daemon install\` later)"
+else
+  if [ -n "${EXP_DEVICE_LABEL:-}" ]; then
+    "$bin" daemon install --label "$EXP_DEVICE_LABEL" </dev/null || warn "daemon install failed"
+  else
+    "$bin" daemon install </dev/null || warn "daemon install failed"
+  fi
+  if "$bin" daemon status >/dev/null 2>&1; then
+    daemon="running"
+    # Its first register lands a moment after the process is up.
+    tries=0
+    while [ "$tries" -lt 10 ] && ! "$bin" devices 2>/dev/null | grep -q '(this machine)'; do
+      sleep 1
+      tries=$((tries + 1))
+    done
+  else
+    daemon="NOT running (see \`$bin daemon status\`)"
+  fi
+fi
+
+# --- Summary ---------------------------------------------------------------
+account=$("$bin" whoami 2>/dev/null | head -n 1) || account=""
+device=$("$bin" status 2>/dev/null | sed -n 's/^Device    //p' | head -n 1) || device=""
+say ""
+say "Exponential CLI ${tag#cli-v} is set up."
+say "  Account:      ${account:-not signed in}"
+say "  Device:       ${device:-unknown}"
+say "  Daemon:       $daemon"
+say "  Auto-update:  $autoupdate"
+say ""
+say "Next: \`$BIN_NAME doctor\` checks the agent CLIs; \`$BIN_NAME devices\` lists your machines."

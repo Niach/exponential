@@ -1,29 +1,14 @@
 //! EXP-481: device-side execution of the server-authoritative device state —
-//! applying `launch_defaults` patches onto the local [`Settings`], and the
-//! `worktree_remove` / `worktree_prune` command bodies both binaries (desktop
-//! + CLI daemon) run off the heartbeat's command pickup.
-//!
-//! EXP-1020: NOTHING in this build emits `worktree_remove` /
-//! `worktree_prune` any more — the worktrees section left the device
-//! settings on all four clients, and Settings → Worktrees cleans locally
-//! instead. The EXECUTORS below stay because an installed client BELOW the
-//! version floor still shows that section and still queues those commands;
-//! deleting the executor would make a button those builds already ship fail.
-//! EXP-1060 retires the kinds once `CLIENT_MIN_VERSION_{IOS,ANDROID,DESKTOP,
-//! CLI}` all pass this release.
-//!
-//! All blocking; callers background-execute. Refusal messages travel
-//! verbatim in `devices.completeCommand`, so they are written for the
-//! issuing UI, not for logs.
+//! applying `launch_defaults` patches onto the local [`Settings`] (both
+//! binaries, desktop + CLI daemon). EXP-1060 (compat round 26) retired the
+//! remote `worktree_remove` / `worktree_prune` commands: Settings → Worktrees
+//! cleans locally.
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::agent::CodingAgent;
-use crate::git_worktree::{list_worktrees, run_git};
-use crate::prune::{worktree_dirty_state, DirtyState, PrunePolicy};
 use crate::settings::Settings;
 
 // ---------------------------------------------------------------------------
@@ -290,166 +275,9 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Remote worktree removal
-// ---------------------------------------------------------------------------
-
-/// Why a remote `worktree_remove` refused. `message()` strings travel in
-/// `completeCommand` — user-facing.
-#[derive(Debug, PartialEq, Eq)]
-pub enum RemoveWorktreeError {
-    /// A live local session holds the branch.
-    BranchHeld,
-    /// Modified/staged tracked files — real work, never removed remotely.
-    TrackedChanges,
-    /// A coding launch holds the clone's gate — transient, retry.
-    GateBusy,
-    /// No worktree of the clone is on that branch (already gone).
-    NotFound,
-    Git(String),
-}
-
-impl RemoveWorktreeError {
-    pub fn message(&self) -> String {
-        match self {
-            Self::BranchHeld => "A live session is using this worktree.".to_string(),
-            Self::TrackedChanges => {
-                "It has uncommitted changes — remove it on the machine itself.".to_string()
-            }
-            Self::GateBusy => "A session is being launched — try again in a moment.".to_string(),
-            Self::NotFound => "That worktree is already gone.".to_string(),
-            Self::Git(detail) => detail.clone(),
-        }
-    }
-}
-
-/// Remove `branch`'s worktree of `clone`. Refuses held branches and tracked
-/// changes; untracked-only debris rides `--force` (the prune's EXP-465
-/// stance). The branch itself is KEPT — parity with the local
-/// Settings → Local repositories removal, and the next Start-coding reuses
-/// it. Runs inside the clone's launch gate so it can never race a launch
-/// mid-`worktree add`.
-pub fn remove_worktree_remote(
-    clone: &Path,
-    branch: &str,
-    held: &HashSet<String>,
-) -> Result<(), RemoveWorktreeError> {
-    if held.contains(branch) {
-        return Err(RemoveWorktreeError::BranchHeld);
-    }
-    let result = crate::launch_gate::try_exclusive(clone, || {
-        let entries = list_worktrees(clone)
-            .map_err(|err| RemoveWorktreeError::Git(err.detail.clone()))?;
-        let target = entries
-            .iter()
-            .skip(1)
-            .find(|entry| entry.branch.as_deref() == Some(branch) && entry.path != *clone)
-            .ok_or(RemoveWorktreeError::NotFound)?;
-        let path = target.path.to_string_lossy().into_owned();
-        let args: Vec<&str> = match worktree_dirty_state(&target.path) {
-            DirtyState::TrackedChanges => return Err(RemoveWorktreeError::TrackedChanges),
-            DirtyState::Clean => vec!["worktree", "remove", &path],
-            DirtyState::UntrackedOnly => vec!["worktree", "remove", "--force", &path],
-        };
-        run_git(Some(clone), &args, None, &format!("git worktree remove ({branch})"))
-            .map(|_| ())
-            .map_err(|err| RemoveWorktreeError::Git(err.detail))
-    });
-    result.ok_or(RemoveWorktreeError::GateBusy)?
-}
-
-/// The CLI's (and remote-command) prune policy: GIT-TRUTH ONLY — no synced
-/// issue facts (the daemon runs no sync engine), so `merged`/`finished`
-/// stay empty and prefix + landed checks decide. Live sessions ride
-/// `keep`/`busy_paths`; unlanded commits are `NotLanded`-protected; fresh
-/// launches are shielded by the prune's `LAUNCH_GRACE`. Residual (accepted
-/// v1): a >grace-old 0-commits-ahead worktree of a still-open issue is
-/// removed — it recreates on the next start, and the agent's conversation
-/// store survives outside the worktree.
-pub fn conservative_prune_policy(
-    branch_prefix: &str,
-    keep: HashSet<String>,
-    busy_paths: Vec<PathBuf>,
-    run_registry_dir: Option<PathBuf>,
-) -> PrunePolicy {
-    let mut prefixes = vec![
-        "exp/batch-".to_string(),
-        // EXP-637: chat runs live under their own lowercase namespace, which
-        // a custom user prefix would otherwise leave unswept.
-        crate::batch_launcher::CHAT_BRANCH_PREFIX.to_string(),
-    ];
-    if !branch_prefix.is_empty() && !prefixes.iter().any(|p| p == branch_prefix) {
-        prefixes.push(branch_prefix.to_string());
-    }
-    PrunePolicy {
-        prefixes,
-        // Resolved per clone via `effective_default_branch` (origin/HEAD) —
-        // never a fabricated `main`.
-        default_branch: None,
-        keep,
-        busy_paths,
-        merged: HashSet::new(),
-        finished: HashSet::new(),
-        delete_stale_branches: true,
-        run_registry_dir,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git_worktree::{create_worktree, TokenUrl};
-    use std::fs;
-    use std::process::Command;
-
-    struct TempDir(PathBuf);
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn temp_dir(tag: &str) -> TempDir {
-        let mut path = std::env::temp_dir();
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        path.push(format!("exp-remote-admin-{tag}-{}-{nanos}", std::process::id()));
-        fs::create_dir_all(&path).unwrap();
-        TempDir(path)
-    }
-
-    fn git(cwd: &Path, args: &[&str]) {
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@example.com")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@example.com")
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-    }
-
-    fn seed(dir: &Path) -> PathBuf {
-        let origin = dir.join("origin-src");
-        fs::create_dir_all(&origin).unwrap();
-        git(&origin, &["init", "--quiet", "-b", "main"]);
-        fs::write(origin.join("README.md"), "seed\n").unwrap();
-        git(&origin, &["add", "."]);
-        git(&origin, &["commit", "--quiet", "-m", "seed"]);
-        let clone = dir.join("clone");
-        git(dir, &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()]);
-        clone
-    }
-
-    fn worktree(clone: &Path, branch: &str) -> PathBuf {
-        create_worktree(clone, branch, "origin/main", &TokenUrl::new("acme/web", "ghs_dead"))
-            .unwrap()
-    }
 
     // -- apply_defaults_patch --------------------------------------------------
 
@@ -775,73 +603,5 @@ mod tests {
         assert_eq!(onto.claude_subagent_model, "sonnet");
         assert_eq!(onto.workflow_model, "gpt-5.6-terra");
         assert_eq!(onto.workflow_strong_model, "gpt-5.6-luna");
-    }
-
-    // -- remove_worktree_remote ------------------------------------------------
-
-    #[test]
-    fn removes_clean_and_untracked_refuses_tracked_and_held() {
-        let dir = temp_dir("remove");
-        let clone = seed(&dir.0);
-
-        // Held branch refuses before touching git.
-        let wt = worktree(&clone, "exp/EXP-1");
-        let held: HashSet<String> = ["exp/EXP-1".to_string()].into();
-        assert_eq!(
-            remove_worktree_remote(&clone, "exp/EXP-1", &held),
-            Err(RemoveWorktreeError::BranchHeld)
-        );
-
-        // Tracked changes refuse.
-        fs::write(wt.join("README.md"), "edited\n").unwrap();
-        assert_eq!(
-            remove_worktree_remote(&clone, "exp/EXP-1", &HashSet::new()),
-            Err(RemoveWorktreeError::TrackedChanges)
-        );
-        assert!(wt.exists());
-        git(&wt, &["checkout", "--quiet", "--", "README.md"]);
-
-        // Untracked-only debris goes with --force.
-        fs::write(wt.join("scratch.txt"), "debris\n").unwrap();
-        assert_eq!(remove_worktree_remote(&clone, "exp/EXP-1", &HashSet::new()), Ok(()));
-        assert!(!wt.exists());
-        // The branch survives (local removal parity — resume recreates).
-        let out = Command::new("git")
-            .args(["rev-parse", "--verify", "--quiet", "refs/heads/exp/EXP-1"])
-            .current_dir(&clone)
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "branch must be kept");
-
-        assert_eq!(
-            remove_worktree_remote(&clone, "exp/EXP-1", &HashSet::new()),
-            Err(RemoveWorktreeError::NotFound)
-        );
-    }
-
-    #[test]
-    fn gate_busy_refuses_transiently() {
-        let dir = temp_dir("gate");
-        let clone = seed(&dir.0);
-        let _wt = worktree(&clone, "exp/EXP-2");
-        let hold = crate::launch_gate::hold(&clone);
-        assert_eq!(
-            remove_worktree_remote(&clone, "exp/EXP-2", &HashSet::new()),
-            Err(RemoveWorktreeError::GateBusy)
-        );
-        drop(hold);
-        assert_eq!(remove_worktree_remote(&clone, "exp/EXP-2", &HashSet::new()), Ok(()));
-    }
-
-    #[test]
-    fn conservative_policy_is_git_truth_only() {
-        let keep: HashSet<String> = ["exp/EXP-9".to_string()].into();
-        let policy = conservative_prune_policy("exp/", keep.clone(), vec![PathBuf::from("/x")], None);
-        assert!(policy.prefixes.contains(&"exp/".to_string()));
-        assert!(policy.prefixes.contains(&"exp/batch-".to_string()));
-        assert_eq!(policy.default_branch, None, "resolved per clone, never fabricated");
-        assert_eq!(policy.keep, keep);
-        assert!(policy.merged.is_empty() && policy.finished.is_empty());
-        assert!(policy.delete_stale_branches);
     }
 }

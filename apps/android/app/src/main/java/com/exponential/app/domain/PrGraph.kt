@@ -139,16 +139,30 @@ object PrGraph {
     }
 
     /**
-     * EXP-1079: whether the header chip shows at all — a PR relation
-     * ([badgeKind]), or, on the Run face (and its Results sub-face) of a run
-     * with a family, the session tree alone. The tree carries the subject
-     * run itself, so "a family" is more than one row. Web `badgeShape`.
+     * EXP-1079/EXP-1097: what the header chip DRAWS, the SAME on every face —
+     * Issue, Run, Changes and Results alike. First match wins:
+     *
+     *  1. a PR relation ([badgeKind]: stack, batch, stack+batch);
+     *  2. [BadgeShape.RUNS] — the session tree has a FAMILY. The tree carries
+     *     the subject run itself, so "a family" is more than one row;
+     *  3. [BadgeShape.BLOCKED] — the subject issue has OPEN blockers
+     *     ([Graph.blockedBy]);
+     *  4. null = no chip.
+     *
+     * Web `badgeShape`, desktop `pr_graph::badge_shape`, iOS `PrGraph.swift`.
      */
-    fun badgeShows(graph: Graph, face: WorkFaceKind): Boolean =
-        badgeKind(graph) != null || (runsFace(face) && graph.tree.size > 1)
+    enum class BadgeShape { STACK, BATCH, STACK_AND_BATCH, RUNS, BLOCKED }
 
-    private fun runsFace(face: WorkFaceKind): Boolean =
-        face == WorkFaceKind.Run || face == WorkFaceKind.Results
+    fun badgeShape(graph: Graph): BadgeShape? = when (badgeKind(graph)) {
+        BadgeKind.STACK_AND_BATCH -> BadgeShape.STACK_AND_BATCH
+        BadgeKind.STACK -> BadgeShape.STACK
+        BadgeKind.BATCH -> BadgeShape.BATCH
+        null -> when {
+            graph.tree.size > 1 -> BadgeShape.RUNS
+            graph.blockedBy.isNotEmpty() -> BadgeShape.BLOCKED
+            else -> null
+        }
+    }
 
     /**
      * EXP-1058: what the header's STACKED issue chip draws — the front chip's
@@ -157,21 +171,63 @@ object PrGraph {
     data class BadgeChip(val issue: IssueEntity?, val count: Int)
 
     /**
-     * EXP-1058: the stacked chip, or null exactly when [badgeShows] is false.
-     * `issue` = the subject pull request's representative ([Graph.lead]);
-     * null only for a run with no issue (the tree alone), whose front chip
-     * names the run instead. `count` = every OTHER issue on the stack (all
-     * its entries' issues) or batch, or every other run of the tree when only
-     * the tree earns the chip. Web `badgeChip`, byte-identical in meaning ×4.
+     * EXP-1058/EXP-1097: the stacked chip, or null exactly when [badgeShape]
+     * is null. Face-independent.
+     *  · stack / batch — `issue` = the subject pull request's representative
+     *    ([Graph.lead]), `count` = every OTHER issue on the stack (all its
+     *    entries' issues) or batch;
+     *  · runs — `issue` = that representative (null for a run with no issue,
+     *    whose front chip names the run instead), `count` = every other run;
+     *  · blocked — `issue` = the FIRST open blocker in [Graph.blockedBy]
+     *    order, `count` = the other open blockers.
+     * Web `badgeChip`, byte-identical in meaning ×4.
      */
-    fun badgeChip(graph: Graph, face: WorkFaceKind): BadgeChip? {
-        if (!badgeShows(graph, face)) return null
+    fun badgeChip(graph: Graph): BadgeChip? {
+        val shape = badgeShape(graph) ?: return null
+        if (shape == BadgeShape.BLOCKED) {
+            return BadgeChip(graph.blockedBy.firstOrNull(), graph.blockedBy.size - 1)
+        }
         val issue = graph.lead
-        if (badgeKind(graph) == null) return BadgeChip(issue, graph.tree.size - 1)
+        if (shape == BadgeShape.RUNS) return BadgeChip(issue, graph.tree.size - 1)
         if (graph.stack.size >= 2) {
             return BadgeChip(issue, graph.stack.sumOf { it.entry.issues.size } - 1)
         }
         return BadgeChip(issue, (graph.batch?.issues?.size ?: 1) - 1)
+    }
+
+    /** One section of the chip's overlay. */
+    enum class OverlaySection { BLOCKED, BATCH, RUNS, STACK }
+
+    /**
+     * EXP-1097: the overlay's sections — every relation the subject HAS, the
+     * face's own section first (Issue: Blocked by; Run/Results: the run's
+     * issues and its tree; Changes: the pull requests). A section with
+     * nothing to list is left out, save the face's own lead on Run (its tree,
+     * even of one run) and on Changes (its pull request, even a lone one).
+     * Web `overlaySections`.
+     */
+    fun overlaySections(graph: Graph, face: WorkFaceKind): List<OverlaySection> {
+        val runFace = face == WorkFaceKind.Run || face == WorkFaceKind.Results
+        val order = when (face) {
+            WorkFaceKind.Issue -> listOf(
+                OverlaySection.BLOCKED, OverlaySection.BATCH, OverlaySection.STACK, OverlaySection.RUNS,
+            )
+            WorkFaceKind.Run, WorkFaceKind.Results -> listOf(
+                OverlaySection.BATCH, OverlaySection.RUNS, OverlaySection.STACK, OverlaySection.BLOCKED,
+            )
+            WorkFaceKind.Changes -> listOf(
+                OverlaySection.STACK, OverlaySection.BATCH, OverlaySection.RUNS, OverlaySection.BLOCKED,
+            )
+        }
+        return order.filter { section ->
+            when (section) {
+                OverlaySection.BLOCKED -> graph.blockedBy.isNotEmpty()
+                OverlaySection.BATCH -> graph.batch != null
+                OverlaySection.RUNS -> graph.tree.size > 1 || (runFace && graph.tree.isNotEmpty())
+                OverlaySection.STACK -> graph.stack.size >= 2 ||
+                    (face == WorkFaceKind.Changes && graph.stack.isNotEmpty())
+            }
+        }
     }
 
     /**
