@@ -1364,9 +1364,9 @@ pub(crate) fn recent_runs_open(window: &Window, cx: &App) -> bool {
         .is_some_and(|nav| nav.read(cx).recent_runs)
 }
 
-/// EXP-923 — the Agent page's history button: show the Recent-runs panel, or
-/// put it away. Not a navigation (the screen never changes), so it flips the
-/// flag the occupant rule reads and nothing else.
+/// EXP-923 — the Agent page's history button shows the Recent-runs panel, its
+/// back row (EXP-1119) puts it away. Not a navigation (the screen never
+/// changes), so it flips the flag the occupant rule reads and nothing else.
 pub(crate) fn toggle_recent_runs(window: &Window, cx: &mut App) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
