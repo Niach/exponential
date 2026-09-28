@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>vapp3 peer bench</title>
+<style>
+  body { font: 13px ui-monospace, monospace; margin: 16px; background: #111; color: #ddd; }
+  table { border-collapse: collapse; margin-top: 12px; }
+  td, th { border: 1px solid #333; padding: 2px 6px; text-align: right; }
+  #log { white-space: pre-wrap; max-height: 40vh; overflow: auto; color: #999; }
+  button { font: inherit; }
+</style>
+</head>
+<body>
+<h3>VAPP-3: browser ↔ str0m data channel bench</h3>
+<div>Query: <code>?policy=all|relay&amp;runs=20&amp;source=web-chromium&amp;scenario=same-machine&amp;turn=192.168.178.71:3478&amp;session=vapp3-dev&amp;auto=1&amp;tamper=sdp|sig|control|answer</code></div>
+<p><button id="go">Run</button> <span id="status">idle</span></p>
+<div id="summary"></div>
+<div id="log"></div>
+<script type="module" src="./peer.js"></script>
+</body>
+</html>

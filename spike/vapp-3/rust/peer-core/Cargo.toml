@@ -12,15 +12,16 @@ rust-crypto = ["str0m/rust-crypto"]
 apple-crypto = ["str0m/apple-crypto"]
 aws-lc-rs = ["str0m/aws-lc-rs"]
 # TURN/STUN gathering via the webrtc-rs turn crate (tokio). Off = host candidates only.
-turn = ["dep:turn", "dep:webrtc-util", "dep:stun", "dep:tokio"]
+# (srflx gathering is a hand-rolled STUN binding over the host socket, no feature needed.)
+turn = ["dep:turn", "dep:webrtc-util", "dep:tokio"]
 # Ed25519 signed DTLS fingerprints.
 signing = ["dep:ed25519-dalek", "dep:rand"]
 
 [dependencies]
 str0m = { workspace = true }
 turn = { workspace = true, optional = true }
-webrtc-util = { workspace = true, optional = true }
-stun = { workspace = true, optional = true }
+# turn 0.17 speaks webrtc-util 0.17 (the workspace pin 0.11 is the wrong major for its Conn trait).
+webrtc-util = { version = "0.17", default-features = false, features = ["conn"], optional = true }
 tokio = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

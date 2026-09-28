@@ -9,6 +9,9 @@ pub mod signal;
 #[cfg(feature = "signing")]
 pub mod signing;
 pub mod link;
+pub mod bench;
+mod gather;
+mod io;
 
 pub use link::{BenchResult, IcePolicy, LinkState, PeerConfig, PeerError, PeerLink};
 
