@@ -1,0 +1,33 @@
+[package]
+name = "peer-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["rust-crypto", "signing"]
+# Exactly one DTLS crypto backend must be enabled (str0m picks the highest-priority one present).
+rust-crypto = ["str0m/rust-crypto"]
+apple-crypto = ["str0m/apple-crypto"]
+aws-lc-rs = ["str0m/aws-lc-rs"]
+# TURN/STUN gathering via the webrtc-rs turn crate (tokio). Off = host candidates only.
+turn = ["dep:turn", "dep:webrtc-util", "dep:stun", "dep:tokio"]
+# Ed25519 signed DTLS fingerprints.
+signing = ["dep:ed25519-dalek", "dep:rand"]
+
+[dependencies]
+str0m = { workspace = true }
+turn = { workspace = true, optional = true }
+webrtc-util = { workspace = true, optional = true }
+stun = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ed25519-dalek = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+if-addrs = { workspace = true }

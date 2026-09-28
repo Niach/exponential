@@ -1,0 +1,15 @@
+# VAPP-3 spike TURN/STUN. Scratch service, separate from the dev stack:
+#   docker compose -f spike/vapp-3/coturn/docker-compose.yaml up -d
+# Edit external-ip in turnserver.conf when the LAN IP changes (scripts/coturn-up.sh does it).
+name: vapp3
+services:
+  coturn:
+    image: coturn/coturn:4.7-alpine
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+    restart: unless-stopped

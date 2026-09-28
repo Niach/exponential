@@ -1,0 +1,33 @@
+[package]
+name = "peer-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "peer_ffi"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+default = ["full", "rust-crypto"]
+# Size variants measured by the spike: `minimal` = str0m + facade only; `full` = + TURN + signing.
+minimal = []
+full = ["peer-core/turn", "peer-core/signing"]
+rust-crypto = ["peer-core/rust-crypto"]
+apple-crypto = ["peer-core/apple-crypto"]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+peer-core = { path = "../peer-core", default-features = false }
+uniffi = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+uniffi = { workspace = true, features = ["build"] }
