@@ -1,0 +1,5 @@
+/out
+/PeerHello/Sources/Generated/
+/PeerHello/*.xcodeproj
+/PeerHello/*.xcworkspace
+/PeerHello/Derived/

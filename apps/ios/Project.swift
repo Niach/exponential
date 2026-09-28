@@ -32,8 +32,23 @@ let sharedDependencies: [TargetDependency] = [
 
 // ExpCore: iOS(+iPad) data/sync/domain layer. Foundation/GRDB/Security/
 // CryptoKit/os only — NO cmark/MarkdownUI/Firebase/SwiftUI.
-let expCoreSources: SourceFilesList = ["ExpCore/Sources/**"]
-let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")]
+// VAPP-3 spike (throwaway, branch exp/VAPP-3 only): `TUIST_PEER_SPIKE=1 tuist generate` (tuist only
+// forwards TUIST_-prefixed env to manifests) links the Rust
+// peer core (spike/vapp-3/ios/out/PeerFFI.xcframework + its generated Swift bindings) into ExpCore
+// to measure the real app size delta and cold start. Unset = the shipping project, byte-identical.
+let peerSpike = Environment.peerSpike.getBoolean(default: false)
+let expCoreSources: SourceFilesList = peerSpike
+    ? ["ExpCore/Sources/**", "../../spike/vapp-3/ios/out/bindings/peer_ffi.swift"]
+    : ["ExpCore/Sources/**"]
+let expCoreDependencies: [TargetDependency] = [.external(name: "GRDB")] + (peerSpike ? [
+    .xcframework(path: "../../spike/vapp-3/ios/out/PeerFFI.xcframework"),
+    .sdk(name: "CryptoKit", type: .framework),
+    .sdk(name: "SystemConfiguration", type: .framework),
+    .sdk(name: "resolv", type: .library),
+] : [])
+let expCoreSettings: SettingsDictionary = peerSpike ? [
+    "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) PEER_SPIKE",
+] : [:]
 // ExpCore unit tests — currently the annotation-geometry parity gate that locks
 // AnnotationGeometry.swift to the TS source of truth (shapes.test.ts) for
 // web + iOS parity.
@@ -163,7 +178,7 @@ let project = Project(
             deploymentTargets: .iOS("17.4"),
             sources: expCoreSources,
             dependencies: expCoreDependencies,
-            settings: .settings(base: baseSettings)
+            settings: .settings(base: baseSettings.merging(expCoreSettings) { _, new in new })
         ),
         .target(
             name: "ExpCoreTests",
