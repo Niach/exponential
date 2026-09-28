@@ -1,4 +1,4 @@
-# VAPP-3 results (generated 2026-09-28T11:53:44.174Z by scripts/report.ts)
+# VAPP-3 results (generated 2026-09-28T12:13:41.527Z by scripts/report.ts)
 
 ## Connectivity + performance
 
@@ -15,7 +15,7 @@
 | cli | same-machine | all | 30 | 30 | 100% | 17.6 / 89.0 | 0.20 / 0.69 | 368.3 / 355.1 | host↔host |
 | cli | same-machine | host | 20 | 20 | 100% | 17.7 / 90.2 | 0.23 / 0.81 | 365.3 / 334.8 | host↔host |
 | cli | same-machine | relay | 20 | 20 | 0% | 16.4 / 24.0 | 0.23 / 0.32 | 500.2 / 502.2 | relay↔host |
-| ios-device | same-lan | all | 13 | 10 | 100% | 316.8 / 348.9 | 11.37 / 21.61 | 25.4 / 23.7 | host↔host |
+| ios-device | same-lan | all | 15 | 10 | 100% | 316.8 / 348.9 | 11.37 / 21.61 | 25.4 / 23.7 | host↔host |
 | ios-device | same-lan | host | 5 | 5 | 100% | 305.2 / 349.9 | 10.33 / 18.99 | 27.4 / 26.3 | host↔host |
 | ios-device | same-lan | relay | 6 | 6 | 0% | 186.2 / 295.7 | 11.09 / 19.50 | 26.5 / 24.0 | relay↔host |
 | ios-sim | same-lan | all | 7 | 6 | 67% | 29.5 / 186.5 | 0.15 / 0.36 | 449.6 / 514.2 | host↔relay, host↔host |
@@ -40,7 +40,7 @@
 | android-emu | emulator-nat | manual | 2 | 19.0 / 19.0 |
 | android-emu | emulator-nat | network-switch | 2 | 566.0 / 566.0 |
 | cli | same-machine | manual | 10 | 4.3 / 22.3 |
-| ios-device | same-lan | background | 3 | 3002.0 / 5253.6 |
+| ios-device | same-lan | background | 5 | 2988.7 / 5253.6 |
 | ios-device | same-lan | manual | 1 | 42.0 / 42.0 |
 | ios-sim | same-lan | manual | 14 | 26.6 / 29.5 |
 
@@ -52,6 +52,8 @@
 - ios-device same-lan all: acceptAnswer: Failed(message: "invalid argument: no pending offer") PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs 537; local host 192.168.178.96:59495; remote host 192.168.178.71:65313
 - ios-device same-lan all: acceptAnswer: Failed(message: "invalid argument: no pending offer") PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs 585; local host 192.168.178.96:61200; remote host 192.168.178.71:57434
 - ios-device same-lan all: acceptAnswer: Failed(message: "invalid argument: no pending offer") PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs 520; local host 192.168.178.96:65232; remote host 192.168.178.71:63448
+- ios-device same-lan all: runBench: Failed(message: "timeout") PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs 520; local host 192.168.178.96:65232; remote host 192.168.178.71:63448
+- ios-device same-lan all: runBench: Failed(message: "timeout") PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs 520; local host 192.168.178.96:65232; remote host 192.168.178.71:63448
 - android-device home-wifi-cellular all: timeout peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
 - android-device home-wifi-cellular all: timeout peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
 - android-device home-wifi-cellular all: timeout peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
@@ -112,6 +114,13 @@
 | android-emu | with-core | 15 | 242.0 | am start -W TotalTime |
 | android-emu | baseline | 15 | 244.0 | am start -W TotalTime |
 | android-emu | with-core | 15 | 217.0 | am start -W TotalTime |
+| android-device | baseline | 15 | 188.0 | am start -W TotalTime |
+| android-device | with-core | 15 | 192.0 | am start -W TotalTime |
+| android-device | baseline | 15 | 185.0 | am start -W TotalTime |
+| android-device | with-core | 15 | 258.0 | am start -W TotalTime |
+| android-device | with-core | 15 | 261.0 | am start -W TotalTime |
+| android-device | baseline | 15 | 181.0 | am start -W TotalTime |
+| android-device | core-load-only | 5 | 8.0 | in-app SystemClock around JNA + libpeer_ffi.so load + peerVersion() in Application.onCreate (Pixel 7, release, at.exponential.vapp3) |
 
 ## TURN bandwidth per session
 
