@@ -51,7 +51,14 @@ pub enum UpdateOutcome {
 }
 
 pub fn run(args: &[String]) -> CommandResult {
-    reject_unknown_flags(args)?;
+    let mut args = args.to_vec();
+    // EXP-1111: `--auto on|off` sets the persisted auto-update choice (the
+    // installer's default-on, and the opt-out) instead of updating now.
+    if let Some(raw) = super::take_value(&mut args, "--auto") {
+        reject_unknown_flags(&args)?;
+        return set_auto(&crate::context::data_dir(), &raw);
+    }
+    reject_unknown_flags(&args)?;
     println!("Current version: {}", crate::cli_version());
     match check_and_install()? {
         UpdateOutcome::Updated { version } => {
@@ -68,6 +75,44 @@ pub fn run(args: &[String]) -> CommandResult {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// `on`/`off` (plus the usual spellings) → the stored choice (pure).
+fn parse_auto(raw: &str) -> Option<bool> {
+    match raw.trim().to_lowercase().as_str() {
+        "on" | "true" | "yes" | "1" => Some(true),
+        "off" | "false" | "no" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+/// `exponential update --auto on|off` (bare `--auto` prints the choice).
+/// Enabling on an install that never checked stamps the throttle: the binary
+/// was just fetched, so the first check waits a day instead of re-asking
+/// GitHub on the very next command.
+fn set_auto(data_dir: &std::path::Path, raw: &str) -> CommandResult {
+    if raw.trim().is_empty() {
+        let state = match prefs::auto_update(data_dir) {
+            Some(true) => "on",
+            Some(false) => "off",
+            None => "not set",
+        };
+        println!("Auto-update is {state}.");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let Some(enabled) = parse_auto(raw) else {
+        bail!("--auto takes on or off (got `{raw}`)");
+    };
+    prefs::set_auto_update(data_dir, enabled);
+    if enabled && prefs::last_update_check(data_dir).is_none() {
+        prefs::set_last_update_check(data_dir, prefs::now_epoch());
+    }
+    if enabled {
+        println!("Auto-update on: commands check daily, the daemon every {}h.", DAEMON_CHECK_INTERVAL_SECS / 3600);
+    } else {
+        println!("Auto-update off: `exponential update` updates by hand.");
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// The engine: resolve the newest cli-v* release, and when it is newer than
@@ -307,7 +352,15 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{heal_deleted_suffix, is_newer, live_sessions_notice};
+    use super::{heal_deleted_suffix, is_newer, live_sessions_notice, parse_auto};
+
+    #[test]
+    fn the_auto_switch_parses() {
+        assert_eq!(parse_auto("on"), Some(true));
+        assert_eq!(parse_auto(" OFF "), Some(false));
+        assert_eq!(parse_auto("1"), Some(true));
+        assert_eq!(parse_auto("maybe"), None);
+    }
 
     #[test]
     fn numeric_not_lexicographic() {

@@ -72,6 +72,7 @@ pub mod issues;
 pub mod labels;
 pub mod login;
 pub mod mcp_servers;
+pub mod mcp_tools;
 pub mod notifications;
 pub mod onboarding;
 pub mod opener;

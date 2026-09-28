@@ -8,7 +8,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context as _};
-use api::actions::{BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID};
+use api::actions::{BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID};
 use coding::{ActionInputValue, Prepared, PrepareRequest};
 
 use super::{reject_unknown_flags, take_flag, take_value, take_values, CommandResult};
@@ -30,12 +30,29 @@ pub fn run(args: &[String]) -> CommandResult {
     // Create-action builtin, additional instructions for everything else.
     let prompt = take_value(&mut args, "--prompt").filter(|text| !text.trim().is_empty());
     let detach = take_flag(&mut args, "--detach");
+    // EXP-1110: `--device` runs it on another registered machine.
+    let remote = super::remote::RemoteFlags::take(&mut args);
     reject_unknown_flags(&args)?;
     let Some(action_ref) = args.first() else {
-        bail!("usage: exponential run <action-id-or-name> [--team <team-id>] [--input k=v ...] [--prompt <text>] [--agent ...] [--detach]");
+        bail!("usage: exponential run <action-id-or-name> [--device <label|id> [--account <profile>] [--follow]] [--team <team-id>] [--input k=v ...] [--prompt <text>] [--agent ...] [--detach]");
     };
 
+    if remote.device.is_none() {
+        remote.reject_local()?;
+    }
     let ctx = context::load()?;
+    if remote.device.is_some() {
+        let team_id = match team_flag {
+            Some(team) if !team.is_empty() => team,
+            _ => launch::default_team_id(&ctx.trpc)?,
+        };
+        let (action_id, input_defs) = resolve_action_ref(&ctx, action_ref, &team_id)?;
+        let inputs = build_inputs(&raw_inputs, &input_defs, &action_id)?;
+        check_prompt(&action_id, prompt.as_deref())?;
+        return super::remote::start(&ctx, &flags, &remote, |input| {
+            fill_remote_action(input, &action_id, &team_id, inputs, prompt);
+        });
+    }
     let interactive = !detach && term::stdin_is_tty() && term::stdout_is_tty();
     let options = launch::agent_options(&ctx.settings, &flags, interactive)?;
     // EXP-746: the shared registry decision for every end this process
@@ -49,9 +66,7 @@ pub fn run(args: &[String]) -> CommandResult {
 
     let (action_id, input_defs) = resolve_action_ref(&ctx, action_ref, &team_id)?;
     let inputs = build_inputs(&raw_inputs, &input_defs, &action_id)?;
-    if action_id == BUILTIN_CREATE_ACTION_ID && prompt.is_none() {
-        bail!("the Create-action builtin needs the request text: --prompt \"<what the action should do>\"");
-    }
+    check_prompt(&action_id, prompt.as_deref())?;
 
     let request = launch::resolve_action_request(
         &ctx,
@@ -122,6 +137,40 @@ pub fn run(args: &[String]) -> CommandResult {
     outcome
 }
 
+/// The two builtins whose whole request IS the prompt.
+fn check_prompt(action_id: &str, prompt: Option<&str>) -> anyhow::Result<()> {
+    if prompt.is_some() {
+        return Ok(());
+    }
+    match action_id {
+        BUILTIN_CREATE_ACTION_ID => {
+            bail!("the Create-action builtin needs the request text: --prompt \"<what the action should do>\"")
+        }
+        BUILTIN_CHAT_ID => bail!("a chat run needs its message: --prompt \"<what to ask>\""),
+        _ => Ok(()),
+    }
+}
+
+/// EXP-1110: the action half of a remote start. `teamId` rides BUILTIN
+/// starts only (a team action's team is its own row's); pick inputs ride as
+/// the `key → value` map `steer.startSession` validates.
+fn fill_remote_action(
+    input: &mut api::mcp_tools::RemoteStartInput,
+    action_id: &str,
+    team_id: &str,
+    inputs: Vec<ActionInputValue>,
+    prompt: Option<String>,
+) {
+    input.action_id = Some(action_id.to_string());
+    if api::actions::is_builtin_action_id(action_id) {
+        input.team_id = Some(team_id.to_string());
+    }
+    if !inputs.is_empty() {
+        input.inputs = Some(inputs.into_iter().map(|input| (input.key, input.value)).collect());
+    }
+    input.prompt = prompt;
+}
+
 /// Resolve an action reference: a builtin id (or its short alias), a UUID,
 /// or a case-insensitive action name within the team.
 fn resolve_action_ref(
@@ -132,13 +181,15 @@ fn resolve_action_ref(
     let builtin = match action_ref {
         BUILTIN_CREATE_ACTION_ID | "create-action" => Some(BUILTIN_CREATE_ACTION_ID),
         BUILTIN_FIX_CONFLICTS_ID | "fix-conflicts" => Some(BUILTIN_FIX_CONFLICTS_ID),
+        // EXP-1110: the composer's subject-less chat (`--prompt` = the message).
+        BUILTIN_CHAT_ID | "chat" => Some(BUILTIN_CHAT_ID),
         _ => None,
     };
     if let Some(id) = builtin {
-        let action = if id == BUILTIN_FIX_CONFLICTS_ID {
-            api::actions::builtin_fix_conflicts_action(team_id)
-        } else {
-            api::actions::builtin_create_action(team_id)
+        let action = match id {
+            BUILTIN_FIX_CONFLICTS_ID => api::actions::builtin_fix_conflicts_action(team_id),
+            BUILTIN_CHAT_ID => api::actions::builtin_chat_action(team_id),
+            _ => api::actions::builtin_create_action(team_id),
         };
         return Ok((id.to_string(), action.inputs));
     }

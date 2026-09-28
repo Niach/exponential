@@ -47,12 +47,23 @@ pub fn status(args: &[String]) -> CommandResult {
     reject_unknown_flags(args)?;
     let ctx = context::load()?;
     println!("Account   {} on {}", ctx.account.email, ctx.account.instance_url);
-    println!("Device    {}", ctx.device_id());
-
-    match super::daemon::daemon_pid(&ctx.data_dir) {
-        Some(pid) => println!("Daemon    running (pid {pid})"),
-        None => println!("Daemon    not running (`exponential daemon install` to set it up)"),
+    // EXP-1110: what the SERVER knows about this machine (best-effort — an
+    // unreachable server only drops the label, never the status).
+    let device_id = ctx.device_id();
+    let row = api::mcp_tools::devices_list(&ctx.trpc, None)
+        .map_err(|err| log::debug!("status: devices list failed: {err}"))
+        .ok()
+        .and_then(|devices| devices.into_iter().find(|device| device.device_id == device_id));
+    let pid = super::daemon::daemon_pid(&ctx.data_dir);
+    for line in device_lines(&device_id, pid, row.as_ref()) {
+        println!("{line}");
     }
+    let auto_update = match crate::prefs::auto_update(&ctx.data_dir) {
+        Some(true) => "on",
+        Some(false) => "off (`exponential update --auto on` turns it on)",
+        None => "not set (`exponential update --auto on|off`)",
+    };
+    println!("Updates   {} {auto_update}", crate::cli_version());
 
     let report = coding::run_doctor(&ctx.settings);
     let agents = report.installed_agents();
@@ -80,6 +91,48 @@ pub fn status(args: &[String]) -> CommandResult {
     let git = if report.git.ok { "ok" } else { "MISSING" };
     println!("Git       {git}");
     Ok(ExitCode::SUCCESS)
+}
+
+/// EXP-1110: said wherever a person could believe signing in was enough —
+/// `status`, `login`, `devices`. Only a running daemon registers this machine
+/// and keeps it online for remote starts.
+pub const NOT_REGISTERED_HINT: &str = "This machine is NOT registered as a device: it is not visible to your \
+other clients and can't be remote-started until the daemon runs. \
+Set it up with `exponential daemon install` (or run `exponential daemon`).";
+
+/// The `Device` + `Daemon` lines of `status` (pure, unit-tested): the local
+/// daemon state beside what the server's device row says.
+fn device_lines(
+    device_id: &str,
+    daemon_pid: Option<u32>,
+    row: Option<&api::mcp_tools::RemoteDevice>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    match row {
+        Some(row) => {
+            let label = if row.label.is_empty() { "(no label)" } else { row.label.as_str() };
+            let state = if row.online { "online" } else { "offline" };
+            lines.push(format!("Device    {label} — {state} ({device_id})"));
+        }
+        None => lines.push(format!("Device    {device_id} (not registered)")),
+    }
+    match daemon_pid {
+        Some(pid) => lines.push(format!("Daemon    running (pid {pid})")),
+        None => {
+            lines.push("Daemon    NOT running".to_string());
+            let detail = match row {
+                Some(row) if row.online => {
+                    "          the server still reports this machine online; it drops offline within a minute".to_string()
+                }
+                Some(_) => "          this machine is registered but OFFLINE: it can't be remote-started until \
+the daemon runs (`exponential daemon install`)"
+                    .to_string(),
+                None => format!("          {NOT_REGISTERED_HINT}"),
+            };
+            lines.push(detail);
+        }
+    }
+    lines
 }
 
 /// The one-line ACP readiness summary for `status`: which installed agents
@@ -124,6 +177,37 @@ mod tests {
             codex: check(Tool::Codex, true, codex),
             git: check(Tool::Git, true, None),
         }
+    }
+
+    /// EXP-1110: with no daemon, `status` says in so many words that this
+    /// machine cannot be remote-started — and why.
+    #[test]
+    fn a_stopped_daemon_says_the_machine_is_not_a_device() {
+        let lines = device_lines("cli-1", None, None);
+        assert_eq!(lines[0], "Device    cli-1 (not registered)");
+        assert_eq!(lines[1], "Daemon    NOT running");
+        assert!(lines[2].contains("NOT registered as a device"), "{lines:?}");
+        assert!(lines[2].contains("exponential daemon install"), "{lines:?}");
+
+        let row = api::mcp_tools::RemoteDevice {
+            device_id: "cli-1".into(),
+            label: "build box".into(),
+            online: false,
+            ..Default::default()
+        };
+        let lines = device_lines("cli-1", None, Some(&row));
+        assert_eq!(lines[0], "Device    build box — offline (cli-1)");
+        assert!(lines[2].contains("registered but OFFLINE"), "{lines:?}");
+
+        let online = api::mcp_tools::RemoteDevice { online: true, ..row };
+        let lines = device_lines("cli-1", Some(42), Some(&online));
+        assert_eq!(
+            lines,
+            vec![
+                "Device    build box — online (cli-1)".to_string(),
+                "Daemon    running (pid 42)".to_string(),
+            ]
+        );
     }
 
     /// EXP-746/EXP-773: `status` says which agents can run a session. Only
