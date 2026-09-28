@@ -32,7 +32,7 @@ export function SiteHeader() {
             <span>Exponential</span>
           </a>
           <nav className="nav">
-            <a href="/#product">Product</a>
+            <a href="/features/">Features</a>
             <a href="/pricing/">Pricing</a>
             <a href="/docs/">Docs</a>
             <a href={LINKS.downloadPage}>Download</a>
@@ -56,8 +56,8 @@ export function SiteHeader() {
 }
 
 export function FooterCTA({
-  title = `Bring your team to the next level`,
-  subtitle = `The only tool your team will need`,
+  title = `Give your agents a tracker to work in`,
+  subtitle = `Free for teams of three. Open source, and free to self-host.`,
 }: {
   title?: string
   subtitle?: string
@@ -87,6 +87,7 @@ export function SiteFooter() {
   const groups = [
     {
       links: [
+        { label: `Features`, href: `/features/` },
         { label: `Pricing`, href: `/pricing/` },
         { label: `Download`, href: LINKS.downloadPage },
         { label: `Docs`, href: `/docs/` },
@@ -96,6 +97,7 @@ export function SiteFooter() {
     {
       links: [
         { label: `GitHub`, href: LINKS.github.repo },
+        { label: `Styleguide`, href: LINKS.styleguide },
         { label: `Contact`, href: `/contact/` },
         { label: `Privacy`, href: `/privacy/` },
         { label: `Terms`, href: `/terms/` },
@@ -108,11 +110,14 @@ export function SiteFooter() {
     <footer>
       <div className="shell">
         <div className="foot-bottom">
-          <span
-            style={{ display: `inline-flex`, alignItems: `center`, gap: 8 }}
-          >
-            <ExpLogo size={16} />
-            <span>Exponential</span>
+          <span className="foot-brand">
+            <span
+              style={{ display: `inline-flex`, alignItems: `center`, gap: 8 }}
+            >
+              <ExpLogo size={16} />
+              <span>Exponential</span>
+            </span>
+            <UneedBadge />
           </span>
           <span className="foot-groups">
             {groups.map((g) => (
@@ -137,6 +142,28 @@ export function SiteFooter() {
         </div>
       </div>
     </footer>
+  )
+}
+
+/* Uneed "Daily winner" award (MKT-9), the DARK variant to match the site.
+   Self-hosted under public/badges/ so the CSP's img-src 'self' holds. */
+export function UneedBadge({ className }: { className?: string }) {
+  return (
+    <a
+      className={`uneed-badge${className ? ` ${className}` : ``}`}
+      href={LINKS.uneed}
+      target="_blank"
+      rel="noopener"
+    >
+      <img
+        src="/badges/uneed-potd2-dark.png"
+        width={250}
+        height={67}
+        style={{ width: `250px`, height: `auto` }}
+        alt="Uneed POTD2 Badge"
+        loading="lazy"
+      />
+    </a>
   )
 }
 

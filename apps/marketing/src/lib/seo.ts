@@ -4,6 +4,7 @@
    The source HTML heads carry ONLY charset/viewport/title/fonts/icons — every
    description/canonical/og:/twitter:/ld+json tag is owned here. */
 
+import { HOME_FAQ } from "./faq"
 import { PLANS } from "./plans"
 
 export const SITE_ORIGIN = `https://exponential.at`
@@ -44,7 +45,7 @@ const softwareApplication: Record<string, unknown> = {
   name: SITE_NAME,
   applicationCategory: `DeveloperApplication`,
   operatingSystem: `Web, iOS, Android, macOS, Windows, Linux`,
-  description: `The next generation dev platform for teams. Issues, customer feedback and coding agents in one realtime tracker. AI agents run locally on your machines, on your subscription, and open GitHub pull requests.`,
+  description: `The open-source issue tracker your agents work in. Every Claude Code or Codex run gets Exponential as its MCP server: it reads its issue, files follow-ups, opens and merges its GitHub pull request and asks you when it has to. Agents run locally on your machines, on your subscription.`,
   url: `${SITE_ORIGIN}/`,
   /* SoftwareApplication is also eligible for Google's product rich result.
      Give that item the same crawlable image and complete offer as the pricing
@@ -87,6 +88,17 @@ const pricingProduct: Record<string, unknown> = {
   ),
 }
 
+/* Built from the SAME array <HomeFaq/> renders (lib/faq.ts). */
+const homeFaq: Record<string, unknown> = {
+  "@context": `https://schema.org`,
+  "@type": `FAQPage`,
+  mainEntity: HOME_FAQ.map((item) => ({
+    "@type": `Question`,
+    name: item.q,
+    acceptedAnswer: { "@type": `Answer`, text: item.a },
+  })),
+}
+
 function breadcrumb(
   items: { name: string; path: string }[]
 ): Record<string, unknown> {
@@ -108,20 +120,39 @@ export const PAGES: PageSeo[] = [
     htmlFile: `index.html`,
     sources: [
       `src/HomePage.tsx`,
-      `src/components/ActionsSection.tsx`,
-      `src/components/AgentsSection.tsx`,
-      `src/components/CollabSection.tsx`,
+      `src/components/PromptLoops.tsx`,
+      `src/components/WorkflowShowcase.tsx`,
+      `src/components/BuildProof.tsx`,
+      `src/components/HomeFaq.tsx`,
       `src/components/HeroDownload.tsx`,
       `src/components/HomePricing.tsx`,
       `src/components/PlanCards.tsx`,
-      `src/components/SocialProof.tsx`,
+      `src/lib/commit-stats.generated.json`,
+      `src/lib/faq.ts`,
       `src/lib/plans.ts`,
+    ],
+    title: `Exponential · The issue tracker your agents work in`,
+    description: `The open-source issue tracker your agents work in. Claude Code and Codex run as local agents on your machines, on your subscription, with the tracker as their MCP server: they read issues, open and merge PRs and ask you when needed. Free for teams of three, or self-hosted for free.`,
+    ogImage: `/og/og-home.png`,
+    jsonLd: [organization, softwareApplication, homeFaq],
+  },
+  {
+    path: `/features/`,
+    htmlFile: `features/index.html`,
+    sources: [
+      `src/FeaturesPage.tsx`,
+      `src/components/ActionsSection.tsx`,
+      `src/components/AgentsSection.tsx`,
+      `src/components/CollabSection.tsx`,
       `src/webui/HelpdeskChatDemo.tsx`,
     ],
-    title: `Exponential · The next generation dev platform for teams`,
-    description: `The next generation dev platform for teams. Issues, customer feedback and coding agents in one realtime tracker. Agents run on your hardware, on your subscription, no cloud agents. Native on web, iOS, Android, macOS, Windows and Linux. Free for teams of three, open source and free to self-host.`,
+    title: `Features · Exponential issue tracker`,
+    description: `Everything in the Exponential issue tracker: MCP for every agent run, realtime issues with custom statuses and relations, coding agents on your own machines, actions and automations, reviews and stacked PRs, workflows, the feedback widget, the helpdesk and native apps.`,
     ogImage: `/og/og-home.png`,
-    jsonLd: [organization, softwareApplication],
+    jsonLd: breadcrumb([
+      { name: `Home`, path: `/` },
+      { name: `Features`, path: `/features/` },
+    ]),
   },
   {
     path: `/pricing/`,

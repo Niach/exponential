@@ -20,6 +20,8 @@ export const LINKS = {
     // app answers the CORS preflight — see apps/web /api/contact.
     contact: `${APP}/api/contact`,
   },
+  styleguide: `https://styleguide.exponential.at`,
+  uneed: `https://www.uneed.best/tool/exponential`,
   github: {
     repo: REPO,
     releases: `${REPO}/releases`,

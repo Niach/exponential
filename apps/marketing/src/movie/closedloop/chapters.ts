@@ -1,7 +1,6 @@
 // closedloop/chapters.ts — per-flow clip metadata as a REMOTION-FREE module.
-// The site's SSR-rendered stepper (../LoopMovie.tsx) imports this file
-// directly, so it must never grow imports; timeline.ts attaches the frame
-// numbers and exports the full CHAPTERS list the player seeks by.
+// Kept import-free; timeline.ts attaches the frame numbers and exports the
+// full CHAPTERS list. (The site's film embed that also read it left in MKT-9.)
 //
 // EXP-385: the film opens on the multiplayer board (teams managing their
 // product is the headline), then the merged remote-start + live-steer clip,

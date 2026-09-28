@@ -29,13 +29,7 @@
     padding: 56px 0;
   }
 
-  /* Phones drop the one-screen hero (EXP-392). The film is width-driven
-     here, not capped by --movie-reserve, so reserving a whole viewport
-     bought nothing: the surplus became a dead band above the frame, and
-     the frame itself landed flush at the bottom of the svh box — under
-     Brave iOS's bottom bar. Size to content and let the page scroll. */
   .hero {
-    min-height: 0;
     padding: 36px 0 24px;
   }
   .hero-title {

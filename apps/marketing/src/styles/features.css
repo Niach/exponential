@@ -1,0 +1,400 @@
+/* ─── /features/ (MKT-9): text hero, section index, feature blocks ───
+   Every class is `ft-` prefixed. The page reuses the shared chrome
+   (.shell, .section-eyebrow, h2.section-title, .btn) and only adds the
+   layout: big type, lots of air, one idea per block. Responsive tiers at
+   the bottom (≤960 stacks the blocks, ≤720 matches responsive.css's phone
+   tier). */
+
+/* Anchor targets clear the sticky 56px topbar, including the ids the
+   reused sections render (#agents, #actions, #collaboration). */
+.ft-page section[id] {
+  scroll-margin-top: 72px;
+}
+
+/* ─── Hero: sized to content, no film (never the one-screen .hero) ─── */
+.ft-hero {
+  padding: 120px 0 72px;
+}
+
+.ft-hero-content {
+  text-align: center;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.ft-hero-kicker {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-muted);
+  margin-bottom: 22px;
+}
+
+h1.ft-hero-title {
+  font-size: clamp(40px, 7vw, 88px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  margin: 0 auto 24px;
+  max-width: 13ch;
+  text-wrap: balance;
+}
+
+.ft-hero-sub {
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  max-width: 580px;
+  margin: 0 auto 34px;
+}
+
+.ft-hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* ─── Section index: a compact numbered grid of anchors ─── */
+.ft-index {
+  padding: 8px 0 40px;
+}
+
+.ft-index-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px solid var(--glass-stroke-section);
+  border-left: 1px solid var(--glass-stroke-section);
+}
+
+.ft-index-grid > li {
+  border-right: 1px solid var(--glass-stroke-section);
+  border-bottom: 1px solid var(--glass-stroke-section);
+}
+
+.ft-index-link {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 4px;
+  padding: 18px 18px 20px;
+  height: 100%;
+  color: var(--fg);
+  transition: background 140ms;
+}
+
+.ft-index-link:hover {
+  background: var(--glass-fill-row);
+}
+
+.ft-index-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+  padding-top: 3px;
+}
+
+.ft-index-label {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.ft-index-line {
+  grid-column: 2;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+
+/* ─── Feature blocks ─── */
+.ft-block {
+  padding: 120px 0;
+}
+
+/* Hairline between consecutive new blocks (the reused sections bring their
+   own bands). */
+.ft-block + .ft-block .ft-block-inner {
+  border-top: 1px solid var(--glass-stroke-section);
+  padding-top: 120px;
+}
+
+.ft-block + .ft-block {
+  padding-top: 0;
+}
+
+.ft-block-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  grid-template-areas: "copy aside";
+  gap: 80px;
+  align-items: start;
+}
+
+.ft-block.is-flip .ft-block-inner {
+  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+  grid-template-areas: "aside copy";
+}
+
+.ft-copy {
+  grid-area: copy;
+  min-width: 0;
+}
+
+.ft-aside {
+  grid-area: aside;
+  min-width: 0;
+}
+
+.ft-block h2.section-title {
+  font-size: clamp(34px, 4.4vw, 56px);
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  margin-bottom: 24px;
+  text-wrap: balance;
+}
+
+.ft-body p {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+  margin: 0 0 16px;
+  max-width: 520px;
+}
+
+/* ─── Docs links ─── */
+.ft-doclinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin-top: 26px;
+}
+
+.ft-doclink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  border-bottom: 1px solid var(--glass-stroke-strong);
+  padding-bottom: 2px;
+  transition: border-color 140ms;
+}
+
+.ft-doclink svg {
+  transition: transform 150ms ease;
+}
+
+.ft-doclink:hover {
+  border-bottom-color: var(--fg-muted);
+}
+
+.ft-doclink:hover svg {
+  transform: translateX(2px);
+}
+
+/* The strip after a reused section. */
+.ft-docrow {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--glass-stroke-section);
+}
+
+.ft-docrow-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+}
+
+.ft-docrow-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+}
+
+.ft-docrow .ft-doclinks {
+  margin-top: 0;
+}
+
+/* ─── Point grid: 2 × 2 hairline cells ─── */
+.ft-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--glass-stroke-section);
+}
+
+.ft-point {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 26px 24px 30px 0;
+  border-bottom: 1px solid var(--glass-stroke-section);
+}
+
+.ft-point:nth-child(2n) {
+  padding-left: 24px;
+  padding-right: 0;
+  border-left: 1px solid var(--glass-stroke-section);
+}
+
+.ft-point-title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+.ft-point-text {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+/* ─── MCP aside: one big number + the tool areas ─── */
+.ft-mcp {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.ft-stat {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--glass-stroke-section);
+}
+
+.ft-stat-num {
+  font-size: clamp(88px, 11vw, 148px);
+  font-weight: 600;
+  line-height: 0.82;
+  letter-spacing: -0.06em;
+}
+
+.ft-stat-label {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  max-width: 260px;
+}
+
+.ft-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ft-chip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 6px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-fill-row);
+  border: 1px solid var(--glass-stroke-row);
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 960px) {
+  .ft-index-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ft-block-inner,
+  .ft-block.is-flip .ft-block-inner {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "copy"
+      "aside";
+    gap: 48px;
+  }
+}
+
+@media (max-width: 720px) {
+  .ft-hero {
+    padding: 64px 0 40px;
+  }
+
+  h1.ft-hero-title {
+    font-size: 40px;
+    margin-bottom: 18px;
+  }
+
+  .ft-hero-sub {
+    font-size: 16px;
+    margin-bottom: 26px;
+  }
+
+  .ft-index {
+    padding-bottom: 16px;
+  }
+
+  .ft-index-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ft-index-link {
+    padding: 14px 12px 16px;
+  }
+
+  .ft-index-line {
+    display: none;
+  }
+
+  .ft-block {
+    padding: 72px 0;
+  }
+
+  .ft-block + .ft-block .ft-block-inner {
+    padding-top: 72px;
+  }
+
+  .ft-block h2.section-title {
+    font-size: 32px;
+    line-height: 1.06;
+    margin-bottom: 18px;
+  }
+
+  .ft-body p {
+    font-size: 16px;
+  }
+
+  .ft-block-inner,
+  .ft-block.is-flip .ft-block-inner {
+    gap: 36px;
+  }
+
+  /* One column of points: the side hairline becomes a plain row. */
+  .ft-points {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ft-point,
+  .ft-point:nth-child(2n) {
+    padding: 20px 0 22px;
+    border-left: 0;
+  }
+
+  .ft-stat {
+    gap: 16px;
+  }
+
+  .ft-stat-num {
+    font-size: 88px;
+  }
+}

@@ -13,7 +13,7 @@ apps/
 ├── web/ # TanStack Start app (the issue tracker)
 ├── push-relay/ # Push relay (Hono/Bun)
 ├── steer-relay/# Remote-start + live-steer WS hub (Bun)
-├── marketing/ # Vite + React; the Remotion ClosedLoop hero (src/movie/)
+├── marketing/ # Vite + React; Remotion films in src/movie/ (render-only)
 ├── ios/ # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
 ├── android/ # Kotlin / Jetpack Compose
 ├── styleguide/ # Shot gallery + REAL @exp/ui islands

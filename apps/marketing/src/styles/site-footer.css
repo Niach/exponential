@@ -71,3 +71,21 @@ footer {
 .foot-legal {
   align-self: center;
 }
+
+/* Brand + the Uneed award badge (MKT-9). */
+.foot-brand {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.uneed-badge {
+  display: inline-block;
+  line-height: 0;
+  opacity: 0.92;
+  transition: opacity 150ms;
+}
+.uneed-badge:hover {
+  opacity: 1;
+}

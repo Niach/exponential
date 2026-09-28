@@ -17,7 +17,7 @@ import { wallpaperBackground } from "../ships/rig"
 import { Reel } from "./scenes/Reel"
 
 // Static background: identical at every frame (no staticFile assets), so the
-// loop point stays seamless and the @remotion/player embed needs no bundle.
+// loop point stays seamless and a render needs no bundled assets.
 // EXP-359: the blobs play the macOS wallpaper behind the translucent window —
 // positioned so the bleed lands where the reference screenshot shows it
 // (strong violet at the window's bottom-left corner, a softer wash along the

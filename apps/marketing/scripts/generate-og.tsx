@@ -46,8 +46,8 @@ type Card = { file: string; title: string; subtitle: string }
 const CARDS: Card[] = [
   {
     file: `og-home.png`,
-    title: `The next generation dev platform for teams`,
-    subtitle: `Issues, customer feedback and coding agents in one realtime tracker. Agents run on your hardware, on your subscription.`,
+    title: `The issue tracker your agents work in`,
+    subtitle: `Every Claude Code or Codex run gets the tracker as its MCP server. Open source, on your machines, on your subscription.`,
   },
   {
     file: `og-pricing.png`,

@@ -26,6 +26,7 @@ import {
   type JsonLd,
 } from "../src/lib/seo"
 import { HomePage } from "../src/HomePage"
+import { FeaturesPage } from "../src/FeaturesPage"
 import { PricingPage } from "../src/PricingPage"
 import { DownloadPage } from "../src/DownloadPage"
 import { DOCS_NAV } from "../src/lib/docs-nav"
@@ -52,6 +53,7 @@ const MARKER = `<div id="root"></div>`
 /* Path → page component, keyed by PageSeo.path. */
 const COMPONENTS: Record<string, ComponentType> = {
   "/": HomePage,
+  "/features/": FeaturesPage,
   "/pricing/": PricingPage,
   "/download/": DownloadPage,
   "/docs/": DocsPage,
@@ -206,7 +208,10 @@ ${urls.join(`\n`)}
    generated from the same PAGES manifest as the sitemap so it can't drift. */
 function writeLlmsTxt(): void {
   const SECTIONS: { heading: string; paths: string[] }[] = [
-    { heading: `Product`, paths: [`/`, `/pricing/`, `/download/`] },
+    {
+      heading: `Product`,
+      paths: [`/`, `/features/`, `/pricing/`, `/download/`],
+    },
     {
       heading: `Docs`,
       paths: [
@@ -232,7 +237,7 @@ function writeLlmsTxt(): void {
   const lines: string[] = [
     `# ${SITE_NAME}`,
     ``,
-    `> An open-source (Apache-2.0) realtime tracker for issues, customer support and coding agents. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests (unlimited sessions, flat price). Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
+    `> An open-source (Apache-2.0) issue tracker your coding agents work in. Every Claude Code or Codex run it starts on your own machines gets Exponential as its MCP server: it reads its issue, files follow-ups, opens and merges its GitHub pull request and asks you only when it has to (unlimited sessions, flat price). Also a realtime tracker for teams with a feedback widget and helpdesk. Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
     ``,
     `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential.`,
   ]

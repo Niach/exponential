@@ -1,14 +1,12 @@
-// The Remotion studio/render root. The site itself never imports this file —
-// it embeds the composition directly through @remotion/player
-// (../LoopMoviePlayer); this root exists so `bun run movie:studio` and
-// `movie:render` can preview and render the SAME ClosedLoop component.
+// The Remotion studio/render root: `bun run movie:studio` and `movie:render`
+// preview and render the ClosedLoop component from here (the site stopped
+// embedding it in MKT-9; the films are render-only).
 // The Seg-* compositions preview each per-flow clip at its own local
 // timeline (EXP-337) — studio-only authoring aids, never rendered.
 // Everything is registered twice: once wide (1920×1080), once `portrait`
 // (the 1080×1350 phone framing, EXP-482). EXP-1100 adds the Showreel comp
-// (movie:showreel:render), wide only. movie:render and movie:poster keep
-// targeting the wide ids, so their output is unaffected; movie:poster:portrait
-// renders ClosedLoop-Portrait, and the -pt previews are where the portrait
+// (movie:showreel:render), wide only. movie:render keeps targeting the wide
+// ids, so its output is unaffected; the -pt previews are where the portrait
 // camera shots get tuned.
 import "./reset.css"
 import React from "react"
@@ -28,7 +26,7 @@ import {
 } from "../showreel/Showreel"
 import { VARIANTS } from "../showreel/variants"
 
-// The two canvases (keep in lockstep with LoopMoviePlayer + loop.css).
+// The two canvases.
 const WIDE = { width: 1920, height: 1080 } as const
 const PORTRAIT = { width: 1080, height: 1350 } as const
 

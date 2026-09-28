@@ -2,7 +2,7 @@
    A finite list of beat durations looped forever: beat 0 is the SSR-rendered
    resting state (no browser APIs run during render), an IntersectionObserver
    pauses the clock while the stage is scrolled out of view (re-entering
-   restarts the CURRENT beat's full duration, same contract as LoopMovie),
+   restarts the CURRENT beat's full duration),
    and prefers-reduced-motion freezes the player entirely so callers can
    render a static composite instead. */
 import { useEffect, useRef, useState } from "react"

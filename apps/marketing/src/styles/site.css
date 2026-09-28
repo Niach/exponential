@@ -170,38 +170,11 @@
 }
 
 /* ─── Hero ─── */
-/* The hero is one exact screen: topbar + headline + CTAs + film + chapter
-   rail fit the first viewport, the film never sits below the fold
-   (EXP-200). --movie-reserve is everything that ISN'T the 16:9 stage
-   (topbar, text stack, rail, gaps) — loop.css derives the stage cap from
-   it; the max-height tier below tightens the stack and lowers the reserve
-   so short displays give the film as much room as possible.
-   The values here are only the PRE-HYDRATION defaults: LoopMovie measures
-   the real reserve and writes it back (EXP-392). Hand-tuned constants
-   silently rotted every time the hero copy changed — by EXP-392 this one
-   over-reserved by ~150px, which capped the film small AND left a dead
-   band above it. So they err a touch generous (too small would push the
-   frame past the fold for one frame) and are not worth re-tuning by hand.
-   Phones drop the one-screen contract entirely (responsive.css). */
+/* Text only since MKT-9 (the film left the site), sized to its content;
+   the home hero's extra air lives in home.css (.home-hero). */
 .hero {
-  --movie-reserve: 500px;
-  min-height: calc(100vh - 56px);
-  min-height: calc(100svh - 56px);
-  display: flex;
-  flex-direction: column;
   padding: 48px 0 20px;
   position: relative;
-}
-
-.hero-movie-shell {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  /* `safe` falls back to start if the movie block ever overflows the leftover
-     space — plain center would push its top edge up under the CTAs. */
-  justify-content: center;
-  justify-content: safe center;
 }
 
 .hero-content {
@@ -397,7 +370,7 @@ h1.hero-title {
   color: var(--fg);
 }
 
-/* Agent strip between the CTAs and the movie (EXP-207) — the launcher is
+/* Agent strip under the CTAs (EXP-207) — the launcher is
    agent-agnostic, so the brands live here instead of in the copy. */
 .hero-agents {
   display: flex;
@@ -426,30 +399,6 @@ h1.hero-title {
 }
 .hero-agent.is-claude svg {
   color: hsl(14.8, 63.1%, 59.6%);
-}
-
-/* Short-viewport tier (typical laptops): tighten the text stack so the film
-   keeps as much of the remaining height as possible. Must come AFTER the
-   base hero type rules — same specificity, cascade order decides. */
-@media (max-height: 940px) and (min-width: 721px) {
-  .hero {
-    --movie-reserve: 400px;
-    padding-top: 28px;
-  }
-  h1.hero-title {
-    font-size: clamp(30px, 4vw, 48px);
-    margin-bottom: 14px;
-  }
-  .hero-sub {
-    font-size: 16px;
-    margin-bottom: 20px;
-  }
-  .hero-cta {
-    margin-bottom: 12px;
-  }
-  .hero-agents {
-    margin-bottom: 20px;
-  }
 }
 
 /* ─── Section eyebrow ─── */

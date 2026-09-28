@@ -1,6 +1,6 @@
 // closedloop/segments/boardlive.tsx — clip 1 (245f, the OPENER since
 // EXP-385): multiplayer vibecoding. Opens FULLY COMPOSED — local frame 0 is
-// the checked-in poster frame (bun run movie:poster): the whole IDE with
+// the old poster frame: the whole IDE with
 // EXP-151 open in Backlog and the phone beside it showing the SAME board in
 // the real mobile app. EXP-149 moves Backlog → In Progress UNDER the local
 // user — the way a teammate's change actually arrives: no presence facepile
@@ -90,8 +90,6 @@ const CAMERA_KEYS: CamKey[] = [
 // then the entire phone. The cut sits in the caption gap (bl1 is gone by
 // 110, bl2 arrives at 118) and 12f after the push lands, so the banner has
 // fully sprung by the time we arrive.
-// Shot A doubles as the PORTRAIT POSTER frame (movie:poster:portrait) —
-// re-run that script if these numbers move.
 const CAMERA_KEYS_PT: CamKey[] = shotKeys([
   { at: 0, s: 2.0, x: 424, y: 340 }, // the issue list column + facepile
   // x is biased left of the phone's own center so the visible band stays on

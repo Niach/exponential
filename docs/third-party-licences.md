@@ -15,8 +15,9 @@ surface appears.
 ### What we depend on
 
 `apps/marketing/package.json` pins `@remotion/cli`, `@remotion/google-fonts`,
-`@remotion/player` and `remotion` at **4.0.484** — the ClosedLoop hero movie in
-`apps/marketing/src/movie/`. `bun.lock` also resolves `@remotion/licensing`,
+`@remotion/player` and `remotion` at **4.0.484** — the ClosedLoop and Showreel
+films in `apps/marketing/src/movie/`, rendered to video files (MKT-9 took the
+film off the site, so no page embeds the player any more). `bun.lock` also resolves `@remotion/licensing`,
 transitively via `@remotion/renderer`.
 
 `remotion/package.json` declares `"license": "SEE LICENSE IN LICENSE.md"`, and
@@ -48,9 +49,11 @@ the free tier before then.
 
 **Permitted. No change needed.**
 
-`LoopMoviePlayer.tsx` imports `@remotion/player` and the movie surfaces import
-`remotion` directly, so Remotion's compiled code sits in the lazy JS chunk
-served to every visitor of exponential.at. That is the ordinary, documented use
+Historical since MKT-9: no page embeds the film any more, so today no Remotion
+code ships in the bundle. The determination stands for any future embed. At the
+time `LoopMoviePlayer.tsx` imported `@remotion/player` and the movie surfaces
+imported `remotion` directly, so Remotion's compiled code sat in the lazy JS
+chunk served to every visitor of exponential.at. That is the ordinary, documented use
 of `@remotion/player`: embedding a Remotion composition in a web page cannot
 happen without shipping the player to the browser, and the Free License's
 allowed use is "to use the software non-commercially or commercially for the

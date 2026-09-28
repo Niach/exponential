@@ -1,5 +1,5 @@
-// closedloop/index.ts — the ONLY module the marketing app imports (EXP-136:
-// the landing page embeds the composition inline via @remotion/player).
+// closedloop/index.ts — the composition's public surface (the Remotion root
+// renders it; the site stopped embedding it in MKT-9).
 
 export { ClosedLoop } from "./ClosedLoop"
 export {
