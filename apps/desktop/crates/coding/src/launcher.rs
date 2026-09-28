@@ -61,7 +61,7 @@ use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_credentials;
 use crate::git_worktree::{
-    branch_name, clone_path, create_worktree, ensure_clone, fetch_base,
+    branch_name, clone_path, create_worktree, ensure_clone, fetch_base, seed_empty_remote,
     shared_cargo_target_dir, GitError, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
@@ -721,9 +721,14 @@ impl WorktreeProvider for GitWorktrees {
     ) -> Result<PathBuf, GitError> {
         let clone = ensure_clone(repos_root, full_name, url)?;
         git_credentials::ensure(&clone, url, expires_at)?;
+        // An EMPTY repository gets its first commit here, so the run has a
+        // base to cut from and its PR a base to target.
+        let seeded = seed_empty_remote(&clone, default_branch, url)?;
         // Best-effort: a stale-but-present origin/<default> still yields a
         // valid worktree; only a truly missing base ref fails below.
-        let _ = fetch_base(&clone, default_branch, url);
+        if !seeded {
+            let _ = fetch_base(&clone, default_branch, url);
+        }
         let worktree =
             create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)?;
         // Best-effort exclude coverage for the launcher's local-only files
