@@ -213,8 +213,12 @@ vi.mock(`@/lib/billing`, () => ({
 }))
 
 // pr_open-only deps — mocked so the module import stays side-effect free.
-vi.mock(`@/lib/integrations/github-pr`, () => ({
+vi.mock(`@/lib/integrations/github-pr`, async (importOriginal) => ({
+  PullAlreadyExistsError: (
+    await importOriginal<typeof import("@/lib/integrations/github-pr")>()
+  ).PullAlreadyExistsError,
   createPullRequest: vi.fn(),
+  findOpenPullByHead: vi.fn(),
 }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationToken: vi.fn(),
@@ -288,7 +292,11 @@ import {
   relayPostInput,
 } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
-import { createPullRequest } from "@/lib/integrations/github-pr"
+import {
+  createPullRequest,
+  findOpenPullByHead,
+  PullAlreadyExistsError,
+} from "@/lib/integrations/github-pr"
 import {
   attachToStack,
   resolveStackLower,
@@ -1972,7 +1980,9 @@ describe(`exponential_report_bug`, () => {
 // which two concurrent batch runs by one user in one team could not tell
 // apart — so a headerless caller now parks nothing at all.
 describe(`exponential_pr_open batch session parking`, () => {
-  function armPrOpen(): Array<{ set: Record<string, unknown>; where: unknown }> {
+  function armPrOpen(
+    issueRow: Record<string, unknown> = { status: `backlog` }
+  ): Array<{ set: Record<string, unknown>; where: unknown }> {
     const updates: Array<{ set: Record<string, unknown>; where: unknown }> = []
     caller.repositories.forIssue.mockResolvedValue({
       repositoryId: REPO,
@@ -1996,7 +2006,7 @@ describe(`exponential_pr_open batch session parking`, () => {
       ;(txSelect as { then: unknown }).then = (
         resolve: (v: unknown) => unknown,
         reject: (e: unknown) => unknown
-      ) => Promise.resolve([{ status: `backlog` }]).then(resolve, reject)
+      ) => Promise.resolve([issueRow]).then(resolve, reject)
       return fn({
         select: () => txSelect,
         update: () => ({
@@ -2061,6 +2071,101 @@ describe(`exponential_pr_open batch session parking`, () => {
     expect(updates.some((u) => u.set.branch === `exp/batch-abcd1234`)).toBe(
       true
     )
+  })
+
+  // FEED-59: more issues implemented on the batch branch after its PR opened.
+  it(`links more issues to the PR already open on head instead of a 422`, async () => {
+    const updates = armPrOpen()
+    vi.mocked(createPullRequest).mockRejectedValue(
+      new PullAlreadyExistsError(`GitHub PR create failed (422)`)
+    )
+    vi.mocked(findOpenPullByHead).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/5`,
+      number: 5,
+      baseRef: `develop`,
+    })
+
+    const result = await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+
+    expect(parseOk(result)).toMatchObject({
+      url: `https://github.com/acme/app/pull/5`,
+      number: 5,
+      base: `develop`,
+      reused: true,
+    })
+    const links = updates.filter((u) => u.set.prUrl)
+    expect(links).toHaveLength(2)
+    for (const link of links) {
+      expect(link.set).toMatchObject({
+        prUrl: `https://github.com/acme/app/pull/5`,
+        prNumber: 5,
+        prState: `open`,
+        branch: `exp/batch-abcd1234`,
+        // The real base of the existing PR, not the one this call computed.
+        prBaseBranch: `develop`,
+      })
+    }
+    expect(applyPrLifecycleStatusInTx).toHaveBeenCalledTimes(2)
+    expect(fireAndForgetPrNotify).toHaveBeenCalledTimes(2)
+  })
+
+  it(`leaves issues already linked to the reused PR untouched`, async () => {
+    const updates = armPrOpen({
+      status: `in_review`,
+      prUrl: `https://github.com/acme/app/pull/5`,
+    })
+    vi.mocked(createPullRequest).mockRejectedValue(
+      new PullAlreadyExistsError(`GitHub PR create failed (422)`)
+    )
+    vi.mocked(findOpenPullByHead).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/5`,
+      number: 5,
+      baseRef: `main`,
+    })
+
+    const result = await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 5, reused: true })
+    expect(updates.some((u) => u.set.prUrl)).toBe(false)
+    expect(recordIssueEvent).not.toHaveBeenCalled()
+    expect(applyPrLifecycleStatusInTx).not.toHaveBeenCalled()
+    expect(fireAndForgetPrNotify).not.toHaveBeenCalled()
+  })
+
+  it(`still fails on any other create error, or when no open PR is found`, async () => {
+    armPrOpen()
+    vi.mocked(createPullRequest).mockRejectedValue(
+      new PullAlreadyExistsError(`GitHub PR create failed (422): exists`)
+    )
+    vi.mocked(findOpenPullByHead).mockResolvedValue(null)
+
+    const result = await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`422`)
+
+    vi.mocked(createPullRequest).mockRejectedValue(
+      new Error(`GitHub PR create failed (422): No commits between`)
+    )
+    vi.mocked(findOpenPullByHead).mockClear()
+    const other = await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+    expect(other.isError).toBe(true)
+    expect(findOpenPullByHead).not.toHaveBeenCalled()
   })
 })
 
@@ -2976,6 +3081,44 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     })
 
     expect(updates).toHaveLength(0)
+  })
+
+  // FEED-59: a head that already has an open PR links to it, never a 422.
+  it(`parks the caller on the PR already open on head`, async () => {
+    const updates = armRepoPr()
+    vi.mocked(createPullRequest).mockRejectedValue(
+      new PullAlreadyExistsError(`GitHub PR create failed (422)`)
+    )
+    vi.mocked(findOpenPullByHead).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/5`,
+      number: 5,
+      baseRef: `main`,
+    })
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: WS,
+        status: `running`,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_pr_open`
+    )!({ repositoryId: REPO, head: `exp/chat-1a2b3c4d`, title: `Chore` })
+
+    expect(parseOk(result)).toMatchObject({
+      url: `https://github.com/acme/app/pull/5`,
+      number: 5,
+      reused: true,
+    })
+    expect(findOpenPullByHead).toHaveBeenCalledWith(
+      `acme/app`,
+      `exp/chat-1a2b3c4d`,
+      `tok`
+    )
+    expect(updates[0]!.set).toMatchObject({ prUrl: `https://github.com/acme/app/pull/5`, prNumber: 5 })
   })
 
   it(`requires head, and refuses more than one subject`, async () => {

@@ -60,12 +60,51 @@ export async function createPullRequest(opts: {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(
-      `GitHub PR create failed (${res.status}): ${text.slice(0, 300)}`
-    )
+    const message = `GitHub PR create failed (${res.status}): ${text.slice(0, 300)}`
+    if (res.status === 422 && text.includes(`A pull request already exists`)) {
+      throw new PullAlreadyExistsError(message)
+    }
+    throw new Error(message)
   }
   const data = (await res.json()) as { html_url: string; number: number }
   return { url: data.html_url, number: data.number }
+}
+
+// FEED-59: GitHub's 422 for a head that already has an OPEN PR. `pr_open`
+// catches it and links the issues to that PR instead of failing.
+export class PullAlreadyExistsError extends Error {}
+
+export interface OpenPullByHead extends CreatedPull {
+  baseRef: string
+}
+
+// The OPEN PR whose head is `headRef` (same-repo branches only, like
+// `listPullsByHead`), or null when there is none.
+export async function findOpenPullByHead(
+  repo: string,
+  headRef: string,
+  token?: string | null,
+  fetchImpl?: GitHubFetch
+): Promise<OpenPullByHead | null> {
+  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const owner = repo.split(`/`)[0]
+  const res = await doFetch(
+    `https://api.github.com/repos/${repo}/pulls?state=open&head=${owner}:${encodeURIComponent(headRef)}&per_page=1`,
+    { headers: githubApiHeaders(token || process.env.GITHUB_TOKEN) }
+  )
+  if (!res.ok) {
+    throw new Error(
+      `GitHub returned ${res.status} listing open pulls by head for ${repo}`
+    )
+  }
+  const data = (await res.json()) as Array<{
+    html_url: string
+    number: number
+    base?: { ref?: string }
+  }>
+  const pull = data[0]
+  if (!pull) return null
+  return { url: pull.html_url, number: pull.number, baseRef: pull.base?.ref ?? `` }
 }
 
 // GitHub's merge endpoint uses the HTTP status to distinguish failure modes
