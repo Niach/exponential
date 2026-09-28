@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   branchExists,
   classifyPrBase,
+  createPullRequest,
   diagnoseUnmergeablePr,
+  findOpenPullByHead,
   fetchPullState,
   getPullRequest,
   type GitHubFetch,
@@ -11,6 +13,7 @@ import {
   resolvePrBaseState,
   retargetPullRequest,
   GitHubMergeError,
+  PullAlreadyExistsError,
 } from "@/lib/integrations/github-pr"
 
 function jsonResponse(status: number, body: unknown) {
@@ -248,6 +251,86 @@ describe(`listPullsByHead`, () => {
       { number: 240, state: `closed`, merged: true },
       { number: 199, state: `closed`, merged: false },
     ])
+  })
+})
+
+// FEED-59: pr_open links to the PR already open on its head.
+describe(`findOpenPullByHead`, () => {
+  it(`returns the open PR on the head with its base`, async () => {
+    const fetchImpl = vi.fn(async (_url: string) =>
+      jsonResponse(200, [
+        {
+          number: 873,
+          html_url: `https://github.com/owner/repo/pull/873`,
+          base: { ref: `master` },
+        },
+      ])
+    )
+    const pull = await findOpenPullByHead(
+      `owner/repo`,
+      `exp/batch-a14a29c3`,
+      `tok`,
+      fetchImpl as unknown as GitHubFetch
+    )
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      `https://api.github.com/repos/owner/repo/pulls?state=open&head=owner:exp%2Fbatch-a14a29c3&per_page=1`
+    )
+    expect(pull).toEqual({
+      url: `https://github.com/owner/repo/pull/873`,
+      number: 873,
+      baseRef: `master`,
+    })
+  })
+
+  it(`returns null when the head has no open PR`, async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, []))
+    expect(
+      await findOpenPullByHead(
+        `owner/repo`,
+        `exp/x`,
+        `tok`,
+        fetchImpl as unknown as GitHubFetch
+      )
+    ).toBeNull()
+  })
+})
+
+describe(`createPullRequest`, () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it(`throws PullAlreadyExistsError only for GitHub's "already exists" 422`, async () => {
+    const exists = {
+      message: `Validation Failed`,
+      errors: [
+        {
+          message: `A pull request already exists for owner:exp/batch-a14a29c3.`,
+        },
+      ],
+    }
+    const opts = {
+      repo: `owner/repo`,
+      head: `exp/batch-a14a29c3`,
+      base: `master`,
+      title: `t`,
+      body: ``,
+      token: `tok`,
+    }
+    vi.stubGlobal(`fetch`, vi.fn(async () => jsonResponse(422, exists)))
+    await expect(createPullRequest(opts)).rejects.toBeInstanceOf(
+      PullAlreadyExistsError
+    )
+
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () =>
+        jsonResponse(422, { errors: [{ message: `No commits between` }] })
+      )
+    )
+    const other = await createPullRequest(opts).catch((e: unknown) => e)
+    expect(other).toBeInstanceOf(Error)
+    expect(other).not.toBeInstanceOf(PullAlreadyExistsError)
   })
 })
 

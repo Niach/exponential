@@ -131,7 +131,11 @@ import { appBaseUrl } from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
-import { createPullRequest } from "@/lib/integrations/github-pr"
+import {
+  createPullRequest,
+  findOpenPullByHead,
+  PullAlreadyExistsError,
+} from "@/lib/integrations/github-pr"
 import {
   attachToStack,
   loadSessionStackContext,
@@ -472,6 +476,29 @@ async function getSupportThreadContext(threadId: string) {
 
 function assertHelpdeskEnabled(enabled: boolean) {
   if (!enabled) throw new Error(`Helpdesk is not enabled for this team`)
+}
+
+const REUSED_PR_NOTE = (head: string) =>
+  `${head} already had an open PR: linked to it (its title, body and base are unchanged).`
+
+// FEED-59: open the PR, or hand back the one already OPEN on `head` (a batch
+// run that implemented more issues on its branch) so the caller links the
+// given issues to it. `reusedBase` = that PR's real base, null for a new PR.
+async function openOrReusePull(
+  opts: Parameters<typeof createPullRequest>[0]
+): Promise<{ url: string; number: number; reusedBase: string | null }> {
+  try {
+    return { ...(await createPullRequest(opts)), reusedBase: null }
+  } catch (e) {
+    if (!(e instanceof PullAlreadyExistsError)) throw e
+    const existing = await findOpenPullByHead(opts.repo, opts.head, opts.token)
+    if (!existing) throw e
+    return {
+      url: existing.url,
+      number: existing.number,
+      reusedBase: existing.baseRef || opts.base,
+    }
+  }
 }
 
 // EXP-660: the coding_sessions projection the session tools return — the
@@ -2288,7 +2315,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for a PR with no issue (nothing is linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. 'stackOnIssueId' (not with 'base') stacks your PR on that issue's open PR instead. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for an issue-less PR (nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. 'stackOnIssueId' (not with 'base') stacks your PR on that issue's open PR instead. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
@@ -2370,9 +2397,9 @@ export function registerExponentialTools(
             userId: user.id,
             viaAgent: true,
           })
-          let createdPr: Awaited<ReturnType<typeof createPullRequest>>
+          let createdPr: Awaited<ReturnType<typeof openOrReusePull>>
           try {
-            createdPr = await createPullRequest({
+            createdPr = await openOrReusePull({
               repo: repo.fullName,
               head: head!,
               base: base ?? repo.defaultBranch,
@@ -2383,6 +2410,10 @@ export function registerExponentialTools(
           } catch (e) {
             releasePrOpenClaim(repo.fullName, head!)
             throw e
+          }
+          // No `opened` webhook follows a reused PR to consume the claim.
+          if (createdPr.reusedBase != null) {
+            releasePrOpenClaim(repo.fullName, head!)
           }
 
           // Only an ISSUE-LESS caller row takes the PR: an issue-scoped run
@@ -2399,7 +2430,13 @@ export function registerExponentialTools(
             })
           }
 
-          return ok({ url: createdPr.url, number: createdPr.number })
+          return ok({
+            url: createdPr.url,
+            number: createdPr.number,
+            ...(createdPr.reusedBase != null
+              ? { reused: true, note: REUSED_PR_NOTE(head!) }
+              : {}),
+          })
         }
 
         // Resolve + authorize every issue; a batch must land in ONE repo.
@@ -2520,7 +2557,7 @@ export function registerExponentialTools(
         // linear and are never used by a workflow.
         const workflowBase =
           !lower && !base ? await liveWorkflowBaseForIssue(db, ids[0]!) : null
-        const baseBranch =
+        let baseBranch =
           lower?.branch ?? base ?? workflowBase?.base ?? repo.defaultBranch
 
         const resolved = await resolveRepoInstallationTokenInfo(repo.fullName)
@@ -2558,9 +2595,9 @@ export function registerExponentialTools(
         // the `head` GitHub reports back. The issue-keyed record has no such
         // dependency, and it only ever suppresses — never names.
         for (const id of ids) noteAgentIssueActivity(id, user.id)
-        let created: Awaited<ReturnType<typeof createPullRequest>>
+        let created: Awaited<ReturnType<typeof openOrReusePull>>
         try {
-          created = await createPullRequest({
+          created = await openOrReusePull({
             repo: repo.fullName,
             head: headBranch,
             base: baseBranch,
@@ -2574,14 +2611,31 @@ export function registerExponentialTools(
           releasePrOpenClaim(repo.fullName, headBranch)
           throw e
         }
+        // FEED-59: linking to the PR already open on `head`. Nothing new
+        // exists on GitHub (no `opened` webhook to consume the claim), the
+        // edge is that PR's REAL base, and its stack identity is whatever
+        // its already-linked issues carry — never a second stack attach.
+        const reused = created.reusedBase != null
+        let reusedStackNumber: number | null = null
+        if (reused) {
+          releasePrOpenClaim(repo.fullName, headBranch)
+          baseBranch = created.reusedBase!
+          if (lower && lower.branch !== baseBranch) lower = null
+          const [linked] = await db
+            .select({ prStackNumber: issues.prStackNumber })
+            .from(issues)
+            .where(eq(issues.prUrl, created.url))
+            .limit(1)
+          reusedStackNumber = linked?.prStackNumber ?? null
+        }
 
         // EXP-897: put the new PR on top of the lower one on GitHub too. A
         // repo without the stack preview (404) or a chain GitHub disagrees
         // with (422) degrades SILENTLY to the plain base-branch PR we just
         // created — our own edge below is what everything else reads.
-        let stackNumber: number | null = null
+        let stackNumber: number | null = reusedStackNumber
         let stackCreated = false
-        if (lower) {
+        if (lower && !reused) {
           const attached = await attachToStack({
             repo: repo.fullName,
             token,
@@ -2593,13 +2647,20 @@ export function registerExponentialTools(
         }
 
         const callerSession = await loadCallerSession()
+        // FEED-59: an issue already linked to the reused PR stays as it is —
+        // no second `pr_opened` event, status move or notification.
+        const alreadyLinked = new Set<string>()
         await db.transaction(async (tx) => {
           for (const id of ids) {
             const [current] = await tx
-              .select({ status: issues.status })
+              .select({ status: issues.status, prUrl: issues.prUrl })
               .from(issues)
               .where(eq(issues.id, id))
               .limit(1)
+            if (reused && current?.prUrl === created.url) {
+              alreadyLinked.add(id)
+              continue
+            }
             await tx
               .update(issues)
               .set({
@@ -2692,6 +2753,7 @@ export function registerExponentialTools(
         // in-app + push + email (deliver()'s dedupe window absorbs the
         // near-simultaneous GitHub webhook `opened` fan-out).
         for (const id of ids) {
+          if (alreadyLinked.has(id)) continue
           fireAndForgetPrNotify({
             issueId: id,
             type: `pr_opened`,
@@ -2704,6 +2766,7 @@ export function registerExponentialTools(
           url: created.url,
           number: created.number,
           base: baseBranch,
+          ...(reused ? { reused: true, note: REUSED_PR_NOTE(headBranch) } : {}),
           ...(lower
             ? {
                 stack: { number: stackNumber, onTopOf: lower.identifier },
