@@ -284,7 +284,7 @@ const SEED_IDENTITY_EMAIL: &str = "user.email=noreply@exponential.at";
 /// the listing failed (the normal fetch then reports a remote that is really
 /// down). Never FETCHES a ref that is not there: a git that died on that can
 /// hang in its exit handler on the transport helper, which parked a first
-/// start on an empty repo for the whole 600s fetch bound.
+/// start on an empty repo for the whole fetch bound.
 pub fn seed_empty_remote(
     clone: &Path,
     default_branch: &str,
@@ -848,9 +848,13 @@ pub(crate) fn git_output(
     url: Option<&TokenUrl>,
     op: &str,
 ) -> Result<std::process::Output, GitError> {
+    let bound = network_bound(args);
+    // EXP-1011: a piped stderr gets no progress unless it is asked for, and
+    // progress is what keeps an idle deadline from killing a slow transfer.
+    let progress = bound.and_then(|_| with_progress(args));
     // EXP-419: hidden on Windows — a visible conhost would flash per git op.
     let mut command = terminal::process::background_command("git");
-    command.args(args);
+    command.args(progress.as_deref().unwrap_or(args));
     command.env("GIT_TERMINAL_PROMPT", "0");
     // C-locale messages: error-text classification (and stable test
     // assertions) rely on git's English phrasing — localized git would
@@ -870,35 +874,128 @@ pub(crate) fn git_output(
             }
         },
     };
-    let Some(limit) = network_timeout(args) else {
+    let Some(bound) = bound else {
         return command.output().map_err(spawn_error);
     };
-    output_within(command, limit).map_err(spawn_error)?.ok_or_else(|| GitError {
-        op: op.to_string(),
-        detail: format!("timed out after {}s", limit.as_secs()),
-    })
+    let started = std::time::SystemTime::now();
+    match output_within(command, bound).map_err(spawn_error)? {
+        Ok(mut output) => {
+            if progress.is_some() {
+                output.stderr = strip_progress(&output.stderr);
+            }
+            Ok(output)
+        }
+        Err(killed) => {
+            // The killed op cannot clean up after itself: a lock it held
+            // would fail every later fetch with "cannot lock ref".
+            if let Some(cwd) = cwd {
+                std::thread::sleep(LOCK_SWEEP_QUIET);
+                let swept = sweep_stale_git_files(cwd, started, LOCK_SWEEP_QUIET);
+                if !swept.is_empty() {
+                    log::warn!("{op}: removed {} file(s) the killed git left behind: {swept:?}", swept.len());
+                }
+            }
+            Err(GitError { op: op.to_string(), detail: killed.detail() })
+        }
+    }
 }
 
-/// How long one NETWORK git op may take, `None` for everything local (and for
-/// `clone`, whose size nobody bounds). A git that already died can hang for
-/// ever in its exit handler waiting on a `git-remote-https` whose socket is
-/// long closed; with no bound that froze the workflow engine, which awaits
-/// its passes one after the other.
-fn network_timeout(args: &[&str]) -> Option<std::time::Duration> {
-    let seconds = match git_subcommand(args)? {
-        "ls-remote" => 120,
-        "fetch" | "push" | "pull" => 600,
+/// EXP-1011 — how long one NETWORK git op may run, `None` for everything
+/// local (and for `clone`: a killed clone leaves a half-written `.git` that
+/// [`ensure_clone`] would then reuse as a finished one). A git that already
+/// died can hang for ever in its exit handler waiting on a `git-remote-https`
+/// whose socket is long closed; with no bound that froze the workflow
+/// engine, which awaits its passes one after the other.
+///
+/// The bound is PROGRESS-based: `fetch`/`push`/`pull` run with `--progress`
+/// ([`with_progress`]) and are killed only after [`NETWORK_IDLE`] without a
+/// byte on either pipe, or past the far larger [`NETWORK_CAP`] — a fixed
+/// 600s killed a legitimately slow fetch, which then restarted from zero and
+/// never converged. `ls-remote` prints nothing until it is done, so its
+/// bound is one short total.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NetworkBound {
+    /// Killed after this long with no output at all.
+    idle: std::time::Duration,
+    /// Killed after this long whatever it prints.
+    cap: std::time::Duration,
+    /// After the child exited, how long its pipes may stay open (a lingering
+    /// transport helper holding them) before the output counts as lost.
+    drain: std::time::Duration,
+}
+
+/// No byte of progress for this long = the transfer is stuck.
+const NETWORK_IDLE: std::time::Duration = std::time::Duration::from_secs(180);
+/// The hard ceiling on a progressing transfer.
+const NETWORK_CAP: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+/// See [`NetworkBound::drain`].
+const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn network_bound(args: &[&str]) -> Option<NetworkBound> {
+    let (idle, cap) = match git_subcommand(args)?.1 {
+        "ls-remote" => {
+            let total = std::time::Duration::from_secs(120);
+            (total, total)
+        }
+        "fetch" | "push" | "pull" => (NETWORK_IDLE, NETWORK_CAP),
         _ => return None,
     };
-    Some(std::time::Duration::from_secs(seconds))
+    Some(NetworkBound { idle, cap, drain: DRAIN_GRACE })
 }
 
-/// The git SUBCOMMAND of an argv: the first word that is neither a global
-/// option nor the value of one. `-c k=v`, `-C <dir>` and the long options
-/// spelled with a separate value take the next word along; `--git-dir=<p>`
-/// is one token and needs nothing. Without this `["-c", "k=v", "fetch"]`
-/// read `k=v` as the subcommand and ran unbounded.
-fn git_subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+/// `args` with `--progress` right after the subcommand, for the ops whose
+/// bound is progress-based — `None` when it is not one, or the caller
+/// already chose (`--progress` / `--no-progress`).
+fn with_progress<'a>(args: &[&'a str]) -> Option<Vec<&'a str>> {
+    let (index, subcommand) = git_subcommand(args)?;
+    if !matches!(subcommand, "fetch" | "push" | "pull") {
+        return None;
+    }
+    if args.iter().any(|arg| *arg == "--progress" || *arg == "--no-progress") {
+        return None;
+    }
+    let mut out = args.to_vec();
+    out.insert(index + 1, "--progress");
+    Some(out)
+}
+
+/// The progress git printed only because [`with_progress`] asked, removed
+/// again: a failure's detail must read like it did without the flag.
+/// `\r`-separated updates collapse, and a segment that is a progress meter
+/// (`Receiving objects:  45% (…)`, `…, done.`, `Total 3 (delta 0), …`)
+/// drops; everything else — `fatal:`, `error:`, `remote:` messages, the
+/// ref summary — stays, one line each.
+fn strip_progress(stderr: &[u8]) -> Vec<u8> {
+    fn is_progress(segment: &str) -> bool {
+        let body = segment.strip_prefix("remote:").unwrap_or(segment).trim();
+        body.contains("% (")
+            || body.ends_with(", done.")
+            || (body.starts_with("Total ") && body.contains("(delta "))
+            || body.starts_with("Delta compression using up to ")
+    }
+    let text = String::from_utf8_lossy(stderr);
+    let mut kept: Vec<&str> = Vec::new();
+    for line in text.split('\n') {
+        for segment in line.split('\r') {
+            let trimmed = segment.trim_end();
+            if !trimmed.is_empty() && !is_progress(trimmed) {
+                kept.push(trimmed);
+            }
+        }
+    }
+    let mut out = kept.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.into_bytes()
+}
+
+/// The git SUBCOMMAND of an argv and its index: the first word that is
+/// neither a global option nor the value of one. `-c k=v`, `-C <dir>` and
+/// the long options spelled with a separate value take the next word along;
+/// `--git-dir=<p>` is one token and needs nothing. Without this
+/// `["-c", "k=v", "fetch"]` read `k=v` as the subcommand and ran unbounded.
+fn git_subcommand<'a>(args: &[&'a str]) -> Option<(usize, &'a str)> {
     const TAKES_VALUE: [&str; 6] = [
         "-c",
         "-C",
@@ -907,28 +1004,111 @@ fn git_subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
         "--namespace",
         "--config-env",
     ];
-    let mut args = args.iter();
-    while let Some(arg) = args.next() {
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index];
         if !arg.starts_with('-') {
-            return Some(arg);
+            return Some((index, arg));
         }
-        if TAKES_VALUE.contains(arg) {
-            args.next();
-        }
+        index += if TAKES_VALUE.contains(&arg) { 2 } else { 1 };
     }
     None
 }
 
-/// `Command::output` with a deadline: `Ok(None)` = killed at `limit`. The
+/// Why [`output_within`] killed a git.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Killed {
+    /// No output for this long.
+    Idle(std::time::Duration),
+    /// Still running at the cap.
+    Cap(std::time::Duration),
+}
+
+impl Killed {
+    fn detail(&self) -> String {
+        match self {
+            Killed::Idle(idle) => format!("timed out: no progress for {}s", idle.as_secs()),
+            Killed::Cap(cap) => format!("timed out after {}s", cap.as_secs()),
+        }
+    }
+}
+
+/// EXP-1011 — the network gits in flight in THIS process, by pid (unix: the
+/// pgid too, each leads its own group). `process_group(0)` takes them out of
+/// the terminal's foreground group, so a Ctrl-C on the CLI daemon no longer
+/// reaches them: the quit path kills them instead
+/// ([`kill_inflight_network_ops`], via [`crate::reaper::reap`]). A pid
+/// leaves the set UNDER the lock in the same step that reaps it, so the kill
+/// can never hit a recycled pid.
+static INFLIGHT_NETWORK_OPS: std::sync::Mutex<std::collections::BTreeSet<u32>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+fn inflight_ops() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<u32>> {
+    match INFLIGHT_NETWORK_OPS.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Kill every network git (and its transport helpers) this process has in
+/// flight — the quit path's half of [`output_within`]'s own deadline. Each
+/// killed op's [`run_git`] then fails as the killed command it is. Returns
+/// how many were signalled.
+pub fn kill_inflight_network_ops() -> usize {
+    kill_inflight_matching(|_| true)
+}
+
+fn kill_inflight_matching(matches: impl Fn(u32) -> bool) -> usize {
+    let pids = inflight_ops();
+    let mut killed = 0;
+    for &pid in pids.iter().filter(|pid| matches(**pid)) {
+        kill_process_tree(pid);
+        killed += 1;
+    }
+    killed
+}
+
+/// SIGKILL `pid`'s whole process group (unix: every git leads its own,
+/// `process_group(0)`), or its whole process TREE on Windows (`taskkill /T`,
+/// which walks parent pids — so it must run while `pid` is still alive,
+/// i.e. before the caller's own `child.kill()`). Without the tree kill
+/// Windows orphaned the hung `git-remote-https` a killed git leaves behind.
+fn kill_process_tree(pid: u32) {
+    #[cfg(unix)]
+    // SAFETY: a plain signal send to a group our own live (or not yet
+    // reaped) child leads; an invalid pgid is an errno, not UB.
+    unsafe {
+        libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    {
+        use std::process::Stdio;
+        let pid = pid.to_string();
+        let _ = terminal::process::background_command("taskkill")
+            .args(["/T", "/F", "/PID", pid.as_str()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+/// `Command::output` under a [`NetworkBound`]: `Ok(Err(_))` = killed. The
 /// child leads its own process group (unix), so the kill takes the transport
 /// helper with it; the pipes are drained on threads that are NOT joined after
-/// a kill, because an orphan could still hold their write end.
+/// a kill, because an orphan could still hold their write end. Every byte
+/// either pipe yields resets the idle deadline. A child that exited while
+/// its pipes stayed open past `bound.drain` is an ERROR, never a success
+/// with empty output: a caller reading "no heads" off a truncated
+/// `ls-remote` would act on a lie.
 fn output_within(
     mut command: std::process::Command,
-    limit: std::time::Duration,
-) -> std::io::Result<Option<std::process::Output>> {
+    bound: NetworkBound,
+) -> std::io::Result<Result<std::process::Output, Killed>> {
     use std::io::Read as _;
     use std::process::Stdio;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
 
     #[cfg(unix)]
     {
@@ -939,13 +1119,34 @@ fn output_within(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command.spawn()?;
+    let started = std::time::Instant::now();
+    let mut child = {
+        let mut inflight = inflight_ops();
+        let child = command.spawn()?;
+        inflight.insert(child.id());
+        child
+    };
+    let pid = child.id();
+    // Milliseconds since `started` of the last byte on either pipe.
+    let last_output = Arc::new(AtomicU64::new(0));
     let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
         let (sender, receiver) = std::sync::mpsc::channel();
+        let last_output = Arc::clone(&last_output);
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
             if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_end(&mut bytes);
+                let mut chunk = [0u8; 8192];
+                loop {
+                    match pipe.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            bytes.extend_from_slice(&chunk[..n]);
+                            last_output.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+                        }
+                        Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+                        Err(_) => break,
+                    }
+                }
             }
             let _ = sender.send(bytes);
         });
@@ -954,32 +1155,174 @@ fn output_within(
     let stdout = drain(child.stdout.take().map(|pipe| Box::new(pipe) as _));
     let stderr = drain(child.stderr.take().map(|pipe| Box::new(pipe) as _));
 
-    let deadline = std::time::Instant::now() + limit;
     let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if std::time::Instant::now() >= deadline {
-            #[cfg(unix)]
-            // SAFETY: a plain signal send; the pid is our own live child's,
-            // which leads the group `process_group(0)` created.
-            unsafe {
-                libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+        {
+            let mut inflight = inflight_ops();
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    inflight.remove(&pid);
+                    break status;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    drop(inflight);
+                    kill_process_tree(pid);
+                    let _ = child.kill();
+                    inflight_ops().remove(&pid);
+                    let _ = child.wait();
+                    return Err(err);
+                }
             }
+        }
+        let elapsed = started.elapsed();
+        let quiet = elapsed.saturating_sub(std::time::Duration::from_millis(
+            last_output.load(Ordering::Relaxed),
+        ));
+        let killed = if elapsed >= bound.cap {
+            Some(Killed::Cap(bound.cap))
+        } else if quiet >= bound.idle {
+            Some(Killed::Idle(bound.idle))
+        } else {
+            None
+        };
+        if let Some(killed) = killed {
+            // Tree first: Windows' `taskkill /T` walks from the live parent.
+            kill_process_tree(pid);
             let _ = child.kill();
+            inflight_ops().remove(&pid);
             let _ = child.wait();
-            return Ok(None);
+            return Ok(Err(killed));
         }
         std::thread::sleep(std::time::Duration::from_millis(25));
     };
     // The child exited: its pipes close with it, bar a lingering helper —
-    // which is why even this read is bounded.
-    let grace = std::time::Duration::from_secs(5);
-    Ok(Some(std::process::Output {
-        status,
-        stdout: stdout.recv_timeout(grace).unwrap_or_default(),
-        stderr: stderr.recv_timeout(grace).unwrap_or_default(),
-    }))
+    // which is why even this read is bounded, and why running out of it is
+    // an error (the output is incomplete) that also takes the helper down.
+    let lost = || {
+        #[cfg(unix)]
+        // SAFETY: as in `kill_process_tree`; the group outlives its reaped
+        // leader only while a member (the lingering helper) is alive.
+        unsafe {
+            libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+        }
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!(
+                "git exited but a helper kept its output open for {}s; the output is incomplete",
+                bound.drain.as_secs()
+            ),
+        )
+    };
+    let deadline = std::time::Instant::now() + bound.drain;
+    let stdout = stdout
+        .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+        .map_err(|_| lost())?;
+    let stderr = stderr
+        .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+        .map_err(|_| lost())?;
+    Ok(Ok(std::process::Output { status, stdout, stderr }))
+}
+
+/// How long a file must sit untouched before [`sweep_stale_git_files`] takes
+/// it for the killed op's leftover rather than a live git's.
+const LOCK_SWEEP_QUIET: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// EXP-1011 — after a timeout kill in `cwd`'s repo, remove what the killed
+/// git could leave behind: `*.lock` files (`refs/**`, `packed-refs`,
+/// `shallow`, `HEAD`, `FETCH_HEAD`, `config`, and the op's own `index`) and
+/// `objects/pack/tmp_{pack,idx,rev}_*` garbage. A SIGKILLed git removes
+/// none of them, and a leftover ref lock fails every later fetch with
+/// "cannot lock ref … File exists".
+///
+/// Only files the killed op could own go: modified AT OR AFTER `op_started`
+/// (a lock older than the op was not its — the op would have failed on it
+/// at once rather than hang) and untouched for `quiet` (a concurrent live
+/// git's lock is a sub-second transient it keeps writing; the caller waits
+/// `quiet` first, so the dead op's files have settled). Git's own lock files
+/// carry no owner, so this is the best a sweep can know; the window a
+/// concurrent op could lose a lock in is `quiet` wide and only right after
+/// a kill. Returns the removed paths.
+fn sweep_stale_git_files(
+    cwd: &Path,
+    op_started: std::time::SystemTime,
+    quiet: std::time::Duration,
+) -> Vec<PathBuf> {
+    let Ok(dirs) = run_git(
+        Some(cwd),
+        &["rev-parse", "--git-dir", "--git-common-dir"],
+        None,
+        "git rev-parse --git-dir",
+    ) else {
+        return Vec::new();
+    };
+    let mut dirs = dirs.lines().map(|line| {
+        let path = PathBuf::from(line.trim());
+        if path.is_absolute() {
+            path
+        } else {
+            cwd.join(path)
+        }
+    });
+    let (Some(git_dir), Some(common_dir)) = (dirs.next(), dirs.next()) else {
+        return Vec::new();
+    };
+    // Coarse filesystem timestamps: a lock taken in the op's first second
+    // may read as a hair older than the op.
+    let since = op_started
+        .checked_sub(std::time::Duration::from_secs(1))
+        .unwrap_or(op_started);
+    let now = std::time::SystemTime::now();
+    let stale = |path: &Path| {
+        std::fs::symlink_metadata(path)
+            .and_then(|meta| meta.modified())
+            .is_ok_and(|modified| {
+                modified >= since && now.duration_since(modified).is_ok_and(|age| age >= quiet)
+            })
+    };
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for dir in [&git_dir, &common_dir] {
+        for name in ["HEAD.lock", "FETCH_HEAD.lock", "ORIG_HEAD.lock", "index.lock"] {
+            candidates.push(dir.join(name));
+        }
+    }
+    for name in ["packed-refs.lock", "shallow.lock", "config.lock"] {
+        candidates.push(common_dir.join(name));
+    }
+    collect_ref_locks(&common_dir.join("refs"), &mut candidates);
+    if let Ok(entries) = std::fs::read_dir(common_dir.join("objects").join("pack")) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if ["tmp_pack_", "tmp_idx_", "tmp_rev_"].iter().any(|prefix| name.starts_with(prefix)) {
+                candidates.push(entry.path());
+            }
+        }
+    }
+    candidates.sort();
+    candidates.dedup();
+    candidates
+        .into_iter()
+        .filter(|path| path.is_file() && stale(path))
+        .filter(|path| std::fs::remove_file(path).is_ok())
+        .collect()
+}
+
+/// Every `*.lock` under `dir` (the refs tree), recursively.
+fn collect_ref_locks(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            collect_ref_locks(&path, out);
+        } else if kind.is_file() && path.extension().is_some_and(|ext| ext == "lock") {
+            out.push(path);
+        }
+    }
 }
 
 /// A failed git command's diagnostic: stderr, falling back to stdout, falling
@@ -1008,16 +1351,23 @@ mod tests {
 
     #[test]
     fn only_network_ops_are_bounded() {
-        assert!(network_timeout(&["fetch", "origin", "master"]).is_some());
-        assert!(network_timeout(&["ls-remote", "--heads", "origin", "exp/*"]).is_some());
-        assert!(network_timeout(&["push", "origin", "exp/EXP-1"]).is_some());
-        assert!(network_timeout(&["clone", "url", "dir"]).is_none());
-        assert!(network_timeout(&["rev-parse", "HEAD"]).is_none());
+        assert!(network_bound(&["fetch", "origin", "master"]).is_some());
+        assert!(network_bound(&["ls-remote", "--heads", "origin", "exp/*"]).is_some());
+        assert!(network_bound(&["push", "origin", "exp/EXP-1"]).is_some());
+        assert!(network_bound(&["clone", "url", "dir"]).is_none());
+        assert!(network_bound(&["rev-parse", "HEAD"]).is_none());
+        // EXP-1011: transfers are bounded by progress, with a far larger cap;
+        // `ls-remote` prints nothing until done, so its idle IS its cap.
+        let fetch = network_bound(&["fetch"]).unwrap();
+        assert_eq!((fetch.idle, fetch.cap), (NETWORK_IDLE, NETWORK_CAP));
+        assert!(NETWORK_CAP >= NETWORK_IDLE * 10);
+        let ls = network_bound(&["ls-remote"]).unwrap();
+        assert_eq!(ls.idle, ls.cap);
     }
 
     #[test]
     fn a_global_options_value_is_not_the_subcommand() {
-        let bounded = |args: &[&str]| network_timeout(args).is_some();
+        let bounded = |args: &[&str]| network_bound(args).is_some();
         assert!(bounded(&["-c", "credential.helper=", "fetch", "origin"]));
         assert!(bounded(&["-C", "/repo", "-c", "k=v", "push", "origin", "exp/EXP-1"]));
         assert!(bounded(&["--git-dir=/repo/.git", "ls-remote", "origin"]));
@@ -1029,24 +1379,175 @@ mod tests {
         assert!(!bounded(&["-c", "k=v"]));
     }
 
+    /// EXP-1011: `--progress` lands right after the subcommand — never
+    /// before a global option's value — for transfers only, and never over
+    /// a caller's own choice.
+    #[test]
+    fn progress_is_asked_for_right_after_the_subcommand() {
+        assert_eq!(
+            with_progress(&["-c", "k=v", "fetch", "origin", "master"]),
+            Some(vec!["-c", "k=v", "fetch", "--progress", "origin", "master"])
+        );
+        assert_eq!(
+            with_progress(&["push", "origin", "HEAD:refs/heads/x"]),
+            Some(vec!["push", "--progress", "origin", "HEAD:refs/heads/x"])
+        );
+        assert_eq!(with_progress(&["ls-remote", "origin"]), None);
+        assert_eq!(with_progress(&["rev-parse", "HEAD"]), None);
+        assert_eq!(with_progress(&["fetch", "--no-progress", "origin"]), None);
+        assert_eq!(with_progress(&["fetch", "--progress"]), None);
+    }
+
+    #[test]
+    fn the_asked_for_progress_is_stripped_from_the_detail() {
+        let stderr = b"remote: Enumerating objects: 5, done.\n\
+remote: Counting objects:  20% (1/5)\rremote: Counting objects: 100% (5/5), done.\n\
+remote: Total 3 (delta 0), reused 0 (delta 0), pack-reused 0\n\
+Receiving objects:  33% (1/3)\rReceiving objects: 100% (3/3), done.\n\
+Delta compression using up to 8 threads\n\
+From https://github.com/acme/web\n\
+\x20! [rejected]        main -> main (non-fast-forward)\n\
+fatal: couldn't find remote ref nope\n";
+        assert_eq!(
+            String::from_utf8(strip_progress(stderr)).unwrap(),
+            "From https://github.com/acme/web\n ! [rejected]        main -> main (non-fast-forward)\nfatal: couldn't find remote ref nope\n"
+        );
+        assert!(strip_progress(b"Receiving objects: 100% (3/3), done.\n").is_empty());
+    }
+
+    #[cfg(unix)]
+    fn bound(idle_ms: u64, cap_ms: u64) -> NetworkBound {
+        NetworkBound {
+            idle: std::time::Duration::from_millis(idle_ms),
+            cap: std::time::Duration::from_millis(cap_ms),
+            drain: std::time::Duration::from_millis(300),
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_hung_command_is_killed_at_the_deadline() {
         let mut hung = Command::new("sh");
         hung.args(["-c", "sleep 30 & wait"]);
         let started = std::time::Instant::now();
-        let output = output_within(hung, std::time::Duration::from_millis(200)).unwrap();
-        assert!(output.is_none());
+        let output = output_within(hung, bound(200, 10_000)).unwrap();
+        assert_eq!(output.unwrap_err(), Killed::Idle(std::time::Duration::from_millis(200)));
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
 
         let mut quick = Command::new("sh");
         quick.args(["-c", "echo out; echo err >&2; exit 3"]);
-        let output = output_within(quick, std::time::Duration::from_secs(10))
+        let output = output_within(quick, bound(10_000, 10_000))
             .unwrap()
             .expect("finished");
         assert_eq!(output.status.code(), Some(3));
         assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "out");
         assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "err");
+    }
+
+    /// EXP-1011: a transfer that keeps printing progress outlives the idle
+    /// deadline many times over; only the cap stops it.
+    #[cfg(unix)]
+    #[test]
+    fn progress_resets_the_idle_deadline_until_the_cap() {
+        // ~1.2s of ticks every 100ms under a 400ms idle bound.
+        let mut slow = Command::new("sh");
+        slow.args(["-c", "i=0; while [ $i -lt 12 ]; do echo tick >&2; sleep 0.1; i=$((i+1)); done; echo done"]);
+        let output = output_within(slow, bound(400, 20_000)).unwrap().expect("progress kept it alive");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "done");
+        assert_eq!(String::from_utf8_lossy(&output.stderr).matches("tick").count(), 12);
+        // The same ticker for ever: the cap kills it.
+        let mut endless = Command::new("sh");
+        endless.args(["-c", "while true; do echo tick >&2; sleep 0.05; done"]);
+        let started = std::time::Instant::now();
+        let output = output_within(endless, bound(400, 700)).unwrap();
+        assert_eq!(output.unwrap_err(), Killed::Cap(std::time::Duration::from_millis(700)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    /// EXP-1011: a git that exited while a helper kept its pipes open is an
+    /// ERROR — never a success with empty output.
+    #[cfg(unix)]
+    #[test]
+    fn a_drain_timeout_is_an_error_not_empty_output() {
+        let mut lingering = Command::new("sh");
+        lingering.args(["-c", "echo partial; sleep 30 & exit 0"]);
+        let started = std::time::Instant::now();
+        let err = output_within(lingering, bound(10_000, 10_000)).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        assert!(err.to_string().contains("output is incomplete"), "{err}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    /// EXP-1011: the quit path's kill reaches an in-flight op, whose run
+    /// then ends as the killed command it is.
+    #[cfg(unix)]
+    #[test]
+    fn the_quit_path_kills_an_in_flight_op() {
+        let dir = temp_dir("quit-kill");
+        let pid_file = dir.0.join("pid");
+        let script = format!("echo $$ > '{}'; exec sleep 30", pid_file.display());
+        let worker = std::thread::spawn(move || {
+            let mut hung = Command::new("sh");
+            hung.args(["-c", &script]);
+            output_within(hung, bound(20_000, 20_000))
+        });
+        let started = std::time::Instant::now();
+        // Parallel tests share the in-flight set: kill only this one.
+        let pid = loop {
+            let pid = fs::read_to_string(&pid_file).ok().and_then(|raw| raw.trim().parse::<u32>().ok());
+            if let Some(pid) = pid.filter(|pid| inflight_ops().contains(pid)) {
+                break pid;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(5), "never in flight");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert_eq!(kill_inflight_matching(|candidate| candidate == pid), 1);
+        let output = worker.join().unwrap().unwrap().expect("exited, killed");
+        assert!(!output.status.success());
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        assert!(!inflight_ops().contains(&pid));
+    }
+
+    /// EXP-1011: a timeout kill sweeps the locks and pack garbage the killed
+    /// op could have left — and nothing older than it, nor anything else.
+    #[test]
+    fn the_sweep_takes_only_the_killed_ops_leftovers() {
+        let dir = temp_dir("sweep");
+        let repo = dir.0.join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "--quiet"]);
+        let gitdir = repo.join(".git");
+        let old_lock = gitdir.join("refs/heads/old.lock");
+        fs::write(&old_lock, "").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        let op_started = std::time::SystemTime::now() + std::time::Duration::from_secs(1);
+        fs::create_dir_all(gitdir.join("refs/remotes/origin")).unwrap();
+        let created = [
+            gitdir.join("refs/remotes/origin/main.lock"),
+            gitdir.join("packed-refs.lock"),
+            gitdir.join("shallow.lock"),
+            gitdir.join("objects/pack/tmp_pack_abc123"),
+        ];
+        for path in &created {
+            fs::write(path, "").unwrap();
+        }
+        let keeper = gitdir.join("refs/remotes/origin/main");
+        fs::write(&keeper, "0000000000000000000000000000000000000000\n").unwrap();
+        // Still being written (inside `quiet`): a live git's, left alone.
+        let swept = sweep_stale_git_files(&repo, op_started, std::time::Duration::from_secs(60));
+        assert!(swept.is_empty(), "{swept:?}");
+        let mut swept = sweep_stale_git_files(&repo, op_started, std::time::Duration::ZERO);
+        swept.sort();
+        let mut expected: Vec<PathBuf> = created.to_vec();
+        expected.sort();
+        let canon = |paths: &[PathBuf]| -> Vec<String> {
+            paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect()
+        };
+        assert_eq!(canon(&swept), canon(&expected));
+        assert!(created.iter().all(|path| !path.exists()));
+        assert!(old_lock.exists(), "a lock older than the op is not its");
+        assert!(keeper.exists());
     }
 
     // ---- pure composition ----
