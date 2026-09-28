@@ -12,11 +12,12 @@ final class PrGraphTests: XCTestCase {
         prUrl: String? = nil,
         branch: String? = nil,
         base: String? = nil,
+        status: String = "in_review",
         createdAt: String = "2026-09-16T09:00:00Z"
     ) -> IssueEntity {
         IssueEntity(
             id: id, boardId: "b1", number: 1, identifier: identifier, title: "T \(identifier)",
-            description: nil, status: "in_review", priority: "none", assigneeId: nil,
+            description: nil, status: status, priority: "none", assigneeId: nil,
             creatorId: nil, source: nil, dueDate: nil, sortOrder: 1, completedAt: nil,
             duplicateOfId: nil, prUrl: prUrl, prNumber: 1, prState: "open", branch: branch,
             prBaseBranch: base, prMergedAt: nil, createdAt: createdAt, updatedAt: createdAt
@@ -230,8 +231,8 @@ final class PrGraphTests: XCTestCase {
         // A batch inside a stack: the subject PR's representative, every other
         // issue on the stack behind it.
         let both = graph(two, [lower, one, two])
-        XCTAssertEqual(PrGraph.badgeChip(both, face: .issue)?.issue?.id, "one")
-        XCTAssertEqual(PrGraph.badgeChip(both, face: .issue)?.count, 2)
+        XCTAssertEqual(PrGraph.badgeChip(both)?.issue?.id, "one")
+        XCTAssertEqual(PrGraph.badgeChip(both)?.count, 2)
         // A plain batch: the others of the batch.
         let plainTwo = issue(
             "two", identifier: "EXP-3", prUrl: url, branch: "exp/batch-abcd1234", base: nil
@@ -241,25 +242,126 @@ final class PrGraphTests: XCTestCase {
             base: nil, createdAt: "2026-09-16T10:00:00Z"
         )
         let batch = graph(oneAlone, [oneAlone, plainTwo])
-        XCTAssertEqual(PrGraph.badgeChip(batch, face: .changes)?.count, 1)
+        XCTAssertEqual(PrGraph.badgeChip(batch)?.count, 1)
         // A run family with no issue: no front issue, the other runs behind.
         let root = treeRun("root", parent: nil)
         let child = treeRun("child", parent: "root")
         let family = PrGraph.build(
             issue: nil, session: child, issues: [], sessions: [child, root], relations: []
         )
-        let chip = PrGraph.badgeChip(family, face: .run)
+        let chip = PrGraph.badgeChip(family)
         XCTAssertNil(chip?.issue)
         XCTAssertEqual(chip?.count, 1)
-        XCTAssertEqual(PrGraph.badgeChip(family, face: .results)?.count, 1)
         // No badge = no chip.
-        XCTAssertNil(PrGraph.badgeChip(family, face: .issue))
+        let lone = issue("lone", identifier: "EXP-9")
+        XCTAssertNil(PrGraph.badgeChip(graph(lone, [lone])))
     }
 
-    private func treeRun(_ id: String, parent: String?) -> CodingSessionEntity {
+    // EXP-1079 / EXP-1097: a run with a family earns the chip — on EVERY face
+    // now, the shape no longer reads the face — and a PR relation always wins
+    // over it.
+    func testShapesARunsBadgeForARunWithAFamilyOnEveryFace() {
+        let root = treeRun("root", parent: nil)
+        let child = treeRun("child", parent: "root")
+        let family = PrGraph.build(
+            issue: nil, session: child, issues: [], sessions: [child, root], relations: []
+        )
+        XCTAssertEqual(PrGraph.badgeShape(family), .runs)
+        let alone = treeRun("alone", parent: nil)
+        let lonely = PrGraph.build(
+            issue: nil, session: alone, issues: [], sessions: [alone], relations: []
+        )
+        XCTAssertNil(PrGraph.badgeShape(lonely))
+        let batchA = issue("bata", identifier: "EXP-1", prUrl: "pr/9")
+        let batchB = issue("batb", identifier: "EXP-2", prUrl: "pr/9")
+        let batched = PrGraph.build(
+            issue: batchA, session: child, issues: [batchA, batchB],
+            sessions: [child, root], relations: []
+        )
+        XCTAssertEqual(PrGraph.badgeShape(batched), .batch)
+    }
+
+    // EXP-1097: open blockers alone earn the chip, behind the PR relations and
+    // the run family; the front chip is the first open blocker.
+    func testShapesABlockedBadgeForAnIssueWithOpenBlockers() {
+        let me = issue("me", identifier: "EXP-10")
+        let b1 = issue("b1", identifier: "EXP-1")
+        let b2 = issue("b2", identifier: "EXP-2")
+        let closed = issue("closed", identifier: "EXP-3", status: "done")
+        let relations = [
+            relation("r1", from: "b2", to: "me"),
+            relation("r2", from: "b1", to: "me"),
+            relation("r3", from: "closed", to: "me"),
+        ]
+        let blocked = PrGraph.build(
+            issue: me, session: nil, issues: [me, b1, b2, closed], sessions: [],
+            relations: relations
+        )
+        XCTAssertEqual(PrGraph.badgeShape(blocked), .blocked)
+        XCTAssertEqual(PrGraph.badgeChip(blocked)?.issue?.id, "b1")
+        XCTAssertEqual(PrGraph.badgeChip(blocked)?.count, 1)
+        // Only closed blockers: no chip.
+        let done = PrGraph.build(
+            issue: me, session: nil, issues: [me, closed], sessions: [], relations: relations
+        )
+        XCTAssertNil(PrGraph.badgeShape(done))
+        // A run family wins over the blockers.
+        let r1 = treeRun("r1", parent: nil, issueId: "me")
+        let r2 = treeRun("r2", parent: "r1")
+        XCTAssertEqual(
+            PrGraph.badgeShape(PrGraph.build(
+                issue: me, session: nil, issues: [me, b1], sessions: [r1, r2],
+                relations: relations
+            )),
+            .runs
+        )
+        // A batch wins over both.
+        let batchA = issue("me", identifier: "EXP-10", prUrl: "pr/9")
+        let batchB = issue("batb", identifier: "EXP-11", prUrl: "pr/9")
+        XCTAssertEqual(
+            PrGraph.badgeShape(PrGraph.build(
+                issue: batchA, session: nil, issues: [batchA, batchB, b1],
+                sessions: [r1, r2], relations: relations
+            )),
+            .batch
+        )
+    }
+
+    // EXP-1097: the face only decides which overlay section LEADS.
+    func testOrdersTheOverlaysSectionsByFace() {
+        let me = issue("me", identifier: "EXP-10", prUrl: "pr/9")
+        let partner = issue("partner", identifier: "EXP-11", prUrl: "pr/9")
+        let blocker = issue("blocker", identifier: "EXP-1")
+        let r1 = treeRun("r1", parent: nil, issueId: "me")
+        let r2 = treeRun("r2", parent: "r1")
+        let result = PrGraph.build(
+            issue: me, session: nil, issues: [me, partner, blocker], sessions: [r1, r2],
+            relations: [relation("rel", from: "blocker", to: "me")]
+        )
+        XCTAssertEqual(PrGraph.overlaySections(result, face: .issue), [.blocked, .batch, .runs])
+        XCTAssertEqual(PrGraph.overlaySections(result, face: .run), [.batch, .runs, .blocked])
+        XCTAssertEqual(PrGraph.overlaySections(result, face: .results), [.batch, .runs, .blocked])
+        XCTAssertEqual(
+            PrGraph.overlaySections(result, face: .changes), [.stack, .batch, .runs, .blocked]
+        )
+        let lone = issue("lone", identifier: "EXP-9")
+        XCTAssertEqual(PrGraph.overlaySections(graph(lone, [lone]), face: .issue), [])
+    }
+
+    private func relation(_ id: String, from: String, to: String) -> IssueRelationEntity {
+        IssueRelationEntity(
+            id: id, issueId: from, relatedIssueId: to, type: "blocks", source: "user",
+            teamId: "t1", boardId: "b1",
+            createdAt: "2026-09-16T09:00:00Z", updatedAt: "2026-09-16T09:00:00Z"
+        )
+    }
+
+    private func treeRun(
+        _ id: String, parent: String?, issueId: String? = nil
+    ) -> CodingSessionEntity {
         CodingSessionEntity(
             id: id,
-            issueId: nil,
+            issueId: issueId,
             teamId: "team-1",
             userId: "me",
             deviceLabel: "macbook",

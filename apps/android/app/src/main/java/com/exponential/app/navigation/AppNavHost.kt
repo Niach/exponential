@@ -747,9 +747,16 @@ private fun AuthenticatedNav(
             // section of My Work). Optional query arg, declared nullable the
             // same way the Agent route's seed args are, so a plain
             // `board/{boardId}/new` still matches.
-            "board/{boardId}/new?draft={draft}",
+            // EXP-1097: `&parent={id}` files it as a sub-issue (the detail's
+            // Sub-issues `+`), same optional-arg shape.
+            "board/{boardId}/new?draft={draft}&parent={parent}",
             arguments = listOf(
                 navArgument("draft") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("parent") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -766,6 +773,7 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onCreated = { issueId -> navController.openCreatedIssue(issueId) },
                 draftId = entry.arguments?.getString("draft")?.takeIf { it.isNotBlank() },
+                parentIssueId = entry.arguments?.getString("parent")?.takeIf { it.isNotBlank() },
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { teamSelection.consumePendingShare() },
             )
@@ -792,6 +800,9 @@ private fun AuthenticatedNav(
                 onOpenAgent = openAgent,
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
+                onCreateSubIssue = { boardId, parentId ->
+                    navController.navigate("board/$boardId/new?parent=$parentId")
+                },
             )
         }
         composable("issue/{issueId}/changes") { entry ->
@@ -816,6 +827,9 @@ private fun AuthenticatedNav(
                 onOpenAgent = openAgent,
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
+                onCreateSubIssue = { boardId, parentId ->
+                    navController.navigate("board/$boardId/new?parent=$parentId")
+                },
             )
         }
         composable("invite/{token}") { entry ->

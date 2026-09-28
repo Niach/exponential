@@ -956,6 +956,9 @@ class IssueListViewModel @Inject constructor(
         // and the server reparents the draft's attachments + deletes the row in
         // the create's own transaction.
         draftId: String? = null,
+        // EXP-1097: the Sub-issues `+` — the new issue lands as a sub-issue
+        // of this one (`issues.create({parentId})`, one transaction).
+        parentId: String? = null,
     ): String? {
         if (title.isBlank()) return null
         _busy.value = true
@@ -992,6 +995,7 @@ class IssueListViewModel @Inject constructor(
                     dueDate = dueDate,
                     labelIds = labelIds.takeIf { it.isNotEmpty() },
                     draftId = draftId,
+                    parentId = parentId,
                 )
             )
             upsertCreatedLocally(accountId, created, labelIds, draftId)

@@ -22,6 +22,10 @@ public struct CreateIssueInput: Encodable, Sendable {
     /// `/api/attachments/{id}` URLs owned by that draft (the create path
     /// uploads nothing). Nil is omitted from the wire.
     public var draftId: String?
+    /// EXP-760/EXP-1097: file the issue as a SUB-ISSUE of this one (same
+    /// team, server-checked); the server writes the `parent` relation in the
+    /// create's transaction. Nil is omitted from the wire.
+    public var parentId: String?
 
     public init(
         boardId: String,
@@ -33,7 +37,8 @@ public struct CreateIssueInput: Encodable, Sendable {
         description: String? = nil,
         dueDate: String? = nil,
         labelIds: [String]? = nil,
-        draftId: String? = nil
+        draftId: String? = nil,
+        parentId: String? = nil
     ) {
         self.boardId = boardId
         self.title = title
@@ -45,6 +50,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         self.dueDate = dueDate
         self.labelIds = labelIds
         self.draftId = draftId
+        self.parentId = parentId
     }
 }
 

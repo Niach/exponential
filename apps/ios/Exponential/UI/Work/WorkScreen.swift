@@ -368,10 +368,11 @@ struct WorkScreen: View {
     }
 
     /// EXP-1058: the header's stacked issue chip, when there IS a stack, a
-    /// batch, or (Run face) a run tree to name.
+    /// batch, a run tree or (EXP-1097) an open blocker to name — the same on
+    /// every face.
     @ViewBuilder
     private var prGraphBadge: some View {
-        if let graph = prGraph, let chip = PrGraph.badgeChip(graph, face: face) {
+        if let graph = prGraph, let chip = PrGraph.badgeChip(graph) {
             PrGraphBadge(
                 chip: chip,
                 runName: chip.issue == nil
@@ -379,7 +380,7 @@ struct WorkScreen: View {
                         sessionRowTitle(issue: nil, session: $0, batchIssues: graphIssuePool)
                     }
                     : nil,
-                accessibilityName: PrGraphBadge.accessibilityName(PrGraph.badgeKind(graph))
+                accessibilityName: PrGraphBadge.accessibilityName(PrGraph.badgeShape(graph))
             ) {
                 prGraphOpen = true
             }
@@ -512,12 +513,19 @@ struct WorkScreen: View {
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    HStack(spacing: 6) {
-                        WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
-                        // EXP-897 Part 4: the ONE stack/batch badge, beside
-                        // the title on every face.
-                        prGraphBadge
-                    }
+                    WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
+                }
+                // EXP-1097: the ONE graph chip (compact: glyph · identifier ·
+                // `+N`) sits on the action edge, left of `…` / Stop, on EVERY
+                // face. Always mounted (EXP-942: an action-edge item that
+                // comes and goes sometimes failed to reappear) and drawn
+                // WITHOUT the bar's shared capsule — it is a chip, not a
+                // button glyph.
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
                 }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
@@ -649,6 +657,7 @@ struct WorkScreen: View {
                                 ) ?? IssueGraph.Graph(
                                     nodes: [], edges: [], hasCycle: false, truncated: false
                                 ),
+                                subjectIssueId: issue?.id,
                                 onOpenIssue: { id in
                                     prGraphOpen = false
                                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)

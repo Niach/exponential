@@ -112,6 +112,9 @@ fun CreateIssueScreen(
     // Null = a fresh create — the screen still mints an id, but writes nothing
     // until it closes with content in it.
     draftId: String? = null,
+    // EXP-1097: the issue this one is filed UNDER (the detail's Sub-issues
+    // `+`, `board/{boardId}/new?parent={id}`). Null = a top-level issue.
+    parentIssueId: String? = null,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
     // Share mode (system "Share into Exponential"): the screen has no board
@@ -338,6 +341,7 @@ fun CreateIssueScreen(
                 // materialised by an eager upload) — `issues.create` answers
                 // NOT_FOUND for a draft id nothing was ever written under.
                 draftId = draftKey.takeIf { !shareMode && draftMaterialized },
+                parentId = parentIssueId.takeIf { !shareMode },
             )
             if (createdId != null) {
                 // The share prefill (if any) made it into this issue — consume

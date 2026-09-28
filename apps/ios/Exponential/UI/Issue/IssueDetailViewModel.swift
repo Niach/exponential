@@ -1114,6 +1114,99 @@ final class IssueDetailViewModel {
         }
     }
 
+    // MARK: - Relations view (EXP-1097)
+
+    /// Bands the reader folded/unfolded on this screen, overriding the
+    /// model's default — view state, never persisted.
+    var relationBandsToggled: Set<IssueRelationsView.BandKey> = []
+    /// Bands whose "Show N more" was pressed.
+    var relationBandsShowAll: Set<IssueRelationsView.BandKey> = []
+
+    /// What the detail draws for its relations ×4 (`IssueRelationsView`): the
+    /// "Sub-issue of" parent, the Sub-issues section and the foldable bands
+    /// the properties sheet lists.
+    var relationsView: IssueRelationsView.Model {
+        var issues = relationOthers.values.map(Self.relationsViewIssue)
+        if let issue { issues.append(Self.relationsViewIssue(issue)) }
+        return IssueRelationsView.build(IssueRelationsView.Input(
+            subjectId: issueId,
+            relations: relationEntities.map {
+                IssueRelationsView.Relation(
+                    type: $0.type, issueId: $0.issueId, relatedIssueId: $0.relatedIssueId
+                )
+            },
+            issues: issues,
+            toggled: relationBandsToggled,
+            showAll: relationBandsShowAll
+        ))
+    }
+
+    private static func relationsViewIssue(_ issue: IssueEntity) -> IssueRelationsView.Issue {
+        IssueRelationsView.Issue(
+            id: issue.id,
+            identifier: issue.identifier ?? "",
+            title: issue.title,
+            status: issue.status
+        )
+    }
+
+    func toggleRelationBand(_ key: IssueRelationsView.BandKey) {
+        if relationBandsToggled.contains(key) {
+            relationBandsToggled.remove(key)
+        } else {
+            relationBandsToggled.insert(key)
+        }
+    }
+
+    func toggleRelationBandShowAll(_ key: IssueRelationsView.BandKey) {
+        if relationBandsShowAll.contains(key) {
+            relationBandsShowAll.remove(key)
+        } else {
+            relationBandsShowAll.insert(key)
+        }
+    }
+
+    /// The synced counterpart a view row names.
+    func relationIssue(id: String) -> IssueEntity? { relationOthers[id] }
+
+    /// A counterpart's status, resolved against the team's rows (EXP-314).
+    func relationStatus(id: String) -> ResolvedIssueStatus? {
+        relationOthers[id].map { IssueStatusResolver.resolve($0, team: teamStatuses) }
+    }
+
+    /// A counterpart's assignee, for the row's avatar.
+    func relationAssignee(id: String) -> UserEntity? {
+        guard let assigneeId = relationOthers[id]?.assigneeId else { return nil }
+        return users.first { $0.id == assigneeId }
+    }
+
+    /// The team's COMPLETED status — the Sub-issues ring paints its arc in its
+    /// colour (the locked builtin `done` row; any completed row as a fallback).
+    var completedStatus: ResolvedIssueStatus? {
+        teamStatuses.first { $0.builtinKey == .done }
+            ?? teamStatuses.first { $0.category == .completed }
+    }
+
+    /// The stored row behind a band row, for removal: the band names the
+    /// SIDE, the row the counterpart.
+    func relationRow(band: IssueRelationsView.BandKey, otherId: String) -> IssueRelationRow? {
+        relationRows.first { row in
+            guard row.other.id == otherId else { return false }
+            switch band {
+            case .blockedBy: return row.type == .blocks && row.inverse
+            case .blocking: return row.type == .blocks && !row.inverse
+            case .duplicateOf: return row.type == .duplicate && !row.inverse
+            case .duplicatedBy: return row.type == .duplicate && row.inverse
+            case .related: return row.type == .related
+            }
+        }
+    }
+
+    /// The stored `parent` row that makes `childId` a sub-issue of this one.
+    func subIssueRow(childId: String) -> IssueRelationRow? {
+        relationRows.first { $0.type == .parent && !$0.inverse && $0.other.id == childId }
+    }
+
     /// Link `other` to this issue with the picked (type, side). "Duplicate of"
     /// is the ONE pick that isn't a plain relation write: `duplicateOfId` and
     /// the `duplicate` status move in lockstep, and the server mirrors the

@@ -79,19 +79,20 @@ class PrGraphViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PrGraph.Graph(emptyList(), null, emptyList()))
 
     /**
-     * EXP-1058: the header chip's front issue ([PrGraph.Graph.lead]) resolved
-     * against ITS team's statuses (its board's team) — the glyph the stacked
-     * chip leads with. Null when there is no front issue.
+     * EXP-1058/EXP-1097: the header chip's FRONT issue ([PrGraph.badgeChip]:
+     * the PR's representative, or the first open blocker) resolved against
+     * ITS team's statuses (its board's team) — the glyph the stacked chip
+     * leads with. Null when there is no front issue.
      */
-    val leadStatus: StateFlow<ResolvedIssueStatus?> = combine(
+    val chipStatus: StateFlow<ResolvedIssueStatus?> = combine(
         graph,
         dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
         dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() },
     ) { current, boards, statuses ->
-        val lead = current.lead ?: return@combine null
-        val teamId = boards.firstOrNull { it.id == lead.boardId }?.teamId
+        val front = PrGraph.badgeChip(current)?.issue ?: current.lead ?: return@combine null
+        val teamId = boards.firstOrNull { it.id == front.boardId }?.teamId
         val team = statuses.filter { it.teamId == teamId }
-        IssueStatusResolver.resolve(lead, IssueStatusResolver.teamStatuses(team))
+        IssueStatusResolver.resolve(front, IssueStatusResolver.teamStatuses(team))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**

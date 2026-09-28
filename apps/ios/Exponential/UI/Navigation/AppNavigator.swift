@@ -28,8 +28,9 @@ enum AppRoute: Hashable {
     /// `Create` pill top-right, exactly like Android's CreateIssueScreen.
     /// Creating replaces this route with the issue it filed.
     /// EXP-878: `draftId` names the saved draft the page reopens (nil = a
-    /// blank compose, which mints its own id).
-    case createIssue(accountId: String, boardId: String, draftId: String?)
+    /// blank compose, which mints its own id). EXP-1097: `parentId` files it
+    /// as a sub-issue of that issue (the detail's Sub-issues `+`).
+    case createIssue(accountId: String, boardId: String, draftId: String?, parentId: String? = nil)
     /// One support ticket's conversation (EXP-180 helpdesk) — pushed from the
     /// My Work Support segment or a support_reply push tap.
     case supportThread(accountId: String, threadId: String)
@@ -705,8 +706,8 @@ struct MainNavigator: View {
             // EXP-893: the Work screen on its Issue face.
             WorkScreen(subject: .issue(id: id))
                 .environment(\.accountId, accountId)
-        case let .createIssue(accountId, boardId, draftId):
-            CreateIssueView(boardId: boardId, draftId: draftId) { createdId in
+        case let .createIssue(accountId, boardId, draftId, parentId):
+            CreateIssueView(boardId: boardId, draftId: draftId, parentId: parentId) { createdId in
                 if let createdId {
                     replaceTopRoute(with: .issue(accountId: accountId, id: createdId))
                 } else if !path.isEmpty {

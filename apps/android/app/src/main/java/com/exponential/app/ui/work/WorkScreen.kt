@@ -97,6 +97,9 @@ fun WorkScreen(
     // team, and the Devices tab. Null hides the fix (never a dead button).
     onOpenTeamSettings: ((teamId: String) -> Unit)? = null,
     onOpenDevices: (() -> Unit)? = null,
+    // EXP-1097: the Sub-issues `+` — the create screen on the parent's board
+    // with the parent preset. Null hides the `+`.
+    onCreateSubIssue: ((boardId: String, parentId: String) -> Unit)? = null,
 ) {
     // ── Screen state (survives rotation and process death) ─────────────────
     var faceName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -418,8 +421,8 @@ fun WorkScreen(
     val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
-    // EXP-1058: the header chip's front issue, resolved against its team.
-    val graphLeadStatus by graphVm.leadStatus.collectAsStateWithLifecycle()
+    // EXP-1058/EXP-1097: the header chip's front issue, resolved against its team.
+    val graphChipStatus by graphVm.chipStatus.collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
@@ -463,12 +466,12 @@ fun WorkScreen(
                         { GithubHeaderAction(url) }
                     },
                     // EXP-1058: the STACKED issue chip; a run with no issue
-                    // fronts it with the run's own name.
+                    // fronts it with the run's own name. EXP-1097: the same
+                    // compact chip on every face, beside the `…`.
                     badge = {
                         PrGraphBadge(
                             graph = graph,
-                            face = face,
-                            leadStatus = graphLeadStatus,
+                            chipStatus = graphChipStatus,
                             runTitle = shownSession?.let { sessionRowTitle(it, issue, batchIssues) },
                         ) { graphSheetOpen = true }
                     },
@@ -500,6 +503,9 @@ fun WorkScreen(
                             if (hasChanges) faceName = WorkFaceKind.Changes.name else issueId?.let(onOpenChanges)
                         },
                         trailingBarSlot = trailingSlot,
+                        onAddSubIssue = onCreateSubIssue?.let { create ->
+                            issue?.let { parent -> { create(parent.boardId, parent.id) } }
+                        },
                     )
                 }
                 WorkFaceKind.Run -> key(shownSessionId) {

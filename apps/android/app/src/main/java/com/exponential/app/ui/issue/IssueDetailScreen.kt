@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.IssueRelationType
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.ui.components.picker.AssigneePicker
@@ -233,6 +234,9 @@ fun IssueFace(
     onOpenChanges: () -> Unit,
     /** The bar's right circle — the host's face switcher or its Start play. */
     trailingBarSlot: @Composable () -> Unit,
+    /** EXP-1097: the Sub-issues `+` — the create screen with this issue as
+     *  the parent. Null hides it (and the empty "Add sub-issues" band). */
+    onAddSubIssue: (() -> Unit)? = null,
 ) {
     val issueId = viewModel.issueId
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -242,6 +246,8 @@ fun IssueFace(
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
     val relations by viewModel.relations.collectAsStateWithLifecycle()
+    // EXP-1097: the parent line, the Sub-issues section and the sheet's bands.
+    val relationsUi by viewModel.relationsUi.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     // The board team's status rows (EXP-314) — picker vocabulary + chip label.
     val teamStatuses by viewModel.teamStatuses.collectAsStateWithLifecycle()
@@ -588,6 +594,27 @@ fun IssueFace(
                     }
                 }
 
+                // EXP-1097: "Sub-issue of [chip]" above the title.
+                relationsUi.view.parent?.let { parent ->
+                    Spacer(Modifier.height(8.dp))
+                    SubIssueOfLine(
+                        parent = parent,
+                        parentIssue = relationsUi.issuesById[parent.id],
+                        statuses = teamStatuses,
+                        onOpen = { onOpenIssue(parent.id) },
+                        onRemove = if (isModerator) {
+                            {
+                                relations.firstOrNull {
+                                    it.otherIssueId == parent.id &&
+                                        it.type == IssueRelationType.Parent && it.inverse
+                                }?.let(viewModel::removeRelation)
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                }
+
                 Spacer(Modifier.height(8.dp))
                 // Large title (borderless, save on focus-loss)
                 BasicTextField(
@@ -669,6 +696,32 @@ fun IssueFace(
                 )
                 DisposableEffect(Unit) {
                     onDispose { viewModel.flushDescription() }
+                }
+
+                // EXP-1097: the Sub-issues section — ring · title · `done/total`
+                // · `+` over flat hairline rows; "Add sub-issues" when none.
+                val subIssues = relationsUi.view.subIssues
+                val addSubIssue = onAddSubIssue?.takeIf { isModerator }
+                if (subIssues.rows.isNotEmpty() || addSubIssue != null) {
+                    Spacer(Modifier.height(20.dp))
+                    SubIssuesSection(
+                        subIssues = subIssues,
+                        issuesById = relationsUi.issuesById,
+                        users = state.users,
+                        statuses = teamStatuses,
+                        onAdd = addSubIssue,
+                        onOpenIssue = onOpenIssue,
+                        onRemove = if (isModerator) {
+                            { childId ->
+                                relations.firstOrNull {
+                                    it.otherIssueId == childId &&
+                                        it.type == IssueRelationType.Parent && !it.inverse
+                                }?.let(viewModel::removeRelation)
+                            }
+                        } else {
+                            null
+                        },
+                    )
                 }
 
                 // The PR/branch rows (EXP-156) linking to the Changes face /
@@ -783,9 +836,20 @@ fun IssueFace(
             onOpenLabels = { controller.activeSheet = IssueSheet.Labels },
             onOpenMoveBoard = { controller.activeSheet = IssueSheet.MoveBoard },
             onToggleLabel = { id, assigned -> viewModel.toggleLabel(id, assigned) },
-            relations = relations,
+            relationBands = relationsUi.view.bands,
+            relationIssues = relationsUi.issuesById,
+            users = state.users,
+            teamStatuses = teamStatuses,
             onOpenRelations = { controller.activeSheet = IssueSheet.AddRelation },
-            onRemoveRelation = { viewModel.removeRelation(it) },
+            onToggleRelationBand = viewModel::toggleRelationBand,
+            onShowAllRelations = viewModel::setRelationBandShowAll,
+            onOpenIssue = { id ->
+                controller.propertiesOpen = false
+                onOpenIssue(id)
+            },
+            onRemoveRelation = { key, otherId ->
+                viewModel.relationForBandRow(relations, key, otherId)?.let(viewModel::removeRelation)
+            },
             onDismiss = { controller.propertiesOpen = false },
         )
     }

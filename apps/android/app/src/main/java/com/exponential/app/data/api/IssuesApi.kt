@@ -36,6 +36,10 @@ data class CreateIssueInput(
     // be `/api/attachments/{id}` URLs owned by that draft (nothing is uploaded
     // after the create). Omitted when null (the shared Json drops nulls).
     @SerialName("draftId") val draftId: String? = null,
+    // EXP-760/EXP-1097: file the issue as a SUB-ISSUE of this one — the server
+    // writes the `parent` relation in the create's own transaction (the
+    // detail's Sub-issues `+`). Omitted when null.
+    @SerialName("parentId") val parentId: String? = null,
 )
 
 @Serializable

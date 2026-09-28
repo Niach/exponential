@@ -131,7 +131,16 @@ struct IssueFaceView<Switcher: View>: View {
         .glassRow()
     }
 
+    /// EXP-1097: the relations view model, read once per render.
+    private var relations: IssueRelationsView.Model { vm.relationsView }
+
+    /// Open a related issue's Work screen (the parent, a sub-issue, a band row).
+    private func openRelated(_ issueId: String) {
+        deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+    }
+
     var body: some View {
+        let relations = self.relations
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 // Origin chip: issues filed through the embeddable feedback
@@ -161,18 +170,29 @@ struct IssueFaceView<Switcher: View>: View {
                     duplicateBanner(duplicateOfId: duplicateOfId)
                 }
 
-                // Title (editable)
-                TextField("Title", text: Binding(
-                    get: { vm.editingTitle },
-                    set: { vm.editingTitle = $0 }
-                ))
-                .font(.title2.weight(.semibold))
-                .textFieldStyle(.plain)
-                .foregroundStyle(.white)
-                .focused($titleFocused)
-                .onSubmit { Task { await vm.saveTitle() } }
-                .onChange(of: titleFocused) { _, focused in
-                    if !focused { Task { await vm.saveTitle() } }
+                VStack(alignment: .leading, spacing: 8) {
+                    // EXP-1097: "Sub-issue of [parent]" rides above the title.
+                    if let parent = relations.parent {
+                        IssueParentLine(
+                            parent: parent,
+                            status: vm.relationStatus(id: parent.id),
+                            onOpen: { openRelated(parent.id) }
+                        )
+                    }
+
+                    // Title (editable)
+                    TextField("Title", text: Binding(
+                        get: { vm.editingTitle },
+                        set: { vm.editingTitle = $0 }
+                    ))
+                    .font(.title2.weight(.semibold))
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(.white)
+                    .focused($titleFocused)
+                    .onSubmit { Task { await vm.saveTitle() } }
+                    .onChange(of: titleFocused) { _, focused in
+                        if !focused { Task { await vm.saveTitle() } }
+                    }
                 }
 
                 // Property chip box (EXP-240) — replaces the old
@@ -241,6 +261,23 @@ struct IssueFaceView<Switcher: View>: View {
                 // editor's own elements queryable.
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("issue-description")
+
+                // EXP-1097: the Sub-issues section (ring · progress · `+`)
+                // over flat rows, or a lone "Add sub-issues" row. Every other
+                // relation lives in the Properties sheet's bands.
+                IssueSubIssuesSection(
+                    vm: vm,
+                    subIssues: relations.subIssues,
+                    addRoute: vm.permissions.canCreate
+                        ? .createIssue(
+                            accountId: accountId,
+                            boardId: issue.boardId,
+                            draftId: nil,
+                            parentId: issue.id
+                        )
+                        : nil,
+                    onOpen: openRelated
+                )
 
                 // PR status rows (EXP-156): GitHub-style PR + branch
                 // chips → the Changes face. Renders nothing when there's
@@ -435,7 +472,7 @@ struct IssueFaceView<Switcher: View>: View {
                 assignee: vm.assignee(),
                 labels: vm.teamLabels,
                 assignedIds: vm.assignedLabelIds,
-                relations: vm.relationRows,
+                relationsSource: vm,
                 singleMemberTeam: vm.singleMemberTeam,
                 estimationType: vm.estimationType,
                 board: vm.board,
@@ -445,6 +482,10 @@ struct IssueFaceView<Switcher: View>: View {
                 },
                 onRemoveRelation: { relation in
                     Task { await vm.removeRelation(relation) }
+                },
+                onOpenRelation: { issueId in
+                    activeSheet = nil
+                    openRelated(issueId)
                 },
                 activeChild: $propertyChild,
                 onChildDismiss: {
