@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cold start of the REAL app (at.exponential) on the connected device/emulator.
+# Cold start of the REAL app on the connected device/emulator (PKG=at.exponential.vapp3 with -Pvapp3Id builds; set ANDROID_SERIAL to pick the device).
 #   coldstart-android.sh <apk> <baseline|with-core> [runs=10]
 # Installs the APK, force-stops between runs, drops one warm-up launch, parses TotalTime from
 # `am start -W`, appends a `coldstart` line to results/c-coldstart.jsonl.
@@ -7,8 +7,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APK="$1"; VARIANT="$2"; RUNS="${3:-10}"
 ADB="${ADB:-$HOME/Library/Android/sdk/platform-tools/adb}"
-PKG=at.exponential; ACT=com.exponential.app.MainActivity
-"$ADB" uninstall "$PKG" >/dev/null 2>&1 || true
+PKG="${PKG:-at.exponential}"; ACT=com.exponential.app.MainActivity
+# NEVER uninstall a real app on a personal phone: only the spike's own .vapp3 id is removed first.
+case "$PKG" in *.vapp3) "$ADB" uninstall "$PKG" >/dev/null 2>&1 || true ;; esac
 # --no-incremental: an .idsig next to the APK triggers an incremental (lazy-loaded) install that
 # slows cold starts.
 "$ADB" install --no-incremental -r "$APK" >/dev/null

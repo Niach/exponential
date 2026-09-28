@@ -64,6 +64,8 @@ class MainActivity : Activity() {
     private lateinit var ticketField: EditText
     private lateinit var sessionField: EditText
     private lateinit var turnField: EditText
+    /** Intent extra `stun` (host:port): a separate STUN server, e.g. a public one for the cellular rows. */
+    private var stunOverride: String? = null
     private lateinit var policySpinner: Spinner
     private lateinit var scenarioSpinner: Spinner
     private lateinit var statusView: TextView
@@ -293,8 +295,8 @@ class MainActivity : Activity() {
         val cfg = PeerConfig(
             peerId = peerId,
             sessionId = sessionField.text.toString().trim(),
-            stun = "$turnHost:$turnPort",
-            turn = "$turnHost:$turnPort",
+            stun = stunOverride ?: "$turnHost:$turnPort",
+            turn = if (turnHost.isBlank() || turnHost == "none") null else "$turnHost:$turnPort",
             turnUsername = "exp",
             turnPassword = "spike",
             turnRealm = "exponential.local",
@@ -468,6 +470,7 @@ class MainActivity : Activity() {
         intent.getStringExtra("ticket")?.let { ticketField.setText(it) }
         intent.getStringExtra("session")?.let { sessionField.setText(it) }
         intent.getStringExtra("turn")?.let { turnField.setText(it) }
+        stunOverride = intent.getStringExtra("stun")
         val runs = intent.getStringExtra("runs")?.toIntOrNull() ?: 1
         log("AUTO $auto runs=$runs policy=${policySpinner.selectedItem} scenario=${scenarioSpinner.selectedItem}")
         val keep = intent.getStringExtra("keep") == "true"
@@ -480,6 +483,13 @@ class MainActivity : Activity() {
                             delay(1_000) // onResume (after onNewIntent) starts the background reconnect
                             val deadline = SystemClock.elapsedRealtime() + 30_000
                             while (reconnecting && SystemClock.elapsedRealtime() < deadline) delay(50)
+                            bench()
+                        }
+                        // ICE restart on the EXISTING link, then bench (network-switch timing when the
+                        // OS callback does not fire, e.g. under a VPN the default network never changes).
+                        "restart" -> {
+                            val trig = intent.getStringExtra("trigger") ?: "network-switch"
+                            if (!doReconnect(trig)) error("reconnect failed: ${link?.state()}")
                             bench()
                         }
                         "reconnect" -> {

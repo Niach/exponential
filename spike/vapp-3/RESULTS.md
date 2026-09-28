@@ -1,9 +1,13 @@
-# VAPP-3 results (generated 2026-09-28T04:48:37.101Z by scripts/report.ts)
+# VAPP-3 results (generated 2026-09-28T11:53:44.174Z by scripts/report.ts)
 
 ## Connectivity + performance
 
 | source | scenario | policy | runs | ok | direct (no relay) | connect p50/p95 ms | RTT p50/p95 ms | up / down Mbps (2000000 B) | paths seen |
 |---|---|---|---|---|---|---|---|---|---|
+| android-device | home-wifi-cellular | all | 14 | 10 | 100% | 999.0 / 1271.0 | 75.85 / 93.14 | 3.1 / 7.4 | host↔srflx |
+| android-device | same-lan | all | 18 | 18 | 100% | 601.0 / 710.0 | 13.41 / 23.73 | 11.3 / 21.3 | host↔host |
+| android-device | same-lan | host | 5 | 5 | 100% | 451.0 / 537.0 | 14.92 / 21.76 | 8.3 / 22.7 | host↔host |
+| android-device | same-lan | relay | 10 | 5 | 0% | 504.0 / 522.0 | 15.01 / 22.81 | 19.8 / 24.8 | relay↔host |
 | android-emu | emulator-nat | all | 18 | 18 | 100% | 624.0 / 945.0 | 0.42 / 1.19 | 105.7 / 93.9 | host↔host |
 | android-emu | emulator-nat | host | 6 | 6 | 100% | 547.0 / 577.0 | 0.45 / 1.69 | 104.3 / 101.6 | host↔host |
 | android-emu | emulator-nat | relay | 8 | 6 | 0% | 431.0 / 530.0 | 0.52 / 1.08 | 97.6 / 94.8 | relay↔host |
@@ -11,6 +15,9 @@
 | cli | same-machine | all | 30 | 30 | 100% | 17.6 / 89.0 | 0.20 / 0.69 | 368.3 / 355.1 | host↔host |
 | cli | same-machine | host | 20 | 20 | 100% | 17.7 / 90.2 | 0.23 / 0.81 | 365.3 / 334.8 | host↔host |
 | cli | same-machine | relay | 20 | 20 | 0% | 16.4 / 24.0 | 0.23 / 0.32 | 500.2 / 502.2 | relay↔host |
+| ios-device | same-lan | all | 13 | 10 | 100% | 316.8 / 348.9 | 11.37 / 21.61 | 25.4 / 23.7 | host↔host |
+| ios-device | same-lan | host | 5 | 5 | 100% | 305.2 / 349.9 | 10.33 / 18.99 | 27.4 / 26.3 | host↔host |
+| ios-device | same-lan | relay | 6 | 6 | 0% | 186.2 / 295.7 | 11.09 / 19.50 | 26.5 / 24.0 | relay↔host |
 | ios-sim | same-lan | all | 7 | 6 | 67% | 29.5 / 186.5 | 0.15 / 0.36 | 449.6 / 514.2 | host↔relay, host↔host |
 | ios-sim | same-lan | host | 3 | 3 | 100% | 13.8 / 14.1 | 0.13 / 0.37 | 494.6 / 569.6 | host↔host |
 | ios-sim | same-lan | relay | 5 | 5 | 0% | 14.8 / 15.2 | 0.17 / 0.42 | 470.1 / 449.0 | relay↔host |
@@ -26,10 +33,15 @@
 
 | source | scenario | trigger | runs | reconnect p50/p95 ms |
 |---|---|---|---|---|
+| android-device | home-wifi-cellular | network-switch | 3 | 727.0 / 778.0 |
+| android-device | same-lan | background | 4 | 378.0 / 454.0 |
+| android-device | same-lan | network-switch | 3 | 121.0 / 130.0 |
 | android-emu | emulator-nat | background | 1 | 296.0 / 296.0 |
 | android-emu | emulator-nat | manual | 2 | 19.0 / 19.0 |
 | android-emu | emulator-nat | network-switch | 2 | 566.0 / 566.0 |
 | cli | same-machine | manual | 10 | 4.3 / 22.3 |
+| ios-device | same-lan | background | 3 | 3002.0 / 5253.6 |
+| ios-device | same-lan | manual | 1 | 42.0 / 42.0 |
 | ios-sim | same-lan | manual | 14 | 26.6 / 29.5 |
 
 ### Failures
@@ -37,6 +49,18 @@
 - ios-sim same-lan all: not connected within 30s (state connecting) PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs -; local -; remote -
 - android-emu emulator-nat relay: turn/stun failure: turn allocate: Allocate error response (error 508: ) peer-ffi peer-core 0.0.1 str0m 0.24 spike; sdk_gphone64_arm64 API 36
 - android-emu emulator-nat relay: turn/stun failure: turn allocate: Allocate error response (error 508: ) peer-ffi peer-core 0.0.1 str0m 0.24 spike; sdk_gphone64_arm64 API 36
+- ios-device same-lan all: acceptAnswer: Failed(message: "invalid argument: no pending offer") PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs 537; local host 192.168.178.96:59495; remote host 192.168.178.71:65313
+- ios-device same-lan all: acceptAnswer: Failed(message: "invalid argument: no pending offer") PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs 585; local host 192.168.178.96:61200; remote host 192.168.178.71:57434
+- ios-device same-lan all: acceptAnswer: Failed(message: "invalid argument: no pending offer") PeerHello 1.0 core peer-core 0.0.1 str0m 0.24 spike; appConnectMs 520; local host 192.168.178.96:65232; remote host 192.168.178.71:63448
+- android-device home-wifi-cellular all: timeout peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
+- android-device home-wifi-cellular all: timeout peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
+- android-device home-wifi-cellular all: timeout peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
+- android-device home-wifi-cellular all: timeout peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
+- android-device same-lan relay: turn/stun failure: turn allocate: Allocate error response (error 508: ) peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
+- android-device same-lan relay: turn/stun failure: turn allocate: Allocate error response (error 508: ) peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
+- android-device same-lan relay: turn/stun failure: turn allocate: Allocate error response (error 508: ) peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
+- android-device same-lan relay: turn/stun failure: turn allocate: Allocate error response (error 508: ) peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
+- android-device same-lan relay: turn/stun failure: turn allocate: Allocate error response (error 508: ) peer-ffi peer-core 0.0.1 str0m 0.24 spike; Pixel 7 API 37
 
 ## Signed fingerprints: tamper test
 

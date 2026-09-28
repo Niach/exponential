@@ -57,6 +57,9 @@ val releaseKeyPassword = releaseProp("RELEASE_KEY_PASSWORD")
 // UniFFI Kotlin + JNA) from spike/vapp-3/android/out to measure the APK delta and cold start.
 // Without the property nothing below changes the build (PEER_SPIKE=false).
 val peerSpike = project.hasProperty("peerSpike")
+// `-Pvapp3Id` installs the measured builds as at.exponential.vapp3 (debug-signed) so a cold-start
+// run on a personal phone never touches the installed production app.
+val vapp3Id = project.hasProperty("vapp3Id")
 val peerSpikeOut = "../../../spike/vapp-3/android"
 
 android {
@@ -114,7 +117,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (releaseStoreFile != null) {
                 signingConfig = signingConfigs.getByName("release")
-            } else if (peerSpike) {
+            } else if (peerSpike || vapp3Id) {
                 // VAPP-3: debug-signed so the spike release APK installs for the cold-start test.
                 signingConfig = signingConfigs.getByName("debug")
             }
@@ -140,6 +143,7 @@ android {
     flavorDimensions += "env"
     productFlavors {
         create("production") {
+            if (vapp3Id) applicationIdSuffix = ".vapp3"
             dimension = "env"
             resValue("string", "app_name", "Exponential")
             buildConfigField("String", "DEFAULT_CLOUD_URL", "\"https://app.exponential.at\"")

@@ -19,6 +19,8 @@ final class PeerModel: ObservableObject {
     @Published var turnPass = "spike"
     @Published var turnRealm = "exponential.local"
     @Published var policy: String
+    /// Launch argument `-stun host:port`: a separate STUN server (public one for the cellular rows).
+    var stunHost: String?
     @Published var scenario: String
 
     // State.
@@ -64,6 +66,7 @@ final class PeerModel: ObservableObject {
         ticket = d.string(forKey: "ticket") ?? DevTickets.viewer
         sessionId = d.string(forKey: "session") ?? DevTickets.sessionId
         turnHost = d.string(forKey: "turn") ?? "\(mac):3478"
+        stunHost = d.string(forKey: "stun")
         policy = d.string(forKey: "policy") ?? "all"
         #if targetEnvironment(simulator)
         scenario = d.string(forKey: "scenario") ?? "same-lan"
@@ -233,8 +236,8 @@ final class PeerModel: ObservableObject {
         guard await waitForHello(seconds: 10) else { fail("no daemon hello within 10s"); return false }
         let cfg = PeerConfig(
             peerId: peerId, sessionId: sessionId,
-            stun: turnHost.isEmpty ? nil : turnHost,
-            turn: turnHost.isEmpty ? nil : turnHost,
+            stun: stunHost ?? (turnHost.isEmpty || turnHost == "none" ? nil : turnHost),
+            turn: turnHost.isEmpty || turnHost == "none" ? nil : turnHost,
             turnUsername: turnUser, turnPassword: turnPass, turnRealm: turnRealm,
             policy: policy == "relay" ? .relay : policy == "host" ? .host : .all,
             identitySeed: nil, expectedRemotePubkey: daemonPub,
@@ -439,7 +442,14 @@ final class PeerModel: ObservableObject {
         switch phase {
         case .background: wasBackgrounded = true
         case .active:
-            if wasBackgrounded, link != nil { reconnect(trigger: "background") }
+            if wasBackgrounded, link != nil {
+                if UserDefaults.standard.bool(forKey: "autoAfterReconnect") {
+                    // Scripted background test: reconnect, then bench + send without a tap.
+                    Task { await reconnectFlow(trigger: "background"); await benchFlow(); await sendResultsFlow() }
+                } else {
+                    reconnect(trigger: "background")
+                }
+            }
             wasBackgrounded = false
         default: break
         }

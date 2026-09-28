@@ -28,7 +28,15 @@ pub(crate) fn host_ips() -> Vec<IpAddr> {
     }
     let mut out: Vec<IpAddr> = Vec::new();
     if let Ok(ifs) = if_addrs::get_if_addrs() {
+        // VPN/tunnel interfaces (Tailscale utun/tun, WireGuard, IPsec, PPP) are NOT ICE host
+        // candidates: a pair over them would measure the VPN's own traversal, not ours.
+        // PEER_CORE_ALLOW_VPN=1 opts back in.
+        let allow_vpn = std::env::var("PEER_CORE_ALLOW_VPN").map(|v| v == "1").unwrap_or(false);
         for i in ifs {
+            let n = i.name.as_str();
+            if !allow_vpn && ["utun", "tun", "ipsec", "ppp", "wg", "tailscale"].iter().any(|p| n.starts_with(p)) {
+                continue;
+            }
             let ip = i.ip();
             match ip {
                 IpAddr::V4(v4) => {
