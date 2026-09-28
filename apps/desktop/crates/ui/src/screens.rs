@@ -301,6 +301,9 @@ pub(crate) fn build_screen_content(
         Screen::GettingStarted { .. } => cx
             .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
             .into(),
+        Screen::VappKitchenSink => cx
+            .new(|cx| crate::vapp_spike::VappKitchenSink::new(window, cx))
+            .into(),
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
         // EXP-851: the list screens are never undockable (only a detail is),
         // so this arm exists to keep the match total.
@@ -1079,6 +1082,9 @@ pub struct ScreensPanel {
     /// The Getting-started checklist page (EXP-470 — the same tab-less
     /// full-page mode, behind a conditional rail entry).
     getting_started: Entity<crate::getting_started::GettingStartedView>,
+    /// VAPP-4 spike (throwaway): the kitchen-sink dev screen, built on first
+    /// open so a normal window never parses the fixture.
+    vapp_kitchen_sink: Option<Entity<crate::vapp_spike::VappKitchenSink>>,
     /// EXP-746: one session screen per OPEN session tab, keyed by the
     /// `coding_sessions` row id. Not a shared single instance like the views
     /// above: each one owns a feed (a relay socket, or the local engine's
@@ -1290,6 +1296,7 @@ impl ScreensPanel {
             chat,
             reviews,
             getting_started,
+            vapp_kitchen_sink: None,
             sessions: HashMap::new(),
             transient_origin: None,
             list,
@@ -1598,6 +1605,7 @@ impl ScreensPanel {
             | Screen::Chat
             | Screen::Reviews
             | Screen::GettingStarted { .. }
+            | Screen::VappKitchenSink
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -3506,6 +3514,13 @@ impl Render for ScreensPanel {
             Some(Screen::GettingStarted { .. }) => {
                 self.getting_started.clone().into_any_element()
             }
+            Some(Screen::VappKitchenSink) => self
+                .vapp_kitchen_sink
+                .get_or_insert_with(|| {
+                    cx.new(|cx| crate::vapp_spike::VappKitchenSink::new(window, cx))
+                })
+                .clone()
+                .into_any_element(),
             // EXP-851: nothing open at all (a fresh window, the last tab
             // closed, a team switch). There is no tool default left to fall
             // back on — the empty state points at the rail.

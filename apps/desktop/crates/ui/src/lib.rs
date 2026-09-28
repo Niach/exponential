@@ -175,6 +175,8 @@ mod agent_account_actions;
 mod undocked_terminal;
 mod update;
 mod user_avatar;
+// VAPP-4 spike (throwaway): `EXP_DEV_SCREEN=kitchen-sink`.
+mod vapp_spike;
 mod window_frame;
 mod window_hooks;
 #[cfg(target_os = "linux")]

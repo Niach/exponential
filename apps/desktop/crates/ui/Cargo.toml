@@ -70,6 +70,8 @@ reqwest.workspace = true
 # provenance) — the issue-description editing surface; the block editor above
 # stays for the comment composer.
 gpui-markdown-editor = { path = "../gpui-markdown-editor" }
+# VAPP-4 spike (throwaway): the shared taffy core behind the kitchen-sink dev screen.
+vapp-spike = { path = "../vapp-spike" }
 
 [dev-dependencies]
 # markdown/image_paste.rs one-shot HTTP fixture server.

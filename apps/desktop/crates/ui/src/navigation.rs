@@ -136,6 +136,10 @@ pub enum Screen {
     /// Actions/Automations lightbulb can navigate straight into it (and so
     /// go-back / tab restore keep the tab the user was on).
     GettingStarted { tab: GettingStartedTab },
+    /// VAPP-4 spike (throwaway): the shared kitchen-sink fixture painted from
+    /// the Rust core's taffy frames. Dev-only (`EXP_DEV_SCREEN=kitchen-sink`),
+    /// tab-less full-page mode like Getting started, no rail entry.
+    VappKitchenSink,
 }
 
 /// Which tab of the Getting-started page is up (EXP-686): the checklist, or
@@ -430,6 +434,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Chat => "Chat".into(),
         Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
+        Screen::VappKitchenSink => "vApp kitchen sink".into(),
     }
 }
 
@@ -773,6 +778,8 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "support" => Some(Screen::Support),
         "files" => Some(Screen::Files),
         "source-control" => Some(Screen::SourceControl),
+        // VAPP-4 spike: the shared layout kitchen sink (dev-only).
+        "kitchen-sink" => Some(Screen::VappKitchenSink),
         "getting-started" => Some(Screen::GettingStarted {
             tab: std::env::var("EXP_DEV_GETTING_STARTED_TAB")
                 .ok()
@@ -1888,6 +1895,15 @@ mod tests {
         assert_eq!(parse_dev_screen("nonsense"), None);
         // The old EXP-530 tab values were never screens.
         assert_eq!(parse_dev_screen("suggestions"), None);
+    }
+
+    /// VAPP-4 spike: the kitchen sink opens by dev value, full page.
+    #[test]
+    fn dev_screen_kitchen_sink_opens_the_vapp_spike() {
+        assert_eq!(parse_dev_screen("kitchen-sink"), Some(Screen::VappKitchenSink));
+        assert!(!Screen::VappKitchenSink.is_detail());
+        assert!(!Screen::VappKitchenSink.undockable());
+        assert!(Screen::VappKitchenSink.list_origin().is_none());
     }
 
     /// EXP-851: the rail's tool windows are SCREENS — both spellings of every
