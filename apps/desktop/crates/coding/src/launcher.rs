@@ -1233,9 +1233,21 @@ fn path_segment(id: &str) -> Option<String> {
     (!segment.is_empty()).then_some(segment)
 }
 
-/// EXP-746: an EMPTY `{}` claude `--settings` file at a per-pid path. It
-/// wires nothing (the engine reads `session/update` notifications), but
-/// claude's `--settings <path>` argv is the REAPER's only process-selection
+/// EXP-1124: the flag-settings layer every ACP claude spawn carries. Flag
+/// settings outrank the user's, and a user `defaultMode: auto` otherwise
+/// leaks into PLAN runs: claude's plan mode takes auto-mode semantics
+/// whenever auto is available (`useAutoModeDuringPlan`, default true), so
+/// every non-read-only tool call went to the server-side classifier and,
+/// with it failing, was refused before `can_use_tool` ever reached the
+/// adapter. Exponential only ever runs `plan` / `bypassPermissions`
+/// (`clamp_mode`), so auto is disabled outright. Both keys measured present
+/// in claude 2.1.282.
+pub const CLAUDE_FLAG_SETTINGS: &str =
+    r#"{"permissions":{"disableAutoMode":"disable"},"useAutoModeDuringPlan":false}"#;
+
+/// EXP-746: the claude `--settings` file ([`CLAUDE_FLAG_SETTINGS`], EXP-1124)
+/// at a per-pid path. It wires no hooks (the engine reads `session/update`
+/// notifications), and claude's `--settings <path>` argv is the REAPER's only process-selection
 /// anchor (`reaper::select` matches the `claude-hooks/<pid>/` segment in the
 /// process COMMAND LINE, reaper.rs:111), so an ACP claude that dropped the
 /// flag would be invisible to the quit sweep and EXP-300's escaped processes
@@ -1255,7 +1267,7 @@ fn write_acp_reaper_anchor(
     std::fs::create_dir_all(&dir).ok()?;
     let segment = path_segment(session_id)?;
     let settings = dir.join(format!("{segment}.settings.json"));
-    std::fs::write(&settings, "{}").ok()?;
+    std::fs::write(&settings, CLAUDE_FLAG_SETTINGS).ok()?;
     Some(settings)
 }
 
@@ -4492,6 +4504,17 @@ mod tests {
     /// only file left behind is the reaper's empty `{}` anchor
     /// (reaper.rs:111 matches it in the command line).
     #[cfg(unix)]
+    /// EXP-1124: the anchor is also the flag-settings layer that keeps a
+    /// user `defaultMode: auto` out of plan runs — auto disabled, and plan
+    /// never taking auto-mode semantics.
+    #[test]
+    fn claude_flag_settings_disable_auto_mode() {
+        let settings: serde_json::Value =
+            serde_json::from_str(CLAUDE_FLAG_SETTINGS).expect("valid json");
+        assert_eq!(settings["permissions"]["disableAutoMode"], "disable");
+        assert_eq!(settings["useAutoModeDuringPlan"], false);
+    }
+
     #[test]
     fn prepare_on_the_acp_arm_has_no_argv_and_keeps_the_reaper_anchor() {
         let dir = temp_dir("transport-acp");
@@ -4530,7 +4553,7 @@ mod tests {
         assert!(acp.resume.is_none());
         // No prompt file and no hooks/curl files — but the anchor is written.
         let anchor = acp.reaper_settings_path.as_ref().expect("reaper anchor");
-        assert_eq!(fs::read_to_string(anchor).unwrap(), "{}");
+        assert_eq!(fs::read_to_string(anchor).unwrap(), CLAUDE_FLAG_SETTINGS);
         assert!(
             anchor.starts_with(dir.0.join("claude-hooks")),
             "the anchor must sit under the marker dir: {anchor:?}"

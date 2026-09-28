@@ -67,9 +67,12 @@ pub struct ClaudeArgs<'a> {
     pub fork_session: bool,
     pub mcp_config: Option<McpConfig<'a>>,
     pub strict_mcp_config: bool,
-    /// The `--settings` file: `{}` on this path, kept ONLY because the
-    /// reaper selects escaped claude processes by that path appearing in the
-    /// process command line (EXP-300).
+    /// The `--settings` file: the reaper selects escaped claude processes by
+    /// that path appearing in the process command line (EXP-300), and its
+    /// content is the pinned flag-settings layer
+    /// (`coding::launcher::CLAUDE_FLAG_SETTINGS`, EXP-1124: auto mode off, so
+    /// a user `defaultMode: auto` never walls a plan run behind the
+    /// classifier).
     pub settings: Option<&'a Path>,
     pub add_dirs: &'a [std::path::PathBuf],
     pub disallowed_tools: &'a [&'a str],

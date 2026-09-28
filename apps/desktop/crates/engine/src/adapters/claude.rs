@@ -20,9 +20,11 @@
 //! - Control requests share ONE channel: a control request issued from inside
 //!   a hook handler, before that hook is answered, deadlocks the CLI. Every
 //!   hook answer is therefore written BEFORE the work it triggers is spawned.
-//! - The argv keeps `--settings <claude-hooks/<pid>/<sid>.settings.json>` even
-//!   though the file is `{}`: that path in the process command line is the
-//!   reaper's only way to find an escaped claude (EXP-300).
+//! - The argv keeps `--settings <claude-hooks/<pid>/<sid>.settings.json>`:
+//!   that path in the process command line is the reaper's only way to find
+//!   an escaped claude (EXP-300), and the file pins auto mode OFF (EXP-1124:
+//!   plan mode otherwise inherits a user `defaultMode: auto` and routes every
+//!   tool call through the classifier, never reaching `can_use_tool`).
 //! - Nothing raw reaches the wire from here. The relay-facing derivation,
 //!   redaction and caps live in the engine's mapper; this adapter's job is to
 //!   produce HONEST ACP updates, including rebuilding `Read` results from
