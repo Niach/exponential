@@ -26,9 +26,12 @@ import {
 import {
   badgeChip,
   badgeShape,
+  overlaySections,
   prGraph,
+  type OverlaySection,
   type PrGraphFace,
 } from "@/lib/pr-graph"
+import { RELATIONS_VIEW_COPY } from "@/lib/issue-relations-view"
 import { blockGraph, type GraphRelation } from "@/lib/issue-graph"
 import { IssueGraphView } from "@/components/issue-graph"
 import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
@@ -39,6 +42,7 @@ import { rowPrState } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { IssueChip } from "@/components/issue-chip"
 import { PrStateBadge } from "@/components/issue-coding-rows"
+import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { cn } from "@/lib/utils"
 
@@ -56,8 +60,11 @@ const STACK_ROW_GAP = 7
 // EXP-1058: in the work header (the Issue, Run and Changes faces share
 // `WorkHeader`, EXP-877) it is the STACKED issue chip (`IssueChipStack`): the
 // representative issue in front, `+N` for the rest (`badgeChip`); in the
-// Reviews queue, the glyph on a batch row. Hover on ≥md, tap everywhere: the
-// SAME overlay opens, with the section that belongs to the face showing. Same rows, same copy, on all four
+// Reviews queue, the glyph on a batch row. EXP-1097: the chip is the SAME on
+// every face (`badgeShape` is face-independent — a stack/batch, a run family,
+// else open blockers), phones draw it compact (glyph · identifier · `+N`, no
+// title). Hover on ≥md, tap everywhere: the SAME overlay opens, the face's
+// own section first (`overlaySections`). Same rows, same copy, on all four
 // clients (`pr_graph.rs`, `PrGraphBadge.swift`, `PrGraphBadge.kt`).
 //
 // Everything it draws is already synced — `lib/pr-graph.ts` is the pure model.
@@ -74,6 +81,8 @@ export type { PrGraphFace } from "@/lib/pr-graph"
 
 /** Byte-identical with the desktop tooltip (`pr_graph::badge_tooltip`). */
 export const RUNS_BADGE_NAME = `The runs around this one`
+/** EXP-1097: the `blocked` shape's name — the relations band's own title. */
+export const BLOCKED_BADGE_NAME = RELATIONS_VIEW_COPY.blockedBy
 
 export function PrGraphBadge({
   teamId,
@@ -128,14 +137,17 @@ export function PrGraphBadge({
   )
   // EXP-980: the team's `blocks` rows — the blocked-by section is the
   // transitive mini-graph now, so the direct rows alone no longer do.
+  // EXP-1097: fetched for a run subject too — its issue's open blockers earn
+  // the chip on every face now.
+  const subjectIssueId = issue?.id ?? session?.issueId ?? null
   const { data: relationRows } = useLiveQuery(
     (query) =>
-      issue
+      subjectIssueId
         ? query
             .from({ r: issueRelationCollection })
             .where(({ r }) => and(eq(r.teamId, teamId), eq(r.type, `blocks`)))
         : undefined,
-    [issue?.id, teamId]
+    [subjectIssueId, teamId]
   )
 
   // EXP-930: a batch's issue rows are only useful if they OPEN — and an issue
@@ -165,13 +177,15 @@ export function PrGraphBadge({
     [issue, session, issues, sessions, relations]
   )
 
-  const kind = badgeShape(graph, face)
-  const chipSpec = badgeChip(graph, face)
+  const kind = badgeShape(graph)
+  const chipSpec = badgeChip(graph)
   if (!kind || !chipSpec) return fallback
   const name =
     kind === `runs`
       ? RUNS_BADGE_NAME
-      : kind === `stack+batch`
+      : kind === `blocked`
+        ? BLOCKED_BADGE_NAME
+        : kind === `stack+batch`
         ? `Stack and batch`
         : kind === `stack`
           ? `Pull request stack`
@@ -221,7 +235,26 @@ export function PrGraphBadge({
         }}
       >
         <IssueChipStack count={chipSpec.count} testId="pr-graph-chip">
-          {chipSpec.issue ? (
+          {chipSpec.issue && isMobile ? (
+            // EXP-1097: the phone header's COMPACT chip — glyph + identifier,
+            // no title; the `+N` still rides beside the stack.
+            <ChipBox
+              slot="issue-chip"
+              openLabel={name}
+              testId="pr-graph-chip-compact"
+              body={
+                <>
+                  <IssueStatusIcon
+                    issue={chipSpec.issue}
+                    className={CHIP_GLYPH_CLASS}
+                  />
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                    {chipSpec.issue.identifier}
+                  </span>
+                </>
+              }
+            />
+          ) : chipSpec.issue ? (
             <IssueChip issue={chipSpec.issue} preview={false} />
           ) : (
             <ChipBox
@@ -343,134 +376,107 @@ export function PrGraphOverlay({
     )
   }
 
-  if (face === `issue`) {
-    const inBatch = (graph.batch?.issues ?? []).filter(
-      (row) => row.id !== subjectIssue?.id
-    )
-    return (
-      <div className="flex flex-col gap-3">
-        {graph.blockedBy.length > 0 && subjectIssue && (
-          // EXP-980: the transitive chain as THE mini-graph, not the direct
-          // blockers as loose chips.
-          <Section label="Blocked by">
-            <IssueGraphView
-              graph={blockGraph([subjectIssue.id], relations, issues)}
-              issueById={new Map(issues.map((row) => [row.id, row]))}
-              renderNode={chip}
-            />
-          </Section>
-        )}
-        {inBatch.length > 0 && (
-          <Section label="In batch with">
-            <div
-              className="flex flex-wrap gap-1.5"
-              data-testid="pr-graph-batch-partners"
-            >
-              {inBatch.map(chip)}
-            </div>
-          </Section>
-        )}
-        {graph.blockedBy.length === 0 && inBatch.length === 0 && (
-          <div className="text-xs text-muted-foreground">
-            Nothing else is linked to this issue.
-          </div>
-        )}
-      </div>
-    )
-  }
+  // EXP-1097: every relation the subject HAS gets its section on every face;
+  // the face only decides which one LEADS (`overlaySections`).
+  const sections = overlaySections(graph, face)
 
-  if (face === `run`) {
-    return (
-      <div className="flex flex-col gap-3">
-        {/* EXP-930: the pill on a BATCH run says `3 issues`, so the first
-            thing behind it is those three issues — the run tree alone
-            answered a question nobody asked. The Issue face's batch section
-            has the same rows; this is the run's own subject, so the whole
-            covered set is listed, not "everything but me". */}
-        {graph.batch && (
-          <Section label="Issues">
-            <div className="flex flex-wrap gap-1.5">
-              {graph.batch.issues.map(chip)}
-            </div>
-          </Section>
-        )}
-        <Section label="Runs">
-        <div className="flex flex-col">
-          {(() => {
-            // EXP-965: the connector, off the visible depths.
-            const guides = treeGuides(graph.tree.map((row) => row.depth))
-            return graph.tree.map(({ session, depth }, index) => {
-            const issue = session.issueId
-              ? issues.find((row) => row.id === session.issueId)
-              : undefined
-            // EXP-876: `issues` carries the overlay's whole synced set, so a
-            // batch run in the tree names itself instead of reading "Batch run".
-            const identity = sessionIdentity({ session, issue, batchIssues: issues })
-            return (
-              <button
-                key={session.id}
-                type="button"
-                className="relative flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-glass-active"
-                style={{ paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }}
-                onClick={() => {
-                  onClose()
-                  openSession(session)
-                }}
-              >
-                <TreeGuides guide={guides[index]} />
-                <RunningIndicator
-                  state={sessionDisplayState(
-                    session,
-                    rowPrState(session, issue)
-                  )}
-                />
-                {identity.identifier && (
-                  <span className="shrink-0 font-mono text-muted-foreground">
-                    {identity.identifier}
-                  </span>
-                )}
-                <span className="min-w-0 truncate">{identity.subject}</span>
-              </button>
-            )
-            })
-          })()}
+  const blockedSection = subjectIssue ? (
+    // EXP-980: the transitive chain as THE mini-graph, not the direct
+    // blockers as loose chips.
+    <Section key="blocked" label="Blocked by">
+      <IssueGraphView
+        graph={blockGraph([subjectIssue.id], relations, issues)}
+        issueById={new Map(issues.map((row) => [row.id, row]))}
+        renderNode={chip}
+      />
+    </Section>
+  ) : null
+
+  // On the Issue face the subject is the reader's own issue, so the batch
+  // lists its PARTNERS; on a run the covered set IS the run's subject.
+  // EXP-930: the pill on a BATCH run says `3 issues`, so its first section
+  // is those three issues.
+  const inBatch = (graph.batch?.issues ?? []).filter(
+    (row) => face !== `issue` || row.id !== subjectIssue?.id
+  )
+  const batchSection =
+    inBatch.length > 0 ? (
+      <Section key="batch" label={face === `issue` ? `In batch with` : `Issues`}>
+        <div
+          className="flex flex-wrap gap-1.5"
+          data-testid="pr-graph-batch-partners"
+        >
+          {inBatch.map(chip)}
         </div>
-        </Section>
-      </div>
-    )
-  }
+      </Section>
+    ) : null
 
-  // The Changes / review face: the stack BOTTOM-UP, a batch entry folding its
-  // issues underneath, and `Merge stack` on the bottom entry.
+  const guides = treeGuides(graph.tree.map((row) => row.depth))
+  const runsSection = (
+    <Section key="runs" label="Runs">
+      <div className="flex flex-col">
+        {graph.tree.map(({ session, depth }, index) => {
+          const issue = session.issueId
+            ? issues.find((row) => row.id === session.issueId)
+            : undefined
+          // EXP-876: `issues` carries the overlay's whole synced set, so a
+          // batch run in the tree names itself instead of reading "Batch run".
+          const identity = sessionIdentity({ session, issue, batchIssues: issues })
+          return (
+            <button
+              key={session.id}
+              type="button"
+              className="relative flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-glass-active"
+              style={{ paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }}
+              onClick={() => {
+                onClose()
+                openSession(session)
+              }}
+            >
+              {/* EXP-965: the connector, off the visible depths. */}
+              <TreeGuides guide={guides[index]} />
+              <RunningIndicator
+                state={sessionDisplayState(session, rowPrState(session, issue))}
+              />
+              {identity.identifier && (
+                <span className="shrink-0 font-mono text-muted-foreground">
+                  {identity.identifier}
+                </span>
+              )}
+              <span className="min-w-0 truncate">{identity.subject}</span>
+            </button>
+          )
+        })}
+      </div>
+    </Section>
+  )
+
+  // The pull requests: the stack BOTTOM-UP, a batch entry folding its issues
+  // underneath, and `Merge stack` under it on the Changes face.
   const bottom = graph.stack[0]
   const top = graph.stack[graph.stack.length - 1]
-  return (
-    <div className="flex flex-col gap-3">
+  const prRows =
+    graph.stack.length > 0
+      ? graph.stack
+      : graph.entry
+        ? [{ entry: graph.entry, depth: 0 }]
+        : []
+  // EXP-965: the stack nests from the container's own edge, so the gutters
+  // start at 0 rather than at a list row's 12px padding — and it is the ONE
+  // guide site whose rows are SPACED (`gap-1.5`), so every line bridges that
+  // gap upwards (`STACK_ROW_GAP`).
+  const prGuides = treeGuides(prRows.map((row) => row.depth))
+  const stackSection = (
+    <div key="stack" className="flex flex-col gap-3">
       <Section label="Pull requests">
         <div className="flex flex-col gap-1.5">
-          {(() => {
-            const rows =
-              graph.stack.length > 0
-                ? graph.stack
-                : graph.entry
-                  ? [{ entry: graph.entry, depth: 0 }]
-                  : []
-            // EXP-965: the stack nests from the container's own edge, so the
-            // gutters start at 0 rather than at a list row's 12px padding —
-            // and it is the ONE guide site whose rows are SPACED (`gap-1.5`),
-            // so every line bridges that gap upwards (`STACK_ROW_GAP`).
-            const guides = treeGuides(rows.map((row) => row.depth))
-            return rows.map(({ entry, depth }, index) => (
+          {prRows.map(({ entry, depth }, index) => (
             <div
               key={entry.key}
               className="relative flex flex-col gap-1"
               style={{ paddingLeft: `${depth * TREE_INDENT}px` }}
             >
-              <TreeGuides
-                guide={guides[index]}
-                base={0}
-                gap={STACK_ROW_GAP}
-              />
+              <TreeGuides guide={prGuides[index]} base={0} gap={STACK_ROW_GAP} />
               <Link
                 to="/t/$teamSlug/reviews/$issueIdentifier"
                 params={{
@@ -490,14 +496,15 @@ export function PrGraphOverlay({
                 </span>
                 <PrStateBadge state={entry.issue.prState} />
               </Link>
-              {entry.issues.length > 1 && (
+              {/* A batch entry's issues fold under it — unless the batch
+                  section already lists them right here. */}
+              {entry.issues.length > 1 && !sections.includes(`batch`) && (
                 <div className="flex flex-wrap gap-1.5 pl-5">
                   {entry.issues.map(chip)}
                 </div>
               )}
             </div>
-            ))
-          })()}
+          ))}
         </div>
       </Section>
       {onMergeStack && bottom && top && graph.stack.length > 1 && (
@@ -512,6 +519,25 @@ export function PrGraphOverlay({
           <StackIcon className="size-3" />
           {MERGE_STACK_LABEL}
         </Pill>
+      )}
+    </div>
+  )
+
+  const byKind: Record<OverlaySection, ReactNode> = {
+    blocked: blockedSection,
+    batch: batchSection,
+    runs: runsSection,
+    stack: stackSection,
+  }
+  const drawn = sections.map((section) => byKind[section]).filter(Boolean)
+
+  return (
+    <div className="flex flex-col gap-3">
+      {drawn}
+      {drawn.length === 0 && (
+        <div className="text-xs text-muted-foreground">
+          Nothing else is linked to this issue.
+        </div>
       )}
     </div>
   )

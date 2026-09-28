@@ -52,9 +52,11 @@ import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
-import { IssueRelationsSection } from "@/components/issue-relations-card"
+import {
+  IssueParentLine,
+  IssueRelationsSection,
+} from "@/components/issue-relations-card"
 import { IssueChip } from "@/components/issue-chip"
-import { SubIssueComposer } from "@/components/sub-issue-composer"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
@@ -570,7 +572,8 @@ export function IssueDetailView({
       dot={mobileWork?.dot ?? null}
       graphBadge={
         /* EXP-897: the same stacked chip the md+ header wears, opening the same
-           overlay as a sheet. */
+           overlay as a sheet (EXP-1097: compact on the phone — glyph ·
+           identifier · `+N`, beside the `…`). */
         <PrGraphBadge
           teamId={issue.teamId}
           teamSlug={teamSlug}
@@ -590,6 +593,8 @@ export function IssueDetailView({
   ) : null
 
   const titleField = <IssueTitleField issue={issue} readOnly={readOnly} />
+  // EXP-1097: "Sub-issue of [parent]" rides ABOVE the title, on every layout.
+  const parentLine = <IssueParentLine issueId={issue.id} phone={isMobile} />
 
   const editor = (
     <div className="px-1">
@@ -668,21 +673,19 @@ export function IssueDetailView({
     })
   }
 
-  // EXP-760: the inline "Add sub-issues" composer. Desktop + members only —
-  // a phone has no room for a second editor under the description, and a
-  // read-only viewer has nothing to file. Keyed on the issue so prev/next
-  // navigation never carries a half-typed child over (REV-47's rule).
-  const subIssueComposer =
-    !readOnly && !isMobile ? (
-      <SubIssueComposer
-        // Namespaced: the editor sibling is keyed on the bare issue id, and
-        // React duplicates children that share a key.
-        key={`sub-issues:${issue.id}`}
-        parent={issue}
-        teamId={teamId}
-        users={users}
-      />
-    ) : null
+  // EXP-1097: the relations block under the description — the Sub-issues
+  // band (the `+` opens the inline composer, EXP-760) and, md+ only, one
+  // foldable band per remaining relation side (`lib/issue-relations-view.ts`).
+  // The phone draws those bands in its properties sheet instead.
+  const relationsSection = (
+    <IssueRelationsSection
+      issue={issue}
+      teamId={teamId}
+      users={users}
+      readOnly={readOnly}
+      phone={isMobile}
+    />
+  )
 
   // EXP-42b: reporter/page/env metadata of widget-filed issues, members-only
   // (the server gates it; anonymous viewers never even fetch).
@@ -704,10 +707,12 @@ export function IssueDetailView({
           className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
         >
           {propsTray(false)}
+          {parentLine}
           {titleField}
           {editor}
           {attachmentError}
           {filesSection}
+          {relationsSection}
           {prRow}
           {widgetCard}
           {timeline}
@@ -740,11 +745,17 @@ export function IssueDetailView({
           properties tray with Merge and the coding action inside it. */}
       {duplicateBanner}
       <WorkHeader
-        title={titleField}
+        title={
+          <>
+            {parentLine}
+            {titleField}
+          </>
+        }
         trailing={
           <>
             {/* EXP-897: what this issue is part of — its stack, its batch
-                (EXP-1058: the stacked issue chip). */}
+                (EXP-1058: the stacked issue chip), its run family or its
+                open blockers (EXP-1097: the same chip on every face). */}
             <PrGraphBadge
               teamId={issue.teamId}
               teamSlug={teamSlug}
@@ -773,13 +784,9 @@ export function IssueDetailView({
               {editor}
               {attachmentError}
               {filesSection}
-              {/* EXP-760: relations moved BELOW the description (Linear's
-                  order) and lost their card + "Relations" title — the group
-                  headings are the labels, and the whole block is absent when
-                  the issue has no relations. The phone carries them inside the
-                  properties sheet instead. */}
-              <IssueRelationsSection issueId={issue.id} readOnly={readOnly} />
-              {subIssueComposer}
+              {/* EXP-760: relations sit BELOW the description (Linear's
+                  order); EXP-1097: as grouped bands. */}
+              {relationsSection}
               {prRow}
               {widgetCard}
               {timeline}

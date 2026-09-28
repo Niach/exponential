@@ -59,6 +59,7 @@ vi.mock(`@/components/issue-files-section`, () => ({
   IssueFilesSection: () => null,
 }))
 vi.mock(`@/components/issue-relations-card`, () => ({
+  IssueParentLine: () => null,
   IssueRelationsSection: () => null,
 }))
 vi.mock(`@/components/issue-chip`, () => ({ IssueChip: () => null }))

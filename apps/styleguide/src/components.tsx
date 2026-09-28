@@ -78,6 +78,7 @@ import {
   ComposerSubmit,
   ComposerTool,
   ContextRing,
+  ProgressRing,
   CursorIcon,
   DatePicker,
   DisclosureHeader,
@@ -2552,9 +2553,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `relations-card`,
     title: `Relations card`,
     kind: `Lists & rows`,
-    blurb: `EXP-736: the issue's relations beneath the properties card (web + desktop) or inside the properties sheet (phones). Section header with the Add relation capsule, then one row per link: status glyph, the per-side label, identifier, title, trailing remove.`,
+    blurb: `EXP-736: the issue's relations beneath the properties card (web + desktop) or inside the properties sheet (phones). Section header with the Add relation capsule, then one row per link: status glyph, the per-side label, identifier, title, trailing remove. EXP-1097 (direction A, web first): "Sub-issue of [parent]" above the title, a Sub-issues band (progress ring · done/total · +) over flat rows, and one foldable band per remaining side (Blocked by · Blocking · Duplicate of/by · Related, 3 rows then "Show N more") off lib/issue-relations-view.ts; phones keep the bands in the properties sheet under "Relations" + Add.`,
     status: {
-      web: ok(`IssueRelationsCard`, `apps/web/src/components/issue-relations-card.tsx`),
+      web: ok(
+        `IssueRelationsSection / IssueParentLine / MobileRelationBands`,
+        `apps/web/src/components/issue-relations-card.tsx`,
+        `EXP-1097: the grouped bands; the model is lib/issue-relations-view.ts`
+      ),
       desktop: ok(`issue_relations::render_relations_section`, `apps/desktop/crates/ui/src/issue_relations.rs`),
       ios: ok(`IssueRelationsSection`, `apps/ios/Exponential/UI/Issue/Sheets/IssueRelationsSection.swift`, `Lives in the properties sheet, not on the detail page.`),
       android: ok(`RelationsSection`, `apps/android/app/src/main/java/com/exponential/app/ui/issue/RelationsSection.kt`, `Lives in the properties sheet, not on the detail page.`),
@@ -3813,6 +3818,64 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         <ContextRing percent={30} />
         <ContextRing percent={80} tone="warning" />
         <ContextRing percent={97} tone="danger" />
+      </div>
+    ),
+  },
+  {
+    id: `progress-ring`,
+    title: `Sub-issue progress ring`,
+    kind: `Feedback`,
+    blurb: `EXP-1097: the completion ring that leads the issue detail's Sub-issues band — done of total as an arc over a 20% track, the SAME 16-unit box, 2-unit stroke and track as the context ring (\`ringGeometry\`), drawn at 14px and painted in the team's COMPLETED status colour. The band reads ring · "Sub-issues" · \`done/total\` · \`+\` over flat rows (\`lib/issue-relations-view.ts\`, fixture-locked ×4).`,
+    status: {
+      web: ok(
+        `ProgressRing`,
+        `packages/ui/src/progress-ring.tsx`,
+        `the Sub-issues band in components/issue-relations-card.tsx mounts it`
+      ),
+      desktop: leftover(
+        `usage_sheet::context_ring`,
+        `apps/desktop/crates/ui/src/usage_sheet.rs`,
+        `EXP-1097: the sub-issue ring reuses this geometry; wired by the desktop lane`
+      ),
+      ios: leftover(
+        `ContextRing`,
+        `apps/ios/ExpUI/Sources/ContextRing.swift`,
+        `EXP-1097: the sub-issue ring reuses this geometry; wired by the iOS lane`
+      ),
+      android: leftover(
+        `ContextRing`,
+        `${ANDROID_COMPONENTS}/ContextRing.kt`,
+        `EXP-1097: the sub-issue ring reuses this geometry; wired by the Android lane`
+      ),
+    },
+    island: () => (
+      <div className="grid w-80 gap-3">
+        <div className="flex items-center gap-3">
+          <ProgressRing done={0} total={3} colorClass="text-blue-500" />
+          <ProgressRing done={2} total={5} colorClass="text-blue-500" />
+          <ProgressRing done={4} total={5} colorClass="text-blue-500" />
+          <ProgressRing done={5} total={5} colorClass="text-blue-500" />
+        </div>
+        <div className="flex flex-col">
+          <GlassSectionHeader
+            label="Sub-issues"
+            leading={<ProgressRing done={1} total={2} colorClass="text-blue-500" />}
+            className="mb-0.5"
+            trailing={
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">1/2</span>
+            }
+          />
+          <ListRow interactive density="compact" className="h-8 rounded-md px-3">
+            <StatusGlyph {...DONE_GLYPH} className="size-3.5 shrink-0" />
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">EXP-1131</span>
+            <span className="min-w-0 flex-1 truncate text-sm text-foreground/60">Sub-issues section</span>
+          </ListRow>
+          <ListRow interactive density="compact" className="h-8 rounded-md px-3">
+            <StatusGlyph {...BACKLOG_GLYPH} className="size-3.5 shrink-0" />
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">EXP-1135</span>
+            <span className="min-w-0 flex-1 truncate text-sm">Styleguide entry</span>
+          </ListRow>
+        </div>
       </div>
     ),
   },

@@ -289,9 +289,9 @@ describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
     expect(within(badge).getByText(`+1`)).toBeTruthy()
   })
 
-  it(`stays away for a run that is alone, and on the changes face`, () => {
+  it(`stays away for a run that is alone`, () => {
     liveRows.tables = { s: [session(`alone`)] }
-    const { unmount } = render(
+    render(
       <PrGraphBadge
         teamId="t1"
         teamSlug="acme"
@@ -300,12 +300,18 @@ describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
       />
     )
     expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
-    unmount()
+  })
+
+  // EXP-1097: the chip no longer reads the face — a family shows on Changes
+  // (and Issue) exactly as on Run.
+  it(`draws the same chip on the changes face`, () => {
     liveRows.tables = { s: family }
     render(
       <PrGraphBadge teamId="t1" teamSlug="acme" face="changes" session={family[0]} />
     )
-    expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
+    const badge = screen.getByTestId(`pr-graph-badge`)
+    expect(badge.getAttribute(`aria-label`)).toBe(`The runs around this one`)
+    expect(within(badge).getByText(`+1`)).toBeTruthy()
   })
 })
 
@@ -323,6 +329,34 @@ describe(`PrGraphBadge as the stacked issue chip (EXP-1058)`, () => {
     const stack = within(badge).getByTestId(`pr-graph-chip`)
     expect(stack.getAttribute(`data-slot`)).toBe(`issue-chip-stack`)
     expect(within(stack).getByTestId(`chip-BATA`)).toBeTruthy()
+    expect(within(stack).getByText(`+1`)).toBeTruthy()
+  })
+})
+
+// EXP-1097: open blockers alone earn the chip on the Issue face — the first
+// open blocker in front, the others counted beside the stack.
+describe(`PrGraphBadge for a blocked issue (EXP-1097)`, () => {
+  afterEach(() => {
+    liveRows.tables = {}
+  })
+
+  it(`fronts the first open blocker`, () => {
+    const me = issue(`me`, { prUrl: null })
+    const b1 = issue(`b1`, { prUrl: null })
+    const b2 = issue(`b2`, { prUrl: null })
+    liveRows.tables = {
+      i: [me, b1, b2],
+      b: [{ id: `b1`, slug: `web` }],
+      r: [
+        { type: `blocks`, issueId: `b2`, relatedIssueId: `me` },
+        { type: `blocks`, issueId: `b1`, relatedIssueId: `me` },
+      ],
+    }
+    render(<PrGraphBadge teamId="t1" teamSlug="acme" face="issue" issue={me} />)
+    const badge = screen.getByTestId(`pr-graph-badge`)
+    expect(badge.getAttribute(`aria-label`)).toBe(`Blocked by`)
+    const stack = within(badge).getByTestId(`pr-graph-chip`)
+    expect(within(stack).getByTestId(`chip-B1`)).toBeTruthy()
     expect(within(stack).getByText(`+1`)).toBeTruthy()
   })
 })

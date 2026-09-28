@@ -1,21 +1,33 @@
-import { useMemo, useState } from "react"
-import { eq, or, useLiveQuery } from "@tanstack/react-db"
-import type { IssueRelationType } from "@/lib/domain"
-import { issueRelationCollection } from "@/lib/collections"
+import { useMemo, useState, type ReactNode } from "react"
+import { eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
+import type { Issue, User } from "@/db/schema"
+import type { IssueRelationType, IssueStatus } from "@/lib/domain"
+import { issueCollection, issueRelationCollection } from "@/lib/collections"
 import {
   conceptIcon,
   Button,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  GlassSectionHeader,
+  ListRow,
+  Pill,
+  ProgressRing,
+  UserAvatar,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { relationLabel, type RelationDirection } from "@/lib/issue-relations"
 import {
-  groupRelationRows,
-  relationLabel,
-  type RelationDirection,
-} from "@/lib/issue-relations"
+  issueRelationsView,
+  RELATIONS_VIEW_COPY,
+  type RelationBandKey,
+  type RelationsViewBand,
+  type RelationsViewInput,
+  type RelationsViewRow,
+} from "@/lib/issue-relations-view"
+import { useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   useIssueRefs,
@@ -23,8 +35,13 @@ import {
 } from "@/components/issue-ref-provider"
 import { IssuePickerDialog } from "@/components/issue-picker-dialog"
 import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
-import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import {
+  IssueStatusIcon,
+  statusColorClass,
+} from "@/components/issue-properties/status-dropdown"
 import { issueMenuProps } from "@/components/issue-context-menu/attr"
+import { IssueChip } from "@/components/issue-chip"
+import { SubIssueComposer } from "@/components/sub-issue-composer"
 
 // EXP-736 — the issue's relation graph, both sides in one card. Rows come off
 // the `issue_relations` shape (never a fetch): the shape is scoped by the row's
@@ -36,6 +53,9 @@ import { issueMenuProps } from "@/components/issue-context-menu/attr"
 // the inverse halves of the picker just pass `inverse: true`. "Duplicate of"
 // is the exception: it is the dual-write of issues.duplicate_of_id, so it goes
 // through issues.update and comes back as a mirrored row.
+//
+// EXP-1097: what the detail DRAWS off these rows is the grouped-bands view
+// (`useIssueRelationsView` below, over `lib/issue-relations-view.ts`).
 
 const RelationParentIcon = conceptIcon(`relation-parent`)
 const RelationSubIssueIcon = conceptIcon(`relation-sub-issue`)
@@ -44,6 +64,8 @@ const RelationBlockedByIcon = conceptIcon(`relation-blocked-by`)
 const RelationDuplicateIcon = conceptIcon(`relation-duplicate`)
 const RelationRelatedIcon = conceptIcon(`relation-related`)
 const UiCloseIcon = conceptIcon(`ui-close`)
+const UiAddIcon = conceptIcon(`ui-add`)
+const UnassignedIcon = conceptIcon(`ui-unassigned`)
 
 type RelationSide = `${IssueRelationType}:${RelationDirection}`
 
@@ -225,119 +247,572 @@ function removeRelation(row: IssueRelationRow) {
   void trpc.relations.delete.mutate({ id: row.id })
 }
 
+// ── EXP-1097: direction A, the grouped bands ────────────────────────────
+//
+// What the detail DRAWS comes off ONE model, `lib/issue-relations-view.ts`
+// (fixture-locked ×4, copy included): the "Sub-issue of" parent line above
+// the title, the Sub-issues band (completion ring · `done/total` · `+`) over
+// flat rows, and one FOLDABLE band per remaining side. This file only feeds
+// the model the synced rows and draws its answer; nothing here decides what
+// opens, what folds or what the copy says.
+
+/** Where one relation row lands in the view: a band key, or the sub-issue
+ *  list / the parent line. Unknown types fold into Related (the model's
+ *  rule). */
+export type RelationSlot = RelationBandKey | `child` | `parent`
+
+export function relationSlot(
+  row: Pick<IssueRelationRow, `type` | `direction`>
+): RelationSlot {
+  const forward = row.direction === `forward`
+  switch (row.type) {
+    case `parent`:
+      return forward ? `child` : `parent`
+    case `blocks`:
+      return forward ? `blocking` : `blocked_by`
+    case `duplicate`:
+      return forward ? `duplicate_of` : `duplicated_by`
+    default:
+      return `related`
+  }
+}
+
+/** The model's input off the card's point-of-view rows: each row folded back
+ *  to its canonical direction, and the far issues it names. */
+export function relationsViewInput(
+  issueId: string,
+  rows: readonly IssueRelationRow[],
+  fold: { toggled: RelationBandKey[]; showAll: RelationBandKey[] }
+): RelationsViewInput {
+  const issues = new Map<string, RelationsViewInput[`issues`][number]>()
+  for (const row of rows) {
+    issues.set(row.other.id, {
+      id: row.other.id,
+      identifier: row.other.identifier,
+      title: row.other.title,
+      status: row.other.status,
+    })
+  }
+  return {
+    subjectId: issueId,
+    relations: rows.map((row) =>
+      row.direction === `forward`
+        ? { type: row.type, issueId, relatedIssueId: row.other.id }
+        : { type: row.type, issueId: row.other.id, relatedIssueId: issueId }
+    ),
+    issues: [...issues.values()],
+    toggled: fold.toggled,
+    showAll: fold.showAll,
+  }
+}
+
+interface FoldState {
+  toggled: RelationBandKey[]
+  showAll: RelationBandKey[]
+}
+
+const NO_FOLD: FoldState = { toggled: [], showAll: [] }
+
+// Fold state = SESSION state per issue: it survives prev/next navigation and
+// the phone sheet reopening, never a reload (nothing persists it).
+const foldMemory = new Map<string, FoldState>()
+
+const flip = (list: RelationBandKey[], key: RelationBandKey) =>
+  list.includes(key) ? list.filter((entry) => entry !== key) : [...list, key]
+
 /**
- * EXP-760: the rows, folded into the Linear-style heading groups the shared
- * table defines (lib/issue-relations.ts — desktop `group_title` mirrors it).
- * There is no card and no "Relations" title above them: the group heading IS
- * the label, so a row no longer needs its own trailing caption either.
- *
- * "Sub-issues" additionally carries a `done/total` counter, keyed on the
- * team's own status CATEGORY (a custom completed status counts), which is why
- * the counter lives here rather than in the pure grouping helper.
+ * The view model for one issue, live: the model's answer plus what the
+ * drawing needs beside it — the resolved far issue per row (for its team
+ * status glyph), its assignee, the relation row to remove, and the two
+ * fold controls.
  */
-export function IssueRelationGroups({
-  rows,
-  readOnly = false,
+export function useIssueRelationsView(issueId: string) {
+  const rows = useIssueRelations(issueId)
+  const [fold, setFold] = useState<{ issueId: string; state: FoldState }>(
+    () => ({ issueId, state: foldMemory.get(issueId) ?? NO_FOLD })
+  )
+  const state =
+    fold.issueId === issueId ? fold.state : (foldMemory.get(issueId) ?? NO_FOLD)
+  const update = (next: FoldState) => {
+    foldMemory.set(issueId, next)
+    setFold({ issueId, state: next })
+  }
+
+  const view = useMemo(
+    () => issueRelationsView(relationsViewInput(issueId, rows, state)),
+    [issueId, rows, state]
+  )
+
+  const bySlot = useMemo(() => {
+    const map = new Map<string, IssueRelationRow>()
+    for (const row of rows) {
+      const key = `${relationSlot(row)}:${row.other.id}`
+      if (!map.has(key)) map.set(key, row)
+    }
+    return map
+  }, [rows])
+
+  // The far issues' assignees: `ResolvedIssueRef` carries no assignee, the
+  // synced issue rows do.
+  const otherIds = useMemo(
+    () => [...new Set(rows.map((row) => row.other.id))].sort(),
+    [rows]
+  )
+  const { data: otherIssues } = useLiveQuery(
+    (query) =>
+      otherIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.id, otherIds))
+        : undefined,
+    [otherIds.join(`,`)]
+  )
+  const assigneeById = useMemo(
+    () =>
+      new Map(
+        ((otherIssues ?? []) as Issue[]).map((row) => [row.id, row.assigneeId])
+      ),
+    [otherIssues]
+  )
+
+  return {
+    view,
+    /** The resolved far issue of a view row (its status row, board slug). */
+    refOf: (id: string) => rows.find((row) => row.other.id === id)?.other,
+    /** The stored relation behind a drawn row — what "remove" deletes. */
+    relationOf: (slot: RelationSlot, otherId: string) =>
+      bySlot.get(`${slot}:${otherId}`),
+    assigneeOf: (id: string) => assigneeById.get(id) ?? null,
+    toggle: (key: RelationBandKey) =>
+      update({ ...state, toggled: flip(state.toggled, key) }),
+    toggleShowAll: (key: RelationBandKey) =>
+      update({ ...state, showAll: flip(state.showAll, key) }),
+  }
+}
+
+type RelationsViewState = ReturnType<typeof useIssueRelationsView>
+
+const BAND_ICON: Record<RelationBandKey, ReturnType<typeof conceptIcon>> = {
+  blocked_by: RelationBlockedByIcon,
+  blocking: RelationBlocksIcon,
+  duplicate_of: RelationDuplicateIcon,
+  duplicated_by: RelationDuplicateIcon,
+  related: RelationRelatedIcon,
+}
+
+/** THE relation row ×4 — sub-issues and every band share it: status glyph ·
+ *  mono identifier · title · assignee, the whole row opening the issue. */
+function RelationIssueRow({
+  row,
+  slot,
+  model,
+  users,
+  phone,
+  readOnly,
 }: {
-  rows: IssueRelationRow[]
-  readOnly?: boolean
+  row: RelationsViewRow
+  slot: RelationSlot
+  model: RelationsViewState
+  users: ReadonlyMap<string, User>
+  phone: boolean
+  readOnly: boolean
 }) {
   const issueRefs = useIssueRefs()
-  const { resolve: resolveStatus } = useTeamStatusesContext()
-  const groups = groupRelationRows(rows)
-  if (groups.length === 0) return null
-
+  const ref = model.refOf(row.id)
+  const relation = model.relationOf(slot, row.id)
+  const assigneeId = model.assigneeOf(row.id)
+  const assignee = assigneeId ? users.get(assigneeId) : undefined
   return (
-    <div className="flex flex-col gap-3">
-      {groups.map((group) => {
-        const done =
-          group.key === `parent:forward`
-            ? group.rows.filter(
-                (row) => resolveStatus(row.other).category === `completed`
-              ).length
-            : null
+    <ListRow
+      interactive
+      density={phone ? `list` : `compact`}
+      data-testid={`relation-row-${row.identifier}`}
+      className={cn(
+        `group min-w-0`,
+        phone ? `min-h-12 gap-3 rounded-none px-3 py-0` : `h-8 rounded-md px-3`
+      )}
+      {...issueMenuProps(row.id)}
+    >
+      {/* The hover preview wraps the identifier + title cluster; the remove
+          button stays OUTSIDE the trigger so pointing at it never opens a
+          card over the thing being clicked. */}
+      <IssuePreviewHoverCard issueId={row.id}>
+        <button
+          type="button"
+          onClick={() => issueRefs?.open(row.identifier)}
+          className={cn(
+            `flex min-w-0 flex-1 items-center self-stretch text-left outline-none`,
+            phone ? `gap-3` : `gap-2`
+          )}
+        >
+          <IssueStatusIcon
+            issue={ref ?? { status: row.status as IssueStatus, statusId: null }}
+            className={phone ? `size-4 shrink-0` : `size-3.5 shrink-0`}
+          />
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+            {row.identifier}
+          </span>
+          <span
+            className={cn(
+              `min-w-0 flex-1 truncate`,
+              phone ? `text-[0.9375rem]` : `text-sm`,
+              !row.open && `text-foreground/60`
+            )}
+          >
+            {row.title}
+          </span>
+        </button>
+      </IssuePreviewHoverCard>
+      {!readOnly && relation && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`Remove relation to ${row.identifier}`}
+          className="shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+          onClick={() => removeRelation(relation)}
+        >
+          <UiCloseIcon className="size-3.5" />
+        </Button>
+      )}
+      {assignee ? (
+        <UserAvatar user={assignee} size={phone ? 24 : 20} />
+      ) : (
+        <span
+          className={cn(
+            `flex shrink-0 items-center justify-center text-muted-foreground/50`,
+            phone ? `size-6` : `size-5`
+          )}
+        >
+          <UnassignedIcon className={phone ? `size-5` : `size-4`} />
+        </span>
+      )}
+    </ListRow>
+  )
+}
 
-        return (
-          <div key={group.key} className="flex min-w-0 flex-col">
-            <div className="flex items-center gap-1.5 pb-0.5 text-xs font-medium text-muted-foreground">
-              <span>{group.title}</span>
-              {done !== null && (
-                <span className="font-mono tabular-nums text-muted-foreground/70">
-                  {`${done}/${group.rows.length}`}
-                </span>
+function RowList({ phone, children }: { phone: boolean; children: ReactNode }) {
+  return (
+    <div className={cn(`flex flex-col`, phone && `divide-y divide-glass-stroke`)}>
+      {children}
+    </div>
+  )
+}
+
+/** One foldable band of the view: chevron · icon · title · count, its rows,
+ *  then "Show N more" / "Show less". */
+function RelationBand({
+  band,
+  model,
+  users,
+  phone,
+  readOnly,
+}: {
+  band: RelationsViewBand
+  model: RelationsViewState
+  users: ReadonlyMap<string, User>
+  phone: boolean
+  readOnly: boolean
+}) {
+  const Icon = BAND_ICON[band.key]
+  const tail = band.more ?? band.less
+  return (
+    <div className="flex flex-col" data-testid={`relation-band-${band.key}`}>
+      <GlassSectionHeader
+        label={band.title}
+        leading={<Icon className="size-3.5 shrink-0 text-muted-foreground" />}
+        count={band.count}
+        expanded={band.expanded}
+        onToggle={() => model.toggle(band.key)}
+        className={phone ? `mb-0 py-2` : `mb-0.5`}
+      />
+      {band.expanded && (
+        <RowList phone={phone}>
+          {band.rows.map((row) => (
+            <RelationIssueRow
+              key={row.id}
+              row={row}
+              slot={band.key}
+              model={model}
+              users={users}
+              phone={phone}
+              readOnly={readOnly}
+            />
+          ))}
+          {tail && (
+            <button
+              type="button"
+              onClick={() => model.toggleShowAll(band.key)}
+              className={cn(
+                `flex items-center rounded-md text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+                phone ? `h-11 px-3 text-sm` : `h-7 px-3 text-xs`
               )}
-            </div>
-            {group.rows.map((row) => {
-              const entry = SIDE_BY_KEY.get(`${row.type}:${row.direction}`)
-              const Icon = entry?.icon ?? RelationRelatedIcon
-              return (
-                <div
-                  key={row.id}
-                  className="group flex min-w-0 items-center gap-2 py-1"
-                  {...issueMenuProps(row.other.id)}
-                >
-                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                  {/* The hover preview wraps the identifier + title cluster;
-                      the remove button stays OUTSIDE the trigger so pointing
-                      at it never opens a card over the thing being clicked. */}
-                  <IssuePreviewHoverCard issueId={row.other.id}>
-                    <button
-                      type="button"
-                      onClick={() => issueRefs?.open(row.other.identifier)}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                    >
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground group-hover:text-foreground">
-                        {`#${row.other.identifier}`}
-                      </span>
-                      <IssueStatusIcon
-                        issue={row.other}
-                        className="size-3.5 shrink-0"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {row.other.title}
-                      </span>
-                    </button>
-                  </IssuePreviewHoverCard>
-                  {!readOnly && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Remove relation to ${row.other.identifier}`}
-                      className="shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                      onClick={() => removeRelation(row)}
-                    >
-                      <UiCloseIcon className="size-3.5" />
-                    </Button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )
-      })}
+            >
+              {tail}
+            </button>
+          )}
+        </RowList>
+      )}
+    </div>
+  )
+}
+
+/** The bands alone — the md+ detail under Sub-issues, the phone sheet under
+ *  its "Relations" heading. Nothing when the issue has no such relation. */
+function RelationBands({
+  model,
+  phone,
+  readOnly,
+}: {
+  model: RelationsViewState
+  phone: boolean
+  readOnly: boolean
+}) {
+  const { userMap } = useTeamUsers(useIssueRefs()?.teamId)
+  if (model.view.bands.length === 0) return null
+  return (
+    <div className="flex flex-col gap-1.5">
+      {model.view.bands.map((band) => (
+        <RelationBand
+          key={band.key}
+          band={band}
+          model={model}
+          users={userMap}
+          phone={phone}
+          readOnly={readOnly}
+        />
+      ))}
     </div>
   )
 }
 
 /**
- * The issue detail's relations block: the grouped rows in the reading column's
- * gutter, and NOTHING at all when the issue has no relations (EXP-760 — the
- * "Add relation" affordance moved into the header's `…` menu, so an empty
- * block has no reason to exist).
+ * The Sub-issues block: the band (completion ring filled done/total in the
+ * team's COMPLETED colour · "Sub-issues" · `done/total` · `+`) over flat
+ * rows, or an "Add sub-issues" row while there are none. The `+` and that
+ * row open the EXISTING inline composer (`SubIssueComposer`, rendered by the
+ * caller under the rows). Read-only viewers see the band without the `+`, and
+ * nothing at all when there are no sub-issues.
+ */
+function SubIssuesBlock({
+  model,
+  phone,
+  readOnly,
+  composing,
+  onCompose,
+}: {
+  model: RelationsViewState
+  phone: boolean
+  readOnly: boolean
+  composing: boolean
+  onCompose: () => void
+}) {
+  const { resolve: resolveStatus } = useTeamStatusesContext()
+  const { userMap } = useTeamUsers(useIssueRefs()?.teamId)
+  const { rows, done, total, progress } = model.view.subIssues
+
+  if (total === 0) {
+    if (readOnly || composing) return null
+    return (
+      <button
+        type="button"
+        data-testid="add-sub-issues"
+        onClick={onCompose}
+        className={cn(
+          `flex items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground outline-none transition-colors duration-fast hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+          phone ? `h-11 bg-glass-section` : `h-8 hover:bg-glass-row`
+        )}
+      >
+        <UiAddIcon className="size-4" />
+        {RELATIONS_VIEW_COPY.addSubIssues}
+      </button>
+    )
+  }
+
+  const completed = resolveStatus({ status: `done`, statusId: null })
+  return (
+    <section className="flex flex-col" data-testid="sub-issues">
+      <GlassSectionHeader
+        label={RELATIONS_VIEW_COPY.subIssues}
+        leading={
+          <ProgressRing
+            done={done}
+            total={total}
+            colorClass={completed ? statusColorClass(completed) : undefined}
+            colorHex={
+              completed && !completed.builtinKey ? completed.colorHex : undefined
+            }
+          />
+        }
+        className={phone ? `mb-0 py-2` : `mb-0.5`}
+        trailing={
+          <>
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              {progress}
+            </span>
+            {!readOnly && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Add sub-issue"
+                className="-my-1 -mr-1.5 text-muted-foreground"
+                onClick={onCompose}
+              >
+                <UiAddIcon />
+              </Button>
+            )}
+          </>
+        }
+      />
+      <RowList phone={phone}>
+        {rows.map((row) => (
+          <RelationIssueRow
+            key={row.id}
+            row={row}
+            slot="child"
+            model={model}
+            users={userMap}
+            phone={phone}
+            readOnly={readOnly}
+          />
+        ))}
+      </RowList>
+    </section>
+  )
+}
+
+/**
+ * The "Sub-issue of [parent chip]" line ABOVE the title (`view.parent`).
+ * Nothing when the issue has no parent.
+ */
+export function IssueParentLine({
+  issueId,
+  phone = false,
+}: {
+  issueId: string
+  phone?: boolean
+}) {
+  const issueRefs = useIssueRefs()
+  const model = useIssueRelationsView(issueId)
+  const parent = model.view.parent
+  const ref = parent ? model.refOf(parent.id) : undefined
+  if (!parent || !ref) return null
+  return (
+    <div
+      data-testid="sub-issue-of"
+      className={cn(
+        `flex min-w-0 items-center gap-1.5 text-muted-foreground`,
+        phone ? `px-5 pt-3 text-[0.8125rem]` : `-mb-2 px-5 pt-4 text-xs`
+      )}
+    >
+      <RelationSubIssueIcon className="size-3.5 shrink-0" />
+      <span className="shrink-0">{RELATIONS_VIEW_COPY.subIssueOf}</span>
+      <IssueChip
+        issue={ref}
+        onClick={issueRefs ? () => issueRefs.open(ref.identifier) : undefined}
+        className="min-w-0"
+      />
+    </div>
+  )
+}
+
+/**
+ * The issue detail's relations block under the description: the Sub-issues
+ * block with the inline composer, then — md+ only — the foldable bands. The
+ * phone draws the bands inside its properties sheet instead
+ * (`MobileRelationBands`). "Add relation" stays in the header's `…` menu
+ * (EXP-760) and the phone sheet's "Add".
  */
 export function IssueRelationsSection({
+  issue,
+  teamId,
+  users,
+  readOnly = false,
+  phone = false,
+}: {
+  issue: Issue
+  teamId: string
+  users: User[]
+  readOnly?: boolean
+  phone?: boolean
+}) {
+  const model = useIssueRelationsView(issue.id)
+  const [composing, setComposing] = useState(false)
+  const showBands = !phone && model.view.bands.length > 0
+  const hasSubIssues = model.view.subIssues.total > 0
+  if (readOnly && !hasSubIssues && !showBands) return null
+
+  return (
+    <div
+      className={cn(
+        `flex flex-col gap-4`,
+        phone ? `px-4 pt-5` : `px-4 pt-3`
+      )}
+    >
+      {(hasSubIssues || !readOnly) && (
+        <div className="flex flex-col">
+          <SubIssuesBlock
+            model={model}
+            phone={phone}
+            readOnly={readOnly}
+            composing={composing}
+            onCompose={() => setComposing(true)}
+          />
+          {/* Keyed on the issue so prev/next navigation never carries a
+              half-typed child over (REV-47's rule). */}
+          {!readOnly && composing && (
+            <SubIssueComposer
+              key={`sub-issues:${issue.id}`}
+              parent={issue}
+              teamId={teamId}
+              users={users}
+              open
+              onOpenChange={setComposing}
+            />
+          )}
+        </div>
+      )}
+      {showBands && (
+        <RelationBands model={model} phone={false} readOnly={readOnly} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The phone properties sheet's "Relations" block: the heading with "Add",
+ * then the same bands as md+ (sub-issues and the parent live on the detail
+ * itself). Hidden for a read-only viewer with nothing to show.
+ */
+export function MobileRelationBands({
   issueId,
   readOnly = false,
 }: {
   issueId: string
   readOnly?: boolean
 }) {
-  const rows = useIssueRelations(issueId)
-  if (rows.length === 0) return null
-
+  const model = useIssueRelationsView(issueId)
+  if (readOnly && model.view.bands.length === 0) return null
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 pt-3">
-      <IssueRelationGroups rows={rows} readOnly={readOnly} />
+    <div className="flex flex-col gap-1.5" data-testid="mobile-relations">
+      <div className="flex items-center px-5 pb-0.5">
+        <span className="text-sm font-medium text-foreground/85">
+          {RELATIONS_VIEW_COPY.relations}
+        </span>
+        <span className="flex-1" />
+        {!readOnly && (
+          <IssueRelationsAdd
+            issueId={issueId}
+            trigger={
+              <Pill size="sm" mode="action" leading={<UiAddIcon />}>
+                {RELATIONS_VIEW_COPY.add}
+              </Pill>
+            }
+          />
+        )}
+      </div>
+      <div className="px-4">
+        <RelationBands model={model} phone readOnly={readOnly} />
+      </div>
     </div>
   )
 }
