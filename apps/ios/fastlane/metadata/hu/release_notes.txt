@@ -1,4 +1,3 @@
-- Reviews: minden pull request sor egyetlen vezérlőt kap, Merge, vagy egy stack alján Merge stack, egy workflow-csomópont pull requestje pedig jelzi, hogy a workflow-n keresztül mergelődik
-- Workflow-k: az Open final PR megjelenik, ha egy workflow záró pull requestjét lezárták, az eseménynapló a gráf alatt van, a kiválasztott csomópont csak a saját eseményeit mutatja, a sikertelen vagy várakozó állapotok pedig borostyánszínűek
-- Ügynökfutások: a válaszodra váró futás piros pontot kap, a másik fiókon futó workflow-futás pedig megmondja, melyiken
-- Ha olyan issue-t indítasz, amelynek már van élő futása, ezt jelzi ahelyett, hogy egy másodikat indítana
+- Boardok: új bejelentkezés vagy teljes újraszinkronizálás után a board töltésjelzőt mutat, amíg meg nem érkeznek az issue-i, ahelyett, hogy felvillanna a „No issues yet” és a kezdő ellenőrzőlista
+- Ügynökfutások: a frissített asztali alkalmazáson vagy CLI-n tervmódban futó claude-futások ismét használják az eszközeiket, ahelyett, hogy minden hívást elutasítanának
+- Ügynökfutások: az üres repositoryn indított futás létrehozza az első commitját és elindul, ahelyett, hogy elakadna

@@ -1,4 +1,3 @@
-- Reviews: ogni riga di pull request ha un solo controllo, Merge, o Merge stack in fondo a uno stack, e la pull request di un nodo di workflow indica che si unisce tramite il workflow
-- Workflow: Open final PR compare quando la pull request finale di un workflow è stata chiusa, il registro eventi sta sotto il grafo e un nodo scelto mostra solo i propri eventi, e gli stati falliti o in attesa appaiono ambra
-- Esecuzioni dell'agente: un'esecuzione che attende la tua risposta mostra un punto rosso, e un'esecuzione di workflow su un altro account indica quale
-- Avviare un issue che ha già un'esecuzione attiva lo segnala invece di avviarne una seconda
+- Board: dopo un nuovo accesso o una risincronizzazione completa, un board mostra un indicatore di caricamento finché non arrivano i suoi issue, invece di far lampeggiare «No issues yet» e la checklist per iniziare
+- Esecuzioni dell'agente: le esecuzioni claude in modalità plan su un'app desktop o una CLI aggiornata usano di nuovo i loro strumenti invece di rifiutare ogni chiamata
+- Esecuzioni dell'agente: un'esecuzione su un repository vuoto crea il suo primo commit e parte invece di bloccarsi

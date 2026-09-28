@@ -1,4 +1,3 @@
-- Reviews: každý riadok pull requestu má jediný ovládací prvok, Merge, alebo Merge stack na spodku stacku, a pull request uzla workflowu uvádza, že sa mergne cez workflow
-- Workflowy: Open final PR sa objaví, keď bol finálny pull request workflowu zatvorený, log udalostí je pod grafom a vybraný uzol ukazuje len svoje vlastné udalosti, a stavy zlyhania alebo čakania sú jantárové
-- Behy agenta: beh, ktorý čaká na vašu odpoveď, má červenú bodku, a beh workflowu na inom účte uvádza, na ktorom
-- Spustenie issue, ktoré už má živý beh, to oznámi namiesto spustenia druhého
+- Boardy: po novom prihlásení alebo úplnej resynchronizácii board ukazuje indikátor načítania, kým nedorazia jeho issues, namiesto toho, aby na chvíľu preblikol „No issues yet“ a úvodný checklist
+- Behy agenta: behy claude v režime plánu v aktualizovanej desktopovej aplikácii alebo CLI znova používajú svoje nástroje namiesto odmietania každého volania
+- Behy agenta: beh na prázdnom repozitári vytvorí svoj prvý commit a spustí sa namiesto toho, aby sa zasekol

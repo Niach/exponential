@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-28-release-train`,
+    date: `2026-09-28`,
+    title: `Release train 2026-09-28`,
+    summary: `Plan-mode claude runs use their tools again, a run on an empty repository starts instead of hanging, the Recent runs panel has a back row, and phones wait for their issues instead of flashing an empty board.`,
+    body: `- **Agent runs**: a claude run in plan mode no longer falls into the auto-mode classifier that refused every tool call, because the desktop app and the CLI pin auto mode off for every run they launch (update the machine to pick it up). A run on an empty repository creates its first commit and starts instead of hanging.
+- **Agent page**: the Recent runs panel on the web and in the desktop app wears the back row every side panel does, and the history button hides while the panel is up.
+- **Phones**: after a fresh sign-in or a full resync a board shows a spinner until its issues arrive, instead of flashing "No issues yet" and the getting-started checklist, and the iPhone waits for its boards the same way.`,
+  },
+  {
     id: `2026-09-26-release-train-evening`,
     date: `2026-09-26`,
     title: `Release train 2026-09-26, evening`,

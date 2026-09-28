@@ -901,11 +901,12 @@ pub struct AcpLaunch {
     pub mcp: AgentMcp,
     pub session_id: String,
     pub resume: Option<ResumeSeed>,
-    /// The claude `--settings <path>` file, written as an empty `{}`: NOT a
-    /// hooks sidecar (the ACP path has none) but the REAPER's only process
-    /// selection anchor — `reaper::select` matches the `claude-hooks/<pid>/`
-    /// segment in the process command line, so an ACP claude that dropped the
-    /// flag would be invisible to the quit sweep (EXP-300 all over again).
+    /// The claude `--settings <path>` file, carrying [`CLAUDE_FLAG_SETTINGS`]
+    /// (EXP-1124): NOT a hooks sidecar (the ACP path has none) but the
+    /// REAPER's only process selection anchor — `reaper::select` matches the
+    /// `claude-hooks/<pid>/` segment in the process command line, so an ACP
+    /// claude that dropped the flag would be invisible to the quit sweep
+    /// (EXP-300 all over again).
     /// `None` for every other agent, which the reaper never anchored either.
     pub reaper_settings_path: Option<PathBuf>,
     /// EXP-1025: the text on the agent's additive system-prompt channel
@@ -1264,10 +1265,17 @@ fn write_acp_reaper_anchor(
     let root = data_dir.join(HOOK_SETTINGS_DIR);
     prune_hook_settings(&root);
     let dir = root.join(std::process::id().to_string());
-    std::fs::create_dir_all(&dir).ok()?;
     let segment = path_segment(session_id)?;
     let settings = dir.join(format!("{segment}.settings.json"));
-    std::fs::write(&settings, CLAUDE_FLAG_SETTINGS).ok()?;
+    // A lost anchor launches claude WITHOUT the flag layer (the EXP-1124
+    // classifier wall), so retry once and say so rather than fail silently.
+    let write = || {
+        std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&settings, CLAUDE_FLAG_SETTINGS))
+    };
+    if let Err(err) = write().or_else(|_| write()) {
+        log::warn!("coding: could not write the claude flag settings {}: {err}", settings.display());
+        return None;
+    }
     Some(settings)
 }
 
@@ -1333,7 +1341,10 @@ fn doctor_gate<'a>(
 /// Drop settings files past the TTL wherever they sit in the tree — per-pid
 /// dirs and pre-REV-20 flat files alike — and clear pid dirs that end up
 /// empty (`remove_dir` refuses non-empty ones, so a live dir is never lost).
+/// THIS process's dir is skipped whole: its anchors belong to live runs, and
+/// removing it could race a concurrent launch's `create_dir_all` + write.
 fn prune_hook_settings(root: &Path) {
+    let own = std::process::id().to_string();
     let stale = |entry: &std::fs::DirEntry| {
         entry
             .metadata()
@@ -1347,6 +1358,9 @@ fn prune_hook_settings(root: &Path) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
+            if entry.file_name() == own.as_str() {
+                continue;
+            }
             if let Ok(files) = std::fs::read_dir(&path) {
                 for file in files.flatten() {
                     if stale(&file) {
@@ -2059,8 +2073,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         // bypasses, and even a plan-mode run is one Shift+Tab from it.
         crate::claude_trust::ensure_onboarded(&worktree, true, profile_dir.as_deref());
     }
-    // EXP-746: the reaper's empty-`{}` claude anchor — the only file this
-    // launch still writes outside the worktree.
+    // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings) —
+    // the only file this launch still writes outside the worktree.
     let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
     // EXP-443: the codex originator is stamped into its rollout metas before
     // the spawn. The claude session id is the ACP adapter's own to mint (it
@@ -2932,7 +2946,7 @@ fn prepare_action(
     if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
-    // EXP-746: the reaper's empty-`{}` claude anchor.
+    // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
     let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
     // EXP-443: action runs share the trunk-clone cwd with each other and
     // with agent shells, exactly the collision the codex originator
@@ -3755,7 +3769,7 @@ fn prepare_resume_run(
     if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
-    // EXP-746: the reaper's empty-`{}` claude anchor.
+    // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
     let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
     // The ACP adapter mints claude's OWN `--session-id` (it doubles as the
     // ACP session id), so a pin minted here would name no transcript and
@@ -4500,10 +4514,6 @@ mod tests {
         stub
     }
 
-    /// EXP-773: a launch carries NO argv — the prompt is a message and the
-    /// only file left behind is the reaper's empty `{}` anchor
-    /// (reaper.rs:111 matches it in the command line).
-    #[cfg(unix)]
     /// EXP-1124: the anchor is also the flag-settings layer that keeps a
     /// user `defaultMode: auto` out of plan runs — auto disabled, and plan
     /// never taking auto-mode semantics.
@@ -4515,6 +4525,10 @@ mod tests {
         assert_eq!(settings["useAutoModeDuringPlan"], false);
     }
 
+    /// EXP-773: a launch carries NO argv — the prompt is a message and the
+    /// only file left behind is the reaper's anchor, carrying the flag
+    /// settings (reaper.rs:111 matches it in the command line).
+    #[cfg(unix)]
     #[test]
     fn prepare_on_the_acp_arm_has_no_argv_and_keeps_the_reaper_anchor() {
         let dir = temp_dir("transport-acp");

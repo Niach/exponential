@@ -1,4 +1,3 @@
-- Reviews: jede Pull-Request-Zeile trägt ein einziges Bedienelement, Merge oder Merge stack am unteren Ende eines Stapels, und der Pull Request eines Workflow-Knotens sagt, dass er über den Workflow gemergt wird
-- Workflows: Open final PR erscheint, wenn der finale Pull Request eines Workflows geschlossen wurde, das Ereignisprotokoll steht unter dem Graphen und ein gewählter Knoten zeigt nur seine eigenen Ereignisse, und fehlgeschlagene oder wartende Zustände erscheinen bernsteinfarben
-- Agent-Läufe: ein Lauf, der auf deine Antwort wartet, bekommt einen roten Punkt, und ein Workflow-Lauf auf einem anderen Konto sagt, auf welchem
-- Wer ein Issue startet, das schon einen laufenden Lauf hat, erfährt das, statt einen zweiten zu starten
+- Boards: nach einer frischen Anmeldung oder einer vollständigen Neusynchronisierung zeigt ein Board einen Ladekreis, bis seine Issues da sind, statt kurz „No issues yet“ und die Einstiegs-Checkliste aufblitzen zu lassen
+- Agent-Läufe: claude-Läufe im Plan-Modus auf einer aktualisierten Desktop-App oder CLI nutzen ihre Werkzeuge wieder, statt jeden Aufruf abzulehnen
+- Agent-Läufe: ein Lauf auf einem leeren Repository erstellt seinen ersten Commit und startet, statt hängen zu bleiben

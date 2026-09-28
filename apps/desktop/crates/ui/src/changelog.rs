@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-28-release-train",
+    date: "2026-09-28",
+    title: "Release train 2026-09-28",
+    summary: "Plan-mode claude runs use their tools again, a run on an empty repository starts instead of hanging, the Recent runs panel has a back row, and phones wait for their issues instead of flashing an empty board.",
+    body: r#"- **Agent runs**: a claude run in plan mode no longer falls into the auto-mode classifier that refused every tool call, because the desktop app and the CLI pin auto mode off for every run they launch (update the machine to pick it up). A run on an empty repository creates its first commit and starts instead of hanging.
+- **Agent page**: the Recent runs panel on the web and in the desktop app wears the back row every side panel does, and the history button hides while the panel is up.
+- **Phones**: after a fresh sign-in or a full resync a board shows a spinner until its issues arrive, instead of flashing "No issues yet" and the getting-started checklist, and the iPhone waits for its boards the same way."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-26-release-train-evening",
     date: "2026-09-26",
     title: "Release train 2026-09-26, evening",
@@ -57,25 +69,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Phones**: the Run face scrolls to its newest rows again.
 - **Desktop app**: the heartbeat never stops silently, a run keeps its busy spinner while background agents work, an image seed posts one user message, a run started by an agent or a workflow lands in the sidebar instead of taking the screen, the sidebar scrollbars are slim and stay beside the rows, and the app writes a rotating log file next to its data."#,
 };
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-26-release-train",
-    date: "2026-09-26",
-    title: "Release train 2026-09-26",
-    summary: "The workflow page is rebuilt around its nodes, agent runs group under their workflow node, the blocks rail is dots with a hover graph, accounts rotate on their own, and the desktop app keeps its engine state in its own store.",
-    body: r#"- **Workflows**: a chip strip along the top picks a node, and each node opens into Issue, Run, Changes and Results. A question the planner asks shows in a banner with an Answer for the owner, Pause and Dismiss sit in the overflow, the decisions log lists every answer, and the page keeps its face as you step through nodes. No workflow waits for a person to approve a node any more: an agent review gates it, and the planner asks its questions before a run starts.
-- **Final pull request**: a workflow's final pull request is its own row under Reviews on every client, with Merge and Fix conflicts. A closed final pull request reopens once, and a workflow whose nodes all skipped cancels itself.
-- **Agent runs**: the running list, the recent sheet and the automations log group a workflow's runs under their node with a status dot and a caption, review runs carry their titles, a run waiting on you wears a dot, and every run says which account it runs on. A workflow's event log lists what the engine decided, one short line each.
-- **Accounts**: with account rotation on (the machine's toggle, on by default), every claude launch picks the signed-in account with the most headroom, and a run that hits its limit resumes on another account on its own.
-- **Issue lists**: the blocks rail on the web and in the desktop app shows dots only, and hovering one opens the mini-graph, drawn on one geometry on every client. Phones keep the badge, and its graph draws on the same grid.
-- **Work header**: a stacked or batch run's badge is the front issue's chip with a count.
-- **Editor**: typing `---` inserts a separator at once, and Escape closes the @, # and : menus inside a dialog.
-- **Activity**: estimate changes fold like every other field edit.
-- **Desktop app**: the workflow engine keeps its state in its own device store instead of settings.json, every writer to settings.json takes the lock, and a torn read never re-mints the device id."#,
-};
-
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]

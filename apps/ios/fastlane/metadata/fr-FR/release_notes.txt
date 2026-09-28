@@ -1,4 +1,3 @@
-- Reviews : chaque ligne de pull request porte une seule commande, Merge, ou Merge stack en bas d'une stack, et la pull request d'un nœud de workflow indique qu'elle se fusionne via le workflow
-- Workflows : Open final PR apparaît quand la pull request finale d'un workflow a été fermée, le journal des événements se place sous le graphe et un nœud choisi n'affiche que ses propres événements, et les états en échec ou en attente s'affichent en ambre
-- Runs de l'agent : un run qui attend votre réponse affiche un point rouge, et un run de workflow sur un autre compte indique lequel
-- Démarrer un issue qui a déjà un run actif le signale au lieu d'en lancer un second
+- Boards : après une nouvelle connexion ou une resynchronisation complète, un board affiche un indicateur de chargement jusqu'à l'arrivée de ses issues, au lieu de faire clignoter « No issues yet » et la checklist de démarrage
+- Runs de l'agent : les runs claude en mode plan sur une app de bureau ou une CLI à jour utilisent de nouveau leurs outils au lieu de refuser chaque appel
+- Runs de l'agent : un run sur un dépôt vide crée son premier commit et démarre au lieu de rester bloqué

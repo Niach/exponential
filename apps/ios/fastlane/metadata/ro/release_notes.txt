@@ -1,4 +1,3 @@
-- Reviews: fiecare rând de pull request are un singur control, Merge, sau Merge stack la baza unui stack, iar pull request-ul unui nod de workflow arată că se îmbină prin workflow
-- Workflow-uri: Open final PR apare când pull request-ul final al unui workflow a fost închis, jurnalul de evenimente stă sub graf și un nod ales arată doar propriile evenimente, iar stările eșuate sau în așteptare apar în chihlimbariu
-- Rulări ale agentului: o rulare care îți așteaptă răspunsul primește un punct roșu, iar o rulare de workflow pe alt cont spune pe care
-- Pornirea unui issue care are deja o rulare activă anunță acest lucru în loc să pornească o a doua
+- Boarduri: după o nouă autentificare sau o resincronizare completă, un board arată un indicator de încărcare până sosesc issue-urile lui, în loc să afișeze pentru o clipă „No issues yet” și lista de pași inițiali
+- Rulări ale agentului: rulările claude în modul plan pe o aplicație desktop sau un CLI actualizat își folosesc din nou uneltele în loc să refuze fiecare apel
+- Rulări ale agentului: o rulare pe un repository gol își creează primul commit și pornește în loc să se blocheze

@@ -1,4 +1,3 @@
-- Reviews: hver pull request-række har én knap, Merge, eller Merge stack nederst i en stack, og en workflow-nodes pull request siger, at den merges gennem workflowet
-- Workflows: Open final PR vises, når et workflows sidste pull request blev lukket, hændelsesloggen ligger under grafen, og en valgt node viser kun sine egne hændelser, og fejlede eller ventende tilstande vises i rav
-- Agentkørsler: en kørsel der venter på dit svar får en rød prik, og en workflowkørsel på en anden konto siger hvilken
-- Starter du et issue, der allerede har en aktiv kørsel, får du det at vide i stedet for at starte en til
+- Boards: efter en ny login eller en fuld gensynkronisering viser et board en indlæsningsindikator, indtil dets issues er kommet, i stedet for kortvarigt at vise "No issues yet" og kom-i-gang-tjeklisten
+- Agentkørsler: claude-kørsler i plantilstand på en opdateret desktop-app eller CLI bruger deres værktøjer igen i stedet for at afvise hvert kald
+- Agentkørsler: en kørsel på et tomt repository opretter sit første commit og starter i stedet for at hænge
