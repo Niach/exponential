@@ -188,3 +188,16 @@ VoiceOver itself does not run in the simulator. No VoiceOver result is claimed h
 ### Screenshot
 
 `/tmp/vapp4-ios-release.png` (Release, top of the kitchen sink): identical to the Debug capture. The bench caption wraps to two lines inside the bench bar (chrome only, cosmetic).
+
+### Fix attempt: dropped last key (2026-09-28)
+
+Same harness (Release, raw US key codes, 40 keys in 0.13 to 0.15 s, assert 0.5 s after the last key).
+
+| candidate | change | hardware runs | dropped / reordered | typing s |
+|---|---|---|---|---|
+| 1 | no write-back; the host is an `@Observable` `VappEchoHost` owned outside the field, and the `host:` label is a separate view that alone observes it | 7 of 8 pass (stopped) | run 7: field `…ABCD` but the binding stayed at 39 chars, so the echo never saw `D` | 0.14 to 0.40 |
+| 2 | `VappOwnedTextField`: a `UIViewRepresentable` UITextField that owns its text; `.editingChanged` reports (text, revision) to the host; `updateUIView` applies a host write only if its revision is the latest AND the value differs | **16 of 16 pass** | none; every run reported all 40 edits (host `revision 40`, 39 stale echoes dropped, 1 applied) | 0.133 to 0.152 |
+
+`testTypingFortyCharsFast` (XCUITest `typeText`) with candidate 2: 3 of 3 test runs, 9 of 9 typings pass (0.93 to 0.96 s). `testAccessibilityOrder` still passes, with the field at the same place in the walk. The field keeps the glass chrome (fillCard, fieldRadius, hairline that brightens on focus); screenshot `/tmp/vapp4-ios-release-echofix-bottom.png`.
+
+Root cause: SwiftUI's `TextField` holds the text in TWO places, UIKit's field and the `@State` binding, and syncs them asynchronously. Under a hardware-keyboard burst it coalesces edits (40 keys gave only 22 to 27 `onChange` calls). When the view re-renders mid-burst (an echo landing), SwiftUI pushes its older binding value back into UIKit and erases the key in flight. Even with no re-render of the field's view (candidate 1), the final UIKit edit sometimes never reaches the binding, so the host never hears about it. The fix that holds is the design rule itself, enforced at the UIKit layer: the client field is the ONLY owner of the text (no binding pushes into it); each UIKit edit reaches the host synchronously with a revision; the host echo is display-only; and a host write lands only when it really changes the value on the latest revision. The write gate is implemented (`VappEchoHost.hostChanged`) but the fixture never exercises a real host change, so that path is untested. For the product: host-owned inputs on iOS need a UIKit-backed field, not a SwiftUI `TextField` with a binding.

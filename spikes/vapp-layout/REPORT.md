@@ -4,7 +4,7 @@ Branch `exp/VAPP-4` (no PR, per instruction). Everything below was built and mea
 
 ## Verdict: GO, with one design change the contract must adopt
 
-One taffy layout in Rust, painted by four renderers, gives the same kitchen sink on web, desktop, iOS and Android (`shots/vapp-kitchen-sink/`). Geometry parity is exact where it can be measured: the browser's frames match taffy's within 1/64 px on all 48 nodes at 390 and 900 px, LTR and RTL. Accessibility order is correct on every platform once the natives pin it (both SwiftUI and Compose order a custom layout's children geometrically by default). The typing test passed on all four (40 of 40 characters, in order, with the 150 ms echo). RTL works in taffy 0.12 out of the box.
+One taffy layout in Rust, painted by four renderers, gives the same kitchen sink on web, desktop, iOS and Android (`shots/vapp-kitchen-sink/`). Geometry parity is exact where it can be measured: the browser's frames match taffy's within 1/64 px on all 48 nodes at 390 and 900 px, LTR and RTL. Accessibility order is correct on every platform once the natives pin it (both SwiftUI and Compose order a custom layout's children geometrically by default). The typing test passes on all four (40 of 40 characters, in order, with the 150 ms echo); on iOS only with a UIKit-backed field, because real hardware-keyboard bursts drop the last key in a SwiftUI `TextField`. RTL works in taffy 0.12 out of the box.
 
 The one thing that does NOT pass as designed is the measurement protocol: "one FFI upcall per leaf measurement" is too slow on Android with uniffi over JNA (about 50 µs per round trip, 130 ms for a 200-node surface on the emulator) and marginal on iOS (about 3.8 µs per call, 12 ms for 200 nodes on the simulator, Debug). taffy itself needs 0.26 ms for that tree. taffy asks every leaf 10 to 15 times per pass (min-content, max-content, several definite widths, then the known size), so 200 nodes means 2000 to 3000 callbacks. VAPP-42 and VAPP-40 must therefore change the measure contract from per-call upcalls to a batched or Rust-side text measurement (options ranked below). With that change the 2 ms budget is reachable: the Rust side of the pass is 0.3 to 0.5 ms and the host text work is about 20 ms on Android only because it is spread across 2000 calls.
 
@@ -60,10 +60,12 @@ Reading: the engine is never the problem. Every platform pays per callback: gpui
 |---|---|---|
 | Web | Playwright `pressSequentially`, 5 ms delay, 290 to 400 ms total | 9/9 pass |
 | Desktop | input handler (headless) + `cliclick` live | pass, 1 echo applied, 39 dropped as stale |
-| iOS simulator | XCUITest `typeText`, 0.9 to 1.4 s | 3/3 pass |
-| Android emulator | 40× `performTextInput` and `adb shell input text` (0.28 s) | pass, pass |
+| iOS simulator | XCUITest `typeText`, 0.9 to 1.4 s | 3/3 pass (it waits per key, so it hides the defect below) |
+| iOS simulator, Release, REAL hardware-keyboard events (40 keys in 0.13 to 0.15 s) | SwiftUI `TextField` + echo | **FAIL**: final key lost in 6 of 11 bursts; with no echo write-back and the label in a separate observed model still 7 of 8 |
+| iOS simulator, same harness | `VappOwnedTextField` (a UIKit `UITextField` that owns its text; host writes only when the value changed on the latest revision) | **16 of 16 pass**, echo shows all 40 within 0.5 s |
+| Android emulator | 40× `performTextInput` and `adb shell input text` (0.28 s) | pass, pass; again on the non-debuggable build: `input text` 3/3, per-key `keyevent` incl. Shift, 36 keycodes in one call, all pass |
 
-Rule that made it work everywhere: the client owns the string, every edit carries a revision, an echo applies only if its revision is still the latest. The layout engine never runs during typing (known width, fixed height).
+Root cause of the iOS failure: SwiftUI's `TextField` keeps the text in two places (UIKit's field and the SwiftUI state) and syncs them late; under a burst it coalesces edits (40 keys gave 22 to 27 change callbacks), and a re-render mid-burst writes the older SwiftUI copy back over the key in flight, or the last edit never reaches the state at all. Rule that made it work everywhere: the client owns the string, every edit carries a revision, an echo applies only if its revision is still the latest. The layout engine never runs during typing (known width, fixed height).
 
 ### RTL
 
@@ -109,10 +111,11 @@ Decision: `packages/vapp-sdk` ships `vapp-css` (Apache-2.0, ours); the key list 
 
 1. **Measure protocol, in this order of preference.** (a) Move text measurement into Rust (parley or cosmic-text with the platform's system fonts, shaping in-process; only controls are measured natively, a handful per surface, batched in one call). This makes the phone number the Rust number. (b) If text stays native: a batched two-phase protocol (one upcall returning every text leaf's min-content and max-content width, taffy pass, one upcall for the heights at the decided widths, final pass) plus a Rust-side memo per (index, known, available) for the life of a content version. (c) On Android additionally replace JNA with hand-written JNI for the one hot callback (uniffi's JNA interface mapping is the 50 µs). Never ship (c) alone.
 2. **`Surface` API additions** (already in the facade after the spike): `mark_dirty(index)` and `invalidate_measures()`; a measurer-identity check so a measurer change clears taffy's cache (iOS found stale sizes); an FFI accessor for the resolved text style per node BEFORE the first pass (Compose intrinsics need the font before measuring); a `set_direction`. Send visuals once per node from `nodes()` and only deltas afterwards (the 0.84 ms warm wall on iOS is marshalling 203 `PlacedFrame`s with optional strings).
-3. **Accessibility**: the client emits `PlacedNode.order`; painters MUST pin it (`accessibilitySortPriority` on iOS, `traversalIndex` + `isTraversalGroup` on Android). Group cards as containers for screen readers (the flat tree loses grouping).
-4. **Whitelist**: adopt the list above plus the logical inline properties; per-kind control heights as tokens, not px; absolute-last-among-siblings validated by the protocol.
-5. **Fixtures**: `frames-{390,900}[-rtl].json` are the seed of `vapp-layout.json`; the geometry-diff script is the seed of VAPP-13's browser check.
-6. **Desktop**: keep painting shared frames (never map onto gpui's Styled); gpui's line cache already makes it the fastest native.
+3. **Host-owned inputs on iOS must be UIKit-backed** (`UIViewRepresentable` over `UITextField`/`UITextView` that owns the text), never a SwiftUI `TextField` bound to state the echo can touch. The echo rule stays: same value or older revision = no write.
+4. **Accessibility**: the client emits `PlacedNode.order`; painters MUST pin it (`accessibilitySortPriority` on iOS, `traversalIndex` + `isTraversalGroup` on Android). Group cards as containers for screen readers (the flat tree loses grouping).
+5. **Whitelist**: adopt the list above plus the logical inline properties; per-kind control heights as tokens, not px; absolute-last-among-siblings validated by the protocol.
+6. **Fixtures**: `frames-{390,900}[-rtl].json` are the seed of `vapp-layout.json`; the geometry-diff script is the seed of VAPP-13's browser check.
+7. **Desktop**: keep painting shared frames (never map onto gpui's Styled); gpui's line cache already makes it the fastest native.
 
 ## Open items handed to Danny (real hardware)
 
