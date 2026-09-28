@@ -2036,7 +2036,19 @@ impl IssueDetailView {
     /// activity / composer all align on it — §8.3, EXP-282). It lives in the
     /// FIXED header (EXP-417) but stays owned by this view: its Tab and
     /// Shift+Enter captures target the description editor.
-    fn render_title(&mut self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    ///
+    /// EXP-1097: `under_parent_line` = the "Sub-issue of" line sits above it
+    /// and already took the header's top inset, so the title drops its own.
+    fn render_title(
+        &mut self,
+        under_parent_line: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let top = if under_parent_line {
+            0.
+        } else {
+            crate::work_header::TITLE_PT - crate::work_header::TITLE_WIDGET_PY
+        };
         div()
             // EXP-877: the SAME block as `work_header::title_row`. The
             // multi-line widget insets its text box by `TITLE_WIDGET_PX` /
@@ -2046,7 +2058,7 @@ impl IssueDetailView {
             // negative margin: title at `DETAIL_GUTTER` / `TITLE_PT`,
             // `TITLE_PB` under it, on BOTH faces.
             .px(px(DETAIL_GUTTER - crate::work_header::TITLE_WIDGET_PX))
-            .pt(px(crate::work_header::TITLE_PT - crate::work_header::TITLE_WIDGET_PY))
+            .pt(px(top))
             .pb(px(0.))
             .mb(px(crate::work_header::TITLE_PB - crate::work_header::TITLE_WIDGET_PY))
             // Tab jumps from the title into the description editor (web
@@ -2090,91 +2102,71 @@ impl IssueDetailView {
             )
     }
 
-    /// EXP-760: the inline sub-issue affordance under the relations block —
-    /// a ghost "Add sub-issues" button that swaps for the composer card
-    /// ([`crate::issue_composer`]). `None` only when the issue's team has not
-    /// synced (the composer needs it for the property pickers).
+    /// EXP-760/EXP-1097: the inline sub-issue composer's two halves for the
+    /// relations block — the open composer card ([`crate::issue_composer`],
+    /// drawn under the Sub-issues rows) and the click that opens it (the
+    /// band's `+`, or the "Add sub-issues" row when there are none). No
+    /// click only when the issue's team has not synced (the composer needs
+    /// it for the property pickers).
     ///
     /// The composer stays open across creates (filing children comes in
     /// runs); its ✕ / Escape and every issue switch drop it.
-    fn render_sub_issue_affordance(
+    fn sub_issue_composer(
         &mut self,
         issue: &Issue,
         cx: &mut gpui::Context<Self>,
-    ) -> Option<gpui::AnyElement> {
+    ) -> crate::issue_relations::SubIssueComposer {
+        let open = self
+            .sub_issue_composer
+            .as_ref()
+            .map(|(composer, _)| composer.clone().into_any_element());
         let team_id = Store::global(cx)
             .collections()
             .boards
             .read(cx)
             .get(&issue.board_id)
-            .map(|board| board.team_id.clone())?;
-
-        if let Some((composer, _)) = &self.sub_issue_composer {
-            return Some(
-                div()
-                    .w_full()
-                    .px(px(DETAIL_GUTTER))
-                    .pb_2()
-                    .child(composer.clone())
-                    .into_any_element(),
-            );
-        }
-
-        let issue = issue.clone();
-        // A row, not a block: a block child stretches the ghost button to the
-        // full column width and its label ends up centred under the groups.
-        Some(
-            h_flex()
-                .w_full()
-                .justify_start()
-                .px(px(DETAIL_GUTTER))
-                .pb_2()
-                .child(
-                    crate::issue_composer::add_sub_issues_button(cx).on_click(cx.listener(
-                        move |this, _, window, cx| {
-                            let issue = issue.clone();
-                            let team_id = team_id.clone();
-                            let composer = cx.new(|cx| {
-                                crate::issue_composer::IssueComposer::inline(
-                                    &issue, team_id, window, cx,
-                                )
-                            });
-                            let subscription = cx.subscribe_in(
-                                &composer,
-                                window,
-                                |this,
-                                 _,
-                                 event: &crate::issue_composer::IssueComposerEvent,
-                                 window,
-                                 cx| {
-                                    use crate::issue_composer::IssueComposerEvent as Event;
-                                    match event {
-                                        Event::Cancelled => {
-                                            this.sub_issue_composer = None;
-                                            // EXP-781: the composer held
-                                            // focus; dropping it would leave
-                                            // the window focused on an input
-                                            // that no longer renders and the
-                                            // detail's bindings dead until
-                                            // the next click.
-                                            window.focus(&this.focus_handle, cx);
-                                            cx.notify();
-                                        }
-                                        // The child is already synced (the
-                                        // create gate waits for the row), so
-                                        // the relations block above picks it
-                                        // up on this very repaint.
-                                        Event::Created => cx.notify(),
-                                    }
-                                },
-                            );
-                            this.sub_issue_composer = Some((composer, subscription));
-                            cx.notify();
-                        },
-                    )),
-                )
-                .into_any_element(),
-        )
+            .map(|board| board.team_id.clone());
+        let on_add = team_id.map(|team_id| {
+            let issue = issue.clone();
+            let listener = cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
+                // The `+` on an already-open composer is a no-op: a
+                // half-typed child must not be thrown away.
+                if this.sub_issue_composer.is_some() {
+                    return;
+                }
+                let issue = issue.clone();
+                let team_id = team_id.clone();
+                let composer = cx.new(|cx| {
+                    crate::issue_composer::IssueComposer::inline(&issue, team_id, window, cx)
+                });
+                let subscription = cx.subscribe_in(
+                    &composer,
+                    window,
+                    |this, _, event: &crate::issue_composer::IssueComposerEvent, window, cx| {
+                        use crate::issue_composer::IssueComposerEvent as Event;
+                        match event {
+                            Event::Cancelled => {
+                                this.sub_issue_composer = None;
+                                // EXP-781: the composer held focus; dropping
+                                // it would leave the window focused on an
+                                // input that no longer renders and the
+                                // detail's bindings dead until the next click.
+                                window.focus(&this.focus_handle, cx);
+                                cx.notify();
+                            }
+                            // The child is already synced (the create gate
+                            // waits for the row), so the Sub-issues band
+                            // picks it up on this very repaint.
+                            Event::Created => cx.notify(),
+                        }
+                    },
+                );
+                this.sub_issue_composer = Some((composer, subscription));
+                cx.notify();
+            });
+            Rc::new(listener) as crate::issue_relations::AddSubIssue
+        });
+        crate::issue_relations::SubIssueComposer { open, on_add }
     }
 
     /// The SCROLLING body (EXP-417): description + files rail + timeline.
@@ -2190,12 +2182,13 @@ impl IssueDetailView {
             .pt_2()
             .child(self.render_description(issue, window, cx))
             // EXP-760: relations moved BELOW the description (Linear/web
-            // parity) — the description is what the reader came for, and the
-            // card that used to hold these groups pushed it under the fold.
-            // The sub-issue composer follows them, so "Add sub-issues" sits
-            // directly under the "Sub-issues" group it files into.
-            .children(crate::issue_relations::render_relations_section(issue, cx))
-            .children(self.render_sub_issue_affordance(issue, cx))
+            // parity) — the description is what the reader came for.
+            // EXP-1097: the Sub-issues band (its `+` and the inline composer
+            // under its rows) then one foldable band per relation side.
+            .child({
+                let composer = self.sub_issue_composer(issue, cx);
+                crate::issue_relations::render_relations_section(issue, composer, cx)
+            })
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
             .child(self.render_files_section(issue, cx))
@@ -2369,7 +2362,15 @@ impl IssueDetailView {
             &mut self.resumable,
             cx,
         );
-        let title = self.render_title(cx).into_any_element();
+        // EXP-1097: "Sub-issue of [parent]" rides ABOVE the title.
+        let parent_line = crate::issue_relations::render_parent_line(issue, cx);
+        let under_parent_line = parent_line.is_some();
+        let title = v_flex()
+            .w_full()
+            .min_w_0()
+            .children(parent_line)
+            .child(self.render_title(under_parent_line, cx))
+            .into_any_element();
         let changes_open = self.changes_open;
         let (right, tray, extra) = header.update(cx, |header, cx| {
             // EXP-916: the Changes pane has no bar of its own any more, so

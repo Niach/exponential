@@ -94,7 +94,6 @@ fn specs() -> Vec<(&'static str, BadgeSpec)> {
     let plain = |graph, face| BadgeSpec {
         graph,
         face,
-        blocked_by: Vec::new(),
         blocks_graph: domain::issue_graph::IssueGraph::default(),
         run_title: None,
     };
@@ -109,12 +108,11 @@ fn specs() -> Vec<(&'static str, BadgeSpec)> {
         ),
         (
             "styleguide-pr-graph-badge-blocked",
-            BadgeSpec {
-                blocked_by: vec![blocker],
-                ..plain(
-                    pr_graph(Some(&waiting), None, std::slice::from_ref(&waiting), &[]),
-                    BadgeFace::Issue,
-                )
+            {
+                // EXP-1097: the open blockers ride the graph.
+                let mut graph = pr_graph(Some(&waiting), None, std::slice::from_ref(&waiting), &[]);
+                graph.blocked_by = vec![blocker];
+                plain(graph, BadgeFace::Issue)
             },
         ),
         (
@@ -143,8 +141,8 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         State { identifier: "EXP-12", title: "Stacked follow-up", runs: false, count: 2 },
         // A pull request that closes several issues.
         State { identifier: "EXP-20", title: "Batch of fixes", runs: false, count: 2 },
-        // Blockers alone on the Issue face: the subject, nothing behind it.
-        State { identifier: "EXP-30", title: "Waiting on a blocker", runs: false, count: 0 },
+        // Blockers alone (EXP-1097, every face): the first blocker, the rest behind it.
+        State { identifier: "EXP-31", title: "The blocker", runs: false, count: 0 },
     ];
     let muted = theme::tokens::MUTED_FOREGROUND.to_hsla();
     let mut faces = div().flex().flex_wrap().items_center().gap_4().pt_2();
@@ -180,9 +178,7 @@ mod tests {
         let counts: Vec<Option<usize>> = specs()
             .iter()
             .map(|(_, spec)| {
-                domain::pr_graph::badge_chip(&spec.graph, spec.face)
-                    .map(|chip| chip.count)
-                    .or_else(|| (!spec.blocked_by.is_empty()).then_some(0))
+                spec.chip().map(|chip| chip.count)
             })
             .collect();
         assert_eq!(counts, vec![Some(2), Some(2), Some(0), Some(2), None]);
