@@ -53,6 +53,20 @@ fun VappKitchenSinkScreen(bench: Int?, forceRtl: Boolean) {
                 horizontalArrangement = Arrangement.End,
             ) {
                 val s = sample
+                // Tap = one more pass with the viewport unchanged (taffy's cache hit).
+                Text(
+                    text = "cached",
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .background(GlassTokens.CardFill, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .clickable { state.cachedTick++ }
+                        .testTag("vapp-cached"),
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
                 Text(
                     text = if (s == null) {
                         "…"

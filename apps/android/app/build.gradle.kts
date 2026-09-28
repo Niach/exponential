@@ -109,6 +109,18 @@ android {
                 debugSymbolLevel = "SYMBOL_TABLE"
             }
         }
+        // VAPP-4 spike: a NON-debuggable, R8'd build (release config, debug-signed)
+        // so the kitchen-sink timings are not inflated by ART's debuggable mode.
+        // `:app:assembleProductionBenchmark`; shares the applicationId with debug.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
+        }
         debug {
             // Same applicationId as release so a single google-services.json
             // client (registered for at.exponential) covers both.

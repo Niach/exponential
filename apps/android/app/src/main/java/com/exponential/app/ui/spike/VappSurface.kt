@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.IntrinsicMeasurable
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
 import kotlin.math.max
 import kotlin.math.min
@@ -127,6 +129,9 @@ class VappSurfaceState(treeJson: String) {
     /** Read inside measure: bumping it forces one more layout pass (the bench taps). */
     var relayoutTick by mutableIntStateOf(0)
 
+    /** Read inside measure WITHOUT the width nudge: one more pass on a warm taffy cache. */
+    var cachedTick by mutableIntStateOf(0)
+
     /** Bumped (posted) after a pass whose visuals changed, so draw re-runs. */
     var visualVersion by mutableIntStateOf(0)
 
@@ -211,7 +216,9 @@ fun VappSurface(state: VappSurfaceState, modifier: Modifier = Modifier) {
         content = {
             state.nodes.forEach { node -> key(node.id) { VappNode(node, state) } }
         },
-        modifier = modifier,
+        // The traversal group: its children's traversalIndex (= node index) wins
+        // over the geometric sort, so TalkBack reads fixture pre-order.
+        modifier = modifier.semantics { isTraversalGroup = true },
     ) { measurables, constraints ->
         val t0 = System.nanoTime()
         Trace.beginSection("vapp.layout")
@@ -224,6 +231,7 @@ fun VappSurface(state: VappSurfaceState, modifier: Modifier = Modifier) {
             // viewport re-runs with ZERO measure calls. The nudge = a full
             // re-measure pass (the steady-state number worth reading).
             val tick = state.relayoutTick
+            @Suppress("UNUSED_VARIABLE") val cached = state.cachedTick
             val widthDp = (if (constraints.hasBoundedWidth) constraints.maxWidth / d else 390f) -
                 (if (tick % 2 == 1) 0.01f else 0f)
             surface.setViewport(widthDp, 0f)

@@ -87,9 +87,9 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?, freshDelivery: Boolean) {
         if (intent == null || !freshDelivery) return
-        // VAPP-4 spike (debug only): `--es exp.devScreen kitchen-sink` opens the
+        // VAPP-4 spike (debug + benchmark builds): `--es exp.devScreen kitchen-sink` opens the
         // taffy kitchen sink; AppNavHost navigates once the graph is up.
-        if (BuildConfig.DEBUG) {
+        if (BuildConfig.DEBUG || BuildConfig.BUILD_TYPE == "benchmark") {
             val devScreen = intent.getStringExtra(DevScreens.EXTRA)
             if (devScreen != null) {
                 intent.removeExtra(DevScreens.EXTRA)

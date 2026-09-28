@@ -48,7 +48,9 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
@@ -164,9 +166,20 @@ private fun VappContainer(node: VappNodeModel, state: VappSurfaceState) {
  * overflow-hidden ancestor's rounded rect, translated into its own space.
  */
 private fun Modifier.clipToAncestors(node: VappNodeModel, state: VappSurfaceState): Modifier {
+    // Every node's outermost modifier: TalkBack reads the surface in fixture
+    // PRE-order (= node index) instead of Compose's geometric sort, which put
+    // the vertically centred "Scan now" before the header subtitle. The
+    // surface is the traversal group (VappSurface). Each node is ALSO a group:
+    // traversalIndex sorts the group's flattened descendants, so a leaf whose
+    // focusable node is an inner Text (badge, pill, field, markdown) would
+    // otherwise sort at the default index 0, ahead of everything.
+    val ordered = this.semantics {
+        traversalIndex = node.index.toFloat()
+        isTraversalGroup = true
+    }
     val clippers = generateSequence(node.parent) { state.nodes[it].parent }.toList()
-    if (clippers.isEmpty()) return this
-    return this.drawWithContent {
+    if (clippers.isEmpty()) return ordered
+    return ordered.drawWithContent {
         @Suppress("UNUSED_VARIABLE")
         val version = state.visualVersion
         val me = state.framesPx[node.index]
