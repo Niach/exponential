@@ -17,11 +17,16 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         case hidden
         case entry
         case code
+        /// EXP-1026: the code was accepted for an address with no account —
+        /// the account needs a name before the SAME code is resubmitted.
+        case name
     }
 
     var email = ""
     var password = ""
     var code = ""
+    /// EXP-1026: the sign-up name the code resubmits with.
+    var name = ""
     var emailStep: EmailStep = .hidden
     /// The user opted out of the code flow on an instance that offers both.
     var usePasswordInstead = false
@@ -166,10 +171,36 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         let result = await authApi.signInWithEmailCode(
             instanceUrl: instanceUrl, email: address, code: entered
         )
+        await applyCodeResult(result)
+    }
+
+    /// EXP-1026: the name step's submit — the SAME code, now with `name`.
+    func submitName() async {
+        guard !verifyingCode, let instanceUrl = auth.instanceUrl else { return }
+        let address = codeSentTo ?? email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entered = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let given = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !given.isEmpty else {
+            error = EmailCodeSignUpCopy.emptyNameError
+            return
+        }
+        verifyingCode = true
+        error = nil
+        let result = await authApi.signInWithEmailCode(
+            instanceUrl: instanceUrl, email: address, code: entered, name: given
+        )
+        await applyCodeResult(result)
+    }
+
+    private func applyCodeResult(_ result: EmailCodeSignInResult) async {
         switch result {
         case let .success(token, user):
             await applyLogin(token: token, user: user)
             verifyingCode = false
+        case .nameRequired:
+            // Keep the code: the server did not consume it.
+            verifyingCode = false
+            emailStep = .name
         case let .failure(message):
             error = message
             verifyingCode = false
@@ -179,6 +210,7 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     /// Back to the address field, keeping whatever was typed there.
     func changeEmail() {
         code = ""
+        name = ""
         codeSentTo = nil
         error = nil
         emailStep = .entry

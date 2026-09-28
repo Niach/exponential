@@ -411,6 +411,16 @@ private fun AuthenticatedNav(
     // `nav-workflows` button (the phone has no sidebar), and the draft detail
     // the bulk bar's "Create workflow…" lands on.
     val openWorkflow: (String) -> Unit = { id -> navController.navigate("workflow/$id") }
+    // EXP-1121: the "Ready to code?" fixes. Team settings shows the SELECTED
+    // team, so the issue's team is selected first (a no-op when it already
+    // is); both are PUSHED over the issue, so Back returns to Start coding.
+    val openReadinessTeamSettings: (String) -> Unit = { teamId ->
+        if (teamSelection.selectedId.value != teamId) teamSelection.select(teamId)
+        navController.navigate("team-settings") { launchSingleTop = true }
+    }
+    val openReadinessDevices: () -> Unit = {
+        navController.navigate("agents") { launchSingleTop = true }
+    }
 
     // The single add-issue affordance. EXP-973: it rides EVERY tab, not just
     // the board ones — a pushed board route still wins (the reader is looking
@@ -780,6 +790,8 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
                 onOpenAgent = openAgent,
+                onOpenTeamSettings = openReadinessTeamSettings,
+                onOpenDevices = openReadinessDevices,
             )
         }
         composable("issue/{issueId}/changes") { entry ->
@@ -802,6 +814,8 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
                 onOpenAgent = openAgent,
+                onOpenTeamSettings = openReadinessTeamSettings,
+                onOpenDevices = openReadinessDevices,
             )
         }
         composable("invite/{token}") { entry ->

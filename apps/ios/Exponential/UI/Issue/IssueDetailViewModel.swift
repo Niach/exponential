@@ -119,11 +119,9 @@ final class IssueDetailViewModel {
 
     // Steer state for the bottom bar's Start-coding circle (EXP-240 — moved
     // here from AgentPrCard so the card can stay a pure status glance).
+    // EXP-1121: the circle's device presence moved to the Work screen's
+    // live `CodingReadinessModel`.
     var steerConfig: SteerConfig?
-    /// The caller's online desktops; nil until presence resolves. EXP-825:
-    /// the circle only needs to know whether one exists — the start itself
-    /// happens on the Agent page composer.
-    var steerDevices: [SteerDevice]?
 
     /// EXP-496: the widget/agent submission metadata behind this issue
     /// (`widgets.submissionForIssue`, server-only). `nil` = loading, fetch
@@ -345,7 +343,18 @@ final class IssueDetailViewModel {
         observationTasks.append(Task { [weak self] in
             do {
                 for try await boards in boardObs.values(in: pool) {
-                    self?.boards = boards
+                    guard let self else { return }
+                    self.boards = boards
+                    // EXP-1121: the issue's OWN board row stays live too — a
+                    // repository picked from "Ready to code?" (or anywhere
+                    // else) has to tick the checklist while it is open.
+                    if let current = self.board,
+                       let fresh = boards.first(where: { $0.id == current.id }),
+                       fresh.repositoryId != current.repositoryId
+                        || fresh.name != current.name
+                        || fresh.slug != current.slug {
+                        self.board = fresh
+                    }
                 }
             } catch {}
         })
@@ -583,14 +592,6 @@ final class IssueDetailViewModel {
 
     func refreshSteer() async {
         steerConfig = await SteerConfigCache.load(accountId: accountId, api: steerApi)
-        guard steerConfig?.enabled == true, permissions.isMember, runningSessions.isEmpty else { return }
-        // Scoped to the issue's team (EXP-432): teammates' shared servers are
-        // start targets too. The synced rows carry OFFLINE machines as well,
-        // which the circle must never offer — `onlineStartTargets` drops them.
-        steerDevices = await DeviceQueries.onlineStartTargets(
-            db: db, accountId: accountId,
-            teamId: board?.teamId, userId: auth.userId
-        )
     }
 
     /// Same-team boards the issue can move to (EXP-57): the current board is

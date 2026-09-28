@@ -325,12 +325,9 @@ struct IssueFaceView<Switcher: View>: View {
                 )
             }
         }
-        // Relay config + device presence for the start circle — keyed
-        // on session presence AND membership: when a session ends the circle
-        // must (re)load presence, and the load must re-run once the members
-        // shape syncs and isMember flips true. EXP-432 adds the board's
-        // team: the device list is team-scoped now, so it must reload
-        // once the board (hence the team) resolves.
+        // Relay config for the view model's steer state. Device presence
+        // for the Start circle is the Work screen's live readiness model
+        // (EXP-1121), so this only has to land the config once.
         .task(id: "\(accountId)|\(issue.id)|\(vm.runningSessions.isEmpty)|\(vm.permissions.isMember)|\(vm.board?.teamId ?? "")") {
             await vm.refreshSteer()
         }
