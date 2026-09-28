@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactElement } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react"
 import {
   conceptIcon,
   MobilePopover,
@@ -42,6 +48,7 @@ export function IssueBlocksPopover({
   label,
   trigger,
   openOnHover = true,
+  empty,
 }: {
   issueId: string
   teamId: string
@@ -50,6 +57,9 @@ export function IssueBlocksPopover({
   trigger: ReactElement
   /** Pointer hover opens it; `false` = click only. */
   openOnHover?: boolean
+  /** EXP-1123: what the popover says when the subject has no OPEN blocks
+   *  relation (a done workflow's nodes) — absent, it would open empty. */
+  empty?: ReactNode
 }) {
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
@@ -93,6 +103,7 @@ export function IssueBlocksPopover({
             teamId={teamId}
             subjectIds={[issueId]}
             onNavigate={() => setOpen(false)}
+            empty={empty}
           />
         )}
       </MobilePopoverContent>

@@ -178,16 +178,19 @@ vi.mock(`@/components/issue-blocks-badge`, () => ({
     trigger,
     issueId,
     openOnHover,
+    empty,
   }: {
     trigger: React.ReactNode
     issueId: string
     openOnHover?: boolean
+    empty?: React.ReactNode
   }) => (
     <span
       data-testid={`blocks-popover-${issueId}`}
       data-open-on-hover={String(openOnHover ?? true)}
     >
       {trigger}
+      <span data-testid={`blocks-popover-empty-${issueId}`}>{empty}</span>
     </span>
   ),
 }))
@@ -392,6 +395,21 @@ describe(`strip selection model`, () => {
 })
 
 describe(`WorkflowDetail`, () => {
+  it(`gives every node popover identifier, title and state when there is no graph (EXP-1123)`, () => {
+    state.nodes = [
+      node(`a`, { wave: 0, lane: 0, state: `landed` }),
+      node(`b`, { wave: 1, lane: 0, state: `skipped`, note: `Superseded` }),
+      node(`c`, { wave: 1, lane: 1, state: `landed` }),
+    ]
+    renderPage({ status: `done` })
+    expect(screen.getByTestId(`workflow-summary-a`).textContent).toBe(
+      `EXP-1Issue EXP-1Done`
+    )
+    expect(screen.getByTestId(`workflow-summary-b`).textContent).toBe(
+      `EXP-2Issue EXP-2Skipped · Superseded`
+    )
+  })
+
   it(`draws All first, then the nodes wave by wave`, () => {
     renderPage()
     const strip = screen.getByTestId(`workflow-strip`)
