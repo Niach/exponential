@@ -59,6 +59,9 @@ pub struct Surface {
     direction: Direction,
     viewport: (f32, f32),
     pressed: HashSet<String>,
+    /// Identity of the last measurer (`Measure::measure_id`), so a pass with a
+    /// DIFFERENT measurer invalidates taffy's per-node measure cache first.
+    last_measurer: Option<u64>,
     /// Nanoseconds spent parsing + building the tree in `new`.
     pub build_ns: u64,
 }
@@ -107,6 +110,7 @@ impl Surface {
             direction: Direction::Ltr,
             viewport: (0.0, 0.0),
             pressed: HashSet::new(),
+            last_measurer: None,
             build_ns: 0,
         };
         surface.restyle(true)?;
@@ -186,7 +190,29 @@ impl Surface {
         Ok(())
     }
 
+    /// Forget every cached measurement: a leaf's CONTENT changed (edited text,
+    /// a font-scale change, a font load) without any style change. taffy only
+    /// re-measures dirty nodes.
+    pub fn invalidate_measures(&mut self) {
+        for id in &self.taffy_ids {
+            let _ = self.tree.mark_dirty(*id);
+        }
+    }
+
+    /// Forget one node's cached measurement (and its ancestors' layouts).
+    pub fn mark_dirty(&mut self, index: u32) -> bool {
+        match self.taffy_ids.get(index as usize) {
+            Some(id) => self.tree.mark_dirty(*id).is_ok(),
+            None => false,
+        }
+    }
+
     pub fn layout(&mut self, measure: &mut dyn Measure) -> LayoutResult {
+        let measurer = measure.measure_id();
+        if self.last_measurer.is_some_and(|m| m != measurer) {
+            self.invalidate_measures();
+        }
+        self.last_measurer = Some(measurer);
         let (vw, vh) = self.viewport;
         let available = Size {
             width: AvailableSpace::Definite(vw),

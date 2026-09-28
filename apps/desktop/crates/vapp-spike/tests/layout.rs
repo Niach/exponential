@@ -181,3 +181,31 @@ fn bench_tree_has_200_nodes_and_lays_out() {
         r.measure_calls
     );
 }
+
+#[test]
+fn a_different_measurer_invalidates_cached_sizes() {
+    // iOS found this: layout_fixed() then layout(host) on one Surface reused
+    // the fixed sizes for untouched subtrees. A measurer change must re-measure.
+    let mut s = Surface::new(KITCHEN_SINK_JSON).unwrap();
+    s.set_rounding(false);
+    s.set_viewport(900.0, 0.0);
+    let fixed = s.layout(&mut FixedMeasure);
+    let mut wide = |req: &vapp_spike::MeasureRequest| {
+        let i = FixedMeasure::intrinsic(req.kind, req.props);
+        vapp_spike::taffy::geometry::Size {
+            width: req.known_width.unwrap_or(i.width * 2.0),
+            height: req.known_height.unwrap_or(i.height * 2.0),
+        }
+    };
+    let host = s.layout(&mut wide);
+    assert!(host.measure_calls > 0, "the second measurer was consulted");
+    let t_fixed = fixed.nodes.iter().find(|n| n.id == "fx-4-t").unwrap().frame;
+    let t_host = host.nodes.iter().find(|n| n.id == "fx-4-t").unwrap().frame;
+    assert!(near(t_host.w, t_fixed.w * 2.0), "fx-4-t re-measured: {:?} vs {:?}", t_fixed, t_host);
+    // Content change without a style change: mark_dirty forces a re-measure.
+    let before = s.layout(&mut wide).measure_calls;
+    assert_eq!(before, 0, "same measurer, nothing dirty");
+    let idx = s.nodes().iter().find(|n| n.id == "hdr-title").unwrap().index;
+    assert!(s.mark_dirty(idx));
+    assert!(s.layout(&mut wide).measure_calls > 0);
+}

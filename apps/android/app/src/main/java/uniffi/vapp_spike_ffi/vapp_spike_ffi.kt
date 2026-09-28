@@ -707,9 +707,13 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_vapp_spike_ffi_checksum_method_surface_build_ns(
     ): Int
+    external fun uniffi_vapp_spike_ffi_checksum_method_surface_invalidate_measures(
+    ): Int
     external fun uniffi_vapp_spike_ffi_checksum_method_surface_layout(
     ): Int
     external fun uniffi_vapp_spike_ffi_checksum_method_surface_layout_fixed(
+    ): Int
+    external fun uniffi_vapp_spike_ffi_checksum_method_surface_mark_dirty(
     ): Int
     external fun uniffi_vapp_spike_ffi_checksum_method_surface_node_count(
     ): Int
@@ -760,10 +764,14 @@ internal object UniffiLib {
     ): Long
     external fun uniffi_vapp_spike_ffi_fn_method_surface_build_ns(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    external fun uniffi_vapp_spike_ffi_fn_method_surface_invalidate_measures(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_vapp_spike_ffi_fn_method_surface_layout(`ptr`: Long,`measure`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_vapp_spike_ffi_fn_method_surface_layout_fixed(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_vapp_spike_ffi_fn_method_surface_mark_dirty(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_vapp_spike_ffi_fn_method_surface_node_count(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     external fun uniffi_vapp_spike_ffi_fn_method_surface_nodes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -914,10 +922,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_vapp_spike_ffi_checksum_method_surface_build_ns() and 0xFFFF) != 42932) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_vapp_spike_ffi_checksum_method_surface_invalidate_measures() and 0xFFFF) != 48656) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_vapp_spike_ffi_checksum_method_surface_layout() and 0xFFFF) != 48949) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_vapp_spike_ffi_checksum_method_surface_layout_fixed() and 0xFFFF) != 32062) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_vapp_spike_ffi_checksum_method_surface_mark_dirty() and 0xFFFF) != 18289) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_vapp_spike_ffi_checksum_method_surface_node_count() and 0xFFFF) != 28770) {
@@ -1723,12 +1737,22 @@ public interface SurfaceInterface {
      */
     fun `buildNs`(): kotlin.ULong
     
+    /**
+     * Forget every cached measurement (content changed without a style change).
+     */
+    fun `invalidateMeasures`()
+    
     fun `layout`(`measure`: Measure): LayoutResult
     
     /**
      * The fixed fake measure (8 px/char, 20 px lines) — the no-FFI baseline.
      */
     fun `layoutFixed`(): LayoutResult
+    
+    /**
+     * Forget one node's cached measurement.
+     */
+    fun `markDirty`(`index`: kotlin.UInt): kotlin.Boolean
     
     fun `nodeCount`(): kotlin.UInt
     
@@ -1875,6 +1899,21 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     
 
+    
+    /**
+     * Forget every cached measurement (content changed without a style change).
+     */override fun `invalidateMeasures`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_vapp_spike_ffi_fn_method_surface_invalidate_measures(
+        it,
+        _status)
+}
+    }
+    
+    
+
     override fun `layout`(`measure`: Measure): LayoutResult {
             return FfiConverterTypeLayoutResult.lift(
     callWithHandle {
@@ -1899,6 +1938,23 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     UniffiLib.uniffi_vapp_spike_ffi_fn_method_surface_layout_fixed(
         it,
         _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Forget one node's cached measurement.
+     */override fun `markDirty`(`index`: kotlin.UInt): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_vapp_spike_ffi_fn_method_surface_mark_dirty(
+        it,
+        
+        FfiConverterUInt.lower(`index`),_status)
 }
     }
     )

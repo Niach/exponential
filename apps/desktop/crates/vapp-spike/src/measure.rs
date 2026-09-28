@@ -47,6 +47,13 @@ impl MeasureRequest<'_> {
 
 pub trait Measure {
     fn measure(&mut self, req: &MeasureRequest) -> Size<f32>;
+    /// Identity of this measurer. taffy caches measurements per node and never
+    /// learns that the measure FUNCTION changed, so a `Surface` invalidates
+    /// its cache when two consecutive passes report different ids. The fixed
+    /// fake measure is 1; hosts are 2 (or their own id per font/scale state).
+    fn measure_id(&self) -> u64 {
+        2
+    }
 }
 
 impl<F: FnMut(&MeasureRequest) -> Size<f32>> Measure for F {
@@ -103,6 +110,10 @@ impl FixedMeasure {
 }
 
 impl Measure for FixedMeasure {
+    fn measure_id(&self) -> u64 {
+        1
+    }
+
     fn measure(&mut self, req: &MeasureRequest) -> Size<f32> {
         let i = Self::intrinsic(req.kind, req.props);
         Size {

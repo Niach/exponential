@@ -116,6 +116,11 @@ fn avail(a: AvailableSpace) -> (Option<f32>, AvailMode) {
 struct ForeignMeasure(Arc<dyn Measure>);
 
 impl CoreMeasure for ForeignMeasure {
+    fn measure_id(&self) -> u64 {
+        // Every host measurer counts as one identity; the fixed measure is 1.
+        2
+    }
+
     fn measure(&mut self, req: &MeasureRequest) -> vapp_spike::taffy::geometry::Size<f32> {
         let (aw, awm) = avail(req.available_width);
         let (ah, ahm) = avail(req.available_height);
@@ -219,6 +224,16 @@ impl Surface {
     /// Off = fractional frames (Android rounds once itself, in px).
     pub fn set_rounding(&self, on: bool) {
         self.inner.lock().unwrap().set_rounding(on)
+    }
+
+    /// Forget every cached measurement (content changed without a style change).
+    pub fn invalidate_measures(&self) {
+        self.inner.lock().unwrap().invalidate_measures()
+    }
+
+    /// Forget one node's cached measurement.
+    pub fn mark_dirty(&self, index: u32) -> bool {
+        self.inner.lock().unwrap().mark_dirty(index)
     }
 
     pub fn layout(&self, measure: Arc<dyn Measure>) -> LayoutResult {
