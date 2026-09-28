@@ -12,7 +12,7 @@ when you are signed in it is pushed on top of the app.
    - `-uiTesting`
    - `-uiTestingScreen`
    - `kitchen-sink`
-4. Build and run with Cmd-R, in **Release** (Edit Scheme > Run > Info > Build Configuration = Release) so the timings are real. Debug numbers run roughly 3 to 5 times slower.
+4. Build and run with Cmd-R, in **Release** (Edit Scheme > Run > Info > Build Configuration = Release) so the timings are real. In the simulator, Debug ran about 1.3 to 1.6 times slower than Release (the Rust core is a release build either way).
 
 For the bench tree, change the third row to `kitchen-sink-bench`. For RTL, add a row `-uiTestingRTL`.
 

@@ -399,6 +399,9 @@ struct VappEchoField: View {
                 .lineLimit(1)
                 .accessibilityIdentifier("echo-host")
                 .accessibilityLabel("host: \(echoed)")
+                // Typing-test diagnostics: edits seen, stale echoes dropped,
+                // and the SwiftUI state's length (vs. what UIKit shows).
+                .accessibilityValue("revision \(revision) dropped \(dropped) state \(text.count)")
         }
         .onChange(of: text) { _, value in
             revision += 1

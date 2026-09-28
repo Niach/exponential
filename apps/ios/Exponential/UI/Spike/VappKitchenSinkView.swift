@@ -63,6 +63,8 @@ struct VappKitchenSinkView: View {
                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
                 .accessibilityIdentifier("vapp-bench-caption")
                 .accessibilityLabel(caption)
+                // The Surface build time of the live surface, for the bench test.
+                .accessibilityValue("build \(model.buildNs / 1000) µs")
             // Cold: a fresh Surface, every leaf measured again.
             // Dumps the VoiceOver-walk order (VappA11yDump) into the label
             // of this button, so a UI test can read it back.

@@ -73,6 +73,47 @@ final class VappSpikeTests: XCTestCase {
         attach(results.joined(separator: "\n"), name: "typing")
     }
 
+    /// Real key events through the Mac keyboard path (Simulator > I/O >
+    /// Keyboard > Connect Hardware Keyboard). The test only opens the field
+    /// and waits; a host shell types with System Events between the markers
+    /// `/tmp/vapp4-ios-type-ready` and `/tmp/vapp4-ios-type-done`.
+    @MainActor
+    func testTypingHardwareKeyboard() throws {
+        let ready = "/tmp/vapp4-ios-type-ready"
+        let done = "/tmp/vapp4-ios-type-done"
+        let files = FileManager.default
+        try? files.removeItem(atPath: done)
+        try? files.removeItem(atPath: ready)
+        let app = launch("kitchen-sink")
+        let field = app.textFields["echo-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        if !field.isHittable { app.swipeUp() }
+        field.tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(files.createFile(atPath: ready, contents: Data("\(Date())".utf8)), "cannot write the ready marker")
+        let deadline = Date().addingTimeInterval(20)
+        while !files.fileExists(atPath: done), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        try? files.removeItem(atPath: ready)
+        XCTAssertTrue(files.fileExists(atPath: done), "the host never typed (no done marker in 20 s)")
+        Thread.sleep(forTimeInterval: 0.5)
+        let value = (field.value as? String) ?? ""
+        let host = app.staticTexts["echo-host"].label
+        let line = "VAPP hwtyping pass=\(value == Self.typed && host == "host: " + Self.typed) value=\(value) host=\(host)"
+        print(line)
+        attach(line, name: "hw-typing")
+        // Diagnostic only: where the field and the echo settle 2 s later.
+        Thread.sleep(forTimeInterval: 1.5)
+        let echoHost = app.staticTexts["echo-host"]
+        let late = "VAPP hwtyping late value=\((field.value as? String) ?? "") host=\(echoHost.label) \((echoHost.value as? String) ?? "")"
+        print(late)
+        attach(late, name: "hw-typing-late")
+        try? files.removeItem(atPath: done)
+        XCTAssertEqual(value, Self.typed, "field value")
+        XCTAssertEqual(host, "host: " + Self.typed, "host echo")
+    }
+
     // MARK: - Accessibility order
 
     @MainActor
@@ -108,18 +149,25 @@ final class VappSpikeTests: XCTestCase {
 
     @MainActor
     func testBenchTiming() throws {
-        for screen in ["kitchen-sink-bench", "kitchen-sink"] {
+        for screen in ["kitchen-sink", "kitchen-sink-bench"] {
             let app = launch(screen)
             let caption = app.staticTexts["vapp-bench-caption"]
             XCTAssertTrue(caption.waitForExistence(timeout: 10))
-            var readings: [String] = ["first " + caption.label]
+            Thread.sleep(forTimeInterval: 0.6)
+            // The caption's value carries the live Surface's build time.
+            func reading(_ tag: String) -> String {
+                "\(tag) \(caption.label) · \((caption.value as? String) ?? "build ? µs")"
+            }
+            var readings: [String] = [reading("first")]
             for mode in ["vapp-relayout", "vapp-relayout-warm"] {
                 for _ in 0..<5 {
                     // relayout = a fresh Surface (cold, every leaf measured);
                     // warm = same Surface, forced pass (taffy cache hits).
+                    let before = caption.label
                     app.buttons[mode].tap()
-                    Thread.sleep(forTimeInterval: 0.3)
-                    readings.append((mode == "vapp-relayout" ? "cold " : "warm ") + caption.label)
+                    Thread.sleep(forTimeInterval: 0.6)
+                    if caption.label == before { Thread.sleep(forTimeInterval: 0.6) }
+                    readings.append(reading(mode == "vapp-relayout" ? "cold" : "warm"))
                 }
             }
             for reading in readings { print("VAPP bench \(screen) \(reading)") }

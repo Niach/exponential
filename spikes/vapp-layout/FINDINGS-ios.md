@@ -108,3 +108,83 @@ The field is `GlassTextField`. It owns the text through `@State`. Every edit bum
 ## Screenshots
 
 `/tmp/vapp4-ios-kitchen-sink.png`, `/tmp/vapp4-ios-kitchen-sink-bottom.png`, `/tmp/vapp4-ios-kitchen-sink-rtl.png`, `/tmp/vapp4-ios-kitchen-sink-rtl-bottom.png`, `/tmp/vapp4-ios-kitchen-sink-rtl-noflip.png` (SwiftUI's double flip), `/tmp/vapp4-ios-bench.png`.
+
+## Simulator run of the device script (Release, 2026-09-28)
+
+Same Mac and simulator (iPhone 17 Pro Max, iOS 27.0, Xcode 27.0 beta), now in the **Release** configuration: `xcodebuild build-for-testing -configuration Release … ONLY_ACTIVE_ARCH=YES ARCHS=arm64 CODE_SIGNING_ALLOWED=NO` (Release builds every arch by default and the spike xcframework has no x86_64 simulator slice, so the arch override is required), then `test-without-building` against the xctestrun. The Swift targets compile `-O -whole-module-optimization`. UI testing in Release needed no other build setting. Logs: `/tmp/vapp4-ios-rel-bench{1,2}.log`, `/tmp/vapp4-ios-hw-*.log`.
+
+Test changes: `testBenchTiming` runs the kitchen sink first, then the bench, and waits 0.6 s per tap. `build µs` is read from the caption's accessibility value (`build {µs} µs`, the live Surface's `buildNs`). New `testTypingHardwareKeyboard`. The echo field's `echo-host` element now carries `revision {n} dropped {n} state {n}` as its accessibility value (diagnostics, see Typing).
+
+### Timing (Release)
+
+Two full runs of `testBenchTiming`. Best of 5 and the range (min to max) per run; µs.
+
+| tree | pass | calls | run | taffy best | taffy range | wall best | wall range | build µs |
+|---|---|---|---|---|---|---|---|---|
+| kitchen sink (48) | first | 408 | 1 / 2 | 2706 / 2417 | | 2949 / 2619 | | 845 / 139 |
+| kitchen sink | cold | 408 | 1 | 2254 | 2254 to 2975 | 2425 | 2425 to 3182 | 120 to 240 |
+| kitchen sink | cold | 408 | 2 | 2093 | 2093 to 2991 | 2247 | 2247 to 3199 | 133 to 248 |
+| kitchen sink | warm | 0 | 1 | 2 | 2 to 3 | 169 | 169 to 222 | |
+| kitchen sink | warm | 0 | 2 | 3 | 3 | 165 | 165 to 218 | |
+| bench (203) | first | 3058 | 1 / 2 | 8943 / 9217 | | 9676 / 9915 | | 238 / 229 |
+| bench | cold | 3058 | 1 | 8065 | 8065 to 10057 | 8686 | 8686 to 10772 | 262 to 356 |
+| bench | cold | 3058 | 2 | 7891 | 7891 to 10855 | 8472 | 8472 to 11653 | 267 to 346 |
+| bench | warm | 0 | 1 | 7 | 7 to 9 | 593 | 593 to 737 | |
+| bench | warm | 0 | 2 | 7 | 7 to 9 | 542 | 542 to 812 | |
+
+Readings, run 1 (taffy / wall). Kitchen sink cold: 2975/3182, 2739/2942, 2758/2968, 2269/2443, 2254/2425. Warm: 3/222, 3/198, 2/174, 3/169, 3/221. Bench cold: 8167/8928, 9796/10500, 10057/10772, 10055/10769, 8065/8686. Warm: 9/737, 9/633, 8/621, 8/593, 7/604.
+
+Release vs Debug (best Release over both runs / best Debug from the table above):
+
+| tree | pass | taffy | wall |
+|---|---|---|---|
+| kitchen sink | cold | 2093 / 2753 = 0.76 | 2247 / 2992 = 0.75 |
+| kitchen sink | warm | 3 / 2 (noise) | 165 / 268 = 0.62 |
+| bench | cold | 7891 / 11491 = 0.69 | 8472 / 12340 = 0.69 |
+| bench | warm | 7 / 7 | 542 / 837 = 0.65 |
+
+- Release is 1.3x to 1.6x faster, not 3x to 5x. The Rust core was ALREADY a release build in the Debug app (`spikes/vapp-ffi` `--release`, opt-level 3, LTO), so the configuration only changes the app's Swift, and a cold pass is dominated by SwiftUI's own `sizeThatFits` (a system framework, optimised in both). Per callback: about 2.6 µs (was 3.8). Warm wall is still marshalling: about 2.7 µs per `PlacedFrame` (was 4).
+- The measure-call counts are identical to Debug (408, 3058): layout is deterministic across configurations.
+- Cold readings are bimodal run to run (about 2.2 ms vs 2.9 ms for the kitchen sink, 8 ms vs 10 ms for the bench), most likely simulator scheduling / CPU frequency. Best-of-5 is the stable figure; the spread is about 30 to 40 %.
+- The 845 µs `build` on the very first Surface in run 1 is the process-cold dylib/allocator cost seen before; later builds are 120 to 250 µs (kitchen sink) and 260 to 360 µs (bench).
+
+### Accessibility order (VoiceOver proxies)
+
+VoiceOver itself does not run in the simulator. No VoiceOver result is claimed here.
+
+1. **In-app UIAccessibility walk (`VappA11yDump`, Release): passes, identical to Debug.** `testAccessibilityOrder` passed. The walk: `48 nodes · … (caption), A11y, Re-layout, Warm, Reddit radar, Kitchen sink · one taffy layout on every client, 3, Scan now, Sources, r/selfhosted, r/opensource, r/webdev, Auto-scan, Drafts, Cover, LIVE, <markdown>, Progress, All, Drafts, Sent, Archived, More, Draft reply, Title (echoes after 150 ms), host: , Body, r/selfhosted, Cancel, Send, basis 30% · grow 1, 160 · shrink 0, grow 2 · max 50%, 25%, Kitchen sink`. The surface part is exactly the device script's expected list (items 1 to 26). The bench bar comes first, and the navigation title "Kitchen sink" comes LAST in this walk (the navigation bar's element order in the window, outside the surface). The XCUITest snapshot order is still geometric and ignores `accessibilityHidden` (it lists `AC`, the posts meta, scroll bars), as before.
+2. **Accessibility Inspector against the simulator: not achieved (stopped after about 25 minutes).** Automating it was NOT the blocker: this process is AX-trusted, so the Inspector's toolbar, target menu and Inspection menu were driven by `AXPress` and CGEvent clicks (`/tmp/vapp4-ax/axctl`). What happened:
+   - Xcode 27 beta has no `Simulator.app`. Simulators render inside `DeviceHub.app` (`com.apple.dt.Devices`), and DeviceHub exposes the device display to macOS AX as one opaque `AXGroup` with no iOS children (unlike the old Simulator.app).
+   - The Inspector's target chooser lists `Simulator > Exponential (pid)` and attaches (breadcrumb `Simulator > Exponential`), but no element ever resolves: point-to-inspect (reticle on, `AXValue = 1`) over the kitchen sink in the DeviceHub window leaves Label/Class at "None"; Forward/Back/Play stay disabled (`AXEnabled = 0`) because nothing is selected; Inspection > Move to Next/Child Item and Refresh do nothing; Run Audit returns an empty list with no screenshot.
+   - So the Inspector cannot pick a first element in a DeviceHub-hosted simulator on this beta, and "navigate to next element" has nothing to start from. Retry with a stable Xcode / Simulator.app, or on the phone.
+
+### Hardware-keyboard typing (real key events through the Mac keyboard path)
+
+`testTypingHardwareKeyboard` taps `echo-field`, writes `/tmp/vapp4-ios-type-ready` and waits for `/tmp/vapp4-ios-type-done`. A host script (`/tmp/vapp4-ax/hwtype.sh`) activates DeviceHub and types through System Events, then touches the done marker. The test asserts 0.5 s later and, as a diagnostic, re-reads 1.5 s after that ("late"). `ConnectHardwareKeyboard` was already on. System Events needed no extra permission. The keys arrive as hardware key events: the software keyboard never shows.
+
+| run | how | typing s | field (0.5 s) | host echo (0.5 s) | late: revision / dropped / state | result |
+|---|---|---|---|---|---|---|
+| 1 | `keystroke` | 0.17 | `…wxzy…ABCD` | `…wxzy…ABC` | (n/a) | fail |
+| 5 | `keystroke` | 0.13 | `…wxzy…ABCD` | `…wxzy…ABCD` | (n/a) | fail (y/z only) |
+| 2 | key codes | 0.38 | `…ABC` | `…ABC` | (n/a) | fail |
+| 3 | key codes | 0.14 | all 40 | all 40 | (n/a) | pass |
+| 4 | key codes | 0.15 | all 40 | all 40 | (n/a) | pass |
+| 6 | key codes | 0.31 | all 40 | all 40 | (n/a) | pass |
+| 7 | key codes | 0.14 | `…ABC` | `…ABC` | (n/a) | fail |
+| 8 | key codes | 0.14 | all 40 | `…ABC` (still, late) | (n/a) | fail |
+| 9 | key codes | 0.14 | all 40 | all 40 | 25 / 24 / 40 | pass |
+| 10 | key codes | 0.14 | all 40 | `…ABC` (still, late) | 22 / 21 / 39 | fail |
+| 11 | key codes | 0.15 | all 40 | all 40 | 27 / 26 / 40 | pass |
+| 12 | key codes | 0.15 | `…ABC` | `…ABC` | 24 / 22 / 39 | fail |
+| 13 | key codes | 0.14 | `…ABC` | `…ABC` | 25 / 23 / 39 | fail |
+
+- **y/z swap = the host, not the app.** The Mac's input source is German (QWERTZ). `keystroke "y"` posts the German keycode for `y`, and the simulator's (US) hardware keyboard layout reads it as `z`. Runs 2 and later therefore send raw US-position key codes (`key code {…}`, then `{0,11,8,2} using shift down` for ABCD), which is what a US-layout typist presses. No other character was ever reordered or doubled.
+- **The LAST key is lost in 6 of 11 key-code runs** (plus the echo in run 1). Always the final `D`, never a character in the middle. Two shapes:
+  - Field and echo both end at `…ABC` with `revision - dropped = 2` (runs 12, 13): TWO echoes were applied, so one landed mid-burst (the keys reach the app in bunches; a gap of 150 ms or more occurred before `D`). The echo writes `echoed` (a sibling `@State`) and re-renders `VappEchoField`, and SwiftUI pushes its `text` state (still `…ABC`) back into the UITextField, erasing the `D` UIKit had just inserted but not yet reported to the binding.
+  - Field shows `…ABCD`, but the SwiftUI state is 39 characters and the echo stays `…ABC` (runs 8, 10; `revision - dropped = 1`): the last UIKit edit never reached the binding at all, so no echo for it was ever scheduled.
+  - SwiftUI coalesces edits: 40 keys produce only 22 to 27 `onChange` revisions.
+- **Verdict: FAIL** for the SwiftUI `TextField` + host-echo pattern under real hardware-keyboard bursts. The echo landing (or any state write that re-renders the field's view) while a key is in flight drops that key. XCUITest `typeText` hides this: it waits for each key, and it passed 3 of 3 again in Release (0.95 to 1.35 s per 40 chars). Fix candidates for the real host: never re-render the field's view from the echo (put the host label in a separate view that observes a model, not a sibling `@State`); drop the `if text != value { text = value }` write-back; or back the field with a `UIViewRepresentable` UITextField that owns the text and only accepts host writes when the revision matches. Retest on the phone with a Magic Keyboard.
+
+### Screenshot
+
+`/tmp/vapp4-ios-release.png` (Release, top of the kitchen sink): identical to the Debug capture. The bench caption wraps to two lines inside the bench bar (chrome only, cosmetic).
