@@ -113,6 +113,10 @@ android {
             // Same applicationId as release so a single google-services.json
             // client (registered for at.exponential) covers both.
             isDebuggable = true
+            // VAPP-4 spike: the Rust layout core ships arm64-v8a only.
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
         }
     }
 
@@ -157,6 +161,33 @@ android {
         }
     }
 }
+
+// VAPP-4 spike: the uniffi-generated bindings declare `VappException.Invalid(val message)`,
+// which Kotlin 2.4 rejects (it hides Throwable.message without `override`). Until the
+// facade renames that field, compile a patched COPY (field -> `reason`) and leave the
+// generated file on disk untouched. A no-op copy once the generator output is clean.
+val vappUniffiPatched = layout.buildDirectory.dir("generated/vapp-uniffi")
+val patchVappUniffi = tasks.register("patchVappUniffi") {
+    val src = file("src/main/java/uniffi/vapp_spike_ffi/vapp_spike_ffi.kt")
+    inputs.file(src)
+    outputs.dir(vappUniffiPatched)
+    doLast {
+        val out = vappUniffiPatched.get().file("vapp_patched/vapp_spike_ffi.kt").asFile
+        out.parentFile.mkdirs()
+        out.writeText(
+            src.readText()
+                .replace("val `message`: kotlin.String", "val `reason`: kotlin.String")
+                .replace("\"message=\${ `message` }\"", "\"message=\${ `reason` }\"")
+                .replace("value.`message`", "value.`reason`"),
+        )
+    }
+}
+android.sourceSets.getByName("main").kotlin.srcDir(vappUniffiPatched)
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn(patchVappUniffi)
+    exclude("uniffi/vapp_spike_ffi/**")
+}
+tasks.matching { it.name.startsWith("ksp") }.configureEach { dependsOn(patchVappUniffi) }
 
 // Kotlin 2.4 removed the `android { kotlinOptions { } }` shim; the jvmTarget now
 // lives in the KGP compilerOptions DSL and must stay in lockstep with the
@@ -226,6 +257,10 @@ dependencies {
     // Play in-app updates — drives the immediate update flow from the EXP-104
     // "Update required" gate on production builds.
     implementation(libs.play.app.update.ktx)
+
+    // VAPP-4 spike: uniffi bindings (uniffi.vapp_spike_ffi) need JNA's AAR
+    // (it carries libjnidispatch.so per ABI).
+    implementation(libs.jna) { artifact { type = "aar" } }
 
     debugImplementation(libs.compose.ui.tooling)
     // ui-test-manifest contributes the activity used by createComposeRule; harmless

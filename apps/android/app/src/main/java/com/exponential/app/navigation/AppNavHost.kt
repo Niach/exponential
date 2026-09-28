@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.BackHandler
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -98,6 +99,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.update.UpdateRequiredScreen
 import dagger.hilt.android.EntryPointAccessors
+import com.exponential.app.ui.spike.DevScreens
+import com.exponential.app.ui.spike.VappKitchenSinkScreen
 
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
@@ -197,6 +200,16 @@ fun AppNavHost() {
         deepLinkBus.consume()
     }
 
+    // VAPP-4 spike: `exp.devScreen` (MainActivity) — pushed onto the signed-in
+    // graph once a token exists; see the overlay below for the signed-out case.
+    val devScreen by DevScreens.request.collectAsStateWithLifecycle()
+    LaunchedEffect(devScreen, state.token) {
+        val request = devScreen ?: return@LaunchedEffect
+        if (state.token == null) return@LaunchedEffect
+        navController.navigate(request.route) { launchSingleTop = true }
+        DevScreens.consume()
+    }
+
     val cloudAlreadyAdded = state.accounts.any { it.instanceUrl == AppConstants.PUBLIC_CLOUD_URL }
 
     // Show the unauthenticated flow whenever the active account has no usable
@@ -287,6 +300,13 @@ fun AppNavHost() {
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
                 onRetrySync = { viewModel.retrySync() },
             )
+        }
+        // VAPP-4 spike: signed out, the dev screen floats over the auth flow
+        // (the spike needs no backend); back dismisses it.
+        val overlay = devScreen
+        if (overlay != null && (needsAuth || updateRequired != null)) {
+            BackHandler { DevScreens.consume() }
+            VappKitchenSinkScreen(bench = overlay.bench, forceRtl = overlay.rtl)
         }
         }
     }
@@ -652,6 +672,18 @@ private fun AuthenticatedNav(
         }
         composable("sync-diagnostics") {
             SyncDiagnosticsScreen(onBack = { navController.popBackStack() })
+        }
+        // VAPP-4 spike: the taffy kitchen sink (bench=0 = the fixture).
+        composable(
+            DevScreens.ROUTE_PATTERN,
+            arguments = listOf(
+                navArgument("bench") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("rtl") { type = NavType.BoolType; defaultValue = false },
+            ),
+        ) { entry ->
+            val bench = entry.arguments?.getInt("bench")?.takeIf { it > 0 }
+            val rtl = entry.arguments?.getBoolean("rtl") ?: false
+            VappKitchenSinkScreen(bench = bench, forceRtl = rtl)
         }
         composable("about") {
             AboutScreen(

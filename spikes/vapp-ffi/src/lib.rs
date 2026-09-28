@@ -17,8 +17,8 @@ uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum VappError {
-    #[error("invalid surface: {message}")]
-    Invalid { message: String },
+    #[error("invalid surface: {reason}")]
+    Invalid { reason: String },
 }
 
 #[derive(Debug, Clone, Copy, uniffi::Record)]
@@ -176,7 +176,7 @@ pub struct Surface {
 impl Surface {
     #[uniffi::constructor]
     pub fn new(tree_json: String) -> Result<Arc<Self>, VappError> {
-        let inner = CoreSurface::new(&tree_json).map_err(|message| VappError::Invalid { message })?;
+        let inner = CoreSurface::new(&tree_json).map_err(|reason| VappError::Invalid { reason })?;
         Ok(Arc::new(Surface { inner: Mutex::new(inner) }))
     }
 

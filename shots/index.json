@@ -1684,6 +1684,13 @@
       }
     },
     "vapp-kitchen-sink": {
+      "android": {
+        "file": "shots/vapp-kitchen-sink/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 37238,
+        "sha256": "03c4fad4672475afcc63f31d03fbb3d5320207385056abf8a9a966513acc2f39"
+      },
       "desktop": {
         "file": "shots/vapp-kitchen-sink/desktop.webp",
         "width": 1800,

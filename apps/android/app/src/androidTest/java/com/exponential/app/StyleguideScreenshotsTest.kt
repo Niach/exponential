@@ -19,6 +19,7 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
+import com.exponential.app.ui.spike.DevScreens
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -51,7 +52,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_automations · sg_action-suggestions · sg_reviews ·
  *   sg_support-thread · sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
- *   sg_onboarding-devices
+ *   sg_onboarding-devices · sg_vapp-kitchen-sink (VAPP-4 spike)
  *
  * EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot IS
  * the cloud chooser a first-run user meets, so it took over the `sg_sign-in`
@@ -628,6 +629,16 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("onboarding-devices-step"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding-devices")
+
+        // --- VAPP-4 spike: the taffy kitchen sink, reached through the same
+        // `DevScreens` seam `adb shell am start --es exp.devScreen` feeds
+        // (MainActivity → DevScreens → AppNavHost). Called directly rather than
+        // via a second intent: re-delivering the singleTask activity pauses the
+        // scenario's instance and the rule's teardown then never sees DESTROYED.
+        composeRule.runOnUiThread { DevScreens.open("kitchen-sink") }
+        flow.waitFor(hasTestTag("vapp-surface"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_vapp-kitchen-sink")
 
         finished = true
     }

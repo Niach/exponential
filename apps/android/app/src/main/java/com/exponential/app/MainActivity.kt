@@ -20,6 +20,7 @@ import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.data.share.ShareIntentParser
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.navigation.AppNavHost
+import com.exponential.app.ui.spike.DevScreens
 import com.exponential.app.ui.theme.ExponentialTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -86,6 +87,15 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?, freshDelivery: Boolean) {
         if (intent == null || !freshDelivery) return
+        // VAPP-4 spike (debug only): `--es exp.devScreen kitchen-sink` opens the
+        // taffy kitchen sink; AppNavHost navigates once the graph is up.
+        if (BuildConfig.DEBUG) {
+            val devScreen = intent.getStringExtra(DevScreens.EXTRA)
+            if (devScreen != null) {
+                intent.removeExtra(DevScreens.EXTRA)
+                if (DevScreens.open(devScreen)) return
+            }
+        }
         // Shared content (ACTION_SEND/_MULTIPLE) arrives with a null data URI, so
         // this must run before the exponential:// deep-link guard below. The
         // image copies start immediately — while the read grant is live — but
