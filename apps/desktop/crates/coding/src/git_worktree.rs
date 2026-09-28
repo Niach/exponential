@@ -268,6 +268,115 @@ pub fn ensure_clone(
     Ok(clone)
 }
 
+/// The identity that authors a seeded repository's first commit — the same
+/// `-c` pair shape the workflow engine commits under.
+const SEED_IDENTITY_NAME: &str = "user.name=Exponential";
+const SEED_IDENTITY_EMAIL: &str = "user.email=noreply@exponential.at";
+
+/// Initialize an EMPTY GitHub repository so a first run has something to cut
+/// from: an empty-tree "Initial commit" pushed as `<default_branch>`, and
+/// `origin/<default_branch>` recorded locally so no fetch is needed. A PR
+/// needs an existing base branch and an agent never writes the trunk itself,
+/// so the launcher does it once, before the run.
+///
+/// `Ok(true)` = seeded here. `Ok(false)` = nothing to do: the clone already
+/// knows a remote branch (the cheap, local check), the listing shows one, or
+/// the listing failed (the normal fetch then reports a remote that is really
+/// down). Never FETCHES a ref that is not there: a git that died on that can
+/// hang in its exit handler on the transport helper, which parked a first
+/// start on an empty repo for the whole 600s fetch bound.
+pub fn seed_empty_remote(
+    clone: &Path,
+    default_branch: &str,
+    url: &TokenUrl,
+) -> Result<bool, GitError> {
+    validate_branch_arg(default_branch, "seed empty repository")?;
+    let known = run_git(
+        Some(clone),
+        &["for-each-ref", "--count=1", "--format=%(refname)", "refs/remotes/origin"],
+        None,
+        "git for-each-ref",
+    )
+    .unwrap_or_default();
+    if !known.trim().is_empty() {
+        return Ok(false);
+    }
+    let remote_empty = || {
+        run_git(Some(clone), &["ls-remote", "--heads", "origin"], Some(url), "git ls-remote")
+            .is_ok_and(|heads| heads.trim().is_empty())
+    };
+    if !remote_empty() {
+        return Ok(false);
+    }
+    let tree = run_git(Some(clone), &["mktree"], None, "git mktree")?;
+    let commit = run_git(
+        Some(clone),
+        &[
+            "-c",
+            SEED_IDENTITY_NAME,
+            "-c",
+            SEED_IDENTITY_EMAIL,
+            "-c",
+            "commit.gpgsign=false",
+            "commit-tree",
+            tree.trim(),
+            "-m",
+            "Initial commit",
+        ],
+        None,
+        "git commit-tree",
+    )?;
+    let commit = commit.trim();
+    if let Err(err) = run_git(
+        Some(clone),
+        &["push", "origin", &format!("{commit}:refs/heads/{default_branch}")],
+        Some(url),
+        &format!("git push origin {default_branch}"),
+    ) {
+        // A concurrent first run seeded it a moment earlier: its commit wins
+        // and the caller's ordinary fetch picks it up.
+        if !remote_empty() {
+            return Ok(false);
+        }
+        return Err(GitError {
+            op: format!("initialize empty repository {}", url.full_name()),
+            detail: err.detail,
+        });
+    }
+    run_git(
+        Some(clone),
+        &["update-ref", &format!("refs/remotes/origin/{default_branch}"), commit],
+        None,
+        "git update-ref",
+    )?;
+    // The empty clone's own checkout is an unborn `<default_branch>`: give it
+    // the seed too, so trunk sync finds a branch and not a void.
+    let unborn = run_git(
+        Some(clone),
+        &["rev-parse", "--verify", "--quiet", "HEAD"],
+        None,
+        "git rev-parse HEAD",
+    )
+    .is_err();
+    let head = run_git(
+        Some(clone),
+        &["symbolic-ref", "--quiet", "HEAD"],
+        None,
+        "git symbolic-ref HEAD",
+    )
+    .unwrap_or_default();
+    if unborn && head.trim() == format!("refs/heads/{default_branch}") {
+        let _ = run_git(
+            Some(clone),
+            &["update-ref", &format!("refs/heads/{default_branch}"), commit],
+            None,
+            "git update-ref",
+        );
+    }
+    log::info!("seeded empty repository {} with {default_branch}", url.full_name());
+    Ok(true)
+}
+
 /// Best-effort `git fetch origin <default_branch>` so `origin/<branch>` is
 /// fresh when a NEW branch is cut on a reused clone. Callers may ignore the
 /// error: a stale-but-present base ref still produces a valid worktree.
@@ -1189,6 +1298,68 @@ mod tests {
         // Relaunch: same issue → same worktree, no error (idempotent reuse).
         let again = create_worktree(&clone, &branch, "origin/main", &url).unwrap();
         assert_eq!(again, worktree);
+    }
+
+    /// A first run on an EMPTY repository seeds `main` on origin (a real,
+    /// PR-able base), cuts its branch from it, and never seeds twice.
+    #[test]
+    fn an_empty_remote_is_seeded_then_left_alone() {
+        let dir = temp_dir("seed-empty");
+        let origin = dir.0.join("origin.git");
+        git(&dir.0, &["init", "--quiet", "--bare", "-b", "main", origin.to_str().unwrap()]);
+        let clone = clone_path(&dir.0.join("repos"), "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+
+        assert!(seed_empty_remote(&clone, "main", &url).unwrap());
+        let tip = |repo: &Path, name: &str| {
+            let out = Command::new("git")
+                .args(["rev-parse", "--verify", "--quiet", name])
+                .current_dir(repo)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        let seeded = tip(&origin, "refs/heads/main");
+        assert!(!seeded.is_empty(), "origin got no main");
+        assert_eq!(tip(&clone, "refs/remotes/origin/main"), seeded);
+        assert_eq!(tip(&clone, "HEAD"), seeded, "the trunk checkout left unborn");
+
+        let worktree = create_worktree(&clone, "exp/A-1", "origin/main", &url).unwrap();
+        assert_eq!(tip(&worktree, "HEAD"), seeded);
+
+        // Seeded (or ever non-empty) = a no-op, no second commit.
+        assert!(!seed_empty_remote(&clone, "main", &url).unwrap());
+        assert_eq!(tip(&origin, "refs/heads/main"), seeded);
+    }
+
+    /// A clone that knows no remote branch but whose origin has one (pushed
+    /// since the empty clone) is fetched as usual, never overwritten.
+    #[test]
+    fn a_remote_that_filled_up_since_the_clone_is_not_seeded() {
+        let dir = temp_dir("seed-filled");
+        let origin = dir.0.join("origin.git");
+        git(&dir.0, &["init", "--quiet", "--bare", "-b", "main", origin.to_str().unwrap()]);
+        let clone = clone_path(&dir.0.join("repos"), "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let src = seed_origin(&dir.0);
+        git(&src, &["push", "--quiet", origin.to_str().unwrap(), "main"]);
+
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+        assert!(!seed_empty_remote(&clone, "main", &url).unwrap());
+        fetch_base(&clone, "main", &url).unwrap();
+        assert!(create_worktree(&clone, "exp/A-1", "origin/main", &url)
+            .unwrap()
+            .join("README.md")
+            .exists());
     }
 
     /// EXP-478: reuse re-stamps the `.git` link file — the prune's launch

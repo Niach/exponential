@@ -16,7 +16,8 @@ use std::path::Path;
 use api::TrpcClient;
 
 use crate::git_worktree::{
-    clone_path, ensure_clone, fetch_base, run_git, validate_branch_arg, TokenUrl,
+    clone_path, ensure_clone, fetch_base, run_git, seed_empty_remote, validate_branch_arg,
+    TokenUrl,
 };
 
 /// The clone + ambient auth every engine git operation shares: the launcher's
@@ -72,8 +73,11 @@ pub fn ensure_integration_branch(
         return Ok(());
     }
     // The base must be local before it can be pushed under a new name; no
-    // checkout, no worktree — the ref travels on its own.
-    fetch_base(&clone, &default_branch, &url).map_err(|err| err.to_string())?;
+    // checkout, no worktree — the ref travels on its own. An EMPTY
+    // repository is seeded first (that records the ref, no fetch needed).
+    if !seed_empty_remote(&clone, &default_branch, &url).map_err(|err| err.to_string())? {
+        fetch_base(&clone, &default_branch, &url).map_err(|err| err.to_string())?;
+    }
     run_git(
         Some(&clone),
         &[
