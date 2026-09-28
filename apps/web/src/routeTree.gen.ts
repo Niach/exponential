@@ -29,6 +29,7 @@ import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
+import { Route as AuthenticatedVappKitchenSinkRouteImport } from './routes/_authenticated/vapp-kitchen-sink'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
@@ -230,6 +231,12 @@ const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
   path: '/api/auth-config',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedVappKitchenSinkRoute =
+  AuthenticatedVappKitchenSinkRouteImport.update({
+    id: '/vapp-kitchen-sink',
+    path: '/vapp-kitchen-sink',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
@@ -789,6 +796,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/vapp-kitchen-sink': typeof AuthenticatedVappKitchenSinkRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
@@ -909,6 +917,7 @@ export interface FileRoutesByTo {
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/vapp-kitchen-sink': typeof AuthenticatedVappKitchenSinkRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
@@ -1032,6 +1041,7 @@ export interface FileRoutesById {
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
+  '/_authenticated/vapp-kitchen-sink': typeof AuthenticatedVappKitchenSinkRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
@@ -1156,6 +1166,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
     | '/onboarding'
+    | '/vapp-kitchen-sink'
     | '/api/auth-config'
     | '/api/contact'
     | '/api/health'
@@ -1276,6 +1287,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
     | '/onboarding'
+    | '/vapp-kitchen-sink'
     | '/api/auth-config'
     | '/api/contact'
     | '/api/health'
@@ -1398,6 +1410,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
     | '/_authenticated/onboarding'
+    | '/_authenticated/vapp-kitchen-sink'
     | '/api/auth-config'
     | '/api/contact'
     | '/api/health'
@@ -1725,6 +1738,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/auth-config'
       preLoaderRoute: typeof ApiAuthConfigRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/vapp-kitchen-sink': {
+      id: '/_authenticated/vapp-kitchen-sink'
+      path: '/vapp-kitchen-sink'
+      fullPath: '/vapp-kitchen-sink'
+      preLoaderRoute: typeof AuthenticatedVappKitchenSinkRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/onboarding': {
       id: '/_authenticated/onboarding'
@@ -2467,6 +2487,7 @@ const AuthenticatedAdminRouteRouteWithChildren =
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
+  AuthenticatedVappKitchenSinkRoute: typeof AuthenticatedVappKitchenSinkRoute
   AuthenticatedAccountNotificationsRoute: typeof AuthenticatedAccountNotificationsRoute
   AuthenticatedIntegrationsGithubClaimRoute: typeof AuthenticatedIntegrationsGithubClaimRoute
   AuthenticatedIntegrationsGithubInstalledRoute: typeof AuthenticatedIntegrationsGithubInstalledRoute
@@ -2475,6 +2496,7 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
+  AuthenticatedVappKitchenSinkRoute: AuthenticatedVappKitchenSinkRoute,
   AuthenticatedAccountNotificationsRoute:
     AuthenticatedAccountNotificationsRoute,
   AuthenticatedIntegrationsGithubClaimRoute:

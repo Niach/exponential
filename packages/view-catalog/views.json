@@ -2073,6 +2073,36 @@
       }
     },
     {
+      "id": "vapp-kitchen-sink",
+      "group": "ide",
+      "title": "vApp kitchen sink",
+      "blurb": "VAPP-4 spike: one taffy layout on every client vs real CSS on web.",
+      "order": 4,
+      "web": {
+        "route": "/vapp-kitchen-sink",
+        "anchor": {
+          "text": "Reddit radar",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_vapp-kitchen-sink",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_vapp-kitchen-sink",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "kitchen-sink"
+        }
+      }
+    },
+    {
       "id": "getting-started",
       "group": "getting-started",
       "title": "Getting started",

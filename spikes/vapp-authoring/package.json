@@ -1,0 +1,12 @@
+{
+  "name": "vapp-authoring-spike",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@stylexjs/dev-runtime": "latest",
+    "@stylexjs/stylex": "0.19.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-strict-dom": "0.0.55"
+  }
+}
