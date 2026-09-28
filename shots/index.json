@@ -1683,6 +1683,29 @@
         "sha256": "aa61c9b53ab9ebea2394fd5840e07a3f6ec8a75057d33fbf498cdcbaf601b022"
       }
     },
+    "vapp-kitchen-sink": {
+      "desktop": {
+        "file": "shots/vapp-kitchen-sink/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 44772,
+        "sha256": "e1b2251ae94836c3c254e8e83a290e11b93a6cf46763e7091456bd17e92e01d7"
+      },
+      "web": {
+        "file": "shots/vapp-kitchen-sink/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 25078,
+        "sha256": "d50a2cc0f1deb9063de37e908c07b38893de69e7d4eadd2dfc0cba341412f41d"
+      },
+      "web-mobile": {
+        "file": "shots/vapp-kitchen-sink/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 33120,
+        "sha256": "d6c5c4d4c7b03333646cbcf9e5dd0c98ffeafd247d74cea527480588d9158f7a"
+      }
+    },
     "workflow-detail": {
       "desktop": {
         "file": "shots/workflow-detail/desktop.webp",
