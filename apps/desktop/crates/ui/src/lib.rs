@@ -45,6 +45,8 @@ mod changes_bar;
 mod chat_launch;
 mod chat_screen;
 pub mod coding_flow;
+// EXP-1121: the "Ready to code?" checklist behind Start coding.
+mod coding_readiness;
 mod coding_selects;
 mod comment_attachments;
 mod comments;

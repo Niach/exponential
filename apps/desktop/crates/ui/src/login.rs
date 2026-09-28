@@ -109,6 +109,15 @@ const LABEL_LOGIN_PASSKEY: &str = "Login with passkey";
 /// while its attempt is open.
 const LABEL_WAITING_BROWSER: &str = "Waiting for your browser…";
 
+/// EXP-1026: the name step of an email-code sign-up — byte-identical ×4
+/// (web `lib/auth/sign-up-copy.ts` `SIGN_UP_NAME_COPY`, locked below).
+const NAME_STEP_TITLE: &str = "What should we call you?";
+const NAME_STEP_BODY: &str = "This is how your teammates see you.";
+const NAME_STEP_LABEL: &str = "Name";
+const NAME_STEP_PLACEHOLDER: &str = "Your name";
+const NAME_STEP_BUTTON: &str = "Create account";
+const NAME_STEP_EMPTY_ERROR: &str = "Enter your name to continue.";
+
 /// "Continue with <OIDC provider name>" (one button per configured provider).
 fn oidc_label(provider_name: &str) -> String {
     format!("Continue with {provider_name}")
@@ -135,6 +144,10 @@ enum EmailStep {
     Address,
     /// One-time-code flow, step 2: the 6-digit code for `sent_to`.
     Code { sent_to: SharedString },
+    /// EXP-1026 step 3, only for a NEW address: the server answered
+    /// `NAME_REQUIRED` (code left intact) — ask the name, then resubmit the
+    /// SAME code with it.
+    Name { sent_to: SharedString },
     /// The classic email + password form (the only step on an instance
     /// without mail, and reachable from [`EmailStep::Address`] when both
     /// methods are on).
@@ -148,6 +161,8 @@ pub struct LoginView {
     password: Entity<InputState>,
     /// The mailed 6-digit one-time code (EXP-857).
     code: Entity<InputState>,
+    /// EXP-1026: the new account's name (the name step).
+    name: Entity<InputState>,
     /// Which part of the email method is on screen.
     email_step: EmailStep,
     /// `send_sign_in_code` in flight ("Sending code…"). Local, not a session
@@ -220,11 +235,12 @@ impl LoginView {
         let password =
             cx.new(|cx| InputState::new(window, cx).placeholder("Password").masked(true));
         let code = cx.new(|cx| InputState::new(window, cx).placeholder("123456"));
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(NAME_STEP_PLACEHOLDER));
 
         let mut subscriptions = Vec::new();
         // Enter in email/password/code submits the step that is showing (web
         // form submit).
-        for input in [&email, &password, &code] {
+        for input in [&email, &password, &code, &name] {
             subscriptions.push(cx.subscribe_in(
                 input,
                 window,
@@ -272,6 +288,7 @@ impl LoginView {
             email,
             password,
             code,
+            name,
             email_step: EmailStep::Hidden,
             sending_code: false,
             auth_config: None,
@@ -552,13 +569,23 @@ impl LoginView {
         match self.email_step.clone() {
             EmailStep::Hidden => {}
             EmailStep::Address => self.send_code(window, cx),
-            EmailStep::Code { sent_to } => self.submit_code(&sent_to, cx),
+            EmailStep::Code { sent_to } => self.submit_code(&sent_to, None, cx),
+            EmailStep::Name { sent_to } => {
+                let name = self.name.read(cx).value().trim().to_string();
+                if name.is_empty() {
+                    self.error = Some(NAME_STEP_EMPTY_ERROR.into());
+                    cx.notify();
+                    return;
+                }
+                self.submit_code(&sent_to, Some(name), cx)
+            }
             EmailStep::Password => self.submit_password(cx),
         }
     }
 
-    /// Redeem the mailed code (`POST /api/auth/sign-in/email-otp`).
-    fn submit_code(&mut self, sent_to: &str, cx: &mut gpui::Context<Self>) {
+    /// Redeem the mailed code (`POST /api/auth/sign-in/email-otp`). `name`
+    /// rides only the EXP-1026 name step's resubmit.
+    fn submit_code(&mut self, sent_to: &str, name: Option<String>, cx: &mut gpui::Context<Self>) {
         if Store::global(cx).session(cx) == SessionPhase::SigningIn {
             return;
         }
@@ -578,7 +605,9 @@ impl LoginView {
         let (request_server, email) = (server.clone(), sent_to.to_string());
         self.run_sign_in(
             server,
-            move || client.sign_in_with_email_code(&request_server, &email, &code),
+            move || {
+                client.sign_in_with_email_code(&request_server, &email, &code, name.as_deref())
+            },
             // The OTP codes already carry the contract's copy (api's
             // `otp_error_message`), so the server message wins here.
             |err| err.user_message(),
@@ -642,6 +671,9 @@ impl LoginView {
                 .spawn(async move { request() })
                 .await;
 
+            // EXP-1026: a new address without a name pauses on the name step
+            // (the code is still good) instead of reading as an error.
+            let mut name_required = false;
             let error: Option<String> = cx.update(|cx| {
                 let store = Store::global(cx).clone();
                 match result {
@@ -665,11 +697,25 @@ impl LoginView {
                     }
                     Err(err) => {
                         store.abort_sign_in(cx);
-                        Some(error_message(&err))
+                        if api::login::is_name_required(&err) {
+                            name_required = true;
+                            None
+                        } else {
+                            Some(error_message(&err))
+                        }
                     }
                 }
             });
 
+            if name_required {
+                let _ = this.update(cx, |this, cx| {
+                    if let EmailStep::Code { sent_to } = this.email_step.clone() {
+                        this.error = None;
+                        this.email_step = EmailStep::Name { sent_to };
+                        cx.notify();
+                    }
+                });
+            }
             if let Some(message) = error {
                 let _ = this.update(cx, |this, cx| {
                     this.error = Some(message.into());
@@ -928,6 +974,47 @@ impl LoginView {
                                 cx,
                                 |this, _window, cx| this.set_email_step(EmailStep::Address, cx),
                             )),
+                    );
+            }
+            EmailStep::Name { .. } => {
+                step = step
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(NAME_STEP_TITLE),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(NAME_STEP_BODY),
+                            ),
+                    )
+                    .child(labeled(
+                        cx,
+                        NAME_STEP_LABEL,
+                        glass_input(&self.name, window, cx).web_input(),
+                    ))
+                    .child(
+                        Button::new("login-create-account")
+                            .primary().web_md()
+                            .w_full()
+                            .label(NAME_STEP_BUTTON)
+                            .loading(signing_in)
+                            .disabled(signing_in)
+                            .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                    )
+                    .child(
+                        h_flex().justify_center().child(Self::text_link(
+                            "login-name-different-email",
+                            "Use a different email",
+                            cx,
+                            |this, _window, cx| this.set_email_step(EmailStep::Address, cx),
+                        )),
                     );
             }
             EmailStep::Password => {
@@ -1254,6 +1341,20 @@ mod tests {
             assert!(!label.contains("sign in"), "{label}");
         }
         assert_eq!(oidc_label("Authentik"), "Continue with Authentik");
+    }
+
+    /// EXP-1026: the name step's copy, byte-identical with the web
+    /// `SIGN_UP_NAME_COPY` (and iOS/Android).
+    #[test]
+    fn name_step_copy_is_locked() {
+        assert_eq!(NAME_STEP_TITLE, "What should we call you?");
+        assert_eq!(NAME_STEP_BODY, "This is how your teammates see you.");
+        assert_eq!(NAME_STEP_LABEL, "Name");
+        assert_eq!(NAME_STEP_PLACEHOLDER, "Your name");
+        assert_eq!(NAME_STEP_BUTTON, "Create account");
+        assert_eq!(NAME_STEP_EMPTY_ERROR, "Enter your name to continue.");
+        assert_eq!(api::login::ASK_NAME_HEADER, "X-Exp-Ask-Name");
+        assert_eq!(api::login::NAME_REQUIRED_CODE, "NAME_REQUIRED");
     }
 
     #[test]

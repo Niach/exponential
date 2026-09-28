@@ -83,6 +83,8 @@ pub mod activity_fold;
 pub mod batch_run;
 pub mod board;
 pub mod client_version;
+// EXP-1121: the Start coding readiness checklist, fixture-locked ×4.
+pub mod coding_readiness;
 pub mod diff;
 pub mod diff_tree;
 pub mod edit_card;
