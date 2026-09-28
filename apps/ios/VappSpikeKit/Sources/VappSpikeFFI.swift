@@ -817,12 +817,22 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func buildNs()  -> UInt64
     
+    /**
+     * Forget every cached measurement (content changed without a style change).
+     */
+    func invalidateMeasures() 
+    
     func layout(measure: Measure)  -> LayoutResult
     
     /**
      * The fixed fake measure (8 px/char, 20 px lines) — the no-FFI baseline.
      */
     func layoutFixed()  -> LayoutResult
+    
+    /**
+     * Forget one node's cached measurement.
+     */
+    func markDirty(index: UInt32)  -> Bool
     
     func nodeCount()  -> UInt32
     
@@ -915,6 +925,17 @@ open func buildNs() -> UInt64  {
 })
 }
     
+    /**
+     * Forget every cached measurement (content changed without a style change).
+     */
+open func invalidateMeasures()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_vapp_spike_ffi_fn_method_surface_invalidate_measures(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
 open func layout(measure: Measure) -> LayoutResult  {
     return try!  FfiConverterTypeLayoutResult_lift(try! rustCall() {
         uniffiCallStatus in
@@ -933,6 +954,19 @@ open func layoutFixed() -> LayoutResult  {
         uniffiCallStatus in
     uniffi_vapp_spike_ffi_fn_method_surface_layout_fixed(
             self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Forget one node's cached measurement.
+     */
+open func markDirty(index: UInt32) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_vapp_spike_ffi_fn_method_surface_mark_dirty(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(index),uniffiCallStatus
     )
 })
 }
@@ -1584,7 +1618,7 @@ enum VappError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
-    case Invalid(message: String
+    case Invalid(reason: String
     )
 
     
@@ -1616,7 +1650,7 @@ public struct FfiConverterTypeVappError: FfiConverterRustBuffer {
 
         
         case 1: return .Invalid(
-            message: try FfiConverterString.read(from: &buf)
+            reason: try FfiConverterString.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -1630,9 +1664,9 @@ public struct FfiConverterTypeVappError: FfiConverterRustBuffer {
 
         
         
-        case let .Invalid(message):
+        case let .Invalid(reason):
             writeInt(&buf, Int32(1))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(reason, into: &buf)
             
         }
     }
@@ -1864,10 +1898,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_vapp_spike_ffi_checksum_method_surface_build_ns() != 42932) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_vapp_spike_ffi_checksum_method_surface_invalidate_measures() != 48656) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_vapp_spike_ffi_checksum_method_surface_layout() != 48949) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_vapp_spike_ffi_checksum_method_surface_layout_fixed() != 32062) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_vapp_spike_ffi_checksum_method_surface_mark_dirty() != 18289) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_vapp_spike_ffi_checksum_method_surface_node_count() != 28770) {

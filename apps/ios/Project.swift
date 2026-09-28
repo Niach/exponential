@@ -195,6 +195,22 @@ let project = Project(
             dependencies: [.target(name: "ExpUI")],
             settings: .settings(base: baseSettings)
         ),
+        // VAPP-4 spike: the uniffi bindings over the Rust taffy core
+        // (apps/desktop/crates/vapp-spike via spikes/vapp-ffi). The generated
+        // Swift is not Swift-6 clean, so this target compiles in Swift 5 mode.
+        .target(
+            name: "VappSpikeKit",
+            destinations: [.iPhone, .iPad],
+            product: .framework,
+            bundleId: "at.exponential.vappspike",
+            deploymentTargets: .iOS("17.4"),
+            sources: ["VappSpikeKit/Sources/**"],
+            dependencies: [.xcframework(path: "VappSpikeKit/VappSpikeFFI.xcframework")],
+            settings: .settings(base: baseSettings.merging([
+                "SWIFT_VERSION": "5.0",
+                "SWIFT_STRICT_CONCURRENCY": "minimal",
+            ]) { _, new in new })
+        ),
         .target(
             name: "Exponential",
             destinations: [.iPhone, .iPad],
@@ -210,7 +226,7 @@ let project = Project(
             // Universal Links, which the ShareExtension (still on
             // Exponential.entitlements) must not inherit.
             entitlements: "ExponentialApp.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension")],
+            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension"), .target(name: "VappSpikeKit")],
             settings: .settings(base: baseSettings)
         ),
         .target(
@@ -227,7 +243,7 @@ let project = Project(
             resources: stagingResources,
             // App-only entitlements (EXP-92) — see the production target.
             entitlements: "ExponentialAppStaging.entitlements",
-            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging")],
+            dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging"), .target(name: "VappSpikeKit")],
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })

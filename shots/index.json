@@ -1698,6 +1698,13 @@
         "bytes": 44772,
         "sha256": "e1b2251ae94836c3c254e8e83a290e11b93a6cf46763e7091456bd17e92e01d7"
       },
+      "ios": {
+        "file": "shots/vapp-kitchen-sink/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 37910,
+        "sha256": "f875261a7c3408bda108250a48e79b03d4092d9f756332efa48e71e4b827847a"
+      },
       "web": {
         "file": "shots/vapp-kitchen-sink/web.webp",
         "width": 1800,

@@ -60,6 +60,9 @@ enum AppRoute: Hashable {
     /// never weighs down the settings screen.
     case about
     case thirdPartyLicenses
+    /// VAPP-4 spike: the taffy kitchen sink (nil) or the N-node bench.
+    /// Capture/test only (`-uiTesting -uiTestingScreen kitchen-sink[-bench]`).
+    case vappKitchenSink(bench: Int?)
 }
 
 /// The board the Issues tab is currently showing. May belong to a
@@ -85,7 +88,13 @@ struct AppNavigator: View {
 
     var body: some View {
         Group {
-            if let gatedAccountId = activeGatedAccountId {
+            if let direct = VappSpikeLaunch.directRoute, !showsMainNavigator {
+                // VAPP-4 spike: nobody signed in (or mid-onboarding) — open
+                // the kitchen sink at the root so the spike needs no backend.
+                NavigationStack {
+                    VappKitchenSinkView(bench: direct)
+                }
+            } else if let gatedAccountId = activeGatedAccountId {
                 // Client-version gate (EXP-104): the ACTIVE account's server
                 // 426'd this build, so its surfaces are blocked — its sync loops
                 // have already stopped. Scoped to that one account (REV2-43):
@@ -142,6 +151,15 @@ struct AppNavigator: View {
                 .ignoresSafeArea()
         }
         .transaction { $0.animation = nil }
+    }
+
+    /// True when the body lands on `MainNavigator` (the VAPP-4 direct open
+    /// pushes there instead of taking over the root).
+    private var showsMainNavigator: Bool {
+        activeGatedAccountId == nil
+            && !deps.auth.accounts.isEmpty
+            && !deps.auth.accounts.allSatisfy({ $0.token == nil })
+            && !(deps.auth.isAuthenticated && deps.auth.needsOnboarding)
     }
 
     /// The active account when ITS server has rejected this build (EXP-104).
@@ -319,6 +337,25 @@ struct MainNavigator: View {
                 )
                 .navigationDestination(for: AppRoute.self) { destination(for: $0) }
             }
+
+            // VAPP-4 spike, capture only: an invisible-but-tappable hook the
+            // styleguide walk uses to reach the kitchen sink mid-run.
+            if VappSpikeLaunch.isUITesting {
+                Button {
+                    path.append(.vappKitchenSink(bench: nil))
+                } label: {
+                    // 20 pt on the TRAILING edge at mid-height: the status
+                    // bar swallows taps and the leading edge is the back
+                    // swipe; row taps land at row centres, never here.
+                    Color.white.opacity(0.02)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("open-vapp-kitchen-sink")
+                .accessibilityLabel("Open kitchen sink")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            }
         }
         .environment(teamState)
         .environment(tabBarChrome)
@@ -447,6 +484,10 @@ struct MainNavigator: View {
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingAgentTeamSlug != nil { openAgentFromLink() }
+            // VAPP-4 spike: `-uiTesting -uiTestingScreen kitchen-sink[-bench]`.
+            if let direct = VappSpikeLaunch.directRoute {
+                path.append(.vappKitchenSink(bench: direct))
+            }
         }
         .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
         // Attached as an OVERLAY, not a safeAreaInset (EXP-36): an ancestor
@@ -748,6 +789,8 @@ struct MainNavigator: View {
             AboutView()
         case .thirdPartyLicenses:
             ThirdPartyLicensesView()
+        case let .vappKitchenSink(bench):
+            VappKitchenSinkView(bench: bench)
         }
     }
 

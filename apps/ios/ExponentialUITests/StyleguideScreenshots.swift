@@ -660,6 +660,21 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_settings-account", settle: 2)
 
+        // ── sg_vapp-kitchen-sink: the VAPP-4 taffy spike ─────────────────────
+        // The last shot of the signed-in walk (everything after it signs the
+        // demo user out). No launch argument can be passed mid-run, so the
+        // navigator exposes an invisible `-uiTesting`-only hook; Back returns
+        // to this ServerDetail screen for the sign-out below.
+        let vappHook = app.buttons["open-vapp-kitchen-sink"]
+        XCTAssertTrue(vappHook.waitForExistence(timeout: 10), "The VAPP-4 kitchen sink hook is missing")
+        vappHook.tap()
+        XCTAssertTrue(
+            app.otherElements["vapp-surface"].waitForExistence(timeout: 20),
+            "The VAPP-4 kitchen sink never opened"
+        )
+        snapshot("sg_vapp-kitchen-sink", settle: 2)
+        goBack(app)
+
         // ── sg_onboarding: the first-run create-or-join wizard ───────────────
         // LAST on purpose: it switches the signed-in identity. AppNavigator
         // shows LoginView at the root only when EVERY account is tokenless, so
