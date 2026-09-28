@@ -33,9 +33,11 @@ The one thing that does NOT pass as designed is the measurement protocol: "one F
 | iOS simulator (iPhone 17 Pro Max, iOS 27, Debug) | 3058 cold / 0 warm | 11.5 ms cold / 7 µs warm | 12.3 ms cold / 0.84 ms warm | 0.15 ms | 3.8 µs per Swift callback; warm wall = marshalling 203 frames |
 | Android emulator (API 36 arm64, Debug) | 2064 / 0 cached | 128 ms / 1 µs | 138 ms / 1 to 3 ms | 0.12 to 0.41 ms | about 50 µs per JNA callback round trip; only ~20 ms is Kotlin measuring |
 | Android, Rust only (`layout_fixed`, no JNA) | 1734 | 0.26 ms | | | |
-| **real iPhone / mid-range Android phone** | **pending** | | | | `DEVICE-SCRIPT-{ios,android}.md`, asked of Danny |
+| iOS simulator, **Release** | 3058 cold / 0 warm | 7.9 to 8.1 ms cold / 7 to 9 µs warm | 8.5 to 8.7 ms cold / 0.54 to 0.59 ms warm | 0.26 to 0.36 ms | Release only 1.3 to 1.6x faster than Debug: cold passes are SwiftUI's own `sizeThatFits` |
+| Android emulator, **non-debuggable** (R8, benchmark build) | ~2064 full / 0 cached | 30.7 ms full (30.7 to 35.9) | 32.3 ms full / 0.3 to 0.56 ms cached | | 15 to 27 us per JNA callback (18 us floor fully AOT-compiled); cold 264 to 284 ms |
+| real iPhone / mid-range Android phone | not run | | | | replaced by the simulator/emulator runs above at the user's request |
 
-Kitchen sink (48 nodes, 26 leaves): Rust 0.15 ms / 406 calls; desktop 245 µs first pass per width; iOS 2.8 ms cold, 0.27 ms warm; Android 32 ms full pass, 1 to 3 ms cached.
+Kitchen sink (48 nodes, 26 leaves): Rust 0.15 ms / 406 calls; desktop 245 µs first pass per width; iOS 2.8 ms cold, 0.27 ms warm (Release: 2.1 to 2.3 ms cold, 0.17 ms warm); Android 32 ms full pass, 1 to 3 ms cached (non-debuggable: 11.1 ms full, 0.3 to 0.56 ms cached).
 
 Reading: the engine is never the problem. Every platform pays per callback: gpui ~1.5 µs (in-process, cached), Swift ~3.8 µs (uniffi RustBuffer round trip), Kotlin ~50 µs (uniffi over JNA). All numbers are Debug on the natives and on emulators; the device rows are pending.
 
@@ -49,8 +51,8 @@ Reading: the engine is never the problem. Every platform pays per callback: gpui
 |---|---|---|---|
 | Web | DOM order = pre-order | none | DOM |
 | Desktop gpui | AccessKit tree = element order | `.id()` + `.role()`/`aria_label` per leaf | compiles, no screen-reader run |
-| iOS | GEOMETRIC (row by row) | `.accessibilitySortPriority(count - index)` per subview | in-app UIAccessibility walk = exact pre-order (XCUITest's snapshot ignores sort priority, so the test walks the real tree); VoiceOver by ear pending |
-| Android | semantics tree = composition order = pre-order; TalkBack sorts geometrically inside a container | `traversalIndex` per node + `isTraversalGroup` on the surface (not yet applied) | tree order verified by test; TalkBack could not be driven from adb; by ear pending |
+| iOS | GEOMETRIC (row by row) | `.accessibilitySortPriority(count - index)` per subview | in-app UIAccessibility walk = exact pre-order, Debug and Release (XCUITest's snapshot ignores sort priority). VoiceOver does not run in the Simulator, and Accessibility Inspector cannot resolve elements inside Xcode 27's DeviceHub simulator window, so no VoiceOver-proper result |
+| Android | semantics tree = composition order = pre-order; REAL TalkBack (emulator, gestures injected through the emulator touchscreen, utterances from TalkBack verbose logs) read the header out of order: `Reddit radar, Scan now, Kitchen sink…, 3` | `traversalIndex = index` AND `isTraversalGroup = true` on EVERY node, plus a traversal group on the surface (index on nodes alone made it worse: inner children jumped ahead) | TalkBack walk after the fix = the fixture pre-order item for item |
 
 ### Typing (host-owned `echo-field`, 150 ms echo, 40 fast characters)
 
