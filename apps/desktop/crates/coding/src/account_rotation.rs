@@ -9,7 +9,10 @@
 //!   the device — desktop, daemon, relay, engine — goes through it once): the
 //!   signed-in, healthy profile with the MOST headroom, read off the usage
 //!   cache ([`crate::agent_usage::profile_usage_snapshot`], no probe: the
-//!   cache is fresh enough to avoid an obviously walled login).
+//!   cache is fresh enough to avoid an obviously walled login). EXP-1107: a
+//!   launch that NAMES its account (the composer's pick, the device default,
+//!   an automation's or a workflow decision's account) keeps it unless that
+//!   login is WALLED; only an unpinned launch goes to the most headroom.
 //! * **At a wall** ([`pick_rotation_target`], driven by a host's
 //!   [`RotationTracker`] beat): a run whose `blocked.kind = rate_limit` is
 //!   moved to another profile with headroom on the window it hit — after a
@@ -17,7 +20,11 @@
 //!   ([`crate::agent_usage::collect_now`]), never off cached numbers — as a
 //!   RESUME naming the target (the same switch a person makes; the server
 //!   inherits `started_reason`, the parent and the workflow membership from
-//!   the predecessor, EXP-1082 §1).
+//!   the predecessor, EXP-1082 §1). EXP-1107: ONE forced read per AGENT per
+//!   beat ([`RotationTracker::plan_beat`], [`InflightProbes`]), however many
+//!   of its runs are walled, and every one of them decided off that one
+//!   result ([`RotationTracker::decide_batch`]) — N per-run probes raced the
+//!   usage cache's load→mutate→save and sent N runs to the same login.
 //!
 //! Guards, each enforced ONCE here: claude only (codex keeps one login per
 //! session by contract and waits for its reset); repo-backed runs only (a
@@ -196,6 +203,14 @@ pub const NO_TARGET_RETRY_MS: i64 = 15 * 60 * 1000;
 /// cooldown and the cap on every desktop switch.
 pub const CHAIN_GRACE_MS: i64 = 10 * 60 * 1000;
 
+/// EXP-1107: after a switch the host could not make (refused: a turn started
+/// meanwhile; failed: the resume errored), how long before the chain is
+/// probed again. The rotation is UNDONE ([`RotationTracker::undo_switch`]) —
+/// it neither counts toward the cap nor starts the 10-minute cooldown — but
+/// a switch that fails every time must not buy a forced probe of every
+/// login on every 5-second beat either.
+pub const SWITCH_RETRY_MS: i64 = 60 * 1000;
+
 /// Whether `windows` on `agent` leave the pick to the picker at all: only
 /// claude rotates (codex keeps one login per session — interface E).
 pub fn rotates(agent: CodingAgent) -> bool {
@@ -278,6 +293,28 @@ pub fn pick_rotation_target(
     guard: &RotationGuard,
     now_ms: i64,
 ) -> Option<String> {
+    pick_rotation_target_spread(current, agent, profiles, window_hit, model, guard, now_ms, &BTreeMap::new())
+}
+
+/// [`pick_rotation_target`] inside one beat's batch (EXP-1107): `claimed`
+/// counts the runs this batch already sent to each profile, and the LEAST
+/// claimed candidate wins before headroom is weighed — two runs walled on
+/// one login move to two different ones. A claimed profile is still a
+/// target when no unclaimed one has headroom: parking the run instead would
+/// only defer the same move by [`NO_TARGET_RETRY_MS`] (the claims are per
+/// beat), leaving a run idle beside a login that can take it; if the shared
+/// login then walls too, the cooldown and the cap bound what that costs.
+#[allow(clippy::too_many_arguments)]
+fn pick_rotation_target_spread(
+    current: &str,
+    agent: CodingAgent,
+    profiles: &[ProfileUsage],
+    window_hit: &str,
+    model: Option<&str>,
+    guard: &RotationGuard,
+    now_ms: i64,
+    claimed: &BTreeMap<String, u32>,
+) -> Option<String> {
     if guard.cooldown_until.is_some_and(|until| now_ms < until) {
         return None;
     }
@@ -303,7 +340,8 @@ pub fn pick_rotation_target(
                 .by_key(window_hit, now_ms)
                 .map(|window| window.effective_percent(now_ms))
                 .unwrap_or(0);
-            (hit, profile.headroom_key(model, now_ms))
+            let claims = claimed.get(&profile.profile_id).copied().unwrap_or(0);
+            (claims, hit, profile.headroom_key(model, now_ms))
         })
         .map(|profile| profile.profile_id.clone())
 }
@@ -339,6 +377,15 @@ impl StartPick {
 /// own account stands: rotation is off, the agent never rotates, no
 /// eligible profile has more headroom, or the launch's account IS the pick.
 ///
+/// EXP-1107 (owner decision): a PINNED launch — `account` names a profile:
+/// the composer's pick, the device default, an automation's or a workflow
+/// decision's account — keeps it unless that login is WALLED (spent on a
+/// window the run would draw on); "less headroom" never overrides a person's
+/// choice. Only an unpinned launch (`None`) goes to the most headroom. The
+/// ambient login rides as `None` on every path (`LaunchOptions::defaults`,
+/// `AccountOption::wire_account`), so an explicit pick of it is not told
+/// apart from no pick and reads as unpinned.
+///
 /// The launch's own account is listed FIRST, so a tie keeps it.
 pub fn start_pick(
     profiles: &[ProfileUsage],
@@ -351,6 +398,7 @@ pub fn start_pick(
     if !auto_rotate || !rotates(agent) {
         return None;
     }
+    let pinned = !crate::agent_profiles::is_system(account);
     let from = crate::agent_profiles::profile_id(account);
     let mut ordered: Vec<&ProfileUsage> = profiles.iter().collect();
     ordered.sort_by_key(|profile| profile.profile_id != from);
@@ -364,6 +412,9 @@ pub fn start_pick(
     // MAX_USAGE_PROFILES, an API-key login that is never monitored) is not
     // known to be walled: the launch keeps it rather than blaming a sign-in.
     let own = ordered.iter().find(|profile| profile.profile_id == from)?;
+    if pinned && !own.spent_for(model, now_ms) {
+        return None;
+    }
     let reason = if own.spent_for(model, now_ms) {
         let (key, window) = spent_window(own, model, now_ms);
         format!(
@@ -387,8 +438,8 @@ pub fn start_pick(
 /// Apply [`start_pick`] to a launch: rewrite `account` in place and hand
 /// back what changed. The ONE call `coding::prepare` makes for every fresh
 /// issue, batch and action launch on the device. An account the launch
-/// named explicitly (a composer or automation pick) is kept only on a
-/// headroom TIE: a login with strictly more headroom overrides it.
+/// named explicitly (a composer, device-default, automation or workflow
+/// pick) is kept unless it is walled (EXP-1107, see [`start_pick`]).
 pub fn apply_start_pick(
     account: &mut Option<String>,
     profiles: &[ProfileUsage],
@@ -491,6 +542,9 @@ pub enum Hold {
     Capped,
     /// A probe found no target; the next one is due at `until_ms`.
     WaitingForReset { until_ms: i64 },
+    /// The last switch was refused or failed (and undone); the next try is
+    /// due at `until_ms` ([`SWITCH_RETRY_MS`]).
+    RetryingSwitch { until_ms: i64 },
 }
 
 /// What the beat wants the host to do for one walled run.
@@ -531,6 +585,8 @@ struct ChainState {
     no_target_wall: Option<(String, String)>,
     /// Unix ms of the last beat that saw a live run on this chain.
     last_live_ms: i64,
+    /// EXP-1107: an undone switch — no new probe before this.
+    switch_retry_until: Option<i64>,
 }
 
 impl ChainState {
@@ -665,6 +721,14 @@ impl RotationTracker {
         if guard.rotations_this_wall >= guard.cap {
             return Step::Hold(Hold::Capped);
         }
+        if let Some(until_ms) = self
+            .chains
+            .get(&run.chain_key)
+            .and_then(|state| state.switch_retry_until)
+            .filter(|until| now_ms < *until)
+        {
+            return Step::Hold(Hold::RetryingSwitch { until_ms });
+        }
         if let Some(state) = self.chains.get(&run.chain_key) {
             let same_wall = state.no_target_wall.as_ref()
                 == Some(&(run.account.clone(), run.window.clone()));
@@ -677,18 +741,98 @@ impl RotationTracker {
         Step::Probe
     }
 
+    /// EXP-1107 — this beat's walled runs, sorted into the holds and ONE
+    /// probe batch per agent: however many runs of one login are walled,
+    /// the host spends ONE forced read on the agent and decides them all off
+    /// it ([`Self::decide_batch`]). A host skips the runs of an agent whose
+    /// batch is still in flight ([`InflightProbes::busy`]) before it asks.
+    pub fn plan_beat(&self, runs: Vec<WalledRun>, auto_rotate: bool, now_ms: i64) -> BeatPlan {
+        let mut plan = BeatPlan::default();
+        for run in runs {
+            match self.step(&run, auto_rotate, now_ms) {
+                Step::Hold(hold) => plan.holds.push((run, hold)),
+                Step::Probe => match plan.probes.iter_mut().find(|batch| batch.agent == run.agent) {
+                    Some(batch) => {
+                        if !batch.runs.iter().any(|seen| seen.chain_key == run.chain_key) {
+                            batch.runs.push(run);
+                        }
+                    }
+                    None => plan.probes.push(ProbeBatch { agent: run.agent, runs: vec![run] }),
+                },
+            }
+        }
+        for batch in &mut plan.probes {
+            batch.runs.sort_by(|a, b| a.chain_key.cmp(&b.chain_key));
+        }
+        plan
+    }
+
+    /// EXP-1107 — decide every run of one [`ProbeBatch`] off the ONE forced
+    /// read, under the caller's single tracker lock. The runs go in chain
+    /// order (deterministic, [`Self::plan_beat`] sorts them), and each
+    /// switch CLAIMS its target so the next run prefers another login with
+    /// headroom ([`pick_rotation_target_spread`] — shared only when none is
+    /// left). One decision per run, in `runs` order.
+    pub fn decide_batch(
+        &mut self,
+        runs: &[WalledRun],
+        profiles: &[ProfileUsage],
+        now_ms: i64,
+    ) -> Vec<Decision> {
+        let mut claimed: BTreeMap<String, u32> = BTreeMap::new();
+        runs.iter()
+            .map(|run| {
+                let decision = self.decide_claimed(run, profiles, now_ms, &claimed);
+                if let Decision::Switch { target, .. } = &decision {
+                    *claimed.entry(target.clone()).or_default() += 1;
+                }
+                decision
+            })
+            .collect()
+    }
+
+    /// EXP-1107 — the host could not make the switch [`Self::decide`]
+    /// counted at `decided_at_ms` (refused: a turn started; failed: the
+    /// resume errored): take the rotation back, so it spends neither the
+    /// cap nor the cooldown, and retry after [`SWITCH_RETRY_MS`]. Undo, not
+    /// count-on-success: the count must be PERSISTED before the host acts
+    /// (a re-exec mid-switch must still remember it), so the rotation exists
+    /// the moment it is decided and only a known failure removes it.
+    pub fn undo_switch(&mut self, chain_key: &str, decided_at_ms: i64, now_ms: i64) {
+        let Some(state) = self.chains.get_mut(chain_key) else {
+            return;
+        };
+        if let Some(at) = state.rotations.iter().rposition(|at| *at == decided_at_ms) {
+            state.rotations.remove(at);
+        }
+        state.switch_retry_until = Some(now_ms + SWITCH_RETRY_MS);
+        state.last_live_ms = state.last_live_ms.max(now_ms);
+    }
+
     /// Fold a forced read into a decision for `run`, and remember it: a
-    /// switch counts against the chain's cap and starts its cooldown; a wait
+    /// switch counts against the chain's cap and starts its cooldown (until
+    /// the host reports it could not make it, [`Self::undo_switch`]); a wait
     /// parks the chain until the wall's reset or [`NO_TARGET_RETRY_MS`],
-    /// whichever is sooner.
+    /// whichever is sooner. A beat with several walled runs of one agent
+    /// uses [`Self::decide_batch`].
     pub fn decide(&mut self, run: &WalledRun, profiles: &[ProfileUsage], now_ms: i64) -> Decision {
+        self.decide_claimed(run, profiles, now_ms, &BTreeMap::new())
+    }
+
+    fn decide_claimed(
+        &mut self,
+        run: &WalledRun,
+        profiles: &[ProfileUsage],
+        now_ms: i64,
+        claimed: &BTreeMap<String, u32>,
+    ) -> Decision {
         let guard = self.guard(&run.chain_key, now_ms);
         let state = self.chains.entry(run.chain_key.clone()).or_default();
         state.last_live_ms = now_ms;
         let from = profiles.iter().find(|profile| profile.profile_id == run.account);
         let from_label = from.map(|profile| profile.label.clone()).unwrap_or_else(|| run.account.clone());
         let from_name = from.map(|profile| profile.local_name().to_string()).unwrap_or_else(|| run.account.clone());
-        match pick_rotation_target(
+        match pick_rotation_target_spread(
             &run.account,
             run.agent,
             profiles,
@@ -696,6 +840,7 @@ impl RotationTracker {
             run.model.as_deref(),
             &guard,
             now_ms,
+            claimed,
         ) {
             Some(target) => {
                 let to = profiles.iter().find(|profile| profile.profile_id == target);
@@ -705,6 +850,7 @@ impl RotationTracker {
                 state.rotations.push(now_ms);
                 state.no_target_until = None;
                 state.no_target_wall = None;
+                state.switch_retry_until = None;
                 Decision::Switch {
                     // The run's own note may name the login; the event may not.
                     prompt: switch_prompt(&from_name, &target_name, &run.window, run.resets_at_ms),
@@ -745,6 +891,65 @@ impl RotationTracker {
         }
         self.chains
             .retain(|_, state| now_ms - state.last_live_ms <= CHAIN_GRACE_MS);
+    }
+}
+
+/// EXP-1107 — one agent's walled runs, decided off ONE forced read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProbeBatch {
+    pub agent: CodingAgent,
+    /// Distinct chains, in chain-key order.
+    pub runs: Vec<WalledRun>,
+}
+
+/// What [`RotationTracker::plan_beat`] hands the host: the runs it holds
+/// (and why), and at most one probe per agent.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BeatPlan {
+    pub holds: Vec<(WalledRun, Hold)>,
+    pub probes: Vec<ProbeBatch>,
+}
+
+/// EXP-1107 — the probe batches a host has in flight, per AGENT: a second
+/// forced read of the same logins while one is running would race the usage
+/// cache (load→mutate→save, last writer wins), so an agent's walled runs
+/// wait for its batch to finish. Its chains stay listed while the batch's
+/// switches end the old rows and resume the new ones, so the tracker keeps
+/// their state across that gap.
+#[derive(Clone, Debug, Default)]
+pub struct InflightProbes {
+    by_agent: Vec<(CodingAgent, Vec<String>)>,
+}
+
+impl InflightProbes {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A batch of `agent` is in flight.
+    pub fn busy(&self, agent: CodingAgent) -> bool {
+        self.by_agent.iter().any(|(busy, _)| *busy == agent)
+    }
+
+    /// Take `batch`'s agent; `false` = one of its batches is already in
+    /// flight (spawn nothing).
+    pub fn claim(&mut self, batch: &ProbeBatch) -> bool {
+        if self.busy(batch.agent) {
+            return false;
+        }
+        let chains = batch.runs.iter().map(|run| run.chain_key.clone()).collect();
+        self.by_agent.push((batch.agent, chains));
+        true
+    }
+
+    /// The batch of `agent` finished (every switch acted on).
+    pub fn release(&mut self, agent: CodingAgent) {
+        self.by_agent.retain(|(busy, _)| *busy != agent);
+    }
+
+    /// Every chain a batch in flight covers.
+    pub fn chains(&self) -> Vec<String> {
+        self.by_agent.iter().flat_map(|(_, chains)| chains.iter().cloned()).collect()
     }
 }
 
@@ -998,16 +1203,169 @@ mod tests {
         assert!(pick.run_note().starts_with("Note: Exponential moved this run to another account before it started — Starting on b"), "{}", pick.run_note());
         assert!(pick.message.starts_with("Starting on b — system hit its 5h limit"), "{}", pick.message);
         assert!(!pick.message.contains("@example.com"), "{}", pick.message);
-        // Less headroom, not walled: move too (Danny: most headroom, always).
+        // Less headroom, not walled, UNPINNED: move too (most headroom).
         let less = vec![profile("system", 60, 10), profile("b", 20, 10)];
         let pick = start_pick(&less, true, CodingAgent::Claude, None, None, NOW).unwrap();
         assert!(pick.message.ends_with("has less headroom"), "{}", pick.message);
         // Applied: the ambient login becomes `None`, a profile its id.
         let mut account = Some("b".to_string());
-        let back = vec![profile("b", 90, 10), profile("system", 5, 5)];
+        let back = vec![profile("b", 100, 10), profile("system", 5, 5)];
         let pick = apply_start_pick(&mut account, &back, true, CodingAgent::Claude, None, NOW).unwrap();
         assert_eq!(pick.to, "system");
         assert_eq!(account, None);
+    }
+
+    /// EXP-1107 (owner decision): a launch that NAMES its account keeps it
+    /// on "less headroom" — only a walled pin moves; an unpinned launch
+    /// still goes to the most headroom.
+    #[test]
+    fn a_pinned_account_moves_only_when_walled() {
+        let profiles = vec![profile("system", 5, 5), profile("work", 90, 10)];
+        // Pinned, open, far less headroom: kept, nothing rewritten.
+        assert_eq!(start_pick(&profiles, true, CodingAgent::Claude, None, Some("work"), NOW), None);
+        let mut account = Some("work".to_string());
+        assert_eq!(apply_start_pick(&mut account, &profiles, true, CodingAgent::Claude, None, NOW), None);
+        assert_eq!(account.as_deref(), Some("work"));
+        // Pinned and walled on the 5h window: moved, and said why.
+        let walled = vec![profile("system", 5, 5), profile("work", 100, 10)];
+        let pick = start_pick(&walled, true, CodingAgent::Claude, None, Some("work"), NOW).unwrap();
+        assert_eq!(pick.to, "system");
+        assert!(pick.message.contains("work hit its 5h limit"), "{}", pick.message);
+        // Walled on the MODEL window the run needs: moved; another model's
+        // run keeps the pin.
+        let mut fable_spent = profile("work", 10, 10);
+        fable_spent
+            .windows
+            .model
+            .insert("fable".into(), Window { percent: 100, resets_at: Some(NOW + 1000) });
+        let model_walled = vec![profile("system", 50, 50), fable_spent];
+        assert_eq!(
+            start_pick(&model_walled, true, CodingAgent::Claude, Some("fable"), Some("work"), NOW)
+                .map(|pick| pick.to)
+                .as_deref(),
+            Some("system")
+        );
+        assert_eq!(start_pick(&model_walled, true, CodingAgent::Claude, Some("opus"), Some("work"), NOW), None);
+        // Unpinned: most headroom, as before.
+        let unpinned = vec![profile("system", 90, 10), profile("work", 5, 5)];
+        let pick = start_pick(&unpinned, true, CodingAgent::Claude, None, None, NOW).unwrap();
+        assert_eq!(pick.to, "work");
+        // `system` named explicitly rides as the ambient login: unpinned.
+        let pick = start_pick(&unpinned, true, CodingAgent::Claude, None, Some("system"), NOW).unwrap();
+        assert_eq!(pick.to, "work");
+    }
+
+    fn walled_on(chain: &str, account: &str) -> WalledRun {
+        WalledRun {
+            session_id: format!("s-{chain}"),
+            chain_key: chain.to_string(),
+            ..walled(account, "session", true)
+        }
+    }
+
+    /// EXP-1107: two walled chains of one login cost ONE forced read, and
+    /// the batch sends them to two DIFFERENT logins with headroom.
+    #[test]
+    fn walled_runs_of_one_agent_share_one_probe_and_spread_over_targets() {
+        let tracker = RotationTracker::new();
+        let mut codex = walled_on("/tmp/codex", "a");
+        codex.agent = CodingAgent::Codex;
+        let plan = tracker.plan_beat(
+            vec![
+                walled_on("/tmp/wt-2", "a"),
+                walled_on("/tmp/wt-1", "a"),
+                walled_on("/tmp/wt-1", "a"),
+                codex,
+            ],
+            true,
+            NOW,
+        );
+        assert_eq!(plan.probes.len(), 1, "one probe for the agent, not one per run");
+        let batch = &plan.probes[0];
+        assert_eq!(batch.agent, CodingAgent::Claude);
+        let chains: Vec<&str> = batch.runs.iter().map(|run| run.chain_key.as_str()).collect();
+        assert_eq!(chains, ["/tmp/wt-1", "/tmp/wt-2"], "distinct chains, in chain order");
+        assert_eq!(plan.holds.len(), 1);
+        assert_eq!(plan.holds[0].1, Hold::AgentNeverRotates);
+
+        // The host claims the agent once; a second beat while it is in
+        // flight spawns nothing.
+        let mut inflight = InflightProbes::new();
+        assert!(inflight.claim(batch));
+        assert!(!inflight.claim(batch));
+        assert!(inflight.busy(CodingAgent::Claude));
+        assert_eq!(inflight.chains(), ["/tmp/wt-1", "/tmp/wt-2"]);
+
+        // Decided off the ONE read under one lock: b has the most headroom,
+        // c the next — the second run does not pile onto b.
+        let probes = std::cell::Cell::new(0);
+        let probe = |_agent: CodingAgent| {
+            probes.set(probes.get() + 1);
+            vec![profile("a", 100, 10), profile("b", 10, 10), profile("c", 30, 10)]
+        };
+        let mut tracker = tracker;
+        let profiles = probe(batch.agent);
+        let decisions = tracker.decide_batch(&batch.runs, &profiles, NOW);
+        assert_eq!(probes.get(), 1);
+        let targets: Vec<&str> = decisions
+            .iter()
+            .map(|decision| match decision {
+                Decision::Switch { target, .. } => target.as_str(),
+                Decision::Wait { .. } => panic!("expected switches: {decision:?}"),
+            })
+            .collect();
+        assert_eq!(targets, ["b", "c"]);
+        inflight.release(CodingAgent::Claude);
+        assert!(!inflight.busy(CodingAgent::Claude));
+        assert!(inflight.chains().is_empty());
+
+        // Only ONE login with headroom: both runs share it rather than one
+        // idling beside it (documented on `pick_rotation_target_spread`).
+        let mut tracker = RotationTracker::new();
+        let one = vec![profile("a", 100, 10), profile("b", 10, 10), profile("c", 100, 10)];
+        let decisions = tracker.decide_batch(&batch.runs, &one, NOW);
+        assert!(decisions
+            .iter()
+            .all(|decision| matches!(decision, Decision::Switch { target, .. } if target == "b")));
+    }
+
+    /// EXP-1107: a switch the host could not make is undone — no cap spent,
+    /// no 10-minute cooldown — and retried after the short spacing.
+    #[test]
+    fn a_refused_switch_is_undone_and_retried_soon() {
+        let mut tracker = RotationTracker::new();
+        let run = walled("a", "session", true);
+        let profiles = vec![profile("a", 100, 10), profile("b", 10, 10)];
+        assert!(matches!(tracker.decide(&run, &profiles, NOW), Decision::Switch { .. }));
+        assert_eq!(tracker.guard(&run.chain_key, NOW).rotations_this_wall, 1);
+        tracker.undo_switch(&run.chain_key, NOW, NOW + 5);
+        let guard = tracker.guard(&run.chain_key, NOW + 6);
+        assert_eq!(guard.rotations_this_wall, 0, "the refused switch spends no cap");
+        assert_eq!(guard.cooldown_until, None, "…and starts no cooldown");
+        assert_eq!(
+            tracker.step(&run, true, NOW + 6),
+            Step::Hold(Hold::RetryingSwitch { until_ms: NOW + 5 + SWITCH_RETRY_MS })
+        );
+        assert_eq!(tracker.step(&run, true, NOW + 5 + SWITCH_RETRY_MS), Step::Probe);
+        // A switch that then goes through clears the retry park and counts.
+        let later = NOW + 5 + SWITCH_RETRY_MS;
+        assert!(matches!(tracker.decide(&run, &profiles, later), Decision::Switch { .. }));
+        assert_eq!(tracker.guard(&run.chain_key, later).rotations_this_wall, 1);
+        assert!(matches!(tracker.step(&run, true, later + 1), Step::Hold(Hold::CoolingDown { .. })));
+        // Undo removes only the rotation it names: an older one still counts.
+        tracker.undo_switch(&run.chain_key, NOW, later + 2);
+        assert_eq!(tracker.guard(&run.chain_key, later + 2).rotations_this_wall, 1);
+        // The undo survives a restart like the count did.
+        let dir = temp_dir("undo");
+        let mut persisted = RotationTracker::new();
+        assert!(matches!(persisted.decide(&run, &profiles, NOW), Decision::Switch { .. }));
+        persisted.save(&dir, NOW);
+        persisted.undo_switch(&run.chain_key, NOW, NOW + 1);
+        persisted.save(&dir, NOW + 1);
+        let restarted = RotationTracker::load(&dir, NOW + 2);
+        assert_eq!(restarted.guard(&run.chain_key, NOW + 2).rotations_this_wall, 0);
+        assert!(matches!(restarted.step(&run, true, NOW + 2), Step::Hold(Hold::RetryingSwitch { .. })));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

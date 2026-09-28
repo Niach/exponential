@@ -11,6 +11,11 @@
 //! reset. Every guard lives in `coding::account_rotation`; this file is the
 //! wiring. The CLI daemon runs the same beat headlessly.
 //!
+//! EXP-1107: ONE probe per AGENT per beat (`RotationTracker::plan_beat`,
+//! `InflightProbes`), every walled run of that agent decided off it under one
+//! tracker lock (`decide_batch`); a switch the host could not make is undone
+//! (`undo_switch`).
+//!
 //! The beat itself touches no disk and no network: a walled session's run
 //! record (its account, model and whether it is repo-backed) is read ONCE
 //! off the foreground into a small cache, the chains are persisted off the
@@ -21,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use coding::account_rotation::{Decision, Hold, RotationTracker, Step, WalledRun};
+use coding::account_rotation::{Decision, Hold, InflightProbes, ProbeBatch, RotationTracker, WalledRun};
 use coding::workflows::events::{TrpcEventSink, WorkflowEventSink as _};
 use gpui::App;
 
@@ -33,10 +38,10 @@ const BEAT: Duration = Duration::from_secs(5);
 
 struct RotationState {
     tracker: Mutex<RotationTracker>,
-    /// Chains with a probe (and its switch) in flight: never probed twice,
-    /// and kept in the tracker while the switch has ended the old run but
-    /// not yet registered the new one.
-    inflight: Mutex<HashSet<String>>,
+    /// The agents with a probe batch (and its switches) in flight: never
+    /// probed twice, their chains kept in the tracker while a switch has
+    /// ended the old run but not yet registered the new one.
+    inflight: Mutex<InflightProbes>,
     /// Which hold each walled session was last logged under, so a hold is
     /// logged once per change instead of every beat.
     holds: Mutex<HashMap<String, &'static str>>,
@@ -59,7 +64,7 @@ pub fn start_account_rotation_host(cx: &mut App) {
     }
     let state = Arc::new(RotationState {
         tracker: Mutex::new(RotationTracker::new()),
-        inflight: Mutex::new(HashSet::new()),
+        inflight: Mutex::new(InflightProbes::new()),
         holds: Mutex::new(HashMap::new()),
         records: Mutex::new(HashMap::new()),
         reading: Mutex::new(HashSet::new()),
@@ -123,6 +128,7 @@ fn hold_key(hold: &Hold) -> &'static str {
         Hold::CoolingDown { .. } => "cooling_down",
         Hold::Capped => "capped",
         Hold::WaitingForReset { .. } => "waiting_for_reset",
+        Hold::RetryingSwitch { .. } => "retrying_switch",
     }
 }
 
@@ -188,9 +194,9 @@ fn beat(state: &Arc<RotationState>, cx: &mut App) {
         (chains, ids, walls)
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let inflight: HashSet<String> = lock(&state.inflight).clone();
+    let inflight = lock(&state.inflight).clone();
     let mut keep = live_chains;
-    keep.extend(inflight.iter().cloned());
+    keep.extend(inflight.chains());
     // Grace-based: a chain between an ended row and its resumed successor
     // keeps its cooldown and cap (see `CHAIN_GRACE_MS`).
     lock(&state.tracker).retain_chains(&keep, now_ms);
@@ -230,36 +236,36 @@ fn beat(state: &Arc<RotationState>, cx: &mut App) {
         let hub = hub.read(cx);
         (hub.settings.clone(), hub.doctor.report.clone())
     };
-    for run in candidates {
-        if inflight.contains(&run.chain_key) {
+    // An agent whose batch is in flight is decided again once it lands.
+    candidates.retain(|run| !inflight.busy(run.agent));
+    let plan = lock(&state.tracker).plan_beat(candidates, settings.auto_rotate_accounts, now_ms);
+    for (run, hold) in plan.holds {
+        let key = hold_key(&hold);
+        if lock(&state.holds).insert(run.session_id.clone(), key) != Some(key) {
+            log::info!(
+                "account rotation [{}]: walled on {} ({}), holding: {hold:?}",
+                run.session_id,
+                run.account,
+                run.window
+            );
+        }
+    }
+    for batch in plan.probes {
+        let Some(report) = report.clone() else {
+            log::info!(
+                "account rotation: {} walled {} run(s), no doctor report yet — probing next beat",
+                batch.agent.id(),
+                batch.runs.len()
+            );
+            continue;
+        };
+        if !lock(&state.inflight).claim(&batch) {
             continue;
         }
-        let step = lock(&state.tracker).step(&run, settings.auto_rotate_accounts, now_ms);
-        match step {
-            Step::Hold(hold) => {
-                let key = hold_key(&hold);
-                if lock(&state.holds).insert(run.session_id.clone(), key) != Some(key) {
-                    log::info!(
-                        "account rotation [{}]: walled on {} ({}), holding: {hold:?}",
-                        run.session_id,
-                        run.account,
-                        run.window
-                    );
-                }
-            }
-            Step::Probe => {
-                let Some(report) = report.clone() else {
-                    log::info!(
-                        "account rotation [{}]: no doctor report yet — probing next beat",
-                        run.session_id
-                    );
-                    continue;
-                };
-                lock(&state.holds).remove(&run.session_id);
-                lock(&state.inflight).insert(run.chain_key.clone());
-                spawn_probe(Arc::clone(state), run, settings.clone(), report, data_dir.clone(), cx);
-            }
+        for run in &batch.runs {
+            lock(&state.holds).remove(&run.session_id);
         }
+        spawn_probe(Arc::clone(state), batch, settings.clone(), report, data_dir.clone(), cx);
     }
 }
 
@@ -279,22 +285,25 @@ fn read_record(state: Arc<RotationState>, session_id: String, data_dir: std::pat
         .detach();
 }
 
+/// ONE forced read of `batch.agent`'s profiles, however many of its runs
+/// are walled, then every run decided off it and acted on in turn.
 fn spawn_probe(
     state: Arc<RotationState>,
-    run: WalledRun,
+    batch: ProbeBatch,
     settings: coding::Settings,
     report: coding::DoctorReport,
     data_dir: std::path::PathBuf,
     cx: &mut App,
 ) {
+    let sessions: Vec<&str> = batch.runs.iter().map(|run| run.session_id.as_str()).collect();
     log::info!(
-        "account rotation [{}]: {} hit its {} wall between turns — reading every profile's usage",
-        run.session_id,
-        run.account,
-        run.window
+        "account rotation [{}]: {} run(s) walled between turns — reading every {} profile's usage once",
+        sessions.join(", "),
+        batch.runs.len(),
+        batch.agent.id()
     );
     cx.spawn(async move |cx| {
-        let agent = run.agent;
+        let agent = batch.agent;
         let probe_dir = data_dir.clone();
         let profiles = cx
             .background_executor()
@@ -307,23 +316,43 @@ fn spawn_probe(
             })
             .await;
         let now_ms = chrono::Utc::now().timestamp_millis();
-        let (decision, chains) = {
+        let (decisions, chains) = {
             let mut tracker = lock(&state.tracker);
-            let decision = tracker.decide(&run, &profiles, now_ms);
-            (decision, tracker.clone())
+            let decisions = tracker.decide_batch(&batch.runs, &profiles, now_ms);
+            (decisions, tracker.clone())
         };
-        // The decision counted: persisted before it acts, off the
-        // foreground, so a restart mid-switch still remembers it.
+        // The decisions counted: persisted before they act, off the
+        // foreground, so a restart mid-switch still remembers them. Awaited,
+        // so an undo's save below can never land before (and under) it.
+        let save_dir = data_dir.clone();
         cx.background_executor()
-            .spawn(async move { chains.save(&data_dir, now_ms) })
-            .detach();
-        cx.update(|cx| act(&run, decision, cx));
-        lock(&state.inflight).remove(&run.chain_key);
+            .spawn(async move { chains.save(&save_dir, now_ms) })
+            .await;
+        let mut undone = false;
+        for (run, decision) in batch.runs.iter().zip(decisions) {
+            let switched = cx.update(|cx| act(run, decision, cx));
+            if !switched {
+                // EXP-1107: a refused switch spends neither the cap nor the
+                // cooldown; the chain is retried after the short spacing.
+                lock(&state.tracker).undo_switch(&run.chain_key, now_ms, chrono::Utc::now().timestamp_millis());
+                undone = true;
+            }
+        }
+        if undone {
+            let chains = lock(&state.tracker).clone();
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            cx.background_executor()
+                .spawn(async move { chains.save(&data_dir, now_ms) })
+                .detach();
+        }
+        lock(&state.inflight).release(agent);
     })
     .detach();
 }
 
-fn act(run: &WalledRun, decision: Decision, cx: &mut App) {
+/// Act on one decision. `false` = a switch the host could NOT make (the
+/// caller undoes its count); a wait, or a switch under way, is `true`.
+fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
     let workflow = session_workflow(&run.session_id, cx);
     // The event sink is a blocking tRPC call: never on the foreground.
     let record = |kind: &str, message: String, cx: &App| {
@@ -358,9 +387,12 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) {
                 run.account
             );
             // The server inherits started_reason, the parent and the workflow
-            // membership from the predecessor (EXP-1082 §1); the tracker
-            // already counted the rotation, so a refusal (a turn started
-            // meanwhile) is not retried until the cooldown passes.
+            // membership from the predecessor (EXP-1082 §1). A refusal (a
+            // turn started meanwhile) hands back `false`: the caller undoes
+            // the rotation the tracker counted (EXP-1107). A resume that
+            // fails LATER (the old run did not stop in time) is reported by
+            // `end_then_resume_on_account` itself and keeps its count — the
+            // cooldown is then what spaces the retry.
             if crate::account_switch::end_then_resume_on_account(
                 run.session_id.clone(),
                 target,
@@ -370,11 +402,13 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) {
                 cx,
             ) {
                 record("account_switched", event_message, cx);
+                true
             } else {
                 log::warn!(
-                    "account rotation [{}]: switch refused — the agent started a turn",
+                    "account rotation [{}]: switch refused — the agent started a turn; retrying soon",
                     run.session_id
                 );
+                false
             }
         }
         Decision::Wait {
@@ -386,6 +420,7 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) {
                 run.session_id
             );
             record("waiting_reset", event_message, cx);
+            true
         }
     }
 }
