@@ -7,6 +7,7 @@ import {
   readinessDeviceBody,
   readinessLastSeen,
   readinessPickerUsedBy,
+  readinessRepoRows,
   readinessRepositoryBody,
   readinessRepositoryTitle,
   readinessSummary,
@@ -39,5 +40,9 @@ describe(`coding-readiness (EXP-1121)`, () => {
 
   it.each(fixture.cases)(`$name`, ({ input, expected }) => {
     expect(codingReadiness(input as CodingReadinessInput)).toEqual(expected)
+  })
+
+  it.each(fixture.picker)(`picker: $name`, ({ board, repos, query, expected }) => {
+    expect(readinessRepoRows(repos, board, query)).toEqual(expected)
   })
 })

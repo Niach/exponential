@@ -274,3 +274,61 @@ export function codingReadiness(input: CodingReadinessInput): CodingReadiness {
       !visible || loading || firstMissing === null ? null : CAPTIONS[firstMissing],
   }
 }
+
+// ── The inline repository picker (×4, fixture `picker`) ─────────────────
+
+export interface ReadinessPickerRepo {
+  id: string
+  fullName: string
+  /** The boards this repository backs (`repositories.list().boards`). */
+  boards: ReadonlyArray<{ id: string; name: string }>
+}
+
+export interface ReadinessRepoRow {
+  id: string
+  fullName: string
+  tag: string | null
+  matches: boolean
+}
+
+/** The repository's own name (after `/`) IS the board's name or slug,
+ * case-insensitively. */
+export function repoMatchesBoard(
+  fullName: string,
+  board: { name: string; slug: string }
+): boolean {
+  const name = (fullName.split(`/`).pop() ?? fullName).toLowerCase()
+  if (!name) return false
+  return name === board.name.toLowerCase() || name === board.slug.toLowerCase()
+}
+
+/** Filtered by a trimmed, case-insensitive substring of the full name; the
+ * board matches first, both halves in the API's order; each row tagged
+ * "matches board", else with the first OTHER board using it, else nothing. */
+export function readinessRepoRows(
+  repos: ReadonlyArray<ReadinessPickerRepo>,
+  board: { id: string; name: string; slug: string },
+  query = ``
+): ReadinessRepoRow[] {
+  const needle = query.trim().toLowerCase()
+  const rows = repos
+    .filter((repo) => !needle || repo.fullName.toLowerCase().includes(needle))
+    .map((repo) => {
+      const matches = repoMatchesBoard(repo.fullName, board)
+      const usedBy = repo.boards.find((other) => other.id !== board.id)
+      return {
+        id: repo.id,
+        fullName: repo.fullName,
+        matches,
+        tag: matches
+          ? READINESS_COPY.pickerMatchesBoard
+          : usedBy
+            ? readinessPickerUsedBy(usedBy.name)
+            : null,
+      }
+    })
+  return [
+    ...rows.filter((row) => row.matches),
+    ...rows.filter((row) => !row.matches),
+  ]
+}

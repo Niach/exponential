@@ -843,5 +843,238 @@
         "caption": null
       }
     }
+  ],
+  "picker": [
+    {
+      "name": "the board-name match first, a repo another board backs tagged used by, the picking board never counts",
+      "board": {
+        "id": "b-app",
+        "name": "App",
+        "slug": "app"
+      },
+      "repos": [
+        {
+          "id": "r-web",
+          "fullName": "acme-inc/website",
+          "boards": [
+            {
+              "id": "b-web",
+              "name": "Website"
+            }
+          ]
+        },
+        {
+          "id": "r-app",
+          "fullName": "acme-inc/app",
+          "boards": []
+        },
+        {
+          "id": "r-api",
+          "fullName": "acme-inc/api",
+          "boards": [
+            {
+              "id": "b-app",
+              "name": "App"
+            },
+            {
+              "id": "b-ops",
+              "name": "Ops"
+            }
+          ]
+        },
+        {
+          "id": "r-own",
+          "fullName": "acme-inc/tools",
+          "boards": [
+            {
+              "id": "b-app",
+              "name": "App"
+            }
+          ]
+        }
+      ],
+      "query": "",
+      "expected": [
+        {
+          "id": "r-app",
+          "fullName": "acme-inc/app",
+          "matches": true,
+          "tag": "matches board"
+        },
+        {
+          "id": "r-web",
+          "fullName": "acme-inc/website",
+          "matches": false,
+          "tag": "used by Website"
+        },
+        {
+          "id": "r-api",
+          "fullName": "acme-inc/api",
+          "matches": false,
+          "tag": "used by Ops"
+        },
+        {
+          "id": "r-own",
+          "fullName": "acme-inc/tools",
+          "matches": false,
+          "tag": null
+        }
+      ]
+    },
+    {
+      "name": "the query is a trimmed case-insensitive substring of the full name",
+      "board": {
+        "id": "b-app",
+        "name": "App",
+        "slug": "app"
+      },
+      "repos": [
+        {
+          "id": "r-web",
+          "fullName": "acme-inc/website",
+          "boards": [
+            {
+              "id": "b-web",
+              "name": "Website"
+            }
+          ]
+        },
+        {
+          "id": "r-app",
+          "fullName": "acme-inc/app",
+          "boards": []
+        },
+        {
+          "id": "r-api",
+          "fullName": "acme-inc/api",
+          "boards": [
+            {
+              "id": "b-app",
+              "name": "App"
+            },
+            {
+              "id": "b-ops",
+              "name": "Ops"
+            }
+          ]
+        },
+        {
+          "id": "r-own",
+          "fullName": "acme-inc/tools",
+          "boards": [
+            {
+              "id": "b-app",
+              "name": "App"
+            }
+          ]
+        }
+      ],
+      "query": "  WEB ",
+      "expected": [
+        {
+          "id": "r-web",
+          "fullName": "acme-inc/website",
+          "matches": false,
+          "tag": "used by Website"
+        }
+      ]
+    },
+    {
+      "name": "a query matching nothing lists nothing",
+      "board": {
+        "id": "b-app",
+        "name": "App",
+        "slug": "app"
+      },
+      "repos": [
+        {
+          "id": "r-web",
+          "fullName": "acme-inc/website",
+          "boards": [
+            {
+              "id": "b-web",
+              "name": "Website"
+            }
+          ]
+        },
+        {
+          "id": "r-app",
+          "fullName": "acme-inc/app",
+          "boards": []
+        },
+        {
+          "id": "r-api",
+          "fullName": "acme-inc/api",
+          "boards": [
+            {
+              "id": "b-app",
+              "name": "App"
+            },
+            {
+              "id": "b-ops",
+              "name": "Ops"
+            }
+          ]
+        },
+        {
+          "id": "r-own",
+          "fullName": "acme-inc/tools",
+          "boards": [
+            {
+              "id": "b-app",
+              "name": "App"
+            }
+          ]
+        }
+      ],
+      "query": "zzz",
+      "expected": []
+    },
+    {
+      "name": "slug and name both match case-insensitively; no fuzzy folding",
+      "board": {
+        "id": "b-mob",
+        "name": "Mobile App",
+        "slug": "mobile-app"
+      },
+      "repos": [
+        {
+          "id": "r-1",
+          "fullName": "acme-inc/mobileapp",
+          "boards": []
+        },
+        {
+          "id": "r-2",
+          "fullName": "acme-inc/Mobile-App",
+          "boards": []
+        },
+        {
+          "id": "r-3",
+          "fullName": "other/mobile app",
+          "boards": []
+        }
+      ],
+      "query": "",
+      "expected": [
+        {
+          "id": "r-2",
+          "fullName": "acme-inc/Mobile-App",
+          "matches": true,
+          "tag": "matches board"
+        },
+        {
+          "id": "r-3",
+          "fullName": "other/mobile app",
+          "matches": true,
+          "tag": "matches board"
+        },
+        {
+          "id": "r-1",
+          "fullName": "acme-inc/mobileapp",
+          "matches": false,
+          "tag": null
+        }
+      ]
+    }
   ]
 }

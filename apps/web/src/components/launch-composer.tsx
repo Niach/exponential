@@ -17,6 +17,12 @@ import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
+import { useSession } from "@/hooks/use-session"
+import { useIssuesCodingReadiness } from "@/hooks/use-coding-readiness"
+import {
+  CodingReadinessOverlay,
+  ReadinessCaption,
+} from "@/components/coding-readiness-checklist"
 
 // EXP-825: the ONE launcher — the composer card, rendered inline on the
 // Agent page and inside the start-coding dialog (EXP-1019, `launch-dialog.tsx`)
@@ -108,7 +114,31 @@ export function LaunchComposer({
     fieldRef.current?.setCaret(next)
   }
 
+  // EXP-1121: an issue subject that cannot start RIGHT NOW (no device
+  // online, the board lost its repository…) says the missing step on the
+  // submit instead of failing on send; pressing it opens the "Ready to
+  // code?" checklist with the fix.
+  const { data: session } = useSession()
+  const checkedIds = subject?.kind === `issues` ? subject.ids : []
+  const readinessState = useIssuesCodingReadiness({
+    teamId: model.teamId,
+    issueIds: checkedIds,
+    known: model.checkedIssues,
+    currentUserId: session?.user?.id ?? ``,
+  })
+  const { readiness } = readinessState
+  const notReady =
+    checkedIds.length > 0 &&
+    readiness.visible &&
+    !readiness.loading &&
+    !readiness.ready
+  const [readinessOpen, setReadinessOpen] = useState(false)
+
   const send = () => {
+    if (notReady && !busy) {
+      setReadinessOpen(true)
+      return
+    }
     if (blocked) return
     void model.submit()
   }
@@ -236,22 +266,56 @@ export function LaunchComposer({
           </>
         }
         submit={
-          /* The round send glyph. EXP-827: icon-only — the chips already say
-             what the send starts; the contract's per-subject label stays
-             the button's name (aria-label + tooltip). */
-          <ComposerSubmit
-            aria-label={submitLabel}
-            title={submitLabel}
-            data-testid="agent-composer-submit"
-            disabled={blocked}
-            onClick={send}
-          >
-            {busy ? (
-              <UiLoadingIcon className="!size-6 animate-spin" />
-            ) : (
-              <UiSubmitIcon className="!size-6" />
-            )}
-          </ComposerSubmit>
+          notReady ? (
+            /* EXP-1121: the missing step beside a greyed submit; a press
+               opens the checklist rather than sending. */
+            <CodingReadinessOverlay
+              state={readinessState}
+              open={readinessOpen}
+              onOpenChange={setReadinessOpen}
+              // Ready, the checklist closes and the composer sends as usual.
+              onStart={() => {
+                if (!blocked) void model.submit()
+              }}
+            >
+              {readiness.caption && (
+                <ReadinessCaption
+                  caption={readiness.caption}
+                  onClick={() => setReadinessOpen((value) => !value)}
+                  className="mr-1"
+                />
+              )}
+              <ComposerSubmit
+                aria-label={readiness.caption ?? submitLabel}
+                title={readiness.caption ?? submitLabel}
+                data-testid="agent-composer-submit"
+                data-readiness="missing"
+                // Disabled-LOOKING (still a target): the circled glyph
+                // greys out; the amber caption beside it says why.
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setReadinessOpen((value) => !value)}
+              >
+                <UiSubmitIcon className="!size-6" />
+              </ComposerSubmit>
+            </CodingReadinessOverlay>
+          ) : (
+            /* The round send glyph. EXP-827: icon-only — the chips already
+               say what the send starts; the contract's per-subject label
+               stays the button's name (aria-label + tooltip). */
+            <ComposerSubmit
+              aria-label={submitLabel}
+              title={submitLabel}
+              data-testid="agent-composer-submit"
+              disabled={blocked}
+              onClick={send}
+            >
+              {busy ? (
+                <UiLoadingIcon className="!size-6 animate-spin" />
+              ) : (
+                <UiSubmitIcon className="!size-6" />
+              )}
+            </ComposerSubmit>
+          )
         }
         onDrop={(event) => {
           if (event.dataTransfer.files.length === 0) return

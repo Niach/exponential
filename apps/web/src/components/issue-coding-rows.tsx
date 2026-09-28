@@ -5,32 +5,29 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
-import {
-  ChevronRight,
-  GitBranch,
-  GitPullRequest,
-  MonitorUp,
-} from "lucide-react"
+import { ChevronRight, GitBranch, GitPullRequest } from "lucide-react"
 import { conceptIcon, FabButton, Pill, GlassRow, LiveDot } from "@exp/ui"
 import type { CodingSession, Issue, Board } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
-import {
-  issueCollection,
-  teamMemberCollection,
-} from "@/lib/collections"
+import { issueCollection } from "@/lib/collections"
 import { stackChain } from "@/lib/pr-stack"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
-import { useSteerConfig } from "@/components/agent-session"
-import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useOpenComposer } from "@/hooks/use-open-composer"
+import {
+  useCodingReadiness,
+  useIsTeamMember,
+} from "@/hooks/use-coding-readiness"
+import { READINESS_COPY } from "@/lib/coding-readiness"
+import {
+  CodingReadinessOverlay,
+  ReadinessCaption,
+  ReadinessStartPill,
+} from "@/components/coding-readiness-checklist"
 
-// EXP-317: the "no desktop online" hint draws the same glyph here and in
-// the native apps (`ui-device-offline`).
-const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 // The phone bar's start button — the same glyph the Actions surfaces run with.
 const ActionRunIcon = conceptIcon(`action-run`)
 // EXP-897: the PR stack's glyph — a concept, never a raw lucide import.
@@ -57,8 +54,10 @@ function CodingRowStack({ children }: { children: ReactNode }) {
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
 // / remote-start control that NAVIGATES to the run's session page (EXP-740 —
 // it never mounts the live viewer itself), plus a PR / pushed-branch row that
-// links to the review-detail route. Repo presence + membership + relay availability gate them (the same
-// signals the server enforces); everything degrades to nothing when absent.
+// links to the review-detail route. Membership + relay availability gate
+// them (the same signals the server enforces); EXP-1121: a missing repository
+// or device no longer hides Start coding — it turns the capsule into the
+// readiness checklist's entry point.
 // EXP-184 split them: IssueCodingControl renders as the full-width main-column
 // row (variant='row', both viewports since EXP-568) or as the phone bottom
 // bar's circle (variant='fab'); IssuePrRow always stays a main-column row.
@@ -204,8 +203,8 @@ export function SessionStatusBadge({
 }
 
 /** `row` = the main-column "coding now" card and NOTHING else (EXP-760: Merge
- * moved into the properties card beside Start coding, and the "no desktop
- * online" hint became the `start` variant's own caption — so an idle issue
+ * moved into the properties card beside Start coding, and the missing step
+ * is the `start` variant's own caption (EXP-1121) — so an idle issue
  * draws no main-column card at all), `fab` = the phone bar's circle, `start` =
  * the "Start coding" capsule the issue detail's properties card hosts
  * (EXP-616, desktop parity with the IDE). The two mounts never draw the same
@@ -219,20 +218,8 @@ export type CodingControlVariant = `row` | `fab` | `start`
 export type CodingStartTone = `primary` | `glass`
 
 // Membership gate shared by both exported pieces and the bulk bar's
-// "Start coding" button (the server enforces it regardless; this only decides
-// what renders).
-export function useIsTeamMember(teamId: string, currentUserId: string) {
-  const { data: memberRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ m: teamMemberCollection })
-        .where(({ m }) =>
-          and(eq(m.teamId, teamId), eq(m.userId, currentUserId))
-        ),
-    [teamId, currentUserId]
-  )
-  return (memberRows?.length ?? 0) > 0
-}
+// "Start coding" button — EXP-1121 moved it beside the readiness inputs.
+export { useIsTeamMember }
 
 /** The "coding now" / remote-start control — main-column row or phone circle. */
 export function IssueCodingControl({
@@ -250,17 +237,18 @@ export function IssueCodingControl({
   variant: CodingControlVariant
   tone?: CodingStartTone
 }) {
-  const config = useSteerConfig()
-  const isMember = useIsTeamMember(teamId, currentUserId)
-
+  // EXP-877: the tray's coding slot says nothing about a run any more. A
+  // live run of mine is a sidebar row (EXP-923, `team/sidebar-running.tsx`)
+  // and a teammate's is their own business (EXP-312), so `start` always
+  // offers Start coding. EXP-893: the phone's `fab` is the same — a play
+  // circle, never a Watch glyph. `row` draws nothing any more (EXP-818).
+  if (variant === `row`) return null
   return (
-    <AgentRow
+    <ReadinessStartControl
       issue={issue}
       board={board}
       teamId={teamId}
       currentUserId={currentUserId}
-      isMember={isMember}
-      steerEnabled={config?.enabled ?? null}
       variant={variant}
       tone={tone}
     />
@@ -293,15 +281,19 @@ export function IssuePrRow({
   )
 }
 
-// ── Running / remote-start row ────────────────────────────────────────────────
+// ── Start coding + the readiness checklist (EXP-1121) ─────────────────────
 
-function AgentRow({
+// Start coding ALWAYS renders for a member on an instance with remote start:
+// the primary capsule once the issue can start right now, else the dashed
+// amber one captioned with the FIRST missing step (GitHub, the board's
+// repository, a device online). Either opens the "Ready to code?" checklist
+// (`coding-readiness-checklist.tsx`) until ready; ready, it navigates to the
+// composer with this issue as its subject (EXP-825), as it always did.
+function ReadinessStartControl({
   issue,
   board,
   teamId,
   currentUserId,
-  isMember,
-  steerEnabled,
   variant,
   tone,
 }: {
@@ -309,108 +301,88 @@ function AgentRow({
   board: Board
   teamId: string
   currentUserId: string
-  isMember: boolean
-  /** null while steer.config is still loading. */
-  steerEnabled: boolean | null
-  variant: CodingControlVariant
+  variant: Exclude<CodingControlVariant, `row`>
   tone: CodingStartTone
 }) {
-  // EXP-877: the tray's coding slot says nothing about a run any more. A
-  // live run of mine is a sidebar row (EXP-923, `team/sidebar-running.tsx`)
-  // and a teammate's is their own business (EXP-312), so `start` always
-  // offers Start coding —
-  // the "Watch" pill and the teammate coding caption are gone. EXP-893: the
-  // phone's `fab` is the same — a play circle, never a Watch glyph; the
-  // Work screen's face switcher is how a run of mine is reached.
-  // `row` draws nothing any more (EXP-818).
-  if (variant === `row`) return null
-
-  // Not running: only members can remote-start, and only on a repo-backed
-  // board with the relay enabled. Gate the device wiring behind that —
-  // RemoteStartRow (which owns useRemoteStart over the synced devices shape)
-  // mounts ONLY here, so a non-member / steer-off / repo-less /
-  // already-running issue view never wires it up.
-  if (!isMember || !steerEnabled || !board.repositoryId) {
-    // Nothing left to draw: the open PR's Merge button lives in the properties
-    // card now (EXP-760, `issue-detail-view.tsx`), where it renders whether or
-    // not remote start is available on this instance.
-    return null
-  }
-  return (
-    <RemoteStartRow
-      issue={issue}
-      teamId={teamId}
-      currentUserId={currentUserId}
-      variant={variant}
-      tone={tone}
-    />
-  )
-}
-
-// The remote-start affordance — split out so its device wiring only
-// runs when the start row can actually render (AgentRow gates the mount).
-function RemoteStartRow({
-  issue,
-  teamId,
-  currentUserId,
-  variant,
-  tone,
-}: {
-  issue: Issue
-  teamId: string
-  currentUserId: string
-  variant: CodingControlVariant
-  tone: CodingStartTone
-}) {
-  // EXP-825: the devices ride only the "No desktop online" caption now —
-  // the click itself is a navigation to the Agent page composer with this
-  // issue as the subject chip (the launch dialog is gone).
-  const remote = useRemoteStart({ currentUserId, teamId })
+  const state = useCodingReadiness({
+    teamId,
+    boardIds: [board.id],
+    currentUserId,
+  })
+  const { readiness } = state
   const openComposer = useOpenComposer()
+  const [open, setOpen] = useState(false)
 
-  // Presence lookup still in flight — keep the section quiet.
-  if (remote.devices === null) return null
-  if (remote.devices.length === 0) {
-    // Nothing to start on: the phone bar simply drops the circle rather than
-    // spending one of its three slots on an explanation. EXP-760: the
-    // explanation is the START slot's own caption now — it used to be a
-    // main-column row, which put an empty grey card under every issue of a
-    // team whose desktops happen to be closed.
-    if (variant !== `start`) return null
-    return (
-      <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground">
-        <UiDeviceOfflineIcon className="size-3.5 shrink-0" />
-        <span className="truncate">No desktop online</span>
-      </span>
-    )
-  }
+  // Non-member, or no remote start on this instance: nothing to offer.
+  if (!readiness.visible) return null
 
   const start = () => openComposer({ issueIds: [issue.id] })
+  const press = () => {
+    if (readiness.loading) return
+    if (readiness.ready) start()
+    else setOpen((value) => !value)
+  }
+  const notReady = !readiness.loading && !readiness.ready
 
   if (variant === `fab`) {
+    // EXP-1121: the play circle ALWAYS stays on a phone — dashed with an
+    // amber badge dot while a step is missing; a tap opens the checklist
+    // as a bottom sheet.
     return (
-      <FabButton emphasis="primary" aria-label="Start coding" onClick={start}>
-        <ActionRunIcon className="size-5" />
-      </FabButton>
+      <CodingReadinessOverlay
+        state={state}
+        open={open}
+        onOpenChange={setOpen}
+        onStart={start}
+        surface="sheet"
+      >
+        <FabButton
+          emphasis="primary"
+          aria-label={READINESS_COPY.start}
+          aria-disabled={readiness.loading || undefined}
+          data-readiness={
+            readiness.loading ? `loading` : readiness.ready ? `ready` : `missing`
+          }
+          className={cn(
+            `relative`,
+            notReady && `border-dashed border-amber-400/60 text-foreground/70`
+          )}
+          onClick={press}
+        >
+          <ActionRunIcon className="size-5" />
+          {notReady && (
+            <span
+              aria-hidden
+              data-testid="coding-readiness-badge"
+              className="absolute top-2.5 right-2.5 size-2 rounded-full bg-amber-400 ring-2 ring-background"
+            />
+          )}
+        </FabButton>
+      </CodingReadinessOverlay>
     )
   }
 
   // EXP-616: the start affordance is a capsule INSIDE the issue's properties
   // card (desktop parity with the IDE) — no standalone row of its own.
-  if (variant === `start`) {
-    return (
-      <div className="flex min-w-0 items-center gap-2">
-        <Pill mode="action" primary={tone === `primary`} onClick={start}>
-          <MonitorUp />
-          Start coding
-        </Pill>
-      </div>
-    )
-  }
-
-  // `row` on an idle issue draws nothing at all: the capsule above carries
-  // the start, and Merge sits beside it in the properties card (EXP-760).
-  return null
+  return (
+    <CodingReadinessOverlay
+      state={state}
+      open={open}
+      onOpenChange={setOpen}
+      onStart={start}
+      surface="popover"
+    >
+      {readiness.caption && (
+        <ReadinessCaption caption={readiness.caption} onClick={press} />
+      )}
+      <ReadinessStartPill
+        readiness={readiness}
+        tone={tone}
+        onClick={press}
+        testId="issue-start-coding"
+      />
+    </CodingReadinessOverlay>
+  )
 }
 
 // ── PR / pushed-branch row ────────────────────────────────────────────────────
