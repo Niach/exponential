@@ -216,7 +216,7 @@ export function workflowRowSubtitle(status: string, metrics: WorkflowShape): str
 
 export type { WorkflowEdgeStyle }
 
-const STARTED_STATES = new Set([`running`, `waiting`, `in_review`, `updating`])
+const STARTED_STATES = new Set([`running`, `in_review`, `updating`])
 
 /**
  * - `cycle` (red): inside a blocking cycle.

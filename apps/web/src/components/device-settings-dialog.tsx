@@ -524,8 +524,7 @@ export function DeviceSettingsDialog({
         effort: value.effort,
         ...(agentSupportsUltracode(agent) ? { ultracode: value.ultracode } : {}),
         ...(agentSupportsPlanMode(agent) ? { planMode: value.planMode } : {}),
-        // EXP-1005: claude only — the server keeps the stored value when
-        // the key is absent.
+        // EXP-1005: claude only.
         ...(agentSupportsAccountRotation(agent)
           ? { autoRotateAccounts: value.autoRotateAccounts }
           : {}),
@@ -538,8 +537,7 @@ export function DeviceSettingsDialog({
         deviceId: snapshot.deviceId,
         launchDefaults: {
           defaultAgent: snapshot.defaultAgentDraft,
-          // An explicit null CLEARS the stored pin (the system login); an
-          // absent key means "an older client, keep it" to the server.
+          // null = the system login (the save replaces the stored object).
           defaultAccount:
             snapshot.defaultAccountDraft &&
             snapshot.defaultAccountDraft !== SYSTEM_PROFILE_ID
@@ -547,8 +545,7 @@ export function DeviceSettingsDialog({
               : null,
           agents,
           // EXP-1020: the pair rides EVERY save — setLaunchDefaults REPLACES
-          // the stored object, and the server only carries a stored pair
-          // forward for clients that predate the key.
+          // the stored object.
           workflow: snapshot.workflowDraft,
         },
       })
@@ -712,10 +709,7 @@ export function DeviceSettingsDialog({
   // The agent CLI rows: one per agent the machine reports an install for
   // (its heartbeat account row), version off that row. The "Update" control
   // queues `agent_update` (the CLI's own self-updater, run on the machine).
-  // No cap: only daemons that REPORT `version` on the account row can run
-  // the command (older ones answer "doesn't support that command yet"), so
-  // the button is gated on a known version; the release min-version gate
-  // retires those builds eventually.
+  // No cap: every build at the version floors runs it.
   const agentUpdateRows = contract.codingAgent.values.flatMap((agent) => {
     const account = row?.agentAccounts?.[agent]
     return account ? [{ agent, version: account.version ?? null }] : []
@@ -1100,37 +1094,35 @@ export function DeviceSettingsDialog({
                               </>
                             )}
                           </div>
-                          {agentVersion ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="shrink-0 text-muted-foreground"
-                              disabled={updating}
-                              title={
-                                online
-                                  ? `Run \`${agent} update\` on this device.`
-                                  : `Run \`${agent} update\` on this device (queued until it comes online).`
-                              }
-                              onClick={() =>
-                                void queueCommand(key, {
-                                  kind: `agent_update`,
-                                  agent,
-                                })
-                              }
-                            >
-                              {updating ? (
-                                <>
-                                  <LoaderCircle className="animate-spin" />
-                                  Updating…
-                                </>
-                              ) : (
-                                <>
-                                  <UpdateIcon />
-                                  Update
-                                </>
-                              )}
-                            </Button>
-                          ) : null}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0 text-muted-foreground"
+                          disabled={updating}
+                          title={
+                            online
+                              ? `Run \`${agent} update\` on this device.`
+                              : `Run \`${agent} update\` on this device (queued until it comes online).`
+                          }
+                          onClick={() =>
+                            void queueCommand(key, {
+                              kind: `agent_update`,
+                              agent,
+                            })
+                          }
+                        >
+                          {updating ? (
+                            <>
+                              <LoaderCircle className="animate-spin" />
+                              Updating…
+                            </>
+                          ) : (
+                            <>
+                              <UpdateIcon />
+                              Update
+                            </>
+                          )}
+                        </Button>
                         </div>
                         {sectionErrors[key] ? (
                           <p className="text-xs text-destructive">
@@ -1140,17 +1132,7 @@ export function DeviceSettingsDialog({
                           <p className="text-xs text-muted-foreground">
                             {sectionNotes[key]}
                           </p>
-                        ) : (
-                          // No reported version = a daemon that cannot run
-                          // `agent_update` yet. The hint sits UNDER the label
-                          // (like a note) so the agent's name never truncates
-                          // beside a sentence-long trailing slot.
-                          !agentVersion && (
-                            <p className="text-xs text-muted-foreground">
-                              Update the app on this machine first
-                            </p>
-                          )
-                        )}
+                        ) : null}
                       </div>
                     )
                   })}

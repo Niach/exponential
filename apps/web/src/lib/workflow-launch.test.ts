@@ -46,24 +46,16 @@ describe(`normalizeWorkflowLaunch (EXP-1029)`, () => {
     expect(normalizeWorkflowLaunch({ agent: `pi` }).agent).toBe(`claude`)
   })
 
-  it(`folds an old row's pins into strongModel, reviewModel first`, () => {
+  // Compat round 26: migration 0149 rewrote every stored row; a retired
+  // per-phase pin is an unknown key like any other.
+  it(`ignores the retired per-phase pins`, () => {
     expect(
       normalizeWorkflowLaunch({ agent: `claude`, model: `opus`, contractModel: `sonnet` })
+    ).toEqual(claude)
+    expect(
+      normalizeWorkflowLaunch({ riskModel: `sonnet`, reviewModel: `opus`, integrationModel: `sonnet` })
         .strongModel
-    ).toBe(`sonnet`)
-    expect(
-      normalizeWorkflowLaunch({ agent: `claude`, riskModel: `sonnet`, reviewModel: `opus` })
-        .strongModel
-    ).toBe(`opus`)
-    expect(
-      normalizeWorkflowLaunch({ agent: `claude`, integrationModel: `sonnet` }).strongModel
-    ).toBe(`sonnet`)
-  })
-
-  it(`lets a stored strongModel win over every legacy pin`, () => {
-    expect(
-      normalizeWorkflowLaunch({ strongModel: `opus`, contractModel: `sonnet` }).strongModel
-    ).toBe(`opus`)
+    ).toBe(`fable`)
   })
 
   it(`drops subagentModel, effort and maxParallel`, () => {
@@ -77,9 +69,9 @@ describe(`normalizeWorkflowLaunch (EXP-1029)`, () => {
     ).toEqual(claude)
   })
 
-  it(`keeps model as model, even beside old pins`, () => {
+  it(`keeps model as model, even beside a retired pin`, () => {
     expect(
-      normalizeWorkflowLaunch({ model: `sonnet`, contractModel: `fable` })
+      normalizeWorkflowLaunch({ model: `sonnet`, contractModel: `opus` })
     ).toEqual({ agent: `claude`, model: `sonnet`, strongModel: `fable` })
   })
 

@@ -23,9 +23,8 @@ import kotlinx.serialization.json.put
 // the informational `latestVersions` query.
 //
 // EXP-1043: this client no longer EMITS worktree commands — a machine's
-// worktrees are a local surface, the IDE's own. The `worktree_remove` /
-// `worktree_prune` kinds survive server-side only for machines still on an
-// older build; EXP-1060 retires that wire once the version floors pass.
+// worktrees are a local surface, the IDE's own. EXP-1060 (compat round 26)
+// retired the `worktree_remove` / `worktree_prune` kinds server-side.
 
 /**
  * Informational `CLIENT_LATEST_VERSION_*` values (null when unset

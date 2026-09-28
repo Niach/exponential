@@ -214,7 +214,7 @@ describe(`applyMcpOauthCommandCompletion`, () => {
 
   it(`ignores other kinds, unknown states and terminal flows`, async () => {
     await applyMcpOauthCommandCompletion(db as never, {
-      kind: `worktree_prune`,
+      kind: `agent_update`,
       payload: { state: `st-1` },
       ok: true,
     })

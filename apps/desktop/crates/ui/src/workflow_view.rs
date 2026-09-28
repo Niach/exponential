@@ -2434,7 +2434,10 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> AnyElement {
     use domain::statuses::constructed_default;
     use domain::IssueStatus;
 
+    // `asks` = a running node parked on an open question: not live, and the
+    // `needs you` badge beside its chip.
     let node = |id: &str, identifier: &str, state: &str, wave: i64, lane: i64, members: usize| {
+        let asks = id == "asks";
         StripNodeInput {
             id: id.to_string(),
             identifier: identifier.to_string(),
@@ -2442,8 +2445,8 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> AnyElement {
             wave,
             lane,
             members,
-            live: state == "running",
-            needs_you: state == "waiting",
+            live: state == "running" && !asks,
+            needs_you: asks,
             note: None,
         }
     };
@@ -2451,7 +2454,7 @@ pub(crate) fn styleguide_sample_graph(cx: &App) -> AnyElement {
         node("contract", "EXP-1029", "landed", 0, 0, 0),
         node("deck", "EXP-1032", "ready", 1, 0, 2),
         node("running", "EXP-1034", "running", 1, 1, 0),
-        node("asks", "EXP-1035", "waiting", 1, 2, 0),
+        node("asks", "EXP-1035", "running", 1, 2, 0),
         node("failed", "EXP-1036", "failed", 2, 0, 0),
     ];
     let strip = workflow_node_strip(&inputs);

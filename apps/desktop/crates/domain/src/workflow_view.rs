@@ -325,7 +325,7 @@ impl WorkflowEdgeStyle {
 
 /// The states a node occupies once its run exists — a dependent in one of
 /// them started BEFORE its blocker landed, which is what dashes an edge.
-const STARTED_STATES: [&str; 4] = ["running", "waiting", "in_review", "updating"];
+const STARTED_STATES: [&str; 3] = ["running", "in_review", "updating"];
 
 /// - `Cycle` (red): inside a blocking cycle.
 /// - `Stale` (red): upstream moved and the dependent is merging it in (`to`
@@ -419,7 +419,7 @@ impl WorkflowNodeDisplayState {
 /// server) reads Queued.
 pub fn workflow_node_display_state(state: &str) -> WorkflowNodeDisplayState {
     match state {
-        "running" | "waiting" | "in_review" | "updating" => WorkflowNodeDisplayState::Running,
+        "running" | "in_review" | "updating" => WorkflowNodeDisplayState::Running,
         "landed" => WorkflowNodeDisplayState::Done,
         "failed" => WorkflowNodeDisplayState::Failed,
         "skipped" => WorkflowNodeDisplayState::Skipped,

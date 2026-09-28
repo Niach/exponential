@@ -299,7 +299,6 @@ public enum WorkflowView {
     /// A dependent in one of these started before its blocker landed.
     private static let startedStates: Set<String> = [
         DomainContract.wfNodeStateRunning,
-        DomainContract.wfNodeStateWaiting,
         DomainContract.wfNodeStateInReview,
         DomainContract.wfNodeStateUpdating,
     ]
@@ -473,7 +472,6 @@ extension WorkflowView {
              DomainContract.wfNodeStateReady:
             return .queued
         case DomainContract.wfNodeStateRunning,
-             DomainContract.wfNodeStateWaiting,
              DomainContract.wfNodeStateInReview,
              DomainContract.wfNodeStateUpdating:
             return .running

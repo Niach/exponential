@@ -206,8 +206,7 @@ final class WorkflowViewTests: XCTestCase {
 
     // The phone CARRIES the stored launch and never edits it, so what it says
     // about a node has to come out of the SAME rule the engine runs: two
-    // models, the deprecated pins folded into the strong one, the agent's own
-    // contract defaults where the row names nothing.
+    // models, the agent's own contract defaults where the row names nothing.
     func testTheStoredLaunchNormalizesToTwoModels() {
         let empty = WorkflowLaunch().normalized
         XCTAssertEqual(empty.agent, "claude")
@@ -235,26 +234,15 @@ final class WorkflowViewTests: XCTestCase {
         )
     }
 
-    // An OLD row carries the EXP-1002 pins and `reviewModel` instead of a
-    // strong model: they fold into it, first one set wins, in this order.
-    func testTheDeprecatedPinsFoldIntoTheStrongModel() {
-        func strong(_ launch: WorkflowLaunch) -> String { launch.normalized.strongModel }
-
-        XCTAssertEqual(
-            strong(WorkflowLaunch(
-                contractModel: "a", integrationModel: "b", riskModel: "c", reviewModel: "d"
-            )),
-            "d"
+    // Compat round 26: migration 0149 rewrote every stored row; a retired
+    // per-phase pin is an unknown key like any other.
+    func testTheRetiredPinsAreIgnored() {
+        let launch = WorkflowLaunch.parse(
+            #"{"agent":"claude","model":"sonnet","contractModel":"a","riskModel":"c","reviewModel":"d"}"#
         )
+        XCTAssertEqual(launch, WorkflowLaunch(agent: "claude", model: "sonnet"))
         XCTAssertEqual(
-            strong(WorkflowLaunch(contractModel: "a", integrationModel: "b", riskModel: "c")), "c"
-        )
-        XCTAssertEqual(strong(WorkflowLaunch(contractModel: "a", integrationModel: "b")), "a")
-        XCTAssertEqual(strong(WorkflowLaunch(integrationModel: "b")), "b")
-        // A stored strong model beats every one of them.
-        XCTAssertEqual(
-            strong(WorkflowLaunch(strongModel: "fable", contractModel: "a", reviewModel: "d")),
-            "fable"
+            launch.normalized.strongModel, DomainContract.workflowLaunchClaudeStrongModel
         )
     }
 
@@ -437,10 +425,7 @@ final class WorkflowViewTests: XCTestCase {
         let launch = WorkflowLaunch.parse(
             #"{"agent":"claude","subagentModel":"sonnet","maxParallel":5,"future":"x"}"#
         )
-        XCTAssertEqual(launch.agent, "claude")
-        XCTAssertEqual(launch.subagentModel, "sonnet")
-        XCTAssertEqual(launch.maxParallel, 5)
-        XCTAssertNil(launch.model)
+        XCTAssertEqual(launch, WorkflowLaunch(agent: "claude"))
         XCTAssertEqual(WorkflowLaunch.parse(nil), WorkflowLaunch())
         XCTAssertEqual(WorkflowLaunch.parse("not json"), WorkflowLaunch())
 
@@ -452,50 +437,17 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(WorkflowMetrics.parse(nil), WorkflowMetrics())
     }
 
-    // EXP-1002: the three phase pins decode when present and stay nil when
-    // absent or null — a launch an older server wrote is still a launch.
-    func testThePhaseModelsDecodeWithAndWithoutTheirKeys() {
-        let pinned = WorkflowLaunch.parse(
-            #"{"agent":"claude","model":"opus","contractModel":"fable","integrationModel":"sonnet","riskModel":"haiku"}"#
-        )
-        XCTAssertEqual(pinned.contractModel, "fable")
-        XCTAssertEqual(pinned.integrationModel, "sonnet")
-        XCTAssertEqual(pinned.riskModel, "haiku")
-        XCTAssertEqual(pinned.model, "opus")
-
-        let absent = WorkflowLaunch.parse(#"{"agent":"claude","model":"opus"}"#)
-        XCTAssertNil(absent.contractModel)
-        XCTAssertNil(absent.integrationModel)
-        XCTAssertNil(absent.riskModel)
-
-        let nulled = WorkflowLaunch.parse(
-            #"{"contractModel":null,"integrationModel":null,"riskModel":null,"effort":"high"}"#
-        )
-        XCTAssertNil(nulled.contractModel)
-        XCTAssertNil(nulled.integrationModel)
-        XCTAssertNil(nulled.riskModel)
-        XCTAssertEqual(nulled.effort, "high")
-    }
-
     // The phone never writes a launch back (EXP-1033), but it still READS the
-    // one the row carries: a launch has to survive the Codable round trip with
-    // the three phase pins an older server may have written intact, since
-    // `modelForNode` folds them into the strong model.
-    func testALaunchRoundTripsWithItsPhaseModels() throws {
-        var launch = WorkflowLaunch.parse(
-            #"{"agent":"claude","contractModel":"fable","integrationModel":"sonnet","riskModel":"haiku","maxParallel":2}"#
+    // one the row carries: a launch survives the Codable round trip intact.
+    func testALaunchRoundTrips() throws {
+        let launch = WorkflowLaunch.parse(
+            #"{"agent":"codex","model":"gpt-5.6-sol","strongModel":"gpt-5.6-luna","account":"p-1"}"#
         )
-        launch.effort = "high"
-        launch.maxParallel = 4
-
+        XCTAssertEqual(launch.account, "p-1")
         let data = try JSONEncoder().encode(launch)
         let decoded = try JSONDecoder().decode(WorkflowLaunch.self, from: data)
         XCTAssertEqual(decoded, launch)
-        XCTAssertEqual(decoded.contractModel, "fable")
-        XCTAssertEqual(decoded.integrationModel, "sonnet")
-        XCTAssertEqual(decoded.riskModel, "haiku")
-        XCTAssertEqual(decoded.effort, "high")
-        XCTAssertEqual(decoded.maxParallel, 4)
+        XCTAssertEqual(decoded.strongModel, "gpt-5.6-luna")
     }
 
     // EXP-1014/EXP-1033: the wire contract of `workflows.update` as the phone
@@ -557,10 +509,8 @@ final class WorkflowViewTests: XCTestCase {
         )
         XCTAssertEqual(metrics, WorkflowMetrics(nodes: 2, depth: 2))
 
-        // EXP-984: the launch's review model rides the same tolerant parse.
-        XCTAssertEqual(
-            WorkflowLaunch.parse(#"{"reviewModel":"opus"}"#).reviewModel, "opus"
-        )
+        // Compat round 26: a retired review pin is an ignored key.
+        XCTAssertEqual(WorkflowLaunch.parse(#"{"reviewModel":"opus"}"#), WorkflowLaunch())
     }
 }
 

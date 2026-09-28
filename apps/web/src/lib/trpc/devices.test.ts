@@ -920,9 +920,9 @@ describe(`devices.setLaunchDefaults`, () => {
     })
   })
 
-  // EXP-1082 §6: the auto-rotate seam — a boolean passes, an absent key
-  // keeps the stored value, an explicit null clears it.
-  it(`passes autoRotateAccounts through and keeps it when the save omits the KEY`, async () => {
+  // EXP-1082 §6: the auto-rotate seam — a boolean passes, an absent key or
+  // an explicit null clears it (compat round 26: nothing is carried).
+  it(`passes autoRotateAccounts through and clears it when the save omits the KEY`, async () => {
     h.state.selectQueue = deviceRow()
     let result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
@@ -938,9 +938,7 @@ describe(`devices.setLaunchDefaults`, () => {
       deviceId: `dev-1`,
       launchDefaults: { agents: { claude: { model: `opus` } } },
     })
-    expect(result.launchDefaults).toEqual({
-      agents: { claude: { model: `opus`, autoRotateAccounts: true } },
-    })
+    expect(result.launchDefaults).toEqual({ agents: { claude: { model: `opus` } } })
 
     h.state.selectQueue = deviceRow({ launchDefaults: stored })
     result = await caller.setLaunchDefaults({
@@ -959,18 +957,20 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.launchDefaults).toEqual({ agents: { claude: { model: `opus` } } })
   })
 
-  // compat: clients before 0.14.46 never send subagentModel; delete once
-  // CLIENT_MIN_VERSION_* >= 0.14.46 on every platform.
-  it(`carries a stored claude subagentModel forward when the save omits the KEY`, async () => {
+  // Compat round 26: a save REPLACES the stored object. Every client at the
+  // version floors sends every key it knows, so an ABSENT key is a clear —
+  // nothing stored rides along any more (subagentModel, defaultAccount,
+  // autoRotateAccounts, the workflow pair).
+  it(`carries nothing stored forward when the save omits a KEY`, async () => {
     h.state.selectQueue = deviceRow({
       launchDefaults: {
         defaultAgent: `claude`,
-        agents: { claude: { model: `fable`, subagentModel: `sonnet` } },
+        defaultAccount: `0a1b2c3d`,
+        agents: { claude: { model: `fable`, subagentModel: `sonnet`, autoRotateAccounts: false } },
+        workflow: { model: `opus`, strongModel: `fable` },
       },
       launchDefaultsUpdatedAt: new Date(`2026-09-18T10:00:00Z`),
     })
-    // An older client's whole-object save: it re-sends every field it knows
-    // and has no `subagentModel` key at all.
     const result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
       launchDefaults: {
@@ -981,7 +981,7 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.ok).toBe(true)
     expect(result.launchDefaults).toEqual({
       defaultAgent: `claude`,
-      agents: { claude: { model: `opus`, effort: `high`, subagentModel: `sonnet` } },
+      agents: { claude: { model: `opus`, effort: `high` } },
     })
     expect(h.state.updates[0]?.set).toMatchObject({
       launchDefaults: result.launchDefaults,
@@ -1029,31 +1029,6 @@ describe(`devices.setLaunchDefaults`, () => {
       launchDefaults: { agents: { claude: { model: `fable` } } },
     })
     expect(result.launchDefaults).toEqual({ agents: { claude: { model: `fable` } } })
-  })
-
-  // compat: iOS <= 0.14.39, Android <= 0.14.40 and desktop/CLI <= 0.14.47
-  // never send defaultAccount; delete with the shim in clampLaunchDefaults.
-  it(`carries a stored defaultAccount forward when the save omits the KEY`, async () => {
-    h.state.selectQueue = deviceRow({
-      launchDefaults: { defaultAgent: `claude`, defaultAccount: `0a1b2c3d` },
-    })
-    // An older client's whole-object save: same default agent, no key at all.
-    const result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: {
-        defaultAgent: `claude`,
-        agents: { claude: { model: `opus` } },
-      },
-    })
-    expect(result.ok).toBe(true)
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `claude`,
-      defaultAccount: `0a1b2c3d`,
-      agents: { claude: { model: `opus` } },
-    })
-    expect(h.state.updates[0]?.set).toMatchObject({
-      launchDefaults: result.launchDefaults,
-    })
   })
 
   it(`drops a stored defaultAccount when the key-less save CHANGES the default agent`, async () => {
@@ -1128,26 +1103,6 @@ describe(`devices.setLaunchDefaults`, () => {
       launchDefaults: { workflow: { model: `nonsense`, strongModel: `fable` } },
     })
     expect(result.launchDefaults).toEqual({})
-  })
-
-  it(`carries a stored workflow pair forward when the save omits the KEY`, async () => {
-    // Every client older than EXP-1020 saves the whole object without the
-    // key: the pair rides along instead of being wiped.
-    h.state.selectQueue = deviceRow({
-      launchDefaults: {
-        defaultAgent: `claude`,
-        workflow: { model: `opus`, strongModel: `fable` },
-      },
-    })
-    const result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `claude`, agents: { claude: { model: `opus` } } },
-    })
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `claude`,
-      agents: { claude: { model: `opus` } },
-      workflow: { model: `opus`, strongModel: `fable` },
-    })
   })
 
   it(`nudges regardless of registered caps (pre-EXP-481 frame parsers retired)`, async () => {
@@ -1243,65 +1198,56 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
     [{ id: `row-1`, caps: [`worktrees`, `launch-defaults`, `resume`] }],
   ]
 
-  it(`queues a prune, nudges, and returns the id`, async () => {
+  it(`queues a command, nudges, and returns the id`, async () => {
     h.state.selectQueue = [...deviceProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-9` }]]
     const result = await caller.createCommand({
       deviceId: `dev-1`,
-      kind: `worktree_prune`,
+      kind: `agent_update`,
+      agent: `claude`,
     })
     expect(result).toEqual({ id: `cmd-9` })
     expect(h.state.inserted[0]).toMatchObject({
       deviceRowId: `row-1`,
       userId: `actor`,
-      kind: `worktree_prune`,
-      payload: {},
+      kind: `agent_update`,
+      payload: { agent: `claude` },
     })
     expect(h.relayPostNudge).toHaveBeenCalled()
   })
 
-  it(`worktree_remove requires repo + branch`, async () => {
-    h.state.selectQueue = deviceProbe()
-    await expect(
-      caller.createCommand({ deviceId: `dev-1`, kind: `worktree_remove` })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-  })
-
-  it(`worktree_remove 404s when the target is no longer reported`, async () => {
-    h.state.selectQueue = [...deviceProbe(), []]
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `worktree_remove`,
-        repoFullName: `acme/api`,
-        branch: `exp/EXP-1`,
-      })
-    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  // EXP-1060 (compat round 26): the remote worktree kinds are retired.
+  it(`refuses the retired worktree kinds`, async () => {
+    for (const kind of [`worktree_remove`, `worktree_prune`]) {
+      h.state.selectQueue = deviceProbe()
+      await expect(
+        caller.createCommand({ deviceId: `dev-1`, kind } as never)
+      ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    }
+    expect(h.state.inserted).toHaveLength(0)
   })
 
   it(`refuses a duplicate pending command that is an ACT`, async () => {
     h.state.selectQueue = [
-      ...deviceProbe(),
-      [{ id: `wt-1` }],
+      [{ id: `row-1`, caps: [`agent-login`] }],
       [{ id: `dup-1` }],
     ]
     await expect(
       caller.createCommand({
         deviceId: `dev-1`,
-        kind: `worktree_remove`,
-        repoFullName: `acme/api`,
-        branch: `exp/EXP-1`,
+        kind: `agent_login`,
+        agent: `claude`,
       })
     ).rejects.toMatchObject({ code: `CONFLICT` })
     expect(h.state.inserted).toHaveLength(0)
   })
 
-  // EXP-862: a prune is a WISH — clicking it twice asks for the same end
-  // state, so the pending row is reused instead of failing the mutation.
-  it(`reuses the pending row for a duplicate prune`, async () => {
+  // EXP-862: an agent update is a WISH — clicking it twice asks for the same
+  // end state, so the pending row is reused instead of failing the mutation.
+  it(`reuses the pending row for a duplicate agent update`, async () => {
     h.state.selectQueue = [...deviceProbe(), [{ id: `dup-1` }]]
     await expect(
-      caller.createCommand({ deviceId: `dev-1`, kind: `worktree_prune` })
+      caller.createCommand({ deviceId: `dev-1`, kind: `agent_update`, agent: `claude` })
     ).resolves.toEqual({ id: `dup-1` })
     expect(h.state.inserted).toHaveLength(0)
   })
@@ -1400,10 +1346,10 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
       [
         {
           id: `cmd-9`,
-          kind: `worktree_prune`,
-          payload: {},
+          kind: `agent_update`,
+          payload: { agent: `claude` },
           status: `done`,
-          result: `Pruned 2 worktrees`,
+          result: `Updated claude`,
           completedAt: new Date(`2026-08-11T10:00:00Z`),
           createdAt: new Date(`2026-08-11T09:59:00Z`),
         },
@@ -1444,7 +1390,7 @@ describe(`devices.heartbeat — work pull (EXP-481)`, () => {
   it(`delivers pending commands with every beat`, async () => {
     h.state.updateReturning = heartbeatRow()
     h.state.selectRows = [
-      { id: `cmd-1`, kind: `worktree_prune`, payload: {} },
+      { id: `cmd-1`, kind: `agent_update`, payload: { agent: `claude` } },
     ]
     const result = (await caller.heartbeat({
       deviceId: `dev-1`,
@@ -1453,7 +1399,7 @@ describe(`devices.heartbeat — work pull (EXP-481)`, () => {
     })) as WorkPull
     expect(result.ok).toBe(true)
     expect(result.commands).toEqual([
-      { id: `cmd-1`, kind: `worktree_prune`, payload: {} },
+      { id: `cmd-1`, kind: `agent_update`, payload: { agent: `claude` } },
     ])
   })
 
@@ -2350,7 +2296,7 @@ describe(`devices.completeCommand — mcp_oauth_* flow hook (EXP-792)`, () => {
 
   it(`leaves other kinds and already-completed rows alone`, async () => {
     h.state.updateReturning = [
-      [{ id: `cmd-3`, kind: `worktree_prune`, payload: {} }],
+      [{ id: `cmd-3`, kind: `agent_update`, payload: { agent: `claude` } }],
       [],
     ]
     await caller.completeCommand({ commandId: COMMAND, ok: true })

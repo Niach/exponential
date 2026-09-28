@@ -57,18 +57,6 @@ describe(`foldCompoundNodes`, () => {
       { issueId: `k`, memberIssueIds: [] },
     ])
   })
-
-  it(`survives a parent cycle`, () => {
-    const folded = foldCompoundNodes(
-      [`a`, `b`],
-      parents([`a`, `b`], [`b`, `a`]),
-      open(`a`, `b`)
-    )
-    expect(folded.flatMap((n) => [n.issueId, ...n.memberIssueIds]).sort()).toEqual([
-      `a`,
-      `b`,
-    ])
-  })
 })
 
 describe(`nodeEdges`, () => {

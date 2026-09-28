@@ -362,34 +362,20 @@ class WorkflowViewTest {
         assertEquals("claude", normalizedLaunch(workflowLaunch("""{"agent":"pi"}""")).agent)
     }
 
+    // Compat round 26: migration 0149 rewrote every stored row; a retired
+    // per-phase pin is an unknown key like any other.
     @Test
-    fun `folds an old row's pins into strongModel, reviewModel first`() {
+    fun `ignores the retired per-phase pins`() {
         assertEquals(
-            "sonnet",
+            claude,
             normalizedLaunch(
                 workflowLaunch("""{"agent":"claude","model":"opus","contractModel":"sonnet"}"""),
-            ).strongModel,
+            ),
         )
         assertEquals(
-            "opus",
+            "fable",
             normalizedLaunch(
-                workflowLaunch("""{"agent":"claude","riskModel":"sonnet","reviewModel":"opus"}"""),
-            ).strongModel,
-        )
-        assertEquals(
-            "sonnet",
-            normalizedLaunch(
-                workflowLaunch("""{"agent":"claude","integrationModel":"sonnet"}"""),
-            ).strongModel,
-        )
-    }
-
-    @Test
-    fun `lets a stored strongModel win over every legacy pin`() {
-        assertEquals(
-            "opus",
-            normalizedLaunch(
-                workflowLaunch("""{"strongModel":"opus","contractModel":"sonnet"}"""),
+                workflowLaunch("""{"riskModel":"sonnet","reviewModel":"opus","integrationModel":"sonnet"}"""),
             ).strongModel,
         )
     }
@@ -407,10 +393,10 @@ class WorkflowViewTest {
     }
 
     @Test
-    fun `keeps model as model, even beside old pins`() {
+    fun `keeps model as model, even beside a retired pin`() {
         assertEquals(
             NormalizedWorkflowLaunch(agent = "claude", model = "sonnet", strongModel = "fable"),
-            normalizedLaunch(workflowLaunch("""{"model":"sonnet","contractModel":"fable"}""")),
+            normalizedLaunch(workflowLaunch("""{"model":"sonnet","contractModel":"opus"}""")),
         )
     }
 

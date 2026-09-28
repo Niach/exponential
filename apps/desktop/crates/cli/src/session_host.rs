@@ -50,11 +50,10 @@ pub struct RunningSession {
     pub agent: steer::SessionAgent,
     /// EXP-758 (EXP-478): the clone's launch gate, held since before the
     /// worktree existed. It rides HERE, not in `launch`, because the branch
-    /// is only protected once its OWNER has registered the run: the daemon's
-    /// `held` set is built from the live-session list (`run_device_command`),
-    /// which `launch` returns BEFORE being pushed into. Dropping the hold
-    /// inside `launch` left exactly that window open, and a `worktree_prune`
-    /// landing in it sees a branch with no unique commits and no live session
+    /// is only protected once its OWNER has registered the run: a prune's
+    /// `held` set is built from the live-session list, which `launch`
+    /// returns BEFORE being pushed into. Dropping the hold inside `launch`
+    /// left exactly that window open, and a prune landing in it sees a branch with no unique commits and no live session
     /// and removes the worktree under a run that just started. Every owner
     /// calls [`RunningSession::release_launch_hold`] right after its own
     /// registration point (desktop parity: `ui/src/coding_flow.rs` inserts
@@ -753,7 +752,7 @@ mod tests {
     /// daemon pushes the run into its live list first and releases only then
     /// (`spawn_prepared`). While the hold is live the clone's prune pass
     /// refuses to run, which is exactly what protects a just-born worktree
-    /// with no unique commits from a `worktree_prune` command.
+    /// with no unique commits from a prune.
     #[test]
     fn a_session_holds_the_launch_gate_until_its_owner_releases_it() {
         let clone = std::env::temp_dir().join(format!(

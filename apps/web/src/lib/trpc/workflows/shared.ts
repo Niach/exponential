@@ -11,11 +11,9 @@ import {
   workflowLaunchAgentValues,
   type WorkflowLaunch,
   type WorkflowLaunchAgent,
-  type WorkflowLaunchStored,
   type WorkflowNodeReview,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
-import { normalizeWorkflowLaunch } from "@/lib/workflow-launch"
 import { workflowDefaultsFor } from "@/lib/devices/workflow-defaults"
 import {
   boards,
@@ -59,66 +57,13 @@ export const WORKFLOW_DEVICE = {
 
 /**
  * EXP-1032: the NORMALIZED launch is what gets stored and validated — two
- * models out of the agent's own closed vocabulary, and nothing else. The
- * deprecated pins an old client still sends were folded into `strongModel`
- * by `normalizeWorkflowLaunch` long before this.
+ * models out of the agent's own closed vocabulary, and nothing else.
  */
 export function assertLaunch(launch: WorkflowLaunch): void {
   if (!codingAgentValues.includes(launch.agent)) throw bad(`Unknown agent`)
   const models = agentModelValues[launch.agent]!
   for (const model of [launch.model, launch.strongModel]) {
     if (!models.includes(model)) throw bad(`Unknown ${launch.agent} model`)
-  }
-}
-
-/**
- * compat: `normalizeWorkflowLaunch`, then a folded `strongModel` outside the
- * agent's vocabulary falls back to the agent's default strong model UNLESS
- * the client named `strongModel` itself (an explicit bad one still fails
- * `assertLaunch`). iOS 0.14.42 (`WorkflowDetailView.swift:402`), Android
- * 0.14.43 (`WorkflowDetailScreen.kt:774`) and desktop 0.14.50
- * (`workflow_view.rs:940`) offer the CLAUDE list for the review model
- * whatever the agent and re-send the whole launch on every save, so a codex
- * workflow arrives as `reviewModel: "opus"`; the base server never validated
- * `reviewModel`, so refusing the fold would refuse every save from them.
- * Remove (plain `normalizeWorkflowLaunch`) once CLIENT_MIN_VERSION_IOS >=
- * 0.14.43, CLIENT_MIN_VERSION_ANDROID >= 0.14.44 and
- * CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.51.
- */
-export function normalizeLaunchLenient(raw: unknown): WorkflowLaunch {
-  const launch = normalizeWorkflowLaunch(raw)
-  const sent =
-    raw && typeof raw === `object` && !Array.isArray(raw)
-      ? (raw as WorkflowLaunchStored).strongModel
-      : null
-  if (typeof sent === `string` && sent.trim().length > 0) return launch
-  const models = agentModelValues[launch.agent]
-  if (models && !models.includes(launch.strongModel)) {
-    return { ...launch, strongModel: WORKFLOW_LAUNCH_DEFAULTS[launch.agent].strongModel }
-  }
-  return launch
-}
-
-/**
- * compat: what `workflows.launch` is WRITTEN as, by EVERY writer (create,
- * update, the device-bind re-seed, start's heal): the normalized keys plus
- * the legacy per-phase pins, each `strongModel` (`subagentModel` = `model`).
- * A desktop/CLI 0.14.49/0.14.50 engine (`workflows/mod.rs` `node_model`,
- * `review_model`) reads only `riskModel`/`contractModel`/`integrationModel`/
- * `reviewModel` and falls back to `model`, so a row holding the four keys
- * alone runs contract, integration and high-risk nodes and EVERY review on
- * the cheap model. `normalizeWorkflowLaunch` prefers `strongModel` on read,
- * so a current engine never sees the pins. Remove (store the launch
- * verbatim) once CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.51.
- */
-export function storedLaunchFor(launch: WorkflowLaunch): WorkflowLaunchStored {
-  return {
-    ...launch,
-    contractModel: launch.strongModel,
-    integrationModel: launch.strongModel,
-    riskModel: launch.strongModel,
-    reviewModel: launch.strongModel,
-    subagentModel: launch.model,
   }
 }
 
@@ -457,9 +402,9 @@ export async function relayDecision(workflowId: string, text: string): Promise<v
  *   changes in all but name, and goes back to the author like one.
  * - request_changes → back to the author, up to the round cap. The cap is a
  *   bound on bouncing, not a hand-off: the last round's findings reach the
- *   author once more, then the engine lands the node ([`carriedReviewAtCap`])
- *   and the findings are CARRIED into the decisions log and the final pull
- *   request, the one place a person reviews.
+ *   author once more, then the node lands with the findings CARRIED into
+ *   the final pull request ([`carriedReview`]), the one place a person
+ *   reviews.
  */
 export function reviewOutcome(args: {
   verdict: `approve` | `request_changes`
@@ -509,32 +454,6 @@ export function carriedReview(node: {
   if (!review) return null
   const changes = review.verdict === `request_changes` || review.oracle?.passed === false
   return changes ? review : null
-}
-
-/** @deprecated EXP-1103: the per-node review cap is gone; kept for the
- *  engines still calling `landNode` on it. Same answer as [`carriedReview`]
- *  once the node reached the cap without an approval. */
-export function carriedReviewAtCap(node: {
-  reviewRound: number
-  review: WorkflowNodeReview | null
-  approvedAt: Date | null
-}): WorkflowNodeReview | null {
-  if (node.approvedAt || node.reviewRound < WORKFLOW_MAX_REVIEW_ROUNDS) return null
-  const review = node.review
-  if (!review || review.round !== node.reviewRound) return null
-  return carriedReview(node)
-}
-
-/** The decisions-log line a cap-cleared node leaves behind (one line, the
- *  findings cut so one node can never evict the log's history). */
-export function carriedFindingsLine(identifier: string, review: WorkflowNodeReview): string {
-  const findings = review.findings.replace(/\s+/g, ` `).trim()
-  const cut = findings.length > 600 ? `${findings.slice(0, 600).trimEnd()}…` : findings
-  const checks =
-    review.oracle && review.oracle.passed === false && review.oracle.command
-      ? ` Checks failed: ${review.oracle.command}`
-      : ``
-  return `Unresolved review findings (${identifier}, round ${review.round}): ${cut || `(none written)`}${checks}`
 }
 
 export type Db = typeof import("@/db/connection").db

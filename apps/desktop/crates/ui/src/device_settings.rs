@@ -1907,12 +1907,8 @@ impl DeviceSettingsView {
         // The agent CLI rows: one per agent the machine reports an install
         // for, its version off the heartbeat's account row and an "Update"
         // that queues `agent_update` (the CLI's own self-updater, run there).
-        // No cap: the button gates on the account row REPORTING a version —
-        // the same build that started reporting it is the one that runs the
-        // command; an older daemon/app answers "doesn't support that command
-        // yet", so a version-less row gets a hint instead of a button.
+        // No cap: every build at the version floors runs it.
         let (accounts, _) = self.reported_agent_status(cx);
-        let muted = cx.theme().muted_foreground;
         let mut agent_rows: Vec<Div> = Vec::new();
         for agent in CodingAgent::ALL {
             let Some(account) = accounts.get(agent.id()) else {
@@ -1921,7 +1917,7 @@ impl DeviceSettingsView {
             let key = format!("update {}", agent.id());
             let updating = self.tracked.iter().any(|command| command.key == key);
             let version = account.version.clone();
-            let mut agent_row = surface::glass_row_shell().min_w_0().gap_2().child(
+            let agent_row = surface::glass_row_shell().min_w_0().gap_2().child(
                 v_flex().flex_1().min_w_0().gap_0p5().child(
                     div().w_full().min_w_0().truncate().text_sm().child(SharedString::from(
                         match version.as_deref() {
@@ -1930,44 +1926,31 @@ impl DeviceSettingsView {
                         },
                     )),
                 ),
-            );
-            if version.is_some() {
-                agent_row = agent_row.child(
-                    gpui_component::button::Button::new(("device-agent-update", agent as usize))
-                        .ghost()
-                        .web_sm()
-                        .icon(Icon::new(registry::UI_UPDATE))
-                        .label(if updating { "Updating…" } else { "Update" })
-                        .loading(updating)
-                        .disabled(updating)
-                        .tooltip(if online {
-                            format!("Run `{} update` on this machine.", agent.id())
-                        } else {
-                            format!(
-                                "Run `{} update` on this machine (queued until it comes online).",
-                                agent.id()
-                            )
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.queue_agent_update(agent, cx);
-                        })),
-                );
-            }
-            // No reported version = a daemon that cannot run `agent_update`
-            // yet. The hint sits UNDER the label (like a note), never beside
-            // it: a sentence-long trailing slot truncated the agent's name on
-            // the web twin at its narrower column.
-            let under = self
-                .error_line(&key, cx)
-                .or_else(|| self.note_line(&key, cx))
-                .or_else(|| {
-                    version.is_none().then(|| {
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("Update the app on this machine first")
+            )
+            .child(
+                gpui_component::button::Button::new(("device-agent-update", agent as usize))
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::new(registry::UI_UPDATE))
+                    .label(if updating { "Updating…" } else { "Update" })
+                    .loading(updating)
+                    .disabled(updating)
+                    .tooltip(if online {
+                        format!("Run `{} update` on this machine.", agent.id())
+                    } else {
+                        format!(
+                            "Run `{} update` on this machine (queued until it comes online).",
+                            agent.id()
+                        )
                     })
-                });
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.queue_agent_update(agent, cx);
+                    })),
+            );
+            // The line sits UNDER the label (like a note), never beside it: a
+            // sentence-long trailing slot truncated the agent's name on the
+            // web twin at its narrower column.
+            let under = self.error_line(&key, cx).or_else(|| self.note_line(&key, cx));
             match under {
                 Some(line) => agent_rows.push(
                     v_flex()

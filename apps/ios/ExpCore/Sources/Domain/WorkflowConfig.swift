@@ -10,59 +10,29 @@ import Foundation
 // `WorkflowMetricsJson`).
 
 /// `workflows.launch` — the launch options the engine starts every node with.
-/// Every field is optional: absent = the runner device's own defaults.
+/// Every field is optional: absent = the contract defaults (`normalized`).
+/// Compat round 26: migration 0149 rewrote every stored row to these four
+/// keys; the retired EXP-1002 pins, `subagentModel`, `effort`, `maxParallel`
+/// and `reviewModel` are ignored like any unknown key.
 public struct WorkflowLaunch: Sendable, Equatable {
     public var agent: String?
     public var model: String?
     /// EXP-1029: the STRONG model — contract, integration and `risk: high`
-    /// nodes, and every agent review. The phase pins and `reviewModel` below
-    /// are deprecated (they fold into this one; EXP-1014 removes them). The
-    /// phone CARRIES it, never edits it.
+    /// nodes, and every agent review. The phone CARRIES it, never edits it.
     public var strongModel: String?
-    /// DEPRECATED (EXP-1029) — the EXP-1002 per-PHASE pins. They fold into
-    /// `strongModel` (`normalized` below) and nothing writes them any more;
-    /// they are still DECODED, because old rows carry them and the fold is the
-    /// only thing that still reads what they say.
-    public var contractModel: String?
-    public var integrationModel: String?
-    public var riskModel: String?
-    /// DEPRECATED (EXP-1029) — claude's subagents run on `model`.
-    public var subagentModel: String?
-    /// DEPRECATED (EXP-1029) — a workflow run picks no effort.
-    public var effort: String?
     /// An agent profile id on the runner device.
     public var account: String?
-    /// How many nodes may run at once (contract `workflowMaxParallelDefault`
-    /// when unset).
-    public var maxParallel: Int?
-    /// DEPRECATED (EXP-1029) — every agent review runs on `strongModel`. Still
-    /// decoded: on an old row it is the FIRST candidate the fold takes.
-    public var reviewModel: String?
 
     public init(
         agent: String? = nil,
         model: String? = nil,
         strongModel: String? = nil,
-        contractModel: String? = nil,
-        integrationModel: String? = nil,
-        riskModel: String? = nil,
-        subagentModel: String? = nil,
-        effort: String? = nil,
-        account: String? = nil,
-        maxParallel: Int? = nil,
-        reviewModel: String? = nil
+        account: String? = nil
     ) {
         self.agent = agent
         self.model = model
         self.strongModel = strongModel
-        self.contractModel = contractModel
-        self.integrationModel = integrationModel
-        self.riskModel = riskModel
-        self.subagentModel = subagentModel
-        self.effort = effort
         self.account = account
-        self.maxParallel = maxParallel
-        self.reviewModel = reviewModel
     }
 }
 
@@ -73,8 +43,7 @@ public struct WorkflowLaunch: Sendable, Equatable {
 /// encoder exists for the Codable round trip alone and needs no wire rules.
 extension WorkflowLaunch: Codable {
     enum CodingKeys: String, CodingKey {
-        case agent, model, strongModel, contractModel, integrationModel, riskModel
-        case subagentModel, effort, account, maxParallel, reviewModel
+        case agent, model, strongModel, account
     }
 
     public init(from decoder: Decoder) throws {
@@ -82,14 +51,7 @@ extension WorkflowLaunch: Codable {
         agent = try c.decodeIfPresent(String.self, forKey: .agent)
         model = try c.decodeIfPresent(String.self, forKey: .model)
         strongModel = try c.decodeIfPresent(String.self, forKey: .strongModel)
-        contractModel = try c.decodeIfPresent(String.self, forKey: .contractModel)
-        integrationModel = try c.decodeIfPresent(String.self, forKey: .integrationModel)
-        riskModel = try c.decodeIfPresent(String.self, forKey: .riskModel)
-        subagentModel = try c.decodeIfPresent(String.self, forKey: .subagentModel)
-        effort = try c.decodeIfPresent(String.self, forKey: .effort)
         account = try c.decodeIfPresent(String.self, forKey: .account)
-        maxParallel = try? c.decodeWireInt(forKey: .maxParallel)
-        reviewModel = try c.decodeIfPresent(String.self, forKey: .reviewModel)
     }
 }
 
@@ -130,10 +92,8 @@ public extension WorkflowLaunch {
     /// `coding::workflows::launch`, rule for rule:
     /// - `agent`: `claude` or `codex`; anything else → `claude`.
     /// - `model`: the stored one, else that agent's contract default.
-    /// - `strongModel`: the stored one; else the first set of the deprecated
-    ///   pins (`reviewModel`, `riskModel`, `contractModel`, `integrationModel`
-    ///   — an old row's choice), else that agent's default strong model.
-    /// - `subagentModel`, `effort` and `maxParallel` are dropped.
+    /// - `strongModel`: the stored one, else that agent's default strong model.
+    /// - Any other key is ignored.
     var normalized: Normalized {
         let agent: String = {
             if let stored = Self.text(self.agent),
@@ -142,14 +102,10 @@ public extension WorkflowLaunch {
             }
             return Self.claudeAgent
         }()
-        let legacyStrong = [reviewModel, riskModel, contractModel, integrationModel]
-            .lazy.compactMap(Self.text).first
         return Normalized(
             agent: agent,
             model: Self.text(model) ?? Self.defaultModel(for: agent),
-            strongModel: Self.text(strongModel)
-                ?? legacyStrong
-                ?? Self.defaultStrongModel(for: agent),
+            strongModel: Self.text(strongModel) ?? Self.defaultStrongModel(for: agent),
             account: Self.text(account)
         )
     }

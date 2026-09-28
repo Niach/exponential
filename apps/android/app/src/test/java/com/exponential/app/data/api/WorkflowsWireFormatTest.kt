@@ -1,11 +1,9 @@
 package com.exponential.app.data.api
 
-import com.exponential.app.domain.workflowLaunch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -61,21 +59,6 @@ class WorkflowsWireFormatTest {
             ),
         )
         assertEquals("""{"id":"wf-1","deviceId":null}""", unbind)
-    }
-
-    @Test
-    fun `launch decodes with and without the phase models`() {
-        val without = workflowLaunch("""{"agent":"claude","model":"opus"}""")
-        assertNull(without.contractModel)
-        assertNull(without.integrationModel)
-        assertNull(without.riskModel)
-
-        val with = workflowLaunch(
-            """{"contractModel":"fable","integrationModel":null,"riskModel":""}""",
-        )
-        assertEquals("fable", with.contractModel)
-        assertNull(with.integrationModel)
-        assertNull(with.riskModel)
     }
 
     @Test

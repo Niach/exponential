@@ -2362,12 +2362,12 @@ fn spawn_prepared_covering(
 }
 
 /// EXP-758 (EXP-478): register a launched run, THEN release its launch gate.
-/// The ORDER is the point. `run_device_command` builds the prune's `held` set
-/// from the live-session list, so a `worktree_prune` arriving between the
-/// launch and this push sees a branch with no unique commits and no live
-/// session and removes the worktree under a run that just started. The gate
-/// covers exactly that window, and this is where it ends (desktop parity:
-/// `ui/src/coding_flow.rs` inserts into `LocalSessions`, then drops).
+/// The ORDER is the point: a prune builds its `held` set from the
+/// live-session list, so one arriving between the launch and this push sees
+/// a branch with no unique commits and no live session and removes the
+/// worktree under a run that just started. The gate covers exactly that
+/// window, and this is where it ends (desktop parity: `ui/src/coding_flow.rs`
+/// inserts into `LocalSessions`, then drops).
 fn register_session(sessions: &Sessions, live: LiveSession) {
     let session = Arc::clone(&live.session);
     lock_sessions(sessions).push(live);
@@ -2648,30 +2648,7 @@ fn run_device_command(
     slots: &CommandSlots<'_>,
 ) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-    let repos_root = settings.repos_root_path();
-    let held: std::collections::HashSet<String> = lock_sessions(sessions)
-        .iter()
-        .filter(|live| !live.session.is_done())
-        .map(|live| live.branch.clone())
-        .collect();
     let (ok, message) = match command.kind.as_str() {
-        // EXP-1020: no client in THIS release queues these two; they stay
-        // for machines on an older build. EXP-1060 retires them once the
-        // version floors pass.
-        "worktree_remove" => {
-            let repo = command.payload["repoFullName"].as_str().unwrap_or_default();
-            let branch = command.payload["branch"].as_str().unwrap_or_default();
-            if repo.is_empty() || branch.is_empty() {
-                (false, "Malformed command payload.".to_string())
-            } else {
-                let clone = coding::clone_path(&repos_root, repo);
-                match coding::remove_worktree_remote(&clone, branch, &held) {
-                    Ok(()) => (true, format!("Removed the {branch} worktree.")),
-                    Err(err) => (false, err.message()),
-                }
-            }
-        }
-        "worktree_prune" => run_prune(&settings, &repos_root, &ctx.data_dir, held),
         // EXP-484: a sign-in on this machine, requested from anywhere. The
         // PTY lives for minutes, so the host owns its own thread and its own
         // completion — this arm never falls through to the one below.
@@ -2963,43 +2940,6 @@ fn mcp_host<'a>(ctx: &'a Ctx, device_id: &'a str) -> coding::mcp_servers::HostCo
         trpc: &ctx.trpc,
         device_id,
     }
-}
-
-/// The prune command body: the conservative (git-truth-only) policy over
-/// every clone; aggregate one human-readable summary.
-fn run_prune(
-    settings: &coding::Settings,
-    repos_root: &std::path::Path,
-    data_dir: &std::path::Path,
-    held: std::collections::HashSet<String>,
-) -> (bool, String) {
-    let policy =
-        coding::conservative_prune_policy(
-            &settings.branch_prefix,
-            held,
-            Vec::new(),
-            // EXP-637: nominate this install's recorded run branches too
-            // (git still confirms they landed before anything is removed).
-            Some(data_dir.to_path_buf()),
-        );
-    let mut removed = 0usize;
-    let mut skipped = 0usize;
-    let mut blocked = false;
-    for clone in coding::scan_clones(repos_root) {
-        let report = coding::prune_landed(&clone.path, &policy);
-        removed += report.removed_worktrees.len();
-        skipped += report.skipped.len();
-        blocked |= report.blocked_by_launch;
-    }
-    let mut message = format!("Pruned {removed} worktree{}", if removed == 1 { "" } else { "s" });
-    if skipped > 0 {
-        message.push_str(&format!(", kept {skipped} (unmerged or busy)"));
-    }
-    if blocked {
-        message.push_str("; one repo was busy launching — try again");
-    }
-    message.push('.');
-    (true, message)
 }
 
 /// Scan + report the worktree inventory when its fingerprint moved.

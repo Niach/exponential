@@ -40,9 +40,8 @@
 //! the integration branch for everything requested, then the wave clears
 //! (`approved_at` stamped on its nodes by the server). No loops: what the fix
 //! run leaves open is carried into the final pull request, the one place a
-//! person reviews. Nobody ever waits for a person inside a run, and
-//! `waiting` is never written: every hold is the node's own state plus a
-//! note. A follow-up node nobody admitted (`proposed`) is absent from the run.
+//! person reviews. Nobody ever waits for a person inside a run: every hold
+//! is the node's own state plus a note. A follow-up node nobody admitted (`proposed`) is absent from the run.
 //!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
@@ -109,8 +108,7 @@ pub fn launch_options(
 }
 
 /// The note a node carries while its agent is rate limited (EXP-1065: a
-/// hold keeps the node's own state — `waiting` is never written — and says
-/// why here).
+/// hold keeps the node's own state and says why here).
 pub const NOTE_RATE_LIMITED: &str = "Waiting for the account's reset";
 /// The two hold notes engines before EXP-1065 wrote next to `waiting`;
 /// recognised so the mirror clears them once the hold is over.
@@ -825,7 +823,7 @@ pub fn wake_mode(session: &SessionFacts, now_ms: i64) -> Option<WakeMode> {
 
 /// The live states a node occupies while it holds a parallelism slot.
 fn is_active(state: &str) -> bool {
-    matches!(state, "running" | "waiting" | "updating")
+    matches!(state, "running" | "updating")
 }
 
 /// The states a person owns: the engine never makes or unmakes them.
@@ -1129,7 +1127,7 @@ fn wave_decisions(snapshot: &Snapshot, views: &[WaveView]) -> Vec<Decision> {
 fn blocker_releases(blocker: &NodeFacts) -> bool {
     match blocker.state.as_str() {
         "in_review" | "updating" | "landed" | "skipped" => true,
-        "running" | "waiting" => blocker.checkpoint_at.is_some(),
+        "running" => blocker.checkpoint_at.is_some(),
         _ => false,
     }
 }
@@ -2624,7 +2622,7 @@ mod tests {
             SessionFacts { live: true, blocked: true, ..SessionFacts::default() },
             SessionFacts::default(),
         ];
-        for state in ["running", "waiting", "in_review", "updating"] {
+        for state in ["running", "in_review", "updating"] {
             for session in &sessions {
                 let mut a = node("a", state, 0, 0);
                 a.session_id = Some("s-a".to_string());

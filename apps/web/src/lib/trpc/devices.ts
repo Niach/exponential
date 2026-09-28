@@ -105,14 +105,11 @@ const COMMANDS_PER_HEARTBEAT = 32
 // (never rejects) so version skew — a device or client with a newer/older
 // model vocabulary — degrades a single field instead of failing the whole
 // write; UI clients pre-clamp via agentSeed anyway. Unknown agents, invalid
-// models/efforts, and capability-masked toggles are dropped.
-//
-// `existing` = the row's current copy, for the one write that REPLACES it
-// (setLaunchDefaults): a client that saves the whole object without a key it
-// has no vocabulary for must not erase what a newer client set.
+// models/efforts, and capability-masked toggles are dropped. A save REPLACES
+// the whole object: an absent key is a clear, like an explicit null (every
+// client at the floors sends every key it knows, compat round 26).
 function clampLaunchDefaults(
-  input: z.infer<typeof deviceLaunchDefaultsSchema>,
-  existing: DeviceLaunchDefaults | null = null
+  input: z.infer<typeof deviceLaunchDefaultsSchema>
 ): DeviceLaunchDefaults {
   const agentIds = contract.codingAgent.values as readonly string[]
   const out: DeviceLaunchDefaults = {}
@@ -122,17 +119,6 @@ function clampLaunchDefaults(
     // it is one of that agent's profile ids, so alone it names nothing.
     if (typeof input.defaultAccount === `string` && input.defaultAccount) {
       out.defaultAccount = input.defaultAccount
-    } else if (
-      input.defaultAccount === undefined &&
-      typeof existing?.defaultAccount === `string` &&
-      existing.defaultAgent === input.defaultAgent
-    ) {
-      // compat: iOS <= 0.14.39, Android <= 0.14.40 and desktop/CLI <= 0.14.47
-      // never send defaultAccount; delete once CLIENT_MIN_VERSION_IOS >=
-      // 0.14.40, _ANDROID >= 0.14.41 and _DESKTOP/_CLI >= 0.14.48. The KEY is
-      // absent (an explicit null is a clear) and the agent it belongs to is
-      // unchanged, so the stored pin rides along under a full-object save.
-      out.defaultAccount = existing.defaultAccount
     }
   }
   if (input.agents) {
@@ -161,15 +147,6 @@ function clampLaunchDefaults(
           agentModelValues(agent).includes(d.subagentModel))
       ) {
         entry.subagentModel = d.subagentModel
-      } else if (
-        d.subagentModel === undefined &&
-        typeof existing?.agents?.[agent]?.subagentModel === `string`
-      ) {
-        // compat: iOS before 0.14.38 never sends subagentModel; delete once
-        // CLIENT_MIN_VERSION_IOS >= 0.14.38 (the other floors pass). The KEY is
-        // absent (an explicit null is a clear), so the stored value rides
-        // along instead of vanishing under an older client's full-object save.
-        entry.subagentModel = existing.agents[agent].subagentModel
       }
       // `typeof === boolean`, not `!== undefined`: the nullish schema lets
       // 0.14.10's explicit-null toggles through (EXP-495) and stored jsonb
@@ -180,16 +157,9 @@ function clampLaunchDefaults(
       if (typeof d.planMode === `boolean` && agentSupportsPlanMode(agent)) {
         entry.planMode = d.planMode
       }
-      // EXP-1082 §6: a boolean passes, an ABSENT key keeps the stored value
-      // (a client that predates the key must not clear it on a full-object
-      // save), anything else (an explicit null) is dropped.
+      // EXP-1082 §6: a boolean passes, anything else is dropped.
       if (typeof d.autoRotateAccounts === `boolean`) {
         entry.autoRotateAccounts = d.autoRotateAccounts
-      } else if (
-        d.autoRotateAccounts === undefined &&
-        typeof existing?.agents?.[agent]?.autoRotateAccounts === `boolean`
-      ) {
-        entry.autoRotateAccounts = existing.agents[agent].autoRotateAccounts
       }
       if (Object.keys(entry).length > 0) agents[agent] = entry
     }
@@ -213,12 +183,6 @@ function clampLaunchDefaults(
     ) {
       out.workflow = { model, strongModel }
     }
-  } else if (input.workflow === undefined && existing?.workflow) {
-    // EXP-1020: the KEY is absent (an explicit null is a clear), so a client
-    // that predates the pair — every build before this one, since a save
-    // REPLACES the whole object — rides the stored one along instead of
-    // wiping what the "Workflow settings" sub-shell set.
-    out.workflow = existing.workflow
   }
   return out
 }
@@ -405,7 +369,6 @@ export function nudgeDevice(ownerId: string, deviceId: string): void {
  * instead of failing the mutation with "That command is already queued". */
 const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
   `agent_usage_refresh`,
-  `worktree_prune`,
   `agent_profile_use`,
   `agent_profile_remove`,
   // "Update claude here" twice is one wish: the machine's updater is
@@ -883,7 +846,7 @@ export const devicesRouter = router({
           txid: null,
         }
       }
-      const clamped = clampLaunchDefaults(input.launchDefaults, row.launchDefaults)
+      const clamped = clampLaunchDefaults(input.launchDefaults)
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
@@ -1044,8 +1007,6 @@ export const devicesRouter = router({
       z.object({
         deviceId: deviceIdInput,
         kind: z.enum([
-          `worktree_remove`,
-          `worktree_prune`,
           `agent_login`,
           `agent_login_code`,
           `agent_usage_refresh`,
@@ -1063,8 +1024,6 @@ export const devicesRouter = router({
           `update_now`,
           `agent_update`,
         ]),
-        repoFullName: z.string().min(1).max(255).optional(),
-        branch: z.string().min(1).max(255).optional(),
         // EXP-484 `agent_login` inputs (ignored by the other kinds): which
         // agent CLI to sign in, and whether to sign the current account out
         // first (Switch account).
@@ -1104,35 +1063,6 @@ export const devicesRouter = router({
       }
 
       let payload: Record<string, string> = {}
-      if (input.kind === `worktree_remove`) {
-        if (!input.repoFullName || !input.branch) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `worktree_remove needs repoFullName and branch`,
-          })
-        }
-        // Prevent garbage payloads: the target must be a currently-reported
-        // worktree (the shape the issuing UI rendered from).
-        const [wt] = await ctx.db
-          .select({ id: deviceWorktrees.id })
-          .from(deviceWorktrees)
-          .where(
-            and(
-              eq(deviceWorktrees.deviceRowId, row.id),
-              eq(deviceWorktrees.repoFullName, input.repoFullName),
-              eq(deviceWorktrees.branch, input.branch)
-            )
-          )
-          .limit(1)
-        if (!wt) {
-          throw new TRPCError({
-            code: `NOT_FOUND`,
-            message: `That worktree is no longer reported by the device`,
-          })
-        }
-        payload = { repoFullName: input.repoFullName, branch: input.branch }
-      }
-
       if (input.kind === `agent_login`) {
         if (!input.agent) {
           throw new TRPCError({
@@ -1281,8 +1211,8 @@ export const devicesRouter = router({
         payload,
         // EXP-862: a second click on an IDEMPOTENT command is the same wish,
         // not an error — the queued row is reused instead of surfacing "That
-        // command is already queued" as a failed mutation. A sign-in, a code
-        // hand-off and a worktree removal keep the CONFLICT: those are acts,
+        // command is already queued" as a failed mutation. A sign-in and a code
+        // hand-off keep the CONFLICT: those are acts,
         // and a repeat says something the requester needs to hear.
         onDuplicate: IDEMPOTENT_COMMAND_KINDS.has(input.kind)
           ? `reuse`

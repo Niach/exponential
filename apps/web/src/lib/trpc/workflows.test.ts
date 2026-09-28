@@ -167,18 +167,6 @@ const workflow = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 const rejection = async (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e as TRPCError)
-// compat: what a launch is STORED as — the normalized keys plus the legacy
-// per-phase pins a desktop/CLI 0.14.49/0.14.50 engine still reads (each
-// `strongModel`, `subagentModel` = `model`). Collapses back to `launch`
-// once CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.51.
-const stored = (launch: { model: string; strongModel: string } & Record<string, unknown>) => ({
-  ...launch,
-  contractModel: launch.strongModel,
-  integrationModel: launch.strongModel,
-  riskModel: launch.strongModel,
-  reviewModel: launch.strongModel,
-  subagentModel: launch.model,
-})
 const claudeDefaults = { agent: `claude`, model: `opus`, strongModel: `fable` }
 const codexDefaults = { agent: `codex`, model: `gpt-5.6-sol`, strongModel: `gpt-5.6-luna` }
 
@@ -205,22 +193,13 @@ describe(`workflows.create`, () => {
     expect(written[0]!.values).toMatchObject({ name: `APP-6 +1`, repositoryId: `repo-1` })
     // EXP-1029: two models, and `startOn` is no longer a choice. A workflow
     // is BORN with no runner, so the contract defaults stand — binding a
-    // device is what re-seeds them. compat: the legacy pins ride beside the
-    // two models for the 0.14.49/0.14.50 engines (`stored`).
-    expect(written[0]!.values).toMatchObject({ launch: stored(claudeDefaults) })
+    // device is what re-seeds them. Stored verbatim, the four keys and no
+    // legacy pin (compat round 26).
+    expect(written[0]!.values).toMatchObject({ launch: claudeDefaults })
     expect(written[0]!.values).not.toHaveProperty(`startOn`)
     expect(
       Object.keys((written[0]!.values as { launch: object }).launch).sort()
-    ).toEqual([
-      `agent`,
-      `contractModel`,
-      `integrationModel`,
-      `model`,
-      `reviewModel`,
-      `riskModel`,
-      `strongModel`,
-      `subagentModel`,
-    ])
+    ).toEqual([`agent`, `model`, `strongModel`])
     expect((written[0]!.values as { deviceId?: unknown }).deviceId).toBeUndefined()
     expect(h.replanWorkflow).toHaveBeenCalledTimes(1)
     expect(result.workflow.metrics).toMatchObject({ nodes: 2 })
@@ -245,12 +224,12 @@ describe(`workflows.create`, () => {
     await caller.create({ teamId: TEAM, issueIds: [A], deviceId: `dev-codex` })
     expect(written[0]!.values).toMatchObject({
       deviceId: `dev-codex`,
-      launch: stored({
+      launch: {
         agent: `codex`,
         account: `p-7`,
         model: `gpt-5.6-luna`,
         strongModel: `gpt-5.6-luna`,
-      }),
+      },
     })
     // Ownership + cap, the seeded agent, then the final check on the agent
     // the workflow will run on.
@@ -325,18 +304,14 @@ describe(`workflows.update`, () => {
     expect(String(values.decisions)).toContain(`Runner moved to device dev-2`)
   })
 
-  // EXP-1066/1090: `startOn` and `launch` are no inputs; an old client still
-  // sends them and they are stripped, nothing written.
-  it(`ignores startOn and launch at any status, writing nothing`, async () => {
-    for (const status of [`draft`, `running`]) {
-      const row = workflow({ status })
-      selectQueue.push([row], [row])
-      const result = await caller.update({
-        id: WF,
-        startOn: `landed`,
-        launch: { model: `gpt-nope` },
-      } as never)
-      expect(result.workflow).toEqual(row)
+  // EXP-1066/1090: `startOn`, `launch` and `gate` are no inputs (zod strips
+  // them); a patch that names nothing else is refused, nothing written.
+  it(`refuses a patch of nothing, writing nothing`, async () => {
+    for (const patch of [{ startOn: `landed`, launch: { model: `gpt-nope` } }, { gate: `human` }, {}]) {
+      selectQueue.push([workflow()])
+      const error = await rejection(caller.update({ id: WF, ...patch } as never))
+      expect(error?.code).toBe(`BAD_REQUEST`)
+      expect(error?.message).toBe(`Nothing to update`)
     }
     expect(fakeDb.update).not.toHaveBeenCalled()
     expect(written).toEqual([])
@@ -354,25 +329,10 @@ describe(`workflows.update`, () => {
     )
   })
 
-  // compat: iOS 0.14.39, Android 0.14.40 and desktop 0.14.47 still send the
-  // removed `gate` (EXP-1010); strip mode leaves nothing to set.
-  it(`answers a gate-only patch with the row as it is, writing nothing`, async () => {
-    for (const status of [`draft`, `running`]) {
-      const row = workflow({ status })
-      // loadWorkflow, then the guard's own read.
-      selectQueue.push([row], [row])
-      const result = await caller.update({ id: WF, gate: `human` } as never)
-      expect(result.workflow).toEqual(row)
-      expect(result.txId).toBeDefined()
-    }
-    expect(fakeDb.update).not.toHaveBeenCalled()
-    expect(written).toEqual([])
-  })
-
   // EXP-1032: binding the runner IS the launch choice — the workflow screen
   // has no settings panel left.
   describe(`binding a runner device re-seeds the launch`, () => {
-    const claudeLaunch = { agent: `claude`, model: `opus`, contractModel: `fable` }
+    const claudeLaunch = { agent: `claude`, model: `opus`, strongModel: `fable` }
     const codexOnly = async (...args: unknown[]) => {
       if (args[3] === `claude`) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `claude is not available on that device` })
@@ -392,12 +352,12 @@ describe(`workflows.update`, () => {
       await caller.update({ id: WF, deviceId: `dev-codex` })
       expect(written[0]!.values).toEqual({
         deviceId: `dev-codex`,
-        launch: stored({
+        launch: {
           agent: `codex`,
           account: `p-7`,
           model: `gpt-5.6-luna`,
           strongModel: `gpt-5.6-luna`,
-        }),
+        },
       })
     })
 
@@ -406,7 +366,7 @@ describe(`workflows.update`, () => {
       await caller.update({ id: WF, deviceId: `dev-1` })
       expect(written[0]!.values).toEqual({
         deviceId: `dev-1`,
-        launch: stored(claudeDefaults),
+        launch: claudeDefaults,
       })
     })
 
@@ -417,7 +377,7 @@ describe(`workflows.update`, () => {
       expect(written[0]!.values).toEqual({
         deviceId: `dev-codex`,
         // The account belonged to claude, so it goes with it.
-        launch: stored(codexDefaults),
+        launch: codexDefaults,
       })
       h.assertDeviceUsable.mockReset()
     })
@@ -455,31 +415,31 @@ describe(`launchFromDeviceDefaults`, () => {
 })
 
 describe(`workflows.updateNode`, () => {
-  // compat: iOS ≤0.14.38, Android ≤0.14.39, desktop/CLI ≤0.14.46.
-  it(`accepts a BUDGET-ONLY patch and writes nothing`, async () => {
-    selectQueue.push([workflow()], [{ id: `node-1`, issueId: A, members: [] }])
-    const result = await caller.updateNode({
-      workflowId: WF,
-      issueId: A,
-      budget: { maxTurns: 40 },
-    } as never)
-    expect(result).toEqual({ txId: expect.anything(), nodeId: `node-1` })
-    expect(fakeDb.update).not.toHaveBeenCalled()
-    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
-  })
-
-  it(`still refuses a budget-only patch for an issue outside the workflow`, async () => {
+  // Compat round 26: the budget key is gone (zod strips it), so a
+  // budget-only patch names nothing and is refused.
+  it(`refuses a patch of nothing, writing nothing`, async () => {
     selectQueue.push([workflow()], [{ id: `node-1`, issueId: A, members: [] }])
     const error = await rejection(
-      caller.updateNode({ workflowId: WF, issueId: B, budget: 1 } as never)
+      caller.updateNode({ workflowId: WF, issueId: A, budget: { maxTurns: 40 } } as never)
+    )
+    expect(error?.code).toBe(`BAD_REQUEST`)
+    expect(error?.message).toBe(`Nothing to update`)
+    expect(fakeDb.update).not.toHaveBeenCalled()
+  })
+
+  it(`refuses an issue outside the workflow`, async () => {
+    selectQueue.push([workflow()], [{ id: `node-1`, issueId: A, members: [] }])
+    const error = await rejection(
+      caller.updateNode({ workflowId: WF, issueId: B, risk: `high` })
     )
     expect(error?.message).toBe(`That issue is not part of the workflow`)
   })
 
-  it(`writes the fields it still knows, budget dropped`, async () => {
+  it(`writes the fields it knows`, async () => {
     selectQueue.push([workflow()], [{ id: `node-1`, issueId: A, members: [] }])
-    await caller.updateNode({ workflowId: WF, issueId: A, risk: `high`, budget: 3 } as never)
+    await caller.updateNode({ workflowId: WF, issueId: A, risk: `high` })
     expect(written[0]!.values).toEqual({ risk: `high` })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
   })
 })
 
@@ -540,29 +500,8 @@ describe(`workflows.start`, () => {
       expect.objectContaining({ state: `blocked`, attempt: 0, sessionId: null }),
       expect.objectContaining({ status: `running` }),
     ])
-    // A launch that reads fine is left alone.
+    // The launch is never rewritten by a start.
     expect((written[1]!.values as { launch?: unknown }).launch).toBeUndefined()
-  })
-
-  // compat: a row an old client saved with a claude review pin on a codex
-  // workflow (see `workflows.update`) folds to a strongModel codex cannot
-  // start on; starting heals it to codex's default and writes that back.
-  it(`heals a stored launch whose folded strongModel is outside the agent's vocabulary`, async () => {
-    selectQueue.push([
-      workflow({ ...ready, launch: { agent: `codex`, model: `gpt-5.6-sol`, reviewModel: `opus` } }),
-    ])
-    await caller.start({ id: WF })
-    expect(h.assertDeviceUsable).toHaveBeenCalledWith(
-      `dev-1`,
-      TEAM,
-      `user-1`,
-      `codex`,
-      expect.objectContaining({ cap: `workflows` })
-    )
-    expect(written[1]!.values).toMatchObject({
-      status: `running`,
-      launch: stored(codexDefaults),
-    })
   })
 })
 
@@ -611,6 +550,16 @@ describe(`the engine's write path`, () => {
     expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
   })
 
+  // Compat round 26: `waiting` left the node vocabulary (migration 0149); an
+  // engine that still reported it is below the version floor.
+  it(`refuses the retired waiting state`, async () => {
+    const error = await rejection(
+      caller.reportNode({ nodeId: NODE, state: `waiting` } as never)
+    )
+    expect(error?.code).toBe(`BAD_REQUEST`)
+    expect(fakeDb.update).not.toHaveBeenCalled()
+  })
+
   // FEED-56: the pre-check before a Fresh wake is a READ. A state-less
   // report only runs the landed/skipped guard and writes nothing, so a stale
   // device snapshot can neither take a newer state back nor bump
@@ -644,9 +593,7 @@ describe(`the engine's write path`, () => {
       [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }],
       [{ prState: `open` }],
-      [{ status: `running` }],
-      // The runner reads the wave answers.
-      [{ version: `0.14.52` }]
+      [{ status: `running` }]
     )
     expect(await caller.landNode({ nodeId: NODE })).toEqual({
       merged: false,
@@ -655,64 +602,12 @@ describe(`the engine's write path`, () => {
     })
   })
 
-  // compat: an engine of 0.14.49..0.14.51 knows three refusal strings and
-  // treats any other as a merge conflict, so it gets the blockers answer
-  // for both wave waits. No version reads as old.
-  it(`answers an older runner engine with the blockers wait instead`, async () => {
-    for (const version of [`0.14.51`, `0.14.49-staging`, null]) {
-      selectQueue.push(
-        [node({ sessionId: `66666666-6666-4666-8666-666666666666` })],
-        [workflow({ status: `running`, deviceId: `dev-1` })],
-        [{ id: `device-row` }],
-        [{ prState: `open` }],
-        [{ status: `running` }],
-        [{ version }]
-      )
-      expect(await caller.landNode({ nodeId: NODE })).toEqual({
-        merged: false,
-        reason: `Waiting for its blockers to land`,
-        retargeted: [],
-      })
-    }
-    // The same for the wave gate.
-    selectQueue.push(
-      [node({ wave: 1 })],
-      [workflow({ status: `running`, deviceId: `dev-1` })],
-      [{ id: `device-row` }],
-      [{ prState: `open` }],
-      [{ version: `0.14.50` }]
-    )
-    h.loadWorkflowEdges.mockResolvedValueOnce({
-      nodes: [
-        { id: `c`, issueId: `i-c`, memberIssueIds: [], state: `landed`, baseBranch: null, wave: 0, approvedAt: null },
-        { id: `node-1`, issueId: A, memberIssueIds: [], state: `in_review`, baseBranch: null, wave: 1, approvedAt: null },
-        { id: `m`, issueId: `i-m`, memberIssueIds: [], state: `blocked`, baseBranch: null, wave: 2, approvedAt: null },
-        { id: `i`, issueId: `i-i`, memberIssueIds: [], state: `blocked`, baseBranch: null, wave: 3, approvedAt: null },
-      ] as never,
-      edges: [],
-    })
-    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for its blockers to land`)
-    // A current engine keeps the precise answer.
-    selectQueue.push([], [], [], [], [])
-    selectQueue.length = 0
-    selectQueue.push(
-      [node({ sessionId: `66666666-6666-4666-8666-666666666666` })],
-      [workflow({ status: `running`, deviceId: `dev-1` })],
-      [{ id: `device-row` }],
-      [{ prState: `open` }],
-      [{ status: `running` }],
-      [{ version: `0.15.0` }]
-    )
-    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for its run to end`)
-  })
-
   it(`holds a node behind an uncleared review wave of a deep graph`, async () => {
     selectQueue.push(
       [node({ wave: 1 })],
       [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }],
-      [{ prState: `open` }],
-      [{ version: `0.14.52` }]
+      [{ prState: `open` }]
     )
     // Four layers: the contract landed but its wave has not cleared it.
     h.loadWorkflowEdges.mockResolvedValueOnce({
@@ -882,8 +777,7 @@ describe(`the engine's write path`, () => {
       [workflow({ status: `running`, deviceId: `dev-1`, startedAt: new Date(`2026-09-21T10:00:00Z`) })],
       [{ id: `device-row` }],
       [{ prState: `merged`, prMergedAt: new Date(`2026-09-01T10:00:00Z`) }],
-      [{ status: `running` }], // the node's run, still up: the old merge is not this attempt's
-      [{ version: `0.14.52` }]
+      [{ status: `running` }] // the node's run, still up: the old merge is not this attempt's
     )
     expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for its run to end`)
     expect(written).toEqual([])
@@ -1732,89 +1626,6 @@ describe(`workflows.appendEvent`, () => {
   })
 })
 
-// compat: the person's gate the shipped clients still call — iOS <=0.14.43,
-// Android <=0.14.44 and desktop/CLI <=0.14.51 (`approveNode`); the metrics
-// report of the desktop/CLI engine <=0.14.51 (`reportMetrics`).
-describe(`workflows.approveNode (compat)`, () => {
-  const NODE = `55555555-5555-4555-8555-555555555555`
-  const node = (over: Record<string, unknown> = {}) => ({
-    id: NODE,
-    workflowId: WF,
-    issueId: A,
-    kind: `leaf`,
-    state: `in_review`,
-    approvedAt: null,
-    sessionId: `66666666-6666-4666-8666-666666666666`,
-    ...over,
-  })
-
-  it(`stamps approved_at on a node under review and logs the person's verdict`, async () => {
-    selectQueue.push([node()], [workflow({ status: `running`, deviceId: `dev-1` })])
-    const result = await caller.approveNode({ nodeId: NODE })
-    expect(result).toMatchObject({ nodeId: NODE })
-    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
-    const update = written.find((w) => w.op === `update`)!.values as Record<string, unknown>
-    expect(Object.keys(update)).toEqual([`approvedAt`])
-    expect(update.approvedAt).toBeInstanceOf(Date)
-    expect(written).toContainEqual({
-      op: `insert`,
-      values: expect.objectContaining({
-        workflowId: WF,
-        nodeId: NODE,
-        sessionId: `66666666-6666-4666-8666-666666666666`,
-        kind: `review_verdict`,
-        message: `approved by a person`,
-      }),
-    })
-
-    // `updating` (an old engine's request_changes round) is under review too.
-    written.length = 0
-    selectQueue.push([node({ state: `updating` })], [workflow({ status: `running` })])
-    await caller.approveNode({ nodeId: NODE, approved: true })
-    expect(written.some((w) => w.op === `update`)).toBe(true)
-  })
-
-  it(`is idempotent, and approved=false takes the stamp back without a line`, async () => {
-    selectQueue.push([node({ approvedAt: new Date() })], [workflow({ status: `running` })])
-    await caller.approveNode({ nodeId: NODE })
-    expect(written).toEqual([])
-
-    selectQueue.push([node({ approvedAt: new Date() })], [workflow({ status: `running` })])
-    await caller.approveNode({ nodeId: NODE, approved: false })
-    expect(written).toEqual([{ op: `update`, values: { approvedAt: null } }])
-  })
-
-  it(`refuses a landed or skipped node, and an approval of one not under review`, async () => {
-    selectQueue.push([node({ state: `landed` })], [workflow({ status: `running` })])
-    expect((await rejection(caller.approveNode({ nodeId: NODE })))?.code).toBe(`BAD_REQUEST`)
-    selectQueue.push([node({ state: `skipped` })], [workflow({ status: `running` })])
-    expect((await rejection(caller.approveNode({ nodeId: NODE })))?.code).toBe(`BAD_REQUEST`)
-    selectQueue.push([node({ state: `running` })], [workflow({ status: `running` })])
-    expect((await rejection(caller.approveNode({ nodeId: NODE })))?.code).toBe(`BAD_REQUEST`)
-    expect(written).toEqual([])
-  })
-
-  it(`tolerates the keys an old client sends and defaults approved to true`, async () => {
-    selectQueue.push([node()], [workflow({ status: `running` })])
-    await caller.approveNode({ nodeId: NODE, extra: 1 } as never)
-    expect((written[0]!.values as Record<string, unknown>).approvedAt).toBeInstanceOf(Date)
-  })
-})
-
-describe(`workflows.reportMetrics (compat)`, () => {
-  it(`answers ok and writes nothing`, async () => {
-    expect(await caller.reportMetrics({ id: WF, deltas: { mergeIns: 1, whatever: 2 } })).toEqual({
-      ok: true,
-    })
-    expect(await caller.reportMetrics({ id: WF })).toEqual({ ok: true })
-    expect(fakeDb.update).not.toHaveBeenCalled()
-    expect(fakeDb.select).not.toHaveBeenCalled()
-  })
-})
-
-// EXP-1082 §4 / EXP-1065 — node states + questions: the review cap clears a
-// node without anyone's approval and CARRIES what it left open; an open
-// question is a badge, never a state.
 describe(`node states (EXP-1082 §4)`, () => {
   const NODE = `55555555-5555-4555-8555-555555555555`
   const capped = (review: Record<string, unknown>) => ({
@@ -1834,10 +1645,7 @@ describe(`node states (EXP-1082 §4)`, () => {
       [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }],
       [{ prState: `open` }],
-      [{ status: `ended` }], // the author's run ended
-      // the landed write's decisions-log update
-      [{ identifier: `APP-6` }],
-      [{ decisions: `2026-09-19: ship the API first` }]
+      [{ status: `ended` }] // the author's run ended
     )
     return caller.landNode({ nodeId: NODE })
   }
@@ -1847,30 +1655,20 @@ describe(`node states (EXP-1082 §4)`, () => {
       .map((w) => (w.values as { decisions?: string }).decisions)
       .find((d) => typeof d === `string`)
 
-  it(`a node at the review cap lands after the author's last push and carries its findings`, async () => {
+  // Compat round 26: the landing no longer carries a cap-round review into
+  // the decisions log (`carriedReviewAtCap` went with the pre-wave engines);
+  // the final pull request carries what is unresolved (`carriedReview`).
+  it(`a node at the old review cap lands like any other, logging nothing`, async () => {
     expect(
-      await land(capped({ verdict: `request_changes`, findings: `src/a.ts:4 off by one\nsrc/b.ts: no test` }))
+      await land(capped({ verdict: `request_changes`, findings: `src/a.ts:4 off by one` }))
     ).toEqual({ merged: true, reason: null, retargeted: [] })
     expect(h.mergePr).toHaveBeenCalledWith({ issueId: A, endSessions: true })
     expect(written[0]!.values).toEqual({ state: `landed`, note: null })
-    expect(decisionsWritten()).toBe(
-      `2026-09-19: ship the API first\n${new Date().toISOString().slice(0, 10)}: Unresolved review findings (APP-6, round 3): src/a.ts:4 off by one src/b.ts: no test`
-    )
-    expect(written).toContainEqual({
+    expect(decisionsWritten()).toBeUndefined()
+    expect(written).not.toContainEqual({
       op: `insert`,
-      values: expect.objectContaining({ kind: `cleared_at_cap`, nodeId: NODE, workflowId: WF }),
+      values: expect.objectContaining({ kind: `cleared_at_cap` }),
     })
-  })
-
-  it(`a failed oracle at the cap lands and carries the failure`, async () => {
-    expect(
-      await land(
-        capped({ verdict: `approve`, findings: `flaky`, oracle: { command: `bun test`, passed: false } })
-      )
-    ).toMatchObject({ merged: true })
-    expect(decisionsWritten()).toContain(
-      `Unresolved review findings (APP-6, round 3): flaky Checks failed: bun test`
-    )
   })
 
   // EXP-1103: a review no longer gates the landing at all — the review wave

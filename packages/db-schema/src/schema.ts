@@ -1592,9 +1592,8 @@ export const deviceWorktrees = pgTable(
 // devices.createCommand, delivered on the device's heartbeat (plus a relay
 // check_in nudge for immediacy), completed via devices.completeCommand.
 // Rows stay `pending` until completed — redelivery on a missed cycle is free
-// idempotency. `kind` is a documented varchar: `worktree_remove` (payload
-// {repoFullName, branch}) | `worktree_prune` (payload {}) | `agent_login`
-// (EXP-484, payload {agent, switch: "true"|"false", profileId?,
+// idempotency. `kind` is a documented varchar (EXP-1060 retired
+// `worktree_remove`/`worktree_prune`): `agent_login` (EXP-484, payload {agent, switch: "true"|"false", profileId?,
 // newProfileLabel?}: the device runs the agent CLI's own login flow inside
 // the named account profile (EXP-827: `profileId` = an existing profile,
 // `newProfileLabel` = create one first, neither = the ambient login) and
@@ -2451,10 +2450,6 @@ export const workflows = pgTable(
     // draft nobody bound yet.
     deviceId: varchar(`device_id`, { length: 128 }),
     launch: jsonb().$type<WorkflowLaunchStored>().notNull().default(sql`'{}'::jsonb`),
-    // EXP-1010: the review gate setting is GONE — every node gets an agent
-    // review. The column stays pinned to `agent` (and synced) only because
-    // engines older than that release still read it; drop it with them.
-    gate: varchar({ length: 16 }).notNull().default(`agent`),
     // `exp/wf-<id8>`, stamped at create.
     integrationBranch: varchar(`integration_branch`, { length: 255 }).notNull(),
     // The ONE final PR integration → default branch.

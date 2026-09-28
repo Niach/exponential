@@ -715,7 +715,6 @@ pub const SHAPES: [ShapeSpec; 25] = [
             // The runner device's steer id — the engine's SINGLE writer.
             "device_id",
             "launch",
-            "gate",
             "integration_branch",
             "final_pr_url",
             "final_pr_number",
@@ -1239,9 +1238,9 @@ mod tests {
         for column in ["team_id", "repository_id", "status", "device_id", "launch", "metrics"] {
             assert!(spec.columns.contains(&column), "workflows needs {column}");
         }
-        assert!(spec.columns.contains(&"gate"));
-        // EXP-1090: `start_on` is gone for good.
+        // EXP-1090 / compat round 26: `start_on` and `gate` are gone for good.
         assert!(!spec.columns.contains(&"start_on"));
+        assert!(!spec.columns.contains(&"gate"));
         assert!(!spec.columns.contains(&"creator_id"), "server-only");
     }
 

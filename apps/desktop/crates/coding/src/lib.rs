@@ -168,9 +168,8 @@ pub use launch_defaults_sync::{
     defaults_fingerprint, read_marker, reconcile, write_marker, ReconcileAction, SyncMarker,
 };
 pub use remote_admin::{
-    apply_defaults_patch, conservative_prune_policy, defaults_wire, overlay_launch_defaults,
-    remove_worktree_remote, AgentDefaultsPatch, DefaultsPatch, RemoveWorktreeError,
-    WorkflowDefaultsPatch,
+    apply_defaults_patch, defaults_wire, overlay_launch_defaults, AgentDefaultsPatch,
+    DefaultsPatch, WorkflowDefaultsPatch,
 };
 pub use prompt::{render_prompt, render_resume_prompt, stack_section, StackPromptArgs};
 pub use settings::Settings;

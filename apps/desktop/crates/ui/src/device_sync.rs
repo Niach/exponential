@@ -404,12 +404,10 @@ struct BeatSnapshot {
     device_id: String,
     /// EXP-792: the account whose secret store holds the MCP credentials.
     account_id: String,
-    /// The app data dir — EXP-637's `runs.json` lives here, and the remote
-    /// prune command nominates its recorded run branches.
+    /// The app data dir — EXP-637's `runs.json` lives here.
     data_dir: PathBuf,
     settings_path: PathBuf,
     repos_root: PathBuf,
-    branch_prefix: String,
     held_branches: HashSet<String>,
     active_sessions: u32,
     /// EXP-862: the row ids of the sessions this app is hosting right now —
@@ -508,7 +506,6 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         account_id: account.id.clone(),
         data_dir,
         repos_root: settings.repos_root_path(),
-        branch_prefix: settings.branch_prefix.clone(),
         settings_path,
         held_branches,
         active_sessions,
@@ -915,7 +912,6 @@ pub(crate) fn push_local_defaults_if_changed(
         data_dir: data_dir.clone(),
         settings_path,
         repos_root: settings.repos_root_path(),
-        branch_prefix: settings.branch_prefix.clone(),
         held_branches: HashSet::new(),
         active_sessions: 0,
         live_session_ids: Vec::new(),
@@ -1023,53 +1019,6 @@ fn run_device_command(
         return CommandDisposition::Spawned;
     }
     let (ok, message) = match command.kind.as_str() {
-        // EXP-1020: no client in THIS release queues these two — the
-        // worktrees section left the device settings and Settings →
-        // Worktrees cleans locally. They stay for machines still running an
-        // older client that does; EXP-1060 retires them once the floors
-        // pass.
-        "worktree_remove" => {
-            let repo = command.payload["repoFullName"].as_str().unwrap_or_default();
-            let branch = command.payload["branch"].as_str().unwrap_or_default();
-            if repo.is_empty() || branch.is_empty() {
-                (false, "Malformed command payload.".to_string())
-            } else {
-                let clone = coding::clone_path(&snapshot.repos_root, repo);
-                match coding::remove_worktree_remote(&clone, branch, &snapshot.held_branches) {
-                    Ok(()) => (true, format!("Removed the {branch} worktree.")),
-                    Err(err) => (false, err.message()),
-                }
-            }
-        }
-        "worktree_prune" => {
-            let policy = coding::conservative_prune_policy(
-                &snapshot.branch_prefix,
-                snapshot.held_branches.clone(),
-                Vec::new(),
-                // EXP-637: nominate this install's own recorded run branches
-                // too (git still has to confirm they landed).
-                Some(snapshot.data_dir.clone()),
-            );
-            let mut removed = 0usize;
-            let mut skipped = 0usize;
-            let mut blocked = false;
-            for clone in coding::scan_clones(&snapshot.repos_root) {
-                let report = coding::prune_landed(&clone.path, &policy);
-                removed += report.removed_worktrees.len();
-                skipped += report.skipped.len();
-                blocked |= report.blocked_by_launch;
-            }
-            let mut message =
-                format!("Pruned {removed} worktree{}", if removed == 1 { "" } else { "s" });
-            if skipped > 0 {
-                message.push_str(&format!(", kept {skipped} (unmerged or busy)"));
-            }
-            if blocked {
-                message.push_str("; one repo was busy launching — try again");
-            }
-            message.push('.');
-            (true, message)
-        }
         // EXP-792: an MCP OAuth sign-in on this machine, requested from the
         // web. Completes EARLY with the authorize URL (the requester's page
         // opens it); the loopback variant then waits for the browser on its

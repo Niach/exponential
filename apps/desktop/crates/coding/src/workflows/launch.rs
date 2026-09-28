@@ -8,8 +8,8 @@
 //! CHEAP one (leaf nodes, and the `Task` subagents inside every node run),
 //! `strong_model` the capable one (contract nodes, integration nodes,
 //! `risk: high` nodes and EVERY agent review). The EXP-1002 per-phase pins,
-//! `subagentModel` and `reviewModel` are deprecated (folded in here); the
-//! gate choice is gone (the agent reviews every node, the one human review
+//! `subagentModel` and `reviewModel` are gone (migration 0149 rewrote every
+//! stored row, compat round 26); the gate choice is gone (the agent reviews every node, the one human review
 //! is the final PR); dependents always start on the blockers' contract.
 //!
 //! The tests below are the acceptance table, case for case the same as web
@@ -68,19 +68,14 @@ impl Default for WorkflowLaunch {
     }
 }
 
-/// The stored jsonb keys that fold into `strong_model`, in precedence order:
-/// the first one set wins.
-pub const STRONG_MODEL_LEGACY_KEYS: [&str; 4] =
-    ["reviewModel", "riskModel", "contractModel", "integrationModel"];
-
 /// The stored `workflows.launch` (any vintage, or garbage) → the strict
 /// launch every run reads. Rules (the table below):
 /// - `agent`: `claude` or `codex`; anything else → claude.
 /// - `account`: a non-empty string stays, anything else is `None`.
 /// - `model`: the stored `model` when set, else the agent's default model.
-/// - `strong_model`: the stored `strongModel` when set; else the first set
-///   of [`STRONG_MODEL_LEGACY_KEYS`]; else the agent's default strong model.
-/// - `subagentModel`, `effort`, `maxParallel` are dropped.
+/// - `strong_model`: the stored `strongModel` when set, else the agent's
+///   default strong model.
+/// - Any other key is ignored.
 pub fn normalize_workflow_launch(raw: &serde_json::Value) -> WorkflowLaunch {
     let agent = match raw.get("agent").and_then(|v| v.as_str()) {
         Some("codex") => WorkflowLaunchAgent::Codex,
@@ -94,9 +89,7 @@ pub fn normalize_workflow_launch(raw: &serde_json::Value) -> WorkflowLaunch {
             .filter(|v| !v.is_empty())
             .map(str::to_string)
     };
-    let strong_model = text("strongModel")
-        .or_else(|| STRONG_MODEL_LEGACY_KEYS.iter().find_map(|key| text(key)))
-        .unwrap_or_else(|| default_strong.to_string());
+    let strong_model = text("strongModel").unwrap_or_else(|| default_strong.to_string());
     WorkflowLaunch {
         agent,
         account: text("account"),
@@ -180,30 +173,20 @@ mod tests {
         );
     }
 
+    /// Compat round 26: migration 0149 rewrote every stored row; a retired
+    /// per-phase pin is an unknown key like any other.
     #[test]
-    fn folds_an_old_rows_pins_into_strong_model_review_model_first() {
+    fn ignores_the_retired_per_phase_pins() {
         assert_eq!(
-            normalize_workflow_launch(&json!({ "model": "opus", "contractModel": "sonnet" }))
-                .strong_model,
-            "sonnet"
+            normalize_workflow_launch(&json!({ "model": "opus", "contractModel": "sonnet" })),
+            claude()
         );
         assert_eq!(
-            normalize_workflow_launch(&json!({ "riskModel": "sonnet", "reviewModel": "opus" }))
-                .strong_model,
-            "opus"
-        );
-        assert_eq!(
-            normalize_workflow_launch(&json!({ "integrationModel": "sonnet" })).strong_model,
-            "sonnet"
-        );
-    }
-
-    #[test]
-    fn lets_a_stored_strong_model_win_over_every_legacy_pin() {
-        assert_eq!(
-            normalize_workflow_launch(&json!({ "strongModel": "opus", "contractModel": "sonnet" }))
-                .strong_model,
-            "opus"
+            normalize_workflow_launch(&json!({
+                "riskModel": "sonnet", "reviewModel": "opus", "integrationModel": "sonnet"
+            }))
+            .strong_model,
+            "fable"
         );
     }
 
@@ -218,8 +201,8 @@ mod tests {
     }
 
     #[test]
-    fn keeps_model_as_model_even_beside_old_pins() {
-        let launch = normalize_workflow_launch(&json!({ "model": "sonnet", "contractModel": "fable" }));
+    fn keeps_model_as_model_even_beside_a_retired_pin() {
+        let launch = normalize_workflow_launch(&json!({ "model": "sonnet", "contractModel": "opus" }));
         assert_eq!(launch.agent, WorkflowLaunchAgent::Claude);
         assert_eq!(launch.model, "sonnet");
         assert_eq!(launch.strong_model, "fable");

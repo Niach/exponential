@@ -514,11 +514,6 @@
       "caption": "Running"
     },
     {
-      "state": "waiting",
-      "display": "running",
-      "caption": "Running"
-    },
-    {
       "state": "in_review",
       "display": "running",
       "caption": "Running"
@@ -659,7 +654,7 @@
         {
           "id": "a",
           "identifier": "EXP-2",
-          "state": "waiting",
+          "state": "running",
           "wave": 0,
           "lane": 0,
           "members": 0,
@@ -1014,10 +1009,6 @@
     },
     {
       "state": "running",
-      "menu": []
-    },
-    {
-      "state": "waiting",
       "menu": []
     },
     {

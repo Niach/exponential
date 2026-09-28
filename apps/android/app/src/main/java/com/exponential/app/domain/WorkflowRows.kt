@@ -18,38 +18,22 @@ import kotlinx.serialization.json.intOrNull
 
 /**
  * `workflows.launch`: what every node's run starts with, as the STORED jsonb
- * carries it — every vintage of it. The strict launch a run actually reads is
- * [NormalizedWorkflowLaunch]; everything marked deprecated below is decoded
- * only so an old row still folds into it.
+ * carries it. The strict launch a run actually reads is
+ * [NormalizedWorkflowLaunch]. Compat round 26: migration 0149 rewrote every
+ * stored row to these four keys; the retired EXP-1002 pins, `subagentModel`,
+ * `effort`, `maxParallel` and `reviewModel` are ignored like any unknown key.
  */
 data class WorkflowLaunch(
     val agent: String = "",
     val model: String = "",
     /**
      * EXP-1029: the STRONG model — contract, integration and `risk: high`
-     * nodes, and every agent review. CARRIED: the phone never edits it, and
-     * the encoder omits it so the server keeps the stored value. null = not
-     * set, and [normalizedLaunch] then folds an old row's pins in.
+     * nodes, and every agent review. CARRIED: the phone never edits it.
+     * null = not set, and [normalizedLaunch] then takes the agent's default.
      */
     val strongModel: String? = null,
-    /** Deprecated (EXP-1029): claude's subagents take [model] now. */
-    val subagentModel: String = "",
-    /** Deprecated (EXP-1029): a workflow run has no effort pick. */
-    val effort: String = "",
     /** An agent profile id on the runner device; "" = its active login. */
     val account: String = "",
-    /** Deprecated (EXP-1029): the engine owns how many nodes run at once. */
-    val maxParallel: Int = DomainContract.workflowMaxParallelDefault,
-    /** Deprecated (EXP-1029): every agent review runs on [strongModel]. */
-    val reviewModel: String = "",
-    /**
-     * Deprecated (EXP-1029): the per-PHASE model pins of EXP-1002 fold into
-     * [strongModel]. Still decoded (old rows carry them) and still CARRIED on
-     * the wire, so a phone write never erases what web/desktop stored.
-     */
-    val contractModel: String? = null,
-    val integrationModel: String? = null,
-    val riskModel: String? = null,
 )
 
 /**
@@ -86,26 +70,18 @@ private fun text(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpt
  * The stored `workflows.launch` (any vintage) → the launch a run reads:
  * - `agent`: `claude` or `codex`; anything else → `claude`.
  * - `model`: the stored one, else that agent's default.
- * - `strongModel`: the stored one; else the first set of the deprecated pins
- *   (`reviewModel`, `riskModel`, `contractModel`, `integrationModel`, in that
- *   order); else that agent's default strong model.
- * - `subagentModel`, `effort` and `maxParallel` are dropped.
+ * - `strongModel`: the stored one, else that agent's default strong model.
+ * - Any other key is ignored.
  */
 fun normalizedLaunch(launch: WorkflowLaunch): NormalizedWorkflowLaunch {
     val agent = text(launch.agent)
         ?.takeIf { it in DomainContract.workflowLaunchAgents }
         ?: DEFAULT_WORKFLOW_AGENT
     val (defaultModel, defaultStrong) = launchDefaults(agent)
-    val legacy = listOf(
-        launch.reviewModel,
-        launch.riskModel,
-        launch.contractModel,
-        launch.integrationModel,
-    ).firstNotNullOfOrNull { text(it) }
     return NormalizedWorkflowLaunch(
         agent = agent,
         model = text(launch.model) ?: defaultModel,
-        strongModel = text(launch.strongModel) ?: legacy ?: defaultStrong,
+        strongModel = text(launch.strongModel) ?: defaultStrong,
         account = text(launch.account).orEmpty(),
     )
 }
@@ -166,16 +142,8 @@ fun workflowLaunch(raw: String?): WorkflowLaunch {
     return WorkflowLaunch(
         agent = obj.string("agent"),
         model = obj.string("model"),
-        subagentModel = obj.string("subagentModel"),
-        effort = obj.string("effort"),
         account = obj.string("account"),
-        maxParallel = obj.int("maxParallel")?.takeIf { it >= 1 }
-            ?: DomainContract.workflowMaxParallelDefault,
-        reviewModel = obj.string("reviewModel"),
         strongModel = obj.string("strongModel").ifEmpty { null },
-        contractModel = obj.string("contractModel").ifEmpty { null },
-        integrationModel = obj.string("integrationModel").ifEmpty { null },
-        riskModel = obj.string("riskModel").ifEmpty { null },
     )
 }
 
