@@ -8,12 +8,17 @@ import UniformTypeIdentifiers
 /// no longer held in memory until the create — the page owns a DRAFT row, so
 /// the pick is uploaded against it immediately and this is the uploaded
 /// attachment, which `issues.create({draftId})` reparents onto the new issue.
+/// EXP-1130: a SUB-ISSUE compose has no draft row to upload against, so its
+/// picks keep the pre-878 shape instead — the bytes ride here (`data`) under
+/// a local id and go up right after the create.
 private struct DraftAttachment: Identifiable, Sendable {
-    /// The real `attachments` row id.
+    /// The real `attachments` row id, or a local UUID while `data` is held.
     let id: String
     let filename: String
     let contentType: String
     let sizeBytes: Int
+    /// Non-nil = not uploaded yet (sub-issue mode); nil = a server row.
+    let data: Data?
 }
 
 /// EXP-878 — the draft as the page holds it, minus the team (resolved from the
@@ -87,10 +92,11 @@ struct CreateIssueView: View {
     /// something to hang off.
     let draftId: String?
     /// EXP-1097: the issue this one is filed UNDER (the detail's Sub-issues
-    /// `+`); nil = a top-level issue. A sub-issue compose never KEEPS a draft
+    /// `+`); nil = a top-level issue. A sub-issue compose never writes a draft
     /// (web's sub-issue composer has none): a draft row carries no parent, so
-    /// reopening it would file a top-level issue. Its row exists only as the
-    /// upload anchor while the page is open, and a close deletes it.
+    /// reopening it would file a top-level issue. EXP-1130: not even as an
+    /// upload anchor — its picks are held in memory and uploaded once the
+    /// issue exists (`defersUploads`), so a kill mid-compose leaves no row.
     let parentId: String?
     /// The page is done: the created issue's id so the host can land on it
     /// (EXP-596), or nil when nothing was filed (the draft, if any, was
@@ -204,6 +210,12 @@ struct CreateIssueView: View {
     private var hasDraftContent: Bool {
         !trimmedTitle.isEmpty || !draftDescription.isEmpty || !draftAttachments.isEmpty
     }
+
+    /// EXP-1130: a sub-issue compose never touches `issue_drafts` — images and
+    /// files wait in memory (the editor's `draft://` placeholders, held
+    /// `DraftAttachment.data`) and upload against the issue the create files,
+    /// the same deferred pipeline Android's share mode runs.
+    private var defersUploads: Bool { parentId != nil }
 
     var body: some View {
         ZStack {
@@ -711,6 +723,17 @@ struct CreateIssueView: View {
         Task {
             switch await Task.detached(operation: { readDraftFileBytes(from: url) }).value {
             case let .success(data):
+                // EXP-1130: no draft row in sub-issue mode — hold the bytes.
+                if defersUploads {
+                    draftAttachments.append(DraftAttachment(
+                        id: UUID().uuidString.lowercased(),
+                        filename: filename,
+                        contentType: contentType,
+                        sizeBytes: data.count,
+                        data: data
+                    ))
+                    return
+                }
                 guard await ensureDraft() else { return }
                 do {
                     let uploaded = try await deps.attachmentsApi.uploadDraft(
@@ -724,7 +747,8 @@ struct CreateIssueView: View {
                         id: uploaded.id,
                         filename: uploaded.filename,
                         contentType: uploaded.contentType,
-                        sizeBytes: uploaded.sizeBytes
+                        sizeBytes: uploaded.sizeBytes,
+                        data: nil
                     ))
                 } catch {
                     self.error = "Couldn't attach \(filename). \(error.userFacingMessage)"
@@ -739,8 +763,13 @@ struct CreateIssueView: View {
 
     /// Drop one already-uploaded draft attachment. It is a real row, so the
     /// removal is a real delete — leaving it would reparent the file onto the
-    /// issue the page goes on to file.
+    /// issue the page goes on to file. A held (not yet uploaded) pick just
+    /// leaves the list.
     private func removeDraftAttachment(_ file: DraftAttachment) async {
+        if file.data != nil {
+            draftAttachments.removeAll { $0.id == file.id }
+            return
+        }
         do {
             try await deps.attachmentsApi.delete(accountId: accountId, attachmentId: file.id)
             draftAttachments.removeAll { $0.id == file.id }
@@ -800,9 +829,7 @@ struct CreateIssueView: View {
             let dto = try await deps.issueDraftsApi.upsert(
                 accountId: accountId, draftSnapshot.input(teamId: teamId)
             )
-            // A sub-issue's row is only the upload anchor (EXP-1097) — keep it
-            // out of the local Drafts list.
-            if parentId == nil { await mirrorDraft(dto) }
+            await mirrorDraft(dto)
             draftEnsured = true
             draftExists = true
             return true
@@ -827,6 +854,9 @@ struct CreateIssueView: View {
     /// edit hook, guarded so typing costs a set comparison and a failed upload
     /// never becomes a retry loop (the block's own Retry button re-runs it).
     private func commitDraftMediaIfNeeded() {
+        // EXP-1130: a sub-issue compose keeps its placeholders until the
+        // issue exists (`uploadDeferredMedia`).
+        guard !defersUploads else { return }
         let keys = Set(editor.pendingImages.keys)
         guard !keys.isEmpty, !imageCommitInFlight, keys != lastImageCommitKeys else { return }
         lastImageCommitKeys = keys
@@ -882,25 +912,98 @@ struct CreateIssueView: View {
                     id: $0.id,
                     filename: $0.filename,
                     contentType: $0.contentType,
-                    sizeBytes: $0.sizeBytes
+                    sizeBytes: $0.sizeBytes,
+                    data: nil
                 )
             }
         }
+    }
+
+    // MARK: - Deferred uploads (EXP-1130, sub-issue mode)
+
+    /// Upload the editor's held image/media blocks against the issue the
+    /// create just filed and patch the final markdown in — the pre-878 create
+    /// pipeline, kept for the one compose that has no draft row. Returns the
+    /// description the issue ends up with (nil = unchanged from `stripped`)
+    /// and whether every block made it; a miss is reported like a failed
+    /// file, never dropped silently.
+    private func uploadDeferredMedia(
+        issueId: String, stripped: String
+    ) async -> (patched: String?, ok: Bool) {
+        guard !editor.pendingImages.isEmpty else { return (nil, true) }
+        let api = deps.attachmentsApi
+        let acc = accountId
+        let uploader: @Sendable (PendingImage) async throws -> String = { image in
+            let uploaded = try await api.upload(
+                accountId: acc,
+                issueId: issueId,
+                data: image.data,
+                filename: image.filename,
+                contentType: image.contentType,
+                media: image.mediaUploadParts
+            )
+            return uploaded.url
+        }
+        let allUploaded = await editor.commitPendingImages(uploader: uploader)
+        let finalMarkdown = editor.currentMarkdown()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard allUploaded, !editor.hasUncommittedDrafts else {
+            self.error = "Issue created, but some images couldn't be uploaded. Tap an image to retry."
+            return (nil, false)
+        }
+        guard finalMarkdown != stripped else { return (nil, true) }
+        do {
+            try await deps.issuesApi.update(
+                accountId: accountId,
+                UpdateIssueInput(id: issueId, description: finalMarkdown.isEmpty ? nil : finalMarkdown)
+            )
+            return (finalMarkdown, true)
+        } catch {
+            self.error = "Issue created, but its images couldn't be saved. \(error.userFacingMessage)"
+            return (nil, false)
+        }
+    }
+
+    /// Upload the held file picks against the now-existing issue. The issue
+    /// is already committed, so a rejected attachment surfaces as an error but
+    /// never turns a successful create into a failure. Returns false when any
+    /// file failed, so the caller can hold the page open — dismissing right
+    /// after setting `error` unmounts the only report the user ever gets.
+    private func uploadDeferredFiles(issueId: String) async -> Bool {
+        var failed: [String] = []
+        for file in draftAttachments {
+            guard let data = file.data else { continue }
+            do {
+                _ = try await deps.attachmentsApi.upload(
+                    accountId: accountId,
+                    issueId: issueId,
+                    data: data,
+                    filename: file.filename,
+                    contentType: file.contentType
+                )
+            } catch {
+                failed.append(file.filename)
+            }
+        }
+        guard failed.isEmpty else {
+            self.error = "Issue created, but couldn't attach \(failed.joined(separator: ", "))."
+            return false
+        }
+        return true
     }
 
     /// The ONE write a close owes (EXP-878) — never one per keystroke: content
     /// saves the draft silently, no content deletes the draft this page opened,
     /// and a blank compose writes nothing at all. A filed issue owns its own
     /// clean-up (the server deletes the draft inside `issues.create`). A
-    /// sub-issue compose (EXP-1097) never saves one: it only reclaims the
-    /// upload-anchor row (and its files) an attachment made it write.
+    /// sub-issue compose (EXP-1097/1130) never wrote a row, so it owes nothing.
     private func persistDraftIfNeeded() {
-        guard createdIssueId == nil else { return }
+        guard createdIssueId == nil, !defersUploads else { return }
         let api = deps.issueDraftsApi
         let db = deps.db
         let account = accountId
         let key = draftKey
-        if hasDraftContent, parentId == nil {
+        if hasDraftContent {
             let snapshot = draftSnapshot
             let knownTeamId = teamId
             let board = boardId
@@ -963,7 +1066,9 @@ struct CreateIssueView: View {
         // EXP-878: every image/media block is already a real attachment on the
         // draft. A block that never uploaded is still a `draft://` placeholder,
         // which no issue may carry — say so instead of silently dropping it.
-        guard !editor.hasUncommittedDrafts else {
+        // EXP-1130: sub-issue mode uploads AFTER the create, so its
+        // placeholders are expected here.
+        guard defersUploads || !editor.hasUncommittedDrafts else {
             error = "Some images couldn't be uploaded. Tap an image to retry."
             return
         }
@@ -971,6 +1076,8 @@ struct CreateIssueView: View {
         error = nil
 
         let dateStr = dueDate.map { formatDate($0) }
+        // In sub-issue mode this is the image-stripped markdown the create
+        // sends; the deferred pass patches the real URLs in afterwards.
         let description = draftDescription
 
         // Drop selections for labels deleted while drafting — the server
@@ -992,8 +1099,8 @@ struct CreateIssueView: View {
             // EXP-878: always this page's draft id — the server reparents its
             // attachments and deletes the row in the create's transaction, and
             // tolerates an id no row was ever written for (a compose that
-            // never uploaded anything).
-            draftId: draftKey,
+            // never uploaded anything). A sub-issue compose has none.
+            draftId: defersUploads ? nil : draftKey,
             parentId: parentId
         )
 
@@ -1001,12 +1108,22 @@ struct CreateIssueView: View {
             let created = try await deps.issuesApi.create(accountId: accountId, input)
             let createdId = created.id
 
+            // EXP-1130: the held images/media and files go up now that there
+            // is an issue to own them — the create above is already committed.
+            var finalDescription = description
+            var uploadsOk = true
+            if defersUploads {
+                let media = await uploadDeferredMedia(issueId: createdId, stripped: description)
+                if let patched = media.patched { finalDescription = patched }
+                uploadsOk = await uploadDeferredFiles(issueId: createdId) && media.ok
+            }
+
             // Remember the board so the Share Extension defaults its picker to it.
             SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
 
             await mirrorCreatedIssue(
                 created,
-                description: description.isEmpty ? nil : description,
+                description: finalDescription.isEmpty ? nil : finalDescription,
                 labelIds: validLabelIds
             )
             // The server dropped the draft inside the same transaction; drop
@@ -1015,6 +1132,11 @@ struct CreateIssueView: View {
 
             createdIssueId = createdId
             loading = false
+            // The issue exists; only an attachment failed. Hold the page so
+            // the error is actually read — `createdIssueId` already latches
+            // Create, and Back still lands on the issue, where the file can
+            // be attached again.
+            guard uploadsOk else { return }
             didFinish = true
             onFinish(createdId)
             return
