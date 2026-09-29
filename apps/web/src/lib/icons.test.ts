@@ -13,17 +13,27 @@ import { contract } from "@exp/domain-contract"
 import { boardIconValues, deviceIconValues } from "@exp/db-schema/domain"
 import registry from "@exp/icons/icons.json" with { type: "json" }
 import {
+  BRAND_ICON_NAMES,
   CUSTOM_ICONS,
   DEVICE_ICONS,
   ICON_NAMES,
   PICKABLE_ICONS,
   SEMANTIC_ICONS,
+  isBrandIcon,
   isIconName,
   isPickableIcon,
 } from "@exp/icons"
 import { PICKABLE_ICON_SVG } from "@exp/icons/pickable-svg"
 import { megaphoneIconSvg } from "@exp/widget/theme"
-import { ICON_COMPONENTS, conceptIcon } from "@exp/ui"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import {
+  BRAND_ICONS,
+  ICON_COMPONENTS,
+  MCP_CATALOG,
+  brandIcon,
+  conceptIcon,
+} from "@exp/ui"
 
 const repoRoot = join(import.meta.dirname, `..`, `..`, `..`, `..`)
 const iconsPkg = join(repoRoot, `packages/icons`)
@@ -119,6 +129,100 @@ describe(`icon registry`, () => {
         expect(v).toBeGreaterThanOrEqual(0)
         expect(v).toBeLessThanOrEqual(24)
       }
+    }
+  })
+
+  it(`brand marks are the vendored selfh.st LIGHT SVGs, verbatim, a set of their own`, () => {
+    // The MCP catalog's marks: real trademarks, never in the Lucide grid,
+    // never recoloured. The registry vendors the light variant only, the
+    // web inlines it element for element, the desktop ships the file as-is
+    // under a `brand-` name (so `icon_named!` can never confuse a mark with
+    // a same-named deprecated Lucide brand glyph). iOS/Android: nothing.
+    const brand = registry.brand as Record<
+      string,
+      { file: string; source: string; owner: string }
+    >
+    expect([...BRAND_ICON_NAMES]).toEqual(Object.keys(brand).sort())
+    expect(BRAND_ICON_NAMES.length).toBeGreaterThanOrEqual(18)
+    for (const [slug, { file, source, owner }] of Object.entries(brand)) {
+      expect(slug).toMatch(/^[a-z][a-z0-9-]*$/)
+      expect(file).toBe(`brand/${slug}.svg`)
+      expect(source).toBe(
+        `https://cdn.jsdelivr.net/gh/selfhst/icons/svg/${slug}-light.svg`
+      )
+      expect(owner.length, `${slug}: owner`).toBeGreaterThan(0)
+      const svg = readFileSync(join(iconsPkg, file), `utf8`)
+      expect(svg, `${slug}: viewBox`).toContain(`viewBox="0 0 512 512"`)
+      // Light variant only: every fill is white, nothing else is coloured.
+      const fills = [...svg.matchAll(/fill\s*[:=]\s*"?([^;"\s]+)/g)].map((m) => m[1])
+      expect(fills.length, `${slug}: has a fill`).toBeGreaterThan(0)
+      expect(new Set(fills.map((f) => f.toLowerCase())), slug).toEqual(new Set([`#fff`]))
+      expect(svg).not.toMatch(/<(script|image|style|mask|clipPath|linearGradient|radialGradient)\b/)
+      // Desktop: the file byte-for-byte, under the brand- prefix.
+      expect(
+        readFileSync(join(repoRoot, `apps/desktop/assets/icons/brand-${slug}.svg`), `utf8`),
+        `${slug}: desktop asset drifted from the vendored file`
+      ).toBe(svg)
+      // Never a glyph, never on the natives. A slug may share its word with
+      // a Lucide icon (`box`); the `brand-` prefix is what keeps them apart.
+      expect((ICON_NAMES as readonly string[]).includes(`brand-${slug}`)).toBe(false)
+      expect(
+        existsSync(join(repoRoot, `apps/ios/Exponential/Assets.xcassets/lucide-brand-${slug}.imageset`))
+      ).toBe(false)
+      // Web: a component per slug, its own viewBox, white fills kept, and
+      // it sizes like a glyph (24 attrs, className passes through).
+      const Mark = brandIcon(slug as (typeof BRAND_ICON_NAMES)[number])
+      expect(BRAND_ICONS[slug as (typeof BRAND_ICON_NAMES)[number]]).toBe(Mark)
+      const markup = renderToStaticMarkup(createElement(Mark, { className: `size-4` }))
+      expect(markup.startsWith(`<svg `), slug).toBe(true)
+      expect(markup).toContain(`viewBox="0 0 512 512"`)
+      expect(markup).toContain(`width="24" height="24"`)
+      expect(markup).toContain(`class="size-4"`)
+      expect(markup).toContain(`aria-hidden="true"`)
+      expect(markup).toContain(`fill="#fff"`)
+      expect(markup).not.toContain(`currentColor`)
+      expect(markup).not.toContain(`<switch`)
+      expect(markup).not.toContain(`foreignObject`)
+      expect(isBrandIcon(slug)).toBe(true)
+    }
+    expect(isBrandIcon(`vercel`)).toBe(false)
+    // The Rust side names the same set.
+    const rs = readFileSync(
+      join(repoRoot, `apps/desktop/crates/ui/src/icons.generated.rs`),
+      `utf8`
+    )
+    const rustSlugs = rs.match(/pub mod brand \{[\s\S]*?pub const SLUGS: &\[&str\] = &\[([\s\S]*?)\];/)![1]
+      .match(/"([a-z0-9-]+)"/g)!
+      .map((q) => q.slice(1, -1))
+    expect(rustSlugs).toEqual([...BRAND_ICON_NAMES])
+    for (const slug of BRAND_ICON_NAMES) {
+      const variant = slug.split(`-`).map((w) => w[0]!.toUpperCase() + w.slice(1)).join(``)
+      expect(rs).toContain(`"${slug}" => ExpIcon::Brand${variant},`)
+    }
+  })
+
+  it(`the MCP catalog names only vendored marks and has one endpoint per row`, () => {
+    // contract.json's mcpCatalog is the ONE table (web + desktop read it);
+    // a mark that no client vendors would render blank on both.
+    const servers = contract.mcpCatalog.servers
+    expect(servers.length).toBeGreaterThanOrEqual(19)
+    expect(new Set(servers.map((s) => s.id)).size).toBe(servers.length)
+    expect(new Set(servers.map((s) => s.url)).size).toBe(servers.length)
+    for (const entry of servers) {
+      expect(isBrandIcon(entry.mark), `${entry.id}: mark ${entry.mark}`).toBe(true)
+      expect(entry.id).toMatch(/^[a-z][a-z0-9-]*$/)
+      expect(entry.name.length).toBeGreaterThan(0)
+      expect(entry.url.startsWith(`https://`), entry.id).toBe(true)
+    }
+    // A template is a `{host}` URL; the typed catalog agrees.
+    const templates = MCP_CATALOG.filter((e) => e.template).map((e) => e.id)
+    expect(templates).toEqual(
+      servers.filter((s) => s.url.includes(`{host}`)).map((s) => s.id)
+    )
+    expect(templates).toContain(`gitlab-self-managed`)
+    // The old per-purpose MCP concepts are gone: marks, not concepts.
+    for (const key of Object.keys(SEMANTIC_ICONS)) {
+      expect(key.startsWith(`mcp-`), `${key}: MCP rows wear brand marks now`).toBe(false)
     }
   })
 
@@ -283,6 +387,10 @@ describe(`icon registry`, () => {
       ),
       ...ICON_NAMES.map((n) =>
         join(repoRoot, `apps/desktop/assets/icons/${n}.svg`)
+      ),
+      join(repoRoot, `packages/ui/src/brand-icons.generated.tsx`),
+      ...BRAND_ICON_NAMES.map((n) =>
+        join(repoRoot, `apps/desktop/assets/icons/brand-${n}.svg`)
       ),
     ]
     const before = new Map(targets.map((f) => [f, readFileSync(f, `utf8`)]))

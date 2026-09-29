@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 // EXP-792: the OAuth Client ID Metadata Document. Static, cacheable JSON on
 // a public https base; a plain-http base (dev, LAN self-host) 404s so the
-// device falls back to dynamic registration.
+// server falls back to dynamic registration.
 
 import {
   handleMcpOauthClientMetadata,
@@ -27,11 +27,7 @@ describe(`GET /api/mcp-oauth/client.json`, () => {
       client_id: `https://app.exponential.dev/api/mcp-oauth/client.json`,
       client_name: `Exponential`,
       client_uri: `https://app.exponential.dev`,
-      redirect_uris: [
-        `https://app.exponential.dev/api/mcp-oauth/callback`,
-        `http://127.0.0.1/callback`,
-        `http://localhost/callback`,
-      ],
+      redirect_uris: [`https://app.exponential.dev/api/mcp-oauth/callback`],
       grant_types: [`authorization_code`, `refresh_token`],
       response_types: [`code`],
       token_endpoint_auth_method: `none`,

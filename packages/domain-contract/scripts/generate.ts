@@ -156,6 +156,13 @@ interface Contract {
       confirm: boolean
     }[]
   }
+  // The MCP catalog (Settings › MCP servers' Add dialog, web + desktop): the
+  // well-known hosted servers by id, display name, endpoint and the brand
+  // mark slug (packages/icons `brand`). A `url` containing `{host}` is a
+  // TEMPLATE (self-managed installs): never probed, the form opens on it.
+  mcpCatalog: {
+    servers: { id: string; name: string; url: string; mark: string }[]
+  }
   expToolDisplay: {
     prefix: string
     resultKinds: string[]
@@ -305,6 +312,12 @@ const steerCommandDescriptions = steerCommands.map((c) => c.description)
 const steerCommandArgHints = steerCommands.map((c) => c.argHint)
 const steerCommandAgents = steerCommands.map((c) => c.agents.join(","))
 const steerCommandConfirm = steerCommands.map((c) => c.confirm)
+
+const mcpCatalog = contract.mcpCatalog.servers
+const mcpCatalogIds = mcpCatalog.map((s) => s.id)
+const mcpCatalogNames = mcpCatalog.map((s) => s.name)
+const mcpCatalogUrls = mcpCatalog.map((s) => s.url)
+const mcpCatalogMarks = mcpCatalog.map((s) => s.mark)
 
 // EXP-1051: the context_layout catalog, flattened into parallel arrays.
 const contextSegments = contract.contextLayout.segments
@@ -497,6 +510,10 @@ ${swiftStringArray("steerCommandDescriptions", steerCommandDescriptions)}
 ${swiftStringArray("steerCommandArgHints", steerCommandArgHints)}
 ${swiftStringArray("steerCommandAgents", steerCommandAgents)}
 ${swiftBoolArray("steerCommandConfirm", steerCommandConfirm)}
+${swiftStringArray("mcpCatalogIds", mcpCatalogIds)}
+${swiftStringArray("mcpCatalogNames", mcpCatalogNames)}
+${swiftStringArray("mcpCatalogUrls", mcpCatalogUrls)}
+${swiftStringArray("mcpCatalogMarks", mcpCatalogMarks)}
     public static let expToolPrefix: String = "${contract.expToolDisplay.prefix}"
 ${swiftStringArray("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${swiftStringArray("expToolNames", expToolNames)}
@@ -661,6 +678,10 @@ ${kotlinStringArray("steerCommandDescriptions", steerCommandDescriptions)}
 ${kotlinStringArray("steerCommandArgHints", steerCommandArgHints)}
 ${kotlinStringArray("steerCommandAgents", steerCommandAgents)}
 ${kotlinBoolArray("steerCommandConfirm", steerCommandConfirm)}
+${kotlinStringArray("mcpCatalogIds", mcpCatalogIds)}
+${kotlinStringArray("mcpCatalogNames", mcpCatalogNames)}
+${kotlinStringArray("mcpCatalogUrls", mcpCatalogUrls)}
+${kotlinStringArray("mcpCatalogMarks", mcpCatalogMarks)}
     const val expToolPrefix: String = "${contract.expToolDisplay.prefix}"
 ${kotlinStringArray("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${kotlinStringArray("expToolNames", expToolNames)}
@@ -827,6 +848,10 @@ ${rustStrSlice("steerCommandDescriptions", steerCommandDescriptions)}
 ${rustStrSlice("steerCommandArgHints", steerCommandArgHints)}
 ${rustStrSlice("steerCommandAgents", steerCommandAgents)}
 ${rustBoolSlice("steerCommandConfirm", steerCommandConfirm)}
+${rustStrSlice("mcpCatalogIds", mcpCatalogIds)}
+${rustStrSlice("mcpCatalogNames", mcpCatalogNames)}
+${rustStrSlice("mcpCatalogUrls", mcpCatalogUrls)}
+${rustStrSlice("mcpCatalogMarks", mcpCatalogMarks)}
 pub const EXP_TOOL_PREFIX: &str = "${contract.expToolDisplay.prefix}";
 ${rustStrSlice("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${rustStrSlice("expToolNames", expToolNames)}

@@ -202,6 +202,29 @@ pub fn devices_list(
 }
 
 // ---------------------------------------------------------------------------
+// Teams
+// ---------------------------------------------------------------------------
+
+/// One `exponential_teams_list` row (the caller's memberships).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteTeam {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub slug: String,
+    /// `owner` | `member`.
+    #[serde(default)]
+    pub role: String,
+}
+
+/// `exponential_teams_list` — every team the caller belongs to, by name.
+pub fn teams_list(trpc: &TrpcClient) -> Result<Vec<RemoteTeam>, ApiError> {
+    call_typed(trpc, "exponential_teams_list", &serde_json::json!({ "limit": MAX_PAGE }))
+}
+
+// ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
 

@@ -1246,6 +1246,15 @@ Exceptions — three operating-system marks (EXP-924), not Lucide glyphs:
   packages/icons/svg/). Offered in the device icon picker; the marks are
   trademarks of their respective owners, used nominatively.
 
+Exceptions — the MCP catalog's brand marks (brand-*.svg), not Lucide
+glyphs:
+- brand-github.svg … brand-todoist.svg — the LIGHT SVGs of selfh.st/icons
+  (https://github.com/selfhst/icons, CC-BY-4.0), copied byte-for-byte by
+  packages/icons/scripts/generate.ts from packages/icons/brand/ (512-unit
+  viewBox, white fills; never recoloured or redrawn). They label the
+  well-known hosted MCP servers in Settings › MCP servers; each mark is a
+  trademark of its owner (named in icons.json `brand`), used nominatively.
+
 Exceptions — two sign-in brand marks (EXP-9), not Lucide glyphs:
 - apple.svg  — Apple logo glyph (path from Simple Icons, CC0), rendered
   monochrome on the "Sign in with Apple" button.
@@ -1289,6 +1298,18 @@ The collection is licensed CC-BY-4.0. The Apple logo, the Windows logo and Tux
 are trademarks of their respective owners, used nominatively to let a user
 label a machine by the operating system it runs; the licence below covers the
 icon files, not the marks.
+
+The MCP catalog (Settings › MCP servers, web and desktop) draws the brand mark
+of each well-known hosted server from the same collection: the LIGHT SVGs of
+github, gitlab, linear, jira, notion, slack, sentry, stripe, paypal, supabase,
+cloudflare, netlify, figma, airtable, box, dropbox, posthog and todoist,
+vendored verbatim under packages/icons/brand/ (512-unit viewBox, white fills).
+packages/icons emits each one unchanged: as a React component on the web and
+as the file itself under apps/desktop/assets/icons/brand-<slug>.svg; sizing is
+the only thing a call site changes. Those marks are their owners' trademarks
+(listed under Trademarks), reproduced nominatively so a member can tell which
+service a server belongs to; the licence below covers the icon files, not the
+marks. iOS and Android have no MCP surface and bundle none of them.
 
 ..............................................................................
 CC-BY-4.0 — selfh.st/icons
@@ -1502,8 +1523,8 @@ SOFTWARE.
 
 The marks below are reproduced NOMINATIVELY: each one identifies the product
 or platform it labels, so that a person can tell which sign-in provider,
-coding agent or download they are choosing. They are the property of their
-respective owners.
+coding agent, download or hosted MCP server they are choosing. They are the
+property of their respective owners.
 
 They are not open-source components and no open-source licence is claimed over
 them. Nothing in this file grants any right to use them. Exponential is not

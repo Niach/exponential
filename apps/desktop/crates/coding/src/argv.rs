@@ -173,9 +173,9 @@ pub enum AgentMcp {
     },
 }
 
-/// EXP-792: ONE team MCP server resolved for a launch — the non-secret
-/// config from `mcpServers.listForDevice` joined with the ENV VAR NAMES the
-/// launcher minted for its device-held secrets. Every credential position is
+/// EXP-792: ONE team MCP server resolved for a launch — the config
+/// `mcpServers.resolveForLaunch` returned, with the ENV VAR NAMES the
+/// launcher minted for the member's credential values. Every credential position is
 /// a `${VAR}` REFERENCE the agent expands from the child's own environment
 /// (claude header values, codex `bearer_token_env_var`/`env_http_headers`), so
 /// no generated config ever carries a value. `exponential` itself is NOT one of these — it keeps its dedicated
@@ -189,7 +189,7 @@ pub struct McpServerWire {
     /// row's name lowercased with non-alphanumerics folded to `_`.
     pub name: String,
     pub transport: McpWireTransport,
-    /// Header name → value, where a device-held value is the literal
+    /// Header name → value, where a credential value is the literal
     /// `${VAR}` reference (`Authorization` → `Bearer ${EXP_MCP_TOKEN_1}` for
     /// an OAuth server). `http` only.
     pub headers: Vec<(String, String)>,

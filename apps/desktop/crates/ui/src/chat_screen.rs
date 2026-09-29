@@ -371,12 +371,9 @@ pub(crate) struct ChatScreenView {
     /// the person already chose, so `start` runs straight through. Cleared by
     /// [`Self::after_started`] and by every subject change.
     stack_choice: Option<StackChoice>,
-    /// EXP-792: the team's MCP servers + THIS machine's readiness, one fetch
-    /// per team; `None` while the fetch is out.
-    mcp: Option<(
-        Vec<api::mcp_servers::McpServerListEntry>,
-        Vec<api::mcp_servers::McpReadinessReport>,
-    )>,
+    /// EXP-792: the team's MCP servers with the person's own connection to
+    /// each, one fetch per team; `None` while the fetch is out.
+    mcp: Option<Vec<api::mcp_servers::McpServerListEntry>>,
     mcp_team: Option<String>,
     images: PendingImages,
     /// The image strip's notice (too many / too big).
@@ -994,31 +991,25 @@ impl ChatScreenView {
         .detach();
     }
 
-    /// EXP-792: one `mcpServers.list` per team plus THIS machine's readiness.
+    /// EXP-792: one `mcpServers.list` per team (it carries the person's own
+    /// connection to each server).
     fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
         if self.team_id == self.mcp_team {
             return;
         }
         self.mcp_team = self.team_id.clone();
         self.mcp = None;
-        let (Some(team), Some(trpc), Some(account)) = (
-            self.team_id.clone(),
-            queries::trpc_client(cx),
-            queries::active_account(cx),
-        ) else {
+        let (Some(team), Some(trpc)) = (self.team_id.clone(), queries::trpc_client(cx)) else {
             return;
         };
-        let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
         cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_executor()
                 .spawn(async move {
-                    crate::settings::mcp_servers::list_with_local_readiness(
-                        &trpc, &team, &data_dir, &account.id,
-                    )
-                    .inspect_err(|err| log::debug!("[ui] mcpServers.list for chat: {err}"))
-                    .ok()
-                    .map(|loaded| (team, loaded))
+                    api::mcp_servers::list(&trpc, &team)
+                        .inspect_err(|err| log::debug!("[ui] mcpServers.list for chat: {err}"))
+                        .ok()
+                        .map(|loaded| (team, loaded))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -1035,63 +1026,24 @@ impl ChatScreenView {
         .detach();
     }
 
-    /// EXP-792: the team's servers as the pick offers them, resolved against
-    /// the machine the composer currently targets.
+    /// EXP-792: the team's servers as the pick offers them, greyed where the
+    /// person has not connected (the server holds the credential, so the
+    /// target machine does not matter).
     fn mcp_options(&self) -> Vec<launch_options::McpServerOption> {
-        let Some((entries, local)) = self.mcp.as_ref() else {
+        let Some(entries) = self.mcp.as_ref() else {
             return Vec::new();
         };
-        let now = chrono::Utc::now();
-        let remote = self.remote_device();
         entries
             .iter()
-            .map(|entry| {
-                let (readiness, label) = match remote {
-                    Some(device) => (
-                        entry
-                            .readiness
-                            .iter()
-                            .find(|row| row.device_id.as_deref() == Some(device.device_id.as_str()))
-                            .map(crate::settings::mcp_servers::Readiness::from),
-                        Some(device.label.as_str()),
-                    ),
-                    None => (
-                        local
-                            .iter()
-                            .find(|row| row.server_id == entry.config.id)
-                            .map(crate::settings::mcp_servers::Readiness::from),
-                        None,
-                    ),
-                };
-                launch_options::McpServerOption {
-                    id: entry.config.id.clone(),
-                    name: entry.config.name.clone(),
-                    blocked: launch_options::mcp_block_reason(
-                        &entry.config.auth,
-                        readiness,
-                        label,
-                        now,
-                    ),
-                    enabled_by_default: entry.config.enabled_by_default,
-                }
+            .map(|entry| launch_options::McpServerOption {
+                id: entry.config.id.clone(),
+                name: entry.config.name.clone(),
+                blocked: launch_options::mcp_block_reason(&entry.connection),
+                enabled_by_default: entry.config.enabled_by_default,
+                url: entry.config.url.clone(),
+                command: entry.config.command.clone(),
             })
             .collect()
-    }
-
-    /// EXP-792: the first PICKED server the target machine cannot satisfy.
-    fn mcp_blocker(&self) -> Option<coding::McpBlocker> {
-        let launch = self.launch_ref();
-        let picked = launch.mcp_server_ids();
-        launch
-            .mcp_servers()
-            .iter()
-            .filter(|server| picked.iter().any(|id| id == &server.id))
-            .find_map(|server| {
-                server.blocked.clone().map(|reason| coding::McpBlocker {
-                    server: server.name.clone(),
-                    reason,
-                })
-            })
     }
 
     // ── device (EXP-696) ──────────────────────────────────────────────────
@@ -1314,9 +1266,6 @@ impl ChatScreenView {
                     }
                 }
             }
-        }
-        if let Some(blocker) = self.mcp_blocker() {
-            return Some(blocker.to_string().into());
         }
         let text = self.input.read(cx).value().to_string();
         let kind = self.subject_kind();

@@ -45,10 +45,7 @@ mod invite_form;
 mod resend_invite_dialog;
 mod issues;
 mod labels;
-// EXP-792: `pub(crate)` because the READINESS vocabulary lives here —
-// `launch_options`' multiselect greys a row with the same rule the pane's
-// status line reads, and start-coding's blocker with the same sentences.
-pub(crate) mod mcp_servers;
+mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
 // re-renders on its own state).
 mod mcp_server_dialog;
@@ -195,11 +192,11 @@ pub(crate) enum SettingsSection {
     /// card, split out into its own pane because the desktop nav is one
     /// section per page. Owner-only.
     Helpdesk,
-    /// EXP-792/EXP-807: the team's MCP servers — the registry (non-secret
-    /// config only) plus THIS machine's readiness and the device-side
-    /// sign-in / typed-secret actions. Member-visible: every member reads
-    /// the list and holds their OWN credentials; the owner-only writes are
-    /// gated inside the pane, like the router behind it.
+    /// EXP-792/EXP-807: the team's MCP servers — the registry plus the
+    /// person's OWN connection to each (Connect / Set key / Disconnect; the
+    /// server holds the credential). Member-visible: every member reads the
+    /// list and connects for themselves; the owner-only writes are gated
+    /// inside the pane, like the router behind it.
     McpServers,
     /// This-device tools (EXP-288: renamed from "Coding" — repos root,
     /// branch prefix, terminal shell).
@@ -615,9 +612,8 @@ impl Render for SettingsView {
                 SettingsSection::Widget => {
                     self.widget.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
-                // Same reason, plus one of its own: the readiness line is
-                // computed from THIS machine's store, and a sign-in run from
-                // the CLI (or another window) has to show on re-entry.
+                // Same reason, plus one of its own: a connection made on the
+                // web or from the CLI has to show on re-entry.
                 SettingsSection::McpServers => {
                     self.mcp_servers.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
@@ -1269,8 +1265,15 @@ where
 }
 
 /// Open a URL through the robust opener chain (never a raw xdg-open),
-/// off the foreground thread.
+/// off the foreground thread. Only an `http(s)://` URL reaches the OS opener
+/// (`api::opener::is_web_url`): every settings link is a web page, and a
+/// server- or config-derived value must never launch a `file:` or
+/// custom-scheme handler.
 pub(crate) fn open_url(cx: &mut App, url: String) {
+    if !api::opener::is_web_url(&url) {
+        log::warn!("[ui] open-in-browser refused a non-http(s) URL");
+        return;
+    }
     cx.background_executor()
         .spawn(async move {
             if let Err(err) = api::opener::open_in_browser(&url) {

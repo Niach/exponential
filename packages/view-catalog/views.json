@@ -1940,7 +1940,7 @@
       "id": "settings-mcp-servers",
       "group": "settings",
       "title": "Settings · MCP servers",
-      "blurb": "The team's MCP server registry: names, transport, the header and variable names a machine must supply, and the per-device readiness strip. Member-visible, owner-edited.",
+      "blurb": "The team's MCP servers: one row per server with where it lives, how many members connected, and the viewer's one action (Connect, Set key, Connected, or No sign-in needed). Each member connects their own account once; the server holds the credential. Owners add from a catalog or a pasted URL, with the technical fields behind Advanced.",
       "order": 20,
       "web": {
         "route": "/t/$teamSlug/settings/mcp-servers",

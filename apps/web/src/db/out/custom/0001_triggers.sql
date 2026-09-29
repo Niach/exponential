@@ -97,7 +97,7 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON mcp_grants FOR EACH
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON mcp_servers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON pins FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_drafts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON mcp_server_readiness FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON mcp_credentials FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_number_counters FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- device_worktrees guards like the board_deleted_at mirrors: the share
 -- fan-out (propagate_device_shared_team, #13) only flips shared_team_ids, and

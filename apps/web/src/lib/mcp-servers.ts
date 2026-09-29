@@ -1,8 +1,8 @@
 // EXP-792: presentation + client-side rules for team MCP servers. The rows
 // come over tRPC (`mcpServers.list`, server-only: never a shape) and carry
-// NON-SECRET config only — names, url, header/env NAMES, the auth kind — plus
-// a per-device readiness matrix the devices report from their secret stores.
-// Nothing here ever sees a credential.
+// NON-SECRET config — names, url, header/env NAMES, the auth kind — plus the
+// CALLER's own `connection` (the server holds each member's credential,
+// encrypted; nothing here ever sees one) and how many members connected.
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
 import type { trpc } from "@/lib/trpc-client"
 
@@ -10,7 +10,26 @@ export type McpServerList = Awaited<
   ReturnType<typeof trpc.mcpServers.list.query>
 >
 export type McpServerRow = McpServerList[number]
-export type McpServerReadinessEntry = McpServerRow[`readiness`][number]
+export type McpConnection = McpServerRow[`connection`]
+export type McpConnectionStatus = McpConnection[`status`]
+export type McpProbeResult = Awaited<
+  ReturnType<typeof trpc.mcpServers.probe.mutate>
+>
+
+/** Whether the browser may navigate to a `connect` authorize URL: absolute
+ * http(s) only. The server already refuses anything else; this is the last
+ * gate before `window.location.assign` (never a `javascript:`/`data:` URL). */
+export function isNavigableAuthorizeUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === `https:` || url.protocol === `http:`
+  } catch {
+    return false
+  }
+}
+
+/** The toast line for an authorize URL the browser refused to open. */
+export const UNSAFE_AUTHORIZE_URL_MESSAGE = `The provider's sign-in page is not an http(s) URL.`
 
 export const MCP_TRANSPORT_LABELS: Record<McpTransport, string> = {
   http: `HTTP`,
@@ -18,126 +37,93 @@ export const MCP_TRANSPORT_LABELS: Record<McpTransport, string> = {
 }
 
 export const MCP_AUTH_LABELS: Record<McpAuth, string> = {
-  none: `No auth`,
+  none: `No sign-in`,
   oauth: `OAuth`,
-  secret: `Secret`,
+  secret: `API key`,
 }
 
-/** The readiness row a device reported for `server`, matched on the steer
- * `deviceId` (the devices row's `device_id` column, what every picker keys
- * on), or null when the device never reported for it. */
-export function readinessFor(
-  server: Pick<McpServerRow, `readiness`>,
-  deviceId: string | null | undefined
-): McpServerReadinessEntry | null {
-  if (!deviceId) return null
-  return server.readiness.find((entry) => entry.deviceId === deviceId) ?? null
-}
-
-/** Whether an OAuth token the device holds is already past its expiry — the
- * device refreshes on its heartbeat, so this is only ever a beat late. */
-export function readinessExpired(
-  entry: Pick<McpServerReadinessEntry, `expiresAt`>,
-  now: Date
+/** A run can use the server as the caller stands: nothing to sign in to, or
+ * the caller's own credential is usable. Everything else = "Connect first". */
+export function mcpServerReady(
+  server: Pick<McpServerRow, `connection`>
 ): boolean {
-  if (!entry.expiresAt) return false
-  const at = new Date(entry.expiresAt).getTime()
-  return !Number.isNaN(at) && at <= now.getTime()
+  const status = server.connection.status
+  return status === `connected` || status === `not_needed`
 }
 
-/** `Ready`, `Signed in until 14:05`, or the error the device reported. A
- * missing report reads as the per-auth "nothing on the device yet" line. */
-export function readinessLabel(
-  server: Pick<McpServerRow, `auth` | `transport`>,
-  entry: McpServerReadinessEntry | null,
-  now: Date
-): string {
-  if (!entry) {
-    if (server.auth === `oauth`) return `Not signed in`
-    if (server.auth === `secret`) return `Not set`
-    return `Not checked yet`
-  }
-  if (entry.ready) {
-    if (entry.expiresAt) {
-      if (readinessExpired(entry, now)) return `Expired`
-      return `Signed in until ${formatUntil(entry.expiresAt, now)}`
-    }
-    return `Ready`
-  }
-  return entry.error || (server.auth === `oauth` ? `Not signed in` : `Not set`)
-}
-
-/** `14:05` today, `Tue 14:05` within the week, else `12 Sep`. Locale-formatted
- * so the hour reads the way the person's clock does. */
-function formatUntil(iso: string, now: Date): string {
-  const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return iso
-  const time = at.toLocaleTimeString(undefined, {
-    hour: `2-digit`,
-    minute: `2-digit`,
-  })
-  const sameDay = at.toDateString() === now.toDateString()
-  if (sameDay) return time
-  const withinWeek = at.getTime() - now.getTime() < 7 * 86_400_000
-  if (withinWeek) {
-    return `${at.toLocaleDateString(undefined, { weekday: `short` })} ${time}`
-  }
-  return at.toLocaleDateString(undefined, { day: `numeric`, month: `short` })
-}
-
-/** A server the device can connect right now: `none` needs nothing; the other
- * kinds need a ready, unexpired report from THAT device. */
-export function serverReadyOn(
-  server: Pick<McpServerRow, `auth` | `readiness`>,
-  deviceId: string | null | undefined,
-  now: Date
-): boolean {
-  if (server.auth === `none`) return true
-  const entry = readinessFor(server, deviceId)
-  if (!entry || !entry.ready) return false
-  return !readinessExpired(entry, now)
-}
-
-/** The tooltip reason a launch multiselect greys a server out with, or null
- * when the chosen device is ready for it. */
-export function serverBlockReason(
-  server: Pick<McpServerRow, `auth` | `readiness` | `transport`>,
-  device: { deviceId: string; deviceLabel: string } | null | undefined,
-  now: Date
+/** The picker's muted second line for a server the caller cannot use yet. */
+export function mcpNotReadyLabel(
+  server: Pick<McpServerRow, `connection`>
 ): string | null {
-  if (server.auth === `none`) return null
-  if (!device) return null
-  if (serverReadyOn(server, device.deviceId, now)) return null
-  const label = device.deviceLabel || device.deviceId
-  const entry = readinessFor(server, device.deviceId)
-  if (entry && !entry.ready && entry.error) return `${entry.error} on ${label}`
-  if (server.auth === `oauth`) return `Not signed in on ${label}`
-  return `No value set on ${label}`
+  switch (server.connection.status) {
+    case `connected`:
+    case `not_needed`:
+      return null
+    case `expired`:
+    case `error`:
+      return `Reconnect first`
+    default:
+      return `Connect first`
+  }
 }
 
-/** The one line telling a person how a `secret` value gets onto a machine:
- * the desktop pane or the CLI. `name` is the ONE declared header/env name. */
-export function secretSetupHint(
-  server: Pick<McpServerRow, `name` | `transport` | `headerNames` | `envNames`>
+/** Where the server lives, for the row's second line: the URL's host, or the
+ * command line of a stdio server. */
+export function mcpServerTarget(
+  server: Pick<McpServerRow, `transport` | `url` | `command` | `args`>
 ): string {
-  const name =
-    (server.transport === `http` ? server.headerNames : server.envNames)[0] ??
-    `<NAME>`
-  return `Set on the device: Settings › MCP servers in the desktop app, or run \`exponential mcp set-secret ${server.name} ${name}\`.`
+  if (server.transport === `http`) {
+    if (!server.url) return ``
+    try {
+      return new URL(server.url).host
+    } catch {
+      return server.url
+    }
+  }
+  return [server.command, ...server.args].filter(Boolean).join(` `)
+}
+
+/** Same URL modulo a trailing slash and case of the host, so a catalog tile
+ * can tell it is already on the team. */
+export function sameMcpUrl(left: string | null, right: string): boolean {
+  if (!left) return false
+  const norm = (value: string) => {
+    try {
+      const url = new URL(value.trim())
+      return `${url.protocol}//${url.host.toLowerCase()}${url.pathname.replace(/\/+$/, ``)}`
+    } catch {
+      return value.trim().replace(/\/+$/, ``)
+    }
+  }
+  return norm(left) === norm(right)
+}
+
+/** A lowercase name off a URL's host when the probe offers none:
+ * `mcp.linear.app` → `linear`. */
+export function nameFromUrl(value: string): string {
+  try {
+    const parts = new URL(value).hostname.split(`.`).filter(Boolean)
+    const meaningful = parts.filter((part) => part !== `mcp` && part !== `www`)
+    return (meaningful.length > 1 ? meaningful[meaningful.length - 2] : meaningful[0]) ?? ``
+  } catch {
+    return ``
+  }
 }
 
 /** The seed for a launch multiselect: the saved pick for the team when one
  * exists (clamped to rows that still exist), else the `enabledByDefault`
- * rows. Order follows the list (alphabetical from the server). */
+ * rows — either way ONLY servers the caller can use right now: a server they
+ * have not connected is never preselected. Order follows the list. */
 export function preselectMcpServerIds(
-  servers: readonly Pick<McpServerRow, `id` | `enabledByDefault`>[],
+  servers: readonly Pick<McpServerRow, `id` | `enabledByDefault` | `connection`>[],
   saved: readonly string[] | null
 ): string[] {
+  const ready = servers.filter(mcpServerReady)
   if (saved !== null) {
-    const known = new Set(servers.map((server) => server.id))
+    const known = new Set(ready.map((server) => server.id))
     return saved.filter((id) => known.has(id))
   }
-  return servers
+  return ready
     .filter((server) => server.enabledByDefault)
     .map((server) => server.id)
 }
@@ -166,7 +152,7 @@ export const EMPTY_MCP_SERVER_DRAFT: McpServerDraft = {
   envNames: [],
   scopes: [],
   auth: `none`,
-  enabledByDefault: false,
+  enabledByDefault: true,
 }
 
 export function draftFromServer(server: McpServerRow): McpServerDraft {
@@ -188,25 +174,32 @@ export function draftFromServer(server: McpServerRow): McpServerDraft {
  * mirrored so a chip is refused at the field rather than at submit. */
 export const MCP_VARIABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/
 
+/** A URL an HTTP server may live at: https, or http on loopback. Null = ok. */
+export function mcpUrlProblem(value: string): string | null {
+  const url = value.trim()
+  if (url.length === 0) return `Paste the server's URL.`
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return `That URL does not parse.`
+  }
+  const loopback =
+    parsed.hostname === `localhost` || parsed.hostname === `127.0.0.1`
+  if (parsed.protocol !== `https:` && !(parsed.protocol === `http:` && loopback)) {
+    return `The URL must be https:// (http:// only for localhost).`
+  }
+  return null
+}
+
 /** The cross-field rules `mcpServers.create/update` enforce, client-side, so
  * the dialog can say why before the round trip. Null = submittable. */
 export function validateMcpServerDraft(draft: McpServerDraft): string | null {
   if (draft.name.trim().length === 0) return `Give the server a name.`
   const http = draft.transport === `http`
   if (http) {
-    const url = draft.url.trim()
-    if (url.length === 0) return `An HTTP server needs a URL.`
-    let parsed: URL
-    try {
-      parsed = new URL(url)
-    } catch {
-      return `That URL does not parse.`
-    }
-    const loopback =
-      parsed.hostname === `localhost` || parsed.hostname === `127.0.0.1`
-    if (parsed.protocol !== `https:` && !(parsed.protocol === `http:` && loopback)) {
-      return `The URL must be https:// (http:// only for localhost).`
-    }
+    const problem = mcpUrlProblem(draft.url)
+    if (problem) return problem
   } else if (draft.command.trim().length === 0) {
     return `A command server needs a command.`
   }
@@ -221,8 +214,15 @@ export function validateMcpServerDraft(draft: McpServerDraft): string | null {
   }
   if (draft.auth === `secret` && names.length !== 1) {
     return http
-      ? `A secret server declares exactly one header name: the one that carries the secret.`
-      : `A secret server declares exactly one variable name: the one that carries the secret.`
+      ? `An API-key server declares exactly one header name (Advanced): the one that carries the key.`
+      : `An API-key server declares exactly one variable name (Advanced): the one that carries the key.`
   }
   return null
+}
+
+/** The one-line "how do members get in" the dialog and rows say. */
+export function mcpAuthLine(auth: McpAuth): string {
+  if (auth === `oauth`) return `Members sign in with their own account (OAuth)`
+  if (auth === `secret`) return `Members paste their own API key`
+  return `No sign-in needed`
 }

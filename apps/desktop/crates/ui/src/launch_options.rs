@@ -34,7 +34,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_component::{h_flex, select::Select, v_flex, ActiveTheme as _, Disableable as _, Icon};
+use gpui_component::{h_flex, select::Select, ActiveTheme as _, Disableable as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
 
@@ -54,20 +54,44 @@ pub(crate) const CLI_DEFAULT_LABEL: &str = "CLI default";
 // ---------------------------------------------------------------------------
 
 /// One team MCP server as the run multiselect offers it, ALREADY resolved
-/// against the machine the run lands on: the caller (which is the only thing
-/// that knows whether this is a local or a remote start) computes
-/// [`Self::blocked`] once per target, so the row itself is pure.
+/// against the person's own connection (the server holds it, so it is the
+/// same whichever machine the run lands on).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct McpServerOption {
     pub(crate) id: String,
     pub(crate) name: String,
-    /// Why the TARGET machine cannot satisfy it (web `serverBlockReason`);
-    /// `None` = ready there. A blocked server is GREYED, never hidden and
-    /// never unpickable — picking one anyway is how a person finds out what
-    /// to fix, and the launch blocker then names it (web parity).
+    /// Why the person cannot use it yet ([`mcp_block_reason`]); `None` =
+    /// ready. A blocked server is GREYED and never preselected, but stays
+    /// pickable: the launch then starts without it (a warning, never a
+    /// blocker), so connecting it in Settings before the start is enough.
     pub(crate) blocked: Option<String>,
-    /// Seeds the FIRST pick (`enabledByDefault`).
+    /// Seeds the FIRST pick (`enabledByDefault`) — ready servers only.
     pub(crate) enabled_by_default: bool,
+    /// The row's glyph + second line come from these
+    /// ([`crate::picker::mcp_server_picker::mcp_server_icon`]).
+    pub(crate) url: Option<String>,
+    pub(crate) command: Option<String>,
+}
+
+/// The options as the shared picker reads them
+/// ([`crate::picker::mcp_server_picker::McpPickerServer`]): a blocked
+/// server keeps its reason as the second line and stays PICKABLE (the
+/// launch then starts without it), so `disabled` is never set — the row
+/// only dims ([`more_options_popover`]).
+pub(crate) fn mcp_picker_servers(
+    servers: &[McpServerOption],
+) -> Vec<crate::picker::mcp_server_picker::McpPickerServer> {
+    servers
+        .iter()
+        .map(|server| crate::picker::mcp_server_picker::McpPickerServer {
+            id: server.id.clone(),
+            name: server.name.clone(),
+            url: server.url.clone(),
+            command: server.command.clone(),
+            description: server.blocked.clone(),
+            disabled: false,
+        })
+        .collect()
 }
 
 /// The multiselect's trailing value — web `mcpPickSummary`, string for
@@ -85,12 +109,13 @@ pub(crate) fn mcp_pick_summary(servers: &[McpServerOption], selected: &[String])
     }
 }
 
-/// The seed of a fresh multiselect: the servers flagged `enabledByDefault`
-/// (web `preselectMcpServerIds` with no saved pick).
+/// The seed of a fresh multiselect: the READY servers flagged
+/// `enabledByDefault` (web `preselectMcpServerIds` with no saved pick) — a
+/// server you have not connected is never preselected.
 pub(crate) fn mcp_default_ids(servers: &[McpServerOption]) -> Vec<String> {
     servers
         .iter()
-        .filter(|server| server.enabled_by_default)
+        .filter(|server| server.enabled_by_default && server.blocked.is_none())
         .map(|server| server.id.clone())
         .collect()
 }
@@ -104,56 +129,28 @@ fn seed_or_clamp_mcp(seeded: &mut bool, selected: &mut Vec<String>, servers: &[M
         *seeded = true;
     } else {
         // A server removed on the web under an open dialog must not
-        // reach the launcher as an "unknown server" blocker.
+        // reach the launcher as an "unknown server" skip.
         selected.retain(|id| servers.iter().any(|server| &server.id == id));
     }
 }
 
-/// EXP-792 — why a machine cannot satisfy a server (web
-/// `serverBlockReason`). `entry` is that machine's readiness row: the local
-/// read for this install, the synced matrix row for a remote target.
-///
-/// The sentence is the LAUNCHER's own ([`coding::mcp_servers`]
-/// `NOT_SIGNED_IN` / `sign_in_expired`), so the greyed picker row, the
-/// dialog's launch blocker and the refused run all read identically. Those
-/// sentences say "on this machine" because the DEVICE wrote them; naming a
-/// remote target therefore SUBSTITUTES the label into them rather than
-/// suffixing one, which is what would otherwise produce "not signed in on
-/// this machine on the mini". `device_label: None` = this machine, and the
-/// sentence stands as written.
-pub(crate) fn mcp_block_reason(
-    auth: &str,
-    entry: Option<crate::settings::mcp_servers::Readiness<'_>>,
-    device_label: Option<&str>,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Option<String> {
-    use crate::settings::mcp_servers::ready_on;
-    if ready_on(auth, entry, now) {
+/// The greyed row's caption for a server the person has not connected.
+pub(crate) const MCP_CONNECT_FIRST: &str = "Connect first in Settings → MCP servers";
+/// … and for one whose sign-in expired or whose refresh failed.
+pub(crate) const MCP_RECONNECT_FIRST: &str = "Reconnect first in Settings → MCP servers";
+
+/// EXP-792 — why the person cannot use a server yet (web `mcpNotReadyLabel`
+/// plus where to go): `None` when their connection is usable (`connected`)
+/// or none is needed (`not_needed`).
+pub(crate) fn mcp_block_reason(connection: &api::mcp_servers::McpConnection) -> Option<String> {
+    if connection.is_ready() {
         return None;
     }
-    let sentence = entry
-        .filter(|entry| !entry.ready)
-        .and_then(|entry| entry.error.map(str::trim).filter(|error| !error.is_empty()))
-        .map(str::to_string)
-        .unwrap_or_else(|| match auth {
-            "oauth" => coding::mcp_servers::NOT_SIGNED_IN.to_string(),
-            _ => "no value on this machine".to_string(),
-        });
-    Some(name_the_machine(sentence, device_label))
-}
-
-/// Point a device-written sentence at the machine it is ABOUT. Substituting
-/// beats appending: `sign_in_expired` puts "on this machine" mid-sentence,
-/// and a suffix would leave both in.
-fn name_the_machine(sentence: String, device_label: Option<&str>) -> String {
-    let Some(label) = device_label.map(str::trim).filter(|label| !label.is_empty()) else {
-        return sentence;
-    };
-    let named = sentence.replace("this machine", label);
-    if named != sentence {
-        return named;
+    Some(match connection.status.as_str() {
+        "expired" | "error" => MCP_RECONNECT_FIRST,
+        _ => MCP_CONNECT_FIRST,
     }
-    format!("{sentence} on {label}")
+    .to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,29 +1001,17 @@ impl LaunchOptionsSection {
         self.mcp_seeded = false;
     }
 
-    /// The picked server ids — what [`Self::options`] puts on the wire, and
-    /// what a launch pre-check walks.
-    pub(crate) fn mcp_server_ids(&self) -> &[String] {
-        &self.mcp_selected
-    }
-
-    /// The offered rows, for a caller that wants to name a blocked pick.
-    pub(crate) fn mcp_servers(&self) -> &[McpServerOption] {
-        &self.mcp_servers
-    }
-
-    /// Tick/untick one server. Kept in REGISTRY order so the launcher's
+    /// The picker's new set. Kept in REGISTRY order so the launcher's
     /// per-server env positions (`EXP_MCP_TOKEN_<n>`) follow the list the
-    /// person sees, not the order they happened to click in.
-    pub(crate) fn toggle_mcp_server(&mut self, id: &str) {
-        if let Some(at) = self.mcp_selected.iter().position(|picked| picked == id) {
-            self.mcp_selected.remove(at);
-            return;
-        }
-        self.mcp_selected.push(id.to_string());
-        let order: Vec<&str> = self.mcp_servers.iter().map(|s| s.id.as_str()).collect();
-        self.mcp_selected
-            .sort_by_key(|id| order.iter().position(|known| known == id).unwrap_or(usize::MAX));
+    /// person sees, not the order they happened to click in; an id the
+    /// list no longer offers is dropped.
+    pub(crate) fn set_mcp_selected(&mut self, ids: Vec<String>) {
+        self.mcp_selected = self
+            .mcp_servers
+            .iter()
+            .filter(|server| ids.iter().any(|id| id == &server.id))
+            .map(|server| server.id.clone())
+            .collect();
     }
 
     /// EXP-872: every signed-in login the TARGET machine reports, ACROSS
@@ -1376,8 +1361,9 @@ pub(crate) struct MoreOptions {
 /// The popover surface is the ONLY edge: the rows are hairline-divided and
 /// carry no fill and no radius of their own
 /// ([`surface::glass_group_rows_bare`]) — a `glass_group` in here would be a
-/// card inside a card. The MCP servers are drawn as TICK ROWS in the same
-/// ladder rather than behind a second popover: one overlay, one click.
+/// card inside a card. The MCP servers row is the shared multi picker's
+/// trigger (web `McpServerPicker` off a `row` trigger): label leading, the
+/// pick's summary trailing, the servers behind it by glyph + host.
 pub(crate) fn more_options_popover<V: Render>(
     prefix: &'static str,
     trigger: Button,
@@ -1391,7 +1377,7 @@ pub(crate) fn more_options_popover<V: Render>(
     Popover::new(SharedString::from(format!("{prefix}-more-popover")))
         .p_1()
         .trigger(trigger)
-        .content(move |_, _window, cx| {
+        .content(move |_, window, cx| {
             let Some(options) = view
                 .upgrade()
                 .and_then(|entity| read(entity.read(cx)).map(|section| section.more_options(cx)))
@@ -1475,72 +1461,57 @@ pub(crate) fn more_options_popover<V: Render>(
                 );
             }
 
-            // EXP-792: the team's MCP servers, ticked in place.
+            // EXP-792: the team's MCP servers behind the shared picker. The
+            // row IS the trigger; a blocked server reads its reason as the
+            // second line and DIMS, but still toggles (the launch starts
+            // without it — a warning, never a blocker).
             if !options.mcp_servers.is_empty() {
-                rows.push(
-                    surface::bare_row_shell().child("MCP servers").child(
-                        div().text_xs().text_color(muted).child(SharedString::from(
-                            mcp_pick_summary(&options.mcp_servers, &options.mcp_selected),
-                        )),
-                    ),
-                );
-                for server in &options.mcp_servers {
-                    let checked = options.mcp_selected.iter().any(|id| id == &server.id);
-                    let id = server.id.clone();
-                    let view = view.clone();
-                    let blocked = server.blocked.clone();
-                    // A tick row is CLICKABLE, so it is stateful; the plain
-                    // wrapper is what carries the ladder's hairline.
-                    rows.push(div().w_full().child(
-                        surface::bare_row_shell()
-                            .id(SharedString::from(format!("{prefix}-mcp-{}", server.id)))
-                            .cursor_pointer()
-                            .when(blocked.is_some(), |row| row.opacity(0.5))
-                            .child(
-                                h_flex()
-                                    .min_w_0()
-                                    .gap_2()
-                                    .items_center()
-                                    // The ROW owns the click — the glyph is a
-                                    // MARK, not a second control.
-                                    .children(crate::pickers::selection_glyph(
-                                        true,
-                                        if checked {
-                                            crate::pickers::SelectionState::Selected
-                                        } else {
-                                            crate::pickers::SelectionState::Unselected
-                                        },
-                                        cx,
-                                    ))
-                                    .child(
-                                        v_flex()
-                                            .min_w_0()
-                                            .gap_0p5()
-                                            .child(
-                                                div()
-                                                    .truncate()
-                                                    .child(SharedString::from(server.name.clone())),
-                                            )
-                                            .children(blocked.map(|reason| {
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(muted)
-                                                    .truncate()
-                                                    .child(SharedString::from(reason))
-                                            })),
-                                    ),
-                            )
-                            .on_click(move |_, _window, cx| {
-                                if let Some(entity) = view.upgrade() {
-                                    let id = id.clone();
-                                    entity.update(cx, |entity, cx| {
-                                        access(entity).toggle_mcp_server(&id);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    ));
-                }
+                let servers = mcp_picker_servers(&options.mcp_servers);
+                let dimmed: Vec<String> = options
+                    .mcp_servers
+                    .iter()
+                    .filter(|server| server.blocked.is_some())
+                    .map(|server| server.id.clone())
+                    .collect();
+                let view = view.clone();
+                let trigger = surface::bare_row_shell()
+                    .cursor_pointer()
+                    .child("MCP servers")
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(mcp_pick_summary(
+                                &options.mcp_servers,
+                                &options.mcp_selected,
+                            ))),
+                    )
+                    .into_any_element();
+                let picker = crate::picker::mcp_server_picker::mcp_server_picker(
+                    &servers,
+                    options.mcp_selected.clone(),
+                    trigger,
+                    std::rc::Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
+                        if let Some(entity) = view.upgrade() {
+                            entity.update(cx, |entity, cx| {
+                                access(entity).set_mcp_selected(ids);
+                                cx.notify();
+                            });
+                        }
+                    }),
+                )
+                .id(SharedString::from(format!("{prefix}-mcp-picker")))
+                .render_item(move |item, cx| {
+                    let body = crate::picker::picker_item_body(item, cx);
+                    if dimmed.iter().any(|id| id == &item.value) {
+                        h_flex().flex_1().min_w_0().opacity(0.5).child(body).into_any_element()
+                    } else {
+                        body
+                    }
+                });
+                rows.push(div().w_full().child(picker.render(window, cx)));
             }
 
             div()
@@ -1558,7 +1529,6 @@ const MORE_POPOVER_W: f32 = 320.;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::mcp_servers::Readiness;
 
     fn server(id: &str, name: &str, on_by_default: bool) -> McpServerOption {
         McpServerOption {
@@ -1566,13 +1536,33 @@ mod tests {
             name: name.into(),
             blocked: None,
             enabled_by_default: on_by_default,
+            ..Default::default()
         }
     }
 
-    fn now() -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::parse_from_rfc3339("2026-09-09T10:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc)
+    /// EXP-792: the shared picker's rows — a blocked server keeps its reason
+    /// as the second line but is NEVER disabled (it still toggles; the
+    /// launch merely starts without it), and the glyph inputs travel.
+    #[test]
+    fn picker_rows_keep_a_blocked_server_pickable() {
+        let servers = vec![
+            McpServerOption {
+                url: Some("https://mcp.linear.app/mcp".into()),
+                ..server("a", "Linear", true)
+            },
+            McpServerOption {
+                blocked: Some(MCP_CONNECT_FIRST.to_string()),
+                command: Some("npx acme".into()),
+                ..server("b", "Local", false)
+            },
+        ];
+        let rows = mcp_picker_servers(&servers);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].url.as_deref(), Some("https://mcp.linear.app/mcp"));
+        assert_eq!(rows[0].description, None);
+        assert_eq!(rows[1].command.as_deref(), Some("npx acme"));
+        assert_eq!(rows[1].description.as_deref(), Some(MCP_CONNECT_FIRST));
+        assert!(rows.iter().all(|row| !row.disabled));
     }
 
     /// EXP-792: web `mcpPickSummary`, string for string — two names spell
@@ -1609,14 +1599,17 @@ mod tests {
         assert_eq!(mcp_pick_summary(&servers, &["gone".into()]), "None");
     }
 
-    /// The seed is `enabledByDefault` and nothing else (web
-    /// `preselectMcpServerIds` with no saved pick).
+    /// The seed is `enabledByDefault` (web `preselectMcpServerIds` with no
+    /// saved pick), minus every server the person has not connected.
     #[test]
     fn mcp_seed_is_the_default_enabled_set() {
+        let mut unconnected = server("d", "Figma", true);
+        unconnected.blocked = Some(MCP_CONNECT_FIRST.to_string());
         let servers = vec![
             server("a", "Linear", true),
             server("b", "Notion", false),
             server("c", "Sentry", true),
+            unconnected,
         ];
         assert_eq!(mcp_default_ids(&servers), vec!["a".to_string(), "c".to_string()]);
         assert!(mcp_default_ids(&[]).is_empty());
@@ -1655,60 +1648,31 @@ mod tests {
         assert!(seeded);
     }
 
-    /// EXP-792: the greyed row's reason IS the launcher's refusal sentence,
-    /// pointed at the machine it is about.
+    /// EXP-792: only a usable connection (or none needed) is ready; every
+    /// other status greys the row and says where to fix it.
     #[test]
-    fn mcp_block_reason_names_the_target_machine() {
-        let now = now();
-        // A no-auth server needs nothing anywhere.
-        assert_eq!(mcp_block_reason("none", None, Some("the mini"), now), None);
-        // Ready → nothing to say.
-        let ready = Readiness { ready: true, expires_at: None, error: None };
-        assert_eq!(mcp_block_reason("secret", Some(ready), None, now), None);
-
-        // LOCAL: the device wrote the sentence, so it stands as written —
-        // no second "on this machine" tacked onto the end.
-        let refused = Readiness {
-            ready: false,
+    fn mcp_block_reason_reads_the_callers_connection() {
+        let connection = |status: &str| api::mcp_servers::McpConnection {
+            status: status.into(),
             expires_at: None,
-            error: Some(coding::mcp_servers::NOT_SIGNED_IN),
+            error: None,
         };
-        assert_eq!(
-            mcp_block_reason("oauth", Some(refused), None, now).as_deref(),
-            Some("not signed in on this machine")
-        );
-        // REMOTE: the label is SUBSTITUTED into it, not appended.
-        assert_eq!(
-            mcp_block_reason("oauth", Some(refused), Some("the mini"), now).as_deref(),
-            Some("not signed in on the mini")
-        );
-        // Mid-sentence too (`coding::mcp_servers::sign_in_expired`).
-        let expired = coding::mcp_servers::sign_in_expired("Linear", None);
-        let entry = Readiness { ready: false, expires_at: None, error: Some(&expired) };
-        let named = mcp_block_reason("oauth", Some(entry), Some("the mini"), now).unwrap();
-        assert!(named.starts_with("sign-in expired on the mini"), "{named}");
-        assert!(!named.contains("this machine"), "{named}");
-
-        // No report at all falls back to the per-auth sentence.
-        assert_eq!(
-            mcp_block_reason("oauth", None, None, now).as_deref(),
-            Some("not signed in on this machine")
-        );
-        assert_eq!(
-            mcp_block_reason("secret", None, Some("the mini"), now).as_deref(),
-            Some("no value on the mini")
-        );
-        // A sentence that never mentions a machine still gets one.
-        let odd = Readiness { ready: false, expires_at: None, error: Some("refresh failed") };
-        assert_eq!(
-            mcp_block_reason("oauth", Some(odd), Some("the mini"), now).as_deref(),
-            Some("refresh failed on the mini")
-        );
-        // A blank/whitespace label is no label.
-        assert_eq!(
-            mcp_block_reason("oauth", Some(refused), Some("  "), now).as_deref(),
-            Some("not signed in on this machine")
-        );
+        assert_eq!(mcp_block_reason(&connection("connected")), None);
+        assert_eq!(mcp_block_reason(&connection("not_needed")), None);
+        for status in ["not_connected", "future"] {
+            assert_eq!(
+                mcp_block_reason(&connection(status)).as_deref(),
+                Some(MCP_CONNECT_FIRST),
+                "{status}"
+            );
+        }
+        for status in ["expired", "error"] {
+            assert_eq!(
+                mcp_block_reason(&connection(status)).as_deref(),
+                Some(MCP_RECONNECT_FIRST),
+                "{status}"
+            );
+        }
     }
 
     /// EXP-872: the machine's logins flatten into ONE list across agents,

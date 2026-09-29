@@ -66,22 +66,16 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
-import { applyMcpOauthCommandCompletion } from "@/lib/mcp-oauth/flows"
 import {
   createInstallToken,
   installTokenMintLimiter,
 } from "@/lib/auth/cli-install-token"
-import {
-  applyReadinessReport,
-  mcpReadinessEntriesSchema,
-} from "@/lib/mcp-oauth/readiness"
 
 // Mirrors the relay's online-frame bounds (steer-relay protocol.ts): the
 // relay is a dumb pipe and the same strings land here via `register`. Caps
 // are free strings the executor names (coding doctor.rs DEVICE_CAPS +
 // ACTION_CAPS); the ones this router gates on: `agent-login`,
-// `account-switch` (EXP-849: honours `account` on a live-run resume), `mcp`
-// (EXP-792: runs `mcp_oauth_*` and reports readiness), `agent-usage-refresh`
+// `account-switch` (EXP-849: honours `account` on a live-run resume), `agent-usage-refresh`
 // (EXP-747 C4), `update-now` (FEED-36: runs `update_now`) and
 // `account-remove` (EXP-862: runs `agent_profile_remove`) and `stacked-start`
 // (EXP-897: reads a start frame's `stack` payload). The daemon advertises 22
@@ -356,8 +350,7 @@ function clampUsageEntry(
 }
 
 // Best-effort, fire-and-forget: persisted state is the durable path, the
-// nudge only kills heartbeat-pickup latency for online devices. Exported for
-// the EXP-792 MCP OAuth relays (mcp-servers.ts, the anonymous callback).
+// nudge only kills heartbeat-pickup latency for online devices.
 export function nudgeDevice(ownerId: string, deviceId: string): void {
   const config = getSteerRelayConfig()
   if (!config) return
@@ -664,9 +657,6 @@ export const devicesRouter = router({
         // deliberately not a convergence trigger for anything.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         agentUsage: deviceAgentUsageSchema.optional(),
-        // EXP-792: the device's MCP readiness per server, sent only when it
-        // CHANGED (same absent-means-unchanged contract as the two above).
-        mcpReadiness: mcpReadinessEntriesSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -701,18 +691,6 @@ export const devicesRouter = router({
         })
       const row = updated[0]
       if (!row) return { ok: false, updateRequested: false }
-
-      if (input.mcpReadiness) {
-        await applyReadinessReport(
-          ctx.db,
-          {
-            userId: ctx.session.user.id,
-            deviceRowId: row.id,
-            entries: input.mcpReadiness,
-          },
-          now
-        )
-      }
 
       const pending = await ctx.db
         .select({
@@ -998,10 +976,7 @@ export const devicesRouter = router({
   // machine and restart on the queued update, cap-gated on `update-now`.
   // `agent_update` (payload {agent}): run that agent CLI's own self-updater
   // on the machine (`claude update` / `codex update`); the completion names
-  // the version move (no cap: the release min-version gate covers it). The
-  // EXP-792 `mcp_oauth_start`/`mcp_oauth_code` kinds are queued INTERNALLY
-  // only (mcpServers.beginOAuth, the anonymous callback) and never accepted
-  // here — a caller could otherwise relay an arbitrary code to a device.
+  // the version move (no cap: the release min-version gate covers it).
   createCommand: authedProcedure
     .input(
       z.object({
@@ -1222,10 +1197,7 @@ export const devicesRouter = router({
 
   // EXP-481: the device reports a command's outcome. Only pending rows
   // transition; a duplicate complete (heartbeat redelivery races the first
-  // completion) is tolerated with ok:false rather than an error. EXP-792:
-  // an `mcp_oauth_*` completion additionally advances the flow row the
-  // command belongs to (lib/mcp-oauth/flows.ts) — the web dialog polls the
-  // flow, never the command.
+  // completion) is tolerated with ok:false rather than an error.
   completeCommand: authedProcedure
     .input(
       z.object({
@@ -1249,20 +1221,7 @@ export const devicesRouter = router({
             eq(deviceCommands.status, `pending`)
           )
         )
-        .returning({
-          id: deviceCommands.id,
-          kind: deviceCommands.kind,
-          payload: deviceCommands.payload,
-        })
-      const command = updated[0]
-      if (command?.kind?.startsWith(`mcp_oauth_`)) {
-        await applyMcpOauthCommandCompletion(ctx.db, {
-          kind: command.kind,
-          payload: command.payload ?? {},
-          ok: input.ok,
-          message: input.message,
-        })
-      }
+        .returning({ id: deviceCommands.id })
       return { ok: updated.length > 0 }
     }),
 

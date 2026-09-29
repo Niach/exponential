@@ -1,27 +1,25 @@
 //! EXP-792: typed `mcpServers.*` tRPC helpers — the device side of team MCP
-//! servers. The server holds NON-SECRET config only (names, url, header /
-//! env NAMES, scopes, auth kind) plus a per-device readiness matrix; every
-//! credential lives in this machine's 0600 secret store
-//! ([`crate::token_store`]), so nothing here ever carries a value.
+//! servers. The SERVER holds each member's credentials (OAuth token sets and
+//! typed secrets, encrypted at rest, one set per member per server): a member
+//! connects once and it works on every device, remote start and automation.
+//! This machine holds none and runs no OAuth; it only asks for a launch's
+//! values at spawn ([`resolve_for_launch`]).
 //!
 //! Shapes mirror `apps/web/src/lib/trpc/mcp-servers.ts`:
 //!
-//! - `mcpServers.listForDevice` — **query** — every server of every team the
-//!   caller belongs to (the launcher resolves a run's `mcp_server_ids`
-//!   against it; the readiness reporter walks it on the heartbeat).
-//! - `mcpServers.list({teamId})` — **query** — one team's servers joined
-//!   with the readiness rows of the devices visible to the caller (the
-//!   desktop settings pane).
-//! - `mcpServers.reportReadiness` — **mutation** — this device's readiness
-//!   per server (also folded into `devices.heartbeat` as `mcpReadiness`).
-//! - `mcpServers.finishOAuth` — **mutation** — the LOOPBACK sign-in's
-//!   completion: no `mcp_oauth_code` command exists on that path (the code
-//!   lands on the device's own listener), so the device reports the flow's
-//!   outcome by `state`. The hosted path completes through
-//!   `devices.completeCommand` like every other command (and may call this
-//!   too; it is idempotent).
+//! - `mcpServers.list({teamId})` — **query** — one team's servers, each with
+//!   the CALLER's [`McpConnection`] and the team's connected/member counts.
+//! - `mcpServers.create` / `update` / `remove` — owner writes.
+//! - `mcpServers.setSecret` / `disconnect` / `test` — the caller's own
+//!   credential for one server. OAuth connects start in the BROWSER, never
+//!   here: [`connect_page_url`] is the web settings deep link that runs
+//!   `mcpServers.connect` in the signed-in browser session.
+//! - `mcpServers.resolveForLaunch` — **mutation** — the caller's own values
+//!   for a launch's pick (refreshed server-side when expiring); the ONLY
+//!   response here that carries a secret ([`McpLaunchResolution`]).
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::error::ApiError;
 use crate::trpc::TrpcClient;
@@ -40,14 +38,14 @@ pub struct McpServerConfig {
     pub transport: String,
     #[serde(default)]
     pub url: Option<String>,
-    /// Header NAMES the device supplies values for (`http`).
+    /// Header NAMES a member's secret fills (`http`).
     #[serde(default)]
     pub header_names: Vec<String>,
     #[serde(default)]
     pub command: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
-    /// Env NAMES the device supplies values for (`stdio`).
+    /// Env NAMES a member's secret fills (`stdio`).
     #[serde(default)]
     pub env_names: Vec<String>,
     /// Advisory OAuth scopes to request.
@@ -77,9 +75,8 @@ impl McpServerConfig {
         self.auth == "oauth"
     }
 
-    /// The device-typed secret positions (`auth: secret`): every declared
-    /// header name (http) or env name (stdio). An OAuth server has none —
-    /// its token set is one entry keyed by the server id.
+    /// The member-typed secret positions (`auth: secret`): every declared
+    /// header name (http) or env name (stdio). An OAuth server has none.
     pub fn secret_names(&self) -> &[String] {
         if self.is_http() {
             &self.header_names
@@ -89,42 +86,58 @@ impl McpServerConfig {
     }
 }
 
-/// `mcpServers.listForDevice` — every server the signed-in user may connect
-/// to, across their teams.
-pub fn list_for_device(trpc: &TrpcClient) -> Result<Vec<McpServerConfig>, ApiError> {
-    trpc.query("mcpServers.listForDevice")
-}
-
-/// One device's readiness for one server, as the server stores it.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+/// The CALLER's credential for one server (`McpConnection`). A row that
+/// carries none reads as `not_connected`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct McpReadinessRow {
-    pub server_id: String,
-    /// The `devices` row id (NOT the steer deviceId).
-    pub device_row_id: String,
-    /// The steer deviceId of that row, when the server joined it.
-    #[serde(default)]
-    pub device_id: Option<String>,
-    #[serde(default)]
-    pub device_label: Option<String>,
-    #[serde(default)]
-    pub ready: bool,
+pub struct McpConnection {
+    /// `not_needed` (auth `none`) | `connected` (usable or refreshable) |
+    /// `not_connected` | `expired` (no refresh token left) | `error` (the
+    /// last refresh failed; [`Self::error`] says why).
+    #[serde(default = "default_status")]
+    pub status: String,
+    /// ISO expiry of the OAuth access token, when the provider named one.
     #[serde(default)]
     pub expires_at: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
-    #[serde(default)]
-    pub checked_at: Option<String>,
 }
 
-/// `mcpServers.list` entry: the config plus every visible device's readiness.
+fn default_status() -> String {
+    "not_connected".to_string()
+}
+
+impl Default for McpConnection {
+    fn default() -> Self {
+        Self {
+            status: default_status(),
+            expires_at: None,
+            error: None,
+        }
+    }
+}
+
+impl McpConnection {
+    /// A launch picking this server gets its tools: connected, or nothing
+    /// to connect.
+    pub fn is_ready(&self) -> bool {
+        matches!(self.status.as_str(), "connected" | "not_needed")
+    }
+}
+
+/// `mcpServers.list` entry: the config, the caller's connection and how many
+/// of the team's members have connected.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerListEntry {
     #[serde(flatten)]
     pub config: McpServerConfig,
     #[serde(default)]
-    pub readiness: Vec<McpReadinessRow>,
+    pub connection: McpConnection,
+    #[serde(default)]
+    pub connected_count: u32,
+    #[serde(default)]
+    pub member_count: u32,
 }
 
 /// `mcpServers.list({teamId})`.
@@ -135,21 +148,6 @@ pub fn list(trpc: &TrpcClient, team_id: &str) -> Result<Vec<McpServerListEntry>,
         team_id: &'a str,
     }
     trpc.query_with_input("mcpServers.list", &Input { team_id })
-}
-
-/// One readiness report entry (`mcpServers.reportReadiness` +
-/// `devices.heartbeat.mcpReadiness`).
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct McpReadinessReport {
-    pub server_id: String,
-    pub ready: bool,
-    /// ISO timestamp of the access token's expiry (OAuth only).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<String>,
-    /// Why not ready (`no credential on this device`, `refresh failed: …`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
 }
 
 /// The OWNER-write field set (`mcpServers.create` / `mcpServers.update`).
@@ -224,87 +222,193 @@ pub fn update(
     trpc.mutation("mcpServers.update", &Input { id, fields })
 }
 
-/// `mcpServers.remove` — owner-only. Readiness rows and OAuth flows cascade
-/// with the server row; the CREDENTIALS every device holds do not, so a
-/// caller that also wants them gone runs
-/// `coding::mcp_servers::forget_server` on this machine.
+/// `mcpServers.remove` — owner-only. Every member's credential and OAuth
+/// flow cascade with the server row.
 pub fn remove(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
-    #[derive(Serialize)]
-    struct Input<'a> {
-        id: &'a str,
-    }
+    ok_mutation(trpc, "mcpServers.remove", &ServerIdInput { id })
+}
+
+#[derive(Serialize)]
+struct ServerIdInput<'a> {
+    id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerInput<'a> {
+    server_id: &'a str,
+}
+
+/// A `{ ok: true }` mutation.
+fn ok_mutation<I: Serialize>(trpc: &TrpcClient, path: &str, input: &I) -> Result<(), ApiError> {
     #[derive(Deserialize)]
     struct Ok {
         #[serde(default)]
         #[allow(dead_code)]
         ok: bool,
     }
-    let _: Ok = trpc.mutation("mcpServers.remove", &Input { id })?;
+    let _: Ok = trpc.mutation(path, input)?;
     Ok(())
 }
 
-/// `mcpServers.reportReadiness` — replace this device's readiness rows for
-/// the listed servers (servers absent from `entries` are left alone).
-pub fn report_readiness(
-    trpc: &TrpcClient,
-    device_id: &str,
-    entries: &[McpReadinessReport],
-) -> Result<(), ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        device_id: &'a str,
-        entries: &'a [McpReadinessReport],
+/// The web settings deep link that connects `server_id` for the signed-in
+/// browser: `{instance}/t/{teamSlug}/settings/mcp-servers?connect={id}`.
+///
+/// The desktop and the CLI never call `mcpServers.connect` themselves: the
+/// instance's OAuth callback only accepts a code when the BROWSER's
+/// Exponential session is the member who started the flow, so the flow must
+/// start in that browser. The page auto-starts the connect; the caller then
+/// polls [`list`] until the row reads connected. `None` when the instance
+/// URL is not an `http(s)` URL (never hand anything else to the OS opener)
+/// or the slug / id is empty.
+pub fn connect_page_url(instance_url: &str, team_slug: &str, server_id: &str) -> Option<String> {
+    let base = instance_url.trim().trim_end_matches('/');
+    if !crate::opener::is_web_url(base) || team_slug.is_empty() || server_id.is_empty() {
+        return None;
     }
-    #[derive(Deserialize)]
-    struct Ok {
-        #[serde(default)]
-        #[allow(dead_code)]
-        ok: bool,
-    }
-    let _: Ok = trpc.mutation(
-        "mcpServers.reportReadiness",
-        &Input { device_id, entries },
-    )?;
-    Ok(())
+    Some(format!(
+        "{base}/t/{}/settings/mcp-servers?connect={}",
+        encode_component(team_slug),
+        encode_component(server_id)
+    ))
 }
 
-/// `mcpServers.finishOAuth` — mark the flow identified by `state` done
-/// (`ok`, with the token's expiry) or failed (`error`). On success the server
-/// also upserts this device's readiness `ready=true` for the flow's server.
-pub fn finish_oauth(
-    trpc: &TrpcClient,
-    state: &str,
-    ok: bool,
-    expires_at: Option<&str>,
-    error: Option<&str>,
-) -> Result<(), ApiError> {
+/// Percent-encode everything but RFC 3986 unreserved characters (slugs and
+/// uuids pass through untouched; anything else cannot break out of its
+/// path segment or query value).
+fn encode_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// `mcpServers.setSecret` — store the caller's typed value for an `auth:
+/// secret` server (server-side, encrypted). The value is never echoed back.
+pub fn set_secret(trpc: &TrpcClient, server_id: &str, value: &str) -> Result<(), ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        state: &'a str,
-        ok: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        expires_at: Option<&'a str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<&'a str>,
+        server_id: &'a str,
+        value: &'a str,
     }
-    #[derive(Deserialize)]
-    struct Ok {
-        #[serde(default)]
-        #[allow(dead_code)]
-        ok: bool,
+    ok_mutation(trpc, "mcpServers.setSecret", &Input { server_id, value })
+}
+
+/// `mcpServers.disconnect` — delete the caller's credential for one server.
+pub fn disconnect(trpc: &TrpcClient, server_id: &str) -> Result<(), ApiError> {
+    ok_mutation(trpc, "mcpServers.disconnect", &ServerInput { server_id })
+}
+
+/// `mcpServers.test` output: an MCP `initialize` (+ `tools/list`) against an
+/// http server with the caller's credential.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpTestResult {
+    pub ok: bool,
+    #[serde(default)]
+    pub tools: Option<u32>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// `mcpServers.test`.
+pub fn test(trpc: &TrpcClient, server_id: &str) -> Result<McpTestResult, ApiError> {
+    trpc.mutation("mcpServers.test", &ServerInput { server_id })
+}
+
+/// One `name` → `value` pair of a launch's resolved server (a header or an
+/// env var). The value is a SECRET: `Debug` redacts it.
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+pub struct McpNamedValue {
+    pub name: String,
+    pub value: String,
+}
+
+impl fmt::Debug for McpNamedValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("McpNamedValue")
+            .field("name", &self.name)
+            .field("value", &"***")
+            .finish()
     }
-    let _: Ok = trpc.mutation(
-        "mcpServers.finishOAuth",
-        &Input {
-            state,
-            ok,
-            expires_at,
-            error,
-        },
-    )?;
-    Ok(())
+}
+
+/// One server `resolveForLaunch` resolved: its wire config plus the caller's
+/// values. `Debug` is safe — the values print as `***`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpLaunchServer {
+    pub id: String,
+    pub name: String,
+    /// `http` | `stdio`.
+    #[serde(default = "default_transport")]
+    pub transport: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// OAuth: `Authorization: Bearer …`; secret http: the declared header.
+    #[serde(default)]
+    pub headers: Vec<McpNamedValue>,
+    /// Secret stdio: the declared env var.
+    #[serde(default)]
+    pub env: Vec<McpNamedValue>,
+}
+
+impl McpLaunchServer {
+    pub fn is_http(&self) -> bool {
+        self.transport != "stdio"
+    }
+}
+
+/// A pick the server did not resolve (not connected, refresh failed, unknown
+/// id). The launch goes ahead without it.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpSkippedServer {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+/// `mcpServers.resolveForLaunch` output.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpLaunchResolution {
+    #[serde(default)]
+    pub servers: Vec<McpLaunchServer>,
+    #[serde(default)]
+    pub skipped: Vec<McpSkippedServer>,
+    /// Launch-time notes ("linear: access token expires in 40 min and
+    /// cannot be refreshed"). Never a secret.
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// `mcpServers.resolveForLaunch` — the caller's OWN credentials for
+/// `server_ids` (servers of teams the caller belongs to), OAuth tokens
+/// refreshed server-side when expiring. Handle the result like a password.
+pub fn resolve_for_launch(
+    trpc: &TrpcClient,
+    server_ids: &[String],
+) -> Result<McpLaunchResolution, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        server_ids: &'a [String],
+    }
+    trpc.mutation("mcpServers.resolveForLaunch", &Input { server_ids })
 }
 
 #[cfg(test)]
@@ -319,34 +423,80 @@ mod tests {
     }
 
     #[test]
-    fn finish_oauth_posts_state_and_skips_absent_optionals() {
-        let (base, rx) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        finish_oauth(&client(&base), "st-1", true, Some("2026-09-09T10:00:00.000Z"), None)
-            .expect("ok");
-        let request = rx.recv().unwrap();
-        assert!(request.contains("POST /api/trpc/mcpServers.finishOAuth"));
-        assert!(request.contains(r#"{"state":"st-1","ok":true,"expiresAt":"2026-09-09T10:00:00.000Z"}"#));
+    fn list_parses_the_callers_connection_and_counts() {
+        let (base, rx) = one_shot_server(
+            200,
+            r#"{"result":{"data":[{"id":"s1","teamId":"t","name":"Linear","auth":"oauth","createdById":"u","connection":{"status":"expired","expiresAt":"2026-09-09T10:00:00.000Z","error":null},"connectedCount":2,"memberCount":5},{"id":"s2","name":"Docs"}]}}"#,
+        );
+        let rows = list(&client(&base), "t").expect("ok");
+        assert!(rx.recv().unwrap().contains("GET /api/trpc/mcpServers.list?input="));
+        assert_eq!(rows[0].config.name, "Linear");
+        assert_eq!(rows[0].connection.status, "expired");
+        assert!(!rows[0].connection.is_ready());
+        assert_eq!(rows[0].connected_count, 2);
+        assert_eq!(rows[0].member_count, 5);
+        // A thinner row defaults to "not connected".
+        assert_eq!(rows[1].connection.status, "not_connected");
     }
 
     #[test]
-    fn report_readiness_sends_the_entries_under_the_device_id() {
+    fn connect_page_url_is_the_web_settings_deep_link() {
+        assert_eq!(
+            connect_page_url("https://app.exponential.at/", "acme", "s1").as_deref(),
+            Some("https://app.exponential.at/t/acme/settings/mcp-servers?connect=s1")
+        );
+        assert_eq!(
+            connect_page_url("http://localhost:3000", "a b", "x&y=1").as_deref(),
+            Some("http://localhost:3000/t/a%20b/settings/mcp-servers?connect=x%26y%3D1")
+        );
+        assert_eq!(connect_page_url("file:///tmp", "acme", "s1"), None);
+        assert_eq!(connect_page_url("javascript:alert(1)", "acme", "s1"), None);
+        assert_eq!(connect_page_url("https://app.exponential.at", "", "s1"), None);
+        assert_eq!(connect_page_url("https://app.exponential.at", "acme", ""), None);
+    }
+
+    #[test]
+    fn set_secret_disconnect_and_test_post_the_server_id() {
         let (base, rx) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        report_readiness(
-            &client(&base),
-            "dev-1",
-            &[McpReadinessReport {
-                server_id: "s1".into(),
-                ready: false,
-                expires_at: None,
-                error: Some("not signed in on this machine".into()),
-            }],
-        )
-        .expect("ok");
+        set_secret(&client(&base), "s1", "v-1").expect("ok");
         let request = rx.recv().unwrap();
-        assert!(request.contains("POST /api/trpc/mcpServers.reportReadiness"));
-        assert!(request.contains(
-            r#"{"deviceId":"dev-1","entries":[{"serverId":"s1","ready":false,"error":"not signed in on this machine"}]}"#
-        ));
+        assert!(request.contains("POST /api/trpc/mcpServers.setSecret"));
+        assert!(request.contains(r#"{"serverId":"s1","value":"v-1"}"#));
+
+        let (base, rx) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        disconnect(&client(&base), "s1").expect("ok");
+        assert!(rx.recv().unwrap().contains("POST /api/trpc/mcpServers.disconnect"));
+
+        let (base, _rx) =
+            one_shot_server(200, r#"{"result":{"data":{"ok":false,"tools":null,"error":"401"}}}"#);
+        let result = test(&client(&base), "s1").expect("ok");
+        assert_eq!(
+            result,
+            McpTestResult {
+                ok: false,
+                tools: None,
+                error: Some("401".into())
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_for_launch_parses_and_never_prints_a_value() {
+        let (base, rx) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"servers":[{"id":"s1","name":"Linear","transport":"http","url":"https://mcp.linear.app/mcp","command":null,"args":[],"headers":[{"name":"Authorization","value":"Bearer at-secret"}],"env":[]}],"skipped":[{"id":"s2","name":"Sentry","reason":"not connected"}],"warnings":["w"]}}}"#,
+        );
+        let ids = vec!["s1".to_string(), "s2".to_string()];
+        let resolved = resolve_for_launch(&client(&base), &ids).expect("ok");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.resolveForLaunch"));
+        assert!(request.contains(r#"{"serverIds":["s1","s2"]}"#));
+        assert_eq!(resolved.servers[0].headers[0].value, "Bearer at-secret");
+        assert_eq!(resolved.skipped[0].reason, "not connected");
+        assert_eq!(resolved.warnings, vec!["w".to_string()]);
+        let printed = format!("{resolved:?}");
+        assert!(!printed.contains("at-secret"), "{printed}");
+        assert!(printed.contains("Authorization"), "{printed}");
     }
 
     /// The create wire is `{teamId, ...fields}` — a flattened field set, so
@@ -435,19 +585,5 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(stdio.secret_names(), ["GITHUB_TOKEN".to_string()]);
-    }
-
-    #[test]
-    fn readiness_report_skips_absent_optionals() {
-        let entry = McpReadinessReport {
-            server_id: "s1".into(),
-            ready: true,
-            expires_at: None,
-            error: None,
-        };
-        assert_eq!(
-            serde_json::to_string(&entry).unwrap(),
-            r#"{"serverId":"s1","ready":true}"#
-        );
     }
 }

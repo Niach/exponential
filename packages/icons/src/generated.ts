@@ -389,6 +389,32 @@ export const CUSTOM_ICONS = [
 ] as const
 export type CustomIcon = (typeof CUSTOM_ICONS)[number]
 
+/** The MCP catalog's brand marks (icons.json `brand`): selfh.st/icons light
+ * SVGs, a set apart from the Lucide names above. Web renders them through
+ * `@exp/ui`'s `BRAND_ICONS`/`brandIcon()`, desktop through
+ * `registry::brand`; contract.json's `mcpCatalog` names them by slug. */
+export const BRAND_ICON_NAMES = [
+  `airtable`,
+  `box`,
+  `cloudflare`,
+  `dropbox`,
+  `figma`,
+  `github`,
+  `gitlab`,
+  `jira`,
+  `linear`,
+  `netlify`,
+  `notion`,
+  `paypal`,
+  `posthog`,
+  `sentry`,
+  `slack`,
+  `stripe`,
+  `supabase`,
+  `todoist`,
+] as const
+export type BrandIconName = (typeof BRAND_ICON_NAMES)[number]
+
 /** Stable concept id -> icon name. Call sites reference the concept. */
 export const SEMANTIC_ICONS = {
   "action-automation": `zap`,
@@ -642,4 +668,8 @@ export function isPickableIcon(value: string): value is PickableIcon {
 
 export function isDeviceIcon(value: string): value is DeviceIconName {
   return (DEVICE_ICONS as readonly string[]).includes(value)
+}
+
+export function isBrandIcon(value: string): value is BrandIconName {
+  return (BRAND_ICON_NAMES as readonly string[]).includes(value)
 }

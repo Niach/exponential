@@ -93,7 +93,7 @@ Commands:
   sessions [--device <d>] [--status <s>] [--all]
                                           Coding sessions, newest first
   sessions show|log|message|kill <id>     Inspect, tail (--follow), steer or stop one
-  mcp list|login|set-secret|status        Team MCP servers + this machine's credentials
+  mcp list|connect|set-secret|disconnect  Team MCP servers + your connection to each
   daemon [--foreground] [--label <name>]  Run the remote-start daemon
   daemon install|uninstall|status         Manage the systemd/launchd service
   update [--auto on|off]                  Self-update now, or switch auto-update

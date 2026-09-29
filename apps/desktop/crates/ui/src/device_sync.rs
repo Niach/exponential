@@ -174,10 +174,6 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
         // never re-stamps `agent_usage_at` (a write every beat would make
         // the row churn for nothing).
         let sent_status = Arc::new(Mutex::new(AgentStatusSent::default()));
-        // EXP-792: the cached `listForDevice` copy the MCP readiness sweep
-        // and the token refresh run from (shared with a loopback sign-in
-        // thread, which invalidates it when a token lands).
-        let mcp_state = Arc::new(Mutex::new(coding::McpReadinessState::new()));
         // EXP-1099: failure streak + the optional-payload back-off.
         let health = Arc::new(Mutex::new(coding::logging::HeartbeatHealth::new()));
         // EXP-1099: why the last tick had no snapshot (logged on change only).
@@ -229,7 +225,6 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
 
             let worker_busy = worker_busy.clone();
             let sent_status = sent_status.clone();
-            let mcp_state = mcp_state.clone();
             let health = health.clone();
             let previous_fp = last_inventory_fp;
             let outcome = cx
@@ -248,7 +243,6 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
                                 previous_fp,
                                 &worker_busy,
                                 &sent_status,
-                                &mcp_state,
                                 &health,
                             )
                         }))
@@ -402,8 +396,6 @@ fn watch_devices_shape(
 struct BeatSnapshot {
     trpc: Arc<api::TrpcClient>,
     device_id: String,
-    /// EXP-792: the account whose secret store holds the MCP credentials.
-    account_id: String,
     /// The app data dir — EXP-637's `runs.json` lives here.
     data_dir: PathBuf,
     settings_path: PathBuf,
@@ -441,9 +433,6 @@ struct BeatSnapshot {
 struct AgentStatusSent {
     accounts_key: Option<String>,
     usage: Option<String>,
-    /// EXP-792: the MCP readiness key last accepted
-    /// (`coding::mcp_servers::readiness_key`).
-    mcp_key: Option<String>,
 }
 
 /// What one beat has to write, with the accounts identity key that decides
@@ -453,19 +442,6 @@ struct StatusWrites {
     accounts: Option<serde_json::Value>,
     accounts_key: Option<String>,
     usage: Option<serde_json::Value>,
-    /// EXP-792: the readiness snapshot to attach (key ≠ last accepted).
-    mcp: Option<coding::mcp_servers::ReadinessSnapshot>,
-}
-
-/// EXP-792: the readiness snapshot rides only when its key moved since the
-/// last accepted beat, and never as an empty list.
-fn pending_mcp_write(
-    snapshot: Option<&coding::mcp_servers::ReadinessSnapshot>,
-    sent: &Mutex<AgentStatusSent>,
-) -> Option<coding::mcp_servers::ReadinessSnapshot> {
-    let snapshot = snapshot.filter(|snap| !snap.entries.is_empty())?;
-    let sent = lock_recover(sent);
-    (sent.mcp_key.as_deref() != Some(snapshot.key.as_str())).then(|| snapshot.clone())
 }
 
 /// EXP-1099: why a tick had no [`BeatSnapshot`] — both are skips, never a
@@ -503,7 +479,6 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
     Ok(BeatSnapshot {
         trpc,
         device_id,
-        account_id: account.id.clone(),
         data_dir,
         repos_root: settings.repos_root_path(),
         settings_path,
@@ -588,7 +563,6 @@ fn beat(
     last_fp: Option<u64>,
     worker_busy: &Arc<AtomicBool>,
     sent_status: &Mutex<AgentStatusSent>,
-    mcp_state: &Arc<Mutex<coding::McpReadinessState>>,
     health: &Mutex<coding::logging::HeartbeatHealth>,
 ) -> BeatOutcome {
     let mut last_fp = last_fp;
@@ -617,16 +591,6 @@ fn beat(
         })
     });
     let mut writes = pending_status_writes(agent_status.as_ref(), sent_status);
-    // EXP-792: the MCP readiness sweep (a `listForDevice` copy every 5 min,
-    // local secret reads otherwise, a refresh for tokens inside the margin)
-    // — attached only when its key moved, like the two maps above.
-    let mcp_snapshot = lock_recover(mcp_state).sweep(
-        &snapshot.data_dir,
-        &snapshot.account_id,
-        &snapshot.trpc,
-        &snapshot.device_id,
-    );
-    writes.mcp = pending_mcp_write(mcp_snapshot.as_ref(), sent_status);
     // EXP-1099: after the server refused a beat carrying this optional
     // payload (a 4xx), the next beat(s) go out BARE so `last_seen_at` still
     // lands; nothing is recorded as sent, so it rides again once a beat
@@ -634,8 +598,7 @@ fn beat(
     if !lock_recover(health).begin_beat() {
         writes = StatusWrites::default();
     }
-    let carried_optional =
-        writes.accounts.is_some() || writes.usage.is_some() || writes.mcp.is_some();
+    let carried_optional = writes.accounts.is_some() || writes.usage.is_some();
 
     match api::devices::heartbeat(
         &snapshot.trpc,
@@ -647,7 +610,6 @@ fn beat(
             // say, which keeps the historic body byte-for-byte.
             agent_accounts: writes.accounts.as_ref(),
             agent_usage: writes.usage.as_ref(),
-            mcp_readiness: writes.mcp.as_ref().map(|snap| snap.entries.as_slice()),
         },
     ) {
         Ok(result) => {
@@ -677,7 +639,7 @@ fn beat(
                 {
                     let _busy = BusyGuard(worker_busy);
                     for command in &result.commands {
-                        match run_device_command(snapshot, command, mcp_state) {
+                        match run_device_command(snapshot, command) {
                             CommandDisposition::Deferred(command) => deferred.push(command),
                             CommandDisposition::Refreshed(status) => {
                                 agent_status = Some(status);
@@ -737,7 +699,6 @@ fn pending_status_writes(
         accounts_key: accounts.is_some().then_some(key),
         accounts,
         usage,
-        mcp: None,
     }
 }
 
@@ -750,9 +711,6 @@ fn record_status_sent(writes: &StatusWrites, sent: &Mutex<AgentStatusSent>) {
     }
     if let Some(usage) = &writes.usage {
         sent.usage = Some(usage.to_string());
-    }
-    if let Some(snapshot) = &writes.mcp {
-        sent.mcp_key = Some(snapshot.key.clone());
     }
 }
 
@@ -908,7 +866,6 @@ pub(crate) fn push_local_defaults_if_changed(
     let snapshot = BeatSnapshot {
         trpc: Arc::new(trpc),
         device_id,
-        account_id: String::new(),
         data_dir: data_dir.clone(),
         settings_path,
         repos_root: settings.repos_root_path(),
@@ -933,7 +890,6 @@ pub(crate) fn push_local_defaults_if_changed(
 fn run_device_command(
     snapshot: &BeatSnapshot,
     command: &api::devices::PendingCommand,
-    mcp_state: &Arc<Mutex<coding::McpReadinessState>>,
 ) -> CommandDisposition {
     // EXP-484 (D): a login is not a background job — it opens a terminal
     // tab and is answered the moment its URL is on the grid, so it is
@@ -1019,51 +975,6 @@ fn run_device_command(
         return CommandDisposition::Spawned;
     }
     let (ok, message) = match command.kind.as_str() {
-        // EXP-792: an MCP OAuth sign-in on this machine, requested from the
-        // web. Completes EARLY with the authorize URL (the requester's page
-        // opens it); the loopback variant then waits for the browser on its
-        // own thread and reports through `finishOAuth`. Same body as the
-        // daemon's (`coding::mcp_servers`).
-        "mcp_oauth_start" => {
-            let host = mcp_host(snapshot);
-            match coding::mcp_servers::oauth_start(&host, &command.payload) {
-                Ok(start) => {
-                    let message = start.message();
-                    if let coding::mcp_servers::OauthStart::Loopback {
-                        loopback, pending, ..
-                    } = start
-                    {
-                        let snapshot = snapshot.clone();
-                        let mcp_state = Arc::clone(mcp_state);
-                        std::thread::spawn(move || {
-                            let host = mcp_host(&snapshot);
-                            match coding::mcp_servers::oauth_finish_loopback(&host, pending, loopback) {
-                                Ok(_) => log::info!("[device-sync] MCP sign-in finished on the loopback listener"),
-                                Err(error) => log::info!("[device-sync] MCP sign-in failed: {error}"),
-                            }
-                            if let Ok(mut state) = mcp_state.lock() {
-                                state.invalidate();
-                            }
-                        });
-                    }
-                    (true, message)
-                }
-                Err(error) => (false, error),
-            }
-        }
-        // EXP-792: the hosted callback relayed the code — exchange it with
-        // the verifier this machine kept, store the token, re-report.
-        "mcp_oauth_code" => {
-            let host = mcp_host(snapshot);
-            let outcome = coding::mcp_servers::oauth_code(&host, &command.payload);
-            if let Ok(mut state) = mcp_state.lock() {
-                state.invalidate();
-            }
-            match outcome {
-                Ok(expires_at) => (true, coding::mcp_servers::done_message(expires_at.as_deref())),
-                Err(error) => (false, error),
-            }
-        }
         // EXP-792: force one agent's usage re-read past the shared TTL
         // (never past the 429 floor — a hot refusal names when).
         "agent_usage_refresh" => {
@@ -1350,16 +1261,6 @@ pub(crate) fn remove_agent_profile_here(
         cx.notify();
     });
     Ok(())
-}
-
-/// EXP-792: the MCP command bodies' view of this beat.
-fn mcp_host(snapshot: &BeatSnapshot) -> coding::mcp_servers::HostContext<'_> {
-    coding::mcp_servers::HostContext {
-        data_dir: &snapshot.data_dir,
-        account_id: &snapshot.account_id,
-        trpc: &snapshot.trpc,
-        device_id: &snapshot.device_id,
-    }
 }
 
 fn complete(snapshot: &BeatSnapshot, command_id: &str, ok: bool, message: &str) {

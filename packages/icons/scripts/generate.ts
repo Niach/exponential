@@ -57,6 +57,17 @@ interface Registry {
    * through the same 4-platform emit as a `custom` glyph.
    */
   imported?: Record<string, { file: string; source: string }>
+  /**
+   * The MCP catalog's REAL brand marks: selfh.st/icons LIGHT SVGs (CC-BY-4.0)
+   * vendored verbatim under packages/icons/brand/. They are trademarks, so
+   * they never enter the Lucide grid and are never recoloured or redrawn:
+   * the web gets one React component per slug that inlines the file's own
+   * elements (white fills kept), the desktop gets the file byte-for-byte as
+   * `brand-<slug>.svg` + a `registry::brand` module. iOS and Android have no
+   * MCP surface and receive nothing. contract.json's `mcpCatalog.servers[]
+   * .mark` names these slugs.
+   */
+  brand?: Record<string, { file: string; source: string; owner: string }>
 }
 
 const registry: Registry = JSON.parse(
@@ -313,6 +324,109 @@ function loadImported(name: string, file: string): IconNode[] {
 }
 
 // ---------------------------------------------------------------------------
+// Brand marks (the MCP catalog)
+// ---------------------------------------------------------------------------
+
+/** The light variant's one colour. A file carrying anything else is not the
+ * light SVG the registry promises (the user's rule: light SVGs only). */
+const BRAND_FILL = `#fff`
+
+interface BrandMark {
+  slug: string
+  svg: string
+  viewBox: string
+  /** The file's drawable children, Illustrator wrappers removed. */
+  body: string
+}
+
+/** Read one vendored brand SVG and check it is what the registry promises:
+ * a single `<svg viewBox>` root, every fill the light white, no gradients,
+ * masks, scripts or raster payloads (the files ship into two clients as-is). */
+function loadBrand(slug: string, file: string): BrandMark {
+  const svg = readFileSync(join(pkgRoot, file), "utf8")
+  const viewBox = svg.match(/<svg[^>]*\sviewBox="([^"]+)"/)?.[1]
+  if (!viewBox) throw new Error(`brand mark "${slug}" (${file}) has no viewBox`)
+  if ((svg.match(/<svg[\s>]/g) ?? []).length !== 1) {
+    throw new Error(`brand mark "${slug}" (${file}) must hold one <svg> root`)
+  }
+  for (const banned of [`<script`, `<image`, `<style`, `url(#`, `<linearGradient`, `<radialGradient`, `<mask`, `<clipPath`]) {
+    if (svg.includes(banned)) {
+      throw new Error(`brand mark "${slug}" (${file}) contains ${banned}; vendor a plain light SVG`)
+    }
+  }
+  const fills = [...svg.matchAll(/fill\s*[:=]\s*"?([^;"\s]+)/g)].map((m) => m[1])
+  for (const fill of fills) {
+    if (fill.toLowerCase() !== BRAND_FILL) {
+      throw new Error(
+        `brand mark "${slug}" (${file}) fills with ${fill}; only the light (${BRAND_FILL}) variant is vendored`
+      )
+    }
+  }
+  const inner = svg.slice(svg.indexOf(`>`) + 1, svg.lastIndexOf(`</svg>`))
+  // Illustrator exports wrap the art in `<switch><foreignObject …/>…</switch>`
+  // so its own extension can claim the render; every SVG renderer falls
+  // through to the plain sibling, so the wrapper is a no-op we drop.
+  const body = inner
+    .replace(/<foreignObject\b[^>]*\/>/g, ``)
+    .replace(/<\/?switch>/g, ``)
+    .trim()
+  if (!body) throw new Error(`brand mark "${slug}" (${file}) draws nothing`)
+  return { slug, svg, viewBox, body }
+}
+
+/** SVG presentation attribute → its React prop name. */
+const JSX_ATTR: Record<string, string> = {
+  "fill-rule": `fillRule`,
+  "clip-rule": `clipRule`,
+  "stroke-width": `strokeWidth`,
+  "stroke-linecap": `strokeLinecap`,
+  "stroke-linejoin": `strokeLinejoin`,
+  "shape-rendering": `shapeRendering`,
+  "fill-opacity": `fillOpacity`,
+  "stroke-opacity": `strokeOpacity`,
+}
+const JSX_PASSTHROUGH = new Set([
+  `d`, `cx`, `cy`, `r`, `rx`, `ry`, `x`, `y`, `x1`, `y1`, `x2`, `y2`, `width`,
+  `height`, `points`, `transform`, `fill`, `stroke`, `opacity`,
+])
+
+/**
+ * The vendored markup as JSX. The tags are the SVG drawing primitives; the
+ * `style="…"` attribute Illustrator emits becomes the equivalent presentation
+ * props so the mark stays a plain element tree (no style objects, no
+ * `dangerouslySetInnerHTML`). Anything this converter has not seen is an
+ * error, never a silent drop — the registry only vendors what it can render.
+ */
+function brandJsx(mark: BrandMark): string {
+  const ALLOWED_TAGS = new Set([`path`, `circle`, `ellipse`, `rect`, `polygon`, `polyline`, `line`, `g`])
+  return mark.body.replace(/<(\/?)([a-zA-Z]+)([^>]*?)(\/?)>/g, (_, close, tag, rawAttrs, selfClose) => {
+    if (!ALLOWED_TAGS.has(tag)) {
+      throw new Error(`brand mark "${mark.slug}" uses <${tag}>, which the JSX emitter does not handle`)
+    }
+    if (close) return `</${tag}>`
+    const props: string[] = []
+    for (const m of rawAttrs.matchAll(/\s([a-zA-Z:-]+)="([^"]*)"/g)) {
+      const [, name, value] = m
+      if (name === `style`) {
+        for (const decl of value.split(`;`)) {
+          const [k, v] = decl.split(`:`).map((s) => s.trim())
+          if (!k) continue
+          const prop = JSX_ATTR[k] ?? (JSX_PASSTHROUGH.has(k) ? k : undefined)
+          if (!prop) throw new Error(`brand mark "${mark.slug}": unhandled style "${k}"`)
+          props.push(`${prop}="${v}"`)
+        }
+        continue
+      }
+      const prop = JSX_ATTR[name] ?? (JSX_PASSTHROUGH.has(name) ? name : undefined)
+      if (!prop) throw new Error(`brand mark "${mark.slug}": unhandled attribute "${name}"`)
+      props.push(`${prop}="${value}"`)
+    }
+    const attrs = props.length ? ` ${props.join(` `)}` : ``
+    return `<${tag}${attrs}${selfClose ? ` /` : ``}>`
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Naming
 // ---------------------------------------------------------------------------
 
@@ -388,6 +502,23 @@ const allNames = [
 const geometry = new Map<string, IconNode[]>()
 for (const name of allNames) {
   geometry.set(name, customIcons[name] ?? loadIconNode(name))
+}
+
+// The brand marks are a set of their own: never in `allNames` (they are not
+// glyphs, they get no iOS/Android emit and no `icon_by_name` arm), and the
+// desktop file name is prefixed `brand-` so `icon_named!` can never confuse a
+// mark with a Lucide icon of the same word (`github`, `figma`, `slack` all
+// exist as deprecated Lucide brand glyphs).
+const brandSlugs = Object.keys(registry.brand ?? {}).sort()
+const brandMarks = new Map<string, BrandMark>()
+for (const slug of brandSlugs) {
+  if (!/^[a-z][a-z0-9-]*$/.test(slug)) {
+    throw new Error(`brand slug "${slug}" must be lowercase kebab-case`)
+  }
+  if (BRAND_MARKS.includes(slug) || allNames.includes(`brand-${slug}`)) {
+    throw new Error(`brand mark "${slug}" collides with an existing icon name.`)
+  }
+  brandMarks.set(slug, loadBrand(slug, registry.brand![slug].file))
 }
 
 // EXP-379 — the outputs below reproduce Lucide's actual path geometry, so every
@@ -472,6 +603,15 @@ ${customNames.map((n) => `  \`${n}\`,`).join("\n")}
 ] as const
 export type CustomIcon = (typeof CUSTOM_ICONS)[number]
 
+/** The MCP catalog's brand marks (icons.json \`brand\`): selfh.st/icons light
+ * SVGs, a set apart from the Lucide names above. Web renders them through
+ * \`@exp/ui\`'s \`BRAND_ICONS\`/\`brandIcon()\`, desktop through
+ * \`registry::brand\`; contract.json's \`mcpCatalog\` names them by slug. */
+export const BRAND_ICON_NAMES = [
+${brandSlugs.map((n) => `  \`${n}\`,`).join("\n")}
+] as const
+export type BrandIconName = (typeof BRAND_ICON_NAMES)[number]
+
 /** Stable concept id -> icon name. Call sites reference the concept. */
 export const SEMANTIC_ICONS = {
 ${semanticKeys.map((k) => `  "${k}": \`${registry.semantic[k]}\`,`).join("\n")}
@@ -489,6 +629,10 @@ export function isPickableIcon(value: string): value is PickableIcon {
 
 export function isDeviceIcon(value: string): value is DeviceIconName {
   return (DEVICE_ICONS as readonly string[]).includes(value)
+}
+
+export function isBrandIcon(value: string): value is BrandIconName {
+  return (BRAND_ICON_NAMES as readonly string[]).includes(value)
 }
 `
 )
@@ -573,6 +717,65 @@ export function conceptIcon(concept: IconConcept): LucideIcon {
 )
 
 // ---------------------------------------------------------------------------
+// 2b. Web — packages/ui/src/brand-icons.generated.tsx (the MCP catalog marks)
+// ---------------------------------------------------------------------------
+
+// One React component per vendored mark, the file's own elements inlined at
+// its own viewBox. Like the lucide components it takes SVG props and carries
+// width/height 24 so `className="size-4"` sizes it exactly like a glyph;
+// unlike them its fills are the mark's own white, so a `color` on the row
+// never tints it (a trademark is reproduced, never recoloured).
+const BRAND_HEADER = `${HEADER_COMMENT}
+//
+// The brand marks behind contract.json's \`mcpCatalog\` (icons.json \`brand\`):
+// the LIGHT SVGs of selfh.st/icons (https://github.com/selfhst/icons,
+// CC-BY-4.0), vendored verbatim under packages/icons/brand/ and inlined here
+// element for element. The marks are trademarks of their respective owners,
+// reproduced nominatively to label the service a server belongs to; sizing
+// is the only thing a call site may change. The Lucide licence above does
+// not apply to this file's geometry.`
+
+const brandComponent = (slug: string): string => `Brand${pascal(slug)}Icon`
+
+write(
+  join(repoRoot, "packages/ui/src/brand-icons.generated.tsx"),
+  `${BRAND_HEADER}
+
+import type { ComponentType, SVGProps } from "react"
+import type { BrandIconName } from "@exp/icons"
+
+export type BrandIcon = ComponentType<SVGProps<SVGSVGElement>>
+
+${brandSlugs
+  .map((slug) => {
+    const mark = brandMarks.get(slug)!
+    const owner = registry.brand![slug].owner
+    return (
+      `/** ${owner} — ${registry.brand![slug].source} */\n` +
+      `export function ${brandComponent(slug)}(props: SVGProps<SVGSVGElement>) {\n` +
+      `  return (\n` +
+      `    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="${mark.viewBox}" aria-hidden="true" {...props}>\n` +
+      `      ${brandJsx(mark)}\n` +
+      `    </svg>\n` +
+      `  )\n` +
+      `}`
+    )
+  })
+  .join("\n\n")}
+
+/** Slug -> component, for every mark the registry vendors. */
+export const BRAND_ICONS: Record<BrandIconName, BrandIcon> = {
+${brandSlugs.map((slug) => `  "${slug}": ${brandComponent(slug)},`).join("\n")}
+}
+
+/** The component for a brand slug (compile-time checked). */
+export function brandIcon(name: BrandIconName): BrandIcon {
+  return BRAND_ICONS[name]
+}
+`
+)
+
+// ---------------------------------------------------------------------------
 // 3. Desktop — assets/icons/<name>.svg + crates/ui/src/icons.generated.rs
 // ---------------------------------------------------------------------------
 
@@ -621,8 +824,45 @@ ${semanticKeys
       `pub const ${screamingSnake(k)}: ExpIcon = ExpIcon::${pascal(registry.semantic[k])};`
   )
   .join("\n")}
+
+/// The MCP catalog's brand marks (icons.json \`brand\`): selfh.st/icons LIGHT
+/// SVGs shipped verbatim as \`assets/icons/brand-<slug>.svg\` (CC-BY-4.0; the
+/// marks are their owners' trademarks, reproduced nominatively). gpui
+/// rasterizes them to a one-tint mask like every other asset, so a call site
+/// picks the tint; \`contract::MCP_CATALOG_MARKS\` names them by slug.
+pub mod brand {
+    use crate::icons::ExpIcon;
+
+    /// Every vendored slug, sorted.
+    pub const SLUGS: &[&str] = &[
+${brandSlugs.map((n) => `        "${n}",`).join("\n")}
+    ];
+
+    /// A catalog \`mark\` slug -> its asset. \`None\` for a slug this build
+    /// does not vendor.
+    pub fn by_slug(slug: &str) -> Option<ExpIcon> {
+        Some(match slug {
+${brandSlugs.map((n) => `            "${n}" => ExpIcon::Brand${pascal(n)},`).join("\n")}
+            _ => return None,
+        })
+    }
+
+${brandSlugs
+  .map(
+    (n) =>
+      `    /// ${registry.brand![n].owner}.\n` +
+      `    pub const ${screamingSnake(n)}: ExpIcon = ExpIcon::Brand${pascal(n)};`
+  )
+  .join("\n")}
+}
 `
 )
+
+// The marks ship byte-for-byte: `icon_named!` turns `brand-<slug>.svg` into
+// `ExpIcon::Brand<Slug>`, which the module above names.
+for (const slug of brandSlugs) {
+  write(join(desktopIcons, `brand-${slug}.svg`), brandMarks.get(slug)!.svg)
+}
 
 // ---------------------------------------------------------------------------
 // 4. iOS — asset-catalog imagesets + AppIcons.generated.swift
@@ -785,5 +1025,5 @@ ${semanticKeys
 console.log(
   `Wrote ${written.length} files for ${allNames.length} icons ` +
     `(${registry.pickable.length} pickable, ${registry.devicePickable.length} device, ` +
-    `${semanticKeys.length} concepts).`
+    `${semanticKeys.length} concepts) + ${brandSlugs.length} brand marks.`
 )

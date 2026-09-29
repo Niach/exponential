@@ -1,23 +1,29 @@
-// EXP-792: the hosted redirect target of a device-executed MCP OAuth
-// sign-in. ANONYMOUS by necessity (the provider redirects whatever browser
-// consented, which may hold no Exponential session) and gated on `state`
-// alone: the state is 32 random bytes minted by beginOAuth, single-use (the
-// flow leaves `pending`/`authorize_url` the moment a code lands) and
-// 10-minute bound. The code itself is worthless without the PKCE verifier,
-// which never left the device — so this route only RELAYS it there as an
-// `mcp_oauth_code` command and never logs, echoes or stores it beyond that
-// row. Every failure answers a plain 200 page with no detail: an attacker
-// probing states learns nothing but "expired".
-import { and, eq } from "drizzle-orm"
+// EXP-792: the hosted redirect target of a member's MCP OAuth sign-in.
+// Reachable without a session (the provider redirects whatever browser
+// consented) and keyed on `state`: 32 random bytes minted by
+// mcpServers.connect, single-use (the flow leaves `pending` the moment a
+// request claims it) and 10-minute bound. It then REQUIRES the Better Auth
+// session of the member who started the flow (a same-origin top-level GET,
+// so the Lax cookie arrives): a consent completed in any other browser or
+// account (a phished authorize URL) fails the flow instead of landing the
+// provider account on the starter's credential. The code is exchanged HERE, server-side, with the PKCE
+// verifier the flow row holds encrypted; the token set lands in the
+// member's `mcp_credentials` row. The code and tokens are never logged or
+// echoed. An unknown/expired state answers the same plain page with no
+// detail. A flow with a `return_to` 302s back into the app with
+// `?mcp=connected|failed&server=<id>[&error=]`; without one the page says
+// what happened.
+import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { deviceCommands, devices, mcpOauthFlows, mcpServers } from "@/db/schema"
+import { auth } from "@/lib/auth"
+import { mcpOauthFlows, mcpServers } from "@/db/schema"
 import {
   TokenBucketLimiter,
   clientIpFromRequest,
   envInt,
 } from "@/lib/widget/rate-limit"
-import { nudgeDevice } from "@/lib/trpc/devices"
-import { finishFlow, flowAcceptsCode } from "@/lib/mcp-oauth/flows"
+import { claimFlow, completeFlow, flowAcceptsCode } from "@/lib/mcp-oauth/flows"
+import { returnUrl, safeReturnTo } from "@/lib/mcp-oauth/urls"
 import { mcpOauthPageResponse } from "@/lib/mcp-oauth/page"
 
 // Per-IP bucket: one consent redirect per sign-in, so 60/h with a burst of
@@ -49,6 +55,30 @@ function expiredPage(): Response {
   })
 }
 
+function wrongAccountPage(): Response {
+  return mcpOauthPageResponse({
+    ok: false,
+    title: `Sign-in failed`,
+    body: `To connect an MCP server you must be signed in to Exponential, in this browser, as the member who started the sign-in. Sign in as that member and choose Connect again in Settings › MCP servers.`,
+  })
+}
+
+async function sessionUserId(request: Request): Promise<string | null> {
+  try {
+    const session = await auth.api.getSession({ headers: request.headers })
+    return session?.user?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+function redirectTo(location: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: { location, "cache-control": `no-store` },
+  })
+}
+
 export async function handleMcpOauthCallback(
   request: Request
 ): Promise<Response> {
@@ -70,21 +100,46 @@ export async function handleMcpOauthCallback(
   if (state.length === 0 || state.length > MAX_STATE) return expiredPage()
 
   const [flow] = await db
-    .select({
-      id: mcpOauthFlows.id,
-      status: mcpOauthFlows.status,
-      createdAt: mcpOauthFlows.createdAt,
-      serverId: mcpOauthFlows.serverId,
-      deviceRowId: mcpOauthFlows.deviceRowId,
-      userId: mcpOauthFlows.userId,
-    })
+    .select()
     .from(mcpOauthFlows)
     .where(eq(mcpOauthFlows.state, state))
     .limit(1)
   if (!flow || !flowAcceptsCode(flow)) return expiredPage()
 
+  // Only the member who started this flow may complete it, in a browser
+  // signed in as them. Anything else burns the flow (the code is never
+  // exchanged).
+  if ((await sessionUserId(request)) !== flow.userId) {
+    await claimFlow(db, flow.id, {
+      ok: false,
+      error: `completed outside the starting member's Exponential session`,
+    })
+    return wrongAccountPage()
+  }
+
+  const [server] = await db
+    .select({ name: mcpServers.name })
+    .from(mcpServers)
+    .where(eq(mcpServers.id, flow.serverId))
+    .limit(1)
+  const name = server?.name ?? `the MCP server`
+  const returnTo = safeReturnTo(flow.returnTo)
+
+  const fail = (error: string): Response => {
+    if (returnTo) {
+      return redirectTo(
+        returnUrl(returnTo, { mcp: `failed`, server: flow.serverId, error })
+      )
+    }
+    return mcpOauthPageResponse({
+      ok: false,
+      title: `Sign-in failed`,
+      body: `Connecting ${name} failed: ${error}`,
+    })
+  }
+
   // The provider refused (or the user cancelled): the flow fails with the
-  // provider's error code so the web dialog can say why; no code to relay.
+  // provider's error code; nothing to exchange.
   const providerError = url.searchParams.get(`error`)
   const code = url.searchParams.get(`code`) ?? ``
   if (providerError || code.length === 0 || code.length > MAX_CODE) {
@@ -96,53 +151,33 @@ export async function handleMcpOauthCallback(
           : providerError
         : `no code`
     ).slice(0, MAX_ERROR)
-    await finishFlow(db, flow.id, { ok: false, error })
-    return mcpOauthPageResponse({
-      ok: false,
-      title: `Sign-in refused`,
-      body: `Sign-in was refused: ${error}`,
-    })
+    if (!(await claimFlow(db, flow.id, { ok: false, error }))) return expiredPage()
+    return fail(error)
   }
 
-  // Relay the code to the device: the command row and the flow transition
-  // land together so a redelivered redirect (browser back, double load)
-  // finds the flow already past `authorize_url` and gets the expired page.
-  await db.transaction(async (tx) => {
-    const moved = await tx
+  // Claim BEFORE the exchange so a redelivered redirect (browser back,
+  // double load) finds the flow gone and cannot spend the code twice.
+  if (!(await claimFlow(db, flow.id, { ok: true }))) return expiredPage()
+  try {
+    await completeFlow(db, flow, code)
+  } catch (e) {
+    const error = (e instanceof Error ? e.message : `token exchange failed`).slice(
+      0,
+      MAX_ERROR
+    )
+    await db
       .update(mcpOauthFlows)
-      .set({ status: `code_relayed` })
-      .where(
-        and(
-          eq(mcpOauthFlows.id, flow.id),
-          eq(mcpOauthFlows.status, flow.status)
-        )
-      )
-      .returning({ id: mcpOauthFlows.id })
-    if (moved.length === 0) return
-    await tx.insert(deviceCommands).values({
-      deviceRowId: flow.deviceRowId,
-      userId: flow.userId,
-      kind: `mcp_oauth_code`,
-      payload: { serverId: flow.serverId, state, code },
-    })
-  })
+      .set({ status: `failed`, error })
+      .where(eq(mcpOauthFlows.id, flow.id))
+    return fail(error)
+  }
 
-  const [device] = await db
-    .select({ deviceId: devices.deviceId, userId: devices.userId })
-    .from(devices)
-    .where(eq(devices.id, flow.deviceRowId))
-    .limit(1)
-  if (device) nudgeDevice(device.userId, device.deviceId)
-
-  const [server] = await db
-    .select({ name: mcpServers.name })
-    .from(mcpServers)
-    .where(eq(mcpServers.id, flow.serverId))
-    .limit(1)
-  const name = server?.name ?? `the MCP server`
+  if (returnTo) {
+    return redirectTo(returnUrl(returnTo, { mcp: `connected`, server: flow.serverId }))
+  }
   return mcpOauthPageResponse({
     ok: true,
-    title: `Signed in`,
-    body: `Signed in to ${name}. You can close this tab.`,
+    title: `Connected`,
+    body: `Connected to ${name}. You can close this tab.`,
   })
 }

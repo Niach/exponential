@@ -1,14 +1,18 @@
 // EXP-792 test helper: a table-aware in-memory stand-in for the drizzle
 // query builder, keyed on the REAL schema tables (so the code under test
 // keeps its `eq(mcpServers.id, …)` references). Supports the chains the
-// mcpServers router, the OAuth flow helpers and the callback use:
+// mcpServers router, the OAuth flow + credential helpers and the callback
+// use:
 // select().from(t)[.innerJoin()].where(c)[.orderBy()][.limit()],
 // insert(t).values(v)[.returning()][.onConflictDoUpdate({target, set})],
 // update(t).set(s).where(c)[.returning()], delete(t).where(c),
-// transaction(fn). `where` conditions are matched on their `eq`/`inArray`
+// transaction(fn), execute(sql) (recorded; `onExecute` runs first, so a
+// test can play "another process" while an advisory lock is awaited).
+// `where` conditions are matched on their `eq`/`inArray`
 // parts (a column followed by its value(s)); anything else is ignored.
 import { randomUUID } from "node:crypto"
 import { getTableName } from "drizzle-orm"
+import type { Db } from "@/lib/mcp-oauth/oauth-client"
 
 export type Row = Record<string, unknown>
 
@@ -61,13 +65,11 @@ function matches(row: Row, cond: unknown): boolean {
 }
 
 const TABLE_DEFAULTS: Record<string, () => Row> = {
-  device_commands: () => ({ status: `pending`, result: null, completedAt: null }),
   mcp_oauth_flows: () => ({
     status: `pending`,
-    authorizeUrl: null,
     error: null,
     completedAt: null,
-    redirect: `hosted`,
+    returnTo: null,
   }),
   mcp_servers: () => ({
     headerNames: [],
@@ -81,19 +83,23 @@ const TABLE_DEFAULTS: Record<string, () => Row> = {
     auth: `none`,
     createdById: null,
   }),
-  mcp_server_readiness: () => ({ expiresAt: null, error: null }),
-  device_mcp_servers: () => ({
-    url: null,
-    command: null,
-    args: [],
-    transport: `http`,
-    source: `manual`,
-    agent: null,
-    enabled: true,
+  mcp_credentials: () => ({
+    expiresAt: null,
+    issuer: null,
+    clientId: null,
+    error: null,
+  }),
+  mcp_oauth_clients: () => ({
+    clientSecretCiphertext: null,
+    tokenEndpointAuthMethod: `none`,
   }),
 }
 
-export function createFakeDb(seed: Record<string, Row[]> = {}) {
+export function createFakeDb(
+  seed: Record<string, Row[]> = {},
+  options: { onExecute?: (query: unknown) => void | Promise<void> } = {}
+) {
+  const executed: unknown[] = []
   const tables = new Map<string, Row[]>()
   for (const [name, rows] of Object.entries(seed)) {
     tables.set(name, rows.map((row) => ({ ...row })))
@@ -225,10 +231,18 @@ export function createFakeDb(seed: Record<string, Row[]> = {}) {
     delete: del,
     transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
       fn(db),
+    execute: async (query: unknown) => {
+      executed.push(query)
+      await options.onExecute?.(query)
+      return { rows: [] }
+    },
+    /** Test access: every `execute` query, in order. */
+    executed,
     /** Test access: the rows of one table by its SQL name. */
     rows: (tableName: string): Row[] => rowsOf(tableName),
   }
-  return db
+  // Typed as the real handle too, so helpers taking `Db` accept it as-is.
+  return db as typeof db & Db
 }
 
 export type FakeDb = ReturnType<typeof createFakeDb>

@@ -1,11 +1,14 @@
-// EXP-792/EXP-1030: on the shared `Picker` primitive (multi) the picker keeps
-// its one non-obvious rule — a server the chosen machine is NOT ready for is
-// greyed with the reason UNDER its name but stays PICKABLE (the desktop
-// launcher names the blocker later, and `launch_options.rs` draws the same
-// row), so it must never reach the primitive's `disabled`.
+// EXP-792/EXP-1030: on the shared `Picker` primitive (multi). Readiness is
+// the CALLER's own `connection` (the server holds member credentials): a
+// server they have not connected is greyed with "Connect first" UNDER its
+// name, and picking it opens the settings deep link instead of adding it.
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { McpServerRow } from "@/lib/mcp-servers"
+import {
+  McpServerPicker,
+  mcpPickSummary,
+} from "@/components/launch-dialog/mcp-server-picker"
 
 class ResizeObserverStub {
   observe() {}
@@ -15,26 +18,35 @@ class ResizeObserverStub {
 globalThis.ResizeObserver ??= ResizeObserverStub as never
 Element.prototype.scrollIntoView ??= function scrollIntoView() {}
 
+const connection = (status: string, error: string | null = null) => ({
+  status,
+  expiresAt: null,
+  error,
+})
+
 const SERVERS = [
-  { id: `srv-1`, name: `Linear` },
-  { id: `srv-2`, name: `Sentry` },
+  {
+    id: `srv-1`,
+    name: `Linear`,
+    url: `https://mcp.linear.app/mcp`,
+    connection: connection(`connected`),
+  },
+  { id: `srv-2`, name: `Sentry`, connection: connection(`not_connected`) },
+  { id: `srv-3`, name: `Docs`, connection: connection(`not_needed`) },
+  { id: `srv-4`, name: `Notion`, connection: connection(`error`, `refresh failed`) },
 ] as unknown as McpServerRow[]
-
-vi.mock(`@/lib/mcp-servers`, () => ({
-  serverBlockReason: (server: { id: string }) =>
-    server.id === `srv-2` ? `Sign in to Sentry on this machine` : null,
-}))
-
-const { McpServerPicker, mcpPickSummary } = await import(
-  `@/components/launch-dialog/mcp-server-picker`
-)
 
 const rows = () =>
   Array.from(document.querySelectorAll(`[data-slot=command-item]`))
 
 describe(`McpServerPicker`, () => {
   const onToggle = vi.fn()
-  beforeEach(() => onToggle.mockReset())
+  const openSpy = vi.fn()
+  beforeEach(() => {
+    onToggle.mockReset()
+    openSpy.mockReset()
+    vi.stubGlobal(`open`, openSpy)
+  })
 
   const open = (selected: string[] = []) => {
     render(
@@ -42,8 +54,7 @@ describe(`McpServerPicker`, () => {
         servers={SERVERS}
         selectedIds={selected}
         onToggle={onToggle}
-        device={undefined}
-        now={new Date(`2026-09-18T00:00:00Z`)}
+        connectHref={(id) => `/t/acme/settings/mcp-servers?connect=${id}`}
       />
     )
     fireEvent.click(screen.getAllByRole(`button`)[0]!)
@@ -57,20 +68,51 @@ describe(`McpServerPicker`, () => {
     expect(rows()[1]!.getAttribute(`data-picked`)).toBeNull()
   })
 
-  it(`keeps a not-ready row pickable, greyed and explained`, () => {
+  it(`toggles a connected or sign-in-free server`, () => {
+    open()
+    fireEvent.click(rows()[0]!)
+    expect(onToggle).toHaveBeenCalledWith(`srv-1`)
+    fireEvent.click(rows()[2]!)
+    expect(onToggle).toHaveBeenCalledWith(`srv-3`)
+    expect(
+      rows()[2]!.querySelector(`[data-slot=picker-description]`)
+    ).toBeNull()
+    expect(openSpy).not.toHaveBeenCalled()
+  })
+
+  it(`greys an unconnected server and sends the pick to connect it`, () => {
     open()
     const blocked = rows()[1]!
     expect(blocked.getAttribute(`data-disabled`)).not.toBe(`true`)
-    // The reason is the primitive's muted second line (desktop parity).
     expect(
       blocked.querySelector(`[data-slot=picker-description]`)?.textContent
-    ).toBe(`Sign in to Sentry on this machine`)
-    expect(
-      blocked.querySelector(`[title="Sign in to Sentry on this machine"]`)
-    ).toBeTruthy()
+    ).toBe(`Connect first`)
+    expect(blocked.querySelector(`[data-mcp-ready=false]`)).toBeTruthy()
 
     fireEvent.click(blocked)
-    expect(onToggle).toHaveBeenCalledWith(`srv-2`)
+    expect(onToggle).not.toHaveBeenCalled()
+    expect(openSpy).toHaveBeenCalledWith(
+      `/t/acme/settings/mcp-servers?connect=srv-2`,
+      `_blank`,
+      `noopener`
+    )
+  })
+
+  it(`asks a failed or expired sign-in to reconnect`, () => {
+    open()
+    expect(
+      rows()[3]!.querySelector(`[data-slot=picker-description]`)?.textContent
+    ).toBe(`Reconnect first`)
+  })
+
+  it(`draws a catalog server's brand mark, a plug for the rest`, () => {
+    open()
+    const linear = rows()[0]!.querySelector(`svg`)!
+    expect(linear.getAttribute(`viewBox`)).toBe(`0 0 512 512`)
+    expect(linear.getAttribute(`class`)).toContain(`size-4`)
+    expect(linear.querySelector(`path`)?.getAttribute(`fill`)).toBe(`#fff`)
+    const docs = rows()[2]!.querySelector(`svg`)!
+    expect(docs.getAttribute(`viewBox`)).toBe(`0 0 24 24`)
   })
 
   it(`hides the filter field for a short list`, () => {
@@ -80,6 +122,6 @@ describe(`McpServerPicker`, () => {
 
   it(`summarises the pick on the trigger`, () => {
     expect(mcpPickSummary(SERVERS, [])).toBe(`None`)
-    expect(mcpPickSummary(SERVERS, [`srv-1`, `srv-2`])).toBe(`Linear, Sentry`)
+    expect(mcpPickSummary(SERVERS, [`srv-1`, `srv-3`])).toBe(`Linear, Docs`)
   })
 })

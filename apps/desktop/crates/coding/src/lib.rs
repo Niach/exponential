@@ -57,7 +57,6 @@ pub mod codex_app_server;
 pub mod codex_sessions;
 pub mod codex_trust;
 pub mod context_layout;
-pub mod device_mcp_servers;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
@@ -69,7 +68,6 @@ pub mod lockfile;
 // EXP-1099: the rotating log file + the heartbeat failure policy.
 pub mod logging;
 pub mod mcp_json;
-pub mod mcp_oauth;
 pub mod mcp_servers;
 pub mod process;
 pub mod prompt;
@@ -130,7 +128,7 @@ pub use agent_usage::{
     collect_if_due, force_collect, refresh_on_demand, use_profile, AgentStatusPayload,
     AgentUsage, AgentUsageMap, UsageWindow,
 };
-pub use mcp_servers::{McpBlocker, McpReadinessState, ResolvedMcp};
+pub use mcp_servers::ResolvedMcp;
 pub use scm::{
     diff_status, CommitInfo, ConflictKind, ConflictState, DiffFile, DiffHunk, DiffLine,
     DiffLineKind, DiffStatus, FileChange, FileStatus, StatusSummary,
