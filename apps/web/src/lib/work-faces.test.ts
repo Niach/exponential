@@ -275,7 +275,16 @@ describe(`issueResultsRun`, () => {
   const now = new Date(resultsFixture.issueResultsRun.now)
   for (const c of resultsFixture.issueResultsRun.cases) {
     it(c.name, () => {
-      const picked = issueResultsRun(c.rows, c.issueId, c.boundId, c.me ?? undefined, now)
+      const rows = c.rows as Array<{
+        id: string
+        issueId: string
+        userId: string
+        status: string
+        startedAt: string
+        updatedAt: string
+        results: unknown
+      }>
+      const picked = issueResultsRun(rows, c.issueId, c.boundId, c.me ?? undefined, now)
       expect(picked?.id ?? null).toBe(c.expected)
     })
   }
