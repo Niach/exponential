@@ -90,8 +90,7 @@ import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.availableFaces
 import com.exponential.app.domain.coveredIssueIds
 import com.exponential.app.domain.fallbackFace
-import com.exponential.app.domain.groupSessionResults
-import com.exponential.app.domain.parseSessionResults
+import com.exponential.app.domain.parseSessionResultGroups
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.sessionTree
 import com.exponential.app.domain.switcherMode
@@ -985,7 +984,7 @@ private fun NodeFaces(
     }
     val diffStats = remember(files) { files.takeIf { it.isNotEmpty() }?.let { Diff.totals(it) } }
     val runResults = session?.results ?: sessionRow.firstOrNull { it.id == sessionId }?.results
-    val results = remember(runResults) { groupSessionResults(parseSessionResults(runResults)) }
+    val results = remember(runResults) { parseSessionResultGroups(runResults) }
     // Every face stays on the switcher (an empty one says so); only a
     // teammate's run is theirs alone (EXP-312) and hides the Run face.
     val faces = availableFaces(
@@ -1017,6 +1016,7 @@ private fun NodeFaces(
                 padding = padding,
                 onOpenIssue = onOpenIssue,
                 trailingBarSlot = trailing,
+                onOpenResults = { onFace(WorkFaceKind.Results) },
             )
         } else if (sessionId == null) {
             EmptyFace(WorkflowView.NO_RUNS_LABEL, padding, trailing, "workflow-node-runs-empty")

@@ -1,6 +1,16 @@
 package com.exponential.app.domain
 
+import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 // EXP-879: the Results face's pure rules. Test names mirror web
@@ -135,4 +145,61 @@ class SessionResultsTest {
 
     private fun entry(width: Int?, height: Int?) =
         SessionResultEntry("t", "l", "a", width, height)
+
+    // EXP-933: the shared `session-results.json` fixture, case by case.
+    @Test
+    fun `every fixture groups case parses byte exact`() {
+        val cases = sessionResultsFixture()["groups"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val raw = case["raw"]!!.let { value ->
+                when {
+                    value is JsonNull -> null
+                    value is JsonPrimitive && value.isString -> value.content
+                    else -> value.toString()
+                }
+            }
+            val actual = parseSessionResultGroups(raw).map { group ->
+                Triple(group.topic, group.text, group.entries.map { it.label to it.attachmentId })
+            }
+            val expected = case["expected"]!!.jsonArray.map { groupElement ->
+                val group = groupElement.jsonObject
+                Triple(
+                    group["topic"]!!.jsonPrimitive.content,
+                    group["text"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.content,
+                    group["entries"]!!.jsonArray.map {
+                        it.jsonObject["label"]!!.jsonPrimitive.content to
+                            it.jsonObject["attachmentId"]!!.jsonPrimitive.content
+                    },
+                )
+            }
+            assertEquals(name, expected, actual)
+            assertEquals(name, expected.isNotEmpty(), hasSessionResults(raw))
+        }
+    }
+
+    @Test
+    fun `report groups keep the 60 picture cap`() {
+        val many = (0 until 80).joinToString(",") { index ->
+            """{"topic":"t","label":"l$index","attachmentId":"a$index"}"""
+        }
+        val groups = parseSessionResultGroups("""[$many,{"topic":"late","text":"words"}]""")
+        assertEquals(60, groups[0].entries.size)
+        assertEquals("words", groups[1].text)
+        assertFalse(hasSessionResults("[]"))
+    }
+}
+
+/** The contract fixture, located relative to the Gradle test working dir. */
+internal fun sessionResultsFixture(): JsonObject {
+    val candidates = listOf(
+        "../../../packages/domain-contract/fixtures/session-results.json",
+        "../../packages/domain-contract/fixtures/session-results.json",
+        "packages/domain-contract/fixtures/session-results.json",
+    )
+    val file = candidates.map(::File).firstOrNull { it.isFile }
+        ?: error("session-results.json not found from ${File(".").absolutePath}")
+    return Json.parseToJsonElement(file.readText()).jsonObject
 }

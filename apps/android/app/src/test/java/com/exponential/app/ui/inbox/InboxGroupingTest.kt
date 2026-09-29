@@ -133,6 +133,29 @@ class InboxGroupingTest {
     }
 
     /**
+     * EXP-933: an agent message naming an issue groups under that issue, and
+     * the row opens the issue's Results face while it is the latest.
+     */
+    @Test
+    fun agentMessageWithAnIssueOpensThatIssuesResults() {
+        val state = buildInboxState(
+            notifications = listOf(
+                notification("m1", issueId = "i1", teamId = "t1", type = DomainContract.notificationTypeAgentMessage),
+                notification("c1", issueId = "i1", type = "issue_comment"),
+                notification("c3", issueId = "i2", type = "issue_comment"),
+                notification("c2", issueId = "i2", type = DomainContract.notificationTypeAgentMessage, readAt = ts),
+            ),
+            issues = listOf(issue("i1"), issue("i2")),
+            teams = listOf(team("t1", "Acme")),
+        )
+        assertEquals(emptyList<InboxEntry.Message>(), state.entries.filterIsInstance<InboxEntry.Message>())
+        val groups = state.issueGroups
+        assertEquals(listOf("i1", "i2"), groups.map { it.issue.id })
+        assertEquals(true, groups[0].opensResults)
+        assertEquals(false, groups[1].opensResults)
+    }
+
+    /**
      * EXP-980: a blocked coding run is its own issue-less entry, carrying the
      * run its tap opens; a row whose run was pruned still renders and only
      * marks read.

@@ -150,7 +150,10 @@ class MainActivity : ComponentActivity() {
         when (data.host) {
             "oauth-return" -> handleOauthReturn(data)
             "issue" -> data.pathSegments.firstOrNull()?.let {
-                if (switchToPushAccount(linkUserId)) deepLinkBus.openIssue(it)
+                // EXP-933: `?face=results` = an agent message's report.
+                if (switchToPushAccount(linkUserId)) {
+                    deepLinkBus.openIssue(it, face = data.getQueryParameter(PushDeepLinks.PARAM_FACE))
+                }
             }
             "invite" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openInvite(it) }
             // support_reply push taps (EXP-180): straight to the ticket.
@@ -194,6 +197,10 @@ class MainActivity : ComponentActivity() {
             is PushDeepLinks.Target.Issue -> {
                 intent.removeExtra("issueId")
                 deepLinkBus.openIssue(target.id)
+            }
+            is PushDeepLinks.Target.IssueResults -> {
+                intent.removeExtra("issueId")
+                deepLinkBus.openIssue(target.id, face = PushDeepLinks.FACE_RESULTS)
             }
             is PushDeepLinks.Target.SupportThread -> {
                 intent.removeExtra("threadId")

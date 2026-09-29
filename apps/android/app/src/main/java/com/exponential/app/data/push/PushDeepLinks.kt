@@ -29,8 +29,18 @@ object PushDeepLinks {
     /** Query param carrying the push's recipient through the deep link. */
     const val PARAM_USER_ID = "userId"
 
+    /** EXP-933: query param naming the Work screen face an issue link opens on. */
+    const val PARAM_FACE = "face"
+
+    /** The [PARAM_FACE] value of the Results face. */
+    const val FACE_RESULTS = "results"
+
     sealed interface Target {
         data class Issue(val id: String) : Target
+
+        /** EXP-933: an `agent_message` about an issue — the issue's Work
+         *  screen on its Results face, where the run's report lives. */
+        data class IssueResults(val id: String) : Target
         data class SupportThread(val id: String) : Target
 
         /** The coding run a `session_blocked` push is about (EXP-980). */
@@ -41,7 +51,9 @@ object PushDeepLinks {
     }
 
     /**
-     * What a tapped push should open, or null when it carries no target. A
+     * What a tapped push should open, or null when it carries no target. An
+     * `agent_message` naming an issue (EXP-933) opens that issue's Results; one
+     * without stays in the inbox. A
      * `session_blocked` push routes to its run; without a run id (pruned since
      * it was sent) it still lands in the inbox, where its row lives.
      */
@@ -51,6 +63,7 @@ object PushDeepLinks {
         threadId: String?,
         sessionId: String? = null,
     ): Target? = when {
+        type == TYPE_AGENT_MESSAGE && !issueId.isNullOrEmpty() -> Target.IssueResults(issueId)
         !issueId.isNullOrEmpty() -> Target.Issue(issueId)
         type == TYPE_SUPPORT_REPLY && !threadId.isNullOrEmpty() ->
             Target.SupportThread(threadId)
@@ -69,12 +82,14 @@ object PushDeepLinks {
     fun uri(target: Target, targetUserId: String?): String {
         val base = when (target) {
             is Target.Issue -> "exponential://issue/${target.id}"
+            is Target.IssueResults -> "exponential://issue/${target.id}?$PARAM_FACE=$FACE_RESULTS"
             is Target.SupportThread -> "exponential://support/${target.id}"
             is Target.Session -> "exponential://session/${target.id}"
             Target.Inbox -> "exponential://inbox"
         }
         if (targetUserId.isNullOrEmpty()) return base
-        return "$base?$PARAM_USER_ID=${percentEncode(targetUserId)}"
+        val separator = if ('?' in base) '&' else '?'
+        return "$base$separator$PARAM_USER_ID=${percentEncode(targetUserId)}"
     }
 
     // URI-style percent-encoding (never form-style): the reader is

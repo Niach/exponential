@@ -26,6 +26,9 @@ const val RUNS_FACE_LABEL = "Runs"
 const val CHANGES_FACE_LABEL = "Changes"
 /** EXP-879: the run's published screenshots. */
 const val RESULTS_FACE_LABEL = "Results"
+/** EXP-933: the inline `sessions_results` card's button that switches the
+ *  Work screen to its Results face. */
+const val OPEN_RESULTS_LABEL = "Open Results"
 /** The switcher menu's extra row once the shown run ended for good. */
 const val START_CODING_LABEL = "Start coding"
 
@@ -102,6 +105,24 @@ fun codingTarget(
         live.firstOrNull { it.id == boundId }?.let { return it }
     }
     return newest(live) ?: newest(mine)
+}
+
+/**
+ * EXP-933: the run whose Results an ISSUE shows — [codingTarget] when that run
+ * has results, else the NEWEST run on the issue (startedAt, ties: larger id)
+ * by ANY member with results; null = no results on the issue. Mirrors web
+ * `issueResultsRun` (fixture `session-results.json`).
+ */
+fun issueResultsRun(
+    rows: List<CodingSessionEntity>,
+    issueId: String,
+    boundId: String?,
+    me: String?,
+    nowMs: Long,
+): CodingSessionEntity? {
+    val own = codingTarget(rows, issueId, boundId, me, nowMs)
+    if (own != null && hasSessionResults(own.results)) return own
+    return newest(rows.filter { it.issueId == issueId && hasSessionResults(it.results) })
 }
 
 /**

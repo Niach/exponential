@@ -46,11 +46,12 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.FloatingBottomBar
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
-// EXP-879: the Work screen's RESULTS FACE — the screenshots the shown run
-// published with `exponential_sessions_results`, read off the synced
+// EXP-879: the Work screen's RESULTS FACE — the report (EXP-933: each
+// topic's GFM text above its shots) and screenshots a run published with `exponential_sessions_results`, read off the synced
 // `coding_sessions.results` blob. ONE scrolling page: a filled group band per
 // topic (the EXP-818 section band every list wears) over a WRAPPING row of
 // equal-height tiles, each captioned with its label; a tap opens the shot
@@ -91,14 +92,24 @@ fun ResultsFace(
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            groups.forEach { group ->
-                item(key = "topic_${group.topic}") {
+            // Indexed keys: a workflow's page concatenates several runs'
+            // reports, so one topic may appear more than once.
+            groups.forEachIndexed { index, group ->
+                item(key = "topic_${index}_${group.topic}") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         SectionHeader(title = group.topic)
+                        // EXP-933: the topic's report text sits ABOVE its
+                        // shots; a text-only topic is header + text.
+                        group.text?.let { text ->
+                            MarkdownView(
+                                markdown = text,
+                                modifier = Modifier.fillMaxWidth().testTag("work-result-text"),
+                            )
+                        }
                         // The shots wrap rather than scroll sideways: a topic
                         // with an iOS, an Android and a web shot reads as one
                         // block, not three hidden behind a swipe.
-                        FlowRow(
+                        if (group.entries.isNotEmpty()) FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),

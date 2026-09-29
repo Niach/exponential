@@ -31,6 +31,10 @@ data class InboxGroup(
 ) {
     /** The newest notification — drives the row's icon, sentence, and time. */
     val latest: NotificationEntity get() = notifications.first()
+
+    /** EXP-933: the latest is an agent's message about this issue — the row
+     *  opens the issue's Results face (the run's report), not its Issue face. */
+    val opensResults: Boolean get() = latest.type == DomainContract.notificationTypeAgentMessage
 }
 
 /**

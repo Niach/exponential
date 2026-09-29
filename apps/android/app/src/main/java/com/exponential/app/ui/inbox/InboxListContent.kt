@@ -64,6 +64,9 @@ fun InboxListContent(
     modifier: Modifier = Modifier,
     // EXP-980: a blocked-run row opens the run it is about.
     onOpenSession: (String) -> Unit = {},
+    // EXP-933: an issue row whose latest notification is an agent's message
+    // opens the issue on its Results face.
+    onOpenIssueResults: (String) -> Unit = onOpenIssue,
     viewModel: InboxViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -90,7 +93,11 @@ fun InboxListContent(
                     }
                     is InboxEntry.Issue -> InboxRow(entry.group) {
                         viewModel.markGroupRead(entry.group)
-                        onOpenIssue(entry.group.issue.id)
+                        if (entry.group.opensResults) {
+                            onOpenIssueResults(entry.group.issue.id)
+                        } else {
+                            onOpenIssue(entry.group.issue.id)
+                        }
                     }
                     // An agent's message (EXP-801) opens nothing — the row IS
                     // the content; tapping marks it read.

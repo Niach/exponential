@@ -196,4 +196,26 @@ class PushDeepLinksTest {
             PushDeepLinks.resolveAccount(listOf(older, newer), "acc-active", "user-x"),
         )
     }
+
+    // EXP-933: an agent message about an issue opens that issue's Results.
+    @Test
+    fun `an agent message push with an issue targets the issue's results`() {
+        assertEquals(
+            PushDeepLinks.Target.IssueResults("i1"),
+            PushDeepLinks.target(type = PushDeepLinks.TYPE_AGENT_MESSAGE, issueId = "i1", threadId = null),
+        )
+        assertEquals(
+            "exponential://issue/i1?face=results&userId=user-1",
+            PushDeepLinks.uri(PushDeepLinks.Target.IssueResults("i1"), "user-1"),
+        )
+        assertEquals(
+            "exponential://issue/i1?face=results",
+            PushDeepLinks.uri(PushDeepLinks.Target.IssueResults("i1"), null),
+        )
+        // Any other type naming an issue keeps the plain issue link.
+        assertEquals(
+            PushDeepLinks.Target.Issue("i1"),
+            PushDeepLinks.target(type = "issue_mention", issueId = "i1", threadId = null),
+        )
+    }
 }

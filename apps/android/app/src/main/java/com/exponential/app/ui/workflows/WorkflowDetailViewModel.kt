@@ -34,8 +34,7 @@ import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.coveredIssueIds
 import com.exponential.app.domain.edgeNode
-import com.exponential.app.domain.groupSessionResults
-import com.exponential.app.domain.parseSessionResults
+import com.exponential.app.domain.parseSessionResultGroups
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
@@ -252,9 +251,10 @@ class WorkflowDetailViewModel @Inject constructor(
         if (userId == null) emptySet() else rows.filter { it.userId == userId }.mapTo(HashSet()) { it.id }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    /** Every run's screenshots, grouped by topic in first-published order. */
+    /** Every run's published report — each run's topics (EXP-933: text and
+     *  screenshots) in run order, like web `workflow-detail.tsx`. */
     val results: StateFlow<List<SessionResultGroup>> = workflowSessions
-        .map { rows -> groupSessionResults(rows.flatMap { parseSessionResults(it.results) }) }
+        .map { rows -> rows.flatMap { parseSessionResultGroups(it.results) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**

@@ -82,3 +82,21 @@ fun NavHostController.navigateDeepLink(route: String) {
     if (alreadyOnTop) return
     navigate(route)
 }
+
+/** The issue Work screen's route pattern — `face` is an OPTIONAL query arg. */
+const val ISSUE_ROUTE = "issue/{issueId}?face={face}"
+
+/**
+ * [navigateDeepLink] for the issue route (EXP-933): its optional `face` query
+ * argument is absent on a plain issue link, which [DeepLinkRoutes] reads as an
+ * incomplete fill (always push). So the re-tap check compares the ARGUMENTS
+ * instead: the same issue on the same face is already on top.
+ */
+fun NavHostController.navigateIssueDeepLink(issueId: String, face: String?) {
+    val top = currentBackStackEntry
+    val alreadyOnTop = top?.destination?.route == ISSUE_ROUTE &&
+        top.arguments?.getString("issueId") == issueId &&
+        top.arguments?.getString("face") == face
+    if (alreadyOnTop) return
+    navigate(if (face == null) "issue/$issueId" else "issue/$issueId?face=$face")
+}
