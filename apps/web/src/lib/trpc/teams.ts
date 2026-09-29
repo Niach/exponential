@@ -14,6 +14,10 @@ import { teamColumns } from "@/lib/team-columns"
 import { emailEnabled } from "@/lib/email-enabled"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
+import {
+  collectPlaceholderMemberIds,
+  deletePlaceholdersIfOrphaned,
+} from "@/lib/placeholder-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { randomBytes } from "crypto"
@@ -284,7 +288,13 @@ export const teamsRouter = router({
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         storageKeys = await collectTeamStorageKeys(tx, [input.teamId])
+        // EXP-1132: the cascade drops the placeholders' seats, never their
+        // user rows — purge the ones nothing references any more.
+        const placeholderIds = await collectPlaceholderMemberIds(tx, [
+          input.teamId,
+        ])
         await tx.delete(teams).where(eq(teams.id, input.teamId))
+        await deletePlaceholdersIfOrphaned(tx, placeholderIds)
         return { ok: true, txId }
       })
       // Post-commit: the cascade dropped every member's teamMembers row.

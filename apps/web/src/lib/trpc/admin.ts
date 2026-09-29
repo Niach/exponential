@@ -46,6 +46,10 @@ import {
 } from "@/lib/billing"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
+import {
+  collectPlaceholderMemberIds,
+  deletePlaceholdersIfOrphaned,
+} from "@/lib/placeholder-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
@@ -1163,7 +1167,12 @@ export const adminRouter = router({
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         storageKeys = await collectTeamStorageKeys(tx, [input.teamId])
+        // EXP-1132: same orphaned-placeholder purge as teams.delete.
+        const placeholderIds = await collectPlaceholderMemberIds(tx, [
+          input.teamId,
+        ])
         await tx.delete(teams).where(eq(teams.id, input.teamId))
+        await deletePlaceholdersIfOrphaned(tx, placeholderIds)
         return { ok: true, txId }
       })
       // Post-commit: the cascade dropped every member's teamMembers row.
