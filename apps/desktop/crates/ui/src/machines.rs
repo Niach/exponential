@@ -808,6 +808,8 @@ impl MachinesSection {
         let actionable = device.actionable();
         let can_switch = device.own || device.has_cap(coding::doctor::ACCOUNT_SWITCH_CAP);
         let can_remove = device.has_cap(coding::doctor::ACCOUNT_REMOVE_CAP);
+        // EXP-1137: this build signs out, so its own row always may.
+        let can_sign_out = device.own || device.has_cap(coding::doctor::ACCOUNT_SIGN_OUT_CAP);
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         for (slot, login) in device.logins.iter().enumerate() {
             let Some(agent) = coding::CodingAgent::parse(&login.agent) else {
@@ -829,6 +831,7 @@ impl MachinesSection {
                     &login.profile_id,
                     can_switch,
                     can_remove,
+                    can_sign_out,
                 )
             } else {
                 Vec::new()
@@ -875,6 +878,16 @@ impl MachinesSection {
                                     cx,
                                 )
                             }
+                            ChipAction::SignOut => crate::agent_account_actions::sign_out_account(
+                                device_id.clone(),
+                                device_label.clone(),
+                                own,
+                                agent,
+                                profile_id.clone(),
+                                account_label.clone(),
+                                window,
+                                cx,
+                            ),
                             ChipAction::Remove => crate::agent_account_actions::remove_account(
                                 device_id.clone(),
                                 device_label.clone(),
@@ -886,16 +899,17 @@ impl MachinesSection {
                                 cx,
                             ),
                         };
-                        menu = menu.item(match action {
-                            ChipAction::Remove => crate::controls::danger_menu_item(
+                        menu = menu.item(if action.destructive() {
+                            crate::controls::danger_menu_item(
                                 action.label(),
                                 Icon::new(action.icon()),
                                 cx,
                             )
-                            .on_click(click),
-                            _ => PopupMenuItem::new(action.label())
+                            .on_click(click)
+                        } else {
+                            PopupMenuItem::new(action.label())
                                 .icon(Icon::new(action.icon()))
-                                .on_click(click),
+                                .on_click(click)
                         });
                     }
                     menu

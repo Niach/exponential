@@ -819,6 +819,8 @@ pub const UI_SERVER: ExpIcon = ExpIcon::Server;
 pub const UI_SHARE: ExpIcon = ExpIcon::Share2;
 /// Registry concept `ui-sign-in` -> Lucide `log-in`.
 pub const UI_SIGN_IN: ExpIcon = ExpIcon::LogIn;
+/// Registry concept `ui-sign-out` -> Lucide `log-out`.
+pub const UI_SIGN_OUT: ExpIcon = ExpIcon::LogOut;
 /// Registry concept `ui-staging` -> Lucide `flask-conical`.
 pub const UI_STAGING: ExpIcon = ExpIcon::FlaskConical;
 /// Registry concept `ui-stop` -> Lucide `circle-stop`.

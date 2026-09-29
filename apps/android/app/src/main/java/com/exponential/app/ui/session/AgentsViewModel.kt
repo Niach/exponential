@@ -11,6 +11,7 @@ import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentProfileRemoveCommand
+import com.exponential.app.data.api.agentProfileSignOutCommand
 import com.exponential.app.data.api.agentProfileUseCommand
 import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
@@ -325,6 +326,30 @@ class AgentsViewModel @Inject constructor(
                 devicesApi,
                 accountId,
                 agentProfileRemoveCommand(device.deviceId, agent, profileId),
+                device.online,
+            ) { state ->
+                _accountCommandStates.value = _accountCommandStates.value + (key to state)
+            }
+        }
+    }
+
+    /**
+     * EXP-1137 "Sign out" — the machine signs ONE login out
+     * (`agent_profile_sign_out`) and keeps its row: claude's own `auth logout`
+     * in that profile's config dir, codex's credential file deleted (never
+     * `codex logout`). The account itself is untouched, which is what the
+     * confirm says. Owner + online + both caps, all of which the server
+     * re-checks; the ambient login is taken too.
+     */
+    fun signOutAccountHere(device: SteerDevice, agent: String, profileId: String) {
+        if (!device.isMine || !device.online) return
+        val key = accountCommandKey(device.deviceId, agent, profileId)
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runDeviceCommand(
+                devicesApi,
+                accountId,
+                agentProfileSignOutCommand(device.deviceId, agent, profileId),
                 device.online,
             ) { state ->
                 _accountCommandStates.value = _accountCommandStates.value + (key to state)

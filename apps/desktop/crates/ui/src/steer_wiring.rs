@@ -179,6 +179,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     // machine already replayed, back down the control socket.
     let page_dir = auth.data_dir.clone();
     let page_runtime = Arc::clone(&runtime);
+    // EXP-1137: the register's account rows honour a removed ambient login.
+    let register_dir = auth.data_dir.clone();
     // Boot pass (EXP-886): apply the device's "Keep session history" window
     // to stored transcripts and resume records. Unlimited, the default, keeps
     // everything; Settings → Sessions re-runs it when the window shrinks.
@@ -215,6 +217,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             &caps,
             &settings2,
             Some(&report),
+            &register_dir,
             &cx.background_executor(),
         );
         let _ = cx.update(|cx| {
@@ -372,6 +375,7 @@ pub fn refresh_device_advertisement(cx: &mut App) {
         &caps,
         &settings,
         Some(&report),
+        &auth.data_dir,
         &cx.background_executor(),
     );
     if let Some(channels) = ControlChannels::global_ref(cx) {
@@ -402,6 +406,7 @@ fn register_device(
     caps: &[String],
     settings: &coding::Settings,
     report: Option<&coding::DoctorReport>,
+    data_dir: &std::path::Path,
     executor: &gpui::BackgroundExecutor,
 ) {
     let agents = advertisement.agents.clone();
@@ -421,7 +426,10 @@ fn register_device(
     let agent_accounts = match crate::device_settings::dev_agent_status() {
         Some(demo) => demo.accounts_json(),
         None => report.and_then(|report| {
-            let accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
+            let mut accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
+            // EXP-1137: a removed ambient login must not ride the register
+            // back into `devices.agent_accounts` ahead of the first beat.
+            coding::doctor::hide_removed_ambient_logins(data_dir, &mut accounts);
             (!accounts.is_empty())
                 .then(|| serde_json::to_value(&accounts).ok())
                 .flatten()

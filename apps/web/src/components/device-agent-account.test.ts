@@ -7,6 +7,7 @@ import {
   ACTION_REMOVE,
   ACTION_SET_DEFAULT,
   ACTION_SIGN_IN,
+  ACTION_SIGN_OUT,
   accountChipActionable,
   accountChipActions,
   accountChipLabel,
@@ -31,7 +32,10 @@ function chip(patch: Partial<AccountChipRow> = {}): AccountChipRow {
   }
 }
 
+// The EXP-862 build: switch + remove, no sign-out body yet.
 const ALL_CAPS = [`agent-login`, `account-switch`, `account-remove`]
+// EXP-1137: a build that also signs logins out.
+const SIGN_OUT_CAPS = [...ALL_CAPS, `account-sign-out`]
 
 /** `deviceIsMine` reads the absence of an owner, so a teammate's device is
  *  one that names one. */
@@ -63,8 +67,8 @@ describe(`accountChipActions`, () => {
     expect(
       accountChipActions(device(), chip({ health: `needs_relogin` }))
     ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
-    // The ambient login stays a sign-in and nothing else: its config dir is
-    // the CLI's own.
+    // The ambient login stays a sign-in and nothing else on an EXP-862 build:
+    // its config dir is the CLI's own, and that build cannot sign it out.
     expect(
       accountChipActions(
         device(),
@@ -82,7 +86,7 @@ describe(`accountChipActions`, () => {
     ])
   })
 
-  it(`gates each entry on its own cap, and never removes the ambient login`, () => {
+  it(`gates each entry on its own cap, and never removes the ambient login without the sign-out body`, () => {
     expect(
       accountChipActions(
         device({ caps: [`agent-login`, `account-remove`] }),
@@ -95,14 +99,65 @@ describe(`accountChipActions`, () => {
         chip()
       )
     ).toEqual([ACTION_SET_DEFAULT])
-    // The ambient login is the agent CLI's own config dir, whatever the
-    // device advertises — and it is already the active one, so nothing is left.
+    // The ambient login is the agent CLI's own config dir: an EXP-862 build
+    // cannot sign it out — and it is already the active one, so nothing is
+    // left.
     expect(
       accountChipActions(
         device(),
         chip({ profileId: `system`, profileLabel: `Default`, active: true })
       )
     ).toEqual([])
+  })
+
+  // EXP-1137: a build with the sign-out body offers "Sign out" on every
+  // signed-in login, and "Remove account" on the ambient one too. The order
+  // is fixed ×4: sign in, set as default, sign out, remove.
+  it(`offers a sign-out and the ambient removal on a build that signs out`, () => {
+    const machine = device({ caps: SIGN_OUT_CAPS })
+    // A named login, healthy, not the default: every entry but the sign-in.
+    expect(accountChipActions(machine, chip())).toEqual([
+      ACTION_SET_DEFAULT,
+      ACTION_SIGN_OUT,
+      ACTION_REMOVE,
+    ])
+    // The ambient login, healthy and active (the screenshot's first row): a
+    // sign-out and a removal instead of no menu at all.
+    expect(
+      accountChipActions(machine, chip({ profileId: `system`, active: true }))
+    ).toEqual([ACTION_SIGN_OUT, ACTION_REMOVE])
+    // The ambient login, signed out (the screenshot's second row): the
+    // sign-in and, new, the removal that hides it.
+    expect(
+      accountChipActions(
+        machine,
+        chip({
+          profileId: `system`,
+          active: true,
+          signedIn: false,
+          health: `signed_out`,
+        })
+      )
+    ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
+    // A revoked credential still signs out: that is how it leaves.
+    expect(
+      accountChipActions(machine, chip({ health: `needs_relogin` }))
+    ).toEqual([ACTION_SIGN_IN, ACTION_SIGN_OUT, ACTION_REMOVE])
+    // A signed-out named login has nothing to sign out of.
+    expect(
+      accountChipActions(
+        machine,
+        chip({ signedIn: false, health: `signed_out` })
+      )
+    ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
+    // The sign-out cap alone (no `account-remove`) still removes only the
+    // ambient login.
+    expect(
+      accountChipActions(
+        device({ caps: [`agent-login`, `account-sign-out`] }),
+        chip()
+      )
+    ).toEqual([ACTION_SIGN_OUT])
   })
 })
 
@@ -126,6 +181,13 @@ describe(`accountChipActionable`, () => {
         chip({ profileId: `system`, active: true })
       )
     ).toBe(false)
+    // EXP-1137: the same row IS a control on a build that signs out.
+    expect(
+      accountChipActionable(
+        device({ caps: SIGN_OUT_CAPS }),
+        chip({ profileId: `system`, active: true })
+      )
+    ).toBe(true)
   })
 })
 

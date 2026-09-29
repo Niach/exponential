@@ -1128,6 +1128,7 @@ pub(crate) fn usage_caption(state: UsageState, as_of: Option<&str>) -> Option<St
 pub(crate) enum ChipAction {
     SignIn,
     SetDefault,
+    SignOut,
     Remove,
 }
 
@@ -1136,6 +1137,7 @@ impl ChipAction {
         match self {
             ChipAction::SignIn => "Sign in",
             ChipAction::SetDefault => "Set as default",
+            ChipAction::SignOut => "Sign out",
             ChipAction::Remove => "Remove account",
         }
     }
@@ -1144,29 +1146,33 @@ impl ChipAction {
         match self {
             ChipAction::SignIn => crate::icons::registry::UI_SIGN_IN,
             ChipAction::SetDefault => crate::icons::registry::UI_SWAP,
+            ChipAction::SignOut => crate::icons::registry::UI_SIGN_OUT,
             ChipAction::Remove => crate::icons::registry::UI_DELETE,
         }
     }
+
+    /// The entries that confirm before they act (a danger item in the menu).
+    pub(crate) fn destructive(self) -> bool {
+        matches!(self, ChipAction::SignOut | ChipAction::Remove)
+    }
 }
 
-/// EXP-862 — what a login's chip menu offers, the SAME rule on every client:
+/// EXP-862 — what a login's chip menu offers, the SAME rule on every client,
+/// in this fixed order:
 ///
-/// * signed out, or a credential that expired here: a sign-in, and (EXP-944)
-///   the removal beside it for a NAMED profile — a dead login is the one
-///   people most want gone, and codex logins, which are signed out far more
-///   often than claude's, were left with a menu of one. The ambient login
-///   still ends at the sign-in: its config dir is the CLI's own;
-/// * healthy and not the machine's login: make it the default, or remove it;
-/// * healthy and already the default: remove it.
+/// * a sign-in: signed out, or a credential that expired here;
+/// * make it the default: healthy and not the machine's login (`can_switch`);
+/// * EXP-1137, sign out: signed in, on a build with the sign-out body
+///   (`can_sign_out`) — the row stays;
+/// * remove: a NAMED profile on a build with `can_remove` (EXP-944: signed
+///   out or not — a dead login is the one people most want gone), and
+///   (EXP-1137) the AMBIENT login on a build with `can_sign_out`, which signs
+///   it out there and hides it until it signs in again.
 ///
 /// An empty list means the chip is a STATEMENT, not a control (a machine that
-/// is offline, a teammate's, or too old to take any of the commands).
-///
-/// `can_switch` is the machine's `account-switch` cap and `can_remove` its
-/// `account-remove` one: the server refuses either command without it, so an
-/// older machine simply does not offer that entry. The AMBIENT login can never
-/// be removed — it is the agent CLI's own config dir, which Exponential never
-/// created.
+/// is offline, a teammate's, or too old to take any of the commands). Each cap
+/// is the server's gate for its command: an older machine simply does not
+/// offer that entry.
 pub(crate) fn chip_actions(
     signed_in: bool,
     health: coding::agent_accounts::Health,
@@ -1174,8 +1180,10 @@ pub(crate) fn chip_actions(
     profile_id: &str,
     can_switch: bool,
     can_remove: bool,
+    can_sign_out: bool,
 ) -> Vec<ChipAction> {
     let signs_in = !signed_in || health == coding::agent_accounts::Health::NeedsRelogin;
+    let ambient = profile_id.trim().is_empty() || profile_id.trim() == SYSTEM_PROFILE_ID;
     let mut out = Vec::new();
     if signs_in {
         out.push(ChipAction::SignIn);
@@ -1183,7 +1191,10 @@ pub(crate) fn chip_actions(
     if !signs_in && !active && can_switch {
         out.push(ChipAction::SetDefault);
     }
-    if can_remove && !profile_id.trim().is_empty() && profile_id != SYSTEM_PROFILE_ID {
+    if signed_in && can_sign_out {
+        out.push(ChipAction::SignOut);
+    }
+    if (ambient && can_sign_out) || (!ambient && can_remove) {
         out.push(ChipAction::Remove);
     }
     out
@@ -1197,6 +1208,42 @@ pub(crate) fn remove_account_confirm(account_label: &str, device_label: &str) ->
         "Delete {account_label} on {device_label}? The login is removed from this device \
          only; the account itself is untouched."
     )
+}
+
+/// EXP-1137: the AMBIENT login's remove confirm, pinned ×4 (web
+/// `removeAmbientAccountConfirmCopy`) — it has to say that the CLI in the
+/// person's own terminal signs out along with it.
+pub(crate) fn remove_ambient_account_confirm(
+    account_label: &str,
+    device_label: &str,
+    agent_label: &str,
+) -> String {
+    format!(
+        "Remove {account_label} from {device_label}? The machine's own {agent_label} login \
+         is signed out there, including for the {agent_label} CLI in the terminal, and \
+         hidden here until it signs in again; the account itself is untouched."
+    )
+}
+
+/// EXP-1137: the sign-out confirm, pinned ×4 (web `signOutConfirmCopy`).
+/// `ambient_agent_label` names the agent when the login is the machine's own
+/// (the terminal CLI signs out too); a named profile keeps its row.
+pub(crate) fn sign_out_confirm(
+    account_label: &str,
+    device_label: &str,
+    ambient_agent_label: Option<&str>,
+) -> String {
+    match ambient_agent_label {
+        Some(agent) => format!(
+            "Sign {account_label} out on {device_label}? That is the machine's own {agent} \
+             login, so the {agent} CLI there is signed out too; the account itself is \
+             untouched."
+        ),
+        None => format!(
+            "Sign {account_label} out on {device_label}? The login stays listed so it can \
+             sign in again; the account itself is untouched."
+        ),
+    }
 }
 
 /// The fullest window's percent, or 0 for a row with no usage at all.
@@ -2161,44 +2208,112 @@ mod tests {
         // named profile is exactly what people want gone, and the removal is
         // a profile-dir delete the credential's state never gated.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, false, "0a1b", true, true),
+            chip_actions(false, Health::SignedOut, false, "0a1b", true, true, false),
             vec![ChipAction::SignIn, ChipAction::Remove]
         );
         // Revoked here: the same pair, even though the CLI reports in.
         assert_eq!(
-            chip_actions(true, Health::NeedsRelogin, true, "0a1b", true, true),
+            chip_actions(true, Health::NeedsRelogin, true, "0a1b", true, true, false),
             vec![ChipAction::SignIn, ChipAction::Remove]
         );
         // A dead login is never "set as default": it would not work.
         assert!(
-            !chip_actions(false, Health::SignedOut, false, "0a1b", true, true)
+            !chip_actions(false, Health::SignedOut, false, "0a1b", true, true, false)
                 .contains(&ChipAction::SetDefault)
         );
-        // The AMBIENT login still ends at the sign-in: its config dir is the
-        // CLI's own, which Exponential never created.
+        // The AMBIENT login ends at the sign-in on an EXP-862 build: its
+        // config dir is the CLI's own, and that build cannot sign it out.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, true, SYSTEM_PROFILE_ID, true, true),
+            chip_actions(false, Health::SignedOut, true, SYSTEM_PROFILE_ID, true, true, false),
             vec![ChipAction::SignIn]
         );
         // An older machine without the remove cap keeps its menu of one.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, false, "0a1b", true, false),
+            chip_actions(false, Health::SignedOut, false, "0a1b", true, false, false),
             vec![ChipAction::SignIn]
         );
         // Healthy, not the machine's default.
         assert_eq!(
-            chip_actions(true, Health::Ok, false, "0a1b", true, true),
+            chip_actions(true, Health::Ok, false, "0a1b", true, true, false),
             vec![ChipAction::SetDefault, ChipAction::Remove]
         );
         // Healthy and already the default: only the removal.
         assert_eq!(
-            chip_actions(true, Health::Ok, true, "0a1b", true, true),
+            chip_actions(true, Health::Ok, true, "0a1b", true, true, false),
             vec![ChipAction::Remove]
         );
-        // The ambient login is never removable — it is the CLI's own dir.
-        assert!(chip_actions(true, Health::Ok, true, SYSTEM_PROFILE_ID, true, true).is_empty());
-        // An older machine advertises neither cap: the chip is a statement.
-        assert!(chip_actions(true, Health::Ok, false, "0a1b", false, false).is_empty());
+        // The ambient login is not removable on an EXP-862 build.
+        assert!(
+            chip_actions(true, Health::Ok, true, SYSTEM_PROFILE_ID, true, true, false).is_empty()
+        );
+        // An older machine advertises no cap: the chip is a statement.
+        assert!(chip_actions(true, Health::Ok, false, "0a1b", false, false, false).is_empty());
+    }
+
+    /// EXP-1137: a build with the sign-out body offers "Sign out" on every
+    /// signed-in login and "Remove account" on the ambient one too — the
+    /// fixed order ×4 is sign in, set as default, sign out, remove (web
+    /// `accountChipActions`, iOS `DeviceLogins`, Android `chipActions`).
+    #[test]
+    fn a_build_that_signs_out_offers_it_and_removes_the_ambient_login() {
+        use coding::agent_accounts::Health;
+        // A named login, healthy, not the default: every entry but the sign-in.
+        assert_eq!(
+            chip_actions(true, Health::Ok, false, "0a1b", true, true, true),
+            vec![ChipAction::SetDefault, ChipAction::SignOut, ChipAction::Remove]
+        );
+        // The ambient login, healthy and active: a sign-out and a removal
+        // instead of no menu at all.
+        assert_eq!(
+            chip_actions(true, Health::Ok, true, SYSTEM_PROFILE_ID, true, true, true),
+            vec![ChipAction::SignOut, ChipAction::Remove]
+        );
+        // The ambient login, signed out: the sign-in and the removal that
+        // hides it. A blank id spells the same login.
+        assert_eq!(
+            chip_actions(false, Health::SignedOut, true, SYSTEM_PROFILE_ID, true, true, true),
+            vec![ChipAction::SignIn, ChipAction::Remove]
+        );
+        assert_eq!(
+            chip_actions(false, Health::SignedOut, true, "", true, true, true),
+            vec![ChipAction::SignIn, ChipAction::Remove]
+        );
+        // A revoked credential still signs out: that is how it leaves.
+        assert_eq!(
+            chip_actions(true, Health::NeedsRelogin, false, "0a1b", true, true, true),
+            vec![ChipAction::SignIn, ChipAction::SignOut, ChipAction::Remove]
+        );
+        // A signed-out named login has nothing to sign out of.
+        assert_eq!(
+            chip_actions(false, Health::SignedOut, false, "0a1b", true, true, true),
+            vec![ChipAction::SignIn, ChipAction::Remove]
+        );
+        // The sign-out cap alone never removes a NAMED profile.
+        assert_eq!(
+            chip_actions(true, Health::Ok, false, "0a1b", false, false, true),
+            vec![ChipAction::SignOut]
+        );
+        assert!(ChipAction::SignOut.destructive() && ChipAction::Remove.destructive());
+        assert!(!ChipAction::SignIn.destructive() && !ChipAction::SetDefault.destructive());
+        assert_eq!(ChipAction::SignOut.label(), "Sign out");
+    }
+
+    /// EXP-1137: the sign-out and ambient-remove confirms, byte-identical
+    /// with web/iOS/Android.
+    #[test]
+    fn sign_out_confirms_are_the_pinned_sentences() {
+        assert_eq!(
+            sign_out_confirm("me@example.com", "mint", None),
+            "Sign me@example.com out on mint? The login stays listed so it can sign in again; the account itself is untouched."
+        );
+        assert_eq!(
+            sign_out_confirm("me@example.com", "mint", Some("Claude")),
+            "Sign me@example.com out on mint? That is the machine's own Claude login, so the Claude CLI there is signed out too; the account itself is untouched."
+        );
+        assert_eq!(
+            remove_ambient_account_confirm("me@example.com", "mint", "Codex"),
+            "Remove me@example.com from mint? The machine's own Codex login is signed out there, including for the Codex CLI in the terminal, and hidden here until it signs in again; the account itself is untouched."
+        );
     }
 
     /// The remove confirm names the login AND the machine, and promises the

@@ -684,6 +684,13 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// chip menu hides the entry instead.
     public var canRemoveAccount: Bool { caps?.contains("account-remove") == true }
 
+    /// EXP-1137: whether this machine runs `agent_profile_sign_out` (sign one
+    /// login out, keep its row) and takes `agent_profile_remove` for its
+    /// AMBIENT login (sign it out and hide the row). Same reasoning as the
+    /// removal: an older build would leave the command pending forever, so
+    /// the chip menu hides both entries instead.
+    public var canSignOutAccount: Bool { caps?.contains("account-sign-out") == true }
+
     /// EXP-530: whether this machine runs action automations locally (watches
     /// its own sync and fires schedule/event triggers). Trigger device pickers
     /// offer only these — an offline-but-capable machine stays pickable (its

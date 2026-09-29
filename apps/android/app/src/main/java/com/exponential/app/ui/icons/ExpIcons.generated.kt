@@ -8457,6 +8457,8 @@ public object ExpIcons {
     public val uiShare: ImageVector get() = `share-2`
     /** Concept `ui-sign-in`. */
     public val uiSignIn: ImageVector get() = `log-in`
+    /** Concept `ui-sign-out`. */
+    public val uiSignOut: ImageVector get() = `log-out`
     /** Concept `ui-staging`. */
     public val uiStaging: ImageVector get() = `flask-conical`
     /** Concept `ui-stop`. */

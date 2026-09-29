@@ -409,6 +409,14 @@ data class SteerDevice(
     val canRemoveAccount: Boolean get() = caps?.contains("account-remove") == true
 
     /**
+     * EXP-1137: whether this machine can SIGN one of its agent logins OUT
+     * (`agent_profile_sign_out` — keeps the row) and take `agent_profile_remove`
+     * for its AMBIENT login (signed out there and hidden until it signs in
+     * again). Cap-gated like the removal: the server refuses both without it.
+     */
+    val canSignOutAccount: Boolean get() = caps?.contains("account-sign-out") == true
+
+    /**
      * EXP-746: whether this machine runs coding sessions through the
      * in-process ACP engine. Read-only here and no longer a gate: every build
      * above the version floor advertises it (EXP-773 left no other transport),

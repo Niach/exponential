@@ -277,36 +277,49 @@ object AgentAccountsRows {
     fun healthBadge(row: AgentProfileUsageRow): String? =
         AgentHealthRules.badgeLabel(row.health)
 
-    /** The chip menu's three entries, byte-identical ×4. */
+    /** The chip menu's four entries, byte-identical ×4. */
     const val ACTION_SIGN_IN = "Sign in"
     const val ACTION_SET_DEFAULT = "Set as default"
+    const val ACTION_SIGN_OUT = "Sign out"
     const val ACTION_REMOVE = "Remove account"
 
     /**
+     * EXP-1137: the server's refusal for a sign-out (or an ambient removal,
+     * which signs out first) on a build without the body. Byte-identical ×4.
+     */
+    const val SIGN_OUT_OLD_APP =
+        "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first."
+
+    /** EXP-1137: the ambient login (`system`, or a blank id): the CLI's own config dir. */
+    fun isAmbient(profileId: String): Boolean =
+        profileId.isBlank() || profileId.trim() == SYSTEM_PROFILE_ID
+
+    /**
      * EXP-862: what a login's chip menu offers, on a machine row or on an
-     * account row — the SAME rules on every client:
+     * account row — the SAME rule on every client, in this fixed order:
      *  - signed out, or a credential that expired here: a sign-in first;
      *  - healthy and not the machine's login: make it the default;
-     *  - any NAMED login: remove it.
+     *  - EXP-1137, signed in on a build with the sign-out body: sign it out
+     *    (the row stays);
+     *  - remove: any NAMED login on a build with `account-remove`, and
+     *    (EXP-1137) the AMBIENT login on a build with the sign-out body, which
+     *    signs it out there and hides it until it signs in again.
      *
      * EXP-944: being signed OUT no longer ends the menu at its sign-in. A dead
      * profile is the thing people most want gone, the removal is a profile-dir
      * delete that never touches the account (no `codex logout`, ever), and the
-     * server has always taken it — it gates on the ambient id, the caps and the
-     * reported profile, never on the credential's state. Codex logins, which
-     * expire far more often than claude's, were left with a menu of one. Only
-     * the AMBIENT login still offers just the sign-in.
+     * server has always taken it — it gates on the caps and the reported
+     * profile, never on the credential's state.
      *
      * An empty list means the chip is a statement, not a control (a machine
      * that is offline, a teammate's, or too old to take any of the commands).
      *
-     * [canSwitchAccount] is the machine's `account-switch` cap and
-     * [canRemoveAccount] its `account-remove` one: the server refuses either
-     * command without it, so an older machine simply does not offer that entry.
-     * [canAgentLogin] is its `agent-login` cap, which the server ALSO requires
-     * for a removal (web `devices.ts` `agentProfileRemove`).
-     * The AMBIENT login ([SYSTEM_PROFILE_ID]) can never be removed — it is the
-     * agent CLI's own config dir, which Exponential never created.
+     * [canSwitchAccount] is the machine's `account-switch` cap,
+     * [canRemoveAccount] its `account-remove` one and [canSignOutAccount] its
+     * `account-sign-out` one: the server refuses each command without its cap,
+     * so an older machine simply does not offer that entry. [canAgentLogin] is
+     * its `agent-login` cap, which the server ALSO requires for every one of
+     * them (web `devices.ts` `createCommand`).
      */
     fun chipActions(
         signedIn: Boolean,
@@ -316,16 +329,16 @@ object AgentAccountsRows {
         canSwitchAccount: Boolean,
         canRemoveAccount: Boolean,
         canAgentLogin: Boolean,
+        canSignOutAccount: Boolean = false,
     ): List<String> {
         val signsIn = !signedIn || health == AgentHealth.NeedsRelogin
+        val ambient = isAmbient(profileId)
         val out = mutableListOf<String>()
         if (signsIn) out += ACTION_SIGN_IN
         if (!signsIn && !active && canSwitchAccount) out += ACTION_SET_DEFAULT
-        if (canRemoveAccount && canAgentLogin && profileId.isNotBlank() &&
-            profileId != SYSTEM_PROFILE_ID
-        ) {
-            out += ACTION_REMOVE
-        }
+        if (signedIn && canAgentLogin && canSignOutAccount) out += ACTION_SIGN_OUT
+        val removes = if (ambient) canSignOutAccount else canRemoveAccount
+        if (removes && canAgentLogin) out += ACTION_REMOVE
         return out
     }
 
@@ -335,6 +348,7 @@ object AgentAccountsRows {
         canSwitchAccount: Boolean,
         canRemoveAccount: Boolean,
         canAgentLogin: Boolean,
+        canSignOutAccount: Boolean = false,
     ): List<String> = chipActions(
         signedIn = row.signedIn,
         health = row.health,
@@ -343,6 +357,7 @@ object AgentAccountsRows {
         canSwitchAccount = canSwitchAccount,
         canRemoveAccount = canRemoveAccount,
         canAgentLogin = canAgentLogin,
+        canSignOutAccount = canSignOutAccount,
     )
 
     /**
@@ -354,6 +369,39 @@ object AgentAccountsRows {
     fun removeAccountConfirm(accountLabel: String, deviceLabel: String): String =
         "Delete $accountLabel on $deviceLabel? The login is removed from this device " +
             "only; the account itself is untouched."
+
+    /**
+     * EXP-1137: the AMBIENT login's remove confirm, pinned ×4 (web
+     * `removeAmbientAccountConfirmCopy`). [agentLabel] is the agent's display
+     * name (`Claude` / `Codex`): the sentence says that the CLI in the person's
+     * own terminal signs out along with it.
+     */
+    fun removeAmbientAccountConfirm(
+        accountLabel: String,
+        deviceLabel: String,
+        agentLabel: String,
+    ): String =
+        "Remove $accountLabel from $deviceLabel? The machine's own $agentLabel login is " +
+            "signed out there, including for the $agentLabel CLI in the terminal, and hidden " +
+            "here until it signs in again; the account itself is untouched."
+
+    /**
+     * EXP-1137: the sign-out confirm, pinned ×4 (web `signOutConfirmCopy`).
+     * [ambientAgentLabel] names the agent when the login is the machine's own
+     * (the terminal CLI signs out too); a named profile keeps its row.
+     */
+    fun signOutConfirm(
+        accountLabel: String,
+        deviceLabel: String,
+        ambientAgentLabel: String? = null,
+    ): String = if (ambientAgentLabel != null) {
+        "Sign $accountLabel out on $deviceLabel? That is the machine's own $ambientAgentLabel " +
+            "login, so the $ambientAgentLabel CLI there is signed out too; the account itself " +
+            "is untouched."
+    } else {
+        "Sign $accountLabel out on $deviceLabel? The login stays listed so it can sign in " +
+            "again; the account itself is untouched."
+    }
 
     /**
      * The agents an "Add account" flow may sign in on the machine: every

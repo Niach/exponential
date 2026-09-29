@@ -644,8 +644,23 @@ final class AgentsViewModel {
     }
 
     /// EXP-862's command kind, handled by the desktop and the headless daemon
-    /// (`coding::agent_usage::remove_profile`).
+    /// (`coding::agent_usage::remove_profile`). EXP-1137: the ambient login
+    /// (`system`) is taken too — signed out there and hidden until it signs
+    /// in again — on a machine with `account-sign-out`.
     private static let removeAccountCommandKind = "agent_profile_remove"
+
+    /// EXP-1137: sign ONE login out on the machine and keep its row — the
+    /// chip menu's other destructive entry, confirmed before it gets here.
+    /// claude's own `auth logout` inside that profile's config dir, codex's
+    /// credential file deleted (never `codex logout`); the account itself is
+    /// untouched. Gated on the machine's `account-sign-out` cap
+    /// (`AgentAccountsRows.chipSignsOut`).
+    func signOutAccount(_ row: AgentProfileUsageRow) {
+        queueAccountCommand(row, kind: Self.signOutAccountCommandKind)
+    }
+
+    /// EXP-1137's command kind (`coding::agent_usage::sign_out_profile`).
+    private static let signOutAccountCommandKind = "agent_profile_sign_out"
 
     private func queueAccountCommand(
         _ row: AgentProfileUsageRow,

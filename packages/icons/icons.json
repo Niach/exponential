@@ -329,6 +329,7 @@
     "ui-unassigned": "user-x",
     "ui-delete-account": "user-x",
     "ui-sign-in": "log-in",
+    "ui-sign-out": "log-out",
     "ui-branch": "git-branch",
     "ui-submit": "circle-arrow-up",
     "ui-properties": "sliders-horizontal",

@@ -160,6 +160,68 @@ pub fn logout_in(
     }
 }
 
+/// EXP-1137: codex's credential file inside a config dir (`$CODEX_HOME` or a
+/// profile's dir). The ONE codex file this crate ever deletes.
+pub const CODEX_AUTH_FILE: &str = "auth.json";
+
+/// EXP-1137 — sign `profile_id`'s login of `agent` OUT on this machine and
+/// keep the profile (its dir, its index row, its remembered email): the
+/// "Sign out" entry, and the first half of removing the ambient login.
+///
+/// claude: the CLI's own `auth logout` inside that profile's config dir
+/// ([`logout_in`]; the ambient login's keychain item is claude's to clear,
+/// and the refresher already treats a vanished store as a sign-out).
+///
+/// codex: the credential FILE is deleted — never `codex logout`, which
+/// revokes the session with OpenAI server-side for every machine sharing it.
+/// The file sits in the profile's dir, or for the ambient login in
+/// `$CODEX_HOME|~/.codex` exactly as the doctor's probe resolves it, so the
+/// login that vanishes is the one that was reported. A missing file is a
+/// login already gone.
+///
+/// `Err` carries a user-facing sentence. Nothing here verifies the result:
+/// the caller re-probes ([`crate::agent_usage::sign_out_profile`]), because a
+/// codex build that keeps its credential in the OS keyring would still be
+/// signed in after the file went.
+pub fn sign_out_in(
+    settings: &Settings,
+    data_dir: &Path,
+    agent: CodingAgent,
+    profile_id: &str,
+) -> Result<(), String> {
+    match agent {
+        CodingAgent::Claude => {
+            logout_in(settings, agent, login_env(data_dir, agent, profile_id).as_ref())
+        }
+        CodingAgent::Codex => {
+            let home = if agent_profiles::is_system(Some(profile_id)) {
+                crate::codex_trust::codex_home(None)
+            } else {
+                agent_profiles::profile_dir(data_dir, agent, profile_id)
+            };
+            let Some(home) = home else {
+                return Err(format!(
+                    "This machine has no {} config dir for that account.",
+                    agent.label()
+                ));
+            };
+            remove_codex_credential(&home).map(|_| ())
+        }
+    }
+}
+
+/// EXP-1137: delete `<home>/auth.json`; `Ok(false)` = there was none.
+pub(crate) fn remove_codex_credential(home: &Path) -> Result<bool, String> {
+    match std::fs::remove_file(home.join(CODEX_AUTH_FILE)) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(format!(
+            "Could not remove codex's credential file ({}): {err}",
+            home.join(CODEX_AUTH_FILE).display()
+        )),
+    }
+}
+
 /// EXP-827: which account an `agent_login` command signs into.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoginTarget {
@@ -367,6 +429,44 @@ mod tests {
 
         let codex = login_plan(&settings, CodingAgent::Codex, false);
         assert_eq!(codex.spawn.args, vec!["login", "--device-auth"]);
+    }
+
+    /// EXP-1137: a codex sign-out is a FILE delete inside that login's config
+    /// dir — never `codex logout` — and a missing file is a login already
+    /// gone. A named profile's file is the one under its own dir; nothing
+    /// else in the dir is touched.
+    #[test]
+    fn a_codex_sign_out_deletes_only_that_profiles_credential_file() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "exp-1137-sign-out-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let home = agent_profiles::profile_dir(&dir, CodingAgent::Codex, &profile.id).unwrap();
+        std::fs::write(home.join(CODEX_AUTH_FILE), "{\"tokens\":{}}").unwrap();
+        std::fs::write(home.join("config.toml"), "model = \"o3\"").unwrap();
+
+        let settings = Settings::default();
+        sign_out_in(&settings, &dir, CodingAgent::Codex, &profile.id).unwrap();
+        assert!(!home.join(CODEX_AUTH_FILE).exists(), "the credential file is gone");
+        assert!(home.join("config.toml").exists(), "the CLI's other files stay");
+        assert!(
+            agent_profiles::get(&dir, CodingAgent::Codex, &profile.id).is_some(),
+            "the profile itself stays"
+        );
+        // Already signed out = nothing to do, not an error.
+        assert_eq!(remove_codex_credential(&home), Ok(false));
+        sign_out_in(&settings, &dir, CodingAgent::Codex, &profile.id).unwrap();
+        // An id this machine does not have names no dir.
+        let refusal = sign_out_in(&settings, &dir, CodingAgent::Codex, "deadbeef").unwrap_err();
+        assert!(refusal.contains("no Codex config dir"), "{refusal}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// EXP-695: a remote sign-in must not open a browser on the machine —

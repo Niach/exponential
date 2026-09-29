@@ -20,7 +20,9 @@
 //!   but the one it came from. An API-key/Bedrock login is not eligible at
 //!   all ([`crate::doctor::ClaudeAuthStatus::usage_eligible`]).
 //! * **codex** — its own `codex app-server` JSON-RPC surface
-//!   ([`crate::codex_app_server`]); `~/.codex/auth.json` is never touched.
+//!   ([`crate::codex_app_server`]); `~/.codex/auth.json` is never READ. The
+//!   one thing this crate ever does to it is delete it, when the person asks
+//!   for a sign-out (EXP-1137, [`crate::agent_login::sign_out_in`]).
 //!
 //! Two of them also have a LIVE publisher ([`live`]): a running codex
 //! session is pushed `account/rateLimits/updated`, a running claude session
@@ -1320,17 +1322,7 @@ pub fn use_profile(
     }
     // Identity as this machine sees it right now — the profile's own `auth
     // status`, never a synced row that may be minutes old.
-    let stamp = now_iso();
-    let accounts = report.agent_accounts_with_profiles(settings, data_dir, &stamp);
-    let signed_in = accounts
-        .get(agent.id())
-        .map(|account| match account.profiles.iter().find(|row| row.id == profile) {
-            Some(row) => row.signed_in,
-            // A single-login machine has no profile rows: the ambient login IS
-            // the account row.
-            None => crate::agent_profiles::is_system(Some(profile)) && account.signed_in,
-        })
-        .unwrap_or(false);
+    let signed_in = profile_signed_in(data_dir, settings, report, agent, profile);
     if !signed_in {
         return Err(format!(
             "That {} account is not signed in on this machine — sign in there first.",
@@ -1349,6 +1341,100 @@ pub fn use_profile(
     )
 }
 
+/// Whether `profile`'s login of `agent` is signed in as this machine sees it
+/// RIGHT NOW: a named profile's own `auth status` inside its config dir, the
+/// ambient login as `report` last probed it (a single-login machine has no
+/// profile rows — the ambient login IS the account row).
+fn profile_signed_in(
+    data_dir: &Path,
+    settings: &Settings,
+    report: &DoctorReport,
+    agent: CodingAgent,
+    profile: &str,
+) -> bool {
+    let stamp = now_iso();
+    let accounts = report.agent_accounts_with_profiles(settings, data_dir, &stamp);
+    accounts
+        .get(agent.id())
+        .map(|account| match account.profiles.iter().find(|row| row.id == profile) {
+            Some(row) => row.signed_in,
+            None => crate::agent_profiles::is_system(Some(profile)) && account.signed_in,
+        })
+        .unwrap_or(false)
+}
+
+/// EXP-1137 — the accounts the runs a host is executing right now, as
+/// `(agent, profile id)` pairs with the ambient login spelled `system`
+/// (`agent_profiles::profile_id`): the guard [`sign_out_profile`] and
+/// [`remove_profile`] apply before pulling a credential out from under a
+/// turn. A run record's `account()` filters the ambient login to `None`, so
+/// the hosts build these pairs through `profile_id`, never through the raw
+/// slot — otherwise an ambient sign-out could never be refused.
+pub type LiveAccounts = [(CodingAgent, String)];
+
+/// The sentence both bodies refuse with when a live run holds the login.
+pub const LIVE_RUN_USES_ACCOUNT: &str =
+    "A live run on this machine still uses that account. End it first.";
+
+fn refuse_if_live(live: &LiveAccounts, agent: CodingAgent, profile: &str) -> Result<(), String> {
+    if live
+        .iter()
+        .any(|(live_agent, account)| *live_agent == agent && account.trim() == profile)
+    {
+        return Err(LIVE_RUN_USES_ACCOUNT.to_string());
+    }
+    Ok(())
+}
+
+/// EXP-1137 — "sign out": sign `profile`'s login of `agent` out on THIS
+/// machine and keep its row.
+///
+/// The ONE body behind every entry point (the desktop's own row, its
+/// `agent_profile_sign_out` command handler and the CLI daemon's), so the
+/// refusals are the same sentence wherever the sign-out was asked for. The
+/// credential goes the agent's own way ([`crate::agent_login::sign_out_in`]:
+/// claude's `auth logout` in that config dir, codex's file deleted — never
+/// `codex logout`); the profile dir, its index row and its remembered email
+/// stay, so the row reads "signed out" and offers a sign-in.
+///
+/// The verdict is re-probed rather than assumed: the returned report carries
+/// a fresh check of `agent` (the caller's may be minutes old and would keep
+/// naming the login), and a login still there afterwards is an error — a
+/// codex build keeping its credential somewhere the file delete cannot
+/// reach.
+///
+/// `Err` is the sentence to show: an id this machine does not have, a login
+/// a LIVE run here is on, a sign-out the CLI refused, or one that did not
+/// take.
+pub fn sign_out_profile(
+    data_dir: &Path,
+    settings: &Settings,
+    report: &DoctorReport,
+    agent: CodingAgent,
+    profile: &str,
+    live: &LiveAccounts,
+    now: u64,
+) -> Result<(AgentStatusPayload, DoctorReport), String> {
+    let profile = crate::agent_profiles::profile_id(Some(profile));
+    if crate::agent_profiles::get(data_dir, agent, &profile).is_none() {
+        return Err(format!("No such {} account on this machine.", agent.id()));
+    }
+    refuse_if_live(live, agent, &profile)?;
+    crate::agent_login::sign_out_in(settings, data_dir, agent, &profile)?;
+    // Its numbers go: a signed-out login has none, and a stale bar would
+    // read as a live one. Its identity stays in `emails.json`.
+    usage_cache::forget_profile(data_dir, agent.id(), &profile);
+    let mut report = report.clone();
+    report.reprobe_agent(settings, agent);
+    if profile_signed_in(data_dir, settings, &report, agent, &profile) {
+        return Err(format!(
+            "{} still reports that login after the sign-out. Sign out in a terminal on that machine instead.",
+            agent.label()
+        ));
+    }
+    Ok((collect_if_due(data_dir, settings, &report, now), report))
+}
+
 /// EXP-862 — "remove account": delete `profile`'s login from THIS machine.
 ///
 /// The ONE body behind every entry point (the desktop's own chip, its
@@ -1361,45 +1447,54 @@ pub fn use_profile(
 /// and no request of any kind leaves this machine. The device default falls
 /// back to the ambient login when the removed profile held it.
 ///
-/// `Err` is the sentence to show: the ambient login (which is the agent CLI's
-/// own, not ours to delete), an id this machine does not have, a login a LIVE
-/// run here is using, or an unwritable index.
+/// EXP-1137: the AMBIENT login is taken too. It has no dir of ours to delete,
+/// so removing it means signing it out ([`sign_out_profile`], when it is
+/// signed in) and hiding its row
+/// ([`crate::agent_profiles::set_ambient_hidden`]) until it signs in again;
+/// the device default moves to the first named profile meanwhile.
+///
+/// `Err` is the sentence to show: an id this machine does not have, a login a
+/// LIVE run here is using, a sign-out that failed, or an unwritable index. The
+/// returned report is fresh for `agent` after an ambient sign-out (see
+/// [`sign_out_profile`]), the caller's otherwise.
 pub fn remove_profile(
     data_dir: &Path,
     settings: &Settings,
     report: &DoctorReport,
     agent: CodingAgent,
     profile: &str,
-    live_accounts: &[String],
+    live: &LiveAccounts,
     now: u64,
-) -> Result<AgentStatusPayload, String> {
-    let profile = profile.trim();
-    if crate::agent_profiles::is_system(Some(profile)) {
-        return Err(format!(
-            "That is this machine's own {} login, not one Exponential can remove.",
-            agent.id()
-        ));
+) -> Result<(AgentStatusPayload, DoctorReport), String> {
+    let profile = crate::agent_profiles::profile_id(Some(profile));
+    if crate::agent_profiles::is_system(Some(&profile)) {
+        if crate::agent_profiles::config_env_var(agent).is_none() {
+            return Err(format!("{} has no account profiles.", agent.id()));
+        }
+        refuse_if_live(live, agent, &profile)?;
+        let report = if profile_signed_in(data_dir, settings, report, agent, &profile) {
+            sign_out_profile(data_dir, settings, report, agent, &profile, live, now)?.1
+        } else {
+            report.clone()
+        };
+        crate::agent_profiles::set_ambient_hidden(data_dir, agent, true)
+            .map_err(|err| format!("Could not remove the {} account here: {err}", agent.id()))?;
+        usage_cache::forget_profile(data_dir, agent.id(), &profile);
+        return Ok((collect_if_due(data_dir, settings, &report, now), report));
     }
-    if crate::agent_profiles::get(data_dir, agent, profile).is_none() {
+    if crate::agent_profiles::get(data_dir, agent, &profile).is_none() {
         return Err(format!("No such {} account on this machine.", agent.id()));
     }
     // A live run reads the profile's config dir for as long as it turns:
     // pulling the credentials out from under it would break the run mid-turn
     // with an error nobody could place.
-    if live_accounts
-        .iter()
-        .any(|account| account.trim() == profile)
-    {
-        return Err(
-            "A live run on this machine still uses that account. End it first.".to_string(),
-        );
-    }
-    crate::agent_profiles::remove(data_dir, agent, profile)
+    refuse_if_live(live, agent, &profile)?;
+    crate::agent_profiles::remove(data_dir, agent, &profile)
         .map_err(|err| format!("Could not remove the {} account here: {err}", agent.id()))?;
     // Its numbers and its identity go with it: a later profile created under
     // a recycled id must never inherit them.
-    usage_cache::forget_profile(data_dir, agent.id(), profile);
-    Ok(collect_if_due(data_dir, settings, report, now))
+    usage_cache::forget_profile(data_dir, agent.id(), &profile);
+    Ok((collect_if_due(data_dir, settings, report, now), report.clone()))
 }
 
 // ---------------------------------------------------------------------------
@@ -1574,6 +1669,11 @@ fn monitored_profiles(
 ) -> Vec<crate::agent_profiles::AgentProfile> {
     let active = crate::agent_profiles::active_profile(data_dir, agent);
     let mut profiles = crate::agent_profiles::list(data_dir, agent);
+    // EXP-1137: a removed ambient login is nobody's to probe — no slot, no
+    // cache row, no rotation pick — until it signs in again and unhides.
+    if crate::agent_profiles::ambient_hidden(data_dir, agent) {
+        profiles.retain(|profile| !profile.is_system());
+    }
     // Stable: the active login first, the rest in list order.
     profiles.sort_by_key(|profile| profile.id != active);
     profiles.truncate(MAX_USAGE_PROFILES);
@@ -4196,27 +4296,25 @@ mod tests {
         );
         usage_cache::save(&dir, &cache);
 
-        let remove = |profile: &str, live: &[String]| {
+        let remove = |profile: &str, live: &[(CodingAgent, String)]| {
             remove_profile(&dir, &settings, &report, CodingAgent::Codex, profile, live, now)
+                .map(|(payload, _)| payload)
         };
 
-        // The ambient login is the agent CLI's own — never ours to delete,
-        // and `codex logout` is never in this path.
-        let refusal = remove(crate::agent_profiles::SYSTEM_PROFILE, &[]).unwrap_err();
-        assert!(refusal.contains("machine's own"), "{refusal}");
-        assert!(remove("", &[]).is_err(), "a blank account id is the ambient login");
         assert_eq!(
             remove("deadbeef", &[]).unwrap_err(),
             "No such codex account on this machine."
         );
+        // The guard is per (agent, profile): the same id on the OTHER agent is
+        // not this login.
         assert_eq!(
-            remove(&work.id, &[work.id.clone()]).unwrap_err(),
-            "A live run on this machine still uses that account. End it first."
+            remove(&work.id, &[(CodingAgent::Codex, work.id.clone())]).unwrap_err(),
+            LIVE_RUN_USES_ACCOUNT
         );
         // Nothing was touched by any of those refusals.
         assert!(dir_on_disk.is_dir());
 
-        assert!(remove(&work.id, &["another".to_string()]).is_ok());
+        assert!(remove(&work.id, &[(CodingAgent::Claude, work.id.clone())]).is_ok());
         assert!(
             crate::agent_profiles::get(&dir, CodingAgent::Codex, &work.id).is_none(),
             "the index row is gone"
@@ -4232,6 +4330,98 @@ mod tests {
                 .get(&usage_cache::entry_key("codex", &work.id))
                 .is_none(),
             "its numbers and its identity go with it"
+        );
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1137: removing the AMBIENT login hides it. A signed-out one (the
+    /// screenshot's "No email · Signed out" row) needs no sign-out first;
+    /// the flag lands, its cached numbers go, and the heartbeat built from
+    /// the same report drops the agent (no other login). A live ambient run
+    /// refuses like any other, and `system`/blank spell the same login.
+    #[test]
+    fn removing_the_ambient_login_hides_it() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("remove-ambient");
+        let settings = Settings {
+            codex_path: "/usr/bin/true".to_string(),
+            ..Settings::default()
+        };
+        let mut report = codex_named_report();
+        // Signed OUT: the removal must not reach for a credential (a signed-in
+        // ambient login is signed out through the real CLI dir, which no test
+        // touches).
+        report.codex.account.as_mut().unwrap().signed_in = false;
+        let now = 1_800_000_000;
+        let mut cache = usage_cache::load(&dir);
+        cache.insert(
+            usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE),
+            cached(vec![session_window(42)], now),
+        );
+        usage_cache::save(&dir, &cache);
+
+        let remove = |profile: &str, live: &[(CodingAgent, String)]| {
+            remove_profile(&dir, &settings, &report, CodingAgent::Codex, profile, live, now)
+        };
+        assert_eq!(
+            remove("", &[(CodingAgent::Codex, "system".to_string())]).unwrap_err(),
+            LIVE_RUN_USES_ACCOUNT,
+            "a live ambient run holds the login"
+        );
+        assert!(!crate::agent_profiles::ambient_hidden(&dir, CodingAgent::Codex));
+
+        let (payload, _) = remove(" system ", &[(CodingAgent::Claude, "system".to_string())])
+            .expect("the ambient login is removable");
+        assert!(crate::agent_profiles::ambient_hidden(&dir, CodingAgent::Codex));
+        assert!(
+            usage_cache::load(&dir)
+                .get(&usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE))
+                .is_none(),
+            "its numbers go"
+        );
+        assert!(
+            !payload.accounts.contains_key("codex"),
+            "no other login: the agent leaves the heartbeat — {:?}",
+            payload.accounts
+        );
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1137: a sign-out keeps the profile and refuses exactly what the
+    /// removal refuses. (The sign-out itself runs the agent CLI, or deletes
+    /// codex's credential file — `agent_login`'s tests cover the file; the
+    /// refusals here never reach it.)
+    #[test]
+    fn a_sign_out_refuses_an_unknown_or_live_login_before_touching_anything() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("sign-out-refusals");
+        let settings = Settings {
+            codex_path: "/usr/bin/true".to_string(),
+            ..Settings::default()
+        };
+        let report = codex_named_report();
+        let now = 1_800_000_000;
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let home = crate::agent_profiles::profile_dir(&dir, CodingAgent::Codex, &work.id).unwrap();
+        std::fs::write(home.join(crate::agent_login::CODEX_AUTH_FILE), "{}").unwrap();
+        let sign_out = |profile: &str, live: &[(CodingAgent, String)]| {
+            sign_out_profile(&dir, &settings, &report, CodingAgent::Codex, profile, live, now)
+        };
+        assert_eq!(
+            sign_out("deadbeef", &[]).unwrap_err(),
+            "No such codex account on this machine."
+        );
+        assert_eq!(
+            sign_out(&work.id, &[(CodingAgent::Codex, work.id.clone())]).unwrap_err(),
+            LIVE_RUN_USES_ACCOUNT
+        );
+        assert!(
+            home.join(crate::agent_login::CODEX_AUTH_FILE).exists(),
+            "nothing was touched by a refusal"
         );
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);

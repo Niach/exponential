@@ -43,6 +43,8 @@ struct AgentsView: View {
     /// the removal a chip is confirming.
     @State private var loginTarget: AgentLoginTarget?
     @State private var removeAccountTarget: AccountRemoveTarget?
+    /// EXP-1137: the sign-out a chip is confirming.
+    @State private var signOutAccountTarget: AccountRemoveTarget?
     /// EXP-944: devices COLLAPSE. The list answers "which machines do I have
     /// and are they up" first; a machine's logins, their usage bars and its
     /// "Add account" are the second question, and three machines' worth of
@@ -238,14 +240,62 @@ struct AgentsView: View {
                     }
                 } message: { target in
                     // The pinned sentence ×4: it names the login and the
-                    // machine, and says the account itself survives.
-                    Text(AgentAccountsRows.removeAccountConfirmCopy(
+                    // machine, and says the account itself survives. EXP-1137:
+                    // the ambient login's sentence says it is signed out on
+                    // the machine (terminal CLI included) and hidden.
+                    Text(confirmCopy(forRemoving: target.row))
+                }
+        )
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .alert(
+                    "Sign out?",
+                    isPresented: Binding(
+                        get: { signOutAccountTarget != nil },
+                        set: { if !$0 { signOutAccountTarget = nil } }
+                    ),
+                    presenting: signOutAccountTarget
+                ) { target in
+                    Button("Cancel", role: .cancel) { signOutAccountTarget = nil }
+                    Button("Sign out", role: .destructive) {
+                        signOutAccountTarget = nil
+                        viewModel?.signOutAccount(target.row)
+                    }
+                } message: { target in
+                    // EXP-1137: the pinned sentence ×4 — the machine's own
+                    // login names the terminal CLI that signs out with it.
+                    Text(AgentAccountsRows.signOutConfirmCopy(
                         account: AgentAccountsRows.loginLabel(target.row),
-                        device: target.row.deviceLabel.isEmpty
-                            ? target.row.deviceId
-                            : target.row.deviceLabel
+                        device: confirmDeviceLabel(target.row),
+                        ambientAgentLabel: AgentAccountsRows.isAmbient(target.row.profileId)
+                            ? LaunchVocabulary.agentLabel(target.row.agent)
+                            : nil
                     ))
                 }
+        )
+    }
+
+    /// The machine a confirm names: its label, or its id for a row that has
+    /// none.
+    private func confirmDeviceLabel(_ row: AgentProfileUsageRow) -> String {
+        row.deviceLabel.isEmpty ? row.deviceId : row.deviceLabel
+    }
+
+    /// EXP-862/EXP-1137: the remove confirm's sentence — the ambient login's
+    /// own for the machine's own login, the pinned EXP-862 one otherwise.
+    private func confirmCopy(forRemoving row: AgentProfileUsageRow) -> String {
+        if AgentAccountsRows.isAmbient(row.profileId) {
+            return AgentAccountsRows.removeAmbientAccountConfirmCopy(
+                account: AgentAccountsRows.loginLabel(row),
+                device: confirmDeviceLabel(row),
+                agentLabel: LaunchVocabulary.agentLabel(row.agent)
+            )
+        }
+        return AgentAccountsRows.removeAccountConfirmCopy(
+            account: AgentAccountsRows.loginLabel(row),
+            device: confirmDeviceLabel(row)
         )
     }
 
@@ -368,7 +418,8 @@ struct AgentsView: View {
                             profileId: row.profileId
                         )
                     },
-                    onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) }
+                    onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) },
+                    onSignOut: { signOutAccountTarget = AccountRemoveTarget(row: $0) }
                 )
                 .padding(.leading, 28)
             }

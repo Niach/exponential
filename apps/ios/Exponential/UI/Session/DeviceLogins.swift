@@ -38,6 +38,9 @@ struct DeviceLogins: View {
     /// confirm (`AgentAccountsRows.removeAccountConfirmCopy`) — a destructive
     /// action never fires straight off a menu row.
     let onRemove: (AgentProfileUsageRow) -> Void
+    /// EXP-1137: ask to sign this login out on the machine. The host owns the
+    /// confirm (`AgentAccountsRows.signOutConfirmCopy`), like the removal.
+    let onSignOut: (AgentProfileUsageRow) -> Void
 
     /// EXP-862: the device-bound "Add account" sheet (agent, then the login).
     @State private var addingAccount = false
@@ -185,22 +188,31 @@ struct DeviceLogins: View {
         if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
             return true
         }
+        if AgentAccountsRows.chipSignsOut(
+            row,
+            canAgentLogin: device.canAgentLogin,
+            canSignOutAccount: device.canSignOutAccount
+        ) {
+            return true
+        }
         return AgentAccountsRows.canRemoveAccount(
             row,
             canAgentLogin: device.canAgentLogin,
-            canRemoveAccount: device.canRemoveAccount
+            canRemoveAccount: device.canRemoveAccount,
+            canSignOutAccount: device.canSignOutAccount
         )
     }
 
     @ViewBuilder
     private func menuItems(_ row: AgentProfileUsageRow) -> some View {
-        // ONE menu per state, byte-identical with web's `accountChipActions`,
-        // the desktop rows and Android. EXP-944: a signed-out or refused login
-        // keeps Sign in as its first, repairing entry — but no longer ENDS
-        // there: a dead NAMED profile can be removed too (codex logins expire
-        // far more often than claude's and were left with a menu of one). Only
-        // the ambient login still offers the sign-in alone; it is the CLI's
-        // own config dir, not ours to delete.
+        // ONE rule, byte-identical with web's `accountChipActions`, the
+        // desktop rows and Android, in this fixed order: Sign in, Set as
+        // default, Sign out (EXP-1137), Remove account. EXP-944: a signed-out
+        // or refused login keeps Sign in as its first, repairing entry — but
+        // no longer ENDS there: a dead NAMED profile can be removed too.
+        // EXP-1137: a signed-in login can be signed out, and the ambient
+        // login removed (signed out there and hidden), on a build with the
+        // sign-out body.
         if AgentAccountsRows.chipSignsIn(row) {
             GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
                 onSignIn(row)
@@ -211,13 +223,25 @@ struct DeviceLogins: View {
                 viewModel.useAccountHere(row)
             }
         }
+        // EXP-1137: gated on the machine's `account-sign-out` cap, like the
+        // removal on its own — the server refuses the command below it.
+        if AgentAccountsRows.chipSignsOut(
+            row,
+            canAgentLogin: device.canAgentLogin,
+            canSignOutAccount: device.canSignOutAccount
+        ) {
+            GlassMenuItem("Sign out", icon: AppIcons.uiSignOut, destructive: true) {
+                onSignOut(row)
+            }
+        }
         // EXP-862: gated on the machine's `account-remove` cap — the server
         // refuses the command below it, and an older build would leave the
         // queued row pending forever.
         if AgentAccountsRows.canRemoveAccount(
             row,
             canAgentLogin: device.canAgentLogin,
-            canRemoveAccount: device.canRemoveAccount
+            canRemoveAccount: device.canRemoveAccount,
+            canSignOutAccount: device.canSignOutAccount
         ) {
             GlassMenuItem("Remove account", icon: AppIcons.uiDelete, destructive: true) {
                 onRemove(row)

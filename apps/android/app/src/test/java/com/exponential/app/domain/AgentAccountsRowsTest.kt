@@ -446,6 +446,114 @@ class AgentAccountsRowsTest {
         )
     }
 
+    // EXP-1137: a build with the sign-out body offers "Sign out" on every
+    // signed-in login and "Remove account" on the ambient one too; the fixed
+    // order ×4 is sign in, set as default, sign out, remove.
+    @Test
+    fun `a build that signs out offers it and removes the ambient login`() {
+        fun chip(
+            signedIn: Boolean,
+            active: Boolean,
+            health: AgentHealth,
+            profileId: String = "work",
+        ) = row(
+            deviceId = "mint",
+            agent = "codex",
+            profileId = profileId,
+            signedIn = signedIn,
+            health = health,
+            active = active,
+        )
+        val all = { row: AgentProfileUsageRow ->
+            AgentAccountsRows.chipActions(
+                row,
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+                canAgentLogin = true,
+                canSignOutAccount = true,
+            )
+        }
+        // A named login, healthy, not the default: every entry but the sign-in.
+        assertEquals(
+            listOf("Set as default", "Sign out", "Remove account"),
+            all(chip(signedIn = true, active = false, health = AgentHealth.Ok)),
+        )
+        // The ambient login, healthy and active (the screenshot's first row):
+        // a sign-out and a removal instead of no menu at all.
+        assertEquals(
+            listOf("Sign out", "Remove account"),
+            all(chip(signedIn = true, active = true, health = AgentHealth.Ok, profileId = "system")),
+        )
+        // The ambient login, signed out (the screenshot's second row): the
+        // sign-in and the removal that hides it. A blank id spells the same.
+        assertEquals(
+            listOf("Sign in", "Remove account"),
+            all(chip(signedIn = false, active = true, health = AgentHealth.SignedOut, profileId = "system")),
+        )
+        assertEquals(
+            listOf("Sign in", "Remove account"),
+            all(chip(signedIn = false, active = true, health = AgentHealth.SignedOut, profileId = " ")),
+        )
+        // A revoked credential still signs out: that is how it leaves.
+        assertEquals(
+            listOf("Sign in", "Sign out", "Remove account"),
+            all(chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)),
+        )
+        // A signed-out named login has nothing to sign out of.
+        assertEquals(
+            listOf("Sign in", "Remove account"),
+            all(chip(signedIn = false, active = false, health = AgentHealth.SignedOut)),
+        )
+        // The sign-out cap alone never removes a NAMED profile, and
+        // `agent-login` is required for everything.
+        assertEquals(
+            listOf("Sign out"),
+            AgentAccountsRows.chipActions(
+                chip(signedIn = true, active = false, health = AgentHealth.Ok),
+                canSwitchAccount = false,
+                canRemoveAccount = false,
+                canAgentLogin = true,
+                canSignOutAccount = true,
+            ),
+        )
+        assertTrue(
+            AgentAccountsRows.chipActions(
+                chip(signedIn = true, active = true, health = AgentHealth.Ok, profileId = "system"),
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+                canAgentLogin = false,
+                canSignOutAccount = true,
+            ).isEmpty(),
+        )
+        assertTrue(AgentAccountsRows.isAmbient("system"))
+        assertTrue(AgentAccountsRows.isAmbient(""))
+        assertFalse(AgentAccountsRows.isAmbient("work"))
+    }
+
+    @Test
+    fun `the sign-out and ambient remove confirms are the pinned sentences`() {
+        assertEquals(
+            "Sign me@example.com out on mint? The login stays listed so it can sign in " +
+                "again; the account itself is untouched.",
+            AgentAccountsRows.signOutConfirm("me@example.com", "mint"),
+        )
+        assertEquals(
+            "Sign me@example.com out on mint? That is the machine's own Claude login, so " +
+                "the Claude CLI there is signed out too; the account itself is untouched.",
+            AgentAccountsRows.signOutConfirm("me@example.com", "mint", "Claude"),
+        )
+        assertEquals(
+            "Remove me@example.com from mint? The machine's own Codex login is signed out " +
+                "there, including for the Codex CLI in the terminal, and hidden here until it " +
+                "signs in again; the account itself is untouched.",
+            AgentAccountsRows.removeAmbientAccountConfirm("me@example.com", "mint", "Codex"),
+        )
+        assertEquals(
+            "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.",
+            AgentAccountsRows.SIGN_OUT_OLD_APP,
+        )
+    }
+
     @Test
     fun `the remove confirm names the login, the machine and what survives`() {
         assertEquals(

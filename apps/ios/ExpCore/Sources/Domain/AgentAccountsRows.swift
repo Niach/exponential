@@ -362,6 +362,17 @@ public enum AgentAccountsRows {
     /// pending forever.
     public static let removeCap = "account-remove"
 
+    /// EXP-1137: the `account-sign-out` device cap — the machine runs
+    /// `agent_profile_sign_out` and takes `agent_profile_remove` for its
+    /// ambient login. `SteerDevice.canSignOutAccount` reads it.
+    public static let signOutCap = "account-sign-out"
+
+    /// EXP-1137: the ambient login (`system`, or a blank id): the agent CLI's
+    /// own config dir.
+    public static func isAmbient(_ profileId: String) -> Bool {
+        profileId.isEmpty || profileId == systemProfileId
+    }
+
     /// EXP-862: a chip whose one repair is a SIGN-IN — there is no login on
     /// that machine, or the agent refused the one there. Both read the same to
     /// a person: sign in. (Web `MachineAccountChip`, Android `chipSignsIn`.)
@@ -388,38 +399,73 @@ public enum AgentAccountsRows {
     public static let removeAccountOldApp =
         "That machine runs an older Exponential app that cannot remove agent accounts. Update it first."
 
+    /// EXP-1137: the server's refusal for a sign-out (or an ambient removal,
+    /// which signs out first) on a build without the body. Byte-identical ×4.
+    public static let signOutOldApp =
+        "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first."
+
     /// EXP-862: why "Remove account" is NOT offered for this login on this
-    /// machine, or nil when it is — the web `removeAccountBlockReason` twin,
-    /// TWO refusals in the order a person would hit them: the ambient login
-    /// (the agent CLI's own config dir, which Exponential never created and
-    /// must not delete), and a machine whose build cannot run the command.
+    /// machine, or nil when it is — the web `removeAccountBlockReason` twin.
+    /// Two builds, one refusal each: the ambient login needs the sign-out body
+    /// (EXP-1137, `account-sign-out`: the machine signs it out and hides the
+    /// row), a named profile the removal body (`account-remove`: the machine
+    /// deletes its dir).
     ///
-    /// EXP-944: being signed OUT is no longer one of them. A dead profile is
-    /// the thing people most want gone, the removal is a profile-dir delete
-    /// that never touches the account (no `codex logout`, ever), and the
-    /// server has always taken it — it gates on the ambient id, the caps and
-    /// the reported profile, never on the credential's state. So a signed-out
-    /// named login offers "Sign in" AND "Remove account".
+    /// EXP-944: being signed OUT is not one of them. A dead profile is the
+    /// thing people most want gone, the removal is a profile-dir delete that
+    /// never touches the account (no `codex logout`, ever), and the server has
+    /// always taken it — it gates on the caps and the reported profile, never
+    /// on the credential's state. So a signed-out login offers "Sign in" AND
+    /// "Remove account".
     public static func removeAccountBlockReason(
         _ row: AgentProfileUsageRow,
         canAgentLogin: Bool,
-        canRemoveAccount: Bool
+        canRemoveAccount: Bool,
+        canSignOutAccount: Bool = false
     ) -> String? {
-        if row.profileId.isEmpty || row.profileId == systemProfileId {
-            return "That is the machine's own agent login, not one Exponential can remove."
-        }
-        if !canAgentLogin || !canRemoveAccount { return removeAccountOldApp }
-        return nil
+        let ambient = isAmbient(row.profileId)
+        if !canAgentLogin { return ambient ? signOutOldApp : removeAccountOldApp }
+        if ambient { return canSignOutAccount ? nil : signOutOldApp }
+        return canRemoveAccount ? nil : removeAccountOldApp
     }
 
     /// Whether the chip menu offers "Remove account" for this login.
     public static func canRemoveAccount(
         _ row: AgentProfileUsageRow,
         canAgentLogin: Bool,
-        canRemoveAccount: Bool
+        canRemoveAccount: Bool,
+        canSignOutAccount: Bool = false
     ) -> Bool {
         removeAccountBlockReason(
-            row, canAgentLogin: canAgentLogin, canRemoveAccount: canRemoveAccount
+            row,
+            canAgentLogin: canAgentLogin,
+            canRemoveAccount: canRemoveAccount,
+            canSignOutAccount: canSignOutAccount
+        ) == nil
+    }
+
+    /// EXP-1137: why "Sign out" is NOT offered for this login on this machine,
+    /// or nil when it is: nothing to sign out of, or a build without the
+    /// command. A revoked credential (`needsRelogin`) still signs out — that
+    /// is how the dead credential leaves the machine.
+    public static func signOutBlockReason(
+        _ row: AgentProfileUsageRow,
+        canAgentLogin: Bool,
+        canSignOutAccount: Bool
+    ) -> String? {
+        if !row.signedIn { return "That login is already signed out there." }
+        if !canAgentLogin || !canSignOutAccount { return signOutOldApp }
+        return nil
+    }
+
+    /// EXP-1137: whether the chip menu offers "Sign out" for this login.
+    public static func chipSignsOut(
+        _ row: AgentProfileUsageRow,
+        canAgentLogin: Bool,
+        canSignOutAccount: Bool
+    ) -> Bool {
+        signOutBlockReason(
+            row, canAgentLogin: canAgentLogin, canSignOutAccount: canSignOutAccount
         ) == nil
     }
 
@@ -430,6 +476,31 @@ public enum AgentAccountsRows {
         device: String
     ) -> String {
         "Delete \(account) on \(device)? The login is removed from this device only; the account itself is untouched."
+    }
+
+    /// EXP-1137: the ambient login's remove confirm, pinned ×4. `agentLabel`
+    /// is the agent's display name (`Claude` / `Codex`): the sentence says
+    /// that the CLI in the person's own terminal signs out along with it.
+    public static func removeAmbientAccountConfirmCopy(
+        account: String,
+        device: String,
+        agentLabel: String
+    ) -> String {
+        "Remove \(account) from \(device)? The machine's own \(agentLabel) login is signed out there, including for the \(agentLabel) CLI in the terminal, and hidden here until it signs in again; the account itself is untouched."
+    }
+
+    /// EXP-1137: the sign-out confirm, pinned ×4. `ambientAgentLabel` names
+    /// the agent when the login is the machine's own (the terminal CLI signs
+    /// out too); a named profile keeps its row for a later sign-in.
+    public static func signOutConfirmCopy(
+        account: String,
+        device: String,
+        ambientAgentLabel: String? = nil
+    ) -> String {
+        if let agent = ambientAgentLabel {
+            return "Sign \(account) out on \(device)? That is the machine's own \(agent) login, so the \(agent) CLI there is signed out too; the account itself is untouched."
+        }
+        return "Sign \(account) out on \(device)? The login stays listed so it can sign in again; the account itself is untouched."
     }
 
     // MARK: - Adding a login (EXP-827/EXP-862)
