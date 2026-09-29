@@ -311,6 +311,7 @@ fn spec() -> engine::adapters::AdapterSpec {
         reaper_settings_path: None,
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
+        name_conversation: false,
         exit: engine::ChildExitLink::new(),
     }
 }

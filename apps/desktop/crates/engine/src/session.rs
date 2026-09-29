@@ -179,6 +179,7 @@ impl EngineSession {
             // A transcript replay draws no bar: it never prompts, so nothing
             // ever measures a prefix to subtract from.
             context_layers: coding::ContextLayers::default(),
+            name_conversation: false,
             exit: child_exit.clone(),
         })?;
 
@@ -452,6 +453,10 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         reaper_settings_path: acp.reaper_settings_path.clone(),
         system_append: acp.system_append.clone(),
         context_layers: acp.context_layers.clone(),
+        // A chat run's scope carries the builtin's id (the server stores it
+        // as a NULL `action_id` beside the reserved `Chat` snapshot).
+        name_conversation: start.prepared.heartbeat_scope.action_id.as_deref()
+            == Some(api::actions::BUILTIN_CHAT_ID),
     exit: child_exit.clone(),
 })?;
     start_with(
