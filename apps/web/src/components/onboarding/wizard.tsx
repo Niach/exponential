@@ -12,6 +12,8 @@ import {
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { trpc } from "@/lib/trpc-client"
 import { conceptIcon, Button, Pill, Input, Label, GlassGroup } from "@exp/ui"
+import { useSession } from "@/hooks/use-session"
+import { useSignOut } from "@/hooks/use-sign-out"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { useCreateBoard } from "@/hooks/use-create-board"
 import {
@@ -30,6 +32,7 @@ import { InviteStep } from "@/components/onboarding/invite-step"
 import { DevicesStep } from "@/components/onboarding/devices-step"
 
 const BoardsIcon = conceptIcon(`nav-boards`)
+const SignOutIcon = conceptIcon(`nav-sign-out`)
 
 // Onboarding (EXP-188): signups get no team anymore, so the wizard is a
 // step machine. EXP-725 made it the SAME four steps on every client:
@@ -120,7 +123,39 @@ export function OnboardingWizard({
             }
           />
         )}
+        <SignedInFooter />
       </div>
+    </div>
+  )
+}
+
+// The wizard is the ONLY surface a team-less user can reach, and it has no
+// sidebar (so no user menu). Without an escape, the wrong account (a second
+// login in the same browser) strands them on "Welcome to Exponential" with
+// create-or-join as the only options. Mirrors the phones' persistent
+// sign-out (`OnboardingView.swift`, MOBILE_ONBOARDING_COPY.signOut): shown
+// under every step, muted, never inside a step's error state.
+function SignedInFooter() {
+  const { data: session } = useSession()
+  const handleSignOut = useSignOut()
+  const email = session?.user?.email
+  return (
+    <div className="mt-4 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+      {email && (
+        <span className="min-w-0 truncate" data-testid="onboarding-signed-in-as">
+          Signed in as {email}
+        </span>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs text-muted-foreground"
+        onClick={() => void handleSignOut()}
+      >
+        <SignOutIcon className="mr-1.5 h-3.5 w-3.5" />
+        Sign out
+      </Button>
     </div>
   )
 }
