@@ -1629,7 +1629,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `issue-chip`,
     title: `Issue chip`,
     kind: `Buttons & chips`,
-    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift.`,
+    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift. SLOP-15: the SMALL mode (\`size="sm"\`) is the same box without the title — glyph · identifier — for the surfaces that name many issues at a glance (the hover graph's nodes, the work header's badge on a phone, the badge overlay's rows); the title rides in the tooltip and the preview card.`,
     status: {
       web: ok(`IssueChip`, `packages/ui/src/issue-chip.tsx`, `The app's components/issue-chip.tsx is the binding that resolves the status and adds the hover preview.`),
       desktop: ok(`issue_chip`, `apps/desktop/crates/ui/src/issue_chip.rs`),
@@ -1654,6 +1654,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           identifier="EXP-423"
           title="The chip is a rounded rect on every client, and a long title truncates"
           status={DONE_GLYPH}
+        />
+        {/* SLOP-15: the small mode — the same box, no title. */}
+        <IssueChip
+          identifier="SLOP-15"
+          title="Stack badge, subtle"
+          status={BACKLOG_GLYPH}
+          size="sm"
+          onClick={noop}
         />
       </div>
     ),

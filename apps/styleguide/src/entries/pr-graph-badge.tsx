@@ -6,7 +6,6 @@ import {
   conceptIcon,
   IssueChip,
   IssueChipStack,
-  StatusGlyph,
 } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
@@ -17,6 +16,10 @@ import type { StyleguideEntry } from "./types.ts"
 // ×4, face-independent since EXP-1097). Hover (pointer) or tap
 // (phones) opens the same overlay as before; the specimen shows the chip only,
 // since the overlay reads four Electric collections.
+//
+// SLOP-15: the ghosts became faint outlines (2px steps, no fill) and the
+// phone's compact chip is the chip's own `size="sm"`. The natives still draw
+// filled 3pt ghosts and have no small chip: `leftover` until the follow-up.
 
 const TreeIcon = conceptIcon(`session-tree`)
 
@@ -35,7 +38,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1058`,
   title: `Work header badge`,
-  blurb: `What this work is PART OF, as the stacked issue chip (EXP-1058): the front chip names the subject pull request's representative issue, the ghosts behind it and \`+N\` BESIDE them count every other issue on its stack or batch, or every other run of its family (a run without an issue names itself, with the session-tree glyph). EXP-1097: the chip is FACE-INDEPENDENT — the same on Issue, Run and Changes: a stack/batch first, then a run family, then open blockers (the first open blocker in front, the others counted); absent when there is nothing to say. Phones draw it compact (glyph · identifier · \`+N\`, no title) beside the \`…\`. Hover on pointer platforms, tap on phones: the overlay lists every section the work has, the face's own first — Blocked by on Issue, Runs on Run, the pull request stack bottom-up on Changes.`,
+  blurb: `What this work is PART OF, as the stacked issue chip (EXP-1058): the front chip names the subject pull request's representative issue, the ghosts behind it and \`+N\` BESIDE them count every other issue on its stack or batch, or every other run of its family (a run without an issue names itself, with the session-tree glyph). SLOP-15: the ghosts are SUBTLE — the chip's outline alone, no fill, in 2px steps up and to the right, the far one at half strength — so the stack reads as one chip with depth, never as three boxes jostling in the header. EXP-1097: the chip is FACE-INDEPENDENT — the same on Issue, Run and Changes: a stack/batch first, then a run family, then open blockers (the first open blocker in front, the others counted); absent when there is nothing to say. Phones draw the chip's SMALL mode (\`IssueChip size="sm"\`: glyph · identifier, no title) beside the \`…\`. Hover on pointer platforms, tap on phones: the overlay lists every section the work has, the face's own first — Blocked by on Issue (the mini-graph in compact boxes), Runs on Run, the pull request stack bottom-up on Changes — every issue in it as the small chip, its title in the tooltip and the preview card.`,
   status: {
     web: {
       state: `ok`,
@@ -44,22 +47,22 @@ export const entry: StyleguideEntry = {
       note: `the rule is lib/pr-graph.ts badgeChip`,
     },
     desktop: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `pr_graph::badge`,
       file: `apps/desktop/crates/ui/src/pr_graph.rs`,
-      note: `the rule is domain pr_graph::badge_chip`,
+      note: `the rule is domain pr_graph::badge_chip; SLOP-16 pending: filled 3px ghosts, no small chip, full-width hover graph`,
     },
     ios: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `PrGraphBadge`,
       file: `apps/ios/Exponential/UI/Work/PrGraphBadge.swift`,
-      note: `the rule is ExpCore PrGraph.badgeChip`,
+      note: `the rule is ExpCore PrGraph.badgeChip; SLOP-16 pending: filled 3pt ghosts, no small chip, full-width hover graph`,
     },
     android: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `PrGraphBadge`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/work/PrGraphBadge.kt`,
-      note: `the rule is domain PrGraph.badgeChip`,
+      note: `the rule is domain PrGraph.badgeChip; SLOP-16 pending: filled 3dp ghosts, no small chip, full-width hover graph`,
     },
   },
   island: () => (
@@ -74,18 +77,10 @@ export const entry: StyleguideEntry = {
       <IssueChipStack count={2}>
         <IssueChip identifier="EXP-1121" title="Coding readiness model + copy" status={reviewStatus} />
       </IssueChipStack>
-      {/* EXP-1097: the phone header's compact chip. */}
+      {/* EXP-1097: the phone header's compact chip — SLOP-15: the chip's own
+          small mode, nothing hand-rolled. */}
       <IssueChipStack count={2}>
-        <ChipBox
-          slot="issue-chip"
-          openLabel="Blocked by"
-          body={
-            <>
-              <StatusGlyph {...reviewStatus} className={CHIP_GLYPH_CLASS} />
-              <span className="shrink-0 font-mono text-muted-foreground">EXP-1121</span>
-            </>
-          }
-        />
+        <IssueChip identifier="EXP-1121" title="Coding readiness model + copy" status={reviewStatus} size="sm" />
       </IssueChipStack>
       <IssueChipStack count={2}>
         <ChipBox

@@ -42,7 +42,6 @@ import { rowPrState } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { IssueChip } from "@/components/issue-chip"
 import { PrStateBadge } from "@/components/issue-coding-rows"
-import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { cn } from "@/lib/utils"
 
@@ -66,6 +65,12 @@ const STACK_ROW_GAP = 7
 // title). Hover on ≥md, tap everywhere: the SAME overlay opens, the face's
 // own section first (`overlaySections`). Same rows, same copy, on all four
 // clients (`pr_graph.rs`, `PrGraphBadge.swift`, `PrGraphBadge.kt`).
+//
+// SLOP-15: the stack's ghosts are faint outlines now (`IssueChipStack`), the
+// phone's compact chip IS the chip's small mode (`IssueChip size="sm"`), and
+// the overlay draws that same small chip everywhere it names an issue — the
+// blocked-by graph in compact boxes, the batch partners, a batch entry's
+// issues — so the hover tree stays a glance, not a list of titles.
 //
 // Everything it draws is already synced — `lib/pr-graph.ts` is the pure model.
 
@@ -235,27 +240,16 @@ export function PrGraphBadge({
         }}
       >
         <IssueChipStack count={chipSpec.count} testId="pr-graph-chip">
-          {chipSpec.issue && isMobile ? (
+          {chipSpec.issue ? (
             // EXP-1097: the phone header's COMPACT chip — glyph + identifier,
-            // no title; the `+N` still rides beside the stack.
-            <ChipBox
-              slot="issue-chip"
-              openLabel={name}
-              testId="pr-graph-chip-compact"
-              body={
-                <>
-                  <IssueStatusIcon
-                    issue={chipSpec.issue}
-                    className={CHIP_GLYPH_CLASS}
-                  />
-                  <span className="shrink-0 font-mono text-muted-foreground">
-                    {chipSpec.issue.identifier}
-                  </span>
-                </>
-              }
+            // no title (SLOP-15: the chip's own small mode); the `+N` still
+            // rides beside the stack.
+            <IssueChip
+              issue={chipSpec.issue}
+              size={isMobile ? `sm` : `md`}
+              preview={false}
+              testId={isMobile ? `pr-graph-chip-compact` : undefined}
             />
-          ) : chipSpec.issue ? (
-            <IssueChip issue={chipSpec.issue} preview={false} />
           ) : (
             <ChipBox
               slot="issue-chip"
@@ -350,12 +344,17 @@ export function PrGraphOverlay({
   // EXP-930: EVERY issue the overlay lists opens — a batch's "3 issues" that
   // only prints three names is the bug this fixes. A real `<Link>`, so
   // ⌘-click and middle-click work like anywhere else.
-  const chip = (row: Issue) => {
+  // SLOP-15: every chip in the overlay is the SMALL one — glyph · identifier;
+  // its hover preview and its tooltip carry the title. A graph NODE fills its
+  // box (the ring is the box's), a chip in a wrapped row keeps its own width.
+  const chip = (row: Issue, fill = false) => {
     const boardSlug = boardSlugById?.get(row.boardId)
     return (
       <IssueChip
         key={row.id}
         issue={row}
+        size="sm"
+        className={fill ? `w-full` : undefined}
         link={
           boardSlug
             ? (props) => (
@@ -387,7 +386,8 @@ export function PrGraphOverlay({
       <IssueGraphView
         graph={blockGraph([subjectIssue.id], relations, issues)}
         issueById={new Map(issues.map((row) => [row.id, row]))}
-        renderNode={chip}
+        renderNode={(row) => chip(row, true)}
+        density="compact"
       />
     </Section>
   ) : null
@@ -406,7 +406,7 @@ export function PrGraphOverlay({
           className="flex flex-wrap gap-1.5"
           data-testid="pr-graph-batch-partners"
         >
-          {inBatch.map(chip)}
+          {inBatch.map((row) => chip(row))}
         </div>
       </Section>
     ) : null
@@ -500,7 +500,7 @@ export function PrGraphOverlay({
                   section already lists them right here. */}
               {entry.issues.length > 1 && !sections.includes(`batch`) && (
                 <div className="flex flex-wrap gap-1.5 pl-5">
-                  {entry.issues.map(chip)}
+                  {entry.issues.map((row) => chip(row))}
                 </div>
               )}
             </div>

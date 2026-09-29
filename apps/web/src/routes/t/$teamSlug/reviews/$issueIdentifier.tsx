@@ -350,7 +350,7 @@ function ReviewDetailPage() {
              batch chip the run's header wears, with `Merge stack` on the
              bottom entry of the stack. */
           <PrGraphBadge
-            teamId={issue.teamId}
+            teamId={team.id}
             teamSlug={teamSlug}
             face="changes"
             issue={issue}

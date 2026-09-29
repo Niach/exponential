@@ -19,16 +19,22 @@ vi.mock(`@/hooks/use-open-session`, () => ({
 // EXP-930: the chip's LINK half matters now — a batch row that does not open
 // its issue is the whole bug. The stub renders whatever link the overlay hands
 // it, so the assertions can see an anchor.
+// SLOP-15: the stub also reports the SIZE it was asked for — the overlay
+// draws the small chip everywhere.
 vi.mock(`@/components/issue-chip`, () => ({
   IssueChip: ({
     issue,
     link,
+    size,
   }: {
     issue: { identifier: string }
     link?: (props: Record<string, unknown>) => React.ReactElement
+    size?: string
   }) => {
     const body = (
-      <span data-testid={`chip-${issue.identifier}`}>{issue.identifier}</span>
+      <span data-testid={`chip-${issue.identifier}`} data-size={size ?? `md`}>
+        {issue.identifier}
+      </span>
     )
     return link ? link({ children: body }) : body
   },
@@ -358,5 +364,25 @@ describe(`PrGraphBadge for a blocked issue (EXP-1097)`, () => {
     const stack = within(badge).getByTestId(`pr-graph-chip`)
     expect(within(stack).getByTestId(`chip-B1`)).toBeTruthy()
     expect(within(stack).getByText(`+1`)).toBeTruthy()
+  })
+})
+
+// SLOP-15: the hover tree is compact — the blocked-by graph in narrow boxes,
+// every issue in the overlay as the SMALL chip (glyph · identifier).
+describe(`PrGraphOverlay compactness (SLOP-15)`, () => {
+  it(`draws the blocked-by graph compact, with small chips`, () => {
+    overlay(`issue`, {
+      issue: batchA,
+      session: null,
+      issues: [batchA, batchB, blocker],
+      sessions: [],
+      relations: [{ type: `blocks`, issueId: `blocker`, relatedIssueId: `bata` }],
+    })
+    expect(screen.getByTestId(`issue-graph`).getAttribute(`data-density`)).toBe(`compact`)
+    const node = screen.getByTestId(`issue-graph-node-BLOCKER`)
+    expect(within(node).getByTestId(`chip-BLOCKER`).getAttribute(`data-size`)).toBe(`sm`)
+    // The batch partner beside it is small too.
+    const partners = screen.getByTestId(`pr-graph-batch-partners`)
+    expect(within(partners).getByTestId(`chip-BATB`).getAttribute(`data-size`)).toBe(`sm`)
   })
 })

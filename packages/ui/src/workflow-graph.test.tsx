@@ -232,7 +232,10 @@ describe(`WorkflowGraphView`, () => {
 })
 
 describe(`IssueChipStack`, () => {
-  it(`puts two ghosts of the same box behind the front chip`, () => {
+  // SLOP-15: the ghosts are faint OUTLINES of the box (`issue-chip-ghost`),
+  // never the filled `issue-chip` itself, stepped 2px up and to the right —
+  // the far one marked so the stylesheet can fade it.
+  it(`puts two faint outlines of the box behind the front chip`, () => {
     const { container } = render(
       <IssueChipStack testId="stack" count={2}>
         <span className="issue-chip">EXP-1</span>
@@ -241,11 +244,17 @@ describe(`IssueChipStack`, () => {
     const stack = screen.getByTestId(`stack`)
     const ghosts = [...stack.querySelectorAll(`[aria-hidden]`)]
     expect(ghosts).toHaveLength(2)
-    // The SAME box, stepped up and to the right.
-    for (const ghost of ghosts) expect(ghost.className).toContain(`issue-chip`)
+    for (const ghost of ghosts) {
+      expect(ghost.classList.contains(`issue-chip-ghost`)).toBe(true)
+      expect(ghost.classList.contains(`issue-chip`)).toBe(false)
+    }
     expect(ghosts.map((ghost) => (ghost as HTMLElement).style.top)).toEqual([
-      `-6px`,
-      `-3px`,
+      `-4px`,
+      `-2px`,
+    ])
+    expect(ghosts.map((ghost) => ghost.getAttribute(`data-depth`))).toEqual([
+      `2`,
+      `1`,
     ])
     expect(container.textContent).toBe(`EXP-1+2`)
   })

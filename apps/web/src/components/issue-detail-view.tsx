@@ -579,7 +579,7 @@ export function IssueDetailView({
            overlay as a sheet (EXP-1097: compact on the phone — glyph ·
            identifier · `+N`, beside the `…`). */
         <PrGraphBadge
-          teamId={issue.teamId}
+          teamId={teamId}
           teamSlug={teamSlug}
           face="issue"
           issue={issue}
@@ -761,7 +761,7 @@ export function IssueDetailView({
                 (EXP-1058: the stacked issue chip), its run family or its
                 open blockers (EXP-1097: the same chip on every face). */}
             <PrGraphBadge
-              teamId={issue.teamId}
+              teamId={teamId}
               teamSlug={teamSlug}
               face="issue"
               issue={issue}

@@ -679,3 +679,15 @@ html {
 .issue-chip:hover {
   border-color: var(--ring);
 }
+
+/* SLOP-15 — the stacked chip's ghosts (`IssueChipStack`, ./issue-chip.tsx):
+   the chip's OUTLINE alone — the same hairline and 6px radius, no fill — in
+   2px steps up and to the right, the far one at half strength. A stack reads
+   as one chip with a hint of depth, never as three boxes. */
+.issue-chip-ghost {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.issue-chip-ghost[data-depth="2"] {
+  opacity: 0.5;
+}
