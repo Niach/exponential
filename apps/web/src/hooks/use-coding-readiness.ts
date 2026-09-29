@@ -144,6 +144,17 @@ export function useCodingReadiness({
   const [tick, setTick] = useState(0)
   const reload = useCallback(() => setTick((value) => value + 1), [])
 
+  // A team change drops the previous team's answers (and failure flags) in
+  // the same render, so a mounted surface never judges the new team by them.
+  const [stateTeamId, setStateTeamId] = useState(teamId)
+  if (stateTeamId !== teamId) {
+    setStateTeamId(teamId)
+    setRepos(null)
+    setReposFailed(false)
+    setGithub(null)
+    setGithubFailed(false)
+  }
+
   // A late answer for a previous team must not land on the current one.
   const teamRef = useRef(teamId)
   teamRef.current = teamId

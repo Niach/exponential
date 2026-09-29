@@ -1,3 +1,4 @@
-- Boardovi: nakon nove prijave ili potpune ponovne sinkronizacije board prikazuje indikator učitavanja dok ne stignu njegovi issuei, umjesto da nakratko bljesne „No issues yet“ i popis za početak
-- Izvođenja agenta: claude izvođenja u načinu plana na ažuriranoj desktop aplikaciji ili CLI-ju ponovno koriste svoje alate umjesto da odbijaju svaki poziv
-- Izvođenja agenta: izvođenje na praznom repozitoriju stvara svoj prvi commit i pokreće se umjesto da zapne
+- Issuei: „Start coding“ je uvijek dostupan na issueu; kad nešto nedostaje, otvara popis „Ready to code?“ s popravkom za svaki korak, uključujući odabir repozitorija boarda
+- Issuei: sub-issue navodi svoj nadređeni issue iznad naslova, sub-issuei prikazuju svoj napredak prstenom i znakom + za dodavanje novog, a veze se grupiraju u sklopive odjeljke
+- Prijava: registracija kodom iz e-pošte traži vaše ime
+- Izvođenja agenta: oznaka za stack, batch i izvođenja prikazuje se u svakom prikazu posla

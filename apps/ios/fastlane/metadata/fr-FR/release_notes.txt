@@ -1,3 +1,4 @@
-- Boards : après une nouvelle connexion ou une resynchronisation complète, un board affiche un indicateur de chargement jusqu'à l'arrivée de ses issues, au lieu de faire clignoter « No issues yet » et la checklist de démarrage
-- Runs de l'agent : les runs claude en mode plan sur une app de bureau ou une CLI à jour utilisent de nouveau leurs outils au lieu de refuser chaque appel
-- Runs de l'agent : un run sur un dépôt vide crée son premier commit et démarre au lieu de rester bloqué
+- Issues : « Start coding » est toujours disponible sur une issue ; s'il manque quelque chose, il ouvre une checklist « Ready to code? » avec un correctif pour chaque étape, y compris le choix du dépôt du board
+- Issues : une sous-issue indique son issue parente au-dessus du titre, les sous-issues affichent leur progression avec un anneau et un + pour en ajouter une, et les relations se regroupent en sections repliables
+- Connexion : l'inscription avec un code par e-mail vous demande votre nom
+- Runs de l'agent : le badge de stack, de lot et de runs s'affiche sur chaque vue d'un travail

@@ -293,9 +293,14 @@ fun CreateIssueScreen(
         // EXACTLY ONE write per close, never while typing (EXP-878): content
         // is saved silently as a draft, an emptied existing draft is deleted,
         // and a blank untouched form writes nothing at all. Share mode keeps
-        // its own pending-upload pipeline and writes no drafts.
+        // its own pending-upload pipeline and writes no drafts. A sub-issue
+        // form (EXP-1097) writes none either: a draft carries no parent, so
+        // resuming it would file a TOP-LEVEL issue (web's sub-issue composer
+        // never drafts); a draft an eager upload already minted is dropped.
         var wrote = false
-        if (!shareMode) {
+        if (!shareMode && parentIssueId != null) {
+            if (draftMaterialized) viewModel.discardDraft(draftKey)
+        } else if (!shareMode) {
             if (hasDraftContent) {
                 viewModel.persistDraft(snapshot())
                 wrote = true

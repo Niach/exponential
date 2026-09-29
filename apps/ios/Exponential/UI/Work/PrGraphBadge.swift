@@ -120,8 +120,13 @@ struct PrGraphSheet: View {
 
     /// EXP-1097: every relation the subject HAS gets its section on every
     /// face; the face only decides which one LEADS (`overlaySections`).
+    /// A section with no rows to draw is dropped here, so a sheet left with
+    /// nothing still shows the empty note (the Issue face's batch minus the
+    /// subject is empty while its partners have not synced).
     private var sections: [PrGraph.OverlaySection] {
-        PrGraph.overlaySections(graph, face: face)
+        PrGraph.overlaySections(graph, face: face).filter { section in
+            section != .batch || !batchRows.isEmpty
+        }
     }
 
     var body: some View {
@@ -175,16 +180,16 @@ struct PrGraphSheet: View {
     /// On the Issue face the subject is the reader's own issue, so the batch
     /// lists its PARTNERS; on a run the covered set IS the run's subject
     /// (EXP-930: the whole set, not "everything but me").
-    @ViewBuilder
-    private var batchSection: some View {
-        let rows = (graph.batch?.issues ?? []).filter { row in
+    private var batchRows: [IssueEntity] {
+        (graph.batch?.issues ?? []).filter { row in
             face != .issue || row.id != subjectIssueId
         }
-        if !rows.isEmpty {
-            section(face == .issue ? "In batch with" : "Issues") {
-                ForEach(rows, id: \.id) { issue in
-                    issueRow(issue)
-                }
+    }
+
+    private var batchSection: some View {
+        section(face == .issue ? "In batch with" : "Issues") {
+            ForEach(batchRows, id: \.id) { issue in
+                issueRow(issue)
             }
         }
     }

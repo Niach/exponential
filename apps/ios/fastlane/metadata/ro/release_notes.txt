@@ -1,3 +1,4 @@
-- Boarduri: după o nouă autentificare sau o resincronizare completă, un board arată un indicator de încărcare până sosesc issue-urile lui, în loc să afișeze pentru o clipă „No issues yet” și lista de pași inițiali
-- Rulări ale agentului: rulările claude în modul plan pe o aplicație desktop sau un CLI actualizat își folosesc din nou uneltele în loc să refuze fiecare apel
-- Rulări ale agentului: o rulare pe un repository gol își creează primul commit și pornește în loc să se blocheze
+- Issue-uri: „Start coding” este mereu disponibil pe un issue; când lipsește ceva, deschide o listă de verificare „Ready to code?” cu o remediere pentru fiecare pas, inclusiv alegerea repository-ului boardului
+- Issue-uri: un sub-issue își numește issue-ul părinte deasupra titlului, sub-issue-urile își arată progresul cu un inel și un + pentru a adăuga unul nou, iar relațiile se grupează în secțiuni pliabile
+- Autentificare: înregistrarea cu un cod primit pe email îți cere numele
+- Rulări ale agentului: insigna pentru stack, batch și rulări apare în fiecare vizualizare a unei lucrări

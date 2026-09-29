@@ -195,12 +195,15 @@ pub(crate) fn readiness_input(
 }
 
 /// The fixes the desktop shows for a step: the model's list minus "Get the
-/// desktop app" (this IS the desktop app).
-pub(crate) fn desktop_fixes(step: &ReadinessStep) -> Vec<ReadinessFix> {
+/// desktop app" (this IS the desktop app), and minus "Board settings" for a
+/// non-owner — that pane is owner-only (`settings::section_visible`), so it
+/// would land them on Members (web `FixButtons` hides it the same way).
+pub(crate) fn desktop_fixes(step: &ReadinessStep, owner: bool) -> Vec<ReadinessFix> {
     step.fixes
         .iter()
         .copied()
         .filter(|fix| *fix != ReadinessFix::GetDesktopApp)
+        .filter(|fix| owner || *fix != ReadinessFix::BoardSettings)
         .collect()
 }
 
@@ -569,7 +572,8 @@ fn render_step(
                 if picker {
                     column = column.child(render_picker(facts, control, window, cx));
                 } else {
-                    let fixes = desktop_fixes(step);
+                    let owner = crate::settings::is_owner(cx, &facts.subject.team_id);
+                    let fixes = desktop_fixes(step, owner);
                     if !fixes.is_empty() {
                         column = column.child(
                             h_flex().pt_2().gap_2().flex_wrap().children(
@@ -945,8 +949,26 @@ mod tests {
             ],
         };
         assert_eq!(
-            desktop_fixes(&step),
+            desktop_fixes(&step, true),
             vec![ReadinessFix::OpenDevices, ReadinessFix::SetUpServer]
         );
+    }
+
+    /// "Board settings" opens an owner-only pane: a member never sees it.
+    #[test]
+    fn desktop_hides_board_settings_from_non_owners() {
+        let step = ReadinessStep {
+            key: ReadinessStepKey::Repository,
+            state: ReadinessStepState::Current,
+            title: String::new(),
+            body: None,
+            detail: None,
+            fixes: vec![ReadinessFix::ChooseRepository, ReadinessFix::BoardSettings],
+        };
+        assert_eq!(
+            desktop_fixes(&step, true),
+            vec![ReadinessFix::ChooseRepository, ReadinessFix::BoardSettings]
+        );
+        assert_eq!(desktop_fixes(&step, false), vec![ReadinessFix::ChooseRepository]);
     }
 }

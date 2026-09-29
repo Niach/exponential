@@ -79,17 +79,20 @@ export interface OpenPullByHead extends CreatedPull {
 }
 
 // The OPEN PR whose head is `headRef` (same-repo branches only, like
-// `listPullsByHead`), or null when there is none.
+// `listPullsByHead`), or null when there is none. `base` narrows it to the
+// PR on that base (the one behind a create's 422).
 export async function findOpenPullByHead(
   repo: string,
   headRef: string,
   token?: string | null,
-  fetchImpl?: GitHubFetch
+  fetchImpl?: GitHubFetch,
+  base?: string
 ): Promise<OpenPullByHead | null> {
   const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
   const owner = repo.split(`/`)[0]
+  const baseParam = base ? `&base=${encodeURIComponent(base)}` : ``
   const res = await doFetch(
-    `https://api.github.com/repos/${repo}/pulls?state=open&head=${owner}:${encodeURIComponent(headRef)}&per_page=1`,
+    `https://api.github.com/repos/${repo}/pulls?state=open&head=${owner}:${encodeURIComponent(headRef)}${baseParam}&per_page=1`,
     { headers: githubApiHeaders(token || process.env.GITHUB_TOKEN) }
   )
   if (!res.ok) {

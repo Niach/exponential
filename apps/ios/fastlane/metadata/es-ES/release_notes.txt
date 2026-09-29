@@ -1,3 +1,4 @@
-- Boards: tras un nuevo inicio de sesión o una resincronización completa, un board muestra un indicador de carga hasta que llegan sus issues, en lugar de mostrar de golpe «No issues yet» y la lista de primeros pasos
-- Ejecuciones del agente: las ejecuciones de claude en modo plan en una app de escritorio o CLI actualizada vuelven a usar sus herramientas en lugar de rechazar cada llamada
-- Ejecuciones del agente: una ejecución en un repositorio vacío crea su primer commit y arranca en lugar de quedarse colgada
+- Issues: «Start coding» está siempre disponible en un issue; cuando falta algo, abre una checklist «Ready to code?» con una solución para cada paso, incluida la elección del repositorio del board
+- Issues: un sub-issue indica su issue padre encima del título, los sub-issues muestran su progreso con un anillo y un + para añadir otro, y las relaciones se agrupan en secciones plegables
+- Inicio de sesión: al registrarte con un código por correo se te pide tu nombre
+- Ejecuciones del agente: la insignia de stack, lote y ejecuciones aparece en todas las vistas de un trabajo

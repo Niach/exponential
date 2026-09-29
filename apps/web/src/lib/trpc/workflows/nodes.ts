@@ -245,13 +245,11 @@ export const workflowNodeProcedures = {
     }),
 
   /** ENGINE: the merge train's one step — squash-merge this node's PR into
-   *  the integration branch. The approval is enforced HERE, not trusted from the
-   *  device: the agent review's approval, or (EXP-1065) the review cap — the
-   *  cap's worth of verdicts still asking for changes lands the node and
-   *  CARRIES the findings into the decisions log and the final pull request,
-   *  never to a person. A refusal by GitHub (a conflict with what landed
-   *  before it) is an answer, not an error: the engine has the node merge the
-   *  trunk in. */
+   *  the integration branch. The gate is enforced HERE, not trusted from the
+   *  device (EXP-1103): the node's run ended, the review wave before its layer
+   *  cleared, and its blockers landed first. A refusal by GitHub (a conflict
+   *  with what landed before it) is an answer, not an error: the engine has
+   *  the node merge the trunk in. */
   landNode: authedProcedure
     .input(z.object({ nodeId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {

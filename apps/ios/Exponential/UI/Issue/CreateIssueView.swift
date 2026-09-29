@@ -87,7 +87,10 @@ struct CreateIssueView: View {
     /// something to hang off.
     let draftId: String?
     /// EXP-1097: the issue this one is filed UNDER (the detail's Sub-issues
-    /// `+`); nil = a top-level issue.
+    /// `+`); nil = a top-level issue. A sub-issue compose never KEEPS a draft
+    /// (web's sub-issue composer has none): a draft row carries no parent, so
+    /// reopening it would file a top-level issue. Its row exists only as the
+    /// upload anchor while the page is open, and a close deletes it.
     let parentId: String?
     /// The page is done: the created issue's id so the host can land on it
     /// (EXP-596), or nil when nothing was filed (the draft, if any, was
@@ -797,7 +800,9 @@ struct CreateIssueView: View {
             let dto = try await deps.issueDraftsApi.upsert(
                 accountId: accountId, draftSnapshot.input(teamId: teamId)
             )
-            await mirrorDraft(dto)
+            // A sub-issue's row is only the upload anchor (EXP-1097) — keep it
+            // out of the local Drafts list.
+            if parentId == nil { await mirrorDraft(dto) }
             draftEnsured = true
             draftExists = true
             return true
@@ -886,14 +891,16 @@ struct CreateIssueView: View {
     /// The ONE write a close owes (EXP-878) — never one per keystroke: content
     /// saves the draft silently, no content deletes the draft this page opened,
     /// and a blank compose writes nothing at all. A filed issue owns its own
-    /// clean-up (the server deletes the draft inside `issues.create`).
+    /// clean-up (the server deletes the draft inside `issues.create`). A
+    /// sub-issue compose (EXP-1097) never saves one: it only reclaims the
+    /// upload-anchor row (and its files) an attachment made it write.
     private func persistDraftIfNeeded() {
         guard createdIssueId == nil else { return }
         let api = deps.issueDraftsApi
         let db = deps.db
         let account = accountId
         let key = draftKey
-        if hasDraftContent {
+        if hasDraftContent, parentId == nil {
             let snapshot = draftSnapshot
             let knownTeamId = teamId
             let board = boardId

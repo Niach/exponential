@@ -8,9 +8,10 @@
 // The token is 32 random bytes (base64url) behind an `expi_` prefix; only its
 // sha256 hex is stored (`cli_install_tokens.token_hash`). Single use = ONE
 // conditional UPDATE claiming `used_at`, so two racing redeems can never both
-// win. 15-minute TTL; the dialog remints on expiry.
+// win. 15-minute TTL; the dialog remints on expiry, and a mint revokes the
+// user's earlier tokens (one live token per user).
 import { createHash, randomBytes } from "node:crypto"
-import { and, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm"
+import { and, eq, gt, isNull } from "drizzle-orm"
 import type { db as Db } from "@/db/connection"
 import { cliInstallTokens } from "@/db/schema"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
@@ -56,18 +57,11 @@ export async function createInstallToken(
 ): Promise<{ token: string; expiresAt: Date }> {
   const { token, tokenHash } = generateInstallToken()
   const expiresAt = new Date(now.getTime() + INSTALL_TOKEN_TTL_MS)
-  // Housekeeping on the way in: the caller's spent and expired rows go.
+  // ONE live token per user: a remint revokes every earlier one still
+  // unused, and the spent and expired rows go with them.
   await database
     .delete(cliInstallTokens)
-    .where(
-      and(
-        eq(cliInstallTokens.userId, userId),
-        or(
-          lt(cliInstallTokens.expiresAt, now),
-          isNotNull(cliInstallTokens.usedAt)
-        )
-      )
-    )
+    .where(eq(cliInstallTokens.userId, userId))
   await database.insert(cliInstallTokens).values({ userId, tokenHash, expiresAt })
   return { token, expiresAt }
 }

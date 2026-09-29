@@ -1,3 +1,4 @@
-- Board: dopo un nuovo accesso o una risincronizzazione completa, un board mostra un indicatore di caricamento finché non arrivano i suoi issue, invece di far lampeggiare «No issues yet» e la checklist per iniziare
-- Esecuzioni dell'agente: le esecuzioni claude in modalità plan su un'app desktop o una CLI aggiornata usano di nuovo i loro strumenti invece di rifiutare ogni chiamata
-- Esecuzioni dell'agente: un'esecuzione su un repository vuoto crea il suo primo commit e parte invece di bloccarsi
+- Issue: «Start coding» è sempre disponibile su un issue; quando manca qualcosa, apre una checklist «Ready to code?» con una correzione per ogni passaggio, inclusa la scelta del repository del board
+- Issue: un sub-issue indica il suo issue padre sopra il titolo, i sub-issue mostrano il loro avanzamento con un anello e un + per aggiungerne uno, e le relazioni si raggruppano in sezioni comprimibili
+- Accesso: la registrazione con un codice via email chiede il tuo nome
+- Esecuzioni dell'agente: il badge di stack, batch ed esecuzioni appare in ogni vista di un lavoro

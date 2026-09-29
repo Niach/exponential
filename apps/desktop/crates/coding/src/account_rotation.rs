@@ -46,6 +46,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -951,6 +952,38 @@ impl InflightProbes {
     pub fn chains(&self) -> Vec<String> {
         self.by_agent.iter().flat_map(|(_, chains)| chains.iter().cloned()).collect()
     }
+
+    /// [`Self::claim`] for a host's shared set, held by the returned guard:
+    /// the agent is released when it drops, so a probe that panics (or a
+    /// task dropped mid-batch) cannot park that agent's rotation until a
+    /// restart. `None` = a batch of the agent is already in flight.
+    pub fn claim_guarded(probes: &Arc<Mutex<Self>>, batch: &ProbeBatch) -> Option<InflightClaim> {
+        lock_probes(probes)
+            .claim(batch)
+            .then(|| InflightClaim { probes: Arc::clone(probes), agent: batch.agent })
+    }
+}
+
+/// One claimed probe batch ([`InflightProbes::claim_guarded`]); dropping it
+/// releases the agent.
+#[derive(Debug)]
+pub struct InflightClaim {
+    probes: Arc<Mutex<InflightProbes>>,
+    agent: CodingAgent,
+}
+
+impl Drop for InflightClaim {
+    fn drop(&mut self) {
+        lock_probes(&self.probes).release(self.agent);
+    }
+}
+
+/// A poisoned lock (a panicking probe held it) still releases.
+fn lock_probes(probes: &Mutex<InflightProbes>) -> std::sync::MutexGuard<'_, InflightProbes> {
+    match probes.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 /// The resume's own first message on a rotation: what happened and why,
@@ -1318,6 +1351,20 @@ mod tests {
         inflight.release(CodingAgent::Claude);
         assert!(!inflight.busy(CodingAgent::Claude));
         assert!(inflight.chains().is_empty());
+
+        // The shared set's claim is a drop guard: a probe thread that
+        // panics still releases its agent.
+        let shared = Arc::new(Mutex::new(InflightProbes::new()));
+        let claim = InflightProbes::claim_guarded(&shared, batch).expect("claimed");
+        assert!(InflightProbes::claim_guarded(&shared, batch).is_none());
+        let panicked = std::thread::spawn(move || {
+            let _claim = claim;
+            panic!("probe blew up");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert!(!shared.lock().unwrap_or_else(|p| p.into_inner()).busy(CodingAgent::Claude));
+        assert!(InflightProbes::claim_guarded(&shared, batch).is_some());
 
         // Only ONE login with headroom: both runs share it rather than one
         // idling beside it (documented on `pick_rotation_target_spread`).

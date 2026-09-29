@@ -257,6 +257,21 @@ pub(crate) fn chip_face(id: &str, face: ChipFace, muted: Hsla) -> gpui::Div {
         })
 }
 
+/// The runs-only chip's name when no run names it (an issue's runs on the
+/// Issue face) — byte-identical with web `RUNS_BADGE_NAME`.
+pub(crate) const RUNS_BADGE_NAME: &str = "The runs around this one";
+
+/// What the front chip's title says: the front issue's title, else the
+/// subject run's own, else [`RUNS_BADGE_NAME`] (web: `runIdentity?.subject
+/// ?? name`).
+fn front_title(issue: Option<&Issue>, run_title: Option<&SharedString>) -> SharedString {
+    match (issue, run_title) {
+        (Some(issue), _) => SharedString::from(issue.title.clone()),
+        (None, Some(title)) => title.clone(),
+        (None, None) => RUNS_BADGE_NAME.into(),
+    }
+}
+
 /// The header chip: the stacked issue chip (the same on every face), opening
 /// the overlay on hover or click. `None` when there is nothing to show.
 pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyElement> {
@@ -271,10 +286,7 @@ pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyEl
             .as_ref()
             .map(|issue| SharedString::from(issue.identifier.clone()))
             .unwrap_or_default(),
-        title: match chip.issue.as_ref() {
-            Some(issue) => SharedString::from(issue.title.clone()),
-            None => spec.run_title.clone().unwrap_or_else(|| "Run".into()),
-        },
+        title: front_title(chip.issue.as_ref(), spec.run_title.as_ref()),
         runs: chip.issue.is_none(),
         count: chip.count,
     };
@@ -838,6 +850,17 @@ mod tests {
     }
 
     const FACES: [BadgeFace; 3] = [BadgeFace::Issue, BadgeFace::Run, BadgeFace::Changes];
+
+    /// An issue's runs on the Issue face (no run to name) read like web's
+    /// runs chip, never a bare "Run".
+    #[test]
+    fn a_runs_chip_without_a_run_title_names_the_family() {
+        let issues = [issue("EXP-12", None, None)];
+        assert_eq!(front_title(Some(&issues[0]), None), SharedString::from("EXP-12"));
+        let title = SharedString::from("Chat: fix the build");
+        assert_eq!(front_title(None, Some(&title)), title);
+        assert_eq!(front_title(None, None), SharedString::from(RUNS_BADGE_NAME));
+    }
 
     /// EXP-1097: with nothing around the issue the badge stays away — on
     /// every face alike; open blockers alone earn it on every face too.

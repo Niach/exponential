@@ -1,0 +1,1 @@
+Issues: Start coding is always shown and opens a "Ready to code?" checklist with a fix for each missing step. Sub-issues show their parent, their progress and a + to add one; relations group into foldable sections. Signing up with an email code asks for your name. The stack, batch and runs badge shows on every face.

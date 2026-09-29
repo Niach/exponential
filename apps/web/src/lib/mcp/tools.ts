@@ -134,6 +134,7 @@ import type { Context } from "@/lib/trpc"
 import {
   createPullRequest,
   findOpenPullByHead,
+  type OpenPullByHead,
   PullAlreadyExistsError,
 } from "@/lib/integrations/github-pr"
 import {
@@ -484,20 +485,42 @@ const REUSED_PR_NOTE = (head: string) =>
 // FEED-59: open the PR, or hand back the one already OPEN on `head` (a batch
 // run that implemented more issues on its branch) so the caller links the
 // given issues to it. `reusedBase` = that PR's real base, null for a new PR.
+// The lookup runs FIRST and ignores the base: GitHub's 422 only fires for the
+// same head AND base, so a different base would silently open a second PR
+// from the same head. A failed pre-lookup just falls through to the create;
+// the 422 catch stays as the race fallback.
 async function openOrReusePull(
   opts: Parameters<typeof createPullRequest>[0]
 ): Promise<{ url: string; number: number; reusedBase: string | null }> {
+  const lookup = async (base?: string) => {
+    try {
+      return await findOpenPullByHead(
+        opts.repo,
+        opts.head,
+        opts.token,
+        undefined,
+        base
+      )
+    } catch {
+      return null
+    }
+  }
+  const reuse = (existing: OpenPullByHead) => ({
+    url: existing.url,
+    number: existing.number,
+    reusedBase: existing.baseRef || opts.base,
+  })
+  const open = await lookup()
+  if (open) return reuse(open)
   try {
     return { ...(await createPullRequest(opts)), reusedBase: null }
   } catch (e) {
     if (!(e instanceof PullAlreadyExistsError)) throw e
-    const existing = await findOpenPullByHead(opts.repo, opts.head, opts.token)
+    // The PR that raced us in: same head AND base. GitHub's own 422 is the
+    // error worth surfacing if this lookup fails or finds nothing.
+    const existing = await lookup(opts.base)
     if (!existing) throw e
-    return {
-      url: existing.url,
-      number: existing.number,
-      reusedBase: existing.baseRef || opts.base,
-    }
+    return reuse(existing)
   }
 }
 
@@ -2653,11 +2676,20 @@ export function registerExponentialTools(
         await db.transaction(async (tx) => {
           for (const id of ids) {
             const [current] = await tx
-              .select({ status: issues.status, prUrl: issues.prUrl })
+              .select({
+                status: issues.status,
+                prUrl: issues.prUrl,
+                prState: issues.prState,
+              })
               .from(issues)
               .where(eq(issues.id, id))
               .limit(1)
-            if (reused && current?.prUrl === created.url) {
+            // A stale closed/merged row on the same URL gets re-linked.
+            if (
+              reused &&
+              current?.prUrl === created.url &&
+              current.prState === `open`
+            ) {
               alreadyLinked.add(id)
               continue
             }
@@ -5231,6 +5263,15 @@ export function registerExponentialTools(
         // shape validates here (and again in the router).
         for (const raw of input.nodes ?? []) {
           const node = workflowNodePatchSchema.parse(raw)
+          // An issueId-only entry patches nothing; the router would refuse it
+          // AFTER the writes above already landed.
+          if (
+            node.kind === undefined &&
+            node.risk === undefined &&
+            node.touches === undefined
+          ) {
+            continue
+          }
           await api.updateNode({
             workflowId: input.id,
             ...node,

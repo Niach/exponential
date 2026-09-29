@@ -468,7 +468,13 @@ function RelationIssueRow({
           variant="ghost"
           size="icon-xs"
           aria-label={`Remove relation to ${row.identifier}`}
-          className="shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+          // A phone has no hover: an invisible tap target beside the avatar
+          // would delete a link unseen, so there it is always drawn.
+          className={cn(
+            `shrink-0 text-muted-foreground`,
+            !phone &&
+              `opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100`
+          )}
           onClick={() => removeRelation(relation)}
         >
           <UiCloseIcon className="size-3.5" />
@@ -736,7 +742,12 @@ export function IssueRelationsSection({
   phone?: boolean
 }) {
   const model = useIssueRelationsView(issue.id)
-  const [composing, setComposing] = useState(false)
+  // The composer belongs to the issue it was opened on: prev/next onto
+  // another issue closes it (the section is not remounted per issue).
+  const [composingFor, setComposingFor] = useState<string | null>(null)
+  const composing = composingFor === issue.id
+  const setComposing = (open: boolean) =>
+    setComposingFor(open ? issue.id : null)
   const showBands = !phone && model.view.bands.length > 0
   const hasSubIssues = model.view.subIssues.total > 0
   if (readOnly && !hasSubIssues && !showBands) return null

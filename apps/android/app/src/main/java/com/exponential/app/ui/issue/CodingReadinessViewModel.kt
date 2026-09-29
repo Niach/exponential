@@ -282,11 +282,20 @@ class CodingReadinessViewModel @Inject constructor(
     }
 
     /** The picker footer's "Add another repository from GitHub…": registers
-     *  the repo with the team (`repositories.add`), then re-lists so it shows. */
+     *  the repo with the team (`repositories.add`), then points the board at it
+     *  (`boards.setRepository`, the picker's own call; iOS + web parity) so the
+     *  repository step ticks, then re-lists so it shows. Throws on failure: the
+     *  GitHub sheet renders it inline. `repositories.add`'s response is
+     *  discarded by the API, so the new row's id comes from the re-list. */
     suspend fun addRepository(fullName: String, defaultBranch: String, isPrivate: Boolean) {
         val board = host.value.board ?: return
         val account = auth.activeAccountId.value ?: return
         repositoriesApi.add(account, board.teamId, fullName, defaultBranch, isPrivate)
+        val added = repositoriesApi.list(account, board.teamId)
+            .firstOrNull { it.fullName.equals(fullName, ignoreCase = true) }
+        if (added != null) {
+            repositoriesApi.setRepository(account, board.id, added.id)
+        }
         loadRepos(account, board.teamId)
     }
 }

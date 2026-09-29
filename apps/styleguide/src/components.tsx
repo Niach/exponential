@@ -2561,8 +2561,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `EXP-1097: the grouped bands; the model is lib/issue-relations-view.ts`
       ),
       desktop: ok(`issue_relations::render_relations_section`, `apps/desktop/crates/ui/src/issue_relations.rs`),
-      ios: ok(`IssueRelationsSection`, `apps/ios/Exponential/UI/Issue/Sheets/IssueRelationsSection.swift`, `Lives in the properties sheet, not on the detail page.`),
-      android: ok(`RelationsSection`, `apps/android/app/src/main/java/com/exponential/app/ui/issue/RelationsSection.kt`, `Lives in the properties sheet, not on the detail page.`),
+      ios: ok(`IssueRelationsSection`, `apps/ios/Exponential/UI/Issue/Sheets/IssueRelationsSection.swift`, `Parent line + Sub-issues on the detail page (IssueRelationRows.swift); side bands in the sheet.`),
+      android: ok(`RelationsSection`, `apps/android/app/src/main/java/com/exponential/app/ui/issue/RelationsSection.kt`, `SubIssueOfLine + SubIssuesSection on the detail page; side bands in the properties sheet.`),
     },
     render: () =>
       [
@@ -3832,20 +3832,20 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `packages/ui/src/progress-ring.tsx`,
         `the Sub-issues band in components/issue-relations-card.tsx mounts it`
       ),
-      desktop: leftover(
-        `usage_sheet::context_ring`,
-        `apps/desktop/crates/ui/src/usage_sheet.rs`,
-        `EXP-1097: the sub-issue ring reuses this geometry; wired by the desktop lane`
+      desktop: ok(
+        `issue_relations::render_sub_issues`,
+        `apps/desktop/crates/ui/src/issue_relations.rs`,
+        `EXP-1097: a ProgressCircle on the context ring's geometry, the COMPLETED status colour`
       ),
-      ios: leftover(
-        `ContextRing`,
-        `apps/ios/ExpUI/Sources/ContextRing.swift`,
-        `EXP-1097: the sub-issue ring reuses this geometry; wired by the iOS lane`
+      ios: ok(
+        `ProgressRing`,
+        `apps/ios/ExpUI/Sources/ProgressRing.swift`,
+        `EXP-1097: IssueSubIssuesSection (IssueRelationRows.swift) leads its band with it`
       ),
-      android: leftover(
-        `ContextRing`,
-        `${ANDROID_COMPONENTS}/ContextRing.kt`,
-        `EXP-1097: the sub-issue ring reuses this geometry; wired by the Android lane`
+      android: ok(
+        `SubIssueProgressRing`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/issue/RelationsSection.kt`,
+        `EXP-1097: SubIssuesSection leads its band with it`
       ),
     },
     island: () => (

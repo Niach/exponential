@@ -46,6 +46,12 @@ const h = vi.hoisted(() => {
     // EXP-660: the deferred families.
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     automations: { list: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    workflows: {
+      update: vi.fn(),
+      setIssues: vi.fn(),
+      updateNode: vi.fn(),
+      replan: vi.fn(),
+    },
     steer: { killSession: vi.fn(), startSession: vi.fn() },
     helpdesk: {
       listThreads: vi.fn(),
@@ -437,6 +443,8 @@ beforeEach(() => {
   insertValues.mockResolvedValue(undefined)
   // EXP-700: relay off by default; individual tests arm it.
   vi.mocked(getSteerRelayConfig).mockReturnValue(null)
+  // FEED-59: pr_open looks for an open PR on its head first; none by default.
+  vi.mocked(findOpenPullByHead).mockReset().mockResolvedValue(null)
   vi.mocked(relayPostInput).mockResolvedValue({ delivered: false })
   vi.mocked(notifyParentOfChildEnd).mockResolvedValue({ delivered: false })
 })
@@ -2074,11 +2082,10 @@ describe(`exponential_pr_open batch session parking`, () => {
   })
 
   // FEED-59: more issues implemented on the batch branch after its PR opened.
-  it(`links more issues to the PR already open on head instead of a 422`, async () => {
+  // Looked up BEFORE the create, whatever its base: GitHub's 422 only fires
+  // for the same head AND base, so a different base would open a second PR.
+  it(`links more issues to the PR already open on head, whatever its base`, async () => {
     const updates = armPrOpen()
-    vi.mocked(createPullRequest).mockRejectedValue(
-      new PullAlreadyExistsError(`GitHub PR create failed (422)`)
-    )
     vi.mocked(findOpenPullByHead).mockResolvedValue({
       url: `https://github.com/acme/app/pull/5`,
       number: 5,
@@ -2111,12 +2118,93 @@ describe(`exponential_pr_open batch session parking`, () => {
     }
     expect(applyPrLifecycleStatusInTx).toHaveBeenCalledTimes(2)
     expect(fireAndForgetPrNotify).toHaveBeenCalledTimes(2)
+    expect(createPullRequest).not.toHaveBeenCalled()
+    expect(findOpenPullByHead).toHaveBeenCalledWith(
+      `acme/app`,
+      `exp/batch-abcd1234`,
+      `tok`,
+      undefined,
+      undefined
+    )
+  })
+
+  it(`falls back to the base-filtered lookup when a create races into a 422`, async () => {
+    const updates = armPrOpen()
+    vi.mocked(createPullRequest).mockRejectedValue(
+      new PullAlreadyExistsError(`GitHub PR create failed (422)`)
+    )
+    vi.mocked(findOpenPullByHead)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        url: `https://github.com/acme/app/pull/5`,
+        number: 5,
+        baseRef: `main`,
+      })
+
+    const result = await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 5, reused: true })
+    expect(findOpenPullByHead).toHaveBeenLastCalledWith(
+      `acme/app`,
+      `exp/batch-abcd1234`,
+      `tok`,
+      undefined,
+      `main`
+    )
+    expect(updates.filter((u) => u.set.prUrl)).toHaveLength(2)
+  })
+
+  it(`surfaces GitHub's own 422 when the fallback lookup fails`, async () => {
+    armPrOpen()
+    vi.mocked(createPullRequest).mockRejectedValue(
+      new PullAlreadyExistsError(`GitHub PR create failed (422): exists`)
+    )
+    vi.mocked(findOpenPullByHead)
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error(`GitHub returned 502 listing open pulls`))
+
+    const result = await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`422`)
+    expect(result.content[0].text).not.toContain(`502`)
+  })
+
+  it(`re-links an issue whose row still names the PR but is not open`, async () => {
+    const updates = armPrOpen({
+      status: `done`,
+      prUrl: `https://github.com/acme/app/pull/5`,
+      prState: `closed`,
+    })
+    vi.mocked(findOpenPullByHead).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/5`,
+      number: 5,
+      baseRef: `main`,
+    })
+
+    await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+
+    const links = updates.filter((u) => u.set.prUrl)
+    expect(links).toHaveLength(2)
+    expect(links[0]!.set.prState).toBe(`open`)
   })
 
   it(`leaves issues already linked to the reused PR untouched`, async () => {
     const updates = armPrOpen({
       status: `in_review`,
       prUrl: `https://github.com/acme/app/pull/5`,
+      prState: `open`,
     })
     vi.mocked(createPullRequest).mockRejectedValue(
       new PullAlreadyExistsError(`GitHub PR create failed (422)`)
@@ -2165,7 +2253,8 @@ describe(`exponential_pr_open batch session parking`, () => {
       head: `exp/batch-abcd1234`,
     })
     expect(other.isError).toBe(true)
-    expect(findOpenPullByHead).not.toHaveBeenCalled()
+    // Only the up-front lookup, never the 422 fallback.
+    expect(findOpenPullByHead).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -3116,7 +3205,9 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     expect(findOpenPullByHead).toHaveBeenCalledWith(
       `acme/app`,
       `exp/chat-1a2b3c4d`,
-      `tok`
+      `tok`,
+      undefined,
+      undefined
     )
     expect(updates[0]!.set).toMatchObject({ prUrl: `https://github.com/acme/app/pull/5`, prNumber: 5 })
   })
@@ -5244,5 +5335,30 @@ describe(`exponential_sessions_list — subtreeOf (EXP-897)`, () => {
       offset: 0,
     })
     expect(parseOk(result)).toEqual([])
+  })
+})
+
+describe(`exponential_workflows_update`, () => {
+  const WF = `55555555-5555-4555-8555-555555555555`
+
+  // The router refuses an empty patch; refusing it AFTER update/setIssues
+  // landed would be a partial write, so the loop skips it instead.
+  it(`skips a nodes[] entry that carries only its issueId`, async () => {
+    caller.workflows.replan.mockResolvedValue({ metrics: { nodes: 2 } })
+
+    const result = await tool(`exponential_workflows_update`)({
+      id: WF,
+      name: `Renamed`,
+      nodes: [{ issueId: UUID }, { issueId: PROJ, risk: `high` }],
+    })
+
+    expect(parseOk(result)).toMatchObject({ ok: true, metrics: { nodes: 2 } })
+    expect(caller.workflows.update).toHaveBeenCalledTimes(1)
+    expect(caller.workflows.updateNode).toHaveBeenCalledTimes(1)
+    expect(caller.workflows.updateNode).toHaveBeenCalledWith({
+      workflowId: WF,
+      issueId: PROJ,
+      risk: `high`,
+    })
   })
 })

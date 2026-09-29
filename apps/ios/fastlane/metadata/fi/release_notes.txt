@@ -1,3 +1,4 @@
-- Boardit: uuden kirjautumisen tai täyden uudelleensynkronoinnin jälkeen board näyttää latausilmaisimen, kunnes sen issuet saapuvat, sen sijaan että se välähtäisi ”No issues yet” -tekstin ja aloitusmuistilistan
-- Agenttiajot: suunnittelutilassa olevat claude-ajot päivitetyssä työpöytäsovelluksessa tai CLI:ssä käyttävät taas työkalujaan sen sijaan, että hylkäisivät jokaisen kutsun
-- Agenttiajot: tyhjässä repositoriossa käynnistetty ajo luo ensimmäisen commitinsa ja käynnistyy sen sijaan, että jäisi jumiin
+- Issuet: ”Start coding” on aina käytettävissä issuessa; kun jotain puuttuu, se avaa ”Ready to code?” -tarkistuslistan, jossa on korjaus jokaiseen vaiheeseen, myös boardin repositorion valintaan
+- Issuet: sub-issue näyttää yläissuensa otsikon yläpuolella, sub-issuet näyttävät edistymisensä renkaalla ja uuden lisäämiseen tarkoitetulla +-painikkeella, ja suhteet ryhmitellään kokoontaitettaviin osioihin
+- Kirjautuminen: sähköpostikoodilla rekisteröityessä sinulta kysytään nimesi
+- Agenttiajot: stackin, erän ja ajojen merkki näkyy työn jokaisessa näkymässä

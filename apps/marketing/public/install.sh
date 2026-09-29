@@ -125,14 +125,17 @@ case ":$PATH:" in
 esac
 
 # --- Auto-update (default on) ----------------------------------------------
-# Set BEFORE the first command that would otherwise ask about it.
+# Set BEFORE the first command that would otherwise ask about it. A CLI
+# without `--auto` must not abort the install (`set -eu`): warn and go on.
 bin="$INSTALL_DIR/$BIN_NAME"
 if [ "${EXP_NO_AUTOUPDATE:-}" = "1" ]; then
-  "$bin" update --auto off >/dev/null
   autoupdate="off"
 else
-  "$bin" update --auto on >/dev/null
   autoupdate="on"
+fi
+if ! "$bin" update --auto "$autoupdate" >/dev/null 2>&1; then
+  warn "could not turn auto-update $autoupdate — later: $bin update --auto $autoupdate"
+  autoupdate="not set"
 fi
 
 # --- Sign in ---------------------------------------------------------------
@@ -146,15 +149,26 @@ fi
 has_tty=0
 ( : < /dev/tty ) 2>/dev/null && has_tty=1
 
-# A re-run keeps an existing sign-in — for the SAME instance only.
+# A re-run keeps an existing sign-in — for the SAME instance only. `whoami`
+# prints one "<email> on <instance url>" line per account, the URL normalized
+# like `exponential login` does it (no trailing slash, https:// when
+# schemeless); unset EXP_INSTANCE = the cloud.
 signed_in=0
-instance="${EXP_INSTANCE:-}"
-instance="${instance%/}"
+instance="${EXP_INSTANCE:-https://app.exponential.at}"
+while [ "${instance%/}" != "$instance" ]; do instance="${instance%/}"; done
+case "$instance" in
+  http://*|https://*) ;;
+  *) instance="https://$instance" ;;
+esac
 if [ -z "${EXP_INSTALL_TOKEN:-}" ] && [ -z "${EXP_TOKEN:-}" ]; then
   if who=$("$bin" whoami 2>/dev/null); then
-    case "$who" in
-      *"$instance"*) signed_in=1 ;;
-    esac
+    while IFS= read -r line; do
+      case "$line" in
+        *" on $instance") signed_in=1 ;;
+      esac
+    done <<WHOAMI
+$who
+WHOAMI
   fi
 fi
 
