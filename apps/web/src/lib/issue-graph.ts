@@ -293,14 +293,40 @@ export const ISSUE_GRAPH_GEOMETRY = {
   railDotRing: 2,
 } as const
 
+/**
+ * SLOP-15: the HOVER graph's node width — the list rail's popover and the work
+ * header's overlay draw the SMALL chip (glyph · identifier, `IssueChip
+ * size="sm"`), which needs well under the full box: three waves then fit the
+ * viewport (424px) where the full width scrolled (616px). Every geometry
+ * function below takes it as an override; the fixture's constants stay THE
+ * ×4 contract, untouched. Web only for now — the natives still draw their
+ * hover graphs at the full width (follow-up filed on the issue).
+ */
+export const ISSUE_GRAPH_COMPACT_NODE_WIDTH = 112
+
+/** What a host may override per surface: the node width alone so far. */
+export interface IssueGraphMetrics {
+  nodeWidth?: number
+}
+
+function geometryWith(over?: IssueGraphMetrics) {
+  return over?.nodeWidth === undefined
+    ? ISSUE_GRAPH_GEOMETRY
+    : { ...ISSUE_GRAPH_GEOMETRY, nodeWidth: over.nodeWidth }
+}
+
 export interface GraphPoint {
   x: number
   y: number
 }
 
 /** A node box's top-left inside the grid. */
-export function issueGraphOrigin(wave: number, lane: number): GraphPoint {
-  const g = ISSUE_GRAPH_GEOMETRY
+export function issueGraphOrigin(
+  wave: number,
+  lane: number,
+  over?: IssueGraphMetrics
+): GraphPoint {
+  const g = geometryWith(over)
   return {
     x: g.inset + wave * (g.nodeWidth + g.waveGap),
     y: g.inset + lane * (g.nodeHeight + g.laneGap),
@@ -311,9 +337,10 @@ export function issueGraphOrigin(wave: number, lane: number): GraphPoint {
  *  viewport it shows before scrolling. */
 export function issueGraphSize(
   waves: number,
-  lanes: number
+  lanes: number,
+  over?: IssueGraphMetrics
 ): { width: number; height: number; viewWidth: number; viewHeight: number } {
-  const g = ISSUE_GRAPH_GEOMETRY
+  const g = geometryWith(over)
   if (waves <= 0 || lanes <= 0) {
     return { width: 0, height: 0, viewWidth: 0, viewHeight: 0 }
   }
@@ -330,11 +357,12 @@ export function issueGraphSize(
 /** One edge as a cubic: blocker's right-middle → blocked box's left-middle. */
 export function issueGraphEdge(
   from: { wave: number; lane: number },
-  to: { wave: number; lane: number }
+  to: { wave: number; lane: number },
+  over?: IssueGraphMetrics
 ): { start: GraphPoint; control1: GraphPoint; control2: GraphPoint; end: GraphPoint } {
-  const g = ISSUE_GRAPH_GEOMETRY
-  const a = issueGraphOrigin(from.wave, from.lane)
-  const b = issueGraphOrigin(to.wave, to.lane)
+  const g = geometryWith(over)
+  const a = issueGraphOrigin(from.wave, from.lane, over)
+  const b = issueGraphOrigin(to.wave, to.lane, over)
   const start = { x: a.x + g.nodeWidth, y: a.y + g.nodeHeight / 2 }
   const end = { x: b.x, y: b.y + g.nodeHeight / 2 }
   const bend =
@@ -358,10 +386,10 @@ export function issueGraphEdge(
 export function issueGraphEdgePath(
   from: { wave: number; lane: number },
   to: { wave: number; lane: number },
-  options: { insetIncluded?: boolean } = {}
+  options: { insetIncluded?: boolean } & IssueGraphMetrics = {}
 ): string {
   const shift = options.insetIncluded === false ? ISSUE_GRAPH_GEOMETRY.inset : 0
-  const curve = issueGraphEdge(from, to)
+  const curve = issueGraphEdge(from, to, options)
   const point = (p: GraphPoint) => `${p.x - shift} ${p.y - shift}`
   return `M ${point(curve.start)} C ${point(curve.control1)}, ${point(curve.control2)}, ${point(curve.end)}`
 }

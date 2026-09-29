@@ -104,6 +104,7 @@ export function IssueBlocksPopover({
             subjectIds={[issueId]}
             onNavigate={() => setOpen(false)}
             empty={empty}
+            density="compact"
           />
         )}
       </MobilePopoverContent>

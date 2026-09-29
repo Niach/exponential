@@ -6,6 +6,7 @@ import { boardCollection, teamCollection } from "@/lib/collections"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import {
   blockGraph,
+  ISSUE_GRAPH_COMPACT_NODE_WIDTH,
   ISSUE_GRAPH_CYCLE_NOTE,
   ISSUE_GRAPH_GEOMETRY,
   issueGraphEdgePath,
@@ -45,25 +46,39 @@ import { cn } from "@/lib/utils"
 // hands `WaveGraph` the fixture-locked cubic (`issueGraphEdgePath`) and the
 // stroke is the fixture's `edgeStroke`, so the web bends exactly as the
 // natives do.
+//
+// SLOP-15: `density="compact"` is the HOVER graph — the rail's popover, the
+// work header's overlay — drawn with the small chip (glyph · identifier) in
+// `ISSUE_GRAPH_COMPACT_NODE_WIDTH` boxes, so a three-wave chain fits without
+// scrolling sideways. A dialog keeps the full box and the titles.
+
+export type IssueGraphDensity = `full` | `compact`
 
 export function IssueGraphView({
   graph,
   issueById,
   renderNode,
+  density = `full`,
   className,
 }: {
   graph: IssueGraph
   issueById: ReadonlyMap<string, Issue>
   /** The node's chip; the caller owns navigation. */
   renderNode: (issue: Issue) => ReactNode
+  /** `compact` = the hover graph's narrow boxes (SLOP-15). */
+  density?: IssueGraphDensity
   className?: string
 }) {
   if (graph.nodes.length === 0) return null
 
   const g = ISSUE_GRAPH_GEOMETRY
+  const metrics = {
+    nodeWidth: density === `compact` ? ISSUE_GRAPH_COMPACT_NODE_WIDTH : g.nodeWidth,
+  }
   const size = issueGraphSize(
     Math.max(...graph.nodes.map((node) => node.wave)) + 1,
-    Math.max(...graph.nodes.map((node) => node.lane)) + 1
+    Math.max(...graph.nodes.map((node) => node.lane)) + 1,
+    metrics
   )
   const subjects = new Set(
     graph.nodes.filter((node) => node.subject).map((node) => node.id)
@@ -77,7 +92,11 @@ export function IssueGraphView({
   }))
 
   return (
-    <div className={cn(`flex flex-col gap-2`, className)} data-testid="issue-graph">
+    <div
+      className={cn(`flex flex-col gap-2`, className)}
+      data-testid="issue-graph"
+      data-density={density}
+    >
       <div
         className="overflow-auto"
         style={{ maxWidth: size.viewWidth, maxHeight: size.viewHeight }}
@@ -87,13 +106,13 @@ export function IssueGraphView({
         <WaveGraph
           nodes={graph.nodes}
           edges={edges}
-          nodeWidth={g.nodeWidth}
+          nodeWidth={metrics.nodeWidth}
           nodeHeight={g.nodeHeight}
           waveGap={g.waveGap}
           laneGap={g.laneGap}
           edgeStrokeWidth={g.edgeStroke}
           pathFor={(_edge, { from, to }) =>
-            issueGraphEdgePath(from, to, { insetIncluded: false })
+            issueGraphEdgePath(from, to, { insetIncluded: false, ...metrics })
           }
           renderNode={(id) => {
             const issue = issueById.get(id)
@@ -130,6 +149,7 @@ export function TeamIssueGraph({
   subjectIds,
   onNavigate,
   empty,
+  density = `full`,
   className,
 }: {
   teamId: string
@@ -138,6 +158,8 @@ export function TeamIssueGraph({
   onNavigate?: () => void
   /** Rendered when the subjects have no open blocks relation at all. */
   empty?: ReactNode
+  /** `compact` = the hover graph: narrow boxes, small chips (SLOP-15). */
+  density?: IssueGraphDensity
   className?: string
 }) {
   // The GRAPH's team, not the route's: an inbox or My Issues row can sit in
@@ -174,12 +196,14 @@ export function TeamIssueGraph({
     <IssueGraphView
       graph={graph}
       issueById={issueById}
+      density={density}
       className={className}
       renderNode={(issue) => {
         const boardSlug = boardSlugById.get(issue.boardId)
         return (
           <IssueChip
             issue={issue}
+            size={density === `compact` ? `sm` : `md`}
             className="w-full"
             link={
               teamSlug && boardSlug

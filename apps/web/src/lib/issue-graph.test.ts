@@ -5,6 +5,7 @@ import {
   blockCounts,
   blockGraph,
   blocksBadgeLabel,
+  ISSUE_GRAPH_COMPACT_NODE_WIDTH,
   ISSUE_GRAPH_GEOMETRY,
   ISSUE_GRAPH_MAX_NODES,
   issueGraphEdge,
@@ -126,4 +127,45 @@ describe(`issue graph geometry`, () => {
       expect(issueGraphEdge(from, to)).toEqual(expected)
     })
   }
+})
+
+// SLOP-15: the hover graph narrows its nodes for the small chip. The override
+// moves every wave, the grid and the edges together; the contract constants
+// above are untouched.
+describe(`compact hover graph (SLOP-15)`, () => {
+  const over = { nodeWidth: ISSUE_GRAPH_COMPACT_NODE_WIDTH }
+
+  it(`is narrower than the full box`, () => {
+    expect(ISSUE_GRAPH_COMPACT_NODE_WIDTH).toBeLessThan(ISSUE_GRAPH_GEOMETRY.nodeWidth)
+  })
+
+  it(`places the waves by the compact width`, () => {
+    const g = ISSUE_GRAPH_GEOMETRY
+    expect(issueGraphOrigin(1, 0, over)).toEqual({
+      x: g.inset + ISSUE_GRAPH_COMPACT_NODE_WIDTH + g.waveGap,
+      y: g.inset,
+    })
+    expect(issueGraphOrigin(1, 0, {})).toEqual(issueGraphOrigin(1, 0))
+  })
+
+  it(`fits three waves in the viewport where the full width scrolled`, () => {
+    const full = issueGraphSize(3, 2)
+    const compact = issueGraphSize(3, 2, over)
+    expect(full.viewWidth).toBeLessThan(full.width)
+    expect(compact.width).toBe(424)
+    expect(compact.viewWidth).toBe(compact.width)
+    expect(compact.height).toBe(full.height)
+  })
+
+  it(`starts an edge at the compact node's right edge`, () => {
+    const g = ISSUE_GRAPH_GEOMETRY
+    const curve = issueGraphEdge({ wave: 0, lane: 0 }, { wave: 1, lane: 0 }, over)
+    expect(curve.start.x).toBe(g.inset + ISSUE_GRAPH_COMPACT_NODE_WIDTH)
+    expect(curve.end.x).toBe(g.inset + ISSUE_GRAPH_COMPACT_NODE_WIDTH + g.waveGap)
+    expect(
+      issueGraphEdgePath({ wave: 0, lane: 0 }, { wave: 1, lane: 0 }, { ...over, insetIncluded: false })
+    ).toBe(
+      `M ${curve.start.x - g.inset} ${curve.start.y - g.inset} C ${curve.control1.x - g.inset} ${curve.control1.y - g.inset}, ${curve.control2.x - g.inset} ${curve.control2.y - g.inset}, ${curve.end.x - g.inset} ${curve.end.y - g.inset}`
+    )
+  })
 })

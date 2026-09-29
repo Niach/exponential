@@ -1,5 +1,9 @@
 import type { ReactElement } from "react"
-import { IssueChip as IssueChipView, type IssueChipLinkProps } from "@exp/ui"
+import {
+  IssueChip as IssueChipView,
+  type IssueChipLinkProps,
+  type IssueChipSize,
+} from "@exp/ui"
 import { IssuePreviewHoverCard } from "@/components/issue-preview-card"
 import { issueMenuProps } from "@/components/issue-context-menu/attr"
 import {
@@ -31,6 +35,7 @@ export type IssueChipIssue = StatusResolvable & {
 
 export function IssueChip({
   issue,
+  size,
   onClick,
   link,
   onRemove,
@@ -42,6 +47,9 @@ export function IssueChip({
   removeTestId,
 }: {
   issue: IssueChipIssue
+  /** SLOP-15: `sm` = glyph · identifier, no title (the hover graph's nodes,
+   *  the phone header's badge); the preview card still names it in full. */
+  size?: IssueChipSize
   /** Open the issue. Omitted = an inert chip (no target, no pointer). */
   onClick?: () => void
   /** Open the issue as a real router `<Link>` (⌘-click, copy address,
@@ -67,6 +75,7 @@ export function IssueChip({
       {...issueMenuProps(issue.id)}
       identifier={issue.identifier}
       title={issue.title}
+      size={size}
       status={{
         icon: status.icon,
         colorClass: statusColorClass(status),

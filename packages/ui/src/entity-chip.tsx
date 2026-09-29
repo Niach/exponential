@@ -83,8 +83,12 @@ export type ChipHostProps = Omit<
 
 /** The shared box: `issue-chip` (styles.css) is the paint, everything here is
  *  LAYOUT. `align-middle`: the chip flows inline in prose, and an inline-flex
- *  box would otherwise sit on the text baseline. The body becomes a link
- *  (`link` wins), a button (`onClick`) or stays inert. */
+ *  box would otherwise sit on the text baseline. `min-w-0`: the box is
+ *  `nowrap`, so as a flex item its automatic minimum would be the WHOLE
+ *  title — a stacked chip then refused to shrink for the `+N` beside it and
+ *  the count painted over the title (SLOP-15); with it the title truncates.
+ *  The body becomes a link (`link` wins), a button (`onClick`) or stays
+ *  inert. */
 export function ChipBox({
   slot,
   body,
@@ -123,7 +127,7 @@ export function ChipBox({
       data-removable={onRemove ? `true` : undefined}
       title={tooltip}
       className={cn(
-        `issue-chip inline-flex max-w-[18rem] items-center gap-1 align-middle text-xs`,
+        `issue-chip inline-flex min-w-0 max-w-[18rem] items-center gap-1 align-middle text-xs`,
         className
       )}
     >

@@ -36,10 +36,17 @@ import { cn } from "./cn"
  *  layout classes, the accessible name and the three parts as children. */
 export type IssueChipLinkProps = EntityChipLinkProps
 
+/** SLOP-15: `md` = glyph · identifier · title; `sm` = the SHORT chip, glyph ·
+ *  identifier alone (the title rides in the tooltip), for the surfaces that
+ *  stand for several issues at once — the hover graph's nodes, the phone
+ *  header's badge — where a title per chip is what made them sprawl. */
+export type IssueChipSize = `md` | `sm`
+
 export function IssueChip({
   identifier,
   title,
   status,
+  size = `md`,
   onClick,
   link,
   onRemove,
@@ -54,6 +61,8 @@ export function IssueChip({
   title: string
   /** The already-resolved status glyph (icon + its token class or hex). */
   status: StatusGlyphProps
+  /** `sm` drops the title (SLOP-15); the box and the glyph stay the same. */
+  size?: IssueChipSize
   /** Open the issue. Omitted = an inert chip (no target, no pointer). */
   onClick?: () => void
   /** Open the issue as a real LINK (⌘-click, middle-click, copy address,
@@ -79,15 +88,18 @@ export function IssueChip({
       <span className="shrink-0 font-mono text-muted-foreground">
         {identifier}
       </span>
-      <span className="min-w-0 truncate text-[0.8125rem] font-medium text-foreground">
-        {title}
-      </span>
+      {size === `md` && (
+        <span className="min-w-0 truncate text-[0.8125rem] font-medium text-foreground">
+          {title}
+        </span>
+      )}
     </>
   )
 
   return (
     <ChipBox
       slot="issue-chip"
+      data-size={size}
       body={body}
       openLabel={`Open ${identifier}`}
       tooltip={`${identifier} · ${title}`}
@@ -108,12 +120,17 @@ export function IssueChip({
 // node (a parent run with its sub-issues on one branch) with it, and every
 // other surface that stands for several issues at once (the work header's
 // stack, a batch run's subject) takes the same picture: the front chip with
-// two ghosts of the SAME box peeking out behind it, offset top-right in 3px
+// two ghosts of its box peeking out behind it, offset top-right in small
 // steps. It wraps a chip rather than being one, so the front chip keeps its
 // own link, its ✕ and its hover preview.
+//
+// SLOP-15: the ghosts are OUTLINES (`issue-chip-ghost`, styles.css) — no
+// fill, the far one fainter, 2px steps instead of 3. Filled boxes stepped 6px
+// out read as three chips jostling in the header; a faint edge or two behind
+// the chip reads as one chip with depth, which is all the stack has to say.
 
-/** How far each ghost sits behind the front chip, front-most last. */
-const STACK_OFFSETS = [6, 3] as const
+/** How far each ghost sits behind the front chip, farthest first. */
+const STACK_OFFSETS = [4, 2] as const
 
 export function IssueChipStack({
   children,
@@ -140,12 +157,13 @@ export function IssueChipStack({
       className={cn(`inline-flex min-w-0 max-w-full items-center`, className)}
     >
       <span className="relative inline-flex min-w-0 flex-1 self-stretch">
-        {STACK_OFFSETS.map((offset) => (
+        {STACK_OFFSETS.map((offset, index) => (
           <span
             key={offset}
             aria-hidden
             data-slot="issue-chip-stack-ghost"
-            className="issue-chip pointer-events-none absolute"
+            data-depth={STACK_OFFSETS.length - index}
+            className="issue-chip-ghost pointer-events-none absolute"
             style={{ top: -offset, right: -offset, left: offset, bottom: offset }}
           />
         ))}
@@ -154,7 +172,7 @@ export function IssueChipStack({
       {count !== undefined && count > 0 && (
         <span
           data-slot="issue-chip-stack-count"
-          className="relative shrink-0 pl-2 font-mono text-xs text-muted-foreground"
+          className="relative shrink-0 pl-1.5 font-mono text-xs text-muted-foreground"
         >
           {`+${count}`}
         </span>
