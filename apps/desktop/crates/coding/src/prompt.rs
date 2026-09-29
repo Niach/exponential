@@ -22,6 +22,14 @@ use crate::launcher::StackIssue;
 /// EXP-637 — the clean-worktree half of the close-out EVERY launcher prompt
 /// ends with (issue, batch, action, chat and the two builtins): a run always
 /// leaves the tree the way it found it.
+/// EXP-1144 — the Results half: a visible change is screenshotted BEFORE the
+/// PR. Every launcher prompt carries it through [`close_out`], because the
+/// agent follows the prompt's checklist literally and skipped a step that
+/// lived only in the playbook.
+pub const PUBLISH_RESULTS: &str = "If you changed anything a person can see, screenshot every \
+changed screen you can run and publish each with the `exponential_sessions_results` MCP tool \
+before you open the pull request; name any screen you could not capture in your summary.";
+
 pub const WORKTREE_CLEAN: &str = "Before you finish, leave the worktree clean: commit and push \
 everything you keep, discard anything you don't (`git checkout -- .`, `git clean -fd` for files \
 you created).";
@@ -38,14 +46,14 @@ you created).";
 pub fn close_out(unattended: bool) -> String {
     if unattended {
         format!(
-            "{WORKTREE_CLEAN} Then report with the `exponential_sessions_end` MCP tool: a \
+            "{PUBLISH_RESULTS} {WORKTREE_CLEAN} Then report with the `exponential_sessions_end` MCP tool: a \
 one-paragraph summary of what you did and anything left open. That call ends this run; \
 nobody is watching it, so do not wait for replies. Merging your own PR never ends the \
 session."
         )
     } else {
         format!(
-            "{WORKTREE_CLEAN} This session stays open after you finish: summarize what you did \
+            "{PUBLISH_RESULTS} {WORKTREE_CLEAN} This session stays open after you finish: summarize what you did \
 here and keep answering follow-ups. Merging your own PR never ends the session."
         )
     }
@@ -664,7 +672,10 @@ comments often refine or override the description and are part of the requiremen
 Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
-`done` — you do not set the issue status yourself. Do not use `gh`. Before you finish, leave the \
+`done` — you do not set the issue status yourself. Do not use `gh`. If you changed anything a \
+person can see, screenshot every changed screen you can run and publish each with the \
+`exponential_sessions_results` MCP tool before you open the pull request; name any screen you \
+could not capture in your summary. Before you finish, leave the \
 worktree clean: commit and push everything you keep, discard anything you don't (`git checkout -- \
 .`, `git clean -fd` for files you created). This session stays open after you finish: summarize \
 what you did here and keep answering follow-ups. Merging your own PR never ends the session.
