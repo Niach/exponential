@@ -2943,8 +2943,24 @@ impl ScreensPanel {
 
     /// EXP-851: the Source Control SCREEN — the trunk's commit history beside
     /// the diff of whatever the history list has selected (EXP-253/EXP-509).
-    fn render_source_control_screen(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn render_source_control_screen(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
         let trunk_sync = self.rail.read(cx).trunk_sync().clone();
+        // EXP-1133: the shared repo picker (multi-repo teams only) — the
+        // same scope row the Files tree carries above its worktree switcher.
+        let repo_picker = crate::repo_scope::repo_picker("source-control-repo", window, cx)
+            .map(|picker| {
+                h_flex()
+                    .flex_shrink_0()
+                    .w_full()
+                    .min_w_0()
+                    .px_2()
+                    .pb_1()
+                    .child(picker)
+            });
         h_flex()
             .size_full()
             .min_h_0()
@@ -2974,6 +2990,7 @@ impl ScreensPanel {
                                 }),
                         ),
                     )
+                    .children(repo_picker)
                     // The explicit sized wrapper is load-bearing for entity
                     // children (the dock wrapper's flex-child rule).
                     .child(
@@ -3494,7 +3511,7 @@ impl Render for ScreensPanel {
             | Some(Screen::Inbox { .. })
             | Some(Screen::Support) => self.list.clone().into_any_element(),
             Some(Screen::Files) => self.render_files_screen(cx),
-            Some(Screen::SourceControl) => self.render_source_control_screen(cx),
+            Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),

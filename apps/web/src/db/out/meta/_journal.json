@@ -1055,8 +1055,15 @@
     {
       "idx": 150,
       "version": "7",
+      "when": 1790682655257,
+      "tag": "0150_purge_orphaned_placeholders",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
       "when": 1790682811831,
-      "tag": "0150_mcp_server_credentials",
+      "tag": "0151_mcp_server_credentials",
       "breakpoints": true
     }
   ]

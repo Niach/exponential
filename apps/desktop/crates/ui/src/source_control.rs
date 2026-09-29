@@ -29,9 +29,9 @@
 //! HEAD alone is single-parent all the way down and drew a straight line.
 //!
 //! Trunk resolution (§4.2 rule 1: trunk-only, no board/issue scope): the
-//! active team's clone. The team's first board (sidebar order)
-//! resolves the backing repo via `repositories.list` (the v4 model —
-//! `boards.repositoryId`); the clone lives at `<repos_root>/<owner>/<name>`.
+//! window's ACTIVE REPO (EXP-1133, `RepoResolver::lookup_active` — the
+//! shared repo picker's pick, else the team's first board-backed repo); the
+//! clone lives at `<repos_root>/<owner>/<name>`.
 //! All git state is derived from disk through [`coding::scm`] (§4.2 rule 3),
 //! so it survives restarts and out-of-band fixes; every read runs on the
 //! background executor (scm calls block on `git`).
@@ -67,9 +67,14 @@ use crate::commit_graph::{self, EdgeKind, Graph, GraphRow, SquashLink, MAX_LANES
 use crate::controls::{glass_input, WebControl as _};
 use crate::diff::{build_scm_diff, DiffOptions, DiffView};
 use crate::icons::registry;
-use crate::navigation::{self, Navigation};
+use crate::navigation;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::sidebar::ScSelection;
+
+/// EXP-1133: the repo-less team's notice — shared by the Files and Source
+/// Control screens (the IDE scope is the team's repos, not one board's).
+pub(crate) const NO_REPOSITORY_NOTICE: &str =
+    "No repository linked to this team's boards. Link one in board settings.";
 
 /// History page size (§4.4: "200 at a time, Load more").
 const HISTORY_PAGE: usize = 200;
@@ -128,7 +133,6 @@ struct TrunkScope {
 /// The trunk Source Control center screen. Wired into
 /// [`crate::navigation::Screen::SourceControl`].
 pub struct SourceControlView {
-    nav: Entity<Navigation>,
     /// The shared per-window rail state — carries the sidebar history list's
     /// "show this commit" selection + the trunk-sync engine.
     rail: Entity<crate::sidebar::RailShared>,
@@ -147,12 +151,12 @@ pub struct SourceControlView {
     /// because the file list beside it IS the navigation).
     diff: Entity<DiffView>,
 
-    /// The active board this state belongs to (scope-change reset key) —
+    /// The active repo this state belongs to (scope-change reset key) —
     /// the SAME scope rule as [`crate::trunk_sync::TrunkSync`] and the
     /// sidebar [`HistoryList`], so the diff pane, the history pane, and
     /// the hard-reset target can never point at different repos in a
     /// multi-repo team.
-    scope_board: Option<String>,
+    scope_repo: Option<String>,
     scope_load: Load,
     scope: Option<TrunkScope>,
 
@@ -202,13 +206,12 @@ impl SourceControlView {
         ];
 
         Self {
-            nav,
             rail,
             seen_sync_seq,
             seen_selection: ScSelection::None,
             repo_resolver,
             diff,
-            scope_board: None,
+            scope_repo: None,
             scope_load: Load::Idle,
             scope: None,
             status: None,
@@ -234,9 +237,13 @@ impl SourceControlView {
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
 
-        let board_id = navigation::active_board_id(&self.nav, cx);
-        if board_id.as_deref() != self.scope_board.as_deref() {
-            self.scope_board = board_id.clone();
+        let lookup = self.repo_resolver.read(cx).lookup_active(cx);
+        let repository_id = match &lookup {
+            RepoLookup::Found(repo) => Some(repo.repository_id.clone()),
+            _ => None,
+        };
+        if repository_id != self.scope_repo {
+            self.scope_repo = repository_id;
             self.scope = None;
             self.status = None;
             self.conflict = None;
@@ -255,13 +262,10 @@ impl SourceControlView {
         if matches!(self.scope_load, Load::Ready) {
             return;
         }
-        let Some(board_id) = board_id else {
-            return;
-        };
 
         // Read the shared resolution rather than firing our own network call:
-        // the ACTIVE board's repo — the trunk-sync engine's exact scope.
-        match self.repo_resolver.read(cx).lookup_board(&board_id) {
+        // the ACTIVE repo — the trunk-sync engine's exact scope.
+        match lookup {
             RepoLookup::Loading => {
                 // Still resolving — show the "Resolving repository…" state and
                 // wait for the resolver observer to re-render us.
@@ -748,26 +752,9 @@ impl SourceControlView {
     fn render_body(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let theme = cx.theme();
 
-        // No board to resolve against. `scope_board` is `None` both before the
-        // boards shape has synced and for a team that genuinely has none, so
-        // say that rather than making a claim about the repository — the same
-        // placeholder `file_tree` shows in this state.
-        if self.scope_board.is_none() {
-            return div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .p_4()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child("Open a board to see its source control.")
-                .into_any_element();
-        }
-
         // Scope not yet resolvable (teams/boards still syncing). `Idle` counts
         // as in-flight: `ensure_scope` returns BEFORE it can start a load while
-        // the board is still unresolved, so gating only on `Loading` fell
+        // the repo is still unresolved, so gating only on `Loading` fell
         // through to the definitive "no repository linked" notice during sync.
         // That is a lie with a screenshot of its own — the store's
         // `source-control` shot was exactly this state (EXP-566).
@@ -791,9 +778,7 @@ impl SourceControlView {
                 .p_4()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child(
-                    "No repository linked to this board. Link one in team settings.",
-                )
+                .child(NO_REPOSITORY_NOTICE)
                 .into_any_element();
         }
         if !self.clone_ready() {
@@ -1023,8 +1008,8 @@ fn prompt_hard_reset_confirm(
 // ---------------------------------------------------------------------------
 
 /// The trunk's commit history in the sidebar tool column. Scope comes from
-/// the shared [`crate::trunk_sync::TrunkSync`] engine (the active board's
-/// clone — the same scope the old branch list followed); a fresh sync
+/// the shared [`crate::trunk_sync::TrunkSync`] engine (the window's active
+/// repo's clone, EXP-1133); a fresh sync
 /// (`sync_seq`) re-reads the first page. Clicking a commit selects it on the
 /// shared rail state and opens the Source Control screen, which shows its
 /// diff.

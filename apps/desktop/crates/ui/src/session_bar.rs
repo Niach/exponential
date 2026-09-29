@@ -69,7 +69,7 @@ use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{self, Screen};
-use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
+use crate::repo_resolver::{repo_resolver_for_window, RepoLookup};
 
 /// The bar's height — the web strip's `h-9`.
 pub(crate) const SESSION_BAR_H: f32 = 36.;
@@ -533,21 +533,18 @@ impl SessionBar {
     // -- launches ------------------------------------------------------------
 
     /// The `+` shell tab (v4 §4.6): cwd = the **trunk** clone root of this
-    /// window's active board; `$HOME` only off a board screen or while the
-    /// clone doesn't exist yet. The repo→trunk-root resolution needs a
-    /// (tRPC-only, never synced) `repositories.list` lookup, so the resolve
-    /// runs off the foreground and the tab opens once the cwd is known; a
-    /// non-board screen (or missing session/board) opens at `$HOME`
-    /// immediately (`open_shell(None)`).
+    /// window's active repo (EXP-1133, the Files / Source Control repo
+    /// picker's scope); `$HOME` for a repo-less team or while the clone
+    /// doesn't exist yet. The repo→trunk-root resolution needs a (tRPC-only,
+    /// never synced) `repositories.list` lookup, so the resolve runs off the
+    /// foreground and the tab opens once the cwd is known.
     fn new_shell_tab(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some((resolver, board_id, settings)) = self.shell_scope(window, cx) else {
-            self.open_shell_cwd(None, cx);
-            return;
-        };
-        // The repo comes from the shared window resolver (the run/git bars keep
-        // it warm); a still-loading / unlinked repo just opens at `$HOME`.
+        let resolver = repo_resolver_for_window(window, cx);
+        let settings = CodingHub::global(cx).read(cx).settings.clone();
+        // The repo comes from the shared window resolver (the trunk surfaces
+        // keep it warm); a still-loading / unlinked repo just opens at `$HOME`.
         resolver.update(cx, |resolver, cx| resolver.ensure_loaded(cx));
-        let full_name = match resolver.read(cx).lookup_board(&board_id) {
+        let full_name = match resolver.read(cx).lookup_active(cx) {
             RepoLookup::Found(repo) => repo.full_name,
             _ => {
                 self.open_shell_cwd(None, cx);
@@ -577,23 +574,6 @@ impl SessionBar {
         if let Err(error) = result {
             log::error!("session bar: shell spawn failed: {error:#}");
         }
-    }
-
-    /// The sync-resolvable inputs for the `+` shell cwd: the shared window repo
-    /// resolver, the window's active board (screen scope with the
-    /// last-board fallback), and the coding settings (repos root). `None`
-    /// with no resolvable board — the caller then opens the shell at
-    /// `$HOME`.
-    fn shell_scope(
-        &self,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<(Entity<RepoResolver>, String, coding::Settings)> {
-        let nav = navigation::nav_for_window(window, cx);
-        let board_id = navigation::active_board_id(&nav, cx)?;
-        let resolver = repo_resolver_for_window(window, cx);
-        let settings = CodingHub::global(cx).read(cx).settings.clone();
-        Some((resolver, board_id, settings))
     }
 
     fn on_new_tab(&mut self, _: &NewTerminalTab, window: &mut Window, cx: &mut gpui::Context<Self>) {

@@ -8,6 +8,7 @@ import {
   type WizardEntryStep,
 } from "@/components/onboarding/wizard"
 import { pageTitle } from "@/lib/page-title"
+import { readPendingInvite } from "@/lib/pending-invite"
 
 // EXP-725: `?step=invite|devices` starts a resumed wizard past the board
 // step. It is the shots pipeline's capture hook (the seeded starter owns a
@@ -42,6 +43,19 @@ function OnboardingPage() {
 
   useEffect(() => {
     if (!session?.user) return
+    // EXP-1132: an invite opened before signing in whose redirect got lost
+    // on the way (a provider error, a second trip through login) — join
+    // that team instead of offering create-or-join. The invite page clears
+    // the token on every outcome, so this resumes at most once.
+    const pendingInvite = readPendingInvite()
+    if (pendingInvite) {
+      navigate({
+        to: `/invite/$token`,
+        params: { token: pendingInvite },
+        replace: true,
+      })
+      return
+    }
     const completed = hasCompletedOnboarding(session.user)
     void trpc.teams.getDefault.query().then(({ team }) => {
       if (team && completed) {

@@ -4,8 +4,10 @@
 //! changed files, context-menu "Reveal in file manager" / "Open terminal
 //! here". Clicking a file opens [`crate::navigation::Screen::FileViewer`].
 //!
-//! Scope: the tree follows the window's active board (its trunk clone,
-//! `<repos_root>/<owner>/<name>` — v4 §4.2 "trunk is *the* IDE surface"). The
+//! Scope: the tree follows the window's ACTIVE REPO (EXP-1133 — the shared
+//! repo picker's pick, else the team's first board-backed repo; its trunk
+//! clone, `<repos_root>/<owner>/<name>` — v4 §4.2 "trunk is *the* IDE
+//! surface"), never the last board opened. The
 //! repo→trunk-root resolution needs a tRPC-only `repositories.list` lookup
 //! (never synced), so it runs off the foreground like the run bar / `+` shell
 //! tab; the resolved root is published into a per-window registry the
@@ -46,7 +48,7 @@ use sync::Store;
 use coding::scm::{self, FileStatus};
 
 use crate::coding_flow::CodingHub;
-use crate::navigation::{self, Navigation};
+use crate::navigation;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::icons::registry;
 
@@ -229,21 +231,23 @@ enum Load {
 }
 
 pub struct FileTreeView {
-    nav: Entity<Navigation>,
     /// The shared per-window repo resolver (§4.2) — the trunk clone root comes
     /// from here instead of a per-tree `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
     window_id: WindowId,
-    /// The board scope the tree is showing (sticky — a non-board screen,
-    /// e.g. the file viewer itself, keeps the last board).
-    board_id: Option<String>,
+    /// The repository scope the tree is showing (EXP-1133).
+    repository_id: Option<String>,
+    /// The trunk-sync `sync_seq` the tree last re-read for — a clone or
+    /// pull landing re-reads it (an auto-cloned trunk used to stay "not
+    /// cloned yet" until the app restarted).
+    seen_sync_seq: u64,
     load: Load,
     /// Stale-fetch guard (scope changes bump it).
     generation: u64,
     /// The root the tree is showing (absolute) — the trunk clone, or the
     /// worktree [`Self::selected_worktree`] picked.
     active_root: Option<PathBuf>,
-    /// The board's trunk clone root (absolute) — the switcher's anchor, kept
+    /// The repo's trunk clone root (absolute) — the switcher's anchor, kept
     /// even while a worktree is the active root.
     clone_root: Option<PathBuf>,
     /// The clone's registered worktrees, MAIN WORKING TREE FIRST (EXP-635 —
@@ -270,19 +274,37 @@ pub struct FileTreeView {
 }
 
 impl FileTreeView {
-    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(
+        trunk_sync: Entity<crate::trunk_sync::TrunkSync>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
         ensure_actions_registered(cx);
         let nav = navigation::nav_for_window(window, cx);
         let repo_resolver = repo_resolver_for_window(window, cx);
         let tree_state = cx.new(|cx| TreeState::new(cx));
         let collections = Store::global(cx).collections().clone();
+        let seen_sync_seq = trunk_sync.read(cx).sync_seq();
         let mut subscriptions = vec![
-            // Scope follows navigation (board / issue-detail → board).
+            // Scope follows the window's repo pick (EXP-1133) on the nav.
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            // The issue→board join reads the synced collections; re-render
-            // when they land.
-            cx.observe(&collections.issues, |_, _, cx| cx.notify()),
+            // The repo scope's board order reads the synced boards.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            // A trunk clone / pull landing: an unloaded (not-yet-cloned)
+            // tree reloads whole, a loaded one re-reads its status dots.
+            cx.observe(&trunk_sync, |this: &mut Self, engine, cx| {
+                let seq = engine.read(cx).sync_seq();
+                if seq == this.seen_sync_seq {
+                    return;
+                }
+                this.seen_sync_seq = seq;
+                if this.roots.is_empty() && matches!(this.load, Load::Ready) {
+                    this.load = Load::Idle;
+                    cx.notify();
+                } else {
+                    this.refresh(cx);
+                }
+            }),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
             // Lazy directory loading rides the tree's expand events.
@@ -295,10 +317,10 @@ impl FileTreeView {
         subscriptions.shrink_to_fit();
 
         Self {
-            nav,
             repo_resolver,
             window_id: window.window_handle().window_id(),
-            board_id: None,
+            repository_id: None,
+            seen_sync_seq,
             load: Load::Idle,
             generation: 0,
             active_root: None,
@@ -378,14 +400,7 @@ impl FileTreeView {
         cx.notify();
     }
 
-    /// The window's active board (screen scope with the last-board
-    /// fallback) — populated on every screen so the Files tool window never
-    /// empties on navigation.
-    fn scope_board_id(&self, cx: &App) -> Option<String> {
-        navigation::active_board_id(&self.nav, cx)
-    }
-
-    /// Render-time load gate: a new board scope resets and kicks one
+    /// Render-time load gate: a new repo scope resets and kicks one
     /// background resolve (repo → trunk root) + snapshot (status/ignored) +
     /// root listing.
     fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
@@ -394,27 +409,27 @@ impl FileTreeView {
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
 
-        if let Some(scope) = self.scope_board_id(cx) {
-            if self.board_id.as_deref() != Some(scope.as_str()) {
-                self.board_id = Some(scope);
-                self.load = Load::Idle;
-                // A new board means a new clone: the switcher's options and
-                // its pick belong to the OLD one (unlike a plain re-root,
-                // which keeps them painted while the next root loads).
-                self.clone_root = None;
-                self.worktrees.clear();
-                self.selected_worktree = None;
-                self.reset_tree(cx);
-            }
+        let lookup = self.repo_resolver.read(cx).lookup_active(cx);
+        let scope = match &lookup {
+            RepoLookup::Found(repo) => Some(repo.repository_id.clone()),
+            _ => None,
+        };
+        if scope != self.repository_id {
+            self.repository_id = scope;
+            self.load = Load::Idle;
+            // A new repo means a new clone: the switcher's options and
+            // its pick belong to the OLD one (unlike a plain re-root,
+            // which keeps them painted while the next root loads).
+            self.clone_root = None;
+            self.worktrees.clear();
+            self.selected_worktree = None;
+            self.reset_tree(cx);
         }
         if !matches!(self.load, Load::Idle) {
             return;
         }
-        let Some(board_id) = self.board_id.clone() else {
-            return;
-        };
         // The trunk clone root comes from the shared resolver.
-        let full_name = match self.repo_resolver.read(cx).lookup_board(&board_id) {
+        let full_name = match lookup {
             RepoLookup::Loading => return, // the resolver observer re-renders us
             RepoLookup::Found(repo) => repo.full_name,
             RepoLookup::NotFound | RepoLookup::Error(_) => {
@@ -603,11 +618,38 @@ impl FileTreeView {
 
     // -- rendering ----------------------------------------------------------
 
+    /// The scope row above the tree: the shared repo picker (EXP-1133, only
+    /// for a multi-repo team) beside the worktree switcher. `None` when
+    /// neither has anything to show.
+    fn render_scope_row(
+        &self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let repo = crate::repo_scope::repo_picker("file-tree-repo", window, cx);
+        let worktree = self.render_root_switcher(cx);
+        if repo.is_none() && worktree.is_none() {
+            return None;
+        }
+        Some(
+            h_flex()
+                .flex_shrink_0()
+                .w_full()
+                .min_w_0()
+                .px_2()
+                .pb_1()
+                .gap_1()
+                .children(repo)
+                .children(worktree)
+                .into_any_element(),
+        )
+    }
+
     /// EXP-635: the worktree switcher above the tree — the trunk plus every
     /// linked worktree (the coding sessions' `exp/<IDENTIFIER>` checkouts),
     /// labelled by branch. It doubles as the "which tree am I browsing"
     /// indicator, so it renders whenever git listed anything at all; a
-    /// missing/uncloned repo (empty list) keeps the tree headerless.
+    /// missing/uncloned repo (empty list) keeps it hidden.
     fn render_root_switcher(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         let trunk = self.worktrees.first()?;
         let trunk_label = root_label(trunk);
@@ -640,50 +682,42 @@ impl FileTreeView {
             view.update(cx, |tree, cx| tree.select_worktree(target, cx));
         };
         Some(
-            h_flex()
-                .flex_shrink_0()
-                .w_full()
-                .min_w_0()
-                .px_2()
-                .pb_1()
-                .child(
-                    Button::new("file-tree-root")
-                        .ghost()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(Icon::new(registry::UI_BRANCH))
-                        .label(label)
-                        .dropdown_caret(true)
-                        .tooltip("Browse another worktree")
-                        .dropdown_menu(move |mut menu, _window, _cx| {
-                            let view = view.clone();
-                            menu = menu.item(PopupMenuItem::label("Trunk")).item(
-                                PopupMenuItem::new(trunk_label.clone())
-                                    .checked(selected.is_none())
-                                    .on_click({
-                                        let view = view.clone();
-                                        move |_, window, cx| pick(&view, None, window, cx)
-                                    }),
-                            );
-                            if !linked.is_empty() {
-                                menu = menu
-                                    .item(PopupMenuItem::separator())
-                                    .item(PopupMenuItem::label("Worktrees"));
-                            }
-                            for (label, path) in &linked {
+            Button::new("file-tree-root")
+                .ghost()
+                .cursor_pointer()
+                .xsmall()
+                .icon(Icon::new(registry::UI_BRANCH))
+                .label(label)
+                .dropdown_caret(true)
+                .tooltip("Browse another worktree")
+                .dropdown_menu(move |mut menu, _window, _cx| {
+                    let view = view.clone();
+                    menu = menu.item(PopupMenuItem::label("Trunk")).item(
+                        PopupMenuItem::new(trunk_label.clone())
+                            .checked(selected.is_none())
+                            .on_click({
                                 let view = view.clone();
-                                let path = path.clone();
-                                menu = menu.item(
-                                    PopupMenuItem::new(label.clone())
-                                        .checked(selected.as_ref() == Some(&path))
-                                        .on_click(move |_, window, cx| {
-                                            pick(&view, Some(path.clone()), window, cx)
-                                        }),
-                                );
-                            }
-                            menu
-                        }),
-                )
+                                move |_, window, cx| pick(&view, None, window, cx)
+                            }),
+                    );
+                    if !linked.is_empty() {
+                        menu = menu
+                            .item(PopupMenuItem::separator())
+                            .item(PopupMenuItem::label("Worktrees"));
+                    }
+                    for (label, path) in &linked {
+                        let view = view.clone();
+                        let path = path.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(label.clone())
+                                .checked(selected.as_ref() == Some(&path))
+                                .on_click(move |_, window, cx| {
+                                    pick(&view, Some(path.clone()), window, cx)
+                                }),
+                        );
+                    }
+                    menu
+                })
                 .into_any_element(),
         )
     }
@@ -704,22 +738,20 @@ impl FileTreeView {
 
 impl Render for FileTreeView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let scope_before = self.board_id.clone();
+        let scope_before = self.repository_id.clone();
         self.ensure_loaded(cx);
-        // EXP-288: a board-scope change invalidates the file selection (the
-        // trunk-relative path belongs to the OLD board's clone).
-        if self.board_id != scope_before {
+        // EXP-288: a repo-scope change invalidates the file selection (the
+        // trunk-relative path belongs to the OLD repo's clone).
+        if self.repository_id != scope_before {
             crate::sidebar::select_file(window, cx, None);
         }
 
         let still_resolving = matches!(self.load, Load::Idle | Load::Loading);
-        let body: gpui::AnyElement = if self.board_id.is_none() {
-            self.render_placeholder("Open a board to browse its files.", cx)
-        } else if self.active_root.is_none() {
+        let body: gpui::AnyElement = if self.active_root.is_none() {
             if still_resolving {
                 self.render_placeholder("Loading files…", cx)
             } else {
-                self.render_placeholder("No repository linked to this board.", cx)
+                self.render_placeholder(crate::source_control::NO_REPOSITORY_NOTICE, cx)
             }
         } else if self.roots.is_empty() {
             self.render_placeholder("This repository is not cloned yet.", cx)
@@ -751,7 +783,7 @@ impl Render for FileTreeView {
         // against (the sidebar's dock-child rule).
         v_flex()
             .size_full()
-            .children(self.render_root_switcher(cx))
+            .children(self.render_scope_row(window, cx))
             .child(
                 div()
                     .flex_1()

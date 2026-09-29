@@ -519,37 +519,14 @@ pub fn background_gradient_color_at(t: f32) -> Hsla {
 ///   the legacy `ACCENT_ENABLE_BLURBEHIND`, a non-opaque window loses ClearType,
 ///   and the DirectX renderer clears an Opaque target to WHITE — a translucent
 ///   page there washes out instead of revealing anything).
-/// - **Linux: only KDE/KWin on Wayland.** gpui's Wayland backend asks the
-///   compositor's `org_kde_kwin_blur_manager`, an OPTIONAL global bind
-///   (`gpui_linux::linux::wayland`), and the X11 backend has no blur code at all
-///   — there `Blurred` only picks a 32-bit ARGB visual. So Mutter/GNOME,
-///   wlroots, Cinnamon/muffin and every X11 session get transparency with no
-///   blur, and must fall through to opaque. Setting
-///   `_KDE_NET_WM_BLUR_BEHIND_REGION` ourselves is not an option: gpui exposes
-///   no raw X11 window handle, and we do not patch gpui (LD: no fork).
-///
-/// The Linux answer is an env probe (there is no gpui API for "is the blur
-/// manager bound"), cached because it cannot change within a process.
+/// - **Linux: no.** The X11 backend has no blur code at all, and gpui's
+///   Wayland blur is an OPTIONAL `org_kde_kwin_blur_manager` bind that we
+///   cannot detect: EXP-1135 saw raw, unblurred transparency on Wayland under
+///   the old KDE env probe. Transparency without blur is never acceptable, so
+///   Linux paints opaque everywhere (its windows stay `Transparent` only for
+///   the CSD shadow margins).
 pub fn blur_backdrop_available() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        true
-    }
-    #[cfg(target_os = "windows")]
-    {
-        false
-    }
-    #[cfg(target_os = "linux")]
-    {
-        use std::sync::OnceLock;
-        static AVAILABLE: OnceLock<bool> = OnceLock::new();
-        *AVAILABLE.get_or_init(|| {
-            let wayland = std::env::var("WAYLAND_DISPLAY").is_ok_and(|v| !v.is_empty());
-            let kde = std::env::var("XDG_CURRENT_DESKTOP")
-                .is_ok_and(|v| v.to_ascii_uppercase().contains("KDE"));
-            wayland && kde
-        })
-    }
+    cfg!(target_os = "macos")
 }
 
 /// EXP-767: how opaque the page paints — ONE value for the whole window
@@ -567,9 +544,8 @@ pub fn blur_backdrop_available() -> bool {
 ///
 /// 0.96 is the reviewed content value (0.88 through 0.98 were tried once the
 /// REAL macOS blur landed — a working backdrop makes even a tiny bleed read
-/// strongly). 1.0 without a real blur backdrop ([`blur_backdrop_available`])
-/// — Windows and non-KDE-Wayland Linux have no glassy blur and stay fully
-/// opaque.
+/// strongly). 1.0 without a real blur backdrop ([`blur_backdrop_available`]):
+/// everywhere but macOS the page stays fully opaque.
 pub fn glass_ground_alpha() -> f32 {
     if blur_backdrop_available() {
         0.96
@@ -828,19 +804,9 @@ mod tests {
     #[test]
     fn blur_backdrop_availability_matches_the_platform_backends() {
         // Locks the per-platform answer documented on the fn: only macOS
-        // (NSVisualEffectView) and KDE-on-Wayland (org_kde_kwin_blur_manager)
-        // blur at the pinned gpui rev.
-        #[cfg(target_os = "macos")]
-        assert!(blur_backdrop_available());
-        #[cfg(target_os = "windows")]
-        assert!(!blur_backdrop_available());
-        #[cfg(target_os = "linux")]
-        {
-            let wayland = std::env::var("WAYLAND_DISPLAY").is_ok_and(|v| !v.is_empty());
-            let kde = std::env::var("XDG_CURRENT_DESKTOP")
-                .is_ok_and(|v| v.to_ascii_uppercase().contains("KDE"));
-            assert_eq!(blur_backdrop_available(), wayland && kde);
-        }
+        // (NSVisualEffectView) has a real blur; Linux + Windows stay opaque
+        // (EXP-1135: no transparency without blur, Wayland included).
+        assert_eq!(blur_backdrop_available(), cfg!(target_os = "macos"));
     }
 
     #[test]

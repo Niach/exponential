@@ -66,28 +66,27 @@ pub fn open_shell_window(cx: &mut App) {
             // caption and the bar's WindowControlArea hitboxes drive
             // min/max/close + Snap Layouts.
             titlebar: Some(gpui_component::TitleBar::title_bar_options()),
-            // EXP-290 glass: a non-opaque window with behind-window blur, so
-            // the translucent page gradient (`theme::glass_ground_alpha`, ONE
-            // value under the whole window) lets the desktop show through.
-            // macOS gets a real `NSVisualEffectView` backdrop; Wayland asks the
-            // compositor's blur manager (KDE protocol) and degrades to plain
-            // transparency where it is absent, which is also what X11 does.
-            // That degrade is still worth asking for here — it is harmless
-            // (Linux CSD already
-            // REQUIRES a non-opaque window: the shadow margins and rounded
-            // corners of `ui::window_frame` can only composite against
-            // transparency; X11 without a compositor falls back to Server
-            // decorations, where the in-app bar hides itself —
-            // `app_title_bar::client_chrome`) — but EXP-293 stopped the PAGE
-            // from being translucent when no blur backdrop actually exists:
-            // unsmeared transparency was a legible ghost of the desktop, so
-            // `theme::blur_backdrop_available()` pins those platforms opaque.
+            // EXP-290 glass, macOS only: a non-opaque window with a real
+            // `NSVisualEffectView` backdrop, so the translucent page gradient
+            // (`theme::glass_ground_alpha`, ONE value under the whole window)
+            // lets the blurred desktop show through.
+            // Linux (EXP-1135): NO glass — the page paints opaque
+            // (`theme::blur_backdrop_available()`), because transparency
+            // without a guaranteed blur is a legible ghost of the desktop
+            // (EXP-293). The window itself stays `Transparent` only because
+            // CSD REQUIRES it: the shadow margins and rounded corners of
+            // `ui::window_frame` composite against transparency (X11 without
+            // a compositor falls back to Server decorations, where the in-app
+            // bar hides itself — `app_title_bar::client_chrome`). Not
+            // `Blurred`: that would ask KWin to blur behind the shadow margins.
             // Windows is left at the default Opaque on purpose: its Blurred
             // path is the legacy undocumented `ACCENT_ENABLE_BLURBEHIND`, and
             // any non-opaque window there loses ClearType subpixel AA
             // (`Window::should_use_subpixel_rendering`).
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            #[cfg(target_os = "macos")]
             window_background: gpui::WindowBackgroundAppearance::Blurred,
+            #[cfg(target_os = "linux")]
+            window_background: gpui::WindowBackgroundAppearance::Transparent,
             #[cfg(target_os = "linux")]
             window_decorations: Some(gpui::WindowDecorations::Client),
             ..Default::default()

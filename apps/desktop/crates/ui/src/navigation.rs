@@ -569,9 +569,16 @@ pub struct Navigation {
     /// navigation — the browser rule.
     forward_stack: Vec<Screen>,
     /// The explicitly selected board (the top-bar picker) — the primary
-    /// scope for [`active_board_id`] so the picker / files / git / run
-    /// surfaces stay populated on every screen.
+    /// scope for [`active_board_id`] so board-scoped surfaces stay populated
+    /// on every screen (the IDE's trunk surfaces follow `repo_picks`).
     last_board_id: Option<String>,
+    /// EXP-1133: the repository the IDE surfaces (Files, Source Control,
+    /// trunk sync, the `+` shell) show, PER TEAM (team id → repository id).
+    /// An explicit pick from the shared repo picker — never derived from the
+    /// active board, so browsing boards can't flip the trunk underneath.
+    /// Persisted (`lastRepoByTeam`); resolution + fallback live in
+    /// [`crate::repo_resolver::RepoResolver::lookup_active`].
+    repo_picks: HashMap<String, String>,
     /// EXP-288: the pending tab-origin marker the screens panel consumes
     /// when it opens/updates a tab for the navigated screen. Set by
     /// [`navigate`]/[`navigate_from`]; cleared by
@@ -617,6 +624,7 @@ impl Navigation {
                 .ok()
                 .map(|id| id.trim().to_string())
                 .filter(|id| !id.is_empty()),
+            repo_picks: HashMap::new(),
             pending_origin,
             recent_runs: false,
             // DEV-ONLY (EXP-825): `EXP_DEV_SCREEN='chat?issues=a,b&action=…'`
@@ -627,6 +635,12 @@ impl Navigation {
                 .as_deref()
                 .and_then(parse_dev_chat_seed),
         }
+    }
+
+    /// EXP-1133: the repository explicitly picked for `team_id`'s IDE
+    /// surfaces, if any (the resolver validates it against the team's repos).
+    pub(crate) fn picked_repo(&self, team_id: &str) -> Option<&str> {
+        self.repo_picks.get(team_id).map(String::as_str)
     }
 
     /// EXP-818: the screen the current one was navigated FROM — the back
@@ -982,6 +996,10 @@ pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
         return existing;
     }
     let nav = cx.new(|_| Navigation::new());
+    let repo_picks = load_repo_picks(cx);
+    if !repo_picks.is_empty() {
+        nav.update(cx, |nav, _| nav.repo_picks = repo_picks);
+    }
     if nav.read(cx).team_id.is_none() {
         // The EXP_DEV_TEAM override (Navigation::new) wins over the
         // persisted pair — dev runs must land where they were pointed.
@@ -1012,9 +1030,9 @@ pub(crate) fn nav_for_window_id(window_id: WindowId, cx: &App) -> Option<Entity<
 }
 
 /// Seed a fresh window's navigation from a source window (EXP-65 undock):
-/// copy the team/board scope and pin the given screen so every
-/// scope-resolving surface (`active_board_id` → git bar, `+` shell cwd,
-/// Source Control file scope) sees the same context the tab had when it was
+/// copy the team/board/repo scope and pin the given screen so every
+/// scope-resolving surface (`active_board_id`, the repo pick → `+` shell
+/// cwd, Files, Source Control) sees the same context the tab had when it was
 /// undocked. No-op scope copy when the source nav is already gone.
 pub(crate) fn seed_window_scope(
     window: &Window,
@@ -1024,13 +1042,14 @@ pub(crate) fn seed_window_scope(
 ) {
     let scope = nav_for_window_id(source, cx).map(|nav| {
         let nav = nav.read(cx);
-        (nav.team_id.clone(), nav.last_board_id.clone())
+        (nav.team_id.clone(), nav.last_board_id.clone(), nav.repo_picks.clone())
     });
     let nav = nav_for_window(window, cx);
     nav.update(cx, |nav, cx| {
-        if let Some((team_id, last_board_id)) = scope {
+        if let Some((team_id, last_board_id, repo_picks)) = scope {
             nav.team_id = team_id;
             nav.last_board_id = last_board_id;
+            nav.repo_picks = repo_picks;
         }
         nav.screen = Some(screen);
         cx.notify();
@@ -1044,15 +1063,16 @@ pub(crate) fn seed_window_scope(
 pub(crate) fn seed_window_team(window: &Window, cx: &mut App, source: WindowId) {
     let scope = nav_for_window_id(source, cx).map(|nav| {
         let nav = nav.read(cx);
-        (nav.team_id.clone(), nav.last_board_id.clone())
+        (nav.team_id.clone(), nav.last_board_id.clone(), nav.repo_picks.clone())
     });
-    let Some((team_id, last_board_id)) = scope else {
+    let Some((team_id, last_board_id, repo_picks)) = scope else {
         return;
     };
     let nav = nav_for_window(window, cx);
     nav.update(cx, |nav, cx| {
         nav.team_id = team_id;
         nav.last_board_id = last_board_id;
+        nav.repo_picks = repo_picks;
         cx.notify();
     });
 }
@@ -1378,7 +1398,7 @@ pub(crate) fn toggle_recent_runs(window: &Window, cx: &mut App) {
 }
 
 /// Select the window's active board (the top-bar picker) — re-scopes the
-/// Files / Source Control / run / shell surfaces. Persisted alongside the
+/// board-scoped surfaces (never the trunk: EXP-1133). Persisted alongside the
 /// team so the next launch reopens on the same board (EXP-116).
 pub fn set_active_board(window: &Window, cx: &mut App, board_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
@@ -1395,6 +1415,31 @@ pub fn set_active_board(window: &Window, cx: &mut App, board_id: String) {
     if changed {
         let team_id = nav.read(cx).team_id.clone();
         persist_nav_state(cx, team_id, Some(board_id));
+    }
+}
+
+/// EXP-1133: pick the repository the window's IDE surfaces show for the
+/// ACTIVE team (the shared repo picker atop Files / Source Control) —
+/// re-scopes the file tree, history, trunk sync and `+` shell at once.
+/// Persisted per team so the next launch reopens on the same repo.
+pub fn set_active_repo(window: &Window, cx: &mut App, repository_id: String) {
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
+    let Some(team_id) = active_team_id(&nav, cx) else {
+        return;
+    };
+    let changed = nav.update(cx, |nav, cx| {
+        if nav.picked_repo(&team_id) == Some(repository_id.as_str()) {
+            return false;
+        }
+        nav.repo_picks.insert(team_id.clone(), repository_id.clone());
+        cx.notify();
+        true
+    });
+    if changed {
+        let picks = nav.read(cx).repo_picks.clone();
+        persist_repo_picks(cx, picks);
     }
 }
 
@@ -1487,6 +1532,10 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
 
 const LAST_TEAM_KEY: &str = "lastTeamId";
 const LAST_BOARD_KEY: &str = "lastBoardId";
+/// EXP-1133: `{ teamId: repositoryId }` — the per-team repo picks.
+const LAST_REPO_BY_TEAM_KEY: &str = "lastRepoByTeam";
+/// ONE lock for every `settings.json` read-modify-write in this module.
+static SETTINGS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn settings_json_path(cx: &App) -> Option<std::path::PathBuf> {
     cx.try_global::<crate::session::AuthContext>()
@@ -1514,9 +1563,7 @@ fn load_settings_string(cx: &App, key: &str) -> Option<String> {
 /// `board_id: None` REMOVES the board key (team switch reset).
 fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<String>) {
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Mutex;
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
     let Some(path) = settings_json_path(cx) else {
         return;
@@ -1524,17 +1571,13 @@ fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<Str
     let seq = SEQ.fetch_add(1, Ordering::SeqCst) + 1;
     cx.background_executor()
         .spawn(async move {
-            let _guard = WRITE_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+            let _guard = SETTINGS_WRITE_LOCK
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
             if SEQ.load(Ordering::SeqCst) != seq {
                 return; // a newer snapshot is queued (or already written)
             }
-            let _settings = path.parent().map(api::settings_lock::locked);
-            let mut root = std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-                .filter(serde_json::Value::is_object)
-                .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
-            if let Some(object) = root.as_object_mut() {
+            update_settings_json(&path, |object| {
                 if let Some(team_id) = team_id {
                     object.insert(
                         LAST_TEAM_KEY.to_string(),
@@ -1552,22 +1595,70 @@ fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<Str
                         object.remove(LAST_BOARD_KEY);
                     }
                 }
-            }
-            let write = || -> std::io::Result<()> {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut rendered =
-                    serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string());
-                rendered.push('\n');
-                // EXP-766: by rename, never a truncating write.
-                api::atomic_file::write_atomic(&path, &rendered)
-            };
-            if let Err(err) = write() {
-                log::warn!("[ui] persisting nav state failed: {err}");
-            }
+            });
         })
         .detach();
+}
+
+/// EXP-1133: the persisted per-team repo picks (empty when absent).
+fn load_repo_picks(cx: &App) -> HashMap<String, String> {
+    let Some(path) = settings_json_path(cx) else {
+        return HashMap::new();
+    };
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|root| root.get(LAST_REPO_BY_TEAM_KEY).cloned())
+        .and_then(|picks| serde_json::from_value(picks).ok())
+        .unwrap_or_default()
+}
+
+/// EXP-1133: remember the per-team repo picks (best-effort, off-thread).
+fn persist_repo_picks(cx: &mut App, picks: HashMap<String, String>) {
+    let Some(path) = settings_json_path(cx) else {
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            let _guard = SETTINGS_WRITE_LOCK
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            update_settings_json(&path, |object| {
+                let picks = serde_json::to_value(picks).unwrap_or_default();
+                object.insert(LAST_REPO_BY_TEAM_KEY.to_string(), picks);
+            });
+        })
+        .detach();
+}
+
+/// Read-modify-write `settings.json` under the cross-process settings lock
+/// (the caller holds [`SETTINGS_WRITE_LOCK`]). BLOCKING; background only.
+fn update_settings_json(
+    path: &std::path::Path,
+    mutate: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) {
+    let _settings = path.parent().map(api::settings_lock::locked);
+    let mut root = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
+    if let Some(object) = root.as_object_mut() {
+        mutate(object);
+    }
+    let write = || -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut rendered =
+            serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string());
+        rendered.push('\n');
+        // EXP-766: by rename, never a truncating write.
+        api::atomic_file::write_atomic(path, &rendered)
+    };
+    if let Err(err) = write() {
+        log::warn!("[ui] persisting nav state failed: {err}");
+    }
 }
 
 /// Read-only registry lookup (used by mutators so a dispatch on a window

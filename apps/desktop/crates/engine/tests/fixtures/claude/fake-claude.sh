@@ -9,6 +9,7 @@
 # The state machine is the protocol's own, in the order a session hits it:
 #   control_request initialize  -> the recorded initialize response
 #   control_request interrupt   -> a bare success + the turn's recorded trailer
+#   control_request generate_session_title -> the title `Fake chat name`
 #   control_request <other>     -> a bare success (set_permission_mode, …)
 #   user message                -> the next turn's frames (turn1, turn2, …)
 #   control_response            -> the frames recorded AFTER that answer
@@ -75,6 +76,10 @@ while IFS= read -r line; do
             success "$(request_id "$line")"
             # An interrupt ends the running turn: the CLI's own trailer.
             replay "$dir/after-interrupt.jsonl"
+            ;;
+        *'"subtype":"generate_session_title"'*)
+            printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"title":"Fake chat name"}}}\n' \
+                "$(request_id "$line")"
             ;;
         *'"type":"control_request"'*)
             case "$line" in

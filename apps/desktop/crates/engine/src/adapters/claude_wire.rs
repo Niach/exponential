@@ -1096,6 +1096,23 @@ pub fn get_usage_without_behaviors() -> Value {
     json!({ "subtype": "get_usage", "skip_behaviors": true })
 }
 
+/// EXP-1134: ask the CLI to name the conversation from `description` (the
+/// first prompt; the CLI caps it). `persist` writes the `ai-title` line into
+/// the transcript and hands naming to the host, so the CLI's own auto-namer
+/// (which SDK-mode CLIs from 2.1.282 on never run) stays out of the way.
+pub fn generate_session_title(description: &str) -> Value {
+    json!({ "subtype": "generate_session_title", "description": description, "persist": true })
+}
+
+/// The `generate_session_title` response's `{"title":…}`, normalised; `None`
+/// when the CLI had nothing to name the conversation after.
+pub fn generated_session_title(response: &Value) -> Option<String> {
+    response
+        .get("title")
+        .and_then(Value::as_str)
+        .and_then(steer::normalize_agent_title)
+}
+
 /// The `initialize` control response — the ONLY place the CLI reports its
 /// command catalog, model list and custom agents. Everything is optional: a
 /// CLI that predates a field simply leaves the option empty.
@@ -2344,6 +2361,23 @@ mod tests {
         assert_eq!(context_window_from_model_usage(&json!({}), "opus"), None);
         assert_eq!(infer_context_window("claude-opus-5[1m]"), 1_000_000);
         assert_eq!(infer_context_window("claude-sonnet-5"), 200_000);
+    }
+
+    /// EXP-1134: the host asks for the name and persists it; a blank or
+    /// missing title names nothing.
+    #[test]
+    fn the_session_title_request_persists_and_its_answer_normalises() {
+        assert_eq!(
+            generate_session_title("fix the login bug"),
+            json!({ "subtype": "generate_session_title", "description": "fix the login bug", "persist": true })
+        );
+        assert_eq!(
+            generated_session_title(&json!({ "title": "  Fix login\nbug " })).as_deref(),
+            Some("Fix login bug")
+        );
+        assert_eq!(generated_session_title(&json!({ "title": "  " })), None);
+        assert_eq!(generated_session_title(&json!({ "title": null })), None);
+        assert_eq!(generated_session_title(&json!({})), None);
     }
 
     #[test]

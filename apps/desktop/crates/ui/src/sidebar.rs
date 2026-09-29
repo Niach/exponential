@@ -358,7 +358,8 @@ pub(crate) fn rail_shared_for_window(
         return existing;
     }
     let git_bar = cx.new(|cx| TrunkSync::new(window, cx));
-    let file_tree = cx.new(|cx| crate::file_tree::FileTreeView::new(window, cx));
+    let file_tree =
+        cx.new(|cx| crate::file_tree::FileTreeView::new(git_bar.clone(), window, cx));
     let board_active = cx.new(|cx| BoardView::new(window, cx));
     let board_my = cx.new(|cx| BoardView::new(window, cx));
     // DEV-ONLY (§11.4 headless verification, same family as

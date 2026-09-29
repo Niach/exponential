@@ -121,6 +121,7 @@ mod pr_graph;
 mod pr_merge;
 mod queries;
 mod repo_resolver;
+mod repo_scope;
 mod review_files_nav;
 mod reviews_view;
 // EXP-746: the ONE agent-run row (Automations' run log, Devices' Running and

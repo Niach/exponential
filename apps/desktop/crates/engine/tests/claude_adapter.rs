@@ -417,6 +417,7 @@ fn spec_env(
         reaper_settings_path: Some(work.join("claude-hooks/1/row-1.settings.json")),
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
+        name_conversation: false,
         exit: engine::ChildExitLink::new(),
     }
 }
@@ -2991,6 +2992,60 @@ async fn a_cli_that_keeps_announcing_plan_wins_past_the_grace_window() {
         "the chip must tell the truth: {:?}",
         run.published_modes()
     );
+}
+
+/// EXP-1134: a CHAT run asks claude to name the conversation once, off its
+/// first prompt, and publishes the answer as the run's title; an issue or
+/// action run (listed under its issue or action) never asks.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_a_chat_run_asks_claude_for_its_name() {
+    let _session = one_session_at_a_time();
+    let titles = |run: &Run| -> Vec<String> {
+        run.updates
+            .iter()
+            .filter_map(|notification| match &notification.update {
+                SessionUpdate::SessionInfoUpdate(info) => match &info.title {
+                    agent_client_protocol::schema::MaybeUndefined::Value(title) => Some(title.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    let requests = |run: &Run| -> Vec<Value> {
+        run.stdin
+            .iter()
+            .filter(|line| line["request"]["subtype"] == "generate_session_title")
+            .map(|line| line["request"].clone())
+            .collect()
+    };
+    let prompts = ["Fix the login flow please.", "And the second thing."];
+
+    let work = workdir("title-chat");
+    let chat = drive_turns_with(
+        "context-layout",
+        &work.0,
+        &prompts,
+        reject_all(),
+        cancel_elicitations(),
+        |spec| spec.name_conversation = true,
+    )
+    .await;
+    assert_eq!(
+        requests(&chat),
+        vec![serde_json::json!({
+            "subtype": "generate_session_title",
+            "description": "Fix the login flow please.",
+            "persist": true,
+        })],
+        "asked once, off the first prompt"
+    );
+    assert_eq!(titles(&chat), vec!["Fake chat name".to_string()]);
+
+    let work = workdir("title-issue");
+    let issue = drive_turns("context-layout", &work.0, &prompts, reject_all(), cancel_elicitations()).await;
+    assert!(requests(&issue).is_empty());
+    assert!(titles(&issue).is_empty());
 }
 
 /// EXP-1051: the context bar. The adapter measures what the FIRST request of

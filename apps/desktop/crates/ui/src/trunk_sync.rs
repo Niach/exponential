@@ -7,9 +7,10 @@
 //! is view-only; changes only ever arrive via PRs), so the engine's whole
 //! job is keeping the trunk clone fresh and surfacing conflicts.
 //!
-//! Scope follows the window's navigation: a board view or an issue detail
-//! resolves to that board's primary repo; other screens keep the last board
-//! (so the badge stays live everywhere). On first resolve the engine kicks
+//! Scope = the window's ACTIVE REPO (EXP-1133,
+//! [`RepoResolver::lookup_active`]): the team's pick from the shared repo
+//! picker, else its first board-backed repo — never the last board opened,
+//! so the badge and history stay on one trunk everywhere. On first resolve the engine kicks
 //! the lifecycle — auto-clone when `<clone>/.git` is missing, else a
 //! freshness sync (fetch + ff-only catch-up) — then reads the trunk state.
 //!
@@ -50,7 +51,7 @@ use coding::{
     TrunkState,
 };
 
-use crate::navigation::{self, Navigation};
+use crate::navigation;
 use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::session::AuthContext;
@@ -138,15 +139,14 @@ enum Load {
 
 /// The headless trunk-sync engine (see module docs).
 pub struct TrunkSync {
-    nav: Entity<Navigation>,
     /// The shared per-window repo resolver — one `repositories.list` fetch
     /// for the whole window instead of a per-engine call.
     repo_resolver: Entity<RepoResolver>,
-    /// The board scope the loaded state below belongs to (`None` = no board
-    /// resolved yet).
-    board_id: Option<String>,
+    /// The repository scope the loaded state below belongs to (`None` = no
+    /// repo resolved yet, or the team has none).
+    repository_id: Option<String>,
     load: Load,
-    /// The resolved trunk repo (`None` = no repo linked to the board).
+    /// The resolved trunk repo (`None` = no repo connected to the team).
     repo: Option<RepoInfo>,
     /// Repo-resolution problem (no repo linked / `repositories.list` failed).
     repo_error: Option<SharedString>,
@@ -243,9 +243,9 @@ impl TrunkSync {
                     this.refresh(window, cx);
                 }
             }),
-            // Scope follows navigation (board / issue-detail → board).
+            // Scope follows the window's repo pick (EXP-1133) on the nav.
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            // The issue→board join reads synced rows.
+            // The repo scope's board order + the merge scans read synced rows.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
@@ -258,9 +258,8 @@ impl TrunkSync {
             }),
         ];
         Self {
-            nav,
             repo_resolver,
-            board_id: None,
+            repository_id: None,
             load: Load::Idle,
             repo: None,
             repo_error: None,
@@ -289,13 +288,6 @@ impl TrunkSync {
     /// Monotonic stamp of the last fresh on-disk read (see the field doc).
     pub(crate) fn sync_seq(&self) -> u64 {
         self.sync_seq
-    }
-
-    /// The scope: the window's active board (screen scope with the
-    /// last-board fallback) — populated on EVERY screen so the Source
-    /// Control surfaces and the rail badge stay live.
-    fn scope_board_id(&self, cx: &App) -> Option<String> {
-        navigation::active_board_id(&self.nav, cx)
     }
 
     /// Why the trunk needs the user (the rail's amber badge + tooltip): a
@@ -714,7 +706,7 @@ impl TrunkSync {
     }
 
     /// Render-time load gate: a scope change resets, `Idle` kicks one
-    /// background resolve of the board's trunk repo + its on-disk state,
+    /// background resolve of the active repo's trunk + its on-disk state,
     /// then the lifecycle (auto-clone / freshness fetch) and the per-scope
     /// auto-sync timer loop.
     ///
@@ -727,9 +719,13 @@ impl TrunkSync {
         self.repo_resolver
             .update(cx, |resolver, cx| resolver.ensure_loaded(cx));
 
-        let scope = self.scope_board_id(cx);
-        if scope != self.board_id {
-            self.board_id = scope;
+        let lookup = self.repo_resolver.read(cx).lookup_active(cx);
+        let scope = match &lookup {
+            RepoLookup::Found(repo) => Some(repo.repository_id.clone()),
+            _ => None,
+        };
+        if scope != self.repository_id {
+            self.repository_id = scope;
             self.load = Load::Idle;
             self.repo = None;
             self.repo_error = None;
@@ -760,17 +756,14 @@ impl TrunkSync {
         if !matches!(self.load, Load::Idle) {
             return;
         }
-        let Some(board_id) = self.board_id.clone() else {
-            return;
-        };
         // Read the shared resolution rather than firing our own network call.
-        let meta = match self.repo_resolver.read(cx).lookup_board(&board_id) {
+        let meta = match lookup {
             RepoLookup::Loading => return, // the resolver observer re-renders us
             RepoLookup::Found(repo) => repo,
             RepoLookup::NotFound => {
                 self.load = Load::Ready;
                 self.repo = None;
-                self.repo_error = Some("No repository linked to this board.".into());
+                self.repo_error = Some("No repository connected to this team.".into());
                 return;
             }
             RepoLookup::Error(message) => {
@@ -812,7 +805,7 @@ impl TrunkSync {
         .detach();
 
         cx.spawn_in(window, async move |this, cx| {
-            let board = board_id.clone();
+            let scope_id = meta.repository_id.clone();
             let resolved = cx
                 .background_executor()
                 .spawn(async move {
@@ -840,7 +833,7 @@ impl TrunkSync {
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if this.generation != generation
-                    || this.board_id.as_deref() != Some(board.as_str())
+                    || this.repository_id.as_deref() != Some(scope_id.as_str())
                 {
                     return; // superseded by a scope change
                 }
@@ -854,7 +847,7 @@ impl TrunkSync {
                 this.repo = Some(repo);
                 this.repo_error = None;
                 // Auto-clone a missing trunk, else a freshness sync on
-                // board open (fetch + ff when cleanly behind-only — the
+                // repo open (fetch + ff when cleanly behind-only — the
                 // trunk must never open stale when it could be current;
                 // fetch-only under the live-task hold-off).
                 this.start_sync(

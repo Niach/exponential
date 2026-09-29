@@ -289,9 +289,12 @@ fn undocked_window_options(default_size: gpui::Size<gpui::Pixels>, cx: &App) -> 
         // EXP-290 glass: same non-opaque + behind-window-blur window as the
         // main shell (`app::windows` carries the per-platform rationale) — an
         // undocked terminal/issue window is the same glass page, so it must
-        // not read as an opaque slab next to the shell. Windows stays Opaque.
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        // not read as an opaque slab next to the shell. Windows stays Opaque;
+        // Linux is `Transparent` for CSD only, its page opaque (EXP-1135).
+        #[cfg(target_os = "macos")]
         window_background: gpui::WindowBackgroundAppearance::Blurred,
+        #[cfg(target_os = "linux")]
+        window_background: gpui::WindowBackgroundAppearance::Transparent,
         #[cfg(target_os = "linux")]
         window_decorations: Some(gpui::WindowDecorations::Client),
         ..Default::default()

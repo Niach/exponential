@@ -135,7 +135,8 @@ const PLAN_RESTART_PROMPT: &str = "Implement the following plan:";
 
 /// EXP-905: when a turn re-reads the transcript for the conversation's name
 /// besides its end — claude writes the `ai-title` line in the background soon
-/// after the first prompt, so a long first turn would otherwise stay "Chat"
+/// after the first prompt (EXP-1134: once asked, on a CLI that no longer names
+/// SDK sessions itself), so a long first turn would otherwise stay "Chat"
 /// until it finished. Only while no title is known yet.
 const TITLE_EARLY_POLLS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(30)];
 
@@ -577,6 +578,9 @@ struct State {
     /// nothing is measured until a `/clear` starts a new one; the bar draws
     /// the carried base (or none) instead.
     resumed_conversation: bool,
+    /// EXP-1134: the conversation's name was asked for (or, on a resume,
+    /// is already there) — [`ClaudeSession::request_title`] asks once.
+    title_requested: bool,
     context_window: ContextWindow,
     compaction: Option<String>,
     tasks: HashMap<String, TaskEntry>,
@@ -933,6 +937,7 @@ impl ClaudeSession {
             // fresh run has no conversation to carry a base from.
             carried_base: spec.context_layers.carried_base.clone(),
             resumed_conversation: spec.resume.is_some(),
+            title_requested: spec.resume.is_some() || !spec.name_conversation,
             ..State::default()
         };
         let account_profile = coding::profile_id(options.account.as_deref());
@@ -1382,7 +1387,8 @@ impl ClaudeSession {
         // reach. It does now, and the turn it meant to stop is running.
         self.deliver_pending_interrupt();
         // EXP-905: a resumed conversation is already named; a fresh one gets
-        // its name shortly after this first prompt.
+        // its name shortly after this first prompt (EXP-1134: by asking).
+        self.request_title(cx, &text);
         self.schedule_title_poll(cx, Duration::ZERO);
         if !self.title_known() {
             for delay in TITLE_EARLY_POLLS {
@@ -3949,6 +3955,46 @@ impl ClaudeSession {
             let Ok(mut tail) = self.title.lock() else { return };
             tail.poll(&native, || transcript_path(&self.spec.spawn.env, &native))
         };
+        self.publish_title(cx, changed);
+    }
+
+    /// EXP-1134: an SDK-mode claude (2.1.282 on) never names a conversation
+    /// by itself, so a FRESH chat run asks for its name once, off its first
+    /// real prompt (a slash command names nothing). An issue or action run is
+    /// listed under its issue or action and never asks
+    /// ([`AdapterSpec::name_conversation`]); a resume keeps the name the
+    /// transcript already carries. Never awaited: the answer (a small model
+    /// call) lands while the turn runs.
+    fn request_title(self: &Arc<Self>, cx: &ConnectionTo<Client>, text: &str) {
+        let trimmed = text.trim();
+        if trimmed.is_empty() || trimmed.starts_with('/') {
+            return;
+        }
+        {
+            let mut state = self.lock();
+            if state.title_requested {
+                return;
+            }
+            state.title_requested = true;
+        }
+        let session = self.clone();
+        let out = cx.clone();
+        let request = wire::generate_session_title(trimmed);
+        let _ = cx.spawn(async move {
+            match session.control_request(request).await {
+                Ok(response) => {
+                    if let Some(title) = wire::generated_session_title(&response.response) {
+                        let changed = session.title.lock().ok().and_then(|mut tail| tail.adopt(title));
+                        session.publish_title(&out, changed);
+                    }
+                }
+                Err(error) => log::debug!("engine: claude session title request failed: {error:?}"),
+            }
+            Ok(())
+        });
+    }
+
+    fn publish_title(&self, cx: &ConnectionTo<Client>, changed: Option<String>) {
         if let Some(title) = changed {
             self.notify(
                 cx,
@@ -5268,6 +5314,19 @@ impl TitleTail {
         if let Err(error) = self.read_from(&path) {
             log::debug!("engine: claude transcript title read failed: {error}");
         }
+        self.publish()
+    }
+
+    /// EXP-1134: the name `generate_session_title` answered with, taken as
+    /// the conversation's `ai-title` before claude's own transcript line for
+    /// it lands (the tail reads that line later as the same name). Returns
+    /// the name to publish, if it changed.
+    fn adopt(&mut self, title: String) -> Option<String> {
+        self.ai = Some(title);
+        self.publish()
+    }
+
+    fn publish(&mut self) -> Option<String> {
         // A `/rename` is the user's word and outranks the model's guess.
         let best = self.custom.clone().or_else(|| self.ai.clone())?;
         if self.published.as_deref() == Some(best.as_str()) {
@@ -5434,6 +5493,24 @@ mod tests {
         // A later model guess never overrides the user's own name.
         append(&path, &format!("{}\n", json!({ "type": "ai-title", "aiTitle": "Third guess", "sessionId": "s1" })));
         assert_eq!(tail.poll("s1", || Some(path.clone())), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// EXP-1134: an asked-for name publishes at once, the transcript's own
+    /// line for it then reads as no change, and a `/rename` still outranks it.
+    #[test]
+    fn an_adopted_title_publishes_once_and_yields_to_a_rename() {
+        let dir = title_dir("adopt");
+        let path = dir.join("s1.jsonl");
+        append(&path, &format!("{}\n", json!({ "type": "user", "message": { "content": "hi" } })));
+        let mut tail = TitleTail::default();
+        assert_eq!(tail.poll("s1", || Some(path.clone())), None);
+        assert_eq!(tail.adopt("Fix login".into()).as_deref(), Some("Fix login"));
+        append(&path, &format!("{}\n", json!({ "type": "ai-title", "aiTitle": "Fix login", "sessionId": "s1" })));
+        assert_eq!(tail.poll("s1", || unreachable!()), None);
+        append(&path, &format!("{}\n", json!({ "type": "custom-title", "customTitle": "Mine", "sessionId": "s1" })));
+        assert_eq!(tail.poll("s1", || unreachable!()).as_deref(), Some("Mine"));
+        assert_eq!(tail.adopt("Later guess".into()), None);
         let _ = std::fs::remove_dir_all(dir);
     }
 

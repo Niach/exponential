@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   claimPlaceholder,
+  collectPlaceholderMemberIds,
   createPlaceholderMember,
   createUnsentPlaceholderInvite,
+  deletePlaceholdersIfOrphaned,
   mergePlaceholderIntoUser,
   placeholderNameFromEmail,
   providerProfileFromClaims,
@@ -23,7 +25,7 @@ function fakeTx(selects: unknown[][] = [], updateReturning: unknown[][] = []) {
   const chain = () => {
     const p = Promise.resolve(selects.shift() ?? []) as Promise<unknown[]> &
       Record<string, () => unknown>
-    for (const m of [`from`, `where`, `limit`]) p[m] = () => p
+    for (const m of [`from`, `innerJoin`, `where`, `limit`]) p[m] = () => p
     return p
   }
   const tx = {
@@ -221,5 +223,39 @@ describe(`providerProfileFromClaims`, () => {
     expect(providerProfileFromClaims(null)).toEqual({})
     expect(providerProfileFromClaims(`str`)).toEqual({})
     expect(providerProfileFromClaims({ name: `   ` })).toEqual({})
+  })
+})
+
+describe(`team-delete placeholder purge (EXP-1132)`, () => {
+  it(`reads nothing for no teams`, async () => {
+    const { tx } = fakeTx([[{ id: `ph-1` }]])
+    expect(await collectPlaceholderMemberIds(tx, [])).toEqual([])
+  })
+
+  it(`returns each placeholder member once, across the teams`, async () => {
+    const { tx } = fakeTx([[{ id: `ph-1` }, { id: `ph-2` }, { id: `ph-1` }]])
+    expect(await collectPlaceholderMemberIds(tx, [`team-1`, `team-2`])).toEqual([
+      `ph-1`,
+      `ph-2`,
+    ])
+  })
+
+  it(`drops only the rows the orphan check clears`, async () => {
+    const { tx, execute } = fakeTx()
+    execute
+      .mockResolvedValueOnce({ rows: [{ orphaned: true }] } as never)
+      .mockResolvedValueOnce({ rows: [{ orphaned: false }] } as never)
+    const deleted: unknown[] = []
+    ;(tx as { delete: unknown }).delete = (table: unknown) => ({
+      where: () => {
+        deleted.push(table)
+        return Promise.resolve()
+      },
+    })
+
+    await deletePlaceholdersIfOrphaned(tx, [`ph-gone`, `ph-referenced`])
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(deleted).toEqual([users])
   })
 })
