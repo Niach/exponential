@@ -458,6 +458,31 @@ function asyncMergePendingMessage(err: GitHubAsyncMergePending): string {
   return `GitHub is still merging PR #${err.prNumber}${stack}. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`
 }
 
+/**
+ * EXP-1145: what a SINGLE-PR merge of a stack member did to the rest of its
+ * stack — the PRs it landed below itself and the ones it left open above
+ * (retargeted onto the stack's base by GitHub). Null when it touched neither,
+ * so a lone PR's result stays note-less.
+ */
+function stackWalkNote(
+  prNumber: number,
+  landedBelow: readonly number[],
+  openAbove: readonly number[]
+): string | null {
+  if (landedBelow.length === 0 && openAbove.length === 0) return null
+  const list = (numbers: readonly number[]) =>
+    numbers.map((n) => `#${n}`).join(`, `)
+  const below =
+    landedBelow.length > 0
+      ? `Merging stacked PR #${prNumber} also merged every unmerged PR below it: ${list(landedBelow)}.`
+      : `Merging stacked PR #${prNumber} merged nothing below it.`
+  const above =
+    openAbove.length > 0
+      ? ` PRs above it stay open, retargeted onto the stack's base: ${list(openAbove)}.`
+      : ``
+  return `${below}${above}`
+}
+
 /** `EXP-12` / `EXP-12, EXP-13` (a batch PR carries several issues). */
 function stackEntryLabel(entry: StackEntry): string {
   return entry.issues.map((issue) => issue.identifier).join(`, `)
@@ -2101,21 +2126,23 @@ export const issuesRouter = router({
         // FEED-48: say so ONLY when the walk actually took PRs below with it
         // (a caller would otherwise re-merge what is already in). The row's
         // `prBaseBranch` is no signal: pr_open stamps it for every PR, the
-        // default branch included.
+        // default branch included. EXP-1145: a member GitHub already listed
+        // as merged landed EARLIER, never "also" now; and the open members
+        // above stay open, retargeted onto the stack's base — the note names
+        // both, so an agent merging a mid-stack PR reads what it did.
+        const alreadyMerged = new Set(smart.alreadyMergedMemberNumbers ?? [])
         const below = smart.stackMemberNumbers.filter(
-          (prNumber) => prNumber !== row.prNumber
+          (prNumber) => prNumber !== row.prNumber && !alreadyMerged.has(prNumber)
         )
+        const above = smart.openMemberNumbersAbove ?? []
         const mergedPrUrls = smart.stackMemberNumbers.map(
           (prNumber) => `https://github.com/${repoFullName}/pull/${prNumber}`
         )
+        const note = stackWalkNote(row.prNumber, below, above)
         return {
           merged: true,
           mergedPrUrls,
-          ...(below.length > 0
-            ? {
-                note: `Merging stacked PR #${row.prNumber} also merged every unmerged PR below it: ${below.map((n) => `#${n}`).join(`, `)}.`,
-              }
-            : {}),
+          ...(note ? { note } : {}),
         }
       }
 

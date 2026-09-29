@@ -379,6 +379,53 @@ describe(`mergePullRequestSmart (FEED-43)`, () => {
     })
   })
 
+  // EXP-1145: the result also says what the merge did NOT land — members
+  // GitHub already reported merged, and the open ones above (retargeted).
+  it(`reports the already-merged members below and the open members above`, async () => {
+    const body = {
+      ...STACK_BODY,
+      pull_requests: [
+        {
+          number: 239,
+          state: `closed`,
+          draft: false,
+          merged_at: `2026-09-28T10:00:00Z`,
+          head: { ref: `exp/EXP-9`, sha: `000` },
+        },
+        ...STACK_BODY.pull_requests,
+        {
+          number: 243,
+          state: `closed`,
+          draft: false,
+          merged_at: null,
+          head: { ref: `exp/EXP-13`, sha: `ddd` },
+        },
+      ],
+    }
+    install([
+      { match: `/stacks?pull_request=241`, status: 200, body: [body] },
+      {
+        match: `/pulls/241/merge-async`,
+        method: `PUT`,
+        status: 202,
+        body: { status: `merged`, sha: `abc`, details: { uuid: `u-1` } },
+      },
+    ])
+    const result = await mergePullRequestSmart({
+      repo: `o/r`,
+      prNumber: 241,
+      token: `tok`,
+      knownStackNumber: 7,
+    })
+    expect(result).toMatchObject({
+      viaStack: true,
+      stackMemberNumbers: [239, 240, 241],
+      alreadyMergedMemberNumbers: [239],
+      // 243 is closed without a merge: not open, so not "left open".
+      openMemberNumbersAbove: [242],
+    })
+  })
+
   it(`skips the legacy attempt entirely when the row already knows its stack`, async () => {
     const { calls } = install([
       { match: `/stacks?pull_request=241`, status: 200, body: [STACK_BODY] },

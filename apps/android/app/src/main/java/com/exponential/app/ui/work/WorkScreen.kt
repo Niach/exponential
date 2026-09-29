@@ -555,6 +555,11 @@ fun WorkScreen(
                         .collectAsStateWithLifecycle()
                     val changesConflict by (changesVm?.actionErrorIsConflict ?: remember { MutableStateFlow(false) })
                         .collectAsStateWithLifecycle()
+                    // EXP-1145: a stack member's Merge asks first, per merge source.
+                    val changesStackChoice by (changesVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
+                        .collectAsStateWithLifecycle()
+                    val sessionStackChoice by (sessionVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
+                        .collectAsStateWithLifecycle()
                     // The live run merges its own target (EXP-678/734); a
                     // PR-only face merges through the issue (EXP-156).
                     val sessionCanMerge = sessionVm != null && mergeTarget != null &&
@@ -578,6 +583,8 @@ fun WorkScreen(
                                             "and closes the coding session."
                                 },
                                 onConfirm = { sessionVm?.merge() },
+                                stackChoice = if (fix) null else sessionStackChoice,
+                                onMergeStack = { top -> sessionVm?.mergeStack(top) },
                                 onFixConflicts = {
                                     onOpenAgent(
                                         AgentComposerSeed(
@@ -600,6 +607,8 @@ fun WorkScreen(
                                 confirmText = "Squash-merges PR #${issue?.prNumber ?: ""} via the GitHub App. " +
                                     "Any live coding session for it closes.",
                                 onConfirm = { changesVm.mergePr() },
+                                stackChoice = if (fix) null else changesStackChoice,
+                                onMergeStack = { top -> changesVm.mergeStack(top) },
                                 onFixConflicts = {
                                     onOpenAgent(
                                         AgentComposerSeed(

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.PrStack
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
@@ -42,6 +43,7 @@ import com.exponential.app.ui.issue.ChangesLoadState
 import com.exponential.app.ui.issue.ChangesRefusalNotice
 import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.DiffFileListSheet
+import com.exponential.app.ui.issue.StackMergeDialog
 import com.exponential.app.ui.issue.diffOpensByDefault
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -66,6 +68,10 @@ data class ChangesMergeControl(
     val confirmText: String,
     val onConfirm: () -> Unit,
     val onFixConflicts: () -> Unit,
+    /** EXP-1145: non-null = the merged PR is a stack member, so Merge asks first. */
+    val stackChoice: PrStack.StackMergeChoice?,
+    /** EXP-1145: the dialog's Merge stack, keyed by the stack's TOP member. */
+    val onMergeStack: (topIssueId: String) -> Unit,
 )
 
 @Composable
@@ -177,7 +183,22 @@ fun ChangesFace(
 
     // EXP-498: merging always closes the session too, so the merge is
     // confirm-gated — same copy as Agents and Reviews.
-    if (mergeConfirmOpen && merge != null) {
+    val stackChoice = merge?.stackChoice
+    if (mergeConfirmOpen && merge != null && stackChoice != null) {
+        // EXP-1145: a stack member asks which merge it means.
+        StackMergeDialog(
+            choice = stackChoice,
+            onMergeStack = {
+                mergeConfirmOpen = false
+                merge.onMergeStack(stackChoice.topIssueId)
+            },
+            onMergeThis = {
+                mergeConfirmOpen = false
+                merge.onConfirm()
+            },
+            onDismiss = { mergeConfirmOpen = false },
+        )
+    } else if (mergeConfirmOpen && merge != null) {
         AlertDialog(
             onDismissRequest = { mergeConfirmOpen = false },
             title = { Text("Merge pull request?") },
