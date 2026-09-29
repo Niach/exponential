@@ -479,6 +479,20 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(try fetchTeam("t-est")?.estimationType, "tshirt")
     }
 
+    // EXP-1105: yolo mode rides the teams shape into the v57 column.
+    func testTeamInsertPersistsYoloMode() async throws {
+        let json = """
+            {"id":"t-yolo","name":"Acme","slug":"acme","icon_url":null,
+             "helpdesk_enabled":"f","yolo_mode":"t","estimation_type":null,
+             "created_at":"2026-09-29T09:00:00Z","updated_at":"2026-09-29T09:00:00Z"}
+            """
+        let team = try JSONDecoder().decode(TeamEntity.self, from: Data(json.utf8))
+        XCTAssertTrue(team.yoloMode)
+        let message = ShapeMessage<TeamEntity>.insert(key: #""public"."teams"/"t-yolo""#, value: team)
+        try await applyBatch(messages: [message], name: "teams", table: "teams", pool: pool)
+        XCTAssertEqual(try fetchTeam("t-yolo")?.yoloMode, true)
+    }
+
     // EXP-630: an emailed invite rides the team-invites shape carrying the
     // placeholder member it created; a pre-EXP-630 server omits the key (and a
     // link invite sends an explicit null), both of which decode as nil.

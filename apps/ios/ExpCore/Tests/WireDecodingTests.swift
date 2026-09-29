@@ -101,6 +101,39 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertFalse(team.helpdeskEnabled)
     }
 
+    // EXP-1105: yolo mode rides the teams shape as Postgres text ("t"/"f");
+    // a native bool (tRPC) decodes too, and a pre-rotation snapshot omits it.
+    func testTeamDecodesWireYoloMode() throws {
+        let on = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team", "yolo_mode": "t",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertTrue(on.yoloMode)
+        let off = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team", "yolo_mode": "f",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertFalse(off.yoloMode)
+        let native = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team", "yolo_mode": true,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertTrue(native.yoloMode)
+        let older = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertFalse(older.yoloMode)
+    }
+
     // EXP-630: the estimate scale rides the teams shape; a pre-rotation
     // snapshot omits it (nil = `none`, estimates off).
     func testTeamDecodesEstimationType() throws {

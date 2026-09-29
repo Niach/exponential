@@ -1,0 +1,1 @@
+ALTER TABLE "teams" ADD COLUMN "yolo_mode" boolean DEFAULT false NOT NULL;

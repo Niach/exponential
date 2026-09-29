@@ -355,9 +355,12 @@ import androidx.room.TypeConverters
     //      shape server-side): one start rule for every node now. Removing a
     //      column is decode-safe (ignoreUnknownKeys); destructive fallback
     //      wipes + resyncs.
+    // v77 (EXP-1105): teams.yolo_mode — the synced yolo switch that hides the
+    //      Reviews tab while no PR is open. New on the teams shape allowlist;
+    //      destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 76,
+    version = 77,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

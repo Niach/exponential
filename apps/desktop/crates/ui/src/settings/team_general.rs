@@ -18,7 +18,7 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, ActiveTheme as _,
+    v_flex, ActiveTheme as _, Disableable as _,
 };
 use sync::Store;
 
@@ -55,6 +55,11 @@ struct Snapshot {
 // no helper paragraph under the field — the counter is the footer.
 const TEAM_PROMPT_TITLE: &str = "Team prompt";
 const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding run of this team follows, as markdown.";
+
+// EXP-1105: the yolo-mode toggle's copy — byte-identical to the web.
+const YOLO_MODE_TITLE: &str = "Yolo mode";
+const YOLO_MODE_HINT: &str =
+    "Hide Reviews, Files and Source Control and auto-merge every PR an agent opens. Failures still show.";
 
 /// `12.3k` / `840` — the counter's short form (web `formatByteCount`).
 fn format_byte_count(bytes: usize) -> String {
@@ -121,6 +126,9 @@ pub struct GeneralPane {
     /// ownership race), so the Danger Zone shows why instead of leaving the
     /// confirm dialog looking like it worked.
     delete_error: Option<SharedString>,
+    /// EXP-1105: a yolo-mode `teams.update` is in flight (switch disabled).
+    yolo_busy: bool,
+    yolo_error: Option<SharedString>,
     /// EXP-288: the read-only plan/usage summary between the name card and
     /// the Danger Zone. Refetched on team/account change; hidden while
     /// loading/failed and entirely on self-hosted (`plan == "unlimited"`).
@@ -178,6 +186,8 @@ impl GeneralPane {
             saving: false,
             error: None,
             delete_error: None,
+            yolo_busy: false,
+            yolo_error: None,
             billing: BillingLoad::Idle,
             billing_team: None,
             billing_account: None,
@@ -256,6 +266,7 @@ impl GeneralPane {
         // A refused delete belonged to the team that was selected then.
         self.delete_error = None;
         if team_changed {
+            self.yolo_error = None;
             self.fetch_prompt(window, cx);
         }
         cx.notify();
@@ -479,6 +490,42 @@ impl GeneralPane {
                 }
                 // Success needs no action: the Electric echo resyncs the
                 // snapshot, which clears `dirty`.
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// EXP-1105: flip the team's synced `yolo_mode` through `teams.update`
+    /// (owner-only server-side). No optimistic flip — the Electric echo moves
+    /// the switch, like the helpdesk toggle.
+    fn set_yolo_mode(&mut self, team_id: String, enabled: bool, cx: &mut gpui::Context<Self>) {
+        if self.yolo_busy {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        self.yolo_busy = true;
+        self.yolo_error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut input = api::teams::TeamsUpdateInput::new(team_id);
+                    input.yolo_mode = Some(enabled);
+                    api::teams::teams_update(&trpc, &input)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.yolo_busy = false;
+                if let Err(err) = result {
+                    log::warn!("[ui] teams.update(yoloMode) failed: {err}");
+                    this.yolo_error = Some(
+                        format!("Couldn't update yolo mode: {}", err.user_message()).into(),
+                    );
+                }
                 cx.notify();
             });
         })
@@ -709,9 +756,27 @@ impl Render for GeneralPane {
                     .child(if saving { "Saving…" } else { "Unsaved" }),
             )
         });
+        let mut rows = vec![name_row];
+        // EXP-1105: yolo mode — owner-only and HIDDEN from everyone else,
+        // like every owner control in this pane.
+        if owner {
+            let team_id = team.id.clone();
+            rows.push(crate::surface::glass_toggle_row(
+                YOLO_MODE_TITLE,
+                Some(YOLO_MODE_HINT.into()),
+                crate::controls::web_switch("team-yolo-mode")
+                    .checked(team.yolo_mode())
+                    .disabled(self.yolo_busy)
+                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                        this.set_yolo_mode(team_id.clone(), *checked, cx);
+                    }))
+                    .into_any_element(),
+                cx,
+            ));
+        }
         let mut general = section(cx)
             .child(crate::surface::glass_section_header("General", None, cx))
-            .child(crate::surface::glass_group_rows(vec![name_row]));
+            .child(crate::surface::glass_group_rows(rows));
 
         if let Some(error) = &self.error {
             general = general.child(
@@ -720,6 +785,9 @@ impl Render for GeneralPane {
                     .text_color(cx.theme().danger)
                     .child(error.clone()),
             );
+        }
+        if let Some(error) = &self.yolo_error {
+            general = general.child(error_notice(error.clone(), cx));
         }
 
         let mut pane = v_flex().gap_4().child(general);

@@ -25,6 +25,10 @@ data class TeamEntity(
     // Team-level helpdesk switch (EXP-180): when on, every member gets the
     // "Support" inbox (standalone tickets with external reporters — not issues).
     @ColumnInfo(name = "helpdesk_enabled") @SerialName("helpdesk_enabled") @JsonNames("helpdeskEnabled") val helpdeskEnabled: PgBool = false,
+    // EXP-1105: yolo mode — the team's agents merge their own PRs, so the
+    // Reviews tab hides unless an open PR (= a failed auto-merge) is waiting.
+    // Toggled on web + desktop only; an older server without the column = off.
+    @ColumnInfo(name = "yolo_mode") @SerialName("yolo_mode") @JsonNames("yoloMode") val yoloMode: PgBool = false,
     // EXP-630: the team's estimate scale (contract `issueEstimation`:
     // none | exponential | fibonacci | linear | tshirt). `none` (and a row
     // from an older server that lacks the column) = estimates OFF, so the

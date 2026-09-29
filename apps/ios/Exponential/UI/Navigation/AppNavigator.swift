@@ -469,6 +469,7 @@ struct MainNavigator: View {
                     agentsNeedInput: agentsNeedInput,
                     reviewsOpen: reviewsOpen,
                     showsSupport: helpdeskEnabled,
+                    showsReviews: showsReviews,
                     supportUnread: supportUnread,
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
@@ -502,6 +503,13 @@ struct MainNavigator: View {
                 path.removeAll { $0 == .support }
             }
         }
+        // EXP-1105: same for Reviews once yolo mode hides it (the flag flips
+        // on, or the last open PR in a yolo team merges).
+        .onChange(of: showsReviews) { _, shown in
+            if !shown {
+                path.removeAll { $0 == .reviews }
+            }
+        }
     }
 
     // MARK: - Tab bar
@@ -523,6 +531,18 @@ struct MainNavigator: View {
     /// `teams.helpdesk_enabled` flag is on.
     private var helpdeskEnabled: Bool {
         teamState.activeTeam?.helpdeskEnabled == true
+    }
+
+    /// EXP-1105: the active team's synced `teams.yolo_mode` flag. PRs
+    /// auto-merge there, so Reviews has nothing routine to show.
+    private var yoloMode: Bool {
+        teamState.activeTeam?.yoloMode == true
+    }
+
+    /// Reviews hides in yolo mode EXCEPT while a PR is open: there, an open
+    /// PR means an auto-merge failed, and that must still surface.
+    private var showsReviews: Bool {
+        !yoloMode || reviewsOpen
     }
 
     /// Unread helpdesk activity in the ACTIVE team lights the Support tab's

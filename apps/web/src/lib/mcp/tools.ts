@@ -2337,23 +2337,86 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
-    `exponential_pr_open`,
-    {
-      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for an issue-less PR (nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. 'stackOnIssueId' (not with 'base') stacks your PR on that issue's open PR instead. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
-      _meta: ALWAYS_LOAD_META,
-      inputSchema: strictInput({
-        issueId: z.string().min(1).optional(),
-        issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
-        repositoryId: uuidString.optional(),
-        title: z.string().min(1).max(255),
-        body: z.string().max(60_000).optional(),
-        head: z.string().max(255).optional(),
-        base: z.string().max(255).optional(),
-        // EXP-897: the issue whose OPEN PR this one is stacked on.
-        stackOnIssueId: z.string().min(1).optional(),
-      }),
-    },
+  // EXP-1105: yolo mode. A team that switched it on merges every PR
+  // exponential_pr_open opens right away, through the SAME path as
+  // exponential_pr_merge (the caller's own-PR spare, status automation and the
+  // session sweep all apply). A refused merge (conflict, branch protection,
+  // required checks) never fails the open: the PR stays open — so Reviews
+  // reappears on every client — and the result tells the agent to fix it.
+  // Workflow nodes land through their merge train only.
+  const autoMergeIfYolo = async (
+    args: z.infer<typeof prOpenInput>,
+    opened: Awaited<ReturnType<typeof prOpen>>
+  ) => {
+    if (`isError` in opened) return opened
+    try {
+      const ids: string[] = []
+      let teamId: string
+      if (args.repositoryId) {
+        teamId = (await loadRepositoryForTeam(args.repositoryId)).teamId
+      } else {
+        for (const raw of args.issueIds ?? [args.issueId!]) {
+          const id = await resolveIssueId(raw, user.id, access)
+          if (!ids.includes(id)) ids.push(id)
+        }
+        teamId = (await getIssueTeamContext(ids[0]!)).teamId
+      }
+      const [team] = await db
+        .select({ yoloMode: teams.yoloMode })
+        .from(teams)
+        .where(eq(teams.id, teamId))
+        .limit(1)
+      if (!team?.yoloMode) return opened
+      if (ids.length > 0 && (await liveWorkflowBaseForIssue(db, ids[0]!))) {
+        return opened
+      }
+      const pr = JSON.parse(opened.content[0]!.text) as { number: number }
+      const merged = await prMerge(
+        args.repositoryId
+          ? { repositoryId: args.repositoryId, prNumber: pr.number }
+          : { issueIds: ids }
+      )
+      let error: string | undefined
+      let queued = false
+      if (`isError` in merged) {
+        error = merged.content[0]!.text
+      } else {
+        const { results } = JSON.parse(merged.content[0]!.text) as {
+          results: { merged: boolean; queued?: boolean; error?: string }[]
+        }
+        error = results.find((r) => r.error)?.error
+        queued = results.some((r) => r.queued)
+      }
+      return ok({
+        ...pr,
+        autoMerge: error
+          ? {
+              merged: false,
+              error,
+              note: `Yolo mode could not merge this PR. Fix the cause (rebase, resolve conflicts, wait for checks), push, then call exponential_pr_merge.`,
+            }
+          : queued
+            ? { merged: false, queued: true }
+            : { merged: true },
+      })
+    } catch (e) {
+      console.error(`[mcp] yolo auto-merge failed:`, e)
+      return opened
+    }
+  }
+
+  const prOpenInput = strictInput({
+    issueId: z.string().min(1).optional(),
+    issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
+    repositoryId: uuidString.optional(),
+    title: z.string().min(1).max(255),
+    body: z.string().max(60_000).optional(),
+    head: z.string().max(255).optional(),
+    base: z.string().max(255).optional(),
+    // EXP-897: the issue whose OPEN PR this one is stacked on.
+    stackOnIssueId: z.string().min(1).optional(),
+  })
+  const prOpen = (
     async ({
       issueId,
       issueIds,
@@ -2363,7 +2426,7 @@ export function registerExponentialTools(
       head,
       base,
       stackOnIssueId,
-    }) => {
+    }: z.infer<typeof prOpenInput>) => {
       try {
         if (stackOnIssueId && (base || repositoryId)) {
           throw new Error(
@@ -2818,20 +2881,25 @@ export function registerExponentialTools(
   )
 
   server.registerTool(
-    `exponential_pr_merge`,
+    `exponential_pr_open`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. 'mergeStack' merges the PR's whole stack, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for an issue-less PR (nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. 'stackOnIssueId' (not with 'base') stacks your PR on that issue's open PR instead. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: strictInput({
-        issueId: z.string().min(1).optional(),
-        issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
-        repositoryId: uuidString.optional(),
-        prNumber: z.number().int().positive().optional(),
-        endSessions: z.boolean().optional(),
-        // EXP-897: merge every open PR of the stack, bottom-up.
-        mergeStack: z.boolean().optional(),
-      }),
+      inputSchema: prOpenInput,
     },
+    async (args) => autoMergeIfYolo(args, await prOpen(args))
+  )
+
+  const prMergeInput = strictInput({
+    issueId: z.string().min(1).optional(),
+    issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
+    repositoryId: uuidString.optional(),
+    prNumber: z.number().int().positive().optional(),
+    endSessions: z.boolean().optional(),
+    // EXP-897: merge every open PR of the stack, bottom-up.
+    mergeStack: z.boolean().optional(),
+  })
+  const prMerge = (
     async ({
       issueId,
       issueIds,
@@ -2839,7 +2907,7 @@ export function registerExponentialTools(
       prNumber,
       endSessions,
       mergeStack,
-    }) => {
+    }: z.infer<typeof prMergeInput>) => {
       // EXP-711: only forwarded when given, so the tRPC input stays byte-equal
       // to the pre-override shape for every caller that never passes it.
       const endSessionsInput =
@@ -3181,6 +3249,16 @@ export function registerExponentialTools(
         return err(e)
       }
     }
+  )
+
+  server.registerTool(
+    `exponential_pr_merge`,
+    {
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. 'mergeStack' merges the PR's whole stack, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      _meta: ALWAYS_LOAD_META,
+      inputSchema: prMergeInput,
+    },
+    prMerge
   )
 
   server.registerTool(
@@ -5399,12 +5477,14 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_update`,
     {
-      description: `Update a team's name, icon or estimate scale (by its UUID). Team owner only. Teams are always private.`,
+      description: `Update a team's name, icon, estimate scale or yolo mode (by its UUID). Team owner only. Teams are always private.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
         estimationType: z.enum(issueEstimationValues).optional(),
+        // EXP-1105: true = every PR exponential_pr_open opens merges at once.
+        yoloMode: z.boolean().optional(),
       }),
     },
     async ({ id, ...rest }) => {

@@ -33,6 +33,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@exp/ui"
+import { useShowsReviews } from "@/hooks/use-nav-counts"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
@@ -149,6 +150,7 @@ export function TeamSidebar({
   // EXP-1084: the Workflows entry's red dot, ONE live query for both the
   // expanded row and the compact rail's icon.
   const workflowsAsking = useWorkflowsAsking(team?.id)
+  const showsReviews = useShowsReviews(team ?? undefined, boards)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
@@ -445,19 +447,21 @@ export function TeamSidebar({
                             </SidebarMenuButton>
                             <WorkflowsQuestionBadge asking={workflowsAsking} placement="row" />
                           </SidebarMenuItem>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild density="compact">
-                              <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
-                                <NavReviewsIcon className="h-4 w-4" />
-                                <span>Reviews</span>
-                              </Link>
-                            </SidebarMenuButton>
-                            <ReviewsOpenBadge
-                              boards={boards}
-                              teamId={team?.id}
-                              placement="row"
-                            />
-                          </SidebarMenuItem>
+                          {showsReviews && (
+                            <SidebarMenuItem>
+                              <SidebarMenuButton asChild density="compact">
+                                <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
+                                  <NavReviewsIcon className="h-4 w-4" />
+                                  <span>Reviews</span>
+                                </Link>
+                              </SidebarMenuButton>
+                              <ReviewsOpenBadge
+                                boards={boards}
+                                teamId={team?.id}
+                                placement="row"
+                              />
+                            </SidebarMenuItem>
+                          )}
                           {/* EXP-818: the Agent page — the composer over the
                               caller's past runs (the IDE rail's Agent entry).
                               EXP-1120: no live-run dot — live runs already list

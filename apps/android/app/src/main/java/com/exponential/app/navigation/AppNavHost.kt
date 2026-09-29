@@ -265,6 +265,7 @@ fun AppNavHost() {
             val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
             val reviewsOpen by viewModel.reviewsOpen.collectAsStateWithLifecycle()
             val helpdeskEnabled by viewModel.helpdeskEnabled.collectAsStateWithLifecycle()
+            val yoloMode by viewModel.yoloMode.collectAsStateWithLifecycle()
             val supportUnread by viewModel.supportUnread.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
             val gatedOtherServers by viewModel.gatedOtherServers.collectAsStateWithLifecycle()
@@ -282,6 +283,7 @@ fun AppNavHost() {
                 liveRunsByTeam = liveRunsByTeam,
                 reviewsOpen = reviewsOpen,
                 helpdeskEnabled = helpdeskEnabled,
+                yoloMode = yoloMode,
                 supportUnread = supportUnread,
                 currentBoardId = currentBoardId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
@@ -335,6 +337,7 @@ private fun AuthenticatedNav(
     liveRunsByTeam: Map<String, TeamLiveRuns>,
     reviewsOpen: Boolean,
     helpdeskEnabled: Boolean,
+    yoloMode: Boolean,
     supportUnread: Boolean,
     currentBoardId: String?,
     onSetInstanceUrl: (String) -> Unit,
@@ -389,6 +392,18 @@ private fun AuthenticatedNav(
             // No-op when Support isn't on the back stack; also pops any
             // support thread pushed above the inbox.
             navController.popBackStack("support-inbox", inclusive = true)
+        }
+    }
+    // EXP-1105: yolo mode hides the Reviews tab unless a PR is open (in yolo
+    // mode an open PR = a failed auto-merge, which must still surface). Same
+    // true→false transition pop as Support above.
+    val showsReviews = !yoloMode || reviewsOpen
+    var hadReviews by remember { mutableStateOf(showsReviews) }
+    LaunchedEffect(showsReviews) {
+        val flippedOff = hadReviews && !showsReviews
+        hadReviews = showsReviews
+        if (flippedOff) {
+            navController.popBackStack("reviews", inclusive = true)
         }
     }
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
@@ -913,6 +928,7 @@ private fun AuthenticatedNav(
             agentsNeedInput = agentsNeedInput,
             reviewsOpen = reviewsOpen,
             showsSupport = helpdeskEnabled,
+            showsReviews = showsReviews,
             supportUnread = supportUnread,
             // The Chat launcher (the Agent page, with its sessions list and
             // live dot) rides every top-level surface, with New issue beside

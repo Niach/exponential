@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react"
 import type { Team } from "@/db/schema"
 import { contract } from "@exp/domain-contract"
-import { GlassGroup, GlassInputRow, GlassSectionHeader, Textarea } from "@exp/ui"
+import {
+  GlassGroup,
+  GlassInputRow,
+  GlassSectionHeader,
+  GlassToggleRow,
+  Textarea,
+} from "@exp/ui"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -61,6 +67,22 @@ export function TeamGeneralSection({ team }: { team: Team }) {
       setError(e instanceof Error ? e.message : `Failed to save changes`)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // EXP-1105: yolo mode — a synced team flag, owner-flipped like the rest of
+  // this page. Every PR an agent opens merges at once and Reviews leaves the
+  // nav; it comes back only while a PR is left open (a merge that failed).
+  const [yoloBusy, setYoloBusy] = useState(false)
+  const toggleYolo = async (yoloMode: boolean) => {
+    setYoloBusy(true)
+    setError(null)
+    try {
+      await trpc.teams.update.mutate({ teamId: team.id, yoloMode })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to save changes`)
+    } finally {
+      setYoloBusy(false)
     }
   }
 
@@ -153,6 +175,19 @@ export function TeamGeneralSection({ team }: { team: Team }) {
                 <span className="shrink-0 text-xs text-muted-foreground">Unsaved</span>
               ) : undefined
             }
+          />
+        </GlassGroup>
+      </div>
+
+      <div>
+        <GlassGroup>
+          <GlassToggleRow
+            id="team-yolo-mode"
+            label="Yolo mode"
+            description="Merge every PR an agent opens right away and hide Reviews. A PR that fails to merge still shows up there."
+            checked={team.yoloMode}
+            disabled={yoloBusy}
+            onCheckedChange={(next) => void toggleYolo(next)}
           />
         </GlassGroup>
       </div>

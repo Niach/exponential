@@ -12,6 +12,7 @@ import {
 } from "@/hooks/use-unread-notifications"
 import {
   useReviewsOpenPrCount,
+  useShowsReviews,
   useAgentsRunningCount,
 } from "@/hooks/use-nav-counts"
 
@@ -191,6 +192,7 @@ export function MobileTabBar({
   const publishTabBarHeight = useChromeHeightVar(`--tabbar-h`)
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
+  const showsReviews = useShowsReviews(team ?? undefined, boards)
 
   const onBoard = Boolean(
     matchRoute({ to: `/t/$teamSlug/boards/$boardSlug`, fuzzy: true })
@@ -284,15 +286,17 @@ export function MobileTabBar({
         >
           <NavActionsIcon className="size-5" />
         </Link>
-        <Link
-          to="/t/$teamSlug/reviews"
-          params={{ teamSlug }}
-          aria-label="Reviews"
-          className={tabClass(onReviews)}
-        >
-          <NavReviewsIcon className="size-5" />
-          <ReviewsDot boards={boards} teamId={team?.id} />
-        </Link>
+        {showsReviews && (
+          <Link
+            to="/t/$teamSlug/reviews"
+            params={{ teamSlug }}
+            aria-label="Reviews"
+            className={tabClass(onReviews)}
+          >
+            <NavReviewsIcon className="size-5" />
+            <ReviewsDot boards={boards} teamId={team?.id} />
+          </Link>
+        )}
       </nav>
       {/* EXP-631/694: the chat launcher started on Devices and Actions,
           EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it

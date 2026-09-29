@@ -1130,6 +1130,7 @@ describe(`exponential_teams_get`, () => {
       `prOpenedStatusId`,
       `slug`,
       `updatedAt`,
+      `yoloMode`,
     ])
   })
 })
@@ -3075,6 +3076,67 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     // And without a session header there is no row to park either — the
     // batch heuristic must NOT run here (it would hit an unrelated run).
     expect(db.transaction).not.toHaveBeenCalled()
+  })
+
+  // EXP-1105: yolo mode merges what pr_open just opened, through pr_merge.
+  it(`leaves the PR open when the team is not in yolo mode`, async () => {
+    armRepoPr()
+    dbRows.current = [{ yoloMode: false }]
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chore-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(parseOk(result)).not.toHaveProperty(`autoMerge`)
+    expect(caller.repositories.mergePull).not.toHaveBeenCalled()
+  })
+
+  it(`merges the opened PR at once in yolo mode`, async () => {
+    armRepoPr()
+    dbRows.current = [{ yoloMode: true }]
+    caller.repositories.mergePull.mockResolvedValue({ merged: true })
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chore-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(caller.repositories.mergePull).toHaveBeenCalledWith({
+      repositoryId: REPO,
+      prNumber: 9,
+    })
+    expect(parseOk(result)).toEqual({
+      url: `https://github.com/acme/app/pull/9`,
+      number: 9,
+      autoMerge: { merged: true },
+    })
+  })
+
+  it(`still reports the opened PR when the yolo merge is refused`, async () => {
+    armRepoPr()
+    dbRows.current = [{ yoloMode: true }]
+    caller.repositories.mergePull.mockRejectedValue(
+      new Error(`Required status check "ci" is expected.`)
+    )
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chore-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(result.isError).toBeUndefined()
+    expect(parseOk(result)).toMatchObject({
+      url: `https://github.com/acme/app/pull/9`,
+      number: 9,
+      autoMerge: {
+        merged: false,
+        error: `Required status check "ci" is expected.`,
+      },
+    })
   })
 
   it(`parks the EXACT header session in review, never a heuristic set`, async () => {

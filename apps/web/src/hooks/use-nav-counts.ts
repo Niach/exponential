@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
-import type { CodingSession, Board } from "@/db/schema"
+import type { CodingSession, Board, Team } from "@/db/schema"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 
@@ -13,6 +13,17 @@ import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 // once (EXP-131). EXP-734: plus the run PRs that link no issue at all — an
 // action or chat run stamps its own prUrl on the session row, and Reviews
 // lists those under "Agent runs".
+/** EXP-1105: yolo mode drops Reviews from the nav (every agent PR merges at
+ *  once), except while a PR is left OPEN — in yolo mode that means a merge
+ *  failed, and failures must stay visible. */
+export function useShowsReviews(
+  team: Pick<Team, `id` | `yoloMode`> | undefined,
+  boards: Board[] | undefined
+): boolean {
+  const open = useReviewsOpenPrCount(boards, team?.id)
+  return team?.yoloMode !== true || open > 0
+}
+
 export function useReviewsOpenPrCount(
   boards: Board[] | undefined,
   teamId?: string

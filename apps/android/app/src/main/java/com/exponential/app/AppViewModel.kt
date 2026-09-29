@@ -371,6 +371,20 @@ class AppViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    // The active team's synced `yolo_mode` flag (EXP-1105) — hides the bottom
+    // bar's Reviews tab unless `reviewsOpen` (an open PR in yolo mode = a
+    // failed auto-merge, which must still surface). No toggle on Android.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val yoloMode: StateFlow<Boolean> = combine(
+        accountDatabaseFlow(auth, databaseHolder),
+        teamSelection.selectedId,
+    ) { db, teamId -> db to teamId }
+        .flatMapLatest { (db, teamId) ->
+            if (db == null || teamId == null) flowOf(false)
+            else db.teamDao().observeById(teamId).map { it?.yoloMode == true }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     // The Issues tab root's current board: last-used on the active account
     // (validated against the live Room table, so deleted boards fall
     // through), else the first board of the first team, else none. The

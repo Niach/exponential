@@ -5,7 +5,7 @@
 //! `team-invites.ts`:
 //!
 //! - `teams.create({name, iconUrl?})` → `{team, txId}`
-//! - `teams.update({teamId, name?, iconUrl?, helpdeskEnabled?, estimationType?, agentPrompt?})` → `{team, txId}` (EXP-707, EXP-1025)
+//! - `teams.update({teamId, name?, iconUrl?, helpdeskEnabled?, estimationType?, agentPrompt?, yoloMode?})` → `{team, txId}` (EXP-707, EXP-1025, EXP-1105)
 //! - `teams.getAgentPrompt({teamId})` → `{agentPrompt, agentPromptUpdatedAt, maxBytes}` (query, EXP-1025)
 //! - `teams.delete({teamId})` → `{ok, txId}`
 //! - `teams.inviteCapacity({teamId})` → `{remaining}` (query, EXP-725)
@@ -97,6 +97,10 @@ pub struct TeamsUpdateInput {
     /// UTF-8 bytes (BAD_REQUEST), so the editor counts bytes, not chars.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_prompt: Option<String>,
+    /// EXP-1105: yolo mode — hides Reviews, Files and Source Control for
+    /// every member and auto-merges every PR an agent opens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yolo_mode: Option<bool>,
 }
 
 impl TeamsUpdateInput {
@@ -108,6 +112,7 @@ impl TeamsUpdateInput {
             helpdesk_enabled: None,
             estimation_type: None,
             agent_prompt: None,
+            yolo_mode: None,
         }
     }
 }
@@ -439,6 +444,17 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/teams.create HTTP/1.1"));
         assert!(request.ends_with(r#"{"name":"Acme"}"#));
+    }
+
+    #[test]
+    fn update_serializes_yolo_mode_camel_case_and_omits_unset_fields() {
+        let mut input = TeamsUpdateInput::new("w-1");
+        assert_eq!(serde_json::to_string(&input).unwrap(), r#"{"teamId":"w-1"}"#);
+        input.yolo_mode = Some(true);
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"teamId":"w-1","yoloMode":true}"#
+        );
     }
 
     #[test]
