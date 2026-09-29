@@ -456,10 +456,12 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
     expect(inserts[0]!.values.placeholderUserId).toBe(`ph-old`)
   })
 
-  it(`treats another team's unclaimed placeholder like any existing account: never seated here`, async () => {
+  it(`treats another team's seated placeholder like any existing account: never seated here`, async () => {
     insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
     selectQueue.push([{ id: `ph-elsewhere`, placeholderAt: new Date() }])
     selectQueue.push([])
+    // Seated on another roster.
+    selectQueue.push([{ id: `seat-elsewhere` }])
     selectQueue.push([{ name: `Acme` }])
 
     const result = await caller().create({ teamId: WS, email: `x@example.com`, role: `owner` })
@@ -471,10 +473,40 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
     expect(inserts[0]!.table).toBe(teamInvites)
     expect(inserts[0]!.values.placeholderUserId).toBeNull()
     expect(result.memberUserId).toBeNull()
-    // Still referenced elsewhere, so it survives the orphan check.
+    // A seated row is never orphaned: the check is not even run.
+    expect(deletePlaceholderIfOrphaned).not.toHaveBeenCalled()
+    expect(deletes).toHaveLength(0)
+  })
+
+  it(`binds a seatless referenced placeholder (EXP-1141)`, async () => {
+    // Removed from this roster (or an import's attributions in a team since
+    // deleted) but still the author of comments: no team seats it, the
+    // orphan check leaves it. Left unbound, accepting from another account
+    // would never merge it away.
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    selectQueue.push([{ id: `ph-gone`, placeholderAt: new Date() }])
+    selectQueue.push([])
+    selectQueue.push([])
+    selectQueue.push([{ name: `Acme` }])
+
+    const result = await caller().create({ teamId: WS, email: `gone@example.com` })
+
     expect(deletePlaceholderIfOrphaned).toHaveBeenCalledWith(
       expect.anything(),
-      `ph-elsewhere`
+      `ph-gone`
+    )
+    expect(createPlaceholderMember).not.toHaveBeenCalled()
+    // Bound, not seated: the accept takes the seat, so the send is gated.
+    expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
+    expect(inserts.map((row) => row.table)).not.toContain(teamMembers)
+    expect(inserts[0]!.table).toBe(teamInvites)
+    expect(inserts[0]!.values.placeholderUserId).toBe(`ph-gone`)
+    expect(result.memberUserId).toBe(`ph-gone`)
+    // Its earlier links in this team (the removed member's) are superseded.
+    expect(deletes).toHaveLength(1)
+    expect(deletes[0]!.table).toBe(teamInvites)
+    expect(flattenSqlChunks(deletes[0]!.where)).toContain(
+      teamInvites.placeholderUserId
     )
   })
 
@@ -484,6 +516,7 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
     deletePlaceholderIfOrphaned.mockResolvedValue(true)
     insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
     selectQueue.push([{ id: `ph-ghost`, placeholderAt: new Date() }])
+    selectQueue.push([])
     selectQueue.push([])
     selectQueue.push([{ name: `Acme` }])
 
@@ -880,10 +913,25 @@ describe(`teamInvites.revoke — placeholder invites (EXP-630)`, () => {
     selectQueue.push([
       { id: INVITE_ID, teamId: WS, placeholderUserId: `ph-1`, acceptedAt: null },
     ])
+    // The placeholder sits on this roster: the row is what it reads from.
+    selectQueue.push([{ id: `member-row` }])
     await caller().revoke({ id: INVITE_ID })
     expect(updates).toHaveLength(1)
     expect(updates[0]!.table).toBe(teamInvites)
     expect(updates[0]!.set.expiresAt).toBeInstanceOf(Date)
+    expect(deletes).toHaveLength(0)
+  })
+
+  it(`deletes an invite bound to a placeholder that holds no seat here (EXP-1141)`, async () => {
+    selectQueue.push([
+      { id: INVITE_ID, teamId: WS, placeholderUserId: `ph-gone`, acceptedAt: null },
+    ])
+    selectQueue.push([])
+    await caller().revoke({ id: INVITE_ID })
+    // No roster row would read an expired one: it goes like a plain link.
+    expect(updates).toHaveLength(0)
+    expect(deletes).toHaveLength(1)
+    expect(deletes[0]!.table).toBe(teamInvites)
   })
 })
 

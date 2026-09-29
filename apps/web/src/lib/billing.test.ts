@@ -43,6 +43,16 @@ function flattenSqlChunks(node: unknown): unknown[] {
   return chunks.flatMap(flattenSqlChunks)
 }
 
+/** The raw SQL text of already-flattened chunks (columns render empty). */
+function sqlText(chunks: unknown[]): string {
+  return chunks
+    .map((chunk) => {
+      const value = (chunk as { value?: unknown }).value
+      return Array.isArray(value) ? value.join(``) : ``
+    })
+    .join(` `)
+}
+
 vi.mock(`@/db/connection`, () => ({
   db: { select: () => chain() },
 }))
@@ -75,7 +85,7 @@ import {
   type PlanTier,
 } from "./billing"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "./plan-limit-error"
-import { teamInvites, users } from "@/db/schema"
+import { teamInvites, teamMembers, users } from "@/db/schema"
 
 const TEAM_ID = `prod_team_monthly`
 const TEAM_YEARLY_ID = `prod_team_yearly`
@@ -447,15 +457,19 @@ describe(`resolveInviteCapacity — pure seat arithmetic (EXP-725)`, () => {
 
 // EXP-630: a placeholder member holds a team_members row (countTeamMembers)
 // AND an unaccepted invite row; counting the invite too would charge the
-// seat twice, so the pending count is restricted to unbound invites.
+// seat twice, so the pending count is restricted to unbound invites — plus,
+// EXP-1141, invites bound to a placeholder with no seat here, which
+// countTeamMembers never sees.
 describe(`countPendingInvites — placeholder invites are not pending seats (EXP-630)`, () => {
-  it(`filters on placeholder_user_id IS NULL next to the accepted/expiry predicates`, async () => {
+  it(`filters on placeholder_user_id IS NULL or no seat, next to the accepted/expiry predicates`, async () => {
     selectResults.push([{ count: 1 }])
     await expect(countPendingInvites(WS)).resolves.toBe(1)
     const where = flattenSqlChunks(whereClauses.at(-1))
     expect(where).toContain(teamInvites.placeholderUserId)
     expect(where).toContain(teamInvites.acceptedAt)
     expect(where).toContain(teamInvites.expiresAt)
+    expect(where).toContain(teamMembers.userId)
+    expect(sqlText(where)).toContain(`not exists`)
   })
 })
 
