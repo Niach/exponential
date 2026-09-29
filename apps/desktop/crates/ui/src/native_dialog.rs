@@ -607,9 +607,12 @@ pub(crate) fn open_dialog_window(
             // (`app::windows` carries the per-platform rationale). A small
             // window over the desktop is the surface the glass reads best on —
             // and on macOS the blurred backdrop is what keeps its 0.92-alpha
-            // page from showing the raw desktop through. Windows stays Opaque.
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            // page from showing the raw desktop through. Windows stays Opaque;
+            // Linux is `Transparent` for CSD only, its page opaque (EXP-1135).
+            #[cfg(target_os = "macos")]
             window_background: gpui::WindowBackgroundAppearance::Blurred,
+            #[cfg(target_os = "linux")]
+            window_background: gpui::WindowBackgroundAppearance::Transparent,
             #[cfg(target_os = "linux")]
             window_decorations: Some(gpui::WindowDecorations::Client),
             ..Default::default()
