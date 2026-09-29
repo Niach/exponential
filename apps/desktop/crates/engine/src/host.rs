@@ -90,6 +90,9 @@ pub const CANCEL_QUEUED_META_KEY: &str = "exponentialCancelQueued";
 /// a backlog) used to open one request per message with nothing bounding
 /// them; the CLI folds or queues at its own pace. A third prompt waits for a
 /// slot INSIDE its spawned task — the command loop never blocks on it.
+/// FEED-62: a mid-turn message to claude that holds a bar line is exempt
+/// (the bar's `QUEUE_MAX` bounds those), so queued messages reach the agent
+/// together instead of one per finished turn.
 pub const TURN_SLOTS: usize = 2;
 
 /// How many local feed ROWS a session keeps for a late subscriber. A tab
@@ -2502,7 +2505,20 @@ fn start_turn(
     ctx.with_mapper(|mapper| mapper.set_turn(steer::TurnState::Started, false, &mut turn_out));
     ctx.dispatch(turn_out);
     let request = ready_blocks.map(|blocks| PromptRequest::new(session_id.clone(), blocks));
+    // FEED-62: a message sent MID-TURN to an agent that replays what it takes
+    // in (claude) holds a bar line (`pending`) and takes NO turn slot. Claude
+    // answers such a prompt only when the running turn's `result` lands, so
+    // under the slot bound the second one parked here for the whole turn and
+    // reached the agent alone, after the first had long been read. Written at
+    // once, every queued line waits in the CLI's own queue and the agent
+    // takes them in TOGETHER at its next boundary. The bar's cap
+    // (`QUEUE_MAX`, `mark_sent`) bounds these; a full bar hands back no
+    // `pending`, so the slot bound still applies past it.
+    let slotless = pending.is_some() && ctx.replays_user_messages();
     let ready = request.as_ref().and_then(|request| {
+        if slotless {
+            return Some(cx.send_request(request.clone()));
+        }
         turns.slots.try_acquire().ok().map(|permit| {
             // Held by the spawned task below; the permit's own lifetime is
             // tied to the gate through the `Arc` the task owns.
@@ -2549,17 +2565,22 @@ fn start_turn(
                     }
                     (None, None) => unreachable!("a turn prompt is ready or localizable"),
                 };
-                match turns.slots.acquire().await {
-                    Ok(permit) => permit.forget(),
-                    // The gate is never closed; a closed semaphore would mean
-                    // the session is gone, and the request fails on its own.
-                    Err(_) => {}
+                if !slotless {
+                    match turns.slots.acquire().await {
+                        Ok(permit) => permit.forget(),
+                        // The gate is never closed; a closed semaphore would
+                        // mean the session is gone, and the request fails on
+                        // its own.
+                        Err(_) => {}
+                    }
                 }
                 sent_cx.send_request(request)
             }
         };
         let result = sent.block_task().await;
-        turns.slots.add_permits(1);
+        if !slotless {
+            turns.slots.add_permits(1);
+        }
         let remaining = turns.in_flight.fetch_sub(1, Ordering::SeqCst).saturating_sub(1);
         let mut out = MapOut::default();
         match result {
