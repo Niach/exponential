@@ -38,6 +38,11 @@ import {
 } from "@/lib/integrations/github-pr"
 import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
 import {
+  assertPrUpdateHasFields,
+  patchPullDescription,
+  prUpdateFields,
+} from "@/lib/trpc/pr-update"
+import {
   assertRepoInstallationAccess,
   isInstallationLinkedToTeam,
 } from "@/lib/trpc/integrations"
@@ -831,6 +836,46 @@ export const repositoriesRouter = router({
         viaAgent: ctx.viaMcp === true,
         endSessions: input.endSessions,
       })
+    }),
+
+  // EXP-1139: rewrite the title/body of a pull request WITHOUT an issue link
+  // (the issue-linked path is issues.updatePr) — the chore PR a chat or
+  // action run opened, named by `repositoryId + prNumber` like `mergePull`.
+  // Same trust model: the team's ownership of the repo row plus the
+  // installation link-gate authorizes the write; nothing is persisted (the
+  // session row carries no title/body).
+  updatePull: authedProcedure
+    .input(
+      z.object({
+        repositoryId: z.string().uuid(),
+        prNumber: z.number().int().positive(),
+        ...prUpdateFields,
+      })
+    )
+    .mutation(async ({ ctx, input }): Promise<{ updated: true }> => {
+      assertPrUpdateHasFields(input)
+      const repo = await loadRepository(input.repositoryId)
+      await assertRepoCapability(ctx.session.user.id, repo.teamId)
+      if (!githubAppConfigured()) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `GitHub App is not configured on this instance`,
+        })
+      }
+      const token = await resolveGatedRepoToken(repo)
+      if (!token) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
+        })
+      }
+      await patchPullDescription({
+        repoFullName: repo.fullName,
+        prNumber: input.prNumber,
+        token,
+        fields: { title: input.title, body: input.body },
+      })
+      return { updated: true }
     }),
 
   // Any member: register a repo THEIR OWN GitHub connection grants (EXP-557 —

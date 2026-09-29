@@ -152,6 +152,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_pr_merge: [`issue`],
   exponential_pr_open: [`issue`, `issue`],
   exponential_pr_retarget: [`issue`],
+  exponential_pr_update: [`issue`],
   exponential_report_bug: [`issue`],
   exponential_repositories_add: [`repository`],
   exponential_repositories_branch_diff: [],

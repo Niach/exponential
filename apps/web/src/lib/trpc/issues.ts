@@ -67,6 +67,11 @@ import {
   prMergeFailureError,
 } from "@/lib/trpc/pr-merge-error"
 import {
+  assertPrUpdateHasFields,
+  patchPullDescription,
+  prUpdateFields,
+} from "@/lib/trpc/pr-update"
+import {
   issueSearchIdentifierExactSql,
   issueSearchMatchIds,
   issueSearchOpenSql,
@@ -2295,6 +2300,164 @@ export const issuesRouter = router({
 
       return { closed: true }
     }),
+
+  // EXP-1139: the PR's title + body as GitHub holds them — what the Reviews
+  // description card shows (web + desktop). Member-only like `prFiles` (a
+  // private repo's PR body is private), the same link-gate, nulls when the
+  // issue has no linked PR.
+  prDescription: authedProcedure
+    .input(z.object({ issueId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const { teamId } = await getIssueTeamContext(input.issueId)
+      await assertTeamMember(ctx.session.user.id, teamId)
+
+      const [row] = await ctx.db
+        .select({
+          prNumber: issues.prNumber,
+          prUrl: issues.prUrl,
+        })
+        .from(issues)
+        .where(eq(issues.id, input.issueId))
+        .limit(1)
+
+      const repo = row?.prUrl ? repoFromPrUrl(row.prUrl) : null
+      if (!row?.prNumber || !repo) {
+        return {
+          repo: null as string | null,
+          prNumber: null as number | null,
+          url: null as string | null,
+          title: null as string | null,
+          body: null as string | null,
+          state: null as `open` | `closed` | `merged` | null,
+        }
+      }
+
+      const resolved = await resolveRepoInstallationTokenInfo(repo)
+      if (
+        resolved &&
+        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
+      ) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `${repo} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
+        })
+      }
+
+      try {
+        const pull = await getPullRequest(repo, row.prNumber, resolved?.token)
+        return {
+          repo,
+          prNumber: row.prNumber,
+          url: pull.url,
+          title: pull.title,
+          body: pull.body,
+          state: pull.merged ? (`merged` as const) : pull.state,
+        }
+      } catch (err) {
+        throw new TRPCError({
+          code: `BAD_GATEWAY`,
+          message:
+            err instanceof Error
+              ? err.message
+              : `Failed to load the pull request from GitHub`,
+        })
+      }
+    }),
+
+  // EXP-1139: rewrite the issue's open PR title and/or body on GitHub. The
+  // description `pr_open` wrote goes stale when a later commit changes the
+  // scope, and nothing in the product could fix it — agents hold no `gh`.
+  // Member-gated on the PR's team (every member reviews); a batch PR is
+  // reached through ANY of its linked issues (one prUrl). Nothing is
+  // persisted locally: the DB carries no title/body, GitHub stays the source
+  // of truth.
+  updatePr: authedProcedure
+    .input(
+      z.object({
+        issueId: z.string().uuid(),
+        ...prUpdateFields,
+      })
+    )
+    .mutation(
+      async ({
+        ctx,
+        input,
+      }): Promise<{ updated: true; url: string; number: number }> => {
+        assertPrUpdateHasFields(input)
+        const { teamId } = await assertIssueAccess(
+          ctx.session.user.id,
+          input.issueId,
+          `write`
+        )
+
+        const [row] = await ctx.db
+          .select({
+            prNumber: issues.prNumber,
+            prUrl: issues.prUrl,
+            prState: issues.prState,
+          })
+          .from(issues)
+          .where(eq(issues.id, input.issueId))
+          .limit(1)
+
+        if (!row) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+        }
+        if (!row.prNumber || !row.prUrl) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `This issue has no linked pull request`,
+          })
+        }
+        if (row.prState !== `open`) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `The pull request is ${row.prState}. Only open pull requests can be edited.`,
+          })
+        }
+
+        // Against the repo the PR actually lives in — derived from prUrl,
+        // never the board's CURRENT repository (same derivation as mergePr).
+        const repoFullName = repoFromPrUrl(row.prUrl)
+        if (!repoFullName) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `The linked pull request URL is not a GitHub PR URL`,
+          })
+        }
+        if (!githubAppConfigured()) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `GitHub App is not configured on this instance`,
+          })
+        }
+        const resolved = await resolveRepoInstallationTokenInfo(repoFullName)
+        if (!resolved) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `GitHub App is not installed on ${repoFullName}`,
+          })
+        }
+        // Link-gate (mirrors mergePr): the installation serving this repo
+        // must still be claimed by the issue's team.
+        if (
+          !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
+        ) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
+          })
+        }
+
+        await patchPullDescription({
+          repoFullName,
+          prNumber: row.prNumber,
+          token: resolved.token,
+          fields: { title: input.title, body: input.body },
+        })
+        return { updated: true, url: row.prUrl, number: row.prNumber }
+      }
+    ),
 
   // Change the base branch of the issue's open PR on GitHub (EXP-324). The
   // stacked-PR self-heal: after a parent PR is squash-merged its branch goes

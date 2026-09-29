@@ -307,6 +307,11 @@ export interface PullDetails {
   baseRef: string
   mergeable: boolean | null
   mergeableState: string | null
+  /** EXP-1139: the description the Reviews card shows and `updatePullRequest`
+   *  rewrites. GitHub sends `body: null` for an empty one; normalised to ``. */
+  title: string
+  body: string
+  url: string
 }
 
 export async function getPullRequest(
@@ -331,6 +336,9 @@ export async function getPullRequest(
     base?: { ref?: string }
     mergeable?: boolean | null
     mergeable_state?: string
+    title?: string
+    body?: string | null
+    html_url?: string
   }
   return {
     state: data.state === `closed` ? `closed` : `open`,
@@ -340,6 +348,49 @@ export async function getPullRequest(
     baseRef: data.base?.ref ?? ``,
     mergeable: data.mergeable ?? null,
     mergeableState: data.mergeable_state ?? null,
+    title: data.title ?? ``,
+    body: data.body ?? ``,
+    url: data.html_url ?? `https://github.com/${repo}/pull/${prNumber}`,
+  }
+}
+
+// EXP-1139: rewrite an open PR's title and/or body — the description a run
+// wrote at `pr_open` goes stale the moment a later commit changes the scope,
+// and agents never hold a `gh`. An omitted field keeps its value (GitHub's
+// PATCH is partial); the caller guarantees at least one is present.
+export async function updatePullRequest(opts: {
+  repo: string
+  prNumber: number
+  title?: string
+  body?: string
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<void> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const patch: { title?: string; body?: string } = {}
+  if (opts.title !== undefined) patch.title = opts.title
+  if (opts.body !== undefined) patch.body = opts.body
+  const res = await doFetch(
+    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
+    {
+      method: `PATCH`,
+      headers: {
+        ...githubApiHeaders(opts.token),
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify(patch),
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    let message = text.slice(0, 300)
+    try {
+      const parsed = JSON.parse(text) as { message?: string }
+      if (parsed.message) message = parsed.message
+    } catch {
+      // Non-JSON error body — surface the raw text.
+    }
+    throw new GitHubMergeError(res.status, message)
   }
 }
 

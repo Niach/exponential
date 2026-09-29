@@ -23,6 +23,8 @@ const h = vi.hoisted(() => {
       forIssue: vi.fn(),
       // EXP-626: the issue-less merge path.
       mergePull: vi.fn(),
+      // EXP-1139: the issue-less description rewrite.
+      updatePull: vi.fn(),
     },
     actions: {
       list: vi.fn(),
@@ -38,6 +40,8 @@ const h = vi.hoisted(() => {
       update: vi.fn(),
       // EXP-639: the issue path of exponential_pr_merge.
       mergePr: vi.fn(),
+      // EXP-1139: the issue path of exponential_pr_update.
+      updatePr: vi.fn(),
     },
     boards: { delete: vi.fn(), setRepository: vi.fn() },
     teams: { create: vi.fn(), update: vi.fn() },
@@ -267,6 +271,8 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
 // EXP-626/EXP-637: the issue-less PR path and the agent close-out.
 vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepositoryForTeam: vi.fn(),
+  // EXP-1139: the header-only chore path of exponential_pr_update.
+  loadRepositoryByFullName: vi.fn(),
 }))
 vi.mock(`@/lib/coding-session-end`, () => ({ endSessionByAgent: vi.fn() }))
 // EXP-700: the relay injection rail. Partial mocks — the formatters and the
@@ -283,7 +289,10 @@ vi.mock(`@/lib/steer-child-messages`, async (importOriginal) => ({
   notifyParentOfChildEnd: vi.fn(),
 }))
 
-import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
+import {
+  loadRepositoryByFullName,
+  loadRepositoryForTeam,
+} from "@/lib/trpc/repositories"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import {
@@ -828,6 +837,193 @@ describe.each(descriptors)(
     })
   }
 )
+
+// ── pr_update (EXP-1139) ──────────────────────────────────────────────────────
+
+describe(`exponential_pr_update`, () => {
+  const PR_URL = `https://github.com/acme/app/pull/7`
+  const runRow = (over: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    teamId: WS,
+    issueId: null,
+    branch: null,
+    prUrl: null,
+    prNumber: null,
+    status: `in_review`,
+    needsInput: false,
+    mergedOwnPr: false,
+    userId: `user-1`,
+    hostUserId: null,
+    ...over,
+  })
+
+  beforeEach(() => {
+    caller.issues.updatePr.mockResolvedValue({
+      updated: true,
+      url: PR_URL,
+      number: 7,
+    })
+    caller.repositories.updatePull.mockResolvedValue({ updated: true })
+  })
+
+  it(`rewrites an issue's PR through issues.updatePr`, async () => {
+    dbRows.current = [{ id: UUID, identifier: `EXP-1`, prUrl: PR_URL }]
+    const result = await tool(`exponential_pr_update`)({
+      issueId: UUID,
+      body: `Closes #EXP-1\n\nNow a searchable picker.`,
+    })
+    expect(parseOk(result)).toEqual({
+      results: [
+        { issueId: UUID, identifier: `EXP-1`, updated: true, url: PR_URL },
+      ],
+    })
+    expect(caller.issues.updatePr).toHaveBeenCalledWith({
+      issueId: UUID,
+      body: `Closes #EXP-1\n\nNow a searchable picker.`,
+    })
+    // An omitted title is ABSENT from the tRPC input, never `undefined`-as-null.
+    expect(
+      Object.keys(caller.issues.updatePr.mock.calls[0]![0] as object)
+    ).toEqual([`issueId`, `body`])
+  })
+
+  it(`updates a batch PR once, on the first listed issue`, async () => {
+    const OTHER = `33333333-3333-4333-8333-333333333333`
+    dbRows.current = [
+      { id: UUID, identifier: `EXP-1`, prUrl: PR_URL },
+      { id: OTHER, identifier: `EXP-2`, prUrl: PR_URL },
+    ]
+    const result = await tool(`exponential_pr_update`)({
+      issueIds: [UUID, OTHER],
+      title: `EXP-1 + EXP-2: the picker`,
+    })
+    expect(parseOk(result)).toEqual({
+      results: [
+        { issueId: UUID, identifier: `EXP-1`, updated: true, url: PR_URL },
+      ],
+    })
+    expect(caller.issues.updatePr).toHaveBeenCalledTimes(1)
+  })
+
+  it(`reports a per-issue refusal as a result, not a tool error`, async () => {
+    dbRows.current = [{ id: UUID, identifier: `EXP-1`, prUrl: PR_URL }]
+    caller.issues.updatePr.mockRejectedValueOnce(
+      new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: `The pull request is merged. Only open pull requests can be edited.`,
+      })
+    )
+    const result = await tool(`exponential_pr_update`)({
+      issueId: UUID,
+      title: `x`,
+    })
+    expect(result.isError).toBeFalsy()
+    expect(parseOk(result)).toEqual({
+      results: [
+        {
+          issueId: UUID,
+          identifier: `EXP-1`,
+          updated: false,
+          error: `The pull request is merged. Only open pull requests can be edited.`,
+        },
+      ],
+    })
+  })
+
+  it(`rewrites a chore PR through repositories.updatePull`, async () => {
+    vi.mocked(loadRepositoryForTeam).mockResolvedValue({
+      repositoryId: REPO,
+      teamId: WS,
+      fullName: `acme/app`,
+      defaultBranch: `main`,
+    } as never)
+    const result = await tool(`exponential_pr_update`)({
+      repositoryId: REPO,
+      prNumber: 9,
+      title: `chore: bump deps`,
+      body: ``,
+    })
+    expect(parseOk(result)).toEqual({
+      results: [{ repositoryId: REPO, prNumber: 9, updated: true }],
+    })
+    expect(caller.repositories.updatePull).toHaveBeenCalledWith({
+      repositoryId: REPO,
+      prNumber: 9,
+      title: `chore: bump deps`,
+      body: ``,
+    })
+  })
+
+  it(`with no subject edits the header run's own issue PR`, async () => {
+    // The drizzle stub serves the same rows to every select: the session
+    // lookup and the issue lookup both read a row that carries what they
+    // need.
+    dbRows.current = [
+      { ...runRow({ issueId: UUID }), identifier: `EXP-1`, prUrl: PR_URL },
+    ]
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_pr_update`
+    )!({ body: `Scope changed: see the second commit.` })
+    expect(parseOk(result)).toMatchObject({
+      results: [{ issueId: UUID, updated: true }],
+    })
+    expect(caller.issues.updatePr).toHaveBeenCalledWith({
+      issueId: UUID,
+      body: `Scope changed: see the second commit.`,
+    })
+  })
+
+  it(`with no subject edits the header run's own chore PR`, async () => {
+    dbRows.current = [runRow({ branch: `exp/chore-1a2b3c4d`, prUrl: PR_URL, prNumber: 7 })]
+    vi.mocked(loadRepositoryByFullName).mockResolvedValue({
+      id: REPO,
+      teamId: WS,
+      fullName: `acme/app`,
+    } as never)
+    vi.mocked(loadRepositoryForTeam).mockResolvedValue({
+      repositoryId: REPO,
+      teamId: WS,
+      fullName: `acme/app`,
+      defaultBranch: `main`,
+    } as never)
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_pr_update`
+    )!({ title: `chore: the real scope` })
+    expect(parseOk(result)).toEqual({
+      results: [{ repositoryId: REPO, prNumber: 7, updated: true }],
+    })
+    expect(loadRepositoryByFullName).toHaveBeenCalledWith(WS, `acme/app`)
+    expect(caller.repositories.updatePull).toHaveBeenCalledWith({
+      repositoryId: REPO,
+      prNumber: 7,
+      title: `chore: the real scope`,
+    })
+  })
+
+  it(`refuses a call with no subject and no run header`, async () => {
+    const result = await tool(`exponential_pr_update`)({ title: `x` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`no run header`)
+    expect(caller.issues.updatePr).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a call that changes nothing`, async () => {
+    const result = await tool(`exponential_pr_update`)({ issueId: UUID })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`title, a body, or both`)
+  })
+
+  it(`refuses two subjects at once`, async () => {
+    const result = await tool(`exponential_pr_update`)({
+      issueId: UUID,
+      repositoryId: REPO,
+      prNumber: 9,
+      title: `x`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`exactly one`)
+  })
+})
 
 // ── notifications_mark_read: all + validation modes ──────────────────────────
 

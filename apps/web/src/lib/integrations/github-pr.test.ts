@@ -12,6 +12,7 @@ import {
   listPullsByHead,
   resolvePrBaseState,
   retargetPullRequest,
+  updatePullRequest,
   GitHubMergeError,
   PullAlreadyExistsError,
 } from "@/lib/integrations/github-pr"
@@ -218,7 +219,30 @@ describe(`getPullRequest`, () => {
       baseRef: `exp/EXP-314`,
       mergeable: false,
       mergeableState: `dirty`,
+      // EXP-1139: the description fields, normalised when GitHub omits them.
+      title: ``,
+      body: ``,
+      url: `https://github.com/o/r/pull/241`,
     })
+  })
+
+  it(`carries the title, body and html url (EXP-1139)`, async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, {
+        state: `open`,
+        merged: false,
+        title: `EXP-320: Stacked child`,
+        body: null,
+        html_url: `https://github.com/o/r/pull/241`,
+        head: { ref: `exp/EXP-320` },
+        base: { ref: `master` },
+      })
+    ) as unknown as GitHubFetch
+    const pull = await getPullRequest(`o/r`, 241, `tok`, fetchImpl)
+    expect(pull.title).toBe(`EXP-320: Stacked child`)
+    // GitHub sends `body: null` for an empty description.
+    expect(pull.body).toBe(``)
+    expect(pull.url).toBe(`https://github.com/o/r/pull/241`)
   })
 
   it(`throws on a non-2xx response`, async () => {
@@ -394,6 +418,64 @@ describe(`branchExists`, () => {
     await expect(
       branchExists(`o/r`, `exp/EXP-314`, `tok`, broken)
     ).rejects.toThrow(`GitHub returned 500`)
+  })
+})
+
+describe(`updatePullRequest (EXP-1139)`, () => {
+  it(`PATCHes only the fields given`, async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {}))
+    await updatePullRequest({
+      repo: `owner/repo`,
+      prNumber: 241,
+      body: `Closes #EXP-1\n\nNow with tests.`,
+      token: `tok`,
+      fetchImpl: fetchImpl as unknown as GitHubFetch,
+    })
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [
+      string,
+      { method?: string; body?: string },
+    ]
+    expect(url).toBe(`https://api.github.com/repos/owner/repo/pulls/241`)
+    expect(init.method).toBe(`PATCH`)
+    // An omitted title is ABSENT from the PATCH — GitHub keeps it.
+    expect(JSON.parse(init.body as string)).toEqual({
+      body: `Closes #EXP-1\n\nNow with tests.`,
+    })
+  })
+
+  it(`sends both when both are given`, async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {}))
+    await updatePullRequest({
+      repo: `owner/repo`,
+      prNumber: 241,
+      title: `New title`,
+      body: ``,
+      token: `tok`,
+      fetchImpl: fetchImpl as unknown as GitHubFetch,
+    })
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [
+      string,
+      { body?: string },
+    ]
+    // An EMPTY body is a real value (clears the description), never dropped.
+    expect(JSON.parse(init.body as string)).toEqual({
+      title: `New title`,
+      body: ``,
+    })
+  })
+
+  it(`throws GitHubMergeError with GitHub's message and status on failure`, async () => {
+    const fetchImpl = (async () =>
+      jsonResponse(404, { message: `Not Found` })) as unknown as GitHubFetch
+    await expect(
+      updatePullRequest({
+        repo: `owner/repo`,
+        prNumber: 241,
+        title: `x`,
+        token: `tok`,
+        fetchImpl,
+      })
+    ).rejects.toMatchObject({ status: 404, message: `Not Found` })
   })
 })
 
