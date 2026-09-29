@@ -41,7 +41,7 @@ use crate::argv::{
     MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
 };
 use crate::context_layout::{self, CarriedBase, ContextLayers};
-use crate::mcp_servers::{McpBlocker, ResolvedMcp};
+use crate::mcp_servers::ResolvedMcp;
 use crate::action_prompt::{
     chat_prompt, render_action_prompt_full, render_run_resume_prompt, ActionInputValue,
     TriggerNote, WorkspaceNote,
@@ -930,7 +930,7 @@ pub struct AcpLaunch {
     /// into their own config (claude inline, codex `thread/start`). Empty for
     /// an agent shell and for every pick-less run.
     pub servers: Vec<McpServerWire>,
-    /// EXP-792: every device-held value the launcher put in the spawn env
+    /// EXP-792: every credential value the launcher put in the spawn env
     /// for those servers — the engine's redactor masks them out of the
     /// activity channel like the `expu_` key. Never read for anything else.
     pub mcp_secrets: McpSecrets,
@@ -988,11 +988,6 @@ pub enum DisabledReason {
     /// there is nothing to fall back to; `note` carries the doctor's own
     /// explanation when it has one.
     AcpUnavailable { label: String, note: Option<String> },
-    /// EXP-792: a picked team MCP server has no credential on this machine
-    /// (or no longer exists) — the run would start without the tools the
-    /// user asked for, so it does not start. The message names the server
-    /// and what is missing ([`crate::mcp_servers::McpBlocker`]'s Display).
-    McpBlocked(McpBlocker),
     /// EXP-849: this resume asked to continue on a DIFFERENT account and the
     /// run cannot be handed over — codex (one login per session, its
     /// conversation lives in the login's own rollout store), a missing target
@@ -1004,7 +999,6 @@ impl DisabledReason {
     /// User-facing copy (§7.1: inline error / disabled-button helper text).
     pub fn message(&self) -> String {
         match self {
-            DisabledReason::McpBlocked(blocker) => blocker.to_string(),
             DisabledReason::NoRepositoryLinked => {
                 "Link a repository to this board in team settings.".to_string()
             }
@@ -1532,26 +1526,19 @@ fn with_claude_mcp_timeout(spawn: SpawnSpec, inherited: Option<std::ffi::OsStrin
     spawn.env(CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS.to_string())
 }
 
-/// EXP-792: the launch's team MCP server pick, resolved against THIS
-/// machine's secret store. A server with no credential here (or one the
-/// team has since removed) is a named launch blocker, not a degraded run:
-/// the user asked for its tools, so a run without them does not start.
-/// Runs BEFORE any repo/git/server-side step so a refused pick costs one
-/// tRPC read and creates nothing. An empty pick resolves to nothing without
+/// EXP-792: the launch's team MCP server pick, resolved server-side
+/// (`mcpServers.resolveForLaunch`: the member's own credentials, refreshed
+/// there). A pick NEVER blocks a launch: a server the member has not
+/// connected, one whose refresh failed, one the team removed, or a failed
+/// resolve call altogether is skipped with a logged warning and the run
+/// starts without those tools. An empty pick resolves to nothing without
 /// touching the network (every pick-less launch and every agent shell).
-///
-/// EXP-891: this machine's own enabled servers ([`crate::device_mcp_servers`])
-/// are appended after the pick — every run on the device gets them, a team
-/// server folding to the same config key wins, and a device row never blocks
-/// a launch (no credential position exists to be missing).
-fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String]) -> Result<ResolvedMcp, DisabledReason> {
-    let mut resolved = crate::mcp_servers::resolve(&deps.data_dir, &deps.account_id, &deps.trpc, ids)
-        .map_err(DisabledReason::McpBlocked)?;
-    crate::device_mcp_servers::merge_into(
-        &mut resolved.servers,
-        crate::device_mcp_servers::wires(&deps.data_dir),
-    );
-    Ok(resolved)
+fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String]) -> ResolvedMcp {
+    let resolved = crate::mcp_servers::resolve(&deps.trpc, ids);
+    for warning in &resolved.warnings {
+        log::warn!("{warning}");
+    }
+    resolved
 }
 
 /// EXP-792: the spawn-env half of the team servers, beside [`apply_mcp_env`]:
@@ -1675,13 +1662,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
-    // EXP-792: the team MCP server pick — a server this machine cannot
-    // authenticate to refuses the launch by name, before any git or
-    // server-side step.
-    let team_mcp = match resolve_mcp_servers(deps, &options.mcp_server_ids) {
-        Ok(resolved) => resolved,
-        Err(reason) => return Ok(Prepared::Disabled(reason)),
-    };
+    // EXP-792: the team MCP server pick (unconnected ones are skipped).
+    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids);
 
     // Step 1 — resolve the repository (the coding-first gate).
     let (repository_id, full_name) = match req {
@@ -2460,11 +2442,8 @@ fn prepare_action(
     if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
-    // EXP-792: the team MCP server pick, refused by name before any work.
-    let team_mcp = match resolve_mcp_servers(deps, &options.mcp_server_ids) {
-        Ok(resolved) => resolved,
-        Err(reason) => return Ok(Prepared::Disabled(reason)),
-    };
+    // EXP-792: the team MCP server pick (unconnected ones are skipped).
+    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids);
 
     // §7.2 — the personal key (the MCP credential), raced like a session's.
     let key_handle = {
@@ -3386,12 +3365,9 @@ fn prepare_resume_run(
     if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
-    // EXP-792: the recorded team MCP server pick, against the store as it is
-    // NOW.
-    let team_mcp = match resolve_mcp_servers(deps, &options.mcp_server_ids) {
-        Ok(resolved) => resolved,
-        Err(reason) => return Ok(Prepared::Disabled(reason)),
-    };
+    // EXP-792: the recorded team MCP server pick, re-resolved NOW (fresh
+    // tokens; unconnected ones are skipped).
+    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids);
 
     // Step 1 — the workspace. A repo-backed run whose worktree the run
     // cleanup or the prune reclaimed (its PR landed — the ordinary way a chat
@@ -8282,16 +8258,6 @@ mod tests {
         }
     }
 
-    /// The blocker's own sentence is the launch's disabled copy.
-    #[test]
-    fn mcp_blocked_renders_the_blockers_own_text() {
-        let reason = DisabledReason::McpBlocked(McpBlocker {
-            server: "linear".to_string(),
-            reason: "not signed in on this machine".to_string(),
-        });
-        assert_eq!(reason.message(), "MCP server linear: not signed in on this machine");
-    }
-
     /// Every resolved pair lands in the spawn env; the server LIST never
     /// does (claude and codex both carry it in their own config), and no
     /// value ever reaches the env under a name the agent could print.
@@ -8328,51 +8294,43 @@ mod tests {
         assert!(McpSecrets::default().is_empty());
     }
 
-    /// A picked server this machine cannot authenticate to (or that no
-    /// longer exists) refuses the launch BY NAME before any repo, git or
-    /// server-side step — the resolver's one config read is all that
-    /// happens.
+    /// A picked server the member cannot use (here: the resolve call fails
+    /// outright) never refuses a launch: the resolver warns and hands back
+    /// no servers, and the one call it made named the pick.
     #[test]
-    fn a_picked_mcp_server_this_machine_cannot_authenticate_to_refuses_the_launch_by_name() {
-        let dir = temp_dir("mcp-blocked");
+    fn an_unusable_mcp_pick_degrades_to_a_warning_never_a_blocker() {
+        let dir = temp_dir("mcp-degraded");
         let (base, captured) =
-            canned_server_recording(vec![(200, r#"{"result":{"data":[]}}"#.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-42");
-        req.options.mcp_server_ids = vec!["srv-9".to_string()];
-        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::McpBlocked(blocker)) => {
-                assert_eq!(blocker.server, "srv-9");
-                assert!(
-                    blocker.to_string().starts_with("MCP server srv-9: "),
-                    "{blocker}"
-                );
-            }
-            other => panic!("expected the MCP blocker, got {other:?}"),
-        }
-        let requests = captured.lock().unwrap();
-        assert!(
-            !requests.iter().any(|request| {
-                request.contains("repositories.forIssue")
-                    || request.contains("installationToken")
-                    || request.contains("codingSessions.start")
+            canned_server_recording(vec![(500, r#"{"error":{"message":"boom"}}"#.to_string())]);
+        let deps = make_deps(
+            &base,
+            &dir.0,
+            Arc::new(FakeWorktrees {
+                worktree: dir.0.join("unused"),
+                seen: Default::default(),
             }),
-            "a refused pick creates nothing: {requests:?}"
         );
+        let resolved = resolve_mcp_servers(&deps, &["srv-9".to_string()]);
+        assert!(resolved.servers.is_empty() && resolved.env.is_empty());
+        assert_eq!(resolved.warnings.len(), 1, "{:?}", resolved.warnings);
+        let requests = captured.lock().unwrap();
+        assert!(requests[0].contains("mcpServers.resolveForLaunch"));
+        assert!(requests[0].contains(r#"{"serverIds":["srv-9"]}"#));
+        // An empty pick makes no call at all.
+        drop(requests);
+        assert_eq!(resolve_mcp_servers(&deps, &[]), ResolvedMcp::default());
+        assert_eq!(captured.lock().unwrap().len(), 1);
     }
 
-    /// EXP-792: a resume re-resolves the RECORDED pick against the store as
-    /// it is now — a server that lost its credential refuses the resume the
-    /// same way, before a new row exists.
+    /// EXP-792: a resume re-resolves the RECORDED pick (fresh tokens): the
+    /// recorded ids reach `resolveForLaunch` before anything else happens.
     #[test]
     fn a_resume_re_resolves_the_recorded_mcp_pick() {
         let dir = temp_dir("mcp-resume");
-        let (base, captured) =
-            canned_server_recording(vec![(200, r#"{"result":{"data":[]}}"#.to_string())]);
+        let (base, captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"servers":[],"skipped":[],"warnings":[]}}}"#.to_string(),
+        )]);
         let deps = make_deps(
             &base,
             &dir.0,
@@ -8384,16 +8342,14 @@ mod tests {
         let mut record = resume_record(&dir.0, "sess-old");
         record.set_mcp_server_ids(&["srv-9".to_string()]);
         assert_eq!(record.mcp_server_ids(), vec!["srv-9".to_string()]);
-        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::McpBlocked(blocker)) => {
-                assert_eq!(blocker.server, "srv-9");
-            }
-            other => panic!("expected the MCP blocker, got {other:?}"),
-        }
-        assert!(!captured
-            .lock()
-            .unwrap()
+        // The rest of the resume may succeed or fail against the one-shot
+        // server; only the resolve call is under test here.
+        let _ = prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps);
+        let requests = captured.lock().unwrap();
+        let resolve = requests
             .iter()
-            .any(|request| request.contains("codingSessions.start")));
+            .find(|request| request.contains("mcpServers.resolveForLaunch"))
+            .expect("the resume re-resolved its pick");
+        assert!(resolve.contains(r#"{"serverIds":["srv-9"]}"#), "{resolve}");
     }
 }

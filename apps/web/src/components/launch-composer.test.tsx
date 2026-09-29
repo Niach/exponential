@@ -151,7 +151,7 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     candidateDevices: [device],
     deviceRequestNote: null,
     mcpServers: null,
-    mcpNow: new Date(),
+    mcpConnectHref: () => null,
     submitLabel: `Start chat`,
     blocked: true,
     overCap: false,

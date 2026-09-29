@@ -5,7 +5,7 @@ import type { Board, CodingSession, Issue, SyncedDeviceWorktree } from "@/db/sch
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
-import { useTeamBoards } from "@/hooks/use-team-data"
+import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
 import { useTeamRepos } from "@/hooks/use-team-repos"
 import type { RemoteStart } from "@/hooks/use-remote-start"
 import {
@@ -195,7 +195,9 @@ export interface LaunchComposerModel {
    * Null when the request settled (or there was none). */
   deviceRequestNote: string | null
   mcpServers: McpServerList | null
-  mcpNow: Date
+  /** EXP-792: Settings › MCP servers `?connect=<id>` — where a server the
+   * caller has not connected yet sends them (null until the team resolves). */
+  mcpConnectHref: (serverId: string) => string | null
 
   submitLabel: string
   /** Something stops the submit — the notes say what. */
@@ -383,7 +385,15 @@ export function useLaunchComposer({
     [remote.devices]
   )
   const mcp = useMcpServers(teamId)
-  const mcpNow = useNow(30_000)
+  const team = useTeamById(teamId)
+  const teamSlug = team?.slug ?? null
+  const mcpConnectHref = useCallback(
+    (serverId: string) =>
+      teamSlug
+        ? `/t/${encodeURIComponent(teamSlug)}/settings/mcp-servers?connect=${encodeURIComponent(serverId)}`
+        : null,
+    [teamSlug]
+  )
   const hasSubject = subject !== null
   // EXP-772: a chat (no subject) starts in build mode; a subject seeds plan
   // mode from the device's defaults. `planModeOff` is read on every reseed
@@ -816,7 +826,7 @@ export function useLaunchComposer({
     candidateDevices,
     deviceRequestNote,
     mcpServers: mcp.servers,
-    mcpNow,
+    mcpConnectHref,
     submitLabel: submitLabelFor(subject),
     blocked,
     overCap,

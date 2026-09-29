@@ -642,11 +642,12 @@ export const actionInputTypeValues = [`repo`, `board`, `pr`, `icon`] as const
 export type ActionInputType = (typeof actionInputTypeValues)[number]
 
 // EXP-792: team MCP servers (server-only `mcp_servers` rows, never synced).
-// `transport` = how the agent reaches the server; `auth` = how the DEVICE
-// authenticates to it: `none`, an OAuth sign-in the device executes, or a
-// `secret` typed on the device (a header value for http, an env value for
-// stdio). Documented varchars mirrored in contract.json (`mcpTransport`,
-// `mcpAuth`); the server never stores a credential either way.
+// `transport` = how the agent reaches the server; `auth` = how a MEMBER
+// authenticates to it: `none`, an OAuth sign-in the server runs (hosted
+// callback), or a typed `secret` (a header value for http, an env value for
+// stdio). Either credential is held by the server per member, encrypted
+// (`mcp_credentials`). Documented varchars mirrored in contract.json
+// (`mcpTransport`, `mcpAuth`).
 export const mcpTransportValues = [`http`, `stdio`] as const
 export type McpTransport = (typeof mcpTransportValues)[number]
 export const mcpAuthValues = [`none`, `oauth`, `secret`] as const
@@ -657,12 +658,42 @@ export const mcpAuthSchema = z.enum(mcpAuthValues)
 export const MAX_MCP_SERVER_NAME = 64
 /** Header/env NAMES (never values) an MCP server row may declare. */
 export const MAX_MCP_SERVER_NAMES = 16
-/** A header or env-var NAME — the only shape the server accepts (values live on the device). */
+/** A header or env-var NAME — the only shape a server ROW accepts (values live in `mcp_credentials`). */
 export const mcpVariableNameSchema = z
   .string()
   .min(1)
   .max(64)
   .regex(/^[A-Za-z_][A-Za-z0-9_-]*$/, `must be a header or variable name`)
+
+/** Env names a stdio MCP server row may NOT declare: the launcher's own
+ * process environment (a member's secret must never become `PATH`,
+ * `NODE_OPTIONS`, the agent's config dir or base URL, Exponential's own
+ * token vars, git's). Exact names + prefixes, case-insensitive. */
+export const RESERVED_MCP_ENV_NAMES = [`PATH`, `HOME`, `SHELL`, `USER`, `TMPDIR`, `PWD`] as const
+export const RESERVED_MCP_ENV_PREFIXES = [
+  `LD_`,
+  `DYLD_`,
+  `NODE_`,
+  `ANTHROPIC_`,
+  `CLAUDE_`,
+  `CODEX_`,
+  `OPENAI_`,
+  `EXP_`,
+  `GIT_`,
+  `BUN_`,
+] as const
+export function isReservedMcpEnvName(name: string): boolean {
+  const upper = name.toUpperCase()
+  return (
+    (RESERVED_MCP_ENV_NAMES as readonly string[]).includes(upper) ||
+    RESERVED_MCP_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix))
+  )
+}
+/** A stdio server's env-var NAME: a variable name that is not reserved. */
+export const mcpEnvNameSchema = mcpVariableNameSchema.refine(
+  (name) => !isReservedMcpEnvName(name),
+  { error: (issue) => `${String(issue.input)} is reserved and cannot be set by an MCP server` }
+)
 
 export const MAX_ACTION_INPUTS = 10
 export const MAX_ACTION_INPUT_KEY = 32

@@ -513,7 +513,7 @@ where
         publish,
         local_sink,
         agent,
-        // EXP-792: the team servers' device-held values, masked like the key.
+        // EXP-792: the team servers' credential values, masked like the key.
         mcp_secrets: acp.mcp_secrets.clone().into_vec(),
         replay: false,
         resume: acp.resume.clone().map(ResumeHandle::from),
@@ -888,7 +888,7 @@ mod tests {
         assert!(!ended.is_done());
     }
 
-    /// EXP-792: the team servers' device-held values mask like the key.
+    /// EXP-792: the team servers' credential values mask like the key.
     #[test]
     fn the_team_mcp_secrets_join_the_redactor_set() {
         let dir = std::env::temp_dir().join(format!("exp792-secrets-{}", std::process::id()));

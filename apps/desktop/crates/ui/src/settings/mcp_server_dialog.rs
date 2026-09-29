@@ -3,10 +3,10 @@
 //! Web parity: the `McpServerDialog` half of
 //! `components/team/mcp-servers-section.tsx`. Authoring a server is
 //! non-secret config only — a name, the transport, a URL or a command line,
-//! the header/env NAMES a machine supplies values for, OAuth scopes and the
-//! `enabledByDefault` switch. No credential is typed here (that is the pane's
-//! own "Set value" / "Sign in", which write to this machine's 0600 store);
-//! this dialog only ever talks to `mcpServers.create` / `mcpServers.update`.
+//! the header/env NAMES a member's key fills, OAuth scopes and the
+//! `enabledByDefault` switch. No credential is typed here (that is each
+//! member's own Connect / Set key on the pane, held by the server); this
+//! dialog only ever talks to `mcpServers.create` / `mcpServers.update`.
 //!
 //! Its own WINDOW rather than an [`crate::native_dialog::AlertSpec`]: the form
 //! re-renders on its own state (the transport switches URL for Command, the
@@ -47,9 +47,9 @@ use super::mcp_servers::McpServersPane;
 /// (wire value, label) — the labels are the pane's own chip vocabulary
 /// (web `MCP_TRANSPORT_LABELS` / `MCP_AUTH_LABELS`).
 const TRANSPORT_OPTIONS: &[(&str, &str)] = &[("http", "HTTP"), ("stdio", "Command")];
-const AUTH_NONE: (&str, &str) = ("none", "No auth");
+const AUTH_NONE: (&str, &str) = ("none", "No sign-in");
 const AUTH_OAUTH: (&str, &str) = ("oauth", "OAuth");
-const AUTH_SECRET: (&str, &str) = ("secret", "Secret");
+const AUTH_SECRET: (&str, &str) = ("secret", "API key");
 
 /// Open the dialog over the MCP servers pane. `initial` = the row being
 /// edited (`None` adds one); `pane` is refetched after a successful write —
@@ -220,19 +220,16 @@ fn validate(draft: &Draft) -> Option<String> {
 fn hint(draft: &Draft) -> &'static str {
     match (draft.auth.as_str(), draft.is_http()) {
         ("secret", true) => {
-            "Declare the one header that carries the secret. Its value is typed \
-             on each machine, never stored here."
+            "Declare the one header that carries the key. Each member sets \
+             their own; it is stored encrypted, never shown again."
         }
         ("secret", false) => {
-            "Declare the one variable that carries the secret. Its value is \
-             typed on each machine, never stored here."
+            "Declare the one variable that carries the key. Each member sets \
+             their own; it is stored encrypted, never shown again."
         }
-        ("oauth", _) => {
-            "Each member signs in on their own machine from this page. Tokens \
-             stay on the device."
-        }
-        (_, true) => "Names only: any header value is typed on each machine.",
-        (_, false) => "Names only: any variable value is typed on each machine.",
+        ("oauth", _) => "Each member connects their own account from this page.",
+        (_, true) => "Names only: no header value is stored for this server.",
+        (_, false) => "Names only: no variable value is stored for this server.",
     }
 }
 
@@ -824,17 +821,17 @@ mod tests {
     /// transport on screen (web parity).
     #[test]
     fn hint_follows_auth_and_transport() {
-        assert!(hint(&http_draft()).starts_with("Names only: any header"));
+        assert!(hint(&http_draft()).starts_with("Names only: no header"));
         let stdio = Draft {
             transport: "stdio".into(),
             ..http_draft()
         };
-        assert!(hint(&stdio).starts_with("Names only: any variable"));
+        assert!(hint(&stdio).starts_with("Names only: no variable"));
         let oauth = Draft {
             auth: "oauth".into(),
             ..http_draft()
         };
-        assert!(hint(&oauth).starts_with("Each member signs in"));
+        assert!(hint(&oauth).starts_with("Each member connects"));
         let secret = Draft {
             auth: "secret".into(),
             ..http_draft()

@@ -54,19 +54,18 @@ pub(crate) const CLI_DEFAULT_LABEL: &str = "CLI default";
 // ---------------------------------------------------------------------------
 
 /// One team MCP server as the run multiselect offers it, ALREADY resolved
-/// against the machine the run lands on: the caller (which is the only thing
-/// that knows whether this is a local or a remote start) computes
-/// [`Self::blocked`] once per target, so the row itself is pure.
+/// against the person's own connection (the server holds it, so it is the
+/// same whichever machine the run lands on).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct McpServerOption {
     pub(crate) id: String,
     pub(crate) name: String,
-    /// Why the TARGET machine cannot satisfy it (web `serverBlockReason`);
-    /// `None` = ready there. A blocked server is GREYED, never hidden and
-    /// never unpickable — picking one anyway is how a person finds out what
-    /// to fix, and the launch blocker then names it (web parity).
+    /// Why the person cannot use it yet ([`mcp_block_reason`]); `None` =
+    /// ready. A blocked server is GREYED and never preselected, but stays
+    /// pickable: the launch then starts without it (a warning, never a
+    /// blocker), so connecting it in Settings before the start is enough.
     pub(crate) blocked: Option<String>,
-    /// Seeds the FIRST pick (`enabledByDefault`).
+    /// Seeds the FIRST pick (`enabledByDefault`) — ready servers only.
     pub(crate) enabled_by_default: bool,
 }
 
@@ -85,12 +84,13 @@ pub(crate) fn mcp_pick_summary(servers: &[McpServerOption], selected: &[String])
     }
 }
 
-/// The seed of a fresh multiselect: the servers flagged `enabledByDefault`
-/// (web `preselectMcpServerIds` with no saved pick).
+/// The seed of a fresh multiselect: the READY servers flagged
+/// `enabledByDefault` (web `preselectMcpServerIds` with no saved pick) — a
+/// server you have not connected is never preselected.
 pub(crate) fn mcp_default_ids(servers: &[McpServerOption]) -> Vec<String> {
     servers
         .iter()
-        .filter(|server| server.enabled_by_default)
+        .filter(|server| server.enabled_by_default && server.blocked.is_none())
         .map(|server| server.id.clone())
         .collect()
 }
@@ -104,56 +104,28 @@ fn seed_or_clamp_mcp(seeded: &mut bool, selected: &mut Vec<String>, servers: &[M
         *seeded = true;
     } else {
         // A server removed on the web under an open dialog must not
-        // reach the launcher as an "unknown server" blocker.
+        // reach the launcher as an "unknown server" skip.
         selected.retain(|id| servers.iter().any(|server| &server.id == id));
     }
 }
 
-/// EXP-792 — why a machine cannot satisfy a server (web
-/// `serverBlockReason`). `entry` is that machine's readiness row: the local
-/// read for this install, the synced matrix row for a remote target.
-///
-/// The sentence is the LAUNCHER's own ([`coding::mcp_servers`]
-/// `NOT_SIGNED_IN` / `sign_in_expired`), so the greyed picker row, the
-/// dialog's launch blocker and the refused run all read identically. Those
-/// sentences say "on this machine" because the DEVICE wrote them; naming a
-/// remote target therefore SUBSTITUTES the label into them rather than
-/// suffixing one, which is what would otherwise produce "not signed in on
-/// this machine on the mini". `device_label: None` = this machine, and the
-/// sentence stands as written.
-pub(crate) fn mcp_block_reason(
-    auth: &str,
-    entry: Option<crate::settings::mcp_servers::Readiness<'_>>,
-    device_label: Option<&str>,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Option<String> {
-    use crate::settings::mcp_servers::ready_on;
-    if ready_on(auth, entry, now) {
+/// The greyed row's caption for a server the person has not connected.
+pub(crate) const MCP_CONNECT_FIRST: &str = "Connect first in Settings → MCP servers";
+/// … and for one whose sign-in expired or whose refresh failed.
+pub(crate) const MCP_RECONNECT_FIRST: &str = "Reconnect first in Settings → MCP servers";
+
+/// EXP-792 — why the person cannot use a server yet (web `mcpNotReadyLabel`
+/// plus where to go): `None` when their connection is usable (`connected`)
+/// or none is needed (`not_needed`).
+pub(crate) fn mcp_block_reason(connection: &api::mcp_servers::McpConnection) -> Option<String> {
+    if connection.is_ready() {
         return None;
     }
-    let sentence = entry
-        .filter(|entry| !entry.ready)
-        .and_then(|entry| entry.error.map(str::trim).filter(|error| !error.is_empty()))
-        .map(str::to_string)
-        .unwrap_or_else(|| match auth {
-            "oauth" => coding::mcp_servers::NOT_SIGNED_IN.to_string(),
-            _ => "no value on this machine".to_string(),
-        });
-    Some(name_the_machine(sentence, device_label))
-}
-
-/// Point a device-written sentence at the machine it is ABOUT. Substituting
-/// beats appending: `sign_in_expired` puts "on this machine" mid-sentence,
-/// and a suffix would leave both in.
-fn name_the_machine(sentence: String, device_label: Option<&str>) -> String {
-    let Some(label) = device_label.map(str::trim).filter(|label| !label.is_empty()) else {
-        return sentence;
-    };
-    let named = sentence.replace("this machine", label);
-    if named != sentence {
-        return named;
+    Some(match connection.status.as_str() {
+        "expired" | "error" => MCP_RECONNECT_FIRST,
+        _ => MCP_CONNECT_FIRST,
     }
-    format!("{sentence} on {label}")
+    .to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,17 +976,6 @@ impl LaunchOptionsSection {
         self.mcp_seeded = false;
     }
 
-    /// The picked server ids — what [`Self::options`] puts on the wire, and
-    /// what a launch pre-check walks.
-    pub(crate) fn mcp_server_ids(&self) -> &[String] {
-        &self.mcp_selected
-    }
-
-    /// The offered rows, for a caller that wants to name a blocked pick.
-    pub(crate) fn mcp_servers(&self) -> &[McpServerOption] {
-        &self.mcp_servers
-    }
-
     /// Tick/untick one server. Kept in REGISTRY order so the launcher's
     /// per-server env positions (`EXP_MCP_TOKEN_<n>`) follow the list the
     /// person sees, not the order they happened to click in.
@@ -1558,7 +1519,6 @@ const MORE_POPOVER_W: f32 = 320.;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::mcp_servers::Readiness;
 
     fn server(id: &str, name: &str, on_by_default: bool) -> McpServerOption {
         McpServerOption {
@@ -1567,12 +1527,6 @@ mod tests {
             blocked: None,
             enabled_by_default: on_by_default,
         }
-    }
-
-    fn now() -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::parse_from_rfc3339("2026-09-09T10:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc)
     }
 
     /// EXP-792: web `mcpPickSummary`, string for string — two names spell
@@ -1609,14 +1563,17 @@ mod tests {
         assert_eq!(mcp_pick_summary(&servers, &["gone".into()]), "None");
     }
 
-    /// The seed is `enabledByDefault` and nothing else (web
-    /// `preselectMcpServerIds` with no saved pick).
+    /// The seed is `enabledByDefault` (web `preselectMcpServerIds` with no
+    /// saved pick), minus every server the person has not connected.
     #[test]
     fn mcp_seed_is_the_default_enabled_set() {
+        let mut unconnected = server("d", "Figma", true);
+        unconnected.blocked = Some(MCP_CONNECT_FIRST.to_string());
         let servers = vec![
             server("a", "Linear", true),
             server("b", "Notion", false),
             server("c", "Sentry", true),
+            unconnected,
         ];
         assert_eq!(mcp_default_ids(&servers), vec!["a".to_string(), "c".to_string()]);
         assert!(mcp_default_ids(&[]).is_empty());
@@ -1655,60 +1612,31 @@ mod tests {
         assert!(seeded);
     }
 
-    /// EXP-792: the greyed row's reason IS the launcher's refusal sentence,
-    /// pointed at the machine it is about.
+    /// EXP-792: only a usable connection (or none needed) is ready; every
+    /// other status greys the row and says where to fix it.
     #[test]
-    fn mcp_block_reason_names_the_target_machine() {
-        let now = now();
-        // A no-auth server needs nothing anywhere.
-        assert_eq!(mcp_block_reason("none", None, Some("the mini"), now), None);
-        // Ready → nothing to say.
-        let ready = Readiness { ready: true, expires_at: None, error: None };
-        assert_eq!(mcp_block_reason("secret", Some(ready), None, now), None);
-
-        // LOCAL: the device wrote the sentence, so it stands as written —
-        // no second "on this machine" tacked onto the end.
-        let refused = Readiness {
-            ready: false,
+    fn mcp_block_reason_reads_the_callers_connection() {
+        let connection = |status: &str| api::mcp_servers::McpConnection {
+            status: status.into(),
             expires_at: None,
-            error: Some(coding::mcp_servers::NOT_SIGNED_IN),
+            error: None,
         };
-        assert_eq!(
-            mcp_block_reason("oauth", Some(refused), None, now).as_deref(),
-            Some("not signed in on this machine")
-        );
-        // REMOTE: the label is SUBSTITUTED into it, not appended.
-        assert_eq!(
-            mcp_block_reason("oauth", Some(refused), Some("the mini"), now).as_deref(),
-            Some("not signed in on the mini")
-        );
-        // Mid-sentence too (`coding::mcp_servers::sign_in_expired`).
-        let expired = coding::mcp_servers::sign_in_expired("Linear", None);
-        let entry = Readiness { ready: false, expires_at: None, error: Some(&expired) };
-        let named = mcp_block_reason("oauth", Some(entry), Some("the mini"), now).unwrap();
-        assert!(named.starts_with("sign-in expired on the mini"), "{named}");
-        assert!(!named.contains("this machine"), "{named}");
-
-        // No report at all falls back to the per-auth sentence.
-        assert_eq!(
-            mcp_block_reason("oauth", None, None, now).as_deref(),
-            Some("not signed in on this machine")
-        );
-        assert_eq!(
-            mcp_block_reason("secret", None, Some("the mini"), now).as_deref(),
-            Some("no value on the mini")
-        );
-        // A sentence that never mentions a machine still gets one.
-        let odd = Readiness { ready: false, expires_at: None, error: Some("refresh failed") };
-        assert_eq!(
-            mcp_block_reason("oauth", Some(odd), Some("the mini"), now).as_deref(),
-            Some("refresh failed on the mini")
-        );
-        // A blank/whitespace label is no label.
-        assert_eq!(
-            mcp_block_reason("oauth", Some(refused), Some("  "), now).as_deref(),
-            Some("not signed in on this machine")
-        );
+        assert_eq!(mcp_block_reason(&connection("connected")), None);
+        assert_eq!(mcp_block_reason(&connection("not_needed")), None);
+        for status in ["not_connected", "future"] {
+            assert_eq!(
+                mcp_block_reason(&connection(status)).as_deref(),
+                Some(MCP_CONNECT_FIRST),
+                "{status}"
+            );
+        }
+        for status in ["expired", "error"] {
+            assert_eq!(
+                mcp_block_reason(&connection(status)).as_deref(),
+                Some(MCP_RECONNECT_FIRST),
+                "{status}"
+            );
+        }
     }
 
     /// EXP-872: the machine's logins flatten into ONE list across agents,

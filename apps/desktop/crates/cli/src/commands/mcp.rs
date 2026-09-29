@@ -1,61 +1,52 @@
-//! `exponential mcp list | login <server> [--paste] | set-secret <server>
-//! <NAME> | status` (EXP-792) — the team MCP servers this account may
-//! connect to, and the credentials THIS machine holds for them.
+//! `exponential mcp list | connect <server> | set-secret <server> |
+//! disconnect <server>` (EXP-792) — the team MCP servers of your teams and
+//! YOUR connection to each.
 //!
-//! Credentials never travel through argv: `login` runs the OAuth flow
-//! locally (a loopback listener, or `--paste` for a machine without a
-//! browser — the person opens the printed URL anywhere and pastes the
-//! redirect back), `set-secret` reads the value from a no-echo prompt (or a
-//! piped stdin line). Both end by re-reporting this device's readiness so
-//! the web's matrix flips without waiting for the daemon's next sweep.
-//!
-//! EXP-891: `import | add | enable | disable | remove` manage THIS
-//! MACHINE's own servers ([`coding::device_mcp_servers`]) — the ones every
-//! run started here connects beside the team pick. `import` takes what the
-//! local claude/codex configs already list (`claude mcp add …` lands there),
-//! `add` types one. Every edit pushes the set (`deviceMcpServers.sync`) so
-//! the web's per-device view follows at once.
+//! The server holds every credential, per member: connect once and it works
+//! on every device, remote start and automation. This machine holds none.
+//! `connect` opens the web settings page's connect in your signed-in
+//! browser (the instance runs the OAuth flow there and keeps the token; its
+//! callback only accepts the member whose browser session started it); `set-secret` reads a typed value from a
+//! no-echo prompt (or a piped stdin line) — never argv — and sends it to the
+//! server once.
 
 use std::io::{BufRead, Write};
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail};
-use api::mcp_servers::{list_for_device, McpReadinessReport, McpServerConfig};
+use anyhow::bail;
+use api::mcp_servers::{McpConnection, McpServerListEntry};
 
-use super::{reject_unknown_flags, take_flag, CommandResult};
+use super::{reject_unknown_flags, take_value, CommandResult};
 use crate::context::{self, Ctx};
 use crate::term;
 
 const USAGE: &str = "\
-Usage: exponential mcp <command>
+Usage: exponential mcp <command> [--team <team-id|slug>]
 
-Team servers:
-  list                         Team MCP servers, this machine's readiness, and
-                               this machine's own servers
-  login <server> [--paste]     Sign in to an OAuth server on this machine
-  set-secret <server> <NAME>   Store the value for a declared header/env name
-  status                       This machine's readiness per server
+  list                  Your teams' MCP servers and your connection to each
+  connect <server>      Connect an OAuth server (opens the web settings page)
+  set-secret <server>   Store your key for a server that takes one (read from
+                        stdin, never argv)
+  disconnect <server>   Delete your credential for a server
 
-This machine's servers (connected on every run started here):
-  import [--dry-run]           Import what claude / codex already list locally
-  add <name> <url | command…>  Add one (an https URL, or a command line)
-  enable <name> / disable <name>
-  remove <name>                Forget it here (the agent's own config is untouched)
+<server> is a server name or id. Credentials are held by the server for you
+(every device, remote starts, automations); owners add servers under
+Settings → MCP servers.
 ";
+
+/// How often `connect` re-reads the list, and for how long.
+const CONNECT_POLL: Duration = Duration::from_secs(2);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 pub fn run(args: &[String]) -> CommandResult {
     let sub = args.first().map(String::as_str).unwrap_or("");
     let rest = &args[1.min(args.len())..];
     match sub {
         "list" => list(rest),
-        "login" => login(rest),
+        "connect" => connect(rest),
         "set-secret" => set_secret(rest),
-        "status" => status(rest),
-        "import" => import(rest),
-        "add" => add(rest),
-        "enable" => set_enabled(rest, true),
-        "disable" => set_enabled(rest, false),
-        "remove" => remove(rest),
+        "disconnect" => disconnect(rest),
         "help" | "--help" | "-h" | "" => {
             print!("{USAGE}");
             Ok(ExitCode::SUCCESS)
@@ -68,86 +59,146 @@ pub fn run(args: &[String]) -> CommandResult {
     }
 }
 
-fn now_secs() -> u64 {
-    coding::run_registry::now_secs()
+/// One listed server with the team it belongs to.
+#[derive(Clone, Debug)]
+struct TeamServer {
+    team: String,
+    /// The team's URL slug (the web deep link `connect` opens).
+    team_slug: String,
+    entry: McpServerListEntry,
 }
 
-/// A server by name (case-insensitive) or row id.
-fn find_server<'a>(configs: &'a [McpServerConfig], selector: &str) -> anyhow::Result<&'a McpServerConfig> {
+/// Every server of `team` (an id or slug), or of every team you belong to.
+fn load(ctx: &Ctx, team: Option<&str>) -> anyhow::Result<Vec<TeamServer>> {
+    let mut teams = api::mcp_tools::teams_list(&ctx.trpc)?;
+    if let Some(wanted) = team {
+        teams.retain(|row| row.id == wanted || row.slug == wanted);
+        if teams.is_empty() {
+            bail!("you are not a member of a team `{wanted}`");
+        }
+    }
+    let mut servers = Vec::new();
+    for row in teams {
+        let label = if row.name.is_empty() { row.id.clone() } else { row.name };
+        for entry in api::mcp_servers::list(&ctx.trpc, &row.id)? {
+            servers.push(TeamServer {
+                team: label.clone(),
+                team_slug: row.slug.clone(),
+                entry,
+            });
+        }
+    }
+    Ok(servers)
+}
+
+/// A server by row id, or by name (case-insensitive).
+fn find_server<'a>(servers: &'a [TeamServer], selector: &str) -> anyhow::Result<&'a TeamServer> {
     let wanted = selector.trim();
-    let mut matches: Vec<&McpServerConfig> = configs
-        .iter()
-        .filter(|config| config.id == wanted || config.name.eq_ignore_ascii_case(wanted))
-        .collect();
-    if let Some(exact) = matches.iter().find(|config| config.id == wanted) {
+    if let Some(exact) = servers.iter().find(|server| server.entry.config.id == wanted) {
         return Ok(exact);
     }
+    let mut matches: Vec<&TeamServer> = servers
+        .iter()
+        .filter(|server| server.entry.config.name.eq_ignore_ascii_case(wanted))
+        .collect();
     match matches.len() {
         0 => {
-            let known = configs
+            let known = servers
                 .iter()
-                .map(|config| format!("  {} ({})", config.name, config.id))
+                .map(|server| format!("  {} ({})", server.entry.config.name, server.entry.config.id))
                 .collect::<Vec<_>>()
                 .join("\n");
+            if known.is_empty() {
+                bail!("no MCP server named `{wanted}`: your teams have none yet")
+            }
             bail!("no MCP server named `{wanted}`. Known servers:\n{known}")
         }
         1 => Ok(matches.remove(0)),
-        _ => bail!("`{wanted}` names servers on several teams; use the id instead"),
+        _ => bail!("`{wanted}` names servers on several teams; use the id (or --team)"),
     }
 }
 
-fn readiness_cell(entry: Option<&McpReadinessReport>) -> String {
-    match entry {
-        Some(entry) if entry.ready => match &entry.expires_at {
-            Some(expires_at) => format!("ready (until {expires_at})"),
-            None => "ready".to_string(),
+/// Your connection, as one table cell.
+fn connection_cell(connection: &McpConnection) -> String {
+    match connection.status.as_str() {
+        "not_needed" => "no sign-in needed".to_string(),
+        "connected" => match &connection.expires_at {
+            Some(expires_at) => format!("connected (token until {expires_at})"),
+            None => "connected".to_string(),
         },
-        Some(entry) => format!("NOT READY: {}", entry.error.as_deref().unwrap_or("no credential")),
-        None => "-".to_string(),
+        "expired" => "EXPIRED: connect again".to_string(),
+        "error" => format!(
+            "ERROR: {}",
+            connection.error.as_deref().unwrap_or("the last refresh failed")
+        ),
+        _ => "not connected".to_string(),
     }
 }
 
-fn print_table(configs: &[McpServerConfig], entries: &[McpReadinessReport]) {
-    if configs.is_empty() {
+/// The next step for a server you cannot use yet.
+fn next_step(server: &TeamServer) -> Option<String> {
+    if server.entry.connection.is_ready() {
+        return None;
+    }
+    let name = &server.entry.config.name;
+    match server.entry.config.auth.as_str() {
+        "oauth" => Some(format!("exponential mcp connect {name}")),
+        "secret" => Some(format!("exponential mcp set-secret {name}")),
+        _ => None,
+    }
+}
+
+fn print_table(servers: &[TeamServer]) {
+    if servers.is_empty() {
         println!("No MCP servers on your teams. Owners add them under Settings → MCP servers.");
         return;
     }
-    let name_width = configs
-        .iter()
-        .map(|config| config.name.len())
-        .max()
-        .unwrap_or(4)
-        .max(4);
+    let width = |pick: fn(&TeamServer) -> usize, header: usize| {
+        servers.iter().map(pick).max().unwrap_or(header).max(header)
+    };
+    let name_width = width(|server| server.entry.config.name.len(), 4);
+    let team_width = width(|server| server.team.len(), 4);
     println!(
-        "{:<name_width$}  {:<7}  {:<6}  {}",
-        "NAME", "AUTH", "KIND", "THIS MACHINE"
+        "{:<name_width$}  {:<team_width$}  {:<6}  {:<7}  {:<7}  {}",
+        "NAME", "TEAM", "AUTH", "KIND", "MEMBERS", "YOU"
     );
-    for config in configs {
-        let entry = entries.iter().find(|entry| entry.server_id == config.id);
+    for server in servers {
+        let entry = &server.entry;
+        let members = if entry.config.auth == "none" {
+            "-".to_string()
+        } else {
+            format!("{}/{}", entry.connected_count, entry.member_count)
+        };
         println!(
-            "{:<name_width$}  {:<7}  {:<6}  {}",
-            config.name,
-            config.auth,
-            config.transport,
-            readiness_cell(entry)
+            "{:<name_width$}  {:<team_width$}  {:<6}  {:<7}  {:<7}  {}",
+            entry.config.name,
+            server.team,
+            entry.config.auth,
+            entry.config.transport,
+            members,
+            connection_cell(&entry.connection)
         );
     }
 }
 
-fn load_with_readiness(ctx: &Ctx) -> anyhow::Result<(Vec<McpServerConfig>, Vec<McpReadinessReport>)> {
-    let configs = list_for_device(&ctx.trpc)?;
-    let entries = coding::mcp_servers::readiness(&ctx.data_dir, &ctx.account.id, &configs, now_secs());
-    Ok((configs, entries))
+fn team_flag(args: &mut Vec<String>) -> Option<String> {
+    take_value(args, "--team").filter(|team| !team.is_empty())
 }
 
 pub fn list(args: &[String]) -> CommandResult {
-    reject_unknown_flags(args)?;
+    let mut args = args.to_vec();
+    let team = team_flag(&mut args);
+    reject_unknown_flags(&args)?;
+    if let Some(extra) = args.first() {
+        bail!("unexpected argument `{extra}` (usage: exponential mcp list [--team <team-id>])");
+    }
     let ctx = context::load()?;
-    let (configs, entries) = load_with_readiness(&ctx)?;
-    print_table(&configs, &entries);
-    if !configs.is_empty() {
+    let servers = load(&ctx, team.as_deref())?;
+    print_table(&servers);
+    if !servers.is_empty() {
         println!();
-        for config in &configs {
+        for server in &servers {
+            let config = &server.entry.config;
             let target = match (&config.url, &config.command) {
                 (Some(url), _) if !url.is_empty() => url.clone(),
                 (_, Some(command)) => {
@@ -157,269 +208,105 @@ pub fn list(args: &[String]) -> CommandResult {
                 }
                 _ => String::new(),
             };
-            let names = config.secret_names().join(", ");
-            let detail = match config.auth.as_str() {
-                "secret" if !names.is_empty() => format!(" (needs {names})"),
-                "oauth" if !config.scopes.is_empty() => format!(" (scopes: {})", config.scopes.join(" ")),
-                _ => String::new(),
-            };
-            println!("  {}  {target}{detail}", config.name);
+            println!("  {}  {target}", config.name);
             println!("    id {}", config.id);
+            if let Some(step) = next_step(server) {
+                println!("    to use it: {step}");
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `<server> [--team <id>]` → the loaded context and the one server.
+fn one_server(args: &[String], usage: &str) -> anyhow::Result<(Ctx, TeamServer)> {
+    let mut args = args.to_vec();
+    let team = team_flag(&mut args);
+    reject_unknown_flags(&args)?;
+    let [selector] = args.as_slice() else {
+        bail!("usage: {usage}");
+    };
+    let ctx = context::load()?;
+    let servers = load(&ctx, team.as_deref())?;
+    let server = find_server(&servers, selector)?.clone();
+    Ok((ctx, server))
+}
+
+pub fn connect(args: &[String]) -> CommandResult {
+    let (ctx, server) = one_server(args, "exponential mcp connect <server> [--team <team-id>]")?;
+    let config = &server.entry.config;
+    match config.auth.as_str() {
+        "oauth" => {}
+        "secret" => bail!(
+            "{} takes a key, not a sign-in: `exponential mcp set-secret {}`",
+            config.name,
+            config.name
+        ),
+        _ => bail!("{} needs no sign-in; every run can use it as is", config.name),
+    }
+    if server.entry.connection.status == "connected" {
+        println!(
+            "You are already connected to {}. `exponential mcp disconnect {}` first to connect again.",
+            config.name, config.name
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    // The flow starts in the BROWSER's signed-in session (the web page
+    // auto-starts it), never here: the instance's callback only accepts a
+    // code for the member whose browser session began the flow.
+    let Some(page) =
+        api::mcp_servers::connect_page_url(&ctx.account.instance_url, &server.team_slug, &config.id)
+    else {
+        bail!(
+            "cannot build a web link to connect {} (instance `{}`); connect it under Settings → MCP servers on the web",
+            config.name,
+            ctx.account.instance_url
+        );
+    };
+    match api::opener::open_in_browser(&page) {
+        Ok(()) => println!("Opened your browser to connect {}.", config.name),
+        Err(error) => {
+            log::debug!("{error}");
+            println!("Open this URL in the browser you are signed in to Exponential with:");
         }
     }
     println!();
-    print_local(&ctx);
-    Ok(ExitCode::SUCCESS)
-}
-
-// ---------------------------------------------------------------------------
-// EXP-891: this machine's own servers
-// ---------------------------------------------------------------------------
-
-/// The "THIS MACHINE'S SERVERS" block `list` ends with: the held rows, then
-/// what the local agent configs list that is not held yet.
-fn print_local(ctx: &Ctx) {
-    let held = coding::device_mcp_servers::load(&ctx.data_dir);
-    let detected = coding::device_mcp_servers::detect(&ctx.data_dir);
-    println!("THIS MACHINE'S SERVERS (connected on every run started here)");
-    if held.is_empty() {
-        println!("  none yet");
-    }
-    for row in &held {
-        println!(
-            "  {:<24}  {:<8}  {}  {}{}",
-            row.name,
-            if row.enabled { "on" } else { "off" },
-            row.target(),
-            row.source_label(),
-            ""
-        );
-    }
-    let importable = coding::device_mcp_servers::importable(&detected, &held);
-    if !importable.is_empty() {
-        println!();
-        println!("Detected locally, not imported (`exponential mcp import`):");
-        for candidate in importable {
-            println!(
-                "  {:<24}  {}  ({}, {})",
-                candidate.name,
-                candidate.target(),
-                agent_label(candidate.agent),
-                candidate.origin.display()
-            );
-        }
-    }
-    let skipped: Vec<_> = detected
-        .iter()
-        .filter(|candidate| candidate.skipped.is_some())
-        .filter(|candidate| !held.iter().any(|row| row.name.eq_ignore_ascii_case(&candidate.name)))
-        .collect();
-    if !skipped.is_empty() {
-        println!();
-        println!("Detected locally, not importable:");
-        for candidate in skipped {
-            println!(
-                "  {:<24}  {}",
-                candidate.name,
-                candidate.skipped.as_deref().unwrap_or("")
-            );
-        }
-    }
-}
-
-fn agent_label(agent: &str) -> &'static str {
-    match agent {
-        "claude" => "Claude Code",
-        "codex" => "Codex",
-        _ => "agent config",
-    }
-}
-
-/// Push the machine's set now, so the web's per-device view follows.
-fn sync_local(ctx: &Ctx) {
-    match coding::device_mcp_servers::sync_now(&ctx.data_dir, &ctx.trpc, &ctx.device_id()) {
-        Ok(_) => {}
-        Err(error) => log::debug!("deviceMcpServers.sync failed (the daemon's next sweep retries): {error}"),
-    }
-}
-
-pub fn import(args: &[String]) -> CommandResult {
-    let mut args = args.to_vec();
-    let dry_run = take_flag(&mut args, "--dry-run");
-    reject_unknown_flags(&args)?;
-    let ctx = context::load()?;
-    let held = coding::device_mcp_servers::load(&ctx.data_dir);
-    let detected = coding::device_mcp_servers::detect(&ctx.data_dir);
-    let importable = coding::device_mcp_servers::importable(&detected, &held);
-    if importable.is_empty() {
-        println!("Nothing new to import: this machine already holds every server claude / codex list locally.");
-        let skipped = detected.iter().filter(|c| c.skipped.is_some()).count();
-        if skipped > 0 {
-            println!("({skipped} detected entr{} cannot be imported; `exponential mcp list` says why.)", if skipped == 1 { "y" } else { "ies" });
-        }
-        return Ok(ExitCode::SUCCESS);
-    }
-    if dry_run {
-        println!("Would import:");
-        for candidate in importable {
-            println!("  {:<24}  {}  ({})", candidate.name, candidate.target(), agent_label(candidate.agent));
-        }
-        return Ok(ExitCode::SUCCESS);
-    }
-    let added = coding::device_mcp_servers::import(&ctx.data_dir).map_err(|error| anyhow!(error))?;
-    for row in &added {
-        println!("Imported {:<24}  {}  ({})", row.name, row.target(), row.source_label());
-    }
+    println!("  {page}");
+    println!();
     println!(
-        "{} server{} now connect{} on every run started here. `exponential mcp disable <name>` turns one off.",
-        added.len(),
-        if added.len() == 1 { "" } else { "s" },
-        if added.len() == 1 { "s" } else { "" }
+        "Sign in to Exponential there as {} if asked, then finish the provider's sign-in.",
+        ctx.account.email
     );
-    sync_local(&ctx);
-    Ok(ExitCode::SUCCESS)
-}
-
-pub fn add(args: &[String]) -> CommandResult {
-    let mut args = args.to_vec();
-    let disabled = take_flag(&mut args, "--disabled");
-    reject_unknown_flags(&args)?;
-    let (name, target) = match args.as_slice() {
-        [name, target @ ..] if !target.is_empty() => (name.clone(), target.join(" ")),
-        _ => bail!("usage: exponential mcp add <name> <https://url | command [args…]> [--disabled]"),
-    };
-    let ctx = context::load()?;
-    let mut server = coding::device_mcp_servers::parse_target(&name, &target);
-    server.enabled = !disabled;
-    let row = coding::device_mcp_servers::add(&ctx.data_dir, server).map_err(|error| anyhow!(error))?;
-    println!(
-        "Added {} ({}) on this machine{}.",
-        row.name,
-        row.target(),
-        if row.enabled { "; it connects on every run started here" } else { ", disabled" }
-    );
-    sync_local(&ctx);
-    Ok(ExitCode::SUCCESS)
-}
-
-pub fn set_enabled(args: &[String], enabled: bool) -> CommandResult {
-    reject_unknown_flags(args)?;
-    let [name] = args else {
-        bail!(
-            "usage: exponential mcp {} <name>",
-            if enabled { "enable" } else { "disable" }
-        );
-    };
-    let ctx = context::load()?;
-    let found = coding::device_mcp_servers::set_enabled(&ctx.data_dir, name, enabled)
-        .map_err(|error| anyhow!(error))?;
-    if !found {
-        bail!("no server named `{name}` on this machine (`exponential mcp list`)");
-    }
-    println!("{name} is now {} on this machine.", if enabled { "on" } else { "off" });
-    sync_local(&ctx);
-    Ok(ExitCode::SUCCESS)
-}
-
-pub fn remove(args: &[String]) -> CommandResult {
-    reject_unknown_flags(args)?;
-    let [name] = args else {
-        bail!("usage: exponential mcp remove <name>");
-    };
-    let ctx = context::load()?;
-    let found = coding::device_mcp_servers::remove(&ctx.data_dir, name).map_err(|error| anyhow!(error))?;
-    if !found {
-        bail!("no server named `{name}` on this machine (`exponential mcp list`)");
-    }
-    println!("Forgot {name} on this machine. Its entry in the agent's own config is untouched.");
-    sync_local(&ctx);
-    Ok(ExitCode::SUCCESS)
-}
-
-pub fn status(args: &[String]) -> CommandResult {
-    reject_unknown_flags(args)?;
-    let ctx = context::load()?;
-    println!("Device    {}", ctx.device_id());
-    let (configs, entries) = load_with_readiness(&ctx)?;
-    print_table(&configs, &entries);
-    let blocked = entries.iter().filter(|entry| !entry.ready).count();
-    if blocked > 0 {
-        println!();
-        println!(
-            "{blocked} server{} need{} a credential on this machine: `exponential mcp login <server>` or `exponential mcp set-secret <server> <NAME>`.",
-            if blocked == 1 { "" } else { "s" },
-            if blocked == 1 { "s" } else { "" }
-        );
-    }
-    Ok(ExitCode::SUCCESS)
-}
-
-/// Push this machine's readiness now, so the web matrix follows at once.
-fn report(ctx: &Ctx) {
-    match coding::mcp_servers::report_now(&ctx.data_dir, &ctx.account.id, &ctx.trpc, &ctx.device_id()) {
-        Ok(_) => {}
-        Err(error) => log::debug!("readiness report failed (the daemon's next sweep retries): {error}"),
-    }
-}
-
-pub fn login(args: &[String]) -> CommandResult {
-    let mut args = args.to_vec();
-    let paste = take_flag(&mut args, "--paste");
-    reject_unknown_flags(&args)?;
-    let selector = args
-        .first()
-        .ok_or_else(|| anyhow!("usage: exponential mcp login <server> [--paste]"))?;
-    let ctx = context::load()?;
-    let configs = list_for_device(&ctx.trpc)?;
-    let config = find_server(&configs, selector)?;
-    if !config.is_oauth() {
-        bail!(
-            "{} does not use OAuth ({}); {}",
-            config.name,
-            config.auth,
-            if config.auth == "secret" {
-                "use `exponential mcp set-secret` instead"
-            } else {
-                "nothing to sign in to"
-            }
-        );
-    }
-    let app_base = ctx.trpc.base_url().to_string();
-    let login = coding::mcp_servers::begin_local_login(
-        &ctx.data_dir,
-        &ctx.account.id,
-        &app_base,
-        config,
-        paste,
-    )?;
-    let set = if paste {
-        println!("Open this URL in any browser and sign in to {}:", config.name);
-        println!();
-        println!("  {}", login.authorize_url);
-        println!();
-        println!("The browser will end on a page that cannot load (127.0.0.1:1). Copy its full address.");
-        let pasted = term::prompt_line("Paste the redirect URL: ")?;
-        coding::mcp_servers::finish_pasted_login(&ctx.data_dir, &ctx.account.id, &login, &pasted)?
-    } else {
-        match api::opener::open_in_browser(&login.authorize_url) {
-            Ok(()) => println!("Opened your browser to sign in to {}.", config.name),
+    println!("Waiting for the connection (up to 5 minutes) ...");
+    let started = Instant::now();
+    while started.elapsed() < CONNECT_TIMEOUT {
+        std::thread::sleep(CONNECT_POLL);
+        let rows = match api::mcp_servers::list(&ctx.trpc, &config.team_id) {
+            Ok(rows) => rows,
             Err(error) => {
-                log::debug!("{error}");
-                println!("Open this URL to sign in to {}:", config.name);
+                log::debug!("mcpServers.list while waiting: {error}");
+                continue;
             }
+        };
+        let Some(row) = rows.into_iter().find(|row| row.config.id == config.id) else {
+            bail!("{} was removed from the team while you signed in", config.name);
+        };
+        if row.connection.status == "connected" {
+            match row.connection.expires_at {
+                Some(expires_at) => {
+                    println!("Connected {} (token valid until {expires_at}).", config.name)
+                }
+                None => println!("Connected {}.", config.name),
+            }
+            println!("It works on every device, remote start and automation.");
+            return Ok(ExitCode::SUCCESS);
         }
-        println!();
-        println!("  {}", login.authorize_url);
-        println!();
-        println!("Waiting for the browser to come back (up to 5 minutes; --paste for a machine without one) ...");
-        coding::mcp_servers::finish_local_login(&ctx.data_dir, &ctx.account.id, login)?
-    };
-    match set.expires_at_iso() {
-        Some(expires_at) => println!("Signed in to {} on this machine (token valid until {expires_at}).", config.name),
-        None => println!("Signed in to {} on this machine.", config.name),
     }
-    report(&ctx);
-    Ok(ExitCode::SUCCESS)
+    bail!(
+        "{} is still not connected after 5 minutes. Run `exponential mcp connect {}` to try again.",
+        config.name,
+        config.name
+    )
 }
 
 /// Read a secret from stdin: no-echo when it is a tty, one line otherwise
@@ -458,75 +345,122 @@ fn read_secret(prompt: &str) -> anyhow::Result<String> {
 }
 
 pub fn set_secret(args: &[String]) -> CommandResult {
-    reject_unknown_flags(args)?;
-    let [selector, name] = args else {
-        bail!("usage: exponential mcp set-secret <server> <NAME>   (the value is read from stdin)");
-    };
-    let ctx = context::load()?;
-    let configs = list_for_device(&ctx.trpc)?;
-    let config = find_server(&configs, selector)?;
+    let (ctx, server) = one_server(
+        args,
+        "exponential mcp set-secret <server> [--team <team-id>]   (the value is read from stdin)",
+    )?;
+    let config = &server.entry.config;
     if config.auth != "secret" {
         bail!(
-            "{} does not take a typed secret ({}){}",
+            "{} does not take a key ({}){}",
             config.name,
             config.auth,
-            if config.is_oauth() { "; use `exponential mcp login`" } else { "" }
+            if config.is_oauth() {
+                format!("; use `exponential mcp connect {}`", config.name)
+            } else {
+                String::new()
+            }
         );
     }
-    let value = read_secret(&format!("Value for {name} ({}): ", config.name))?;
-    coding::mcp_servers::set_secret(&ctx.data_dir, &ctx.account.id, config, name, &value)
-        .map_err(|error| anyhow!(error))?;
-    println!("Stored {name} for {} on this machine.", config.name);
-    report(&ctx);
+    let label = config
+        .secret_names()
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "the key".to_string());
+    let value = read_secret(&format!("Value for {label} ({}): ", config.name))?;
+    let value = value.trim();
+    if value.is_empty() {
+        bail!("the value is empty; nothing stored");
+    }
+    api::mcp_servers::set_secret(&ctx.trpc, &config.id, value)?;
+    println!(
+        "Stored your {label} for {}. Every device, remote start and automation uses it.",
+        config.name
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+pub fn disconnect(args: &[String]) -> CommandResult {
+    let (ctx, server) =
+        one_server(args, "exponential mcp disconnect <server> [--team <team-id>]")?;
+    let config = &server.entry.config;
+    if config.auth == "none" {
+        bail!("{} needs no credential; nothing to disconnect", config.name);
+    }
+    api::mcp_servers::disconnect(&ctx.trpc, &config.id)?;
+    println!("Disconnected {}: your credential for it is deleted.", config.name);
     Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use api::mcp_servers::McpServerConfig;
 
-    fn config(id: &str, name: &str) -> McpServerConfig {
-        McpServerConfig {
-            id: id.into(),
-            name: name.into(),
-            ..Default::default()
+    fn server(id: &str, name: &str, team: &str) -> TeamServer {
+        TeamServer {
+            team: team.into(),
+            team_slug: team.to_lowercase(),
+            entry: McpServerListEntry {
+                config: McpServerConfig {
+                    id: id.into(),
+                    name: name.into(),
+                    auth: "oauth".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
         }
     }
 
     #[test]
     fn find_server_matches_id_then_name_case_insensitively() {
-        let configs = vec![config("11111111", "Linear"), config("22222222", "Sentry")];
-        assert_eq!(find_server(&configs, "linear").unwrap().id, "11111111");
-        assert_eq!(find_server(&configs, "22222222").unwrap().name, "Sentry");
-        let missing = find_server(&configs, "notion").unwrap_err().to_string();
+        let servers = vec![server("11111111", "Linear", "Acme"), server("22222222", "Sentry", "Acme")];
+        assert_eq!(find_server(&servers, "linear").unwrap().entry.config.id, "11111111");
+        assert_eq!(find_server(&servers, "22222222").unwrap().entry.config.name, "Sentry");
+        let missing = find_server(&servers, "notion").unwrap_err().to_string();
         assert!(missing.contains("Known servers"), "{missing}");
         assert!(missing.contains("Linear (11111111)"));
         // Same name on two teams: the id disambiguates.
-        let twice = vec![config("a", "Docs"), config("b", "Docs")];
+        let twice = vec![server("a", "Docs", "Acme"), server("b", "Docs", "Beta")];
         assert!(find_server(&twice, "docs").unwrap_err().to_string().contains("several teams"));
-        assert_eq!(find_server(&twice, "b").unwrap().id, "b");
+        assert_eq!(find_server(&twice, "b").unwrap().entry.config.id, "b");
     }
 
     #[test]
-    fn readiness_cells_read_like_the_web_matrix() {
-        assert_eq!(readiness_cell(None), "-");
+    fn connection_cells_and_next_steps_read_like_the_settings_pane() {
+        let connection = |status: &str| McpConnection {
+            status: status.into(),
+            expires_at: None,
+            error: None,
+        };
+        assert_eq!(connection_cell(&connection("not_needed")), "no sign-in needed");
+        assert_eq!(connection_cell(&connection("connected")), "connected");
         assert_eq!(
-            readiness_cell(Some(&McpReadinessReport {
-                server_id: "s".into(),
-                ready: true,
+            connection_cell(&McpConnection {
+                status: "connected".into(),
                 expires_at: Some("2026-09-09T10:00:00.000Z".into()),
                 error: None,
-            })),
-            "ready (until 2026-09-09T10:00:00.000Z)"
+            }),
+            "connected (token until 2026-09-09T10:00:00.000Z)"
         );
+        assert_eq!(connection_cell(&connection("not_connected")), "not connected");
+        assert_eq!(connection_cell(&connection("expired")), "EXPIRED: connect again");
         assert_eq!(
-            readiness_cell(Some(&McpReadinessReport {
-                server_id: "s".into(),
-                ready: false,
+            connection_cell(&McpConnection {
+                status: "error".into(),
                 expires_at: None,
-                error: Some("not signed in on this machine".into()),
-            })),
-            "NOT READY: not signed in on this machine"
+                error: Some("invalid_grant".into()),
+            }),
+            "ERROR: invalid_grant"
         );
+
+        let mut linear = server("s", "Linear", "Acme");
+        assert_eq!(next_step(&linear).as_deref(), Some("exponential mcp connect Linear"));
+        linear.entry.connection = connection("connected");
+        assert_eq!(next_step(&linear), None);
+        let mut sentry = server("k", "Sentry", "Acme");
+        sentry.entry.config.auth = "secret".into();
+        assert_eq!(next_step(&sentry).as_deref(), Some("exponential mcp set-secret Sentry"));
     }
 }

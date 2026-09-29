@@ -98,9 +98,6 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   device without it.
 /// - `acp` (EXP-746) — this build speaks the ACP engine and steering v2:
 ///   `set_config`/`set_mode` frames, `config_state`/`usage` kinds.
-/// - `mcp` (EXP-792) — this build runs `mcp_oauth_start`/`mcp_oauth_code`
-///   and reports per-server MCP readiness on the heartbeat; the server
-///   refuses `beginOAuth` against a device without it.
 /// - `agent-usage-refresh` (EXP-792) — this build runs
 ///   `agent_usage_refresh` (a forced usage re-read, 429 floor kept).
 /// - `update-now` (FEED-36) — this build runs `update_now`: ends every live
@@ -128,8 +125,8 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   as a kill of a possibly-live child.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 9 = 22.
-pub const DEVICE_CAPS: [&str; 13] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 12 + 9 = 21.
+pub const DEVICE_CAPS: [&str; 12] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -138,7 +135,6 @@ pub const DEVICE_CAPS: [&str; 13] = [
     "acp",
     ACCOUNT_SWITCH_CAP,
     ACCOUNT_REMOVE_CAP,
-    "mcp",
     "agent-usage-refresh",
     "update-now",
     STACKED_START_CAP,
@@ -1557,19 +1553,18 @@ mod tests {
         assert!(signed_out.contains(&ACCOUNT_REMOVE_CAP.to_string()));
     }
 
-    /// EXP-792: running `mcp_oauth_*` and a forced usage refresh are
-    /// properties of the BINARY — build caps, advertised while signed out,
-    /// and the whole list stays under `capsInput`'s ceiling of 24.
+    /// EXP-792: a forced usage refresh is a property of the BINARY — a
+    /// build cap, advertised while signed out, and the whole list stays
+    /// under `capsInput`'s ceiling of 24. The retired `mcp` cap (device-run
+    /// MCP OAuth) is gone: the server holds MCP credentials now.
     #[test]
-    fn device_caps_include_mcp_and_usage_refresh_under_the_ceiling() {
-        assert!(DEVICE_CAPS.contains(&"mcp"));
+    fn device_caps_include_usage_refresh_under_the_ceiling() {
+        assert!(!DEVICE_CAPS.contains(&"mcp"));
         assert!(DEVICE_CAPS.contains(&"agent-usage-refresh"));
         // FEED-36: the web's "Update now" shows only for a build that runs it.
         assert!(DEVICE_CAPS.contains(&"update-now"));
         assert!(!ACTION_CAPS.contains(&"update-now"));
-        assert!(!ACTION_CAPS.contains(&"mcp"));
         let signed_out = device_caps(&advert(&[]));
-        assert!(signed_out.contains(&"mcp".to_string()));
         assert!(signed_out.contains(&"agent-usage-refresh".to_string()));
         assert!(device_caps(&advert(&["claude"])).len() <= 24);
     }

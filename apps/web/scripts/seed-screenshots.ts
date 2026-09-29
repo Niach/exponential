@@ -31,6 +31,7 @@
  */
 import { eq, inArray, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
+import { storeOauthTokens } from "@/lib/mcp-oauth/credentials"
 import {
   accounts,
   actions,
@@ -39,7 +40,6 @@ import {
   automations,
   codingSessions,
   comments,
-  deviceMcpServers,
   devices,
   issueDrafts,
   issueEvents,
@@ -1298,7 +1298,7 @@ async function main() {
   // desktop row is seeded below (EXP-1008) and kept fresh by
   // screenshots:desktop, whose heartbeat upsert owns its liveness, version,
   // default-machine flag and agent report.
-  const [serverDevice] = await db.insert(devices).values({
+  await db.insert(devices).values({
     userId: jonas,
     deviceId: DEMO_SERVER_DEVICE_ID,
     label: `Acme build server`,
@@ -1310,14 +1310,14 @@ async function main() {
     sharedTeamIds: [ws.id],
     lastSeenAt: hoursAgo(5),
     createdAt: daysAgo(45),
-  }).returning({ id: devices.id })
+  })
 
   // EXP-1008: the demo user's own desktop, seeded rather than left to the
-  // relay stub, so its per-device MCP servers can hang off the row uuid. The
+  // relay stub, so it exists (with its label) before the first beat. The
   // stub's heartbeat upserts on the same (user_id, device_id) and only
   // refreshes the liveness + report columns, so nothing here is overwritten
   // that the captures rely on. Offline until the stub beats (the 90s window).
-  const [demoDevice] = await db.insert(devices).values({
+  await db.insert(devices).values({
     userId: demoId,
     deviceId: DEMO_DEVICE_ID,
     label: DEMO_DEVICE_LABEL,
@@ -1346,72 +1346,6 @@ async function main() {
         createdAt: daysAgo(58),
       },
     })
-    .returning({ id: devices.id })
-
-  // EXP-891: the per-DEVICE MCP servers (`device_mcp_servers`, reported from
-  // `{data_dir}/mcp/device-servers.json`), so Settings → MCP servers renders
-  // its "On your devices" group instead of the empty hint. The demo desktop
-  // carries one of each state (detected from the agent's config, typed by
-  // hand, typed and switched off); Jonas' shared server one detected row, so
-  // the group shows a teammate's machine too.
-  await db.insert(deviceMcpServers).values([
-    {
-      deviceRowId: demoDevice.id,
-      deviceId: DEMO_DEVICE_ID,
-      userId: demoId,
-      name: `github`,
-      transport: `stdio`,
-      command: `npx`,
-      args: [`-y`, `@modelcontextprotocol/server-github`],
-      source: `detected`,
-      agent: `claude`,
-      enabled: true,
-      createdAt: daysAgo(30),
-      updatedAt: daysAgo(30),
-    },
-    {
-      deviceRowId: demoDevice.id,
-      deviceId: DEMO_DEVICE_ID,
-      userId: demoId,
-      name: `playwright`,
-      transport: `http`,
-      url: `http://localhost:8931/mcp`,
-      source: `manual`,
-      enabled: true,
-      createdAt: daysAgo(12),
-      updatedAt: daysAgo(12),
-    },
-    {
-      deviceRowId: demoDevice.id,
-      deviceId: DEMO_DEVICE_ID,
-      userId: demoId,
-      name: `filesystem`,
-      transport: `stdio`,
-      command: `npx`,
-      args: [
-        `-y`,
-        `@modelcontextprotocol/server-filesystem`,
-        `/Users/demo/Documents`,
-      ],
-      source: `manual`,
-      enabled: false,
-      createdAt: daysAgo(20),
-      updatedAt: daysAgo(6),
-    },
-    {
-      deviceRowId: serverDevice.id,
-      deviceId: DEMO_SERVER_DEVICE_ID,
-      userId: jonas,
-      name: `linear`,
-      transport: `http`,
-      url: `https://mcp.linear.app/mcp`,
-      source: `detected`,
-      agent: `codex`,
-      enabled: true,
-      createdAt: daysAgo(40),
-      updatedAt: daysAgo(40),
-    },
-  ])
 
   // Helpdesk tickets for the support-inbox screenshot (server-only tRPC —
   // no Electric shape involved). A trailing inbound message marks the
@@ -1552,45 +1486,67 @@ async function main() {
     )
   }
 
-  // MCP servers (EXP-792) for the `settings-mcp-servers` view — without rows
-  // all three shots are the "No MCP servers yet." empty state, while the
-  // catalog blurb promises names, transport, the variable names a machine must
-  // supply and the per-device readiness strip (EXP-812). One of each transport,
-  // and both with an `auth` other than `none`, because the readiness strip only
-  // renders for a server that needs a credential. The readiness ROWS are
-  // device-reported and belong to the machine, so the relay stub writes them
-  // next to the device row it registers (scripts/screenshot-desktop.ts).
-  await db.insert(mcpServers).values([
-    {
-      teamId: ws.id,
-      name: `Sentry`,
-      transport: `http`,
-      url: `https://mcp.sentry.dev/mcp`,
-      headerNames: [`Authorization`],
-      auth: `oauth`,
-      // Off by default on purpose: a default-on server that needs an OAuth
-      // login the CAPTURE machine never has would put "MCP server Sentry:
-      // not signed in on this machine" under every desktop composer shot
-      // and dim its Start button (the desktop app on the capture Mac is a
-      // registered device and the composer prefers it).
-      enabledByDefault: false,
-      createdById: demoId,
-      createdAt: daysAgo(24),
-      updatedAt: daysAgo(24),
+  // MCP servers (EXP-792) for the `settings-mcp-servers` view — one row per
+  // state the page draws: Linear (OAuth) CONNECTED for the demo user (a
+  // server-held credential, stored the way the OAuth callback stores one, so
+  // the row reads "Connected" and "1 of N connected"), Sentry (OAuth) not
+  // connected (its row offers Connect, and the launch picker greys it
+  // "Connect first"), and a sign-in-free docs server ("No sign-in needed").
+  // Sentry stays off by default so no composer shot preselects it.
+  const [linearServer] = await db
+    .insert(mcpServers)
+    .values([
+      {
+        teamId: ws.id,
+        name: `linear`,
+        transport: `http`,
+        url: `https://mcp.linear.app/mcp`,
+        auth: `oauth`,
+        enabledByDefault: true,
+        createdById: demoId,
+        createdAt: daysAgo(24),
+        updatedAt: daysAgo(24),
+      },
+      {
+        teamId: ws.id,
+        name: `sentry`,
+        transport: `http`,
+        url: `https://mcp.sentry.dev/mcp`,
+        auth: `oauth`,
+        enabledByDefault: false,
+        createdById: demoId,
+        createdAt: daysAgo(18),
+        updatedAt: daysAgo(18),
+      },
+      {
+        teamId: ws.id,
+        name: `acme-docs`,
+        transport: `http`,
+        url: `https://docs.acme.dev/mcp`,
+        auth: `none`,
+        enabledByDefault: true,
+        createdById: demoId,
+        createdAt: daysAgo(11),
+        updatedAt: daysAgo(11),
+      },
+    ])
+    .returning({ id: mcpServers.id })
+  // A placeholder token set: never valid anywhere, it only makes the row
+  // read as connected (a refresh token + no expiry = "connected").
+  await storeOauthTokens(db, {
+    serverId: linearServer!.id,
+    userId: demoId,
+    teamId: ws.id,
+    issuer: `https://mcp.linear.app`,
+    clientId: `exp-screenshot-seed`,
+    tokenEndpoint: `https://mcp.linear.app/token`,
+    tokens: {
+      accessToken: `seed-access-token`,
+      refreshToken: `seed-refresh-token`,
+      tokenType: `Bearer`,
+      expiresAt: null,
     },
-    {
-      teamId: ws.id,
-      name: `Postgres (staging)`,
-      transport: `stdio`,
-      command: `npx`,
-      args: [`-y`, `@modelcontextprotocol/server-postgres`],
-      envNames: [`PGHOST`, `PGPASSWORD`],
-      auth: `secret`,
-      createdById: demoId,
-      createdAt: daysAgo(11),
-      updatedAt: daysAgo(11),
-    },
-  ])
+  })
 
   // Embeddable widget configs for the `settings-widget` view ("No widgets
   // yet." without them). One full config — both modes, a domain allowlist, two
@@ -1686,7 +1642,7 @@ Seeded screenshot demo data:
   actions     ${actionRows.length} saved team actions
   automations ${automationRows.length} (2 scheduled + 1 event, 1 disabled) + 2 automated runs
   storage     ${seedAttachments.length} attachments (1 unreferenced image to sweep)
-  mcp         2 team MCP servers (http + stdio; the desktop reports readiness) + 4 device MCP servers (3 on the demo desktop, 1 on the shared server)
+  mcp         3 team MCP servers: linear (OAuth, connected for the demo user), sentry (OAuth, not connected), acme-docs (no sign-in)
   widgets     2 widget configs (feedback+support, support-only)
   api keys    2 personal keys
   support     ${seedThreads.length} helpdesk threads

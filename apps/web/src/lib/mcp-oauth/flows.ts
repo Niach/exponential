@@ -1,271 +1,173 @@
-// EXP-792: the server side of a web-initiated, device-executed MCP OAuth
-// sign-in. The server never holds a credential: it mints the `state`, queues
-// the `mcp_oauth_start` command, relays the authorization code back to the
-// device as `mcp_oauth_code` (the PKCE verifier lives on the device, so the
-// code alone is useless here) and records the outcome on the flow row plus
-// the per-device readiness matrix. Shared by the `mcpServers` router, the
-// `devices.completeCommand` hook and the anonymous callback route — so this
-// module imports NO router (devices.ts imports it).
+// EXP-792: one member's MCP OAuth sign-in, run by the SERVER. `beginFlow`
+// (mcpServers.connect) discovers the provider, picks the client, mints
+// `state` + a PKCE pair (the verifier stored ENCRYPTED on the flow row) and
+// returns the authorize URL; the anonymous hosted callback (callback.ts)
+// matches the state, `completeFlow` exchanges the code and upserts the
+// member's `mcp_credentials` row. Shared by the router and the callback, so
+// this module imports NO router.
 import { randomBytes } from "node:crypto"
-import { and, eq, inArray } from "drizzle-orm"
-import type { Context } from "@/lib/trpc"
-import { mcpOauthFlows, mcpServerReadiness } from "@/db/schema"
+import { and, eq, lt } from "drizzle-orm"
+import { mcpOauthFlows, type McpOauthFlow, type McpServer } from "@/db/schema"
 import { appBaseUrl } from "@/lib/notification-email-policy"
+import { hostedCallbackUrl } from "@/lib/mcp-oauth/urls"
+import { decryptSecret, encryptSecret, flowVerifierAad } from "@/lib/mcp-oauth/crypto"
+import {
+  assertEndpointUrl,
+  authorizeUrl,
+  chooseClient,
+  clientForRefresh,
+  discover,
+  exchangeCode,
+  generatePkce,
+  scopeFor,
+  type Db,
+} from "@/lib/mcp-oauth/oauth-client"
+import { storeOauthTokens } from "@/lib/mcp-oauth/credentials"
 
-export type Db = Context[`db`]
+export type { Db }
+export {
+  hostedCallbackUrl,
+  isPublicHttpsBase,
+  returnUrl,
+  safeReturnTo,
+} from "@/lib/mcp-oauth/urls"
 
-/** A flow that has not finished within this window reads as failed
- * (`expired`); the callback refuses its state and beginOAuth mints a new one. */
+/** A flow not finished within this window is refused by the callback. */
 export const MCP_OAUTH_FLOW_TTL_MS = 10 * 60_000
 
-export const MCP_OAUTH_FLOW_STATUSES = [
-  `pending`,
-  `authorize_url`,
-  `code_relayed`,
-  `done`,
-  `failed`,
-] as const
+export const MCP_OAUTH_FLOW_STATUSES = [`pending`, `done`, `failed`] as const
 export type McpOauthFlowStatus = (typeof MCP_OAUTH_FLOW_STATUSES)[number]
 
-/** The statuses a flow may still move out of. */
-export const MCP_OAUTH_FLOW_LIVE_STATUSES = [
-  `pending`,
-  `authorize_url`,
-  `code_relayed`,
-] as const
-
-export type McpOauthRedirect = `hosted` | `loopback`
-
-/** 32 random bytes, base64url — the one value both the callback and the
- * device key the flow on. */
+/** 32 random bytes, base64url — the one value the callback keys on. */
 export function newFlowState(): string {
   return randomBytes(32).toString(`base64url`)
-}
-
-export function flowIsTerminal(status: string): boolean {
-  return status === `done` || status === `failed`
 }
 
 export function flowIsExpired(createdAt: Date, now = new Date()): boolean {
   return now.getTime() - createdAt.getTime() >= MCP_OAUTH_FLOW_TTL_MS
 }
 
-/** The callback accepts a state only while the device may still be waiting
- * for a code: not yet relayed, not finished, inside the TTL. */
+/** The callback accepts a state only once, while pending, inside the TTL. */
 export function flowAcceptsCode(
   flow: { status: string; createdAt: Date },
   now = new Date()
 ): boolean {
-  return (
-    (flow.status === `pending` || flow.status === `authorize_url`) &&
-    !flowIsExpired(flow.createdAt, now)
-  )
+  return flow.status === `pending` && !flowIsExpired(flow.createdAt, now)
 }
 
-/** beginOAuth reuses an in-flight flow instead of queueing a second
- * `mcp_oauth_start` at the device. */
-export function flowIsPending(
-  flow: { status: string; createdAt: Date },
-  now = new Date()
-): boolean {
-  return !flowIsTerminal(flow.status) && !flowIsExpired(flow.createdAt, now)
-}
-
-const PRIVATE_HOST =
-  /^(localhost|.*\.localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|\[::1\]|\[fc[0-9a-f]{2}:.*\]|\[fd[0-9a-f]{2}:.*\])$/i
-
-/** Whether an OAuth provider on the public internet can redirect back to
- * this instance: https and a routable host. A LAN self-host or a dev box
- * fails this, and the device's own loopback listener takes the code instead. */
-export function isPublicHttpsBase(base: string): boolean {
-  let url: URL
-  try {
-    url = new URL(base)
-  } catch {
-    return false
-  }
-  if (url.protocol !== `https:`) return false
-  return !PRIVATE_HOST.test(url.hostname) && !PRIVATE_HOST.test(url.host)
-}
-
-export function defaultRedirect(base = appBaseUrl()): McpOauthRedirect {
-  return isPublicHttpsBase(base) ? `hosted` : `loopback`
-}
-
-export function hostedCallbackUrl(base = appBaseUrl()): string {
-  return `${base.replace(/\/$/, ``)}/api/mcp-oauth/callback`
-}
-
-/** The `redirectUri` an `mcp_oauth_start` payload carries: the hosted
- * callback, or the literal `loopback` (the device binds 127.0.0.1 itself). */
-export function redirectUriFor(redirect: McpOauthRedirect): string {
-  return redirect === `hosted` ? hostedCallbackUrl() : `loopback`
-}
-
-/** ISO-normalize a device-reported expiry; junk degrades to null (the UI
- * treats an unknown expiry as "no warning", never as expired). */
-export function expiresAtOrNull(value: unknown): Date | null {
-  if (typeof value !== `string` || value.length === 0) return null
-  const at = new Date(value)
-  return Number.isNaN(at.getTime()) ? null : at
-}
-
-export interface ReadinessUpsert {
-  serverId: string
-  deviceRowId: string
-  userId: string
-  ready: boolean
-  expiresAt?: Date | null
-  error?: string | null
-}
-
-/** One (server, device) readiness row, replaced wholesale — `error` and
- * `expiresAt` are the report's, not merged with the previous row's. */
-export async function upsertReadiness(
+/** Discover + choose the client + mint the flow row; returns the authorize
+ * URL the member's browser opens. Errors throw McpOauthError / McpHttpError
+ * with a sentence safe to show. */
+export async function beginFlow(
   db: Db,
-  entry: ReadinessUpsert,
-  now = new Date()
-): Promise<void> {
-  const values = {
-    serverId: entry.serverId,
-    deviceRowId: entry.deviceRowId,
-    userId: entry.userId,
-    ready: entry.ready,
-    expiresAt: entry.expiresAt ?? null,
-    error: entry.error ?? null,
-    checkedAt: now,
+  args: {
+    server: McpServer
+    userId: string
+    returnTo: string | null
+    appBase?: string
   }
+): Promise<{ authorizeUrl: string; flowId: string }> {
+  const base = args.appBase ?? appBaseUrl()
+  const resource = args.server.url!
+  const redirectUri = hostedCallbackUrl(base)
+  const discovery = await discover(resource)
+  // discover() already refuses non-https endpoints; re-check the one the
+  // member's browser will navigate to before anything is stored.
+  assertEndpointUrl(discovery.authorizationEndpoint, resource, `authorization endpoint`)
+  const client = await chooseClient(db, discovery, base, redirectUri)
+  const pkce = generatePkce()
+  const state = newFlowState()
+  // The caller's flows past the TTL are dead either way; drop them here so
+  // the table holds only live sign-ins (no sweep needed).
   await db
-    .insert(mcpServerReadiness)
-    .values(values)
-    .onConflictDoUpdate({
-      target: [mcpServerReadiness.serverId, mcpServerReadiness.deviceRowId],
-      set: {
-        userId: values.userId,
-        ready: values.ready,
-        expiresAt: values.expiresAt,
-        error: values.error,
-        checkedAt: now,
-        updatedAt: now,
-      },
+    .delete(mcpOauthFlows)
+    .where(
+      and(
+        eq(mcpOauthFlows.userId, args.userId),
+        lt(mcpOauthFlows.createdAt, new Date(Date.now() - MCP_OAUTH_FLOW_TTL_MS))
+      )
+    )
+  const url = authorizeUrl({
+    authorizationEndpoint: discovery.authorizationEndpoint,
+    clientId: client.clientId,
+    redirectUri,
+    codeChallenge: pkce.challenge,
+    state,
+    scope: scopeFor(args.server.scopes, discovery),
+    resource,
+  })
+  const [flow] = await db
+    .insert(mcpOauthFlows)
+    .values({
+      state,
+      userId: args.userId,
+      teamId: args.server.teamId,
+      serverId: args.server.id,
+      codeVerifierCiphertext: encryptSecret(pkce.verifier, flowVerifierAad(state)),
+      clientId: client.clientId,
+      issuer: discovery.issuer,
+      tokenEndpoint: discovery.tokenEndpoint,
+      resource,
+      redirectUri,
+      returnTo: args.returnTo,
+      status: `pending`,
     })
+    .returning({ id: mcpOauthFlows.id })
+  return { flowId: flow!.id, authorizeUrl: url }
 }
 
-/** Terminal transition for a flow row. Only live rows move, so a duplicate
- * completion (heartbeat redelivery racing the first, or finishOAuth after
- * the code command already closed it) is a no-op. */
-export async function finishFlow(
+/** Claim a pending flow for this callback: the ONE transition out of
+ * `pending` (a redelivered redirect finds it gone). Returns false when
+ * another request won. */
+export async function claimFlow(
   db: Db,
   flowId: string,
   outcome: { ok: true } | { ok: false; error: string },
   now = new Date()
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const moved = await db
     .update(mcpOauthFlows)
     .set({
       status: outcome.ok ? `done` : `failed`,
       error: outcome.ok ? null : outcome.error.slice(0, 500),
       completedAt: now,
     })
-    .where(
-      and(
-        eq(mcpOauthFlows.id, flowId),
-        inArray(mcpOauthFlows.status, [...MCP_OAUTH_FLOW_LIVE_STATUSES])
-      )
-    )
+    .where(and(eq(mcpOauthFlows.id, flowId), eq(mcpOauthFlows.status, `pending`)))
+    .returning({ id: mcpOauthFlows.id })
+  return moved.length > 0
 }
 
-/** Parse the device's JSON `message` on a command completion defensively:
- * an older build, or a bare error string, must never throw here. */
-export function parseCompletionMessage(
-  message: string | undefined
-): Record<string, unknown> | null {
-  if (!message) return null
-  try {
-    const parsed: unknown = JSON.parse(message)
-    return parsed && typeof parsed === `object` && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
-}
-
-/** The `devices.completeCommand` hook for the two OAuth command kinds.
- * `mcp_oauth_start`: ok + `{phase:"authorize", url}` → the flow shows the
- * authorize URL (the web opens it); ok without a usable URL or ok=false →
- * failed. `mcp_oauth_code`: ok → done + readiness ready (expiresAt from
- * `{phase:"done", expiresAt}`); ok=false → failed + readiness not ready with
- * the device's reason. The flow is located by `payload.state`; an unknown
- * state (flow purged, foreign payload) is a no-op. */
-export async function applyMcpOauthCommandCompletion(
+/** Exchange `code` for the claimed flow and store the member's tokens.
+ * Throws McpOauthError on a refused exchange. */
+export async function completeFlow(
   db: Db,
-  command: {
-    kind: string
-    payload: Record<string, string>
-    ok: boolean
-    message?: string
-  },
+  flow: McpOauthFlow,
+  code: string,
   now = new Date()
 ): Promise<void> {
-  if (command.kind !== `mcp_oauth_start` && command.kind !== `mcp_oauth_code`) {
-    return
-  }
-  const state = command.payload?.state
-  if (!state) return
-  const [flow] = await db
-    .select({
-      id: mcpOauthFlows.id,
-      status: mcpOauthFlows.status,
-      serverId: mcpOauthFlows.serverId,
-      deviceRowId: mcpOauthFlows.deviceRowId,
-      userId: mcpOauthFlows.userId,
-    })
-    .from(mcpOauthFlows)
-    .where(eq(mcpOauthFlows.state, state))
-    .limit(1)
-  if (!flow || flowIsTerminal(flow.status)) return
-
-  const body = parseCompletionMessage(command.message)
-  if (command.kind === `mcp_oauth_start`) {
-    const url = typeof body?.url === `string` ? body.url : ``
-    if (command.ok && body?.phase === `authorize` && /^https?:\/\//.test(url)) {
-      await db
-        .update(mcpOauthFlows)
-        .set({ status: `authorize_url`, authorizeUrl: url.slice(0, 8192) })
-        .where(and(eq(mcpOauthFlows.id, flow.id), eq(mcpOauthFlows.status, `pending`)))
-      return
-    }
-    await finishFlow(
-      db,
-      flow.id,
-      {
-        ok: false,
-        error: command.ok
-          ? `device returned no authorize url`
-          : command.message || `device refused the sign-in`,
-      },
-      now
-    )
-    return
-  }
-
-  // mcp_oauth_code
-  const readiness = {
-    serverId: flow.serverId,
-    deviceRowId: flow.deviceRowId,
-    userId: flow.userId,
-  }
-  if (command.ok) {
-    await finishFlow(db, flow.id, { ok: true }, now)
-    await upsertReadiness(
-      db,
-      { ...readiness, ready: true, expiresAt: expiresAtOrNull(body?.expiresAt) },
-      now
-    )
-    return
-  }
-  const error = (command.message || `token exchange failed`).slice(0, 500)
-  await finishFlow(db, flow.id, { ok: false, error }, now)
-  await upsertReadiness(db, { ...readiness, ready: false, error }, now)
+  const verifier = decryptSecret(flow.codeVerifierCiphertext, flowVerifierAad(flow.state))
+  if (!verifier) throw new Error(`the sign-in expired`)
+  const client = await clientForRefresh(db, flow.issuer, flow.clientId, flow.redirectUri)
+  const tokens = await exchangeCode({
+    tokenEndpoint: flow.tokenEndpoint,
+    client,
+    code,
+    redirectUri: flow.redirectUri,
+    codeVerifier: verifier,
+    resource: flow.resource,
+    now,
+  })
+  await storeOauthTokens(
+    db,
+    {
+      serverId: flow.serverId,
+      userId: flow.userId,
+      teamId: flow.teamId,
+      issuer: flow.issuer,
+      clientId: flow.clientId,
+      tokenEndpoint: flow.tokenEndpoint,
+      tokens,
+    },
+    now
+  )
 }

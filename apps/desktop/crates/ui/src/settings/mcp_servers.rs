@@ -1,38 +1,22 @@
 //! Settings → MCP servers (EXP-792, desktop half EXP-807).
 //!
 //! Web parity: `components/team/mcp-servers-section.tsx`. The team's MCP
-//! server registry is NON-SECRET config only (name, transport, url or
-//! command, the header/env NAMES a machine must supply, scopes, the auth
-//! kind) plus a per-device readiness matrix; every CREDENTIAL lives in this
-//! machine's 0600 secret store and never reaches the server, this pane, or a
-//! log.
+//! server registry lives in Exponential, and so do the credentials: each
+//! member connects ONCE (an OAuth sign-in the instance runs, or a typed API
+//! key it stores encrypted) and every device, remote start and automation
+//! uses it. This machine holds none and runs no OAuth; the launcher asks the
+//! server for a run's values at spawn (`coding::mcp_servers`).
 //!
-//! What the desktop owes that the web cannot give: the machine is HERE. A
-//! `secret` value and an OAuth sign-in are typed/completed ON the device, so
-//! the web's own copy sends people to "Settings › MCP servers in the desktop
-//! app" ([`secretSetupHint`](../../../../../web/src/lib/mcp-servers.ts)) —
-//! this is that page. The device actions run locally
-//! ([`coding::mcp_servers`]): a loopback OAuth sign-in, its paste fallback for
-//! a provider that refuses a loopback redirect, the typed secret, and
-//! "Forget on this machine". Each one reports readiness straight after
-//! ([`coding::mcp_servers::report_now`]) so the web's matrix flips without
-//! waiting for the next heartbeat.
-//!
-//! AUTHORING is here too since EXP-810: "Add server" and a row's "Edit" open
-//! [`super::mcp_server_dialog`], the web `McpServerDialog`'s twin over the
-//! same `mcpServers.create` / `update`. It is a dialog WINDOW rather than an
-//! alert because the form re-renders on its own state (the transport swaps
-//! URL for Command, the auth kind adds Scopes, the switch has to move) — the
-//! reason the desktop half of EXP-792 shipped read-only. Owner-only, like the
-//! destructive half; "Manage on the web" stays for everything a settings page
-//! shows that a pane does not.
+//! One list: per server the person's own connection and ONE action —
+//! Connect (the web settings page's connect in the signed-in system browser,
+//! then a 2 s poll of `mcpServers.list` until it reads connected), Set key, or a "Connected"
+//! menu with Test / Replace key / Disconnect. Owners add, edit and remove
+//! servers through [`super::mcp_server_dialog`] (EXP-810).
 //!
 //! `mcp_servers` is server-only (never an Electric shape), so this is a
-//! fetch-on-open tRPC read like the widget pane's — with THIS machine's
-//! readiness computed alongside it from the local store rather than read back
-//! off the server, which would only ever be a heartbeat stale.
+//! fetch-on-open tRPC read like the widget pane's.
 
-use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use gpui::{
     div, prelude::FluentBuilder as _, App, AppContext as _, Entity, FontWeight,
@@ -48,25 +32,26 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 
-use api::mcp_servers::{McpReadinessReport, McpServerConfig, McpServerListEntry};
-use coding::device_mcp_servers::{self, Detected, LocalServer};
-use coding::mcp_servers::LocalLogin;
+use api::mcp_servers::{McpServerConfig, McpServerListEntry};
+use sync::Store;
 
 use crate::controls::{glass_input, WebControl as _};
 use crate::icons::registry;
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
-use crate::session::AuthContext;
-use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
+use crate::surface::{glass_pill, glass_pill_button, glass_pill_button_primary, PillMode, PillSize};
 
 use super::{error_notice, open_url, section, section_description};
 
 /// Web copy, verbatim (the section's own description).
 const MCP_DESCRIPTION: &str =
-    "MCP servers your agents can connect to beside Exponential's own. The team \
-     registry holds configuration only \u{2014} every credential stays on the \
-     machine that runs the agent, and never reaches this server.";
+    "Tools your agents can use in runs. Each member connects their own account.";
+
+/// How often a Connect re-reads the list while the browser is out, and for
+/// how long before it gives up.
+const CONNECT_POLL: Duration = Duration::from_secs(2);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// The transport chip (web `MCP_TRANSPORT_LABELS`).
 fn transport_label(transport: &str) -> &'static str {
@@ -80,214 +65,87 @@ fn transport_label(transport: &str) -> &'static str {
 fn auth_label(auth: &str) -> &'static str {
     match auth {
         "oauth" => "OAuth",
-        "secret" => "Secret",
-        _ => "No auth",
+        "secret" => "API key",
+        _ => "No sign-in",
     }
 }
 
-/// One machine's answer for one server, the shape both sources share: the
-/// LOCAL read ([`McpReadinessReport`]) and a synced row of the server's
-/// matrix ([`api::mcp_servers::McpReadinessRow`]).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Readiness<'a> {
-    pub(crate) ready: bool,
-    pub(crate) expires_at: Option<&'a str>,
-    pub(crate) error: Option<&'a str>,
-}
-
-impl<'a> From<&'a McpReadinessReport> for Readiness<'a> {
-    fn from(entry: &'a McpReadinessReport) -> Self {
-        Self {
-            ready: entry.ready,
-            expires_at: entry.expires_at.as_deref(),
-            error: entry.error.as_deref(),
-        }
-    }
-}
-
-impl<'a> From<&'a api::mcp_servers::McpReadinessRow> for Readiness<'a> {
-    fn from(entry: &'a api::mcp_servers::McpReadinessRow) -> Self {
-        Self {
-            ready: entry.ready,
-            expires_at: entry.expires_at.as_deref(),
-            error: entry.error.as_deref(),
-        }
-    }
-}
-
-/// An OAuth token already past its expiry — the device refreshes on its
-/// heartbeat, so this is only ever a beat late (web `readinessExpired`).
-pub(crate) fn readiness_expired(entry: Readiness<'_>, now: chrono::DateTime<chrono::Utc>) -> bool {
-    let Some(raw) = entry.expires_at else {
-        return false;
+/// The row's second line: where the server lives, then (for a server that
+/// takes a credential) how many members connected — web `ServerRow`'s
+/// `detail`.
+fn row_detail(entry: &McpServerListEntry) -> String {
+    let config = &entry.config;
+    let target = if config.is_http() {
+        config.url.clone().unwrap_or_default()
+    } else {
+        let mut parts = vec![config.command.clone().unwrap_or_default()];
+        parts.extend(config.args.iter().cloned());
+        parts.join(" ").trim().to_string()
     };
-    match chrono::DateTime::parse_from_rfc3339(raw) {
-        Ok(at) => at.with_timezone(&chrono::Utc) <= now,
-        Err(_) => false,
+    let mut detail = vec![target].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>();
+    if config.auth != "none" {
+        detail.push(format!("{} of {} connected", entry.connected_count, entry.member_count));
+    }
+    detail.join(" · ")
+}
+
+/// What the row's one action is, from the person's own connection (web
+/// `ConnectionAction`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RowAction {
+    /// `none` auth: nothing to do.
+    NotNeeded,
+    /// Connected: the menu (Test / Replace key / Disconnect).
+    Connected,
+    /// Expired or a failed refresh: Reconnect (the reason in the tooltip).
+    Reconnect,
+    /// Not connected: Connect (OAuth) or Set key (secret).
+    Connect,
+}
+
+fn row_action(entry: &McpServerListEntry) -> RowAction {
+    match entry.connection.status.as_str() {
+        "not_needed" => RowAction::NotNeeded,
+        "connected" => RowAction::Connected,
+        "expired" | "error" => RowAction::Reconnect,
+        _ if entry.config.auth == "none" => RowAction::NotNeeded,
+        _ => RowAction::Connect,
     }
 }
 
-/// Is `auth` satisfied on the machine `entry` came from? (web `serverReadyOn`
-/// — a `none` server needs nothing, so every machine is ready for it.)
-pub(crate) fn ready_on(
-    auth: &str,
-    entry: Option<Readiness<'_>>,
-    now: chrono::DateTime<chrono::Utc>,
-) -> bool {
-    if auth == "none" {
-        return true;
-    }
-    match entry {
-        Some(entry) => entry.ready && !readiness_expired(entry, now),
-        None => false,
-    }
-}
-
-/// `Ready`, `Signed in until 14:05`, or the error the machine reported. A
-/// missing report reads as the per-auth "nothing on this machine yet" line.
-/// Web `readinessLabel`, string for string.
-pub(crate) fn readiness_label(
-    auth: &str,
-    entry: Option<Readiness<'_>>,
-    now: chrono::DateTime<chrono::Utc>,
-) -> String {
-    let Some(entry) = entry else {
-        return match auth {
-            "oauth" => "Not signed in".to_string(),
-            "secret" => "Not set".to_string(),
-            _ => "Not checked yet".to_string(),
-        };
-    };
-    if entry.ready {
-        if let Some(raw) = entry.expires_at {
-            if readiness_expired(entry, now) {
-                return "Expired".to_string();
+/// The Reconnect tooltip: the server's reason, else the web's fallback.
+fn reconnect_reason(entry: &McpServerListEntry) -> String {
+    entry
+        .connection
+        .error
+        .clone()
+        .filter(|error| !error.trim().is_empty())
+        .unwrap_or_else(|| {
+            if entry.connection.status == "expired" {
+                "Your sign-in expired.".to_string()
+            } else {
+                "The last refresh failed.".to_string()
             }
-            return format!("Signed in until {}", format_until(raw, now));
-        }
-        return "Ready".to_string();
-    }
-    match entry.error.map(str::trim).filter(|error| !error.is_empty()) {
-        Some(error) => error.to_string(),
-        None if auth == "oauth" => "Not signed in".to_string(),
-        None => "Not set".to_string(),
-    }
+        })
 }
 
-/// `14:05` today, `Tue 14:05` within the week, else `12 Sep` — the web
-/// `formatUntil`, rendered in the machine's LOCAL clock (the person reading
-/// it is sitting at that machine).
-fn format_until(iso: &str, now: chrono::DateTime<chrono::Utc>) -> String {
-    let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(iso) else {
-        return iso.to_string();
-    };
-    use chrono::Local;
-    let at = parsed.with_timezone(&Local);
-    let local_now = now.with_timezone(&Local);
-    let time = at.format("%H:%M").to_string();
-    if at.date_naive() == local_now.date_naive() {
-        return time;
-    }
-    if (at - local_now) < chrono::Duration::days(7) {
-        return format!("{} {time}", at.format("%a"));
-    }
-    at.format("%-d %b").to_string()
-}
-
-/// The ONE declared secret position of an `auth: secret` server — the header
-/// name (http) or env name (stdio) whose value this machine types. `None`
-/// for a server that declares none (the server refuses to store that
-/// combination, but an older row could still carry it).
-fn secret_name(config: &McpServerConfig) -> Option<&str> {
-    config.secret_names().first().map(String::as_str)
-}
-
-/// EXP-810: the one BLOCKING read a local launch surface makes — the team's
-/// servers (`mcpServers.list`, server-only: never a shape) paired with THIS
-/// machine's readiness for them, read straight out of the 0600 store. The
-/// synced matrix carries a row for this machine too, but it is a heartbeat
-/// stale and the person is sitting AT this machine: a sign-in they just did
-/// has to count. Call it on a background executor — both halves are IO.
-pub(crate) fn list_with_local_readiness(
-    trpc: &api::trpc::TrpcClient,
-    team_id: &str,
-    data_dir: &std::path::Path,
-    account_id: &str,
-) -> Result<(Vec<McpServerListEntry>, Vec<McpReadinessReport>), String> {
-    let servers = api::mcp_servers::list(trpc, team_id).map_err(|err| err.user_message())?;
-    let configs: Vec<McpServerConfig> = servers.iter().map(|entry| entry.config.clone()).collect();
-    let local = coding::mcp_servers::readiness(data_dir, account_id, &configs, now_secs());
-    Ok((servers, local))
-}
-
-/// Unix seconds, as the readiness reader takes them.
-pub(crate) fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or(0)
-}
-
-/// This machine's secret-store coordinates. `None` when signed out (the pane
-/// is unreachable then anyway) — the fetch turns that into a notice rather
-/// than an empty list, so nothing spins forever.
-#[derive(Clone)]
-struct DeviceCtx {
-    data_dir: PathBuf,
-    account_id: String,
-    /// The app base the OAuth client-id document (CIMD) is served from.
-    instance_url: String,
-    /// The steer device id readiness is reported under — the `devices`
-    /// `device_id` column, NOT the row uuid.
-    device_id: String,
-}
-
-fn device_ctx(cx: &App) -> Option<DeviceCtx> {
-    let data_dir = cx.try_global::<AuthContext>()?.data_dir.clone();
-    let account = queries::active_account(cx)?;
-    let device_id = steer::persistent_device_id(&data_dir);
-    Some(DeviceCtx {
-        data_dir,
-        account_id: account.id,
-        instance_url: account.instance_url,
-        device_id,
-    })
-}
-
-struct Loaded {
-    servers: Vec<McpServerListEntry>,
-    /// THIS machine's readiness, in `servers` order — a pure local read of
-    /// the 0600 store ([`coding::mcp_servers::readiness`]), never the
-    /// server's (possibly a heartbeat stale) copy of it.
-    local: Vec<McpReadinessReport>,
-    /// EXP-891: this machine's OWN servers (the local store, name order).
-    device_rows: Vec<LocalServer>,
-    /// EXP-891: what the local claude/codex configs list that the store
-    /// does not hold yet — the "Import N detected" offer.
-    importable: Vec<Detected>,
-}
-
-impl Loaded {
-    fn local_for(&self, server_id: &str) -> Option<&McpReadinessReport> {
-        self.local
-            .iter()
-            .find(|entry| entry.server_id == server_id)
+/// The `test` result as a notification line (web `test` toasts).
+fn test_message(name: &str, result: &api::mcp_servers::McpTestResult) -> String {
+    match (result.ok, result.tools) {
+        (true, None) => format!("{name} answered"),
+        (true, Some(1)) => format!("{name} answered with 1 tool"),
+        (true, Some(tools)) => format!("{name} answered with {tools} tools"),
+        (false, _) => match result.error.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+            Some(error) => format!("{name} did not answer: {error}"),
+            None => format!("{name} did not answer"),
+        },
     }
 }
 
 enum Load {
     Idle,
     Loading,
-    Ready(Result<Loaded, String>),
-}
-
-/// A paste-fallback sign-in waiting for the person to bring the redirect URL
-/// back. Held whole (the PKCE verifier and the state live in it) — a second
-/// sign-in on the same row replaces it, and finishing takes it.
-struct PendingPaste {
-    server_id: String,
-    server_name: String,
-    login: LocalLogin,
+    Ready(Result<Vec<McpServerListEntry>, String>),
 }
 
 pub struct McpServersPane {
@@ -297,18 +155,19 @@ pub struct McpServersPane {
     team_id: Option<String>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
-    /// A device action or an owner write in flight — disables the row's
-    /// affordances so a double click cannot start two sign-ins.
+    /// An owner write (remove) in flight.
     busy: bool,
-    pending_paste: Option<PendingPaste>,
-    /// The "Set value" dialog's field. One input reused by every row: only
+    /// The row whose connection action is in flight (test / disconnect /
+    /// set key) — its controls disable, the others stay live.
+    pending: Option<String>,
+    /// The row a Connect is waiting on (the browser is out; the list is
+    /// polled until it reads connected), and that wait's own generation so a
+    /// Cancel or a second Connect retires the old poll.
+    connecting: Option<String>,
+    connect_generation: u64,
+    /// The "Set key" dialog's field. One input reused by every row: only
     /// one dialog is ever open.
     value_input: Entity<InputState>,
-    /// The "Paste redirect URL" dialog's field, same deal.
-    paste_input: Entity<InputState>,
-    /// EXP-891: the "Add server on this machine" dialog's two fields.
-    local_name_input: Entity<InputState>,
-    local_target_input: Entity<InputState>,
     /// EXP-862: the built-in Exponential tools group is COLLAPSED until it is
     /// asked for — 77 rows are a reference list, not the page.
     builtins_expanded: bool,
@@ -322,14 +181,10 @@ impl McpServersPane {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
-        let value_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Paste the value"));
-        let paste_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("http://127.0.0.1:1/callback?code=…")
-        });
-        let local_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("linear"));
-        let local_target_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("https://mcp.linear.app/mcp  or  npx -y @acme/mcp")
+        let value_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Paste the key")
+                .masked(true)
         });
         Self {
             nav,
@@ -337,19 +192,18 @@ impl McpServersPane {
             team_id: None,
             generation: 0,
             busy: false,
-            pending_paste: None,
+            pending: None,
+            connecting: None,
+            connect_generation: 0,
             value_input,
-            paste_input,
-            local_name_input,
-            local_target_input,
             builtins_expanded: false,
             _subscriptions: subscriptions,
         }
     }
 
     /// Server read (`mcpServers.list` is tRPC — `mcp_servers` never syncs),
-    /// so every entry into the section drops the cache: a server added on the
-    /// web through "Manage on the web" has to be here when you come back.
+    /// so every entry into the section drops the cache: a connection made on
+    /// the web or from the CLI has to be here when you come back.
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
         if matches!(self.load, Load::Ready(_)) {
             self.load = Load::Idle;
@@ -369,17 +223,16 @@ impl McpServersPane {
         if self.team_id.as_deref() != Some(team_id) {
             self.team_id = Some(team_id.to_string());
             self.load = Load::Idle;
-            self.pending_paste = None;
+            self.connecting = None;
+            self.pending = None;
         }
         if !matches!(self.load, Load::Idle) {
             return;
         }
-        let (Some(trpc), Some(device)) = (queries::trpc_client(cx), device_ctx(cx)) else {
+        let Some(trpc) = queries::trpc_client(cx) else {
             // Nothing to fetch and nothing to wait for — Idle renders the
             // loading line, so leaving it there would spin forever.
-            self.load = Load::Ready(Err(
-                "Sign in to load this team's MCP servers.".to_string()
-            ));
+            self.load = Load::Ready(Err("Sign in to load this team's MCP servers.".to_string()));
             return;
         };
         let team = team_id.to_string();
@@ -392,29 +245,7 @@ impl McpServersPane {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    // The local half is a pure read of the secret store —
-                    // this is what makes the pane's own machine authoritative
-                    // about itself rather than a heartbeat behind.
-                    let (servers, local) = list_with_local_readiness(
-                        &trpc,
-                        &team,
-                        &device.data_dir,
-                        &device.account_id,
-                    )?;
-                    // EXP-891: the machine's own set + what its agent
-                    // configs list beyond it — file reads, same executor.
-                    let device_rows = device_mcp_servers::load(&device.data_dir);
-                    let detected = device_mcp_servers::detect(&device.data_dir);
-                    let importable = device_mcp_servers::importable(&detected, &device_rows)
-                        .into_iter()
-                        .cloned()
-                        .collect();
-                    Ok(Loaded {
-                        servers,
-                        local,
-                        device_rows,
-                        importable,
-                    })
+                    api::mcp_servers::list(&trpc, &team).map_err(|err| err.user_message())
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -428,259 +259,147 @@ impl McpServersPane {
         .detach();
     }
 
-    // -- device actions -------------------------------------------------------
+    // -- the person's own connection -------------------------------------------
 
-    /// Push this machine's readiness for every server NOW, so the web's
-    /// matrix (and every launch picker keyed on it) flips on the sign-in
-    /// rather than on the next heartbeat. Best-effort: a failure here only
-    /// costs freshness, and the local store already holds the credential.
-    fn report_now(&self, cx: &mut gpui::Context<Self>) {
-        let (Some(trpc), Some(device)) = (queries::trpc_client(cx), device_ctx(cx)) else {
-            return;
-        };
-        cx.background_executor()
-            .spawn(async move {
-                if let Err(err) = coding::mcp_servers::report_now(
-                    &device.data_dir,
-                    &device.account_id,
-                    &trpc,
-                    &device.device_id,
-                ) {
-                    log::debug!("[ui] mcpServers.reportReadiness after a local change: {err}");
-                }
-            })
-            .detach();
-    }
-
-    fn fail(&self, message: String, window: &mut Window, cx: &mut App) {
-        log::warn!("[ui] mcp servers: {message}");
-        window.push_notification(Notification::error(SharedString::from(message)), cx);
-    }
-
-    /// LOOPBACK sign-in: bind a listener, send the browser to the authorize
-    /// URL, then wait for the code.
-    ///
-    /// [`coding::mcp_servers::finish_local_login`] BLOCKS on that listener
-    /// for minutes — it runs on `background_executor` for exactly that
-    /// reason, and running it on the foreground would freeze the window
-    /// while the person is still consenting in their browser.
-    fn sign_in(
+    /// Connect (OAuth): the system browser opens the web settings deep link
+    /// (`api::mcp_servers::connect_page_url`), whose page starts the connect
+    /// in the SIGNED-IN browser — the instance's callback only accepts a code
+    /// when the browser's Exponential session is the member who started the
+    /// flow, so this side never calls `mcpServers.connect` itself. It only
+    /// POLLS the list ([`CONNECT_POLL`], up to [`CONNECT_TIMEOUT`]) until the
+    /// row reads connected. A secret server's "connect" is the key dialog
+    /// instead.
+    fn connect(
         &mut self,
         config: &McpServerConfig,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(device) = device_ctx(cx) else {
+        if config.auth == "secret" {
+            self.open_key_dialog(config, window, cx);
+            return;
+        }
+        if config.auth != "oauth" {
+            return;
+        }
+        let (Some(trpc), Some(team_id)) = (queries::trpc_client(cx), self.team_id.clone()) else {
             return;
         };
-        let config = config.clone();
-        let name = config.name.clone();
-        let login = match coding::mcp_servers::begin_local_login(
-            &device.data_dir,
-            &device.account_id,
-            &device.instance_url,
-            &config,
-            false,
-        ) {
-            Ok(login) => login,
-            Err(err) => {
-                self.fail(format!("Could not start the sign-in to {name}: {err}"), window, cx);
-                return;
-            }
-        };
-        open_url(cx, login.authorize_url.clone());
-        self.busy = true;
-        cx.notify();
         let handle = window.window_handle();
-        let dir = device.data_dir.clone();
-        let account_id = device.account_id.clone();
+        let name = config.name.clone();
+        let row_team = if config.team_id.is_empty() {
+            team_id.clone()
+        } else {
+            config.team_id.clone()
+        };
+        let slug = Store::global(cx)
+            .collections()
+            .teams
+            .read(cx)
+            .get(&row_team)
+            .and_then(|team| team.slug.clone());
+        let page = match (slug, queries::active_account(cx)) {
+            (Some(slug), Some(account)) => {
+                api::mcp_servers::connect_page_url(&account.instance_url, &slug, &config.id)
+            }
+            _ => None,
+        };
+        let Some(page) = page else {
+            let note = Notification::error(SharedString::from(format!(
+                "Could not connect to {name}: open Settings → MCP servers on the web and connect it there."
+            )));
+            window.push_notification(note, cx);
+            return;
+        };
+        let trpc = std::sync::Arc::new(trpc);
+        self.connect_generation += 1;
+        let generation = self.connect_generation;
+        self.connecting = Some(config.id.clone());
+        cx.notify();
+        let server_id = config.id.clone();
+        open_url(cx, page);
         cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    coding::mcp_servers::finish_local_login(&dir, &account_id, login)
-                        .map(|_| ())
-                        .map_err(|err| err.to_string())
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.busy = false;
-                match result {
-                    Ok(()) => {
-                        this.report_now(cx);
-                        this.refetch(cx);
+            let deadline = Instant::now() + CONNECT_TIMEOUT;
+            loop {
+                cx.background_executor().timer(CONNECT_POLL).await;
+                // A Cancel, a second Connect or a team switch retires this
+                // wait (as does the pane going away).
+                let live = this
+                    .update(cx, |this, _| {
+                        this.connect_generation == generation
+                            && this.connecting.as_deref() == Some(server_id.as_str())
+                    })
+                    .unwrap_or(false);
+                if !live {
+                    return;
+                }
+                let listed = cx
+                    .background_executor()
+                    .spawn({
+                        let (trpc, team_id) = (trpc.clone(), team_id.clone());
+                        async move { api::mcp_servers::list(&trpc, &team_id) }
+                    })
+                    .await;
+                let connected = match listed {
+                    Ok(servers) => {
+                        let connected = servers.iter().any(|entry| {
+                            entry.config.id == server_id && entry.connection.status == "connected"
+                        });
+                        let _ = this.update(cx, |this, cx| {
+                            if this.team_id.as_deref() == Some(team_id.as_str()) {
+                                this.load = Load::Ready(Ok(servers));
+                            }
+                            if connected {
+                                this.connecting = None;
+                                let note = Notification::success(SharedString::from(format!(
+                                    "Connected to {name}"
+                                )));
+                                let _ = handle
+                                    .update(cx, |_, window, cx| window.push_notification(note, cx));
+                            }
+                            cx.notify();
+                        });
+                        connected
                     }
                     Err(err) => {
-                        let note = Notification::error(SharedString::from(format!(
-                            "The sign-in to {name} did not complete: {err}"
-                        )));
-                        let _ = handle.update(cx, |_, window, cx| {
-                            window.push_notification(note, cx);
-                        });
+                        log::debug!("[ui] mcpServers.list while connecting {name}: {err}");
+                        false
                     }
+                };
+                if connected {
+                    return;
                 }
-                cx.notify();
-            });
+                if Instant::now() >= deadline {
+                    let _ = this.update(cx, |this, cx| {
+                        if this.connect_generation == generation {
+                            this.connecting = None;
+                        }
+                        let note = Notification::error(SharedString::from(format!(
+                            "{name} is still not connected. Finish the sign-in in your browser, or Connect again."
+                        )));
+                        let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+                        cx.notify();
+                    });
+                    return;
+                }
+            }
         })
         .detach();
     }
 
-    /// The paste fallback (a provider that refuses a loopback redirect): the
-    /// browser lands on an unroutable `127.0.0.1:1` URL and SHOWS it, so the
-    /// person copies that address back here.
-    fn begin_paste_login(
-        &mut self,
-        config: &McpServerConfig,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        // A sign-in already waiting for ITS redirect URL is re-opened, not
-        // restarted: the browser is already on the consent page, and a
-        // second `begin` would mint a new state the pasted URL cannot match
-        // ("that URL belongs to a different sign-in").
-        if let Some(pending) = &self.pending_paste {
-            if pending.server_id == config.id {
-                let name = pending.server_name.clone();
-                self.open_paste_dialog(name, window, cx);
-                return;
-            }
-        }
-        let Some(device) = device_ctx(cx) else {
-            return;
-        };
-        let name = config.name.clone();
-        let login = match coding::mcp_servers::begin_local_login(
-            &device.data_dir,
-            &device.account_id,
-            &device.instance_url,
-            config,
-            true,
-        ) {
-            Ok(login) => login,
-            Err(err) => {
-                self.fail(format!("Could not start the sign-in to {name}: {err}"), window, cx);
-                return;
-            }
-        };
-        open_url(cx, login.authorize_url.clone());
-        self.pending_paste = Some(PendingPaste {
-            server_id: config.id.clone(),
-            server_name: name.clone(),
-            login,
-        });
-        self.open_paste_dialog(name, window, cx);
+    /// Stop waiting on a Connect (the browser tab may still finish it; the
+    /// next refresh would show that).
+    fn cancel_connect(&mut self, cx: &mut gpui::Context<Self>) {
+        self.connecting = None;
+        cx.notify();
     }
 
-    fn open_paste_dialog(
-        &mut self,
-        name: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.paste_input.update(cx, |state, cx| {
-            state.set_value("", window, cx);
-        });
-        let pane = cx.entity().downgrade();
-        let handle = window.window_handle();
-        let content_input = self.paste_input.clone();
-        let ok_input = self.paste_input.clone();
-        let spec = AlertSpec::new(
-            "Paste redirect URL",
-            format!(
-                "Your browser was sent to {name}. After you approve it the browser \
-                 lands on an address it cannot open \u{2014} copy that whole address \
-                 from the address bar and paste it here."
-            ),
-            "Finish sign-in",
-        )
-        .height(gpui::px(320.))
-        .content(move |window, cx| {
-            v_flex()
-                .gap_1()
-                .mt_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Redirect URL"),
-                )
-                .child(glass_input(&content_input, window, cx).web_input_sm())
-                .into_any_element()
-        })
-        .on_ok(move |_, cx| {
-            let pasted = ok_input.read(cx).value().trim().to_string();
-            if pasted.is_empty() {
-                // Keep the dialog open rather than silently discarding the
-                // pending sign-in (the typed-confirm idiom).
-                return false;
-            }
-            let Some(pane) = pane.upgrade() else {
-                return true;
-            };
-            let Some(device) = device_ctx(cx) else {
-                return true;
-            };
-            let Some(pending) = pane.update(cx, |this, cx| {
-                this.busy = true;
-                cx.notify();
-                this.pending_paste.take()
-            }) else {
-                return true;
-            };
-            cx.spawn(async move |cx| {
-                let dir = device.data_dir.clone();
-                let account_id = device.account_id.clone();
-                let (pending, result) = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let result = coding::mcp_servers::finish_pasted_login(
-                            &dir,
-                            &account_id,
-                            &pending.login,
-                            &pasted,
-                        )
-                        .map(|_| ())
-                        .map_err(|err| err.to_string());
-                        (pending, result)
-                    })
-                    .await;
-                let name = pending.server_name.clone();
-                let _ = pane.update(cx, |this, cx| {
-                    this.busy = false;
-                    match result {
-                        Ok(()) => {
-                            this.report_now(cx);
-                            this.refetch(cx);
-                        }
-                        Err(err) => {
-                            // The verifier is still good for another paste
-                            // (a mistyped URL is the common case), so the
-                            // sign-in stays pending rather than restarting.
-                            this.pending_paste = Some(pending);
-                            let note = Notification::error(SharedString::from(format!(
-                                "That URL did not finish the sign-in to {name}: {err}"
-                            )));
-                            let _ = handle.update(cx, |_, window, cx| {
-                                window.push_notification(note, cx);
-                            });
-                        }
-                    }
-                    cx.notify();
-                });
-            })
-            .detach();
-            true
-        });
-        open_alert(window, cx, spec);
-    }
-
-    /// The typed value of an `auth: secret` server's ONE declared header/env
-    /// name. It goes straight into the 0600 store — nothing echoes it, and
-    /// it never reaches the server.
-    fn open_value_dialog(
+    /// Set key: the person's OWN API key for an `auth: secret` server, sent
+    /// once to `mcpServers.setSecret` (stored encrypted, never shown again —
+    /// web `SecretDialog`).
+    fn open_key_dialog(
         &mut self,
         config: &McpServerConfig,
-        name: &str,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -691,17 +410,18 @@ impl McpServersPane {
         let handle = window.window_handle();
         let content_input = self.value_input.clone();
         let ok_input = self.value_input.clone();
-        let config = config.clone();
-        let field: SharedString = name.to_string().into();
-        let dialog_field = field.clone();
+        let field: SharedString = config
+            .secret_names()
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "Key".to_string())
+            .into();
+        let server_id = config.id.clone();
         let server = config.name.clone();
         let spec = AlertSpec::new(
-            "Set value",
-            format!(
-                "The value for {server}'s {name}. It is written to this machine's \
-                 credential store and never sent to Exponential."
-            ),
-            "Save value",
+            format!("API key for {server}"),
+            "Only your runs use it. Stored encrypted; nobody can read it back.",
+            "Save key",
         )
         .height(gpui::px(300.))
         .content(move |window, cx| {
@@ -712,7 +432,7 @@ impl McpServersPane {
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(dialog_field.clone()),
+                        .child(field.clone()),
                 )
                 .child(glass_input(&content_input, window, cx).web_input_sm())
                 .into_any_element()
@@ -722,97 +442,150 @@ impl McpServersPane {
             if value.is_empty() {
                 return false;
             }
-            let Some(pane) = pane.upgrade() else {
+            let (Some(trpc), Some(pane)) = (queries::trpc_client(cx), pane.upgrade()) else {
                 return true;
             };
-            let Some(device) = device_ctx(cx) else {
-                return true;
-            };
-            let result = coding::mcp_servers::set_secret(
-                &device.data_dir,
-                &device.account_id,
-                &config,
-                field.as_ref(),
-                &value,
-            );
+            pane.update(cx, |this, cx| {
+                this.pending = Some(server_id.clone());
+                cx.notify();
+            });
+            let server_id = server_id.clone();
             let server = server.clone();
-            match result {
-                Ok(()) => {
-                    pane.update(cx, |this, cx| {
-                        this.report_now(cx);
-                        this.refetch(cx);
-                    });
-                }
-                Err(err) => {
-                    let note = Notification::error(SharedString::from(format!(
-                        "Could not store the value for {server}: {err}"
-                    )));
-                    let _ = handle.update(cx, |_, window, cx| {
-                        window.push_notification(note, cx);
-                    });
-                }
-            }
+            cx.spawn(async move |cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { api::mcp_servers::set_secret(&trpc, &server_id, &value) })
+                    .await;
+                let _ = pane.update(cx, |this, cx| {
+                    this.pending = None;
+                    let note = match result {
+                        Ok(()) => {
+                            this.refetch(cx);
+                            Notification::success(SharedString::from(format!(
+                                "Key saved for {server}"
+                            )))
+                        }
+                        Err(err) => Notification::error(SharedString::from(format!(
+                            "Could not save the key for {server}: {}",
+                            err.user_message()
+                        ))),
+                    };
+                    let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+                    cx.notify();
+                });
+            })
+            .detach();
             true
         });
         open_alert(window, cx, spec);
     }
 
-    /// Drop every credential this machine holds for the server (the OAuth
-    /// token set or the typed value). The server row is untouched: this is
-    /// "sign out here", not "remove from the team".
-    fn confirm_forget(
+    /// Test connection (http only): an MCP `initialize` + `tools/list` the
+    /// SERVER runs with the person's credential.
+    fn test(&mut self, config: &McpServerConfig, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.pending = Some(config.id.clone());
+        cx.notify();
+        let handle = window.window_handle();
+        let server_id = config.id.clone();
+        let name = config.name.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::mcp_servers::test(&trpc, &server_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.pending = None;
+                let note = match result {
+                    Ok(result) if result.ok => {
+                        Notification::success(SharedString::from(test_message(&name, &result)))
+                    }
+                    Ok(result) => Notification::error(SharedString::from(test_message(&name, &result))),
+                    Err(err) => Notification::error(SharedString::from(format!(
+                        "{name} did not answer: {}",
+                        err.user_message()
+                    ))),
+                };
+                let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Disconnect: delete the person's credential for the server (the row
+    /// stays on the team; runs just stop getting its tools).
+    fn confirm_disconnect(
         &mut self,
         config: &McpServerConfig,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
         let pane = cx.entity().downgrade();
+        let handle = window.window_handle();
         let server_id = config.id.clone();
         let name = config.name.clone();
-        let description = match config.auth.as_str() {
-            "oauth" => "This machine forgets its sign-in. Runs that pick this server \
-                        here will be refused until you sign in again; other machines \
-                        keep theirs.",
-            _ => "This machine forgets the value you typed. Runs that pick this \
-                  server here will be refused until you set it again; other machines \
-                  keep theirs.",
-        };
-        let identity: SharedString = name.into();
-        let spec = AlertSpec::new("Forget on this machine", description, "Forget")
-            .height(gpui::px(250.))
-            .content(move |_, _| {
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(identity.clone())
-                    .into_any_element()
-            })
-            .ok_variant(ButtonVariant::Danger)
-            .on_ok(move |_, cx| {
-                let Some(pane) = pane.upgrade() else {
-                    return true;
-                };
-                let Some(device) = device_ctx(cx) else {
-                    return true;
-                };
-                coding::mcp_servers::forget_server(
-                    &device.data_dir,
-                    &device.account_id,
-                    &server_id,
-                );
-                pane.update(cx, |this, cx| {
-                    this.report_now(cx);
-                    this.refetch(cx);
-                });
-                true
+        let identity: SharedString = name.clone().into();
+        let spec = AlertSpec::new(
+            "Disconnect",
+            "Your credential for this server is deleted. Your runs stop getting its \
+             tools until you connect again; other members keep theirs.",
+            "Disconnect",
+        )
+        .height(gpui::px(250.))
+        .content(move |_, _| {
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .child(identity.clone())
+                .into_any_element()
+        })
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            let (Some(trpc), Some(pane)) = (queries::trpc_client(cx), pane.upgrade()) else {
+                return true;
+            };
+            pane.update(cx, |this, cx| {
+                this.pending = Some(server_id.clone());
+                cx.notify();
             });
+            let server_id = server_id.clone();
+            let name = name.clone();
+            cx.spawn(async move |cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { api::mcp_servers::disconnect(&trpc, &server_id) })
+                    .await;
+                let _ = pane.update(cx, |this, cx| {
+                    this.pending = None;
+                    let note = match result {
+                        Ok(()) => {
+                            this.refetch(cx);
+                            Notification::success(SharedString::from(format!(
+                                "Disconnected from {name}"
+                            )))
+                        }
+                        Err(err) => Notification::error(SharedString::from(format!(
+                            "Could not disconnect: {}",
+                            err.user_message()
+                        ))),
+                    };
+                    let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+                    cx.notify();
+                });
+            })
+            .detach();
+            true
+        });
         open_alert(window, cx, spec);
     }
 
+    // -- owner writes -----------------------------------------------------------
+
     /// Owner-only `mcpServers.remove`. The row goes for the whole TEAM, and
-    /// with it every machine's readiness — so the confirm says so and the
-    /// local credential is dropped in the same breath (nothing else would
-    /// ever collect it: the store is keyed by server id).
+    /// with it every member's connection — so the confirm says so.
     fn confirm_remove(
         &mut self,
         config: &McpServerConfig,
@@ -825,11 +598,10 @@ impl McpServersPane {
         let name = config.name.clone();
         let identity: SharedString = name.clone().into();
         let spec = AlertSpec::new(
-            "Remove MCP server",
-            "Every member loses this server, and any run that still names it \
-             fails to start. Credentials on each machine are forgotten. This \
-             cannot be undone.",
             "Remove server",
+            "Runs stop offering it and every member's connection to it is deleted. \
+             This cannot be undone.",
+            "Remove",
         )
         .height(gpui::px(260.))
         .content(move |_, _| {
@@ -844,7 +616,6 @@ impl McpServersPane {
             let (Some(trpc), Some(pane)) = (queries::trpc_client(cx), pane.upgrade()) else {
                 return true;
             };
-            let device = device_ctx(cx);
             pane.update(cx, |this, cx| {
                 this.busy = true;
                 cx.notify();
@@ -852,22 +623,9 @@ impl McpServersPane {
             let server_id = server_id.clone();
             let name = name.clone();
             cx.spawn(async move |cx| {
-                let removed = server_id.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move {
-                        let result = api::mcp_servers::remove(&trpc, &removed);
-                        if result.is_ok() {
-                            if let Some(device) = device {
-                                coding::mcp_servers::forget_server(
-                                    &device.data_dir,
-                                    &device.account_id,
-                                    &removed,
-                                );
-                            }
-                        }
-                        result
-                    })
+                    .spawn(async move { api::mcp_servers::remove(&trpc, &server_id) })
                     .await;
                 let _ = pane.update(cx, |this, cx| {
                     this.busy = false;
@@ -890,329 +648,6 @@ impl McpServersPane {
             true
         });
         open_alert(window, cx, spec);
-    }
-
-    // -- EXP-891: this machine's own servers ----------------------------------
-
-    /// Push the machine's set to the server (the web's per-device view
-    /// follows at once instead of on the next sweep). Best-effort like
-    /// `report_now`: the local store is already the truth.
-    fn sync_local(&self, cx: &mut gpui::Context<Self>) {
-        let (Some(trpc), Some(device)) = (queries::trpc_client(cx), device_ctx(cx)) else {
-            return;
-        };
-        cx.background_executor()
-            .spawn(async move {
-                if let Err(err) =
-                    device_mcp_servers::sync_now(&device.data_dir, &trpc, &device.device_id)
-                {
-                    log::debug!("[ui] deviceMcpServers.sync after a local change: {err}");
-                }
-            })
-            .detach();
-    }
-
-    /// Take every importable entry the local claude/codex configs list.
-    fn import_detected(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(device) = device_ctx(cx) else {
-            return;
-        };
-        match device_mcp_servers::import(&device.data_dir) {
-            Ok(added) => {
-                let names: Vec<String> = added.iter().map(|row| row.name.clone()).collect();
-                let note = if names.is_empty() {
-                    "Nothing new to import.".to_string()
-                } else {
-                    format!("Imported {}. They connect on every run started here.", names.join(", "))
-                };
-                window.push_notification(Notification::info(SharedString::from(note)), cx);
-                self.sync_local(cx);
-                self.refetch(cx);
-            }
-            Err(err) => self.fail(format!("Could not import: {err}"), window, cx),
-        }
-    }
-
-    fn set_local_enabled(
-        &mut self,
-        name: &str,
-        enabled: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(device) = device_ctx(cx) else {
-            return;
-        };
-        match device_mcp_servers::set_enabled(&device.data_dir, name, enabled) {
-            Ok(_) => {
-                self.sync_local(cx);
-                self.refetch(cx);
-            }
-            Err(err) => self.fail(format!("Could not update {name}: {err}"), window, cx),
-        }
-    }
-
-    /// The one-field add: a name and either an https URL or a command line
-    /// ([`device_mcp_servers::parse_target`]).
-    fn open_local_add_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.local_name_input.update(cx, |state, cx| state.set_value("", window, cx));
-        self.local_target_input.update(cx, |state, cx| state.set_value("", window, cx));
-        let pane = cx.entity().downgrade();
-        let handle = window.window_handle();
-        let name_input = self.local_name_input.clone();
-        let target_input = self.local_target_input.clone();
-        let (ok_name, ok_target) = (name_input.clone(), target_input.clone());
-        let spec = AlertSpec::new(
-            "Add server on this machine",
-            "Connected on every run started here, beside the team's servers. \
-             Nothing but the address is stored: an https:// URL, or a command \
-             line such as `npx -y @acme/mcp`. Credentials stay with the agent.",
-            "Add server",
-        )
-        .height(gpui::px(380.))
-        .content(move |window, cx| {
-            let muted = cx.theme().muted_foreground;
-            v_flex()
-                .gap_1()
-                .mt_2()
-                .child(div().text_xs().text_color(muted).child("Name"))
-                .child(glass_input(&name_input, window, cx).web_input_sm())
-                .child(div().text_xs().text_color(muted).mt_2().child("URL or command"))
-                .child(glass_input(&target_input, window, cx).web_input_sm())
-                .into_any_element()
-        })
-        .on_ok(move |_, cx| {
-            let name = ok_name.read(cx).value().trim().to_string();
-            let target = ok_target.read(cx).value().trim().to_string();
-            if name.is_empty() || target.is_empty() {
-                return false;
-            }
-            let Some(pane) = pane.upgrade() else {
-                return true;
-            };
-            let Some(device) = device_ctx(cx) else {
-                return true;
-            };
-            let server = device_mcp_servers::parse_target(&name, &target);
-            match device_mcp_servers::add(&device.data_dir, server) {
-                Ok(_) => {
-                    pane.update(cx, |this, cx| {
-                        this.sync_local(cx);
-                        this.refetch(cx);
-                    });
-                    true
-                }
-                Err(err) => {
-                    let note = Notification::error(SharedString::from(err));
-                    let _ = handle.update(cx, |_, window, cx| {
-                        window.push_notification(note, cx);
-                    });
-                    // Keep the dialog open: the typed values are still there.
-                    false
-                }
-            }
-        });
-        open_alert(window, cx, spec);
-    }
-
-    /// Forget a row on this machine. The agent's own config entry stays: this
-    /// only stops the launcher from adding it to runs.
-    fn confirm_forget_local(
-        &mut self,
-        row: &LocalServer,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let pane = cx.entity().downgrade();
-        let name = row.name.clone();
-        let identity: SharedString = name.clone().into();
-        let description = if row.source == device_mcp_servers::SOURCE_DETECTED {
-            "Runs started here stop connecting it. The entry in the agent's own \
-             config is untouched, so it shows up as detected again."
-        } else {
-            "Runs started here stop connecting it. Other machines keep their own."
-        };
-        let spec = AlertSpec::new("Forget on this machine", description, "Forget")
-            .height(gpui::px(250.))
-            .content(move |_, _| {
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(identity.clone())
-                    .into_any_element()
-            })
-            .ok_variant(ButtonVariant::Danger)
-            .on_ok(move |_, cx| {
-                let Some(pane) = pane.upgrade() else {
-                    return true;
-                };
-                let Some(device) = device_ctx(cx) else {
-                    return true;
-                };
-                if let Err(err) = device_mcp_servers::remove(&device.data_dir, &name) {
-                    log::warn!("[ui] forget device MCP server {name}: {err}");
-                }
-                pane.update(cx, |this, cx| {
-                    this.sync_local(cx);
-                    this.refetch(cx);
-                });
-                true
-            });
-        open_alert(window, cx, spec);
-    }
-
-    /// The "On this machine" group: the band (Import N detected · Add
-    /// server) over one flat row per local server, each with its On/Off and
-    /// Forget pills. Web `DeviceMcpServersGroup` twin, the writable side.
-    fn render_device_group(
-        &self,
-        rows: &[LocalServer],
-        importable: &[Detected],
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let muted = cx.theme().muted_foreground;
-        let mut trailing = h_flex().gap_1().items_center();
-        if !importable.is_empty() {
-            let count = importable.len();
-            trailing = trailing.child(
-                glass_pill_button("device-mcp-import", PillSize::Sm, cx)
-                    .label(format!(
-                        "Import {count} detected"
-                    ))
-                    .disabled(self.busy)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.import_detected(window, cx);
-                    })),
-            );
-        }
-        trailing = trailing.child(
-            glass_pill_button("device-mcp-add", PillSize::Sm, cx)
-                .label("Add server")
-                .disabled(self.busy)
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_local_add_dialog(window, cx);
-                })),
-        );
-        let mut group = v_flex()
-            .w_full()
-            .min_w_0()
-            .mt_4()
-            .child(crate::surface::glass_section_band(
-                None,
-                "On this machine",
-                Some(trailing.into_any_element()),
-                cx,
-            ))
-            .child(section_description(
-                "Connected on every run started here, beside the team's servers. \
-                 Imported from this machine's claude / codex config, or typed here; \
-                 credentials stay with the agent.",
-                cx,
-            ));
-        if rows.is_empty() {
-            group = group.child(div().text_sm().text_color(muted).child(
-                if importable.is_empty() {
-                    "Nothing yet. `claude mcp add …` on this machine, then import it here."
-                } else {
-                    "Nothing imported yet. This machine's agent configs list servers you can import."
-                },
-            ));
-        }
-        for (index, row) in rows.iter().enumerate() {
-            let mut chips = h_flex().gap_1().items_center().flex_wrap();
-            chips = chips.child(self.chip(
-                format!("device-mcp-transport-{}", row.id),
-                transport_label(&row.transport).to_string(),
-                cx,
-            ));
-            chips = chips.child(self.chip(
-                format!("device-mcp-source-{}", row.id),
-                row.source_label().to_string(),
-                cx,
-            ));
-            if !row.enabled {
-                chips = chips.child(self.chip(
-                    format!("device-mcp-off-{}", row.id),
-                    "Off".to_string(),
-                    cx,
-                ));
-            }
-            let toggle_name = row.name.clone();
-            let toggle_to = !row.enabled;
-            let forget = row.clone();
-            let actions = h_flex()
-                .gap_2()
-                .items_center()
-                .child(
-                    glass_pill_button(
-                        SharedString::from(format!("device-mcp-toggle-{}", row.id)),
-                        PillSize::Sm,
-                        cx,
-                    )
-                    .label(if row.enabled { "Turn off" } else { "Turn on" })
-                    .disabled(self.busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.set_local_enabled(&toggle_name, toggle_to, window, cx);
-                    })),
-                )
-                .child(
-                    glass_pill_button(
-                        SharedString::from(format!("device-mcp-forget-{}", row.id)),
-                        PillSize::Sm,
-                        cx,
-                    )
-                    .label("Forget")
-                    .disabled(self.busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_forget_local(&forget, window, cx);
-                    })),
-                );
-            let endpoint = row.target();
-            // EXP-1076: the machine's servers are an entity LIST — the
-            // hairline ladder (`list_row` + `flat_row`, the web
-            // `SETTINGS_LIST_CLASS` twin), a hairline between rows.
-            group = group.child(crate::surface::list_row(
-                crate::surface::flat_row()
-                    .flex()
-                    .flex_col()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .px_3()
-                    .py_2()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .when(!row.enabled, |this| this.text_color(muted))
-                                    .child(SharedString::from(row.name.clone())),
-                            )
-                            .child(chips)
-                            .child(div().flex_1())
-                            .child(actions),
-                    )
-                    .when(!endpoint.trim().is_empty(), |this| {
-                        this.child(
-                            div()
-                                .min_w_0()
-                                .text_xs()
-                                .text_color(muted)
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .truncate()
-                                .child(SharedString::from(endpoint.clone())),
-                        )
-                    }),
-                index,
-            ));
-        }
-        group
     }
 
     /// Open the add/edit form (EXP-810). `config` = the row being edited;
@@ -1309,33 +744,151 @@ impl McpServersPane {
         group
     }
 
-    /// One server row: identity + config chips, THIS machine's readiness
-    /// line with its device actions, then one muted line per OTHER machine
-    /// that reported.
+    /// The row's ONE connection control (web `ConnectionAction`).
+    fn render_action(&self, entry: &McpServerListEntry, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let config = &entry.config;
+        let muted = cx.theme().muted_foreground;
+        let pending = self.pending.as_deref() == Some(config.id.as_str());
+        let waiting = self.connecting.as_deref() == Some(config.id.as_str());
+        if waiting {
+            return h_flex()
+                .gap_1()
+                .items_center()
+                .child(
+                    glass_pill_button(
+                        SharedString::from(format!("mcp-waiting-{}", config.id)),
+                        PillSize::Sm,
+                        cx,
+                    )
+                    .label("Waiting for sign-in…")
+                    .loading(true)
+                    .disabled(true),
+                )
+                .child(
+                    glass_pill_button(
+                        SharedString::from(format!("mcp-cancel-{}", config.id)),
+                        PillSize::Sm,
+                        cx,
+                    )
+                    .label("Cancel")
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_connect(cx))),
+                )
+                .into_any_element();
+        }
+        match row_action(entry) {
+            RowAction::NotNeeded => div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(muted)
+                .child("No sign-in needed")
+                .into_any_element(),
+            RowAction::Connected => {
+                let pane = cx.entity();
+                let http = config.is_http();
+                let secret = config.auth == "secret";
+                let target = config.clone();
+                glass_pill_button(
+                    SharedString::from(format!("mcp-connected-{}", config.id)),
+                    PillSize::Sm,
+                    cx,
+                )
+                .icon(Icon::new(registry::UI_CHECK).text_color(cx.theme().success))
+                .label("Connected")
+                .loading(pending)
+                .disabled(pending)
+                .tooltip(SharedString::from(match &entry.connection.expires_at {
+                    Some(expires_at) => format!("Connected to {} (token until {expires_at})", config.name),
+                    None => format!("Connected to {}", config.name),
+                }))
+                .dropdown_menu(move |menu, _window, cx| {
+                    let mut menu = menu;
+                    if http {
+                        let (target, pane) = (target.clone(), pane.clone());
+                        menu = menu.item(
+                            PopupMenuItem::new("Test connection")
+                                .icon(Icon::new(registry::UI_REFRESH))
+                                .on_click(move |_, window, cx| {
+                                    let target = target.clone();
+                                    pane.update(cx, |this, cx| this.test(&target, window, cx));
+                                }),
+                        );
+                    }
+                    if secret {
+                        let (target, pane) = (target.clone(), pane.clone());
+                        menu = menu.item(
+                            PopupMenuItem::new("Replace key")
+                                .icon(Icon::new(registry::UI_EDIT))
+                                .on_click(move |_, window, cx| {
+                                    let target = target.clone();
+                                    pane.update(cx, |this, cx| {
+                                        this.open_key_dialog(&target, window, cx)
+                                    });
+                                }),
+                        );
+                    }
+                    if http || secret {
+                        menu = menu.separator();
+                    }
+                    let (target, pane) = (target.clone(), pane.clone());
+                    menu.item(
+                        crate::controls::danger_menu_item("Disconnect", Icon::new(registry::UI_CLOSE), cx)
+                            .on_click(move |_, window, cx| {
+                                let target = target.clone();
+                                pane.update(cx, |this, cx| {
+                                    this.confirm_disconnect(&target, window, cx)
+                                });
+                            }),
+                    )
+                })
+                .into_any_element()
+            }
+            RowAction::Reconnect => {
+                let target = config.clone();
+                glass_pill_button(
+                    SharedString::from(format!("mcp-reconnect-{}", config.id)),
+                    PillSize::Sm,
+                    cx,
+                )
+                .icon(Icon::new(registry::UI_WARNING).text_color(cx.theme().warning))
+                .label("Reconnect")
+                .loading(pending)
+                .disabled(pending)
+                .tooltip(SharedString::from(reconnect_reason(entry)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.connect(&target, window, cx);
+                }))
+                .into_any_element()
+            }
+            RowAction::Connect => {
+                let secret = config.auth == "secret";
+                let target = config.clone();
+                glass_pill_button_primary(
+                    SharedString::from(format!("mcp-connect-{}", config.id)),
+                    PillSize::Sm,
+                )
+                .icon(Icon::new(if secret { registry::UI_PERMISSION } else { registry::UI_SIGN_IN }))
+                .label(if secret { "Set key" } else { "Connect" })
+                .loading(pending)
+                .disabled(pending)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.connect(&target, window, cx);
+                }))
+                .into_any_element()
+            }
+        }
+    }
+
+    /// One server row: identity + chips, the endpoint and member count, the
+    /// person's one connection action, and (owners) the Edit / Remove menu.
     fn render_row(
         &self,
         entry: &McpServerListEntry,
-        local: Option<&McpReadinessReport>,
-        this_device_id: Option<&str>,
         owner: bool,
-        now: chrono::DateTime<chrono::Utc>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
         let config = &entry.config;
         let muted = cx.theme().muted_foreground;
-        let auth = config.auth.clone();
-        let local_readiness = local.map(Readiness::from);
-        let here = ready_on(&auth, local_readiness, now);
-        let status = readiness_label(&auth, local_readiness, now);
-
-        // The endpoint line: the URL for http, the command line for stdio.
-        let endpoint = if config.is_http() {
-            config.url.clone().unwrap_or_default()
-        } else {
-            let mut parts = vec![config.command.clone().unwrap_or_default()];
-            parts.extend(config.args.iter().cloned());
-            parts.join(" ")
-        };
+        let detail = row_detail(entry);
 
         let mut chips = h_flex().gap_1().items_center().flex_wrap();
         chips = chips.child(self.chip(
@@ -1345,94 +898,21 @@ impl McpServersPane {
         ));
         chips = chips.child(self.chip(
             format!("mcp-auth-{}", config.id),
-            auth_label(&auth).to_string(),
+            auth_label(&config.auth).to_string(),
             cx,
         ));
         if config.enabled_by_default {
             chips = chips.child(self.chip(
                 format!("mcp-default-{}", config.id),
-                "On by default".to_string(),
+                "Default".to_string(),
                 cx,
             ));
         }
 
-        // The device affordances. A `none` server needs nothing here at all —
-        // there is no credential to hold, so every machine is ready for it.
-        let mut actions = h_flex().gap_2().items_center().flex_wrap();
-        let has_actions = auth != "none";
-        if auth == "oauth" {
-            let sign_in = config.clone();
-            actions = actions.child(
-                glass_pill_button(
-                    SharedString::from(format!("mcp-signin-{}", config.id)),
-                    PillSize::Sm,
-                    cx,
-                )
-                .label(if here { "Sign in again" } else { "Sign in" })
-                .disabled(self.busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.sign_in(&sign_in, window, cx);
-                })),
-            );
-            let paste = config.clone();
-            // A sign-in whose dialog was dismissed is still live — say so,
-            // and clicking picks it back up instead of starting over.
-            let pending_here = self
-                .pending_paste
-                .as_ref()
-                .is_some_and(|pending| pending.server_id == config.id);
-            actions = actions.child(
-                glass_pill_button(
-                    SharedString::from(format!("mcp-paste-{}", config.id)),
-                    PillSize::Sm,
-                    cx,
-                )
-                .label(if pending_here {
-                    "Finish pasted sign-in"
-                } else {
-                    "Paste redirect URL"
-                })
-                .disabled(self.busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.begin_paste_login(&paste, window, cx);
-                })),
-            );
-        }
-        if auth == "secret" {
-            if let Some(name) = secret_name(config) {
-                let target = config.clone();
-                let field = name.to_string();
-                actions = actions.child(
-                    glass_pill_button(
-                        SharedString::from(format!("mcp-value-{}", config.id)),
-                        PillSize::Sm,
-                        cx,
-                    )
-                    .label(if here { "Replace value" } else { "Set value" })
-                    .disabled(self.busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_value_dialog(&target, &field, window, cx);
-                    })),
-                );
-            }
-        }
-        if has_actions && here {
-            let forget = config.clone();
-            actions = actions.child(
-                glass_pill_button(
-                    SharedString::from(format!("mcp-forget-{}", config.id)),
-                    PillSize::Sm,
-                    cx,
-                )
-                .label("Forget on this machine")
-                .disabled(self.busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.confirm_forget(&forget, window, cx);
-                })),
-            );
-        }
+        let action = self.render_action(entry, cx);
+
         // EXP-862 (web parity): the owner's writes sit behind ONE ghost "..."
-        // menu, not two pills competing with the device actions beside them.
+        // menu, not two pills competing with the connection action.
         let owner_menu = owner.then(|| {
             let edit = config.clone();
             let remove = config.clone();
@@ -1476,72 +956,47 @@ impl McpServersPane {
             })
         });
 
-        // Every OTHER machine that reported — the web's readiness strip. The
-        // pane's own device is the line above, so it never doubles up.
-        let others: Vec<SharedString> = entry
-            .readiness
-            .iter()
-            .filter(|row| row.device_id.as_deref() != this_device_id)
-            .map(|row| {
-                let label = row
-                    .device_label
-                    .clone()
-                    .filter(|label| !label.trim().is_empty())
-                    .or_else(|| row.device_id.clone())
-                    .unwrap_or_else(|| "Another machine".to_string());
-                SharedString::from(format!(
-                    "{label}: {}",
-                    readiness_label(&auth, Some(Readiness::from(row)), now)
-                ))
-            })
-            .collect();
-
         crate::surface::flat_row()
             .flex()
-            .flex_col()
             .w_full()
             .min_w_0()
-            .gap_1p5()
+            .gap_3()
+            .items_center()
             .px_3()
             .py_2()
             .child(
-                h_flex()
-                    .w_full()
+                v_flex()
+                    .flex_1()
                     .min_w_0()
-                    .gap_2()
-                    .items_center()
+                    .gap_1()
                     .child(
-                        div()
+                        h_flex()
+                            .w_full()
                             .min_w_0()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(SharedString::from(config.name.clone())),
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(SharedString::from(config.name.clone())),
+                            )
+                            .child(chips),
                     )
-                    .child(chips)
-                    .child(div().flex_1())
-                    .children(owner_menu),
+                    .when(!detail.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .min_w_0()
+                                .text_xs()
+                                .text_color(muted)
+                                .truncate()
+                                .child(SharedString::from(detail.clone())),
+                        )
+                    }),
             )
-            .when(!endpoint.trim().is_empty(), |this| {
-                this.child(
-                    div()
-                        .min_w_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .truncate()
-                        .child(SharedString::from(endpoint.clone())),
-                )
-            })
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(if here { muted } else { cx.theme().danger })
-                    .child(SharedString::from(format!("This machine: {status}"))),
-            )
-            .children(others.into_iter().map(|line| {
-                div().text_xs().text_color(muted).child(line)
-            }))
-            .when(has_actions, |this| this.child(actions))
+            .child(div().flex_shrink_0().child(action))
+            .children(owner_menu)
     }
 }
 
@@ -1557,8 +1012,6 @@ impl Render for McpServersPane {
         };
         self.ensure_loaded(&team_id, cx);
         let owner = super::is_owner(cx, &team_id);
-        let this_device_id = device_ctx(cx).map(|device| device.device_id);
-        let now = chrono::Utc::now();
 
         let refresh = glass_pill_button("mcp-servers-refresh", PillSize::Sm, cx)
             .label("Refresh")
@@ -1607,36 +1060,24 @@ impl Render for McpServersPane {
             Load::Ready(Err(message)) => {
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
-            Load::Ready(Ok(loaded)) if loaded.servers.is_empty() => {
-                // Web copy, verbatim — the owner is the one who can act.
+            Load::Ready(Ok(servers)) if servers.is_empty() => {
                 body = body.child(div().text_sm().text_color(muted).child(if owner {
-                    "No MCP servers yet. Add one to offer it in the start-coding dialog."
+                    "No MCP servers yet. Add one to offer it in new runs."
                 } else {
-                    "No MCP servers yet. The team owner can add one."
+                    "No MCP servers yet. A team owner can add them."
                 }));
             }
-            Load::Ready(Ok(loaded)) => {
+            Load::Ready(Ok(servers)) => {
                 // Cloned so the row builder can take `&mut Context` (the
                 // listeners it hangs need it) without holding `self.load`.
-                let servers = loaded.servers.clone();
-                let local: Vec<Option<McpReadinessReport>> = servers
-                    .iter()
-                    .map(|entry| loaded.local_for(&entry.config.id).cloned())
-                    .collect();
+                let servers = servers.clone();
                 // EXP-1076: the team registry is an entity LIST — a gapless
                 // hairline ladder (`list_row` + `flat_row`, the web
                 // `SETTINGS_LIST_CLASS` twin), not gapped cards.
                 let mut list = v_flex().w_full().min_w_0();
-                for (index, (entry, local)) in servers.iter().zip(local.iter()).enumerate() {
+                for (index, entry) in servers.iter().enumerate() {
                     list = list.child(crate::surface::list_row(
-                        self.render_row(
-                            entry,
-                            local.as_ref(),
-                            this_device_id.as_deref(),
-                            owner,
-                            now,
-                            cx,
-                        ),
+                        self.render_row(entry, owner, cx),
                         index,
                     ));
                 }
@@ -1644,17 +1085,9 @@ impl Render for McpServersPane {
             }
         }
 
-        // EXP-891: this machine's own servers, under the team registry.
-        if let Load::Ready(Ok(loaded)) = &self.load {
-            let rows = loaded.device_rows.clone();
-            let importable = loaded.importable.clone();
-            body = body.child(self.render_device_group(&rows, &importable, cx));
-        }
-
         body = body.child(self.render_builtin_tools(cx));
 
-        // The web hand-off — authoring a server is a form (transport, URL or
-        // command, declared names, scopes), which is the web's job.
+        // The web hand-off — the web page adds the catalog and the probe.
         let slug = super::active_team(cx, &self.nav).and_then(|team| team.slug);
         if let (Some(slug), Some(account)) = (slug, queries::active_account(cx)) {
             let url = format!(
@@ -1682,19 +1115,24 @@ impl Render for McpServersPane {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use api::mcp_servers::{McpConnection, McpTestResult};
 
-    fn at(iso: &str) -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::parse_from_rfc3339(iso)
-            .unwrap()
-            .with_timezone(&chrono::Utc)
-    }
-
-    fn report(ready: bool, expires_at: Option<&str>, error: Option<&str>) -> McpReadinessReport {
-        McpReadinessReport {
-            server_id: "s1".into(),
-            ready,
-            expires_at: expires_at.map(str::to_string),
-            error: error.map(str::to_string),
+    fn entry(auth: &str, status: &str) -> McpServerListEntry {
+        McpServerListEntry {
+            config: McpServerConfig {
+                id: "s1".into(),
+                name: "Linear".into(),
+                url: Some("https://mcp.linear.app/mcp".into()),
+                auth: auth.into(),
+                ..Default::default()
+            },
+            connection: McpConnection {
+                status: status.into(),
+                expires_at: None,
+                error: None,
+            },
+            connected_count: 2,
+            member_count: 5,
         }
     }
 
@@ -1705,72 +1143,70 @@ mod tests {
         assert_eq!(transport_label("http"), "HTTP");
         assert_eq!(transport_label("stdio"), "Command");
         assert_eq!(transport_label("future"), "HTTP");
-        assert_eq!(auth_label("none"), "No auth");
+        assert_eq!(auth_label("none"), "No sign-in");
         assert_eq!(auth_label("oauth"), "OAuth");
-        assert_eq!(auth_label("secret"), "Secret");
-        assert_eq!(auth_label("future"), "No auth");
+        assert_eq!(auth_label("secret"), "API key");
+        assert_eq!(auth_label("future"), "No sign-in");
     }
 
-    /// Web `readinessLabel`: a missing report reads per-auth, a ready one
-    /// with an expiry says until when, and a refusal shows the machine's own
-    /// sentence (which is where `coding::mcp_servers::sign_in_expired`'s
-    /// "sign in again, then resume the run" surfaces).
+    /// Web `ConnectionAction`: one action per row, from the person's own
+    /// connection.
     #[test]
-    fn readiness_label_mirrors_the_web() {
-        let now = at("2026-09-09T10:00:00Z");
-        assert_eq!(readiness_label("oauth", None, now), "Not signed in");
-        assert_eq!(readiness_label("secret", None, now), "Not set");
-        assert_eq!(readiness_label("none", None, now), "Not checked yet");
+    fn row_action_follows_the_connection() {
+        assert_eq!(row_action(&entry("none", "not_needed")), RowAction::NotNeeded);
+        assert_eq!(row_action(&entry("oauth", "connected")), RowAction::Connected);
+        assert_eq!(row_action(&entry("oauth", "expired")), RowAction::Reconnect);
+        assert_eq!(row_action(&entry("oauth", "error")), RowAction::Reconnect);
+        assert_eq!(row_action(&entry("oauth", "not_connected")), RowAction::Connect);
+        assert_eq!(row_action(&entry("secret", "not_connected")), RowAction::Connect);
+        // An older server that never sends `not_needed` for a no-auth row.
+        assert_eq!(row_action(&entry("none", "not_connected")), RowAction::NotNeeded);
+    }
 
-        let ready = report(true, None, None);
-        assert_eq!(readiness_label("secret", Some((&ready).into()), now), "Ready");
-
-        let expired = report(true, Some("2026-09-09T09:00:00Z"), None);
-        assert_eq!(readiness_label("oauth", Some((&expired).into()), now), "Expired");
-
-        let refused = report(false, None, Some("not signed in on this machine"));
+    #[test]
+    fn row_detail_names_the_target_and_the_member_count() {
         assert_eq!(
-            readiness_label("oauth", Some((&refused).into()), now),
-            "not signed in on this machine"
+            row_detail(&entry("oauth", "connected")),
+            "https://mcp.linear.app/mcp · 2 of 5 connected"
         );
-        // A refusal with no sentence still says something useful.
-        let blank = report(false, None, Some("   "));
-        assert_eq!(readiness_label("oauth", Some((&blank).into()), now), "Not signed in");
-        assert_eq!(readiness_label("secret", Some((&blank).into()), now), "Not set");
+        assert_eq!(row_detail(&entry("none", "not_needed")), "https://mcp.linear.app/mcp");
+        let mut stdio = entry("secret", "connected");
+        stdio.config.transport = "stdio".into();
+        stdio.config.command = Some("npx".into());
+        stdio.config.args = vec!["-y".into(), "@acme/mcp".into()];
+        assert_eq!(row_detail(&stdio), "npx -y @acme/mcp · 2 of 5 connected");
     }
 
-    /// Web `serverReadyOn`: `none` needs nothing, an expired token is not
-    /// ready however the row is flagged, and no report at all is not ready.
     #[test]
-    fn ready_on_follows_the_web_rule() {
-        let now = at("2026-09-09T10:00:00Z");
-        assert!(ready_on("none", None, now), "a no-auth server needs nothing");
-        assert!(!ready_on("oauth", None, now));
-        let live = report(true, Some("2026-09-09T18:00:00Z"), None);
-        assert!(ready_on("oauth", Some((&live).into()), now));
-        let expired = report(true, Some("2026-09-09T09:59:59Z"), None);
-        assert!(!ready_on("oauth", Some((&expired).into()), now));
-        // An unparseable expiry never kills a ready row.
-        let odd = report(true, Some("soon"), None);
-        assert!(ready_on("oauth", Some((&odd).into()), now));
+    fn reconnect_reason_prefers_the_servers_sentence() {
+        let mut failed = entry("oauth", "error");
+        assert_eq!(reconnect_reason(&failed), "The last refresh failed.");
+        failed.connection.error = Some("invalid_grant".into());
+        assert_eq!(reconnect_reason(&failed), "invalid_grant");
+        assert_eq!(reconnect_reason(&entry("oauth", "expired")), "Your sign-in expired.");
     }
 
-    /// The ONE declared position an `auth: secret` server's value is typed
-    /// under follows the transport (`McpServerConfig::secret_names`).
+    /// Web `test` toasts, string for string.
     #[test]
-    fn secret_name_follows_the_transport() {
-        let http = McpServerConfig {
-            header_names: vec!["X-Api-Key".into()],
-            env_names: vec!["IGNORED".into()],
-            ..Default::default()
+    fn test_messages_match_the_web() {
+        let result = |ok: bool, tools: Option<u32>, error: Option<&str>| McpTestResult {
+            ok,
+            tools,
+            error: error.map(str::to_string),
         };
-        assert_eq!(secret_name(&http), Some("X-Api-Key"));
-        let stdio = McpServerConfig {
-            transport: "stdio".into(),
-            env_names: vec!["GITHUB_TOKEN".into()],
-            ..Default::default()
-        };
-        assert_eq!(secret_name(&stdio), Some("GITHUB_TOKEN"));
-        assert_eq!(secret_name(&McpServerConfig::default()), None);
+        assert_eq!(test_message("Linear", &result(true, None, None)), "Linear answered");
+        assert_eq!(
+            test_message("Linear", &result(true, Some(1), None)),
+            "Linear answered with 1 tool"
+        );
+        assert_eq!(
+            test_message("Linear", &result(true, Some(12), None)),
+            "Linear answered with 12 tools"
+        );
+        assert_eq!(
+            test_message("Linear", &result(false, None, Some("401 Unauthorized"))),
+            "Linear did not answer: 401 Unauthorized"
+        );
+        assert_eq!(test_message("Linear", &result(false, None, None)), "Linear did not answer");
     }
 }

@@ -239,13 +239,6 @@ export function deviceCanAgentLogin(
   return (device.caps ?? []).includes(`agent-login`)
 }
 
-/** EXP-792: the machine runs the `mcp_oauth_*` device commands and reports
- * MCP readiness on its heartbeat. Without the cap a queued sign-in would sit
- * pending forever, so the settings pane hides "Sign in on <device>". */
-export function deviceSupportsMcp(device: Pick<SteerDevice, `caps`>): boolean {
-  return (device.caps ?? []).includes(`mcp`)
-}
-
 /** EXP-897: the machine reads a start frame's `stack` payload and cuts the
  * branch from the lower PR's. An older build would run UNSTACKED while the
  * server had already written the `blocks` relation and the UI claimed a

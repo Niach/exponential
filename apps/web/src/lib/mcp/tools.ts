@@ -20,6 +20,7 @@ import {
   issueEstimateSchema,
   issueEstimationValues,
   MAX_ISSUE_DESCRIPTION,
+  MAX_MCP_SERVER_NAME,
   MAX_START_PROMPT,
   SESSION_RESULT_TEXT_MAX,
   SESSION_RESULTS_MAX,
@@ -57,6 +58,7 @@ import {
   issues,
   issueStatuses,
   labels,
+  mcpServers,
   notifications,
   boards,
   sessionAttachments,
@@ -5488,6 +5490,125 @@ export function registerExponentialTools(
           assertTeamFullyGranted(access, invite.teamId)
         }
         await caller(user, request).teamInvites.revoke({ id })
+        return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Team MCP servers (EXP-792): the ONE registry a coding run's extra MCP
+  // servers come from. Each member connects once in Settings (the server
+  // holds the credential), so the tools list/add/remove and hand back a
+  // settings deep link for the connect step — never a credential.
+  // -----------------------------------------------------------------------
+
+  /** Settings → MCP servers, auto-starting the connect for `serverId`. */
+  const mcpConnectUrl = (teamSlug: string, serverId: string) =>
+    `${appBaseUrl()}/t/${encodeURIComponent(teamSlug)}/settings/mcp-servers?connect=${serverId}`
+
+  const loadTeamSlug = async (teamId: string) => {
+    const [team] = await db
+      .select({ slug: teams.slug })
+      .from(teams)
+      .where(eq(teams.id, teamId))
+      .limit(1)
+    if (!team) throw new Error(`Team not found`)
+    return team.slug
+  }
+
+  server.registerTool(
+    `exponential_mcp_servers_list`,
+    {
+      annotations: READ_ONLY,
+      description: `List a team's MCP servers (Linear, Sentry, ...) that coding runs can connect to, with YOUR connection status (connected | not_connected | expired | error | not_needed) and connectUrl: the settings page where you (a person) connect it. Team members only.`,
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
+    },
+    async ({ teamId, limit, offset }) => {
+      try {
+        assertTeamFullyGranted(access, teamId)
+        const rows = await caller(user, request).mcpServers.list({ teamId })
+        const slug = await loadTeamSlug(teamId)
+        return ok(
+          page(rows, limit, offset).map((row) => ({
+            id: row.id,
+            name: row.name,
+            transport: row.transport,
+            url: row.url,
+            command: row.command,
+            auth: row.auth,
+            scopes: row.scopes,
+            enabledByDefault: row.enabledByDefault,
+            connection: row.connection,
+            connectedCount: row.connectedCount,
+            memberCount: row.memberCount,
+            connectUrl: row.auth === `none` ? null : mcpConnectUrl(slug, row.id),
+          }))
+        )
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_mcp_servers_add`,
+    {
+      description: `Add a remote (https) MCP server to a team's registry, never a repo .mcp.json. Owner only. Probes the URL to detect OAuth; name defaults from the host. Returns the row and connectUrl, where each member connects once.`,
+      inputSchema: strictInput({
+        teamId: uuidString,
+        url: z.string().url().max(2048),
+        name: z.string().trim().min(1).max(MAX_MCP_SERVER_NAME).optional(),
+      }),
+    },
+    async ({ teamId, url, name }) => {
+      try {
+        assertTeamFullyGranted(access, teamId)
+        const trpc = caller(user, request)
+        const probe = await trpc.mcpServers.probe({ teamId, url })
+        if (!probe.reachable || probe.error) {
+          throw new Error(
+            `Could not add ${url}: ${probe.error ?? `unreachable`}`
+          )
+        }
+        const row = await trpc.mcpServers.create({
+          teamId,
+          name: name ?? probe.suggestedName,
+          transport: `http`,
+          url: probe.url,
+          auth: probe.auth,
+          scopes: probe.scopes,
+        })
+        const slug = await loadTeamSlug(teamId)
+        return ok({
+          ...row,
+          connectUrl: row.auth === `none` ? null : mcpConnectUrl(slug, row.id),
+        })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_mcp_servers_remove`,
+    {
+      description: `Remove an MCP server from its team's registry (by UUID); every member's stored connection to it goes too. Owner only.`,
+      inputSchema: strictInput({ id: uuidString }),
+    },
+    async ({ id }) => {
+      try {
+        if (!access.full) {
+          const [row] = await db
+            .select({ teamId: mcpServers.teamId })
+            .from(mcpServers)
+            .where(eq(mcpServers.id, id))
+            .limit(1)
+          if (!row) throw new Error(`MCP server not found`)
+          assertTeamFullyGranted(access, row.teamId)
+        }
+        await caller(user, request).mcpServers.remove({ id })
         return ok({ ok: true, id })
       } catch (e) {
         return err(e)

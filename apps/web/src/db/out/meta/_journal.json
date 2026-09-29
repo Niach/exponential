@@ -1051,6 +1051,13 @@
       "when": 1790627699857,
       "tag": "0149_compat_round_26",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1790682811831,
+      "tag": "0150_mcp_server_credentials",
+      "breakpoints": true
     }
   ]
 }

@@ -127,3 +127,41 @@ fn open_linux(url: &str) -> Result<(), OpenError> {
         attempts,
     })
 }
+
+/// Whether `url` is an absolute `http(s)://` URL with a host — the ONLY kind
+/// a flow may hand to [`open_in_browser`] when the URL is not a constant
+/// (a server-sent or config-derived value): the OS opener would happily run
+/// a `file:`, custom-scheme or app-handler URL too.
+pub fn is_web_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let rest = if let Some(rest) = lower.strip_prefix("https://") {
+        rest
+    } else if let Some(rest) = lower.strip_prefix("http://") {
+        rest
+    } else {
+        return false;
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    trimmed == url && !host.is_empty() && !url.chars().any(char::is_control)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_web_url;
+
+    #[test]
+    fn only_http_and_https_urls_with_a_host_pass() {
+        assert!(is_web_url("https://app.exponential.at/t/acme/settings/mcp-servers?connect=s1"));
+        assert!(is_web_url("http://localhost:3000/t/acme"));
+        assert!(is_web_url("HTTPS://Example.com"));
+        assert!(!is_web_url("file:///etc/passwd"));
+        assert!(!is_web_url("javascript:alert(1)"));
+        assert!(!is_web_url("vscode://open?x"));
+        assert!(!is_web_url("https://"));
+        assert!(!is_web_url("https:///path"));
+        assert!(!is_web_url(" https://example.com"));
+        assert!(!is_web_url("https://example.com/\n--flag"));
+        assert!(!is_web_url(""));
+    }
+}

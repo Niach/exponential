@@ -1,23 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
-// EXP-792: the mcpServers router. Owner-only writes with the cross-field
-// validation matrix, member reads with readiness limited to visible devices,
-// and the web-initiated / device-executed OAuth flow (beginOAuth queues the
-// device command, getOAuthFlow ages a flow out, finishOAuth authorizes on
-// device ownership). The router runs against ctx.db, so the in-memory fake
-// (lib/mcp-oauth/test-db.ts) on the real schema tables is enough; membership
-// and the device helpers are stubbed.
+// EXP-792: the mcpServers router. Owner-only registry writes with the
+// cross-field validation matrix; member reads with the caller's connection
+// per server; the server-held credential procedures (connect, setSecret,
+// disconnect, test, resolveForLaunch) and the owner's probe. The router runs
+// against ctx.db, so the in-memory fake (lib/mcp-oauth/test-db.ts) on the
+// real schema tables is enough; membership is stubbed and fetch is a fake
+// provider (lib/mcp-oauth/test-provider.ts).
 
 const h = vi.hoisted(() => ({
   assertTeamMember: vi.fn(async () => ({ role: `member` }) as unknown),
   assertTeamOwner: vi.fn(async () => ({ role: `owner` }) as unknown),
   getUserTeamIds: vi.fn(async () => [`team-1`]),
-  nudgeDevice: vi.fn(),
-  visibleDeviceRows: vi.fn(async () => ({
-    rows: [] as unknown[],
-    ownerNames: new Map(),
-  })),
   appBaseUrl: vi.fn(() => `https://app.exponential.dev`),
 }))
 
@@ -28,23 +23,19 @@ vi.mock(`@/lib/team-membership`, () => ({
   assertTeamOwner: h.assertTeamOwner,
   getUserTeamIds: h.getUserTeamIds,
 }))
-vi.mock(`@/lib/trpc/devices`, () => ({
-  nudgeDevice: h.nudgeDevice,
-  visibleDeviceRows: h.visibleDeviceRows,
-}))
 vi.mock(`@/lib/notification-email-policy`, () => ({
   appBaseUrl: h.appBaseUrl,
 }))
 
-import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
+import { mcpServersRouter, retargetsCredentials } from "@/lib/trpc/mcp-servers"
+import { isReservedMcpEnvName } from "@exp/db-schema/domain"
 import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
+import { credentialAad, encryptCredential, decryptCredential } from "@/lib/mcp-oauth/crypto"
+import { AS_ISSUER, MCP_URL, fakeProvider } from "@/lib/mcp-oauth/test-provider"
 
 const TEAM = `44444444-4444-4444-8444-444444444444`
 const SERVER = `11111111-1111-4111-8111-111111111111`
 const SERVER_B = `11111111-1111-4111-8111-222222222222`
-const DEVICE_ROW = `22222222-2222-4222-8222-222222222222`
-const OTHER_DEVICE_ROW = `22222222-2222-4222-8222-333333333333`
-const FLOW = `33333333-3333-4333-8333-333333333333`
 
 function serverRow(over: Record<string, unknown> = {}) {
   return {
@@ -67,35 +58,7 @@ function serverRow(over: Record<string, unknown> = {}) {
   }
 }
 
-function deviceRow(over: Record<string, unknown> = {}) {
-  return {
-    id: DEVICE_ROW,
-    userId: `actor`,
-    deviceId: `dev-1`,
-    label: `MacBook`,
-    caps: [`mcp`, `agent-usage-refresh`],
-    ...over,
-  }
-}
-
-function flowRow(over: Record<string, unknown> = {}) {
-  return {
-    id: FLOW,
-    state: `st-1`,
-    userId: `actor`,
-    teamId: TEAM,
-    serverId: SERVER,
-    deviceRowId: DEVICE_ROW,
-    redirect: `hosted`,
-    status: `pending`,
-    authorizeUrl: null,
-    error: null,
-    createdAt: new Date(),
-    completedAt: null,
-    ...over,
-  }
-}
-
+const ORIGINAL_SECRET = process.env.BETTER_AUTH_SECRET
 let db: FakeDb
 function callerFor(userId = `actor`) {
   return mcpServersRouter.createCaller({
@@ -120,11 +83,14 @@ beforeEach(() => {
   h.assertTeamOwner.mockResolvedValue({ role: `owner` })
   h.getUserTeamIds.mockClear()
   h.getUserTeamIds.mockResolvedValue([TEAM])
-  h.nudgeDevice.mockClear()
-  h.visibleDeviceRows.mockClear()
-  h.visibleDeviceRows.mockResolvedValue({ rows: [], ownerNames: new Map() })
   h.appBaseUrl.mockReturnValue(`https://app.exponential.dev`)
+  process.env.BETTER_AUTH_SECRET = `test-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaa`
   db = createFakeDb()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  process.env.BETTER_AUTH_SECRET = ORIGINAL_SECRET
 })
 
 describe(`mcpServers.create — validation matrix`, () => {
@@ -281,6 +247,19 @@ describe(`mcpServers.create — validation matrix`, () => {
     ).resolves.toMatchObject({ auth: `secret`, envNames: [`GITHUB_TOKEN`] })
   })
 
+  it(`refuses reserved env names (the launcher's own environment)`, async () => {
+    const stdio = { ...base, name: `PG`, transport: `stdio` as const, command: `pg-mcp` }
+    for (const name of [`PATH`, `path`, `NODE_OPTIONS`, `CLAUDE_CONFIG_DIR`, `ANTHROPIC_BASE_URL`, `EXP_MCP_TOKEN_1`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, `git_dir`]) {
+      await expect(
+        callerFor().create({ ...stdio, envNames: [name] }),
+        name
+      ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    }
+    await expect(
+      callerFor().create({ ...stdio, envNames: [`PG_URL`] })
+    ).resolves.toMatchObject({ envNames: [`PG_URL`] })
+  })
+
   it(`auth: oauth is http-only`, async () => {
     await expect(
       callerFor().create({
@@ -341,13 +320,61 @@ describe(`mcpServers.update / remove`, () => {
 
   it(`404s an unknown id and refuses non-owners`, async () => {
     await expect(
-      callerFor().update({ id: FLOW, name: `x` })
+      callerFor().update({ id: `33333333-3333-4333-8333-333333333333`, name: `x` })
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
     h.assertTeamOwner.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
     await expect(callerFor().remove({ id: SERVER })).rejects.toMatchObject({
       code: `FORBIDDEN`,
     })
     expect(db.rows(`mcp_servers`)).toHaveLength(2)
+  })
+
+  it(`a re-targeting update drops members' credentials and pending sign-ins`, async () => {
+    const seedCredentials = () => {
+      db.rows(`mcp_credentials`).splice(0)
+      db.rows(`mcp_oauth_flows`).splice(0)
+      db.rows(`mcp_credentials`).push(
+        { id: `c-1`, serverId: SERVER, userId: `actor`, teamId: TEAM, ciphertext: `x`, expiresAt: null, error: null },
+        { id: `c-2`, serverId: SERVER, userId: `mate`, teamId: TEAM, ciphertext: `x`, expiresAt: null, error: null },
+        { id: `c-3`, serverId: SERVER_B, userId: `actor`, teamId: TEAM, ciphertext: `x`, expiresAt: null, error: null }
+      )
+      db.rows(`mcp_oauth_flows`).push(
+        { id: `f-1`, serverId: SERVER, userId: `actor`, status: `pending` },
+        { id: `f-2`, serverId: SERVER_B, userId: `actor`, status: `pending` }
+      )
+    }
+    // Cosmetic edits keep them.
+    seedCredentials()
+    await callerFor().update({ id: SERVER, name: `Linear Prod`, enabledByDefault: false, scopes: [`read`] })
+    expect(db.rows(`mcp_credentials`)).toHaveLength(3)
+    expect(db.rows(`mcp_oauth_flows`)).toHaveLength(2)
+
+    for (const patch of [
+      { url: `https://evil.example.com/mcp` },
+      { auth: `secret` as const, headerNames: [`X-Api-Key`] },
+    ]) {
+      seedCredentials()
+      await callerFor().update({ id: SERVER, ...patch })
+      expect(db.rows(`mcp_credentials`).map((row) => row.id), JSON.stringify(patch)).toEqual([`c-3`])
+      expect(db.rows(`mcp_oauth_flows`).map((row) => row.id)).toEqual([`f-2`])
+    }
+  })
+
+  it(`retargetsCredentials: url, transport, auth, header and env names`, () => {
+    const row = {
+      url: `https://a.example/mcp`,
+      transport: `http`,
+      auth: `secret`,
+      headerNames: [`X-Key`],
+      envNames: [] as string[],
+    } as const
+    const base = { ...row, headerNames: [...row.headerNames], envNames: [...row.envNames] }
+    expect(retargetsCredentials(base, { ...base })).toBe(false)
+    expect(retargetsCredentials(base, { ...base, url: `https://b.example/mcp` })).toBe(true)
+    expect(retargetsCredentials(base, { ...base, transport: `stdio` })).toBe(true)
+    expect(retargetsCredentials(base, { ...base, auth: `oauth` })).toBe(true)
+    expect(retargetsCredentials(base, { ...base, headerNames: [`Authorization`] })).toBe(true)
+    expect(retargetsCredentials(base, { ...base, envNames: [`TOKEN`] })).toBe(true)
   })
 
   it(`remove deletes the row`, async () => {
@@ -358,425 +385,293 @@ describe(`mcpServers.update / remove`, () => {
   })
 })
 
-describe(`mcpServers.list / listForDevice`, () => {
-  beforeEach(() => {
-    db = createFakeDb({
-      mcp_servers: [
-        serverRow({ name: `Linear` }),
-        serverRow({ id: SERVER_B, name: `GitHub`, teamId: `team-2` }),
-      ],
-      mcp_server_readiness: [
-        {
-          id: `r-1`,
-          serverId: SERVER,
-          deviceRowId: DEVICE_ROW,
-          userId: `actor`,
-          ready: true,
-          expiresAt: new Date(`2026-09-09T13:00:00Z`),
-          error: null,
-          checkedAt: new Date(`2026-09-09T12:00:00Z`),
-        },
-        // A device the caller cannot see: never listed.
-        {
-          id: `r-2`,
-          serverId: SERVER,
-          deviceRowId: OTHER_DEVICE_ROW,
-          userId: `stranger`,
-          ready: true,
-          expiresAt: null,
-          error: null,
-          checkedAt: new Date(`2026-09-09T12:00:00Z`),
-        },
-      ],
-    })
-  })
 
-  it(`list joins readiness for visible devices only`, async () => {
-    h.visibleDeviceRows.mockResolvedValue({
-      rows: [deviceRow()],
-      ownerNames: new Map(),
-    })
-    const rows = await callerFor().list({ teamId: TEAM })
-    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
-    expect(h.visibleDeviceRows).toHaveBeenCalledWith(db, `actor`, TEAM)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ id: SERVER, name: `Linear` })
-    expect(rows[0]!.readiness).toEqual([
-      {
-        serverId: SERVER,
-        deviceRowId: DEVICE_ROW,
-        deviceId: `dev-1`,
-        deviceLabel: `MacBook`,
-        userId: `actor`,
-        ready: true,
-        expiresAt: `2026-09-09T13:00:00.000Z`,
-        error: null,
-        checkedAt: `2026-09-09T12:00:00.000Z`,
-      },
-    ])
-  })
+describe(`mcpServers.list — connection statuses`, () => {
+  const SECRET = `11111111-1111-4111-8111-333333333333`
+  const OPEN = `11111111-1111-4111-8111-444444444444`
+  const LATER = new Date(Date.now() + 3600_000)
 
-  it(`list with no visible device carries empty readiness`, async () => {
-    const rows = await callerFor().list({ teamId: TEAM })
-    expect(rows[0]!.readiness).toEqual([])
-  })
-
-  it(`listForDevice spans every team of the caller`, async () => {
-    h.getUserTeamIds.mockResolvedValue([TEAM, `team-2`])
-    const rows = await callerFor().listForDevice()
-    expect(rows.map((r) => r.id).sort()).toEqual([SERVER, SERVER_B].sort())
-    h.getUserTeamIds.mockResolvedValue([])
-    expect(await callerFor().listForDevice()).toEqual([])
-  })
-})
-
-describe(`mcpServers.beginOAuth`, () => {
-  beforeEach(() => {
-    db = createFakeDb({
-      mcp_servers: [serverRow()],
-      devices: [deviceRow()],
-    })
-  })
-
-  it(`creates the flow + the mcp_oauth_start command, hosted on a public https base`, async () => {
-    const result = await callerFor().beginOAuth({
-      serverId: SERVER,
-      deviceId: `dev-1`,
-    })
-    expect(result).toMatchObject({ redirect: `hosted`, existing: false })
-    expect(result.state).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    const [flow] = db.rows(`mcp_oauth_flows`)
-    expect(flow).toMatchObject({
-      id: result.flowId,
-      state: result.state,
-      userId: `actor`,
-      teamId: TEAM,
-      serverId: SERVER,
-      deviceRowId: DEVICE_ROW,
-      redirect: `hosted`,
-      status: `pending`,
-    })
-    const [command] = db.rows(`device_commands`)
-    expect(command).toMatchObject({
-      deviceRowId: DEVICE_ROW,
-      userId: `actor`,
-      kind: `mcp_oauth_start`,
-      status: `pending`,
-      payload: {
-        serverId: SERVER,
-        state: result.state,
-        redirectUri: `https://app.exponential.dev/api/mcp-oauth/callback`,
-      },
-    })
-    expect(h.nudgeDevice).toHaveBeenCalledWith(`actor`, `dev-1`)
-  })
-
-  it(`falls back to loopback on a LAN / plain-http base, honours an explicit choice`, async () => {
-    h.appBaseUrl.mockReturnValue(`http://192.168.178.111:3000`)
-    const result = await callerFor().beginOAuth({
-      serverId: SERVER,
-      deviceId: `dev-1`,
-    })
-    expect(result.redirect).toBe(`loopback`)
-    expect(db.rows(`device_commands`)[0]!.payload).toMatchObject({
-      redirectUri: `loopback`,
-    })
-
-    db = createFakeDb({ mcp_servers: [serverRow()], devices: [deviceRow()] })
-    const forced = await callerFor().beginOAuth({
-      serverId: SERVER,
-      deviceId: `dev-1`,
-      redirect: `hosted`,
-    })
-    expect(forced.redirect).toBe(`hosted`)
-  })
-
-  it(`returns the pending flow instead of a duplicate`, async () => {
-    const first = await callerFor().beginOAuth({
-      serverId: SERVER,
-      deviceId: `dev-1`,
-    })
-    const again = await callerFor().beginOAuth({
-      serverId: SERVER,
-      deviceId: `dev-1`,
-    })
-    expect(again).toEqual({
-      flowId: first.flowId,
-      state: first.state,
-      redirect: `hosted`,
-      existing: true,
-    })
-    expect(db.rows(`mcp_oauth_flows`)).toHaveLength(1)
-    expect(db.rows(`device_commands`)).toHaveLength(1)
-  })
-
-  it(`mints a new flow once the pending one expired or finished`, async () => {
-    db = createFakeDb({
-      mcp_servers: [serverRow()],
-      devices: [deviceRow()],
-      mcp_oauth_flows: [
-        flowRow({ createdAt: new Date(Date.now() - 11 * 60_000) }),
-        flowRow({ id: `f-2`, state: `st-2`, status: `failed` }),
-      ],
-    })
-    const result = await callerFor().beginOAuth({
-      serverId: SERVER,
-      deviceId: `dev-1`,
-    })
-    expect(result.existing).toBe(false)
-    expect(db.rows(`mcp_oauth_flows`)).toHaveLength(3)
-  })
-
-  it(`refuses a non-oauth server, a device without the mcp cap, a foreign device`, async () => {
-    db = createFakeDb({
-      mcp_servers: [serverRow({ auth: `secret`, headerNames: [`X`] })],
-      devices: [deviceRow()],
-    })
-    await expect(
-      callerFor().beginOAuth({ serverId: SERVER, deviceId: `dev-1` })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-
-    db = createFakeDb({
-      mcp_servers: [serverRow()],
-      devices: [deviceRow({ caps: [`agent-login`] })],
-    })
-    await expect(
-      callerFor().beginOAuth({ serverId: SERVER, deviceId: `dev-1` })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-
-    db = createFakeDb({
-      mcp_servers: [serverRow()],
-      devices: [deviceRow({ userId: `someone-else` })],
-    })
-    await expect(
-      callerFor().beginOAuth({ serverId: SERVER, deviceId: `dev-1` })
-    ).rejects.toMatchObject({ code: `NOT_FOUND` })
-    expect(db.rows(`mcp_oauth_flows`)).toHaveLength(0)
-    expect(h.nudgeDevice).not.toHaveBeenCalled()
-  })
-
-  it(`requires membership of the server's team`, async () => {
-    h.assertTeamMember.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
-    await expect(
-      callerFor().beginOAuth({ serverId: SERVER, deviceId: `dev-1` })
-    ).rejects.toMatchObject({ code: `FORBIDDEN` })
-  })
-})
-
-describe(`mcpServers.getOAuthFlow / cancelOAuth`, () => {
-  it(`reports the flow, ageing an unfinished one out as failed/expired`, async () => {
-    db = createFakeDb({
-      mcp_oauth_flows: [
-        flowRow({
-          status: `authorize_url`,
-          authorizeUrl: `https://as.example.com/authorize`,
-        }),
-      ],
-    })
-    expect(await callerFor().getOAuthFlow({ flowId: FLOW })).toMatchObject({
-      id: FLOW,
-      serverId: SERVER,
-      deviceRowId: DEVICE_ROW,
-      redirect: `hosted`,
-      status: `authorize_url`,
-      authorizeUrl: `https://as.example.com/authorize`,
-      error: null,
-    })
-
-    db = createFakeDb({
-      mcp_oauth_flows: [
-        flowRow({ createdAt: new Date(Date.now() - 10 * 60_000) }),
-      ],
-    })
-    expect(await callerFor().getOAuthFlow({ flowId: FLOW })).toMatchObject({
-      status: `failed`,
-      error: `expired`,
-    })
-
-    // A finished flow never ages out.
-    db = createFakeDb({
-      mcp_oauth_flows: [
-        flowRow({ status: `done`, createdAt: new Date(Date.now() - 60 * 60_000) }),
-      ],
-    })
-    expect(await callerFor().getOAuthFlow({ flowId: FLOW })).toMatchObject({
-      status: `done`,
-      error: null,
-    })
-  })
-
-  it(`is the flow user's only`, async () => {
-    db = createFakeDb({ mcp_oauth_flows: [flowRow({ userId: `someone-else` })] })
-    await expect(
-      callerFor().getOAuthFlow({ flowId: FLOW })
-    ).rejects.toMatchObject({ code: `NOT_FOUND` })
-    await expect(
-      callerFor().cancelOAuth({ flowId: FLOW })
-    ).rejects.toMatchObject({ code: `NOT_FOUND` })
-  })
-
-  it(`cancel fails a live flow and leaves a finished one alone`, async () => {
-    db = createFakeDb({ mcp_oauth_flows: [flowRow()] })
-    await expect(callerFor().cancelOAuth({ flowId: FLOW })).resolves.toEqual({
-      ok: true,
-    })
-    expect(db.rows(`mcp_oauth_flows`)[0]).toMatchObject({
-      status: `failed`,
-      error: `cancelled`,
-    })
-    db = createFakeDb({ mcp_oauth_flows: [flowRow({ status: `done` })] })
-    await callerFor().cancelOAuth({ flowId: FLOW })
-    expect(db.rows(`mcp_oauth_flows`)[0]!.status).toBe(`done`)
-  })
-
-  it(`closes the pending command so no browser opens for a cancelled sign-in`, async () => {
-    // Commands are only ever picked up, never expired: a cancel that left the
-    // row pending would still start a sign-in on the machine minutes later.
-    db = createFakeDb({
-      mcp_oauth_flows: [flowRow()],
-      device_commands: [
-        {
-          id: `cmd-1`,
-          deviceRowId: DEVICE_ROW,
-          userId: `actor`,
-          kind: `mcp_oauth_start`,
-          payload: { serverId: SERVER, state: `st-1`, redirectUri: `loopback` },
-          status: `pending`,
-          result: null,
-          completedAt: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        {
-          id: `cmd-other`,
-          deviceRowId: DEVICE_ROW,
-          userId: `actor`,
-          kind: `mcp_oauth_start`,
-          payload: { serverId: SERVER, state: `another-flow` },
-          status: `pending`,
-          result: null,
-          completedAt: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ],
-    })
-    await callerFor().cancelOAuth({ flowId: FLOW })
-    const rows = db.rows(`device_commands`)
-    expect(rows.find((row) => row.id === `cmd-1`)).toMatchObject({
-      status: `failed`,
-    })
-    expect(rows.find((row) => row.id === `cmd-other`)!.status).toBe(`pending`)
-  })
-})
-
-describe(`mcpServers.finishOAuth`, () => {
-  beforeEach(() => {
-    db = createFakeDb({
-      mcp_oauth_flows: [flowRow({ status: `authorize_url` })],
-      devices: [deviceRow()],
-    })
-  })
-
-  it(`ok → done + readiness ready (loopback path, no code command)`, async () => {
-    await expect(
-      callerFor().finishOAuth({
-        state: `st-1`,
-        ok: true,
-        expiresAt: `2026-09-09T13:00:00Z`,
-      })
-    ).resolves.toEqual({ ok: true })
-    expect(db.rows(`mcp_oauth_flows`)[0]).toMatchObject({ status: `done` })
-    expect(db.rows(`mcp_server_readiness`)).toHaveLength(1)
-    expect(db.rows(`mcp_server_readiness`)[0]).toMatchObject({
-      serverId: SERVER,
-      deviceRowId: DEVICE_ROW,
-      userId: `actor`,
-      ready: true,
-      expiresAt: new Date(`2026-09-09T13:00:00Z`),
-    })
-    // Idempotent after the code command already closed it.
-    await callerFor().finishOAuth({ state: `st-1`, ok: false, error: `late` })
-    expect(db.rows(`mcp_oauth_flows`)[0]).toMatchObject({
-      status: `done`,
-      error: null,
-    })
-  })
-
-  it(`ok=false → failed with the device's reason, readiness untouched`, async () => {
-    await callerFor().finishOAuth({
-      state: `st-1`,
-      ok: false,
-      error: `user closed the browser`,
-    })
-    expect(db.rows(`mcp_oauth_flows`)[0]).toMatchObject({
-      status: `failed`,
-      error: `user closed the browser`,
-    })
-    expect(db.rows(`mcp_server_readiness`)).toHaveLength(0)
-  })
-
-  it(`only the device owner may finish; unknown state 404s`, async () => {
-    await expect(
-      callerFor(`someone-else`).finishOAuth({ state: `st-1`, ok: true })
-    ).rejects.toMatchObject({ code: `FORBIDDEN` })
-    await expect(
-      callerFor().finishOAuth({ state: `nope`, ok: true })
-    ).rejects.toMatchObject({ code: `NOT_FOUND` })
-    expect(db.rows(`mcp_oauth_flows`)[0]!.status).toBe(`authorize_url`)
-  })
-})
-
-describe(`mcpServers.reportReadiness`, () => {
   beforeEach(() => {
     db = createFakeDb({
       mcp_servers: [
         serverRow(),
-        serverRow({ id: SERVER_B, name: `Foreign`, teamId: `team-9` }),
+        serverRow({ id: SERVER_B, name: `Sentry` }),
+        serverRow({ id: SECRET, name: `Grafana`, auth: `secret`, headerNames: [`X-Api-Key`] }),
+        serverRow({ id: OPEN, name: `Docs`, auth: `none` }),
+        serverRow({ id: `11111111-1111-4111-8111-555555555555`, teamId: `other-team`, name: `Foreign` }),
       ],
-      devices: [deviceRow()],
+      team_members: [
+        { teamId: TEAM, userId: `actor` },
+        { teamId: TEAM, userId: `mate` },
+        { teamId: TEAM, userId: `third` },
+      ],
+      mcp_credentials: [
+        { serverId: SERVER, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER, `actor`)), expiresAt: LATER, error: null },
+        { serverId: SERVER, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `b` }, credentialAad(SERVER, `mate`)), expiresAt: LATER, error: null },
+        // A departed member's credential never counts.
+        { serverId: SERVER, userId: `gone`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `c` }, credentialAad(SERVER, `gone`)), expiresAt: LATER, error: null },
+        { serverId: SERVER_B, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER_B, `actor`)), expiresAt: null, error: `invalid_grant` },
+        { serverId: SECRET, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ value: `k` }, credentialAad(SECRET, `mate`)), expiresAt: null, error: null },
+      ],
     })
   })
 
-  it(`upserts the caller's team servers and ignores foreign ids`, async () => {
-    await expect(
-      callerFor().reportReadiness({
-        deviceId: `dev-1`,
-        entries: [
-          { serverId: SERVER, ready: false, error: `no credential` },
-          { serverId: SERVER, ready: true, expiresAt: `2026-09-09T13:00:00Z` },
-          { serverId: SERVER_B, ready: true },
-        ],
-      })
-    ).resolves.toEqual({ ok: true })
-    const rows = db.rows(`mcp_server_readiness`)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
+  it(`returns the caller's connection per server plus team counts, never a credential`, async () => {
+    const rows = await callerFor().list({ teamId: TEAM })
+    expect(rows.map((row) => row.name)).toEqual([`Linear`, `Sentry`, `Grafana`, `Docs`])
+    const byName = new Map(rows.map((row) => [row.name, row]))
+    expect(byName.get(`Linear`)).toMatchObject({
+      connection: { status: `connected`, expiresAt: LATER.toISOString(), error: null },
+      connectedCount: 2,
+      memberCount: 3,
+    })
+    expect(byName.get(`Sentry`)).toMatchObject({
+      connection: { status: `error`, error: `invalid_grant` },
+      connectedCount: 0,
+    })
+    expect(byName.get(`Grafana`)).toMatchObject({
+      connection: { status: `not_connected` },
+      connectedCount: 1,
+    })
+    expect(byName.get(`Docs`)).toMatchObject({
+      connection: { status: `not_needed` },
+      connectedCount: 3,
+    })
+    expect(JSON.stringify(rows)).not.toContain(`ciphertext`)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
+  })
+})
+
+describe(`mcpServers.connect`, () => {
+  beforeEach(() => {
+    db = createFakeDb({ mcp_servers: [serverRow({ url: MCP_URL })] })
+  })
+
+  it(`returns the authorize URL and mints a pending flow for the caller`, async () => {
+    vi.stubGlobal(`fetch`, fakeProvider({ cimd: true }).fetch)
+    const { authorizeUrl } = await callerFor().connect({
       serverId: SERVER,
-      deviceRowId: DEVICE_ROW,
+      returnTo: `/t/acme/settings/mcp-servers`,
+    })
+    expect(authorizeUrl.startsWith(`${AS_ISSUER}/authorize?`)).toBe(true)
+    expect(db.rows(`mcp_oauth_flows`)[0]).toMatchObject({
       userId: `actor`,
-      ready: true,
-      expiresAt: new Date(`2026-09-09T13:00:00Z`),
+      serverId: SERVER,
+      teamId: TEAM,
+      returnTo: `/t/acme/settings/mcp-servers`,
+      status: `pending`,
+    })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
+  })
+
+  it(`refuses a foreign returnTo, a non-oauth server and non-members`, async () => {
+    vi.stubGlobal(`fetch`, fakeProvider({ cimd: true }).fetch)
+    for (const returnTo of [`https://evil.example/`, `//evil.example`, `settings`]) {
+      await expect(
+        callerFor().connect({ serverId: SERVER, returnTo })
+      ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    }
+    db.rows(`mcp_servers`)[0]!.auth = `none`
+    await expect(callerFor().connect({ serverId: SERVER })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+    })
+    db.rows(`mcp_servers`)[0]!.auth = `oauth`
+    h.assertTeamMember.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
+    await expect(callerFor().connect({ serverId: SERVER })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    expect(db.rows(`mcp_oauth_flows`)).toHaveLength(0)
+  })
+
+  it(`a discovery failure is a PRECONDITION_FAILED with the reason`, async () => {
+    vi.stubGlobal(`fetch`, async () => new Response(`nope`, { status: 404 }))
+    const error = await rejectionOf(callerFor().connect({ serverId: SERVER }))
+    expect(error.code).toBe(`PRECONDITION_FAILED`)
+    expect(error.message).toMatch(/no OAuth authorization server/)
+  })
+})
+
+describe(`mcpServers.setSecret / disconnect`, () => {
+  const SECRET = `11111111-1111-4111-8111-333333333333`
+  beforeEach(() => {
+    db = createFakeDb({
+      mcp_servers: [
+        serverRow(),
+        serverRow({ id: SECRET, name: `Grafana`, auth: `secret`, headerNames: [`X-Api-Key`] }),
+      ],
+    })
+  })
+
+  it(`stores the caller's secret encrypted, replaces it, and disconnect forgets it`, async () => {
+    await callerFor().setSecret({ serverId: SECRET, value: `key-1` })
+    await callerFor().setSecret({ serverId: SECRET, value: `key-2` })
+    await callerFor(`mate`).setSecret({ serverId: SECRET, value: `mate-key` })
+    const rows = db.rows(`mcp_credentials`)
+    expect(rows).toHaveLength(2)
+    const mine = rows.find((row) => row.userId === `actor`)!
+    expect(String(mine.ciphertext)).not.toContain(`key-2`)
+    expect(decryptCredential(String(mine.ciphertext), credentialAad(SECRET, `actor`))).toEqual({ value: `key-2` })
+
+    await expect(callerFor().disconnect({ serverId: SECRET })).resolves.toEqual({ ok: true })
+    expect(db.rows(`mcp_credentials`).map((row) => row.userId)).toEqual([`mate`])
+  })
+
+  it(`refuses a secret for a non-secret server and a multi-line header value`, async () => {
+    await expect(
+      callerFor().setSecret({ serverId: SERVER, value: `x` })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    await expect(
+      callerFor().setSecret({ serverId: SECRET, value: `a\nb` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(
+      callerFor().setSecret({ serverId: SECRET, value: `` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+})
+
+describe(`mcpServers.test / probe`, () => {
+  beforeEach(() => {
+    db = createFakeDb({ mcp_servers: [serverRow({ url: MCP_URL })] })
+  })
+
+  it(`runs initialize + tools/list with the caller's token (SSE answer, session id carried)`, async () => {
+    const provider = fakeProvider({ tools: 4 })
+    provider.liveTokens.add(`live`)
+    vi.stubGlobal(`fetch`, provider.fetch)
+    db.rows(`mcp_credentials`).push({
+      id: `c-1`,
+      serverId: SERVER,
+      userId: `actor`,
+      teamId: TEAM,
+      ciphertext: encryptCredential({ accessToken: `live`, tokenType: `Bearer` }, credentialAad(SERVER, `actor`)),
+      expiresAt: null,
+      issuer: AS_ISSUER,
+      clientId: `x`,
       error: null,
     })
-    await callerFor().reportReadiness({
-      deviceId: `dev-1`,
-      entries: [{ serverId: SERVER, ready: false, error: `refresh failed` }],
+    await expect(callerFor().test({ serverId: SERVER })).resolves.toEqual({
+      ok: true,
+      tools: 4,
+      error: null,
     })
-    expect(db.rows(`mcp_server_readiness`)).toHaveLength(1)
-    expect(db.rows(`mcp_server_readiness`)[0]).toMatchObject({
-      ready: false,
-      error: `refresh failed`,
-      expiresAt: null,
-    })
+    const methods = provider.mcpRequests.map((request) => request.body.method)
+    expect(methods).toEqual([`initialize`, `notifications/initialized`, `tools/list`])
+    expect(provider.mcpRequests[0]!.headers.get(`accept`)).toBe(
+      `application/json, text/event-stream`
+    )
+    expect(provider.mcpRequests[2]!.headers.get(`mcp-session-id`)).toBe(`sess-1`)
+    expect(provider.mcpRequests[2]!.headers.get(`authorization`)).toBe(`Bearer live`)
   })
 
-  it(`needs the caller's own device`, async () => {
+  it(`reports not connected, and a refused credential, without throwing`, async () => {
+    vi.stubGlobal(`fetch`, fakeProvider().fetch)
+    await expect(callerFor().test({ serverId: SERVER })).resolves.toEqual({
+      ok: false,
+      tools: null,
+      error: `not connected`,
+    })
+    db.rows(`mcp_credentials`).push({
+      id: `c-1`,
+      serverId: SERVER,
+      userId: `actor`,
+      teamId: TEAM,
+      ciphertext: encryptCredential({ accessToken: `revoked` }, credentialAad(SERVER, `actor`)),
+      expiresAt: null,
+      error: null,
+    })
+    const result = await callerFor().test({ serverId: SERVER })
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/refused the credential \(HTTP 401\)/)
+  })
+
+  it(`probe detects an OAuth server and its scopes (owner-only)`, async () => {
+    vi.stubGlobal(`fetch`, fakeProvider().fetch)
+    await expect(callerFor().probe({ teamId: TEAM, url: MCP_URL })).resolves.toEqual({
+      url: MCP_URL,
+      suggestedName: `example`,
+      auth: `oauth`,
+      reachable: true,
+      error: null,
+      scopes: [`read`, `write`],
+    })
+    h.assertTeamOwner.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
     await expect(
-      callerFor(`someone-else`).reportReadiness({
-        deviceId: `dev-1`,
-        entries: [{ serverId: SERVER, ready: true }],
+      callerFor().probe({ teamId: TEAM, url: MCP_URL })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+  })
+
+  it(`probe: an open server is none, an unreachable one says so`, async () => {
+    vi.stubGlobal(`fetch`, async () =>
+      new Response(JSON.stringify({ jsonrpc: `2.0`, id: 1, result: {} }), {
+        status: 200,
+        headers: { "content-type": `application/json` },
       })
-    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    )
+    await expect(
+      callerFor().probe({ teamId: TEAM, url: `https://mcp.linear.app/mcp` })
+    ).resolves.toMatchObject({ auth: `none`, reachable: true, suggestedName: `linear` })
+    vi.stubGlobal(`fetch`, async () => {
+      throw new TypeError(`fetch failed`)
+    })
+    await expect(
+      callerFor().probe({ teamId: TEAM, url: MCP_URL })
+    ).resolves.toMatchObject({ reachable: false, error: `could not connect` })
+  })
+
+  it(`probe on the cloud refuses a private host`, async () => {
+    const previous = process.env.CLOUD_INSTANCE
+    process.env.CLOUD_INSTANCE = `true`
+    const fetchSpy = vi.fn()
+    vi.stubGlobal(`fetch`, fetchSpy)
+    try {
+      await expect(
+        callerFor().probe({ teamId: TEAM, url: `http://localhost:8080/mcp` })
+      ).resolves.toMatchObject({ reachable: false, error: expect.stringMatching(/https/) })
+      await expect(
+        callerFor().probe({ teamId: TEAM, url: `https://127.0.0.1/mcp` })
+      ).resolves.toMatchObject({ reachable: false, error: expect.stringMatching(/not a public address/) })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      process.env.CLOUD_INSTANCE = previous
+    }
+  })
+})
+
+describe(`mcpServers.resolveForLaunch`, () => {
+  it(`spans the caller's teams and returns their own values`, async () => {
+    db = createFakeDb({
+      mcp_servers: [
+        serverRow({ url: MCP_URL }),
+        serverRow({ id: SERVER_B, name: `Grafana`, auth: `secret`, headerNames: [`X-Api-Key`] }),
+      ],
+      mcp_credentials: [
+        { id: `c-1`, serverId: SERVER, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `tok` }, credentialAad(SERVER, `actor`)), expiresAt: null, error: null },
+      ],
+    })
+    const result = await callerFor().resolveForLaunch({ serverIds: [SERVER, SERVER_B] })
+    expect(result.servers).toEqual([
+      expect.objectContaining({ id: SERVER, headers: [{ name: `Authorization`, value: `Bearer tok` }] }),
+    ])
+    expect(result.skipped).toEqual([{ id: SERVER_B, name: `Grafana`, reason: `not connected` }])
+    expect(h.getUserTeamIds).toHaveBeenCalledWith(`actor`)
+  })
+
+  it(`bounds the id list at 16 uuids`, async () => {
+    await expect(
+      callerFor().resolveForLaunch({
+        serverIds: Array.from({ length: 17 }, () => SERVER),
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+})
+
+describe(`isReservedMcpEnvName`, () => {
+  it(`denies the launcher's environment, case-insensitively`, () => {
+    for (const name of [`PATH`, `Home`, `shell`, `USER`, `TMPDIR`, `PWD`, `LD_PRELOAD`, `DYLD_LIBRARY_PATH`, `NODE_OPTIONS`, `ANTHROPIC_API_KEY`, `claude_config_dir`, `CODEX_HOME`, `OPENAI_API_KEY`, `EXP_MCP_TOKEN_1`, `GIT_SSH_COMMAND`, `BUN_INSTALL`]) {
+      expect(isReservedMcpEnvName(name), name).toBe(true)
+    }
+    for (const name of [`PG_URL`, `GITHUB_TOKEN`, `LINEAR_API_KEY`, `PATHS`, `HOMEBREW_X`, `EXPO_TOKEN`]) {
+      expect(isReservedMcpEnvName(name), name).toBe(false)
+    }
   })
 })

@@ -22,14 +22,9 @@ use std::time::Duration;
 use crate::error::ApiError;
 
 /// Which secret an entry holds. Each kind is a distinct named entry per
-/// account — the two credentials of §5.7 never share a slot.
-///
-/// EXP-792: the MCP kinds carry OWNED ids (a server row id, a typed value's
-/// name, an OAuth issuer), so the enum is no longer `Copy`; call sites
-/// construct a fresh value per call. They live under
-/// `{data_dir}/accounts/{account_id}/mcp/{server_id}/<kind>` — the same
-/// 0600/0700 posture, one directory per server so a sign-out wipes exactly
-/// that server's credentials ([`TokenStore::delete_mcp_server`]).
+/// account — the two credentials of §5.7 never share a slot. Team MCP
+/// server credentials are NOT here: the server holds them per member
+/// (`api::mcp_servers`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SecretKind {
     /// The Better Auth session token — the `Authorization: Bearer` for every
@@ -43,70 +38,17 @@ pub enum SecretKind {
     /// stored alongside so Regenerate can revoke the *previous* row by id —
     /// §7.2 mint-new-then-revoke-old).
     PersonalApiKeyId,
-    /// EXP-792: a team MCP server's OAuth token set (JSON: access token,
-    /// refresh token, expiry, token endpoint, client id, issuer).
-    McpOauth { server_id: String },
-    /// EXP-792: the value this machine typed for one declared header/env
-    /// NAME of an `auth: secret` server.
-    McpValue { server_id: String, name: String },
-    /// EXP-792: the dynamically registered (RFC 7591) client id for one
-    /// OAuth issuer — cached so every server behind that issuer, and every
-    /// later sign-in, reuses the registration instead of minting another.
-    McpClient { issuer: String },
-    /// EXP-792: an in-flight authorization (PKCE verifier + token endpoint
-    /// + client id), keyed by the flow's `state`, until the code arrives.
-    McpPending { server_id: String, state: String },
 }
 
 impl SecretKind {
     /// Stable file name per kind. `SessionToken` is literally `token`,
-    /// matching the §5.7 path spec (`{data_dir}/accounts/{id}/token`); the
-    /// MCP kinds are RELATIVE paths under the account dir.
+    /// matching the §5.7 path spec (`{data_dir}/accounts/{id}/token`).
     fn suffix(&self) -> PathBuf {
         match self {
             SecretKind::SessionToken => PathBuf::from("token"),
             SecretKind::PersonalApiKey => PathBuf::from("personal-key"),
             SecretKind::PersonalApiKeyId => PathBuf::from("personal-key-id"),
-            SecretKind::McpOauth { server_id } => {
-                mcp_server_dir(server_id).join("oauth")
-            }
-            SecretKind::McpValue { server_id, name } => {
-                mcp_server_dir(server_id).join(format!("value-{}", path_component(name)))
-            }
-            SecretKind::McpClient { issuer } => PathBuf::from("mcp")
-                .join("_clients")
-                .join(path_component(issuer)),
-            SecretKind::McpPending { server_id, state } => {
-                mcp_server_dir(server_id).join(format!("pending-{}", path_component(state)))
-            }
         }
-    }
-}
-
-/// `mcp/<server_id>` — one directory per server (see [`SecretKind`]).
-fn mcp_server_dir(server_id: &str) -> PathBuf {
-    PathBuf::from("mcp").join(path_component(server_id))
-}
-
-/// A caller-supplied id as ONE safe path component: ASCII alphanumerics,
-/// `-`, `_` and `.` pass, everything else folds to `_`, and a value that
-/// would be `.`/`..`/empty becomes `_` — an issuer URL or a server name can
-/// never climb out of the account dir.
-fn path_component(raw: &str) -> String {
-    let folded: String = raw
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if folded.is_empty() || folded.chars().all(|c| c == '.') {
-        "_".to_string()
-    } else {
-        folded
     }
 }
 
@@ -165,33 +107,9 @@ impl TokenStore {
         ] {
             self.delete(account_id, kind);
         }
-        // EXP-792: every MCP credential of the account (token sets, typed
-        // values, DCR client ids, in-flight flows).
+        // The retired device-held MCP credentials (EXP-792, before the
+        // server held them): an older build's leftovers go with the account.
         let _ = fs::remove_dir_all(self.account_dir(account_id).join("mcp"));
-    }
-
-    /// EXP-792: drop EVERY secret this machine holds for one MCP server
-    /// (the token set, typed values, pending flows) — the sign-out / "forget
-    /// this server" path. Idempotent.
-    pub fn delete_mcp_server(&self, account_id: &str, server_id: &str) {
-        let _ = fs::remove_dir_all(self.account_dir(account_id).join(mcp_server_dir(server_id)));
-    }
-
-    /// EXP-792: the server ids this machine holds ANY secret for — what a
-    /// readiness sweep walks when a server was removed server-side.
-    pub fn mcp_server_ids(&self, account_id: &str) -> Vec<String> {
-        let dir = self.account_dir(account_id).join("mcp");
-        let Ok(entries) = fs::read_dir(dir) else {
-            return Vec::new();
-        };
-        let mut ids: Vec<String> = entries
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().is_dir())
-            .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
-            .filter(|name| name != "_clients")
-            .collect();
-        ids.sort();
-        ids
     }
 
     // ---- file store ----
@@ -221,8 +139,8 @@ impl TokenStore {
             .ok_or_else(|| ApiError::TokenStore(format!("no parent dir for {path:?}")))?;
         fs::create_dir_all(dir)
             .map_err(|e| ApiError::TokenStore(format!("create {dir:?}: {e}")))?;
-        // EXP-792: the MCP kinds nest below the account dir — tighten every
-        // level down to the file, not just the immediate parent.
+        // Tighten every level between the account dir and the file, not just
+        // the immediate parent.
         let account_dir = self.account_dir(account_id);
         let mut level = Some(dir);
         while let Some(current) = level {
@@ -387,113 +305,5 @@ mod tests {
         assert_eq!(store.get("a", SecretKind::SessionToken), None);
         assert_eq!(store.get("a", SecretKind::PersonalApiKey), None);
         assert_eq!(store.get("a", SecretKind::PersonalApiKeyId), None);
-    }
-
-    #[test]
-    fn mcp_kinds_nest_under_the_server_dir() {
-        let dir = TempDir::new("mcp");
-        let store = TokenStore::new(dir.0.clone());
-        let oauth = SecretKind::McpOauth {
-            server_id: "srv-1".into(),
-        };
-        store.set("a", oauth.clone(), r#"{"access_token":"t"}"#).unwrap();
-        store
-            .set(
-                "a",
-                SecretKind::McpValue {
-                    server_id: "srv-1".into(),
-                    name: "X-Api-Key".into(),
-                },
-                "k",
-            )
-            .unwrap();
-        store
-            .set(
-                "a",
-                SecretKind::McpClient {
-                    issuer: "https://auth.example.com/".into(),
-                },
-                "client-1",
-            )
-            .unwrap();
-        store
-            .set(
-                "a",
-                SecretKind::McpPending {
-                    server_id: "srv-1".into(),
-                    state: "st_ate".into(),
-                },
-                "{}",
-            )
-            .unwrap();
-        let base = dir.0.join("accounts").join("a").join("mcp");
-        assert!(base.join("srv-1").join("oauth").is_file());
-        assert!(base.join("srv-1").join("value-X-Api-Key").is_file());
-        assert!(base.join("srv-1").join("pending-st_ate").is_file());
-        assert!(base
-            .join("_clients")
-            .join("https___auth.example.com_")
-            .is_file());
-        assert_eq!(store.get("a", oauth.clone()).as_deref(), Some(r#"{"access_token":"t"}"#));
-        assert_eq!(store.mcp_server_ids("a"), vec!["srv-1".to_string()]);
-
-        store.delete_mcp_server("a", "srv-1");
-        assert_eq!(store.get("a", oauth), None);
-        assert!(store.mcp_server_ids("a").is_empty());
-        // The issuer cache is NOT a server's: it survives the sign-out.
-        assert_eq!(
-            store
-                .get(
-                    "a",
-                    SecretKind::McpClient {
-                        issuer: "https://auth.example.com/".into()
-                    }
-                )
-                .as_deref(),
-            Some("client-1")
-        );
-        store.delete_all("a");
-        assert!(!base.exists());
-    }
-
-    #[test]
-    fn mcp_ids_never_climb_out_of_the_account_dir() {
-        assert_eq!(path_component("../../etc"), ".._.._etc");
-        assert_eq!(path_component(".."), "_");
-        assert_eq!(path_component(""), "_");
-        assert_eq!(path_component("a/b c"), "a_b_c");
-        let kind = SecretKind::McpOauth {
-            server_id: "../x".into(),
-        };
-        assert!(kind.suffix().starts_with("mcp"));
-        assert!(!kind.suffix().components().any(|c| c == std::path::Component::ParentDir));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn mcp_store_tightens_every_nested_dir() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = TempDir::new("mcpperms");
-        let store = TokenStore::new(dir.0.clone());
-        store
-            .set(
-                "a",
-                SecretKind::McpOauth {
-                    server_id: "s".into(),
-                },
-                "t",
-            )
-            .unwrap();
-        let account = dir.0.join("accounts").join("a");
-        for path in [
-            account.clone(),
-            account.join("mcp"),
-            account.join("mcp").join("s"),
-        ] {
-            let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode, 0o700, "{path:?} must be 0700, was {mode:o}");
-        }
-        let file = account.join("mcp").join("s").join("oauth");
-        assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     }
 }

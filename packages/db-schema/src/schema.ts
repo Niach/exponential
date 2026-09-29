@@ -1602,10 +1602,7 @@ export const deviceWorktrees = pgTable(
 // message?, profileId}, `profileId` = the id it signed into, `system` when
 // none was named)) |
 // `agent_login_code` (payload {agent, code} — the typed device code for a
-// pending login) | `mcp_oauth_start` (EXP-792, payload {serverId, state,
-// redirectUri} — the device runs discovery + PKCE and completes EARLY with
-// `{phase:"authorize", url}`) | `mcp_oauth_code` (payload {serverId, state,
-// code} — the callback-relayed authorization code the device exchanges) |
+// pending login) |
 // `agent_usage_refresh` (EXP-747 C4, payload {agent, profileId} — force a
 // usage collection past the shared TTL, never past the rate-limit floor) |
 // `agent_profile_use` (EXP-849, payload {agent, profileId} — make an
@@ -2169,18 +2166,18 @@ export const repositories = pgTable(
 )
 
 // EXP-792: team MCP servers a coding run may connect to besides Exponential's
-// own `/api/mcp`. SERVER-ONLY (tRPC `mcpServers`, never a shape — the natives
-// have no decode) and NON-SECRET by construction: a row carries the NAMES of
-// the headers / env variables a device must supply, never their values. The
-// values (an OAuth token set, a typed header or env secret) live in the
-// device's 0600 secret store; the server only learns per-device READINESS
-// through `mcp_server_readiness`. `auth`: `none` (connect as-is), `oauth`
-// (the device runs discovery + PKCE, the web relays the code over
-// `device_commands`), `secret` (a value typed on the device for the ONE
-// declared header/env name). `transport`: `http` (url + header names) or
-// `stdio` (command + args + env names). `scopes` is advisory (the OAuth
-// scope request); `enabled_by_default` preselects the server in the launch
-// multiselects.
+// own `/api/mcp` — the ONE registry (no repo `.mcp.json`, no per-device
+// servers). SERVER-ONLY (tRPC `mcpServers`, never a shape — the natives
+// have no decode). The row itself is NON-SECRET: it names the headers / env
+// variables a credential fills, never their values. Each MEMBER connects
+// once and the server holds that member's credential encrypted in
+// `mcp_credentials`, so it works on every device, remote start and
+// automation. `auth`: `none` (connect as-is), `oauth` (the server runs
+// discovery + PKCE and the hosted callback exchanges the code), `secret` (a
+// value the member types, for the ONE declared header/env name).
+// `transport`: `http` (url + header names) or `stdio` (command + args + env
+// names). `scopes` is advisory (the OAuth scope request); `enabled_by_default`
+// preselects the server in the launch pickers.
 export const mcpServers = pgTable(
   `mcp_servers`,
   {
@@ -2217,47 +2214,83 @@ export const mcpServers = pgTable(
   ]
 )
 
-// EXP-792: the per-device readiness matrix — "signed in on the MacBook, not
-// on the mini". Upserted by the device (heartbeat `mcpReadiness` +
-// `mcpServers.reportReadiness`) from what its secret store holds; `ready`
-// false + `error` names why (no secret, refresh failed, ...). `expires_at`
-// is the OAuth access token's expiry so the UI can warn before a launch.
-// `user_id` denormalizes the device owner (the readiness is theirs).
-export const mcpServerReadiness = pgTable(
-  `mcp_server_readiness`,
+// One member's credential for one team MCP server: the OAuth token set the
+// hosted callback exchanged, or the secret they typed (`mcpServers.setSecret`).
+// `ciphertext` = AES-256-GCM JSON {accessToken?, refreshToken?, tokenType?,
+// tokenEndpoint?, value?} under a key derived from BETTER_AUTH_SECRET
+// (lib/mcp-oauth/crypto.ts; rotating it = every member reconnects, a failed
+// decrypt reads as not connected). `expires_at` = the OAuth access expiry,
+// `issuer` + `client_id` = the client the tokens belong to (the refresh
+// needs it), `error` = the last refresh failure. Server-only, never synced,
+// never returned: `mcpServers.resolveForLaunch` hands the caller's OWN
+// values to their launcher.
+export const mcpCredentials = pgTable(
+  `mcp_credentials`,
   {
     id: uuidPk(),
     serverId: uuid(`server_id`)
       .notNull()
       .references(() => mcpServers.id, { onDelete: `cascade` }),
-    deviceRowId: uuid(`device_row_id`)
-      .notNull()
-      .references(() => devices.id, { onDelete: `cascade` }),
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    ready: boolean().notNull().default(false),
-    expiresAt: timestamp(`expires_at`, { withTimezone: true }),
-    error: text(),
-    checkedAt: timestamp(`checked_at`, { withTimezone: true })
+    teamId: uuid(`team_id`)
       .notNull()
-      .defaultNow(),
+      .references(() => teams.id, { onDelete: `cascade` }),
+    ciphertext: text().notNull(),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }),
+    issuer: text(),
+    clientId: text(`client_id`),
+    error: text(),
     ...timestamps,
   },
   (table) => [
-    unique().on(table.serverId, table.deviceRowId),
-    index(`idx_mcp_server_readiness_device`).on(table.deviceRowId),
+    unique().on(table.serverId, table.userId),
+    index(`idx_mcp_credentials_user`).on(table.userId),
   ]
 )
 
-// EXP-792: one web-initiated, device-executed OAuth sign-in. Created by
-// `mcpServers.beginOAuth` (state = 32 random bytes, base64url; 10-minute
-// TTL), advanced by the device's command completions (`authorize_url` once
-// the device built the PKCE authorize URL, `code_relayed` when the anonymous
-// callback matched `state` and queued the code back, `done`/`failed` when
-// the device reports the exchange). `redirect`: `hosted` (our HTTPS callback)
-// or `loopback` (the device's own 127.0.0.1 listener). The PKCE verifier
-// never leaves the device, so the relayed code is useless to the server.
+// The RFC 7591 dynamic-registration cache: one client per (issuer,
+// redirect_uri, registration_endpoint), shared by every team and member of
+// the instance (a CIMD provider needs no row — the client id IS our
+// client.json URL). The registration endpoint is part of the key so a
+// metadata document naming another endpoint for the same issuer can never
+// reuse (or overwrite) a client registered elsewhere.
+// `client_secret_ciphertext` only when the AS issued a confidential client
+// (AAD-bound to issuer + registration endpoint).
+export const mcpOauthClients = pgTable(
+  `mcp_oauth_clients`,
+  {
+    id: uuidPk(),
+    issuer: text().notNull(),
+    redirectUri: text(`redirect_uri`).notNull(),
+    registrationEndpoint: text(`registration_endpoint`).notNull(),
+    clientId: text(`client_id`).notNull(),
+    clientSecretCiphertext: text(`client_secret_ciphertext`),
+    tokenEndpointAuthMethod: varchar(`token_endpoint_auth_method`, {
+      length: 32,
+    })
+      .notNull()
+      .default(`none`),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique(`mcp_oauth_clients_cache_key`).on(
+      table.issuer,
+      table.redirectUri,
+      table.registrationEndpoint
+    ),
+  ]
+)
+
+// One member's MCP OAuth sign-in in flight. Minted by `mcpServers.connect`
+// (state = 32 random bytes, base64url; 10-minute TTL, single use) with the
+// PKCE verifier ENCRYPTED; the anonymous hosted callback matches `state`,
+// exchanges the code SERVER-side and upserts `mcp_credentials`.
+// `return_to` = a same-origin relative path the callback 302s to.
+// `status`: pending → done | failed.
 export const mcpOauthFlows = pgTable(
   `mcp_oauth_flows`,
   {
@@ -2272,63 +2305,21 @@ export const mcpOauthFlows = pgTable(
     serverId: uuid(`server_id`)
       .notNull()
       .references(() => mcpServers.id, { onDelete: `cascade` }),
-    deviceRowId: uuid(`device_row_id`)
-      .notNull()
-      .references(() => devices.id, { onDelete: `cascade` }),
-    redirect: varchar({ length: 16 }).notNull().default(`hosted`),
-    // pending → authorize_url → code_relayed → done | failed.
+    codeVerifierCiphertext: text(`code_verifier_ciphertext`).notNull(),
+    clientId: text(`client_id`).notNull(),
+    issuer: text().notNull(),
+    tokenEndpoint: text(`token_endpoint`).notNull(),
+    resource: text().notNull(),
+    redirectUri: text(`redirect_uri`).notNull(),
+    returnTo: text(`return_to`),
     status: varchar({ length: 16 }).notNull().default(`pending`),
-    authorizeUrl: text(`authorize_url`),
     error: text(),
     createdAt: timestamp(`created_at`, { withTimezone: true })
       .notNull()
       .defaultNow(),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
   },
-  (table) => [index(`idx_mcp_oauth_flows_device`).on(table.deviceRowId)]
-)
-
-// EXP-891: MCP servers a MACHINE connects on its own runs — per device and
-// per member, beside the team registry above. The device is the writer: the
-// desktop / CLI autodetects what the local claude/codex config already has
-// (`claude mcp add …`, `[mcp_servers.*]` in codex's config.toml) and imports
-// it (`source = detected`), or a person types one there (`manual`); every
-// edit replaces the machine's set through `deviceMcpServers.sync`. The web
-// only READS them, grouped per device. Config only — url or command + args,
-// never a header value, a token or an env value: a detected server keeps
-// its credentials where the agent already holds them. Server-only (tRPC,
-// never a shape). `device_id` is the steer id the row is reported under
-// (denormalized off the devices row so the contract shape needs no join);
-// `enabled = false` keeps a row listed but off every launch.
-export const deviceMcpServers = pgTable(
-  `device_mcp_servers`,
-  {
-    id: uuidPk(),
-    deviceRowId: uuid(`device_row_id`)
-      .notNull()
-      .references(() => devices.id, { onDelete: `cascade` }),
-    deviceId: text(`device_id`).notNull(),
-    userId: text(`user_id`)
-      .notNull()
-      .references(() => users.id, { onDelete: `cascade` }),
-    name: varchar({ length: 64 }).notNull(),
-    // Documented varchar (mcpTransportValues in domain.ts).
-    transport: varchar({ length: 16 }).notNull().default(`http`),
-    url: text(),
-    command: text(),
-    args: jsonb().$type<string[]>().notNull().default(sql`'[]'::jsonb`),
-    // `detected` | `manual` (lib/mcp/device-mcp-servers.ts).
-    source: varchar({ length: 16 }).notNull().default(`manual`),
-    // The local agent config a detected row came from (`claude` | `codex`);
-    // null for a typed one.
-    agent: varchar({ length: 16 }),
-    enabled: boolean().notNull().default(true),
-    ...timestamps,
-  },
-  (table) => [
-    unique().on(table.deviceRowId, table.name),
-    index(`idx_device_mcp_servers_device`).on(table.deviceRowId),
-  ]
+  (table) => [index(`idx_mcp_oauth_flows_user`).on(table.userId)]
 )
 
 // Team action prompts. An action is a named markdown prompt the desktop runs
@@ -3275,9 +3266,9 @@ export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
 export type Repository = InferSelectModel<typeof repositories>
 export type McpServer = InferSelectModel<typeof mcpServers>
-export type McpServerReadiness = InferSelectModel<typeof mcpServerReadiness>
+export type McpCredential = InferSelectModel<typeof mcpCredentials>
+export type McpOauthClient = InferSelectModel<typeof mcpOauthClients>
 export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
-export type DeviceMcpServerRow = InferSelectModel<typeof deviceMcpServers>
 export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>
 export type Action = InferSelectModel<typeof actions>
 export type Automation = InferSelectModel<typeof automations>

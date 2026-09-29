@@ -301,7 +301,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                 )}
                 {showMcp && (
                   /* EXP-792: WHICH team servers the run connects to — the
-                     picker greys rows the machine is not ready for. */
+                     picker greys the ones the caller has not connected. */
                   <div className="flex items-center gap-3 px-4 py-3">
                     <span className="flex-1 text-sm text-foreground">
                       MCP servers
@@ -310,8 +310,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                       servers={model.mcpServers!}
                       selectedIds={launch.mcpServerIds}
                       onToggle={launch.toggleMcpServer}
-                      device={device}
-                      now={model.mcpNow}
+                      connectHref={model.mcpConnectHref}
                     />
                   </div>
                 )}

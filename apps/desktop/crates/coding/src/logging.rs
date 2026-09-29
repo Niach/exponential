@@ -12,7 +12,7 @@
 //!   backtrace) before the default hook prints it.
 //! * [`HeartbeatHealth`]: warn-level heartbeat failures with the HTTP status,
 //!   one `info` on recovery, and the optional-payload back-off: a beat whose
-//!   `agentAccounts`/`agentUsage`/`mcpReadiness` payload drew a 4xx is followed
+//!   `agentAccounts`/`agentUsage` payload drew a 4xx is followed
 //!   by BARE beats, so `last_seen_at` still lands.
 
 use std::fs::{File, OpenOptions};
@@ -345,7 +345,7 @@ impl HeartbeatHealth {
     }
 
     /// Called once per beat: whether this beat may carry the optional
-    /// payload (`agentAccounts`/`agentUsage`/`mcpReadiness`).
+    /// payload (`agentAccounts`/`agentUsage`).
     pub fn begin_beat(&mut self) -> bool {
         if self.bare_beats_left > 0 {
             self.bare_beats_left -= 1;

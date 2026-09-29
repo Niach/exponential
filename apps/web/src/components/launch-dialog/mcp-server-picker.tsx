@@ -1,14 +1,14 @@
-// EXP-792: the "MCP servers" multiselect every launch surface shares. A row
-// the chosen device is NOT ready for (no OAuth sign-in or typed secret on that
-// machine, per the readiness matrix) is greyed with the reason UNDER its name;
-// picking it anyway is allowed — it is never `disabled` — the desktop launcher
-// then names the blocker. Hidden by the caller when the team has no servers.
+// EXP-792: the "MCP servers" multiselect every launch surface shares. The
+// server holds each member's credential, so readiness is the CALLER's own
+// `connection` — the same on every machine. A server they have not connected
+// (or whose sign-in expired) is greyed with "Connect first" under its name;
+// picking it opens Settings › MCP servers `?connect=<id>` in a new tab
+// instead of adding it (the list refetches when this tab is visible again).
+// Hidden by the caller when the team has no servers.
 //
 // EXP-1030: the rows are the shared `Picker` primitive's (EXP-1021) in
-// `mode="multi"` — the pick reads as the row's own highlight, like every
-// other multi picker — and the reason rides the primitive's muted second line
-// (`description`), which is exactly how the desktop's own MCP rows draw it
-// (`launch_options.rs`: greyed, reason under the name, never unpickable).
+// `mode="multi"` — the pick reads as the row's own highlight — and the note
+// rides the primitive's muted second line (`description`).
 import {
   Picker,
   PickerItemBody,
@@ -16,8 +16,7 @@ import {
   conceptIcon,
   type PickerItem,
 } from "@exp/ui"
-import { serverBlockReason, type McpServerRow } from "@/lib/mcp-servers"
-import type { SteerDevice } from "@/lib/steer-devices"
+import { mcpNotReadyLabel, type McpServerRow } from "@/lib/mcp-servers"
 import { cn } from "@/lib/utils"
 
 const McpIcon = conceptIcon(`settings-mcp`)
@@ -38,38 +37,27 @@ export function McpServerPicker({
   servers,
   selectedIds,
   onToggle,
-  device,
-  now,
+  connectHref,
   disabled,
   renderTrigger,
 }: {
-  servers: readonly McpServerRow[]
+  servers: readonly Pick<McpServerRow, `id` | `name` | `connection`>[]
   selectedIds: readonly string[]
   onToggle: (id: string) => void
-  /** The machine the run lands on — decides which rows read "not ready". */
-  device: SteerDevice | undefined
-  now: Date
+  /** The settings deep link that connects `serverId` (null = no link). */
+  connectHref: (serverId: string) => string | null
   disabled?: boolean
   /** Replaces the default pill (a settings row renders its own value). */
   renderTrigger?: (summary: string) => React.ReactNode
 }) {
   const summary = mcpPickSummary(servers, selectedIds)
-  const reasons = new Map(
-    servers.map((server) => [
-      server.id,
-      serverBlockReason(
-        server,
-        device
-          ? { deviceId: device.deviceId, deviceLabel: device.deviceLabel }
-          : null,
-        now
-      ),
-    ])
+  const notes = new Map(
+    servers.map((server) => [server.id, mcpNotReadyLabel(server)])
   )
   const items: PickerItem[] = servers.map((server) => ({
     value: server.id,
     label: server.name,
-    description: reasons.get(server.id) ?? undefined,
+    description: notes.get(server.id) ?? undefined,
   }))
 
   return (
@@ -82,6 +70,12 @@ export function McpServerPicker({
       onChange={(next) => {
         const added = next.find((id) => !selectedIds.includes(id))
         const removed = selectedIds.find((id) => !next.includes(id))
+        if (added && notes.get(added)) {
+          // Not usable yet: connecting is the only way forward.
+          const href = connectHref(added)
+          if (href) window.open(href, `_blank`, `noopener`)
+          return
+        }
         const changed = added ?? removed
         if (changed) onToggle(changed)
       }}
@@ -91,17 +85,15 @@ export function McpServerPicker({
       emptyText="No servers found."
       width="md"
       mobileTitle="MCP servers"
-      // The row BODY is the primitive's; only the GREYING is this picker's —
-      // a blocked row still toggles, it just reads as the one that will need
-      // a fix on the machine first.
       renderItem={(item) => {
-        const reason = reasons.get(item.value) ?? null
+        const note = notes.get(item.value) ?? null
         return (
           <span
-            title={reason ?? undefined}
+            data-mcp-ready={note ? `false` : `true`}
+            title={note ? `Opens Settings › MCP servers to connect` : undefined}
             className={cn(
               `flex min-w-0 flex-1 items-center gap-2.5`,
-              reason && `opacity-50`
+              note && `opacity-50`
             )}
           >
             <PickerItemBody item={item} />

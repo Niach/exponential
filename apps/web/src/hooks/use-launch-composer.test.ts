@@ -26,6 +26,7 @@ const mockState = vi.hoisted(() => ({
   } as Record<string, unknown[]>,
   boards: [] as unknown[],
   repos: null as { id: string; fullName: string }[] | null,
+  mcpServers: null as unknown[] | null,
   upload: vi.fn(),
   toastError: vi.fn(),
 }))
@@ -58,12 +59,17 @@ vi.mock(`@/lib/collections`, () => ({
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamBoards: () => mockState.boards,
+  useTeamById: () => ({ id: `t1`, slug: `acme` }),
 }))
 vi.mock(`@/hooks/use-team-repos`, () => ({
   useTeamRepos: () => mockState.repos,
 }))
 vi.mock(`@/hooks/use-mcp-servers`, () => ({
-  useMcpServers: () => ({ servers: null, error: null, refresh: vi.fn() }),
+  useMcpServers: () => ({
+    servers: mockState.mcpServers,
+    error: null,
+    refresh: vi.fn(),
+  }),
 }))
 vi.mock(`@/lib/storage/issue-image-upload`, () => ({
   uploadTeamSessionImageFile: mockState.upload,
@@ -152,6 +158,7 @@ beforeEach(() => {
   mockState.rows.bl = []
   mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-1`)]
   mockState.repos = [{ id: `repo-1`, fullName: `acme/app` }]
+  mockState.mcpServers = null
   mockState.upload.mockReset()
   mockState.toastError.mockReset()
   vi.stubGlobal(`URL`, {
@@ -807,5 +814,39 @@ describe(`useLaunchComposer plan workflow`, () => {
     })
     act(() => result.current.toggleIssue(`i1`))
     expect(result.current.workflowId).toBeUndefined()
+  })
+})
+
+// EXP-792: the server holds each member's MCP credential, so a server is
+// usable when the CALLER's connection is `connected` or `not_needed` — on any
+// machine. An unconnected one is never preselected, even when the team marked
+// it enabled-by-default, and the picker sends the caller to connect it.
+describe(`useLaunchComposer MCP servers`, () => {
+  const server = (
+    id: string,
+    status: string,
+    enabledByDefault: boolean
+  ) => ({
+    id,
+    name: id,
+    enabledByDefault,
+    connection: { status, expiresAt: null, error: null },
+  })
+
+  it(`preselects only the default servers the caller can use`, async () => {
+    mockState.mcpServers = [
+      server(`linear`, `connected`, true),
+      server(`sentry`, `not_connected`, true),
+      server(`notion`, `expired`, true),
+      server(`docs`, `not_needed`, true),
+      server(`stripe`, `connected`, false),
+    ]
+    const { result } = mount()
+    await waitFor(() =>
+      expect(result.current.launch.mcpServerIds).toEqual([`linear`, `docs`])
+    )
+    expect(result.current.mcpConnectHref(`sentry`)).toBe(
+      `/t/acme/settings/mcp-servers?connect=sentry`
+    )
   })
 })

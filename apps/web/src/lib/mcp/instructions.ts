@@ -33,18 +33,21 @@ export function mcpServerInstructions(gates: {
     // nothing" means exactly that (the agent never compensates). Direct
     // status writes remain for one case only: the user explicitly asks.
     `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Status changes are automatic (PR tools apply the team's automation); set one only if asked. Search for exponential_* tools for boards, labels, statuses, members, attachments, notifications, actions, automations, sessions, devices, helpdesk, repos and teams.`,
-    `exponential_pr_open takes 'issueId' for one issue, 'issueIds' plus 'head' for one combined PR over several, or 'repositoryId' plus 'head' for a chore PR with no issue at all. exponential_pr_merge mirrors that: 'issueId'/'issueIds', or 'repositoryId' plus 'prNumber'. Merging your own pull request never ends your session. If a merge is refused because the base is stale, call exponential_pr_retarget, rebase onto the new base, force-push with --force-with-lease, then merge again.`,
+    `exponential_pr_open takes 'issueId' for one issue, 'issueIds' plus 'head' for one combined PR over several, or 'repositoryId' plus 'head' for an issue-less chore PR. exponential_pr_merge mirrors that: 'issueId'/'issueIds', or 'repositoryId' plus 'prNumber'. Merging your own PR never ends your session. A merge refused for a stale base: call exponential_pr_retarget, rebase onto the new base, force-push with --force-with-lease, merge again.`,
+    // EXP-792: the one registry. An agent asked to "add the Linear MCP"
+    // would otherwise write a repo .mcp.json the launcher never reads.
+    `Team MCP servers (Linear, Sentry...) live in exponential_mcp_servers_*, never a repo .mcp.json.`,
   ]
   if (gates.reportBug) {
     paragraphs.push(
-      `When Exponential ITSELF misbehaves while you work — a tool result that contradicts its docs, a dropped remote start, a sync or UI glitch — file it right then with exponential_report_bug. It reports to Exponential's developers, never the user's own project.`
+      `When Exponential ITSELF misbehaves while you work — a tool result that contradicts its docs, a dropped remote start, a sync or UI glitch — file it right then with exponential_report_bug. It reaches Exponential's developers, never the user's project.`
     )
   }
   if (gates.sessionsEnd) {
     // EXP-700: only a run another run started can ask its starter — the
     // exception rides the same paragraph, and askParent implies sessionsEnd.
     paragraphs.push(
-      `This run is unattended (an automation or another agent started it). When you are done, call exponential_sessions_end LAST with a one-paragraph summary of what you did — whether you finished, stopped for a human or changed nothing; leave the worktree clean first. That call ends the run; nobody is watching, so do not wait for replies.` +
+      `This run is unattended (an automation or another agent started it). When you are done, call exponential_sessions_end LAST with a one-paragraph summary of what you did (finished, stopped for a human, or changed nothing); leave the worktree clean first. That call ends the run; nobody is watching, so do not wait for replies.` +
         (gates.askParent
           ? ` One exception: blocked on something only your starter knows, call exponential_sessions_ask_parent, then stop and wait — the answer arrives as a user message. Never wait silently without asking.`
           : ``)
@@ -62,7 +65,7 @@ export function mcpServerInstructions(gates: {
   // present, because a run that is never asked for a picture never takes one.
   if (gates.sessionResults) {
     paragraphs.push(
-      `Screenshot what you changed: exponential_sessions_results hands back an upload link and a curl line, filed under a topic with one label per picture. Publish before you finish.`
+      `Screenshot what you changed: exponential_sessions_results returns an upload link and a curl line; one topic per screen, one label per picture. Publish before you finish.`
     )
   }
   return paragraphs.join(`\n\n`)

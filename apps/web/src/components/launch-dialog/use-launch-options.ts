@@ -10,6 +10,7 @@ import {
   type CodingLaunchPrefs,
 } from "@/lib/coding-launch-prefs"
 import {
+  mcpServerReady,
   preselectMcpServerIds,
   type McpServerRow,
 } from "@/lib/mcp-servers"
@@ -78,8 +79,9 @@ export interface LaunchOptions {
   planMode: boolean
   setPlanMode: (value: boolean) => void
   /** EXP-792: the picked team MCP servers (row ids, list order). Seeded from
-   * the team's last pick or its `enabledByDefault` rows once the list loads;
-   * every change is persisted per team. */
+   * the team's last pick or its `enabledByDefault` rows once the list loads —
+   * only servers the caller has connected (or that need no sign-in); every
+   * change is persisted per team. */
   mcpServerIds: string[]
   setMcpServerIds: (ids: string[]) => void
   toggleMcpServer: (id: string) => void
@@ -118,7 +120,9 @@ export function useLaunchOptions({
   teamId?: string
   /** EXP-792: the team's servers once loaded (null while in flight). The
    * pick seeds ONCE per open from this list. */
-  mcpServers?: readonly Pick<McpServerRow, `id` | `enabledByDefault`>[] | null
+  mcpServers?:
+    | readonly Pick<McpServerRow, `id` | `enabledByDefault` | `connection`>[]
+    | null
   /** EXP-772: never seed plan mode from the device's defaults — the chat page
    * starts every conversation in build mode unless the user flips the switch,
    * and a surface that HIDES the switch must send `planMode: false` rather
@@ -237,11 +241,15 @@ export function useLaunchOptions({
 
   // EXP-792: seed the MCP pick once the team's list is known — the saved
   // pick for the team (clamped to rows that still exist), else the rows the
-  // team marked enabled-by-default. Ids that vanish from the list drop out.
+  // team marked enabled-by-default, either way only the ones the caller can
+  // use right now. Ids that vanish from the list (or lose their connection
+  // on a refetch) drop out.
   useEffect(() => {
     if (!open || !teamId || mcpServers === null) return
     if (mcpSeededRef.current) {
-      const known = new Set(mcpServers.map((server) => server.id))
+      const known = new Set(
+        mcpServers.filter(mcpServerReady).map((server) => server.id)
+      )
       setMcpServerIdsState((current) => {
         const kept = current.filter((id) => known.has(id))
         return kept.length === current.length ? current : kept

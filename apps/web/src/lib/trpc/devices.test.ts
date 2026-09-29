@@ -108,10 +108,6 @@ const h = vi.hoisted(() => {
     assertTeamMember: vi.fn(),
     getTeamMember: vi.fn(async () => ({ role: `member` }) as unknown),
     endForeignHostedSessions: vi.fn(async () => [] as string[]),
-    // EXP-792: the OAuth-command hook and the readiness upsert are unit
-    // tested on their own (lib/mcp-oauth); here only the wiring is asserted.
-    applyMcpOauthCommandCompletion: vi.fn(async () => undefined),
-    applyReadinessReport: vi.fn(async () => undefined),
   }
 })
 
@@ -128,25 +124,6 @@ vi.mock(`@/lib/team-membership`, () => ({
 vi.mock(`@/lib/coding-session-kill`, () => ({
   endForeignHostedSessions: h.endForeignHostedSessions,
 }))
-vi.mock(`@/lib/mcp-oauth/flows`, () => ({
-  applyMcpOauthCommandCompletion: h.applyMcpOauthCommandCompletion,
-}))
-vi.mock(`@/lib/mcp-oauth/readiness`, async () => {
-  const { z } = await import(`zod`)
-  return {
-    applyReadinessReport: h.applyReadinessReport,
-    mcpReadinessEntriesSchema: z
-      .array(
-        z.object({
-          serverId: z.string().uuid(),
-          ready: z.boolean(),
-          expiresAt: z.string().optional(),
-          error: z.string().optional(),
-        })
-      )
-      .max(64),
-  }
-})
 vi.mock(`@/lib/client-version`, () => ({
   versionPayload: () => ({
     android: { min: null, latest: null },
@@ -2256,116 +2233,40 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   })
 })
 
-describe(`devices.completeCommand — mcp_oauth_* flow hook (EXP-792)`, () => {
+describe(`devices.completeCommand`, () => {
   const COMMAND = `33333333-3333-4333-8333-333333333333`
 
-  it(`advances the flow after an mcp_oauth_start completion`, async () => {
-    const payload = { serverId: `s-1`, state: `st-1`, redirectUri: `loopback` }
-    h.state.updateReturning = [
-      [{ id: `cmd-1`, kind: `mcp_oauth_start`, payload }],
-    ]
-    const message = JSON.stringify({ phase: `authorize`, url: `https://as/x` })
+  it(`closes a pending command once; a duplicate completion answers ok:false`, async () => {
+    h.state.updateReturning = [[{ id: `cmd-3` }], []]
     await expect(
-      caller.completeCommand({ commandId: COMMAND, ok: true, message })
+      caller.completeCommand({ commandId: COMMAND, ok: true })
     ).resolves.toEqual({ ok: true })
-    expect(h.applyMcpOauthCommandCompletion).toHaveBeenCalledWith(h.db, {
-      kind: `mcp_oauth_start`,
-      payload,
-      ok: true,
-      message,
-    })
-  })
-
-  it(`passes a failed mcp_oauth_code completion through`, async () => {
-    const payload = { serverId: `s-1`, state: `st-1`, code: `c` }
-    h.state.updateReturning = [
-      [{ id: `cmd-2`, kind: `mcp_oauth_code`, payload }],
-    ]
-    await caller.completeCommand({
-      commandId: COMMAND,
-      ok: false,
-      message: `token endpoint answered 400`,
-    })
-    expect(h.applyMcpOauthCommandCompletion).toHaveBeenCalledWith(h.db, {
-      kind: `mcp_oauth_code`,
-      payload,
-      ok: false,
-      message: `token endpoint answered 400`,
-    })
-  })
-
-  it(`leaves other kinds and already-completed rows alone`, async () => {
-    h.state.updateReturning = [
-      [{ id: `cmd-3`, kind: `agent_update`, payload: { agent: `claude` } }],
-      [],
-    ]
-    await caller.completeCommand({ commandId: COMMAND, ok: true })
     await expect(
       caller.completeCommand({ commandId: COMMAND, ok: true })
     ).resolves.toEqual({ ok: false })
-    expect(h.applyMcpOauthCommandCompletion).not.toHaveBeenCalled()
   })
 })
 
-describe(`devices.heartbeat — mcpReadiness (EXP-792)`, () => {
-  const SERVER = `11111111-1111-4111-8111-111111111111`
-  const heartbeatRow = () => [
-    [
-      {
-        id: `row-1`,
-        updateRequestedAt: null,
-        launchDefaults: null,
-        launchDefaultsUpdatedAt: null,
-      },
-    ],
-  ]
-
-  it(`upserts the reported readiness against the device row`, async () => {
-    h.state.updateReturning = heartbeatRow()
-    await caller.heartbeat({
-      deviceId: `dev-1`,
-      activeSessions: 0,
-      defaultsSyncedAt: null,
-      mcpReadiness: [
-        { serverId: SERVER, ready: true, expiresAt: `2026-09-09T13:00:00Z` },
+describe(`devices.heartbeat — retired mcpReadiness`, () => {
+  it(`an older build's mcpReadiness field is ignored, never refused`, async () => {
+    h.state.updateReturning = [
+      [
+        {
+          id: `row-1`,
+          updateRequestedAt: null,
+          launchDefaults: null,
+          launchDefaultsUpdatedAt: null,
+        },
       ],
-    })
-    expect(h.applyReadinessReport).toHaveBeenCalledWith(
-      h.db,
-      {
-        userId: `actor`,
-        deviceRowId: `row-1`,
-        entries: [
-          { serverId: SERVER, ready: true, expiresAt: `2026-09-09T13:00:00Z` },
-        ],
-      },
-      expect.any(Date)
-    )
-  })
-
-  it(`absent means unchanged — no upsert`, async () => {
-    h.state.updateReturning = heartbeatRow()
-    await caller.heartbeat({
-      deviceId: `dev-1`,
-      activeSessions: 0,
-      defaultsSyncedAt: null,
-    })
-    expect(h.applyReadinessReport).not.toHaveBeenCalled()
-  })
-
-  it(`bounds the report at 64 entries`, async () => {
-    h.state.updateReturning = heartbeatRow()
+    ]
     await expect(
       caller.heartbeat({
         deviceId: `dev-1`,
         activeSessions: 0,
         defaultsSyncedAt: null,
-        mcpReadiness: Array.from({ length: 65 }, () => ({
-          serverId: SERVER,
-          ready: true,
-        })),
-      })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+        mcpReadiness: [{ serverId: `s-1`, ready: true }],
+      } as never)
+    ).resolves.toMatchObject({ ok: true })
   })
 })
 

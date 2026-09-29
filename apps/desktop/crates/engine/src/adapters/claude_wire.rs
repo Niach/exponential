@@ -997,7 +997,7 @@ pub fn argv_permission_mode(mode: &str) -> &str {
 /// `exponential` under their config keys — `{type:"http", url, headers}` /
 /// `{type:"stdio", command, args, env}` — with the launcher's `${VAR}`
 /// references verbatim: claude expands header AND env values from the child
-/// environment, where the launcher put the device-held secrets. Sorted
+/// environment, where the launcher put the resolved secrets. Sorted
 /// headers/env so the document is byte-stable across launches.
 pub fn inline_mcp_config(
     url: &str,

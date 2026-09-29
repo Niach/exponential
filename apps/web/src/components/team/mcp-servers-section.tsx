@@ -1,29 +1,25 @@
-// EXP-792: Settings › MCP servers. The team's MCP server registry — NON-SECRET
-// config only (name, transport, url or command, the header/env NAMES a
-// machine must supply, scopes, the auth kind) plus, per row, the readiness
-// strip: one chip per device from the server's readiness matrix ("Ready",
-// "Signed in until 14:05", or the error the machine reported). Every member
-// reads; owners add/edit/remove. An `oauth` row offers "Sign in on <device>"
-// for the caller's OWN machines: `beginOAuth` queues the flow, the device
-// builds the PKCE authorize URL, this pane polls `getOAuthFlow` and sends the
-// browser there, the anonymous callback relays the code back to the device,
-// and the device's completion closes the flow. No credential ever passes
-// through here. `secret` and stdio env values are typed ON the device (the
-// desktop pane or `exponential mcp set-secret`), so those chips only say so.
+// EXP-792: Settings › MCP servers. The team's MCP server registry, made easy:
+// every member sees the list and connects THEIR OWN account once (the server
+// holds the credential, encrypted, per member — it then works on every
+// device, remote starts and automations); owners add, edit and remove.
+//
+// A row = name, where it lives, "N of M connected" and ONE action for the
+// viewer: Connect (OAuth: `mcpServers.connect` → the provider's consent page
+// → the server-side callback → back here with `?mcp=connected|failed`), Set
+// key (an API-key server), or Connected (menu: Test connection, Disconnect).
+// Adding a server starts from a catalog tile or a pasted URL; the server
+// probes it to detect the sign-in kind, so the owner only confirms a name.
+// Everything technical (auth override, transport, header/env names, scopes)
+// hides behind "Advanced".
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useLiveQuery } from "@tanstack/react-db"
-import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
-import type {
-  McpAuth,
-  McpTransport,
-} from "@exp/db-schema/domain"
-import type { Device, User } from "@/db/schema"
+import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
 import {
   conceptIcon,
   Button,
   BARE_FIELD_CLASS,
   Combobox,
+  DisclosureHeader,
   Input,
   Pill,
   type PickerOption,
@@ -32,6 +28,7 @@ import {
   GlassSectionHeader,
   GlassToggleRow,
   ListRow,
+  PasswordInput,
   SETTINGS_LIST_CLASS,
   Dialog,
   DialogBody,
@@ -44,128 +41,201 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Label,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   ExponentialLogo,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
-import { deviceCollection, userCollection } from "@/lib/collections"
-import {
-  composeDeviceList,
-  deviceIsMine,
-  deviceIsOnline,
-  deviceSupportsMcp,
-  type SteerDevice,
-} from "@/lib/steer-devices"
 import {
   draftFromServer,
   EMPTY_MCP_SERVER_DRAFT,
+  isNavigableAuthorizeUrl,
+  UNSAFE_AUTHORIZE_URL_MESSAGE,
   MCP_AUTH_LABELS,
+  MCP_CATALOG,
   MCP_TRANSPORT_LABELS,
   MCP_VARIABLE_NAME_RE,
-  readinessExpired,
-  readinessFor,
-  readinessLabel,
-  secretSetupHint,
-  serverReadyOn,
+  mcpAuthLine,
+  mcpServerTarget,
+  mcpUrlProblem,
+  nameFromUrl,
+  sameMcpUrl,
   validateMcpServerDraft,
   type McpServerDraft,
   type McpServerRow,
 } from "@/lib/mcp-servers"
 import { builtinExpTools } from "@/lib/agent-feed"
-import { DeviceMcpServersGroup } from "@/components/team/device-mcp-servers-group"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
-import { useNow } from "@/hooks/use-now"
 import { cn } from "@/lib/utils"
 
-const McpIcon = conceptIcon(`settings-mcp`)
+const McpIcon = conceptIcon(`ui-mcp`)
 const AddIcon = conceptIcon(`ui-add`)
 const EditIcon = conceptIcon(`ui-edit`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const MoreIcon = conceptIcon(`ui-more`)
 const SignInIcon = conceptIcon(`ui-sign-in`)
+const KeyIcon = conceptIcon(`ui-private`)
+const ConnectedIcon = conceptIcon(`ui-success`)
+const WarningIcon = conceptIcon(`ui-warning`)
+const TestIcon = conceptIcon(`ui-refresh`)
+const DisconnectIcon = conceptIcon(`ui-clear`)
+const BackIcon = conceptIcon(`ui-back`)
 const CloseIcon = conceptIcon(`ui-close`)
+const LoadingIcon = conceptIcon(`ui-loading`)
 
-/** How often the pane asks the server where a sign-in flow stands. */
-const OAUTH_POLL_MS = 1_500
-/** A flow older than this is dead server-side (`getOAuthFlow` reads it as
- * failed/expired); stop polling a little after that. */
-const OAUTH_GIVE_UP_MS = 11 * 60 * 1000
-
-type FlowPhase = `starting` | `waiting` | `browser` | `failed`
-
-interface FlowUi {
-  phase: FlowPhase
+/** A settings deep link's one-shot requests (the route strips them once
+ * handed over): `?connect=<id>` starts a connect, `?mcp=…` is the OAuth
+ * callback's verdict. */
+export interface McpSettingsRequest {
+  connect?: string
+  mcp?: `connected` | `failed`
+  server?: string
   error?: string
 }
 
-function flowKey(serverId: string, deviceId: string): string {
-  return `${serverId}:${deviceId}`
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
+type Editor = { mode: `add` } | { mode: `edit`; server: McpServerRow }
 
 export function TeamMcpServersSection({
   teamId,
-  currentUserId,
   isOwner,
+  request,
+  onRequestConsumed,
 }: {
   teamId: string
-  currentUserId: string
   isOwner: boolean
+  request?: McpSettingsRequest
+  onRequestConsumed?: () => void
 }) {
   const { servers, error, refresh } = useMcpServers(teamId)
-  const now = useNow(30_000)
-
-  // The caller's machines + the servers shared with this team, off the synced
-  // shape — online-ness for the chips, and which rows may run a sign-in.
-  const { data: deviceRows } = useLiveQuery((query) =>
-    query.from({ d: deviceCollection })
-  )
-  const { data: userRows } = useLiveQuery((query) =>
-    query.from({ u: userCollection })
-  )
-  const devices = useMemo(() => {
-    const usersById = new Map(
-      ((userRows ?? []) as User[]).map((user) => [user.id, user])
-    )
-    return composeDeviceList(
-      (deviceRows ?? []) as Device[],
-      usersById,
-      now,
-      currentUserId,
-      teamId
-    )
-  }, [deviceRows, userRows, now, currentUserId, teamId])
-
-  const [editTarget, setEditTarget] = useState<McpServerRow | `new` | null>(
-    null
-  )
+  const [editor, setEditor] = useState<Editor | null>(null)
   const [removeTarget, setRemoveTarget] = useState<McpServerRow | null>(null)
+  const [keyTarget, setKeyTarget] = useState<McpServerRow | null>(null)
   const [busy, setBusy] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
-  const [flows, setFlows] = useState<Record<string, FlowUi>>({})
-  const mountedRef = useRef(true)
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-    }
-  }, [])
+  // An add started from the empty state's inline catalog: the probe already
+  // ran, so the dialog opens straight on the form.
+  const [seed, setSeed] = useState<ProbeSeed | null>(null)
+  // The one row action in flight (a connect navigates away, so it never
+  // clears on success).
+  const [pending, setPending] = useState<string | null>(null)
 
-  const setFlow = (key: string, value: FlowUi | null) =>
-    setFlows((current) => {
-      const next = { ...current }
-      if (value) next[key] = value
-      else delete next[key]
-      return next
-    })
+  const connect = async (server: McpServerRow) => {
+    if (server.auth === `secret`) {
+      setKeyTarget(server)
+      return
+    }
+    if (server.auth !== `oauth`) return
+    setPending(server.id)
+    try {
+      const { authorizeUrl } = await trpc.mcpServers.connect.mutate(
+        { serverId: server.id, returnTo: window.location.pathname },
+        { context: { skipErrorToast: true } }
+      )
+      if (!isNavigableAuthorizeUrl(authorizeUrl)) {
+        setPending(null)
+        toast.error(`Could not connect to ${server.name}`, {
+          description: UNSAFE_AUTHORIZE_URL_MESSAGE,
+        })
+        return
+      }
+      window.location.assign(authorizeUrl)
+    } catch (err) {
+      setPending(null)
+      toast.error(`Could not connect to ${server.name}`, {
+        description: trpcErrorMessage(err, `Try again.`),
+      })
+    }
+  }
+
+  const disconnect = async (server: McpServerRow) => {
+    setPending(server.id)
+    try {
+      await trpc.mcpServers.disconnect.mutate({ serverId: server.id })
+      toast.success(`Disconnected from ${server.name}`)
+      await refresh()
+    } catch (err) {
+      toast.error(`Could not disconnect`, {
+        description: trpcErrorMessage(err, `Try again.`),
+      })
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const test = async (server: McpServerRow) => {
+    setPending(server.id)
+    try {
+      const result = await trpc.mcpServers.test.mutate(
+        { serverId: server.id },
+        { context: { skipErrorToast: true } }
+      )
+      if (result.ok) {
+        toast.success(
+          result.tools === null
+            ? `${server.name} answered`
+            : `${server.name} answered with ${result.tools} ${result.tools === 1 ? `tool` : `tools`}`
+        )
+      } else {
+        toast.error(`${server.name} did not answer`, {
+          description: result.error ?? undefined,
+        })
+      }
+    } catch (err) {
+      toast.error(`${server.name} did not answer`, {
+        description: trpcErrorMessage(err, `Try again.`),
+      })
+    } finally {
+      setPending(null)
+    }
+  }
+
+  // The deep link's one-shots, once the list can name the server. Held in a
+  // ref so a re-render (or StrictMode's double effect) never fires twice.
+  const handledRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!request || servers === null) return
+    if (!request.connect && !request.mcp) return
+    const key = JSON.stringify(request)
+    if (handledRef.current === key) return
+    handledRef.current = key
+    const byId = (id: string | undefined) =>
+      id ? (servers.find((server) => server.id === id) ?? null) : null
+    if (request.mcp) {
+      const name = byId(request.server)?.name ?? `the server`
+      if (request.mcp === `connected`) toast.success(`Connected to ${name}`)
+      else {
+        toast.error(`Could not connect to ${name}`, {
+          description: request.error || undefined,
+        })
+      }
+    }
+    const target = byId(request.connect)
+    onRequestConsumed?.()
+    if (!request.connect) return
+    if (!target) {
+      toast.error(`That MCP server is no longer on the team`)
+      return
+    }
+    const status = target.connection.status
+    if (status === `connected` || status === `not_needed`) {
+      toast.success(
+        status === `connected`
+          ? `Already connected to ${target.name}`
+          : `${target.name} needs no sign-in`
+      )
+      return
+    }
+    void connect(target)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request, servers])
 
   const save = async (draft: McpServerDraft) => {
-    if (busy || editTarget === null) return
+    if (busy || editor === null) return
     setBusy(true)
     setDialogError(null)
     const http = draft.transport === `http`
@@ -184,19 +254,47 @@ export function TeamMcpServersSection({
           }),
     }
     try {
-      if (editTarget === `new`) {
-        await trpc.mcpServers.create.mutate(
+      if (editor.mode === `add`) {
+        const row = await trpc.mcpServers.create.mutate(
           { teamId, ...fields },
           { context: { skipErrorToast: true } }
         )
+        setEditor(null)
+        setSeed(null)
+        await refresh()
+        // Adding Linear = pick the tile, Save, consent, back — connected.
+        if (row.auth === `oauth`) {
+          setPending(row.id)
+          try {
+            const { authorizeUrl } = await trpc.mcpServers.connect.mutate(
+              { serverId: row.id, returnTo: window.location.pathname },
+              { context: { skipErrorToast: true } }
+            )
+            if (!isNavigableAuthorizeUrl(authorizeUrl)) {
+              setPending(null)
+              toast.error(`Added ${row.name}, but could not start the sign-in`, {
+                description: UNSAFE_AUTHORIZE_URL_MESSAGE,
+              })
+              return
+            }
+            window.location.assign(authorizeUrl)
+          } catch (err) {
+            setPending(null)
+            toast.error(`Added ${row.name}, but could not start the sign-in`, {
+              description: trpcErrorMessage(err, `Use Connect on its row.`),
+            })
+          }
+        } else {
+          toast.success(`Added ${row.name}`)
+        }
       } else {
         await trpc.mcpServers.update.mutate(
-          { id: editTarget.id, ...fields },
+          { id: editor.server.id, ...fields },
           { context: { skipErrorToast: true } }
         )
+        setEditor(null)
+        await refresh()
       }
-      setEditTarget(null)
-      await refresh()
     } catch (err) {
       setDialogError(trpcErrorMessage(err, `That didn't go through. Try again.`))
     } finally {
@@ -220,61 +318,9 @@ export function TeamMcpServersSection({
     }
   }
 
-  // The web-initiated, device-executed OAuth sign-in. The tab is opened
-  // SYNCHRONOUSLY on the click (a popup blocker only allows that) and
-  // navigated once the device hands back the authorize URL.
-  const signIn = async (server: McpServerRow, device: SteerDevice) => {
-    const key = flowKey(server.id, device.deviceId)
-    if (flows[key] && flows[key].phase !== `failed`) return
-    const label = device.deviceLabel || device.deviceId
-    const tab = window.open(``, `_blank`)
-    setFlow(key, { phase: `starting` })
-    let navigated = false
-    try {
-      const begun = await trpc.mcpServers.beginOAuth.mutate(
-        { serverId: server.id, deviceId: device.deviceId },
-        { context: { skipErrorToast: true } }
-      )
-      setFlow(key, { phase: `waiting` })
-      const startedAt = Date.now()
-      while (mountedRef.current) {
-        await sleep(OAUTH_POLL_MS)
-        if (!mountedRef.current) break
-        const flow = await trpc.mcpServers.getOAuthFlow.query({
-          flowId: begun.flowId,
-        })
-        if (flow.authorizeUrl && !navigated) {
-          navigated = true
-          if (tab && !tab.closed) tab.location.href = flow.authorizeUrl
-          else window.open(flow.authorizeUrl, `_blank`)
-          setFlow(key, { phase: `browser` })
-        }
-        if (flow.status === `done`) {
-          if (tab && !tab.closed && !navigated) tab.close()
-          setFlow(key, null)
-          toast.success(`Signed in to ${server.name} on ${label}`)
-          await refresh()
-          return
-        }
-        if (flow.status === `failed`) {
-          if (tab && !tab.closed && !navigated) tab.close()
-          const reason = flow.error ?? `The sign-in did not complete.`
-          setFlow(key, { phase: `failed`, error: reason })
-          toast.error(`Sign-in to ${server.name} failed`, { description: reason })
-          await refresh()
-          return
-        }
-        if (Date.now() - startedAt > OAUTH_GIVE_UP_MS) {
-          setFlow(key, { phase: `failed`, error: `The sign-in timed out.` })
-          return
-        }
-      }
-    } catch (err) {
-      if (tab && !tab.closed && !navigated) tab.close()
-      const reason = trpcErrorMessage(err, `The sign-in could not be started.`)
-      setFlow(key, { phase: `failed`, error: reason })
-      toast.error(`Couldn't start the sign-in`, { description: reason })
-    }
+  const openAdd = () => {
+    setDialogError(null)
+    setEditor({ mode: `add` })
   }
 
   return (
@@ -282,14 +328,8 @@ export function TeamMcpServersSection({
       <GlassSectionHeader
         label="MCP servers"
         trailing={
-          isOwner ? (
-            <Pill
-              mode="action"
-              onClick={() => {
-                setDialogError(null)
-                setEditTarget(`new`)
-              }}
-            >
+          isOwner && servers !== null && servers.length > 0 ? (
+            <Pill mode="action" onClick={openAdd}>
               <AddIcon className="size-3" />
               Add server
             </Pill>
@@ -297,37 +337,45 @@ export function TeamMcpServersSection({
         }
       />
       <p className="mb-3 px-1 text-xs text-muted-foreground">
-        Servers a coding run can connect to besides Exponential. The team
-        registry is picked per run on the Agent page; credentials stay on each
-        machine, the server only keeps names and readiness. Below it, what each
-        machine connects on its own.
+        Tools your agents can use in runs. Each member connects their own
+        account.
       </p>
 
       {error && <p className="px-1 pb-2 text-xs text-destructive">{error}</p>}
       {servers === null ? (
         <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
       ) : servers.length === 0 ? (
-        <div className={SETTINGS_LIST_CLASS}>
-          <ListRow className="px-3 py-2 text-sm text-muted-foreground">
-            {isOwner
-              ? `No MCP servers yet. Add one to offer it on the Agent page.`
-              : `No MCP servers yet. The team owner can add one.`}
-          </ListRow>
-        </div>
+        isOwner ? (
+          <InlineCatalog
+            teamId={teamId}
+            onPicked={(picked) => {
+              setDialogError(null)
+              setSeed(picked)
+              setEditor({ mode: `add` })
+            }}
+          />
+        ) : (
+          <div className={SETTINGS_LIST_CLASS}>
+            <ListRow className="px-3 py-2 text-sm text-muted-foreground">
+              No MCP servers yet. A team owner can add them.
+            </ListRow>
+          </div>
+        )
       ) : (
         <div className={SETTINGS_LIST_CLASS}>
           {servers.map((server) => (
             <ServerRow
               key={server.id}
               server={server}
-              devices={devices}
-              now={now}
               isOwner={isOwner}
-              flows={flows}
-              onSignIn={(device) => void signIn(server, device)}
+              pending={pending === server.id}
+              onConnect={() => void connect(server)}
+              onDisconnect={() => void disconnect(server)}
+              onTest={() => void test(server)}
+              onReplaceKey={() => setKeyTarget(server)}
               onEdit={() => {
                 setDialogError(null)
-                setEditTarget(server)
+                setEditor({ mode: `edit`, server })
               }}
               onRemove={() => setRemoveTarget(server)}
             />
@@ -335,27 +383,45 @@ export function TeamMcpServersSection({
         </div>
       )}
 
-      {/* EXP-891: what each machine connects on its own runs — read-only
-          here, written by the machines (desktop pane / `exponential mcp`). */}
-      <DeviceMcpServersGroup teamId={teamId} currentUserId={currentUserId} />
-
       <BuiltinToolsGroup />
 
-      <McpServerDialog
-        key={editTarget === null ? `closed` : editTarget === `new` ? `new` : editTarget.id}
-        open={editTarget !== null}
-        initial={
-          editTarget && editTarget !== `new`
-            ? draftFromServer(editTarget)
-            : EMPTY_MCP_SERVER_DRAFT
-        }
-        mode={editTarget === `new` ? `create` : `edit`}
-        busy={busy}
-        error={dialogError}
-        onOpenChange={(open) => {
-          if (!open && !busy) setEditTarget(null)
+      {isOwner && (
+        <McpServerDialog
+          key={
+            editor === null
+              ? `closed`
+              : editor.mode === `add`
+                ? `add:${seed?.draft.url ?? ``}`
+                : editor.server.id
+          }
+          open={editor !== null}
+          teamId={teamId}
+          mode={editor?.mode ?? `add`}
+          initial={
+            editor?.mode === `edit` ? draftFromServer(editor.server) : null
+          }
+          seed={editor?.mode === `add` ? seed : null}
+          existing={servers ?? []}
+          busy={busy}
+          error={dialogError}
+          onOpenChange={(open) => {
+            if (!open && !busy) {
+              setEditor(null)
+              setSeed(null)
+            }
+          }}
+          onSubmit={(draft) => void save(draft)}
+        />
+      )}
+
+      <SecretDialog
+        server={keyTarget}
+        onClose={() => setKeyTarget(null)}
+        onSaved={async (server) => {
+          setKeyTarget(null)
+          toast.success(`Key saved for ${server.name}`)
+          await refresh()
         }}
-        onSubmit={(draft) => void save(draft)}
       />
 
       <Dialog
@@ -368,13 +434,13 @@ export function TeamMcpServersSection({
           <DialogHeader>
             <DialogTitle>Remove server</DialogTitle>
             <DialogDescription>
-              {`Remove ${removeTarget?.name ?? `this server`} from the team? Runs stop offering it; credentials already on machines are left alone.`}
+              {`Remove ${removeTarget?.name ?? `this server`} from the team? Runs stop offering it and every member's connection to it is deleted.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogCancel disabled={busy} onClick={() => setRemoveTarget(null)} />
             <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
-              {busy && <LoaderCircle className="animate-spin" />}
+              {busy && <LoadingIcon className="animate-spin" />}
               Remove
             </Button>
           </DialogFooter>
@@ -384,17 +450,467 @@ export function TeamMcpServersSection({
   )
 }
 
+// ── Probe + catalog ──────────────────────────────────────────────────────────
+
+/** What a probe hands the form: the prefilled draft and, when the server
+ * could not be checked, a soft note (the owner may still save). */
+interface ProbeSeed {
+  draft: McpServerDraft
+  note: string | null
+}
+
+/** `mcpServers.probe` → a prefilled draft. A failure never blocks: the draft
+ * keeps the URL, a name off its host and `none` auth, and the note says why
+ * (Advanced can set the auth by hand). */
+function useProbe(teamId: string) {
+  const [probing, setProbing] = useState<string | null>(null)
+  const probe = async (url: string, fallbackName: string): Promise<ProbeSeed> => {
+    setProbing(url)
+    const base: McpServerDraft = {
+      ...EMPTY_MCP_SERVER_DRAFT,
+      url,
+      name: fallbackName || nameFromUrl(url),
+    }
+    try {
+      const result = await trpc.mcpServers.probe.mutate(
+        { teamId, url },
+        { context: { skipErrorToast: true } }
+      )
+      return {
+        draft: {
+          ...base,
+          url: result.url || url,
+          name: result.suggestedName || base.name,
+          auth: result.auth,
+          scopes: result.scopes,
+        },
+        note: result.reachable
+          ? result.error
+          : (result.error ?? `The server did not answer.`),
+      }
+    } catch (err) {
+      return {
+        draft: base,
+        note: trpcErrorMessage(err, `The server could not be checked.`),
+      }
+    } finally {
+      setProbing(null)
+    }
+  }
+  return { probing, probe }
+}
+
+/** The catalog tiles + "Or paste a server URL". Shared by the empty state
+ * (inline) and the Add dialog's first step. */
+function CatalogPicker({
+  teamId,
+  existing,
+  onPicked,
+  onManual,
+}: {
+  teamId: string
+  existing: readonly McpServerRow[]
+  onPicked: (seed: ProbeSeed) => void
+  onManual?: () => void
+}) {
+  const { probing, probe } = useProbe(teamId)
+  const [url, setUrl] = useState(``)
+  const urlProblem = url.trim() ? mcpUrlProblem(url) : null
+  const pick = async (target: string, name: string) => {
+    if (probing) return
+    onPicked(await probe(target.trim(), name))
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {MCP_CATALOG.map((entry) => {
+          const added = existing.some((server) => sameMcpUrl(server.url, entry.url))
+          const loading = probing === entry.url
+          return (
+            <Button
+              key={entry.url}
+              type="button"
+              variant="glass"
+              data-testid="mcp-catalog-tile"
+              disabled={added || probing !== null}
+              title={added ? `${entry.name} is already on the team` : entry.url}
+              className="h-auto justify-start gap-2 rounded-md px-3 py-2.5"
+              onClick={() => void pick(entry.url, entry.name.toLowerCase())}
+            >
+              {loading ? (
+                <LoadingIcon className="size-4 animate-spin" />
+              ) : (
+                <McpIcon className="size-4" />
+              )}
+              <span className="flex min-w-0 flex-col items-start text-left">
+                <span className="text-sm text-foreground">{entry.name}</span>
+                <span className="text-[11px] font-normal text-muted-foreground">
+                  {added ? `Added` : new URL(entry.url).host}
+                </span>
+              </span>
+            </Button>
+          )
+        })}
+      </div>
+      <form
+        className="flex flex-col gap-1.5"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (url.trim() && !urlProblem) void pick(url, ``)
+        }}
+      >
+        <Label htmlFor="mcp-paste-url" className="px-1 text-xs font-normal text-muted-foreground">
+          Or paste a server URL
+        </Label>
+        <div className="flex items-center gap-2">
+          <Input
+            id="mcp-paste-url"
+            value={url}
+            placeholder="https://mcp.example.com/mcp"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            inputMode="url"
+            onChange={(event) => setUrl(event.target.value)}
+          />
+          <Button
+            type="submit"
+            disabled={!url.trim() || urlProblem !== null || probing !== null}
+          >
+            {probing !== null && probing === url.trim() && (
+              <LoadingIcon className="animate-spin" />
+            )}
+            Continue
+          </Button>
+        </div>
+        {urlProblem && (
+          <p className="px-1 text-xs text-destructive">{urlProblem}</p>
+        )}
+      </form>
+      {onManual && (
+        <Button
+          type="button"
+          variant="text"
+          size="inline"
+          className="self-start px-1"
+          onClick={onManual}
+        >
+          Run a local command instead
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** The empty team, for an owner: the catalog right on the page. */
+function InlineCatalog({
+  teamId,
+  onPicked,
+}: {
+  teamId: string
+  onPicked: (seed: ProbeSeed) => void
+}) {
+  return (
+    <div className="rounded-md border border-glass-stroke bg-glass-row p-4">
+      <p className="mb-3 text-sm text-muted-foreground">
+        No MCP servers yet. Pick one to add it, or paste any server's URL.
+      </p>
+      <CatalogPicker teamId={teamId} existing={[]} onPicked={onPicked} />
+    </div>
+  )
+}
+
+// ── Rows ─────────────────────────────────────────────────────────────────────
+
+function ServerRow({
+  server,
+  isOwner,
+  pending,
+  onConnect,
+  onDisconnect,
+  onTest,
+  onReplaceKey,
+  onEdit,
+  onRemove,
+}: {
+  server: McpServerRow
+  isOwner: boolean
+  pending: boolean
+  onConnect: () => void
+  onDisconnect: () => void
+  onTest: () => void
+  onReplaceKey: () => void
+  onEdit: () => void
+  onRemove: () => void
+}) {
+  const target = mcpServerTarget(server)
+  const needsSignIn = server.auth !== `none`
+  return (
+    <ListRow className="gap-3 px-3 py-2" data-testid="mcp-server-row">
+      <McpIcon className="size-4 shrink-0 text-foreground/70" />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="min-w-0 truncate text-sm font-medium">
+            {server.name}
+          </span>
+          {server.enabledByDefault && (
+            <Pill size="sm" title="Pre-selected in new runs">
+              Default
+            </Pill>
+          )}
+        </div>
+        {/* Phones drop the host beside the count; the name identifies it. */}
+        <div className="flex min-w-0 text-xs text-muted-foreground">
+          <span
+            className={cn(
+              `min-w-0 truncate`,
+              needsSignIn && `max-sm:hidden`
+            )}
+            title={server.url ?? target}
+          >
+            {target}
+          </span>
+          {needsSignIn && (
+            <span className="shrink-0 whitespace-pre">
+              <span className="max-sm:hidden">{` · `}</span>
+              {`${server.connectedCount} of ${server.memberCount} connected`}
+            </span>
+          )}
+        </div>
+      </div>
+      <ConnectionAction
+        server={server}
+        pending={pending}
+        onConnect={onConnect}
+        onDisconnect={onDisconnect}
+        onTest={onTest}
+        onReplaceKey={onReplaceKey}
+      />
+      {isOwner && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Server menu for ${server.name}`}
+            >
+              <MoreIcon />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onEdit}>
+              <EditIcon />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+              <RemoveIcon />
+              Remove
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </ListRow>
+  )
+}
+
+/** The viewer's ONE action on a row, from their own `connection`. */
+function ConnectionAction({
+  server,
+  pending,
+  onConnect,
+  onDisconnect,
+  onTest,
+  onReplaceKey,
+}: {
+  server: McpServerRow
+  pending: boolean
+  onConnect: () => void
+  onDisconnect: () => void
+  onTest: () => void
+  onReplaceKey: () => void
+}) {
+  const { status, error } = server.connection
+  const spinner = pending ? <LoadingIcon className="animate-spin" /> : null
+
+  if (status === `not_needed`) {
+    return (
+      <span className="shrink-0 text-xs text-muted-foreground">
+        No sign-in needed
+      </span>
+    )
+  }
+
+  if (status === `connected`) {
+    const http = server.transport === `http`
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={pending}
+            className="text-emerald-500 hover:text-emerald-400"
+            aria-label={`Connected to ${server.name}`}
+          >
+            {spinner ?? <ConnectedIcon />}
+            Connected
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {http && (
+            <DropdownMenuItem onSelect={onTest}>
+              <TestIcon />
+              Test connection
+            </DropdownMenuItem>
+          )}
+          {server.auth === `secret` && (
+            <DropdownMenuItem onSelect={onReplaceKey}>
+              <KeyIcon />
+              Replace key
+            </DropdownMenuItem>
+          )}
+          {(http || server.auth === `secret`) && <DropdownMenuSeparator />}
+          <DropdownMenuItem variant="destructive" onSelect={onDisconnect}>
+            <DisconnectIcon />
+            Disconnect
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+
+  if (status === `expired` || status === `error`) {
+    const reason =
+      error ??
+      (status === `expired`
+        ? `Your sign-in expired.`
+        : `The last refresh failed.`)
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending}
+            onClick={onConnect}
+          >
+            {spinner ?? <WarningIcon className="text-amber-500" />}
+            Reconnect
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{reason}</TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  const secret = server.auth === `secret`
+  return (
+    <Button size="sm" disabled={pending} onClick={onConnect}>
+      {spinner ?? (secret ? <KeyIcon /> : <SignInIcon />)}
+      {secret ? `Set key` : `Connect`}
+    </Button>
+  )
+}
+
+/** "Set key": the member's OWN API key for a secret server, stored by the
+ * server encrypted, never shown again. */
+function SecretDialog({
+  server,
+  onClose,
+  onSaved,
+}: {
+  server: McpServerRow | null
+  onClose: () => void
+  onSaved: (server: McpServerRow) => Promise<void>
+}) {
+  const [value, setValue] = useState(``)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    if (server) {
+      setValue(``)
+      setError(null)
+    }
+  }, [server])
+  const name = server
+    ? (server.transport === `http` ? server.headerNames : server.envNames)[0]
+    : undefined
+  const save = async () => {
+    if (!server || busy || value.trim().length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      await trpc.mcpServers.setSecret.mutate(
+        { serverId: server.id, value: value.trim() },
+        { context: { skipErrorToast: true } }
+      )
+      await onSaved(server)
+    } catch (err) {
+      setError(trpcErrorMessage(err, `That didn't go through. Try again.`))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog
+      open={server !== null}
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose()
+      }}
+    >
+      <DialogContent mobile="alert" className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{`API key for ${server?.name ?? ``}`}</DialogTitle>
+          <DialogDescription>
+            Only your runs use it. Stored encrypted; nobody can read it back.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void save()
+          }}
+        >
+          <PasswordInput
+            autoFocus
+            value={value}
+            maxLength={4096}
+            placeholder={name ?? `Key`}
+            autoComplete="off"
+            onChange={(event) => setValue(event.target.value)}
+          />
+          {name && (
+            <p className="px-1 text-[11px] text-muted-foreground">
+              {`Sent as ${name}.`}
+            </p>
+          )}
+          {error && <p className="px-1 text-xs text-destructive">{error}</p>}
+        </form>
+        <DialogFooter>
+          <DialogCancel disabled={busy} onClick={onClose} />
+          <Button
+            disabled={busy || value.trim().length === 0}
+            onClick={() => void save()}
+          >
+            {busy && <LoadingIcon className="animate-spin" />}
+            Save key
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 /** EXP-862: what EVERY run already has, next to the servers a team adds —
  * the Exponential MCP tools themselves, collapsed. One row per contract tool
  * (`expToolDisplay`): the Exponential mark, the tool's title and its blurb,
- * with the raw wire name only as a tooltip — the shape the session feed's
- * `ExpToolRow` draws. Nothing here is configurable: the rows exist so the
- * page answers "what can an agent do with Exponential?" without a doc. */
+ * with the raw wire name only as a tooltip. */
 function BuiltinToolsGroup() {
   const [expanded, setExpanded] = useState(false)
   const tools = useMemo(() => builtinExpTools(), [])
   return (
-    <div className="mb-6">
+    <div className="mt-6">
       <GlassSectionHeader
         label="Built-in Exponential tools"
         count={tools.length}
@@ -404,11 +920,7 @@ function BuiltinToolsGroup() {
       {expanded && (
         <div className={SETTINGS_LIST_CLASS}>
           {tools.map((tool) => (
-            <ListRow
-              key={tool.name}
-              className="gap-2 px-3 py-2"
-              title={tool.name}
-            >
+            <ListRow key={tool.name} className="gap-2 px-3 py-2" title={tool.name}>
               <ExponentialLogo
                 variant="light"
                 size={12}
@@ -426,192 +938,6 @@ function BuiltinToolsGroup() {
   )
 }
 
-function ServerRow({
-  server,
-  devices,
-  now,
-  isOwner,
-  flows,
-  onSignIn,
-  onEdit,
-  onRemove,
-}: {
-  server: McpServerRow
-  devices: SteerDevice[]
-  now: Date
-  isOwner: boolean
-  flows: Record<string, FlowUi>
-  onSignIn: (device: SteerDevice) => void
-  onEdit: () => void
-  onRemove: () => void
-}) {
-  const http = server.transport === `http`
-  const target = http
-    ? server.url
-    : [server.command, ...server.args].filter(Boolean).join(` `)
-  const auth = server.auth as McpAuth
-  const transport = server.transport as McpTransport
-  return (
-    <ListRow className="flex-col items-stretch gap-2 px-3 py-2">
-      <div className="flex items-center gap-3">
-        <McpIcon className="size-4 shrink-0 text-foreground/70" />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-baseline gap-1.5">
-            <span className="min-w-0 truncate text-sm font-medium">
-              {server.name}
-            </span>
-            {server.enabledByDefault && (
-              <Pill
-                size="sm"
-                title="Preselected on the Agent page"
-              >
-                Default
-              </Pill>
-            )}
-          </div>
-          <div className="truncate text-xs text-muted-foreground" title={target ?? undefined}>
-            {`${MCP_TRANSPORT_LABELS[transport] ?? server.transport} · ${target ?? ``} · ${MCP_AUTH_LABELS[auth] ?? server.auth}`}
-          </div>
-        </div>
-        {isOwner && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Server menu for ${server.name}`}
-              >
-                <MoreIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={onEdit}>
-                <EditIcon />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-                <RemoveIcon />
-                Remove
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-      {auth !== `none` && (
-        <ReadinessStrip
-          server={server}
-          devices={devices}
-          now={now}
-          flows={flows}
-          onSignIn={onSignIn}
-        />
-      )}
-    </ListRow>
-  )
-}
-
-/** One chip per device: what the machine last reported for this server, and
- * for OAuth rows the "Sign in on <device>" action on the caller's own
- * machines that run the flow (cap `mcp`, online). */
-function ReadinessStrip({
-  server,
-  devices,
-  now,
-  flows,
-  onSignIn,
-}: {
-  server: McpServerRow
-  devices: SteerDevice[]
-  now: Date
-  flows: Record<string, FlowUi>
-  onSignIn: (device: SteerDevice) => void
-}) {
-  const oauth = server.auth === `oauth`
-  const known = new Set(devices.map((device) => device.deviceId))
-  // Readiness rows for devices outside the synced list (a teammate's machine
-  // visible through the server's own scoping) still get a plain chip.
-  const extra = server.readiness.filter((entry) => !known.has(entry.deviceId))
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {devices.map((device) => {
-        const entry = readinessFor(server, device.deviceId)
-        const ready = serverReadyOn(server, device.deviceId, now)
-        const label = readinessLabel(server, entry, now)
-        const online = deviceIsOnline(device)
-        const flow = flows[flowKey(server.id, device.deviceId)]
-        const canSignIn =
-          oauth &&
-          deviceIsMine(device) &&
-          online &&
-          deviceSupportsMcp(device) &&
-          (!ready || (entry !== null && readinessExpired(entry, now)))
-        const deviceLabel = device.deviceLabel || device.deviceId
-        const tone = ready
-          ? `text-emerald-500`
-          : entry && !entry.ready && entry.error
-            ? `text-destructive`
-            : `text-muted-foreground`
-        const hint =
-          !oauth && !ready
-            ? secretSetupHint(server)
-            : entry
-              ? `Checked ${new Date(entry.checkedAt).toLocaleString()}`
-              : undefined
-        return (
-          <span key={device.deviceId} className="flex items-center gap-1">
-            <Pill size="sm" title={hint}>
-              <span
-                className={cn(
-                  `size-1.5 rounded-full`,
-                  online ? `bg-emerald-500` : `bg-muted-foreground/40`
-                )}
-                aria-hidden
-              />
-              <span className="max-w-[10rem] truncate">{deviceLabel}</span>
-              <span className={cn(`max-w-[12rem] truncate`, tone)}>
-                {!oauth && !ready ? `Set on the device` : label}
-              </span>
-            </Pill>
-            {canSignIn && (
-              <Pill
-                size="sm"
-                mode="action"
-                disabled={Boolean(flow) && flow?.phase !== `failed`}
-                title={flow?.phase === `failed` ? flow.error : undefined}
-                onClick={() => onSignIn(device)}
-              >
-                {flow && flow.phase !== `failed` ? (
-                  <LoaderCircle className="size-3 animate-spin" />
-                ) : (
-                  <SignInIcon className="size-3" />
-                )}
-                {flow?.phase === `waiting` || flow?.phase === `starting`
-                  ? `Waiting for ${deviceLabel}…`
-                  : flow?.phase === `browser`
-                    ? `Finish in the browser`
-                    : `Sign in on ${deviceLabel}`}
-              </Pill>
-            )}
-          </span>
-        )
-      })}
-      {extra.map((entry) => (
-        <Pill key={entry.deviceRowId} size="sm">
-          <span className="max-w-[10rem] truncate">{entry.deviceLabel}</span>
-          <span
-            className={cn(
-              `max-w-[12rem] truncate`,
-              entry.ready ? `text-emerald-500` : `text-muted-foreground`
-            )}
-          >
-            {readinessLabel(server, entry, now)}
-          </span>
-        </Pill>
-      ))}
-    </div>
-  )
-}
-
 // ── Add / edit dialog ────────────────────────────────────────────────────────
 
 const TRANSPORT_OPTIONS: PickerOption[] = [
@@ -619,24 +945,40 @@ const TRANSPORT_OPTIONS: PickerOption[] = [
   { value: `stdio`, label: MCP_TRANSPORT_LABELS.stdio },
 ]
 
+/** Add = two steps (catalog/URL → confirm); Edit = the confirm form alone,
+ * prefilled. Remounted per open (`key`), so its state starts fresh. */
 function McpServerDialog({
   open,
-  initial,
+  teamId,
   mode,
+  initial,
+  seed,
+  existing,
   busy,
   error,
   onOpenChange,
   onSubmit,
 }: {
   open: boolean
-  initial: McpServerDraft
-  mode: `create` | `edit`
+  teamId: string
+  mode: `add` | `edit`
+  /** Edit: the server's current config. */
+  initial: McpServerDraft | null
+  /** Add from the inline catalog: the probe already ran. */
+  seed: ProbeSeed | null
+  existing: readonly McpServerRow[]
   busy: boolean
   error: string | null
   onOpenChange: (open: boolean) => void
   onSubmit: (draft: McpServerDraft) => void
 }) {
-  const [draft, setDraft] = useState<McpServerDraft>(initial)
+  const start = initial ?? seed?.draft ?? null
+  const [step, setStep] = useState<`pick` | `form`>(start ? `form` : `pick`)
+  const [draft, setDraft] = useState<McpServerDraft>(
+    start ?? EMPTY_MCP_SERVER_DRAFT
+  )
+  const [note, setNote] = useState<string | null>(seed?.note ?? null)
+  const [advanced, setAdvanced] = useState(start?.transport === `stdio`)
   const patch = (fields: Partial<McpServerDraft>) =>
     setDraft((current) => ({ ...current, ...fields }))
   const http = draft.transport === `http`
@@ -646,6 +988,7 @@ function McpServerDialog({
     ...(http ? [{ value: `oauth`, label: MCP_AUTH_LABELS.oauth }] : []),
     { value: `secret`, label: MCP_AUTH_LABELS.secret },
   ]
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -655,135 +998,205 @@ function McpServerDialog({
       >
         <DialogHeader>
           <DialogTitle>
-            {mode === `create` ? `Add MCP server` : `Edit MCP server`}
+            {mode === `edit` ? `Edit MCP server` : `Add MCP server`}
           </DialogTitle>
         </DialogHeader>
-        <DialogBody className="flex flex-col gap-2">
-          <GlassGroup>
-            <GlassInputRow
-              id="mcp-name"
-              label="Name"
-              value={draft.name}
-              maxLength={64}
-              placeholder="linear"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              onChange={(event) => patch({ name: event.target.value })}
-            />
-            <Combobox
-              triggerVariant="row"
-              searchable={false}
-              mobileTitle="Transport"
-              value={draft.transport}
-              options={TRANSPORT_OPTIONS}
-              onChange={(value) => {
-                if (value === null) return
-                const transport = value as McpTransport
-                patch({
-                  transport,
-                  // OAuth is an HTTP-only kind; a stdio row falls back.
-                  auth:
-                    transport === `stdio` && draft.auth === `oauth`
-                      ? `none`
-                      : draft.auth,
+
+        {step === `pick` ? (
+          <DialogBody>
+            <CatalogPicker
+              teamId={teamId}
+              existing={existing}
+              onPicked={(picked) => {
+                setDraft(picked.draft)
+                setNote(picked.note)
+                setAdvanced(false)
+                setStep(`form`)
+              }}
+              onManual={() => {
+                setDraft({
+                  ...EMPTY_MCP_SERVER_DRAFT,
+                  transport: `stdio`,
                 })
+                setNote(null)
+                setAdvanced(true)
+                setStep(`form`)
               }}
             />
-            {http ? (
+          </DialogBody>
+        ) : (
+          <DialogBody className="flex flex-col gap-2">
+            <GlassGroup>
               <GlassInputRow
-                id="mcp-url"
-                label="URL"
-                value={draft.url}
-                placeholder="https://mcp.example.com/mcp"
+                id="mcp-name"
+                label="Name"
+                value={draft.name}
+                maxLength={64}
+                placeholder="linear"
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
-                inputMode="url"
-                onChange={(event) => patch({ url: event.target.value })}
+                onChange={(event) => patch({ name: event.target.value })}
               />
-            ) : (
-              <GlassInputRow
-                id="mcp-command"
-                label="Command"
-                value={draft.command}
-                placeholder="npx"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                onChange={(event) => patch({ command: event.target.value })}
+              {http && (
+                <GlassInputRow
+                  id="mcp-url"
+                  label="URL"
+                  value={draft.url}
+                  placeholder="https://mcp.example.com/mcp"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="url"
+                  onChange={(event) => patch({ url: event.target.value })}
+                />
+              )}
+              <GlassToggleRow
+                id="mcp-enabled-by-default"
+                label="Pre-select in new runs"
+                checked={draft.enabledByDefault}
+                onCheckedChange={(enabledByDefault) => patch({ enabledByDefault })}
               />
+            </GlassGroup>
+
+            <div className="flex flex-col gap-1 px-1" data-testid="mcp-auth-line">
+              <p className="flex items-center gap-1.5 text-xs text-foreground/80">
+                {draft.auth === `none` ? (
+                  <ConnectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                ) : draft.auth === `oauth` ? (
+                  <SignInIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                ) : (
+                  <KeyIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                )}
+                {mcpAuthLine(draft.auth)}
+              </p>
+              {note && (
+                <p className="text-[11px] text-muted-foreground">
+                  {`Couldn't check the server (${note.replace(/\.$/, ``)}). You can still save it.`}
+                </p>
+              )}
+            </div>
+
+            <DisclosureHeader
+              open={advanced}
+              onToggle={() => setAdvanced((value) => !value)}
+              className="mt-1 px-1 text-xs"
+            >
+              Advanced
+            </DisclosureHeader>
+            {advanced && (
+              <GlassGroup>
+                <Combobox
+                  triggerVariant="row"
+                  searchable={false}
+                  mobileTitle="Sign-in"
+                  value={draft.auth}
+                  options={authOptions}
+                  onChange={(value) => {
+                    if (value !== null) patch({ auth: value as McpAuth })
+                  }}
+                />
+                <Combobox
+                  triggerVariant="row"
+                  searchable={false}
+                  mobileTitle="Transport"
+                  value={draft.transport}
+                  options={TRANSPORT_OPTIONS}
+                  onChange={(value) => {
+                    if (value === null) return
+                    const transport = value as McpTransport
+                    patch({
+                      transport,
+                      // OAuth is an HTTP-only kind; a stdio row falls back.
+                      auth:
+                        transport === `stdio` && draft.auth === `oauth`
+                          ? `none`
+                          : draft.auth,
+                    })
+                  }}
+                />
+                {!http && (
+                  <GlassInputRow
+                    id="mcp-command"
+                    label="Command"
+                    value={draft.command}
+                    placeholder="npx"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    onChange={(event) => patch({ command: event.target.value })}
+                  />
+                )}
+                {!http && (
+                  <ChipsRow
+                    id="mcp-args"
+                    label="Arguments"
+                    values={draft.args}
+                    placeholder="-y @acme/mcp"
+                    onChange={(args) => patch({ args })}
+                  />
+                )}
+                <ChipsRow
+                  id={http ? `mcp-header-names` : `mcp-env-names`}
+                  label={
+                    draft.auth === `secret`
+                      ? http
+                        ? `Header that carries the key`
+                        : `Variable that carries the key`
+                      : http
+                        ? `Header names`
+                        : `Variable names`
+                  }
+                  values={http ? draft.headerNames : draft.envNames}
+                  placeholder={http ? `Authorization` : `ACME_TOKEN`}
+                  pattern={MCP_VARIABLE_NAME_RE}
+                  onChange={(names) =>
+                    patch(http ? { headerNames: names } : { envNames: names })
+                  }
+                />
+                {draft.auth === `oauth` && (
+                  <ChipsRow
+                    id="mcp-scopes"
+                    label="Scopes"
+                    values={draft.scopes}
+                    placeholder="read"
+                    onChange={(scopes) => patch({ scopes })}
+                  />
+                )}
+              </GlassGroup>
             )}
-            {!http && (
-              <ChipsRow
-                id="mcp-args"
-                label="Arguments"
-                values={draft.args}
-                placeholder="-y @acme/mcp"
-                onChange={(args) => patch({ args })}
-              />
+            {(validation || error) && (
+              <p className="px-1 text-xs text-destructive">{error ?? validation}</p>
             )}
-            <ChipsRow
-              id={http ? `mcp-header-names` : `mcp-env-names`}
-              label={http ? `Header names` : `Variable names`}
-              values={http ? draft.headerNames : draft.envNames}
-              placeholder={http ? `X-Api-Key` : `ACME_TOKEN`}
-              pattern={MCP_VARIABLE_NAME_RE}
-              onChange={(names) =>
-                patch(http ? { headerNames: names } : { envNames: names })
-              }
-            />
-            <Combobox
-              triggerVariant="row"
-              searchable={false}
-              mobileTitle="Auth"
-              value={draft.auth}
-              options={authOptions}
-              onChange={(value) => {
-                if (value !== null) patch({ auth: value as McpAuth })
-              }}
-            />
-            {draft.auth === `oauth` && (
-              <ChipsRow
-                id="mcp-scopes"
-                label="Scopes"
-                values={draft.scopes}
-                placeholder="read"
-                onChange={(scopes) => patch({ scopes })}
-              />
-            )}
-            <GlassToggleRow
-              id="mcp-enabled-by-default"
-              label="Enabled by default"
-              description="Preselected on the Agent page."
-              checked={draft.enabledByDefault}
-              onCheckedChange={(enabledByDefault) => patch({ enabledByDefault })}
-            />
-          </GlassGroup>
-          <p className="px-1 text-[11px] text-muted-foreground">
-            {draft.auth === `secret`
-              ? http
-                ? `Declare the one header that carries the secret. Its value is typed on each machine, never stored here.`
-                : `Declare the one variable that carries the secret. Its value is typed on each machine, never stored here.`
-              : draft.auth === `oauth`
-                ? `Each member signs in on their own machine from this page. Tokens stay on the device.`
-                : http
-                  ? `Names only: any header value is typed on each machine.`
-                  : `Names only: any variable value is typed on each machine.`}
-          </p>
-          {(validation || error) && (
-            <p className="px-1 text-xs text-destructive">{error ?? validation}</p>
-          )}
-        </DialogBody>
+          </DialogBody>
+        )}
+
         <DialogFooter>
+          {step === `form` && mode === `add` && !seed ? (
+            <Button
+              variant="ghost"
+              className="mr-auto"
+              disabled={busy}
+              onClick={() => setStep(`pick`)}
+            >
+              <BackIcon />
+              Back
+            </Button>
+          ) : null}
           <DialogCancel disabled={busy} />
-          <Button
-            disabled={busy || validation !== null}
-            onClick={() => onSubmit(draft)}
-          >
-            {busy && <LoaderCircle className="animate-spin" />}
-            {mode === `create` ? `Add server` : `Save`}
-          </Button>
+          {step === `form` && (
+            <Button
+              disabled={busy || validation !== null}
+              onClick={() => onSubmit(draft)}
+            >
+              {busy && <LoadingIcon className="animate-spin" />}
+              {mode === `edit`
+                ? `Save`
+                : draft.auth === `oauth`
+                  ? `Save and connect`
+                  : `Add server`}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -810,8 +1223,8 @@ function ChipsRow({
 }) {
   const [text, setText] = useState(``)
   const [invalid, setInvalid] = useState(false)
-  const commit = () => {
-    const value = text.trim().replace(/,$/, ``)
+  const add = (raw: string) => {
+    const value = raw.trim().replace(/,$/, ``)
     if (!value) return
     if (pattern && !pattern.test(value)) {
       setInvalid(true)
@@ -830,14 +1243,16 @@ function ChipsRow({
         {values.map((value) => (
           <Pill key={value} size="sm">
             <span className="font-mono">{value}</span>
-            <button
+            <Button
               type="button"
-              className="-mr-0.5 rounded-full text-muted-foreground hover:text-foreground"
+              variant="text"
+              size="inline"
+              className="-mr-0.5"
               aria-label={`Remove ${value}`}
               onClick={() => onChange(values.filter((v) => v !== value))}
             >
               <CloseIcon className="size-3" />
-            </button>
+            </Button>
           </Pill>
         ))}
         <Input
@@ -856,27 +1271,16 @@ function ChipsRow({
             setInvalid(false)
             const next = event.target.value
             if (next.endsWith(`,`) || next.endsWith(` `)) {
-              setText(next.slice(0, -1))
-              // Commit on the next tick so the trimmed text is what commits.
-              queueMicrotask(() => {
-                const value = next.slice(0, -1).trim()
-                if (!value) return
-                if (pattern && !pattern.test(value)) {
-                  setInvalid(true)
-                  return
-                }
-                if (!values.includes(value)) onChange([...values, value])
-                setText(``)
-              })
+              add(next.slice(0, -1))
               return
             }
             setText(next)
           }}
-          onBlur={commit}
+          onBlur={() => add(text)}
           onKeyDown={(event) => {
             if (event.key === `Enter`) {
               event.preventDefault()
-              commit()
+              add(text)
             } else if (event.key === `Backspace` && text === `` && values.length > 0) {
               onChange(values.slice(0, -1))
             }

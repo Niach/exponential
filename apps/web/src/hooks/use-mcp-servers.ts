@@ -1,8 +1,10 @@
 // EXP-792: the team's MCP servers over tRPC (`mcpServers.list`, server-only:
 // never a shape, so this is the repositories-section pattern — fetch on
-// mount, `refresh()` after a write or an OAuth round trip). Every launch
-// surface and the settings pane read the same list shape; the readiness
-// matrix rides each row.
+// mount, `refresh()` after a write). Every launch surface and the settings
+// page read the same list shape; the caller's own `connection` rides each
+// row. A connect usually finishes in ANOTHER tab (the launch picker opens
+// the settings deep link there), so the list also refetches when this tab
+// becomes visible again.
 import { useCallback, useEffect, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -38,19 +40,27 @@ export function useMcpServers(
       return
     }
     let active = true
-    trpc.mcpServers.list
-      .query({ teamId })
-      .then((rows) => {
-        if (!active) return
-        setServers(rows)
-        setError(null)
-      })
-      .catch((err) => {
-        if (!active) return
-        setError(trpcErrorMessage(err, `Couldn't load the MCP servers.`))
-      })
+    const load = () => {
+      trpc.mcpServers.list
+        .query({ teamId })
+        .then((rows) => {
+          if (!active) return
+          setServers(rows)
+          setError(null)
+        })
+        .catch((err) => {
+          if (!active) return
+          setError(trpcErrorMessage(err, `Couldn't load the MCP servers.`))
+        })
+    }
+    load()
+    const onVisible = () => {
+      if (document.visibilityState === `visible`) load()
+    }
+    document.addEventListener(`visibilitychange`, onVisible)
     return () => {
       active = false
+      document.removeEventListener(`visibilitychange`, onVisible)
     }
   }, [teamId, enabled])
 
