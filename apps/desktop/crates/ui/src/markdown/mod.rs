@@ -53,7 +53,7 @@ pub(crate) use editor::{
 };
 pub use editor::{ImageCache, IssueChipCache, MarkdownEditor, MarkdownView, RefResolver};
 pub use image_paste::{
-    read_any_file, AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,
+    read_any_file, AttachmentFetchStatus, AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,
     MAX_FILE_UPLOAD_BYTES,
 };
 pub use parse::markdown_to_blocks;

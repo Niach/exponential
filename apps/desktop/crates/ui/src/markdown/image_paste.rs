@@ -24,6 +24,24 @@ use std::time::Duration;
 use anyhow::{anyhow, Context as _};
 use serde::Deserialize;
 
+/// EXP-1003: a non-2xx `/api/attachments/{id}` fetch, typed so callers can
+/// tell a 404 ("no longer available") from any other status via
+/// `anyhow::Error::downcast_ref`. `Display` keeps the legacy text
+/// (`attachment fetch failed: HTTP 404 Not Found`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AttachmentFetchStatus(pub u16);
+
+impl std::fmt::Display for AttachmentFetchStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match reqwest::StatusCode::from_u16(self.0) {
+            Ok(status) => write!(f, "attachment fetch failed: HTTP {status}"),
+            Err(_) => write!(f, "attachment fetch failed: HTTP {}", self.0),
+        }
+    }
+}
+
+impl std::error::Error for AttachmentFetchStatus {}
+
 /// Accepted upload content types (mirror of web
 /// `acceptedImageContentTypes`, `issue-attachments.ts`).
 pub const ACCEPTED_IMAGE_CONTENT_TYPES: [&str; 5] = [
@@ -342,7 +360,7 @@ impl AttachmentTransport for HttpAttachmentTransport {
             .map_err(|e| anyhow!("attachment fetch failed: {e}"))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(anyhow!("attachment fetch failed: HTTP {status}"));
+            return Err(AttachmentFetchStatus(status.as_u16()).into());
         }
         Ok(response.bytes().context("attachment body")?.to_vec())
     }
@@ -991,6 +1009,20 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("Team storage limit reached"), "{error}");
+    }
+
+    /// EXP-1003: a 404 surfaces as the typed status (the markdown preview's
+    /// "no longer available" copy), the text unchanged.
+    #[test]
+    fn fetch_failure_carries_the_typed_status() {
+        let (base, _captured) = one_shot_server(404, "");
+        let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
+        let error = transport.fetch("/api/attachments/gone").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<AttachmentFetchStatus>(),
+            Some(&AttachmentFetchStatus(404))
+        );
+        assert_eq!(error.to_string(), "attachment fetch failed: HTTP 404 Not Found");
     }
 
     #[test]

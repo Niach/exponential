@@ -12,7 +12,10 @@ import SwiftUI
 /// the synced `attachments` rows, so nothing about the editor or the inline
 /// pipelines is involved here. Tapping a row downloads the bytes into a temp
 /// folder and hands them to Quick Look, whose own share button covers
-/// "save"/"open in…" — so there is no bespoke export UI. Video and audio play
+/// "save"/"open in…" — so there is no bespoke export UI. EXP-1003: a markdown
+/// row (`AttachmentFiles.isMarkdown`) opens the in-app
+/// `AttachmentMarkdownPreviewSheet` instead, and its menu keeps the Quick Look
+/// route as "Download". Video and audio play
 /// inline where they are embedded (`InlineMediaPlayers.swift`), not from this
 /// rail.
 ///
@@ -26,6 +29,8 @@ struct IssueFilesSection: View {
     @State private var previewURL: URL?
     @State private var downloadingId: String?
     @State private var pendingDelete: AttachmentEntity?
+    /// EXP-1003: the markdown row shown in the in-app preview sheet.
+    @State private var markdownPreview: AttachmentEntity?
 
     private var canManage: Bool { viewModel.canManageFiles }
 
@@ -57,6 +62,9 @@ struct IssueFilesSection: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .quickLookPreview($previewURL)
+        .sheet(item: $markdownPreview) { attachment in
+            AttachmentMarkdownPreviewSheet(attachment: attachment)
+        }
         .confirmationDialog(
             "Delete file?",
             isPresented: Binding(
@@ -89,6 +97,10 @@ struct IssueFilesSection: View {
     private func attachmentRow(_ attachment: AttachmentEntity) -> some View {
         let isDownloading = downloadingId == attachment.id
         let isDeleting = viewModel.deletingAttachmentIds.contains(attachment.id)
+        let isMarkdown = AttachmentFiles.isMarkdown(
+            contentType: attachment.contentType,
+            filename: attachment.filename
+        )
         // EXP-603: the row is a tap target rather than a `Button` so the
         // actions menu (which replaced a long-press `.contextMenu`) can be a
         // button of its own inside it. Tapping the row still previews.
@@ -102,12 +114,18 @@ struct IssueFilesSection: View {
                     .controlSize(.small)
                     .tint(.white)
             } else {
-                AppIcon(AppIcons.uiDownload, size: AppIcon.Size.small)
+                AppIcon(isMarkdown ? AppIcons.uiWatch : AppIcons.uiDownload, size: AppIcon.Size.small)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             GlassMenu {
                 GlassMenuItem("Preview", icon: AppIcons.uiWatch) {
-                    preview(attachment)
+                    open(attachment, isMarkdown: isMarkdown)
+                }
+                if isMarkdown {
+                    // The Quick Look route, whose share button saves the file.
+                    GlassMenuItem("Download", icon: AppIcons.uiDownload) {
+                        preview(attachment)
+                    }
                 }
                 if canManage {
                     GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true) {
@@ -121,7 +139,7 @@ struct IssueFilesSection: View {
         }
         .onTapGesture {
             guard !isDeleting else { return }
-            preview(attachment)
+            open(attachment, isMarkdown: isMarkdown)
         }
     }
 
@@ -190,6 +208,15 @@ struct IssueFilesSection: View {
     }
 
     // MARK: - Actions
+
+    /// EXP-1003: markdown renders in-app; every other file goes to Quick Look.
+    private func open(_ attachment: AttachmentEntity, isMarkdown: Bool) {
+        if isMarkdown {
+            markdownPreview = attachment
+        } else {
+            preview(attachment)
+        }
+    }
 
     private func preview(_ attachment: AttachmentEntity) {
         guard downloadingId == nil else { return }

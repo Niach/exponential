@@ -5,9 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.exponential.app.data.api.AttachmentsApi
+import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.domain.sanitizeFilename
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Handing a downloaded attachment to another app — shared by the issue's Files
@@ -59,3 +63,33 @@ internal fun attachmentCacheFile(context: Context, attachment: AttachmentEntity)
         File(File(context.cacheDir, "attachments"), attachment.id),
         sanitizeFilename(attachment.filename),
     )
+
+/**
+ * EXP-1003: an attachment's bytes for the in-app markdown preview. Unlike the
+ * view models' `downloadToCache` this THROWS (the [TrpcException] from
+ * [AttachmentsApi.download] keeps its HTTP status, so the sheet can tell a
+ * deleted file from any other failure). Served from the per-id cache when the
+ * file is already there at the expected size, and written back to it so a
+ * later Download/Share is instant.
+ */
+internal suspend fun fetchAttachmentBytes(
+    context: Context,
+    api: AttachmentsApi,
+    accountId: String?,
+    attachment: AttachmentEntity,
+): ByteArray {
+    val target = attachmentCacheFile(context, attachment)
+    val cached = withContext(Dispatchers.IO) {
+        if (target.isFile && target.length() == attachment.sizeBytes) target.readBytes() else null
+    }
+    if (cached != null) return cached
+    if (accountId == null) throw TrpcException("Sign in to view this file.")
+    val bytes = api.download(accountId, attachment.url)
+    withContext(Dispatchers.IO) {
+        runCatching {
+            target.parentFile?.mkdirs()
+            target.writeBytes(bytes)
+        }
+    }
+    return bytes
+}

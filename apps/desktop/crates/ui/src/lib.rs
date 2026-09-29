@@ -32,6 +32,7 @@ mod actions_view;
 mod automation_host;
 mod automations_view;
 mod app_title_bar;
+mod attachment_markdown_preview;
 mod attachments_row;
 mod automation_dialog;
 mod automation_editor;

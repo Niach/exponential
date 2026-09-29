@@ -39,7 +39,8 @@ use api::attachments::{AttachmentsListForTeamOutput, TeamAttachmentRow};
 use api::billing::TeamPlanOut;
 
 use crate::icons::ExpIcon;
-use crate::issue_files::{format_bytes, icon_for_content_type};
+use crate::attachment_markdown_preview::{open_markdown_preview, MarkdownPreviewTarget};
+use crate::issue_files::{format_bytes, icon_for_content_type, is_markdown_attachment};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -320,12 +321,20 @@ impl StoragePane {
         let row_for_delete = row.clone();
 
         // Image filenames open the in-app lightbox (EXP-316) — same
-        // `open_image_preview` path as the editor's attachment chips.
+        // `open_image_preview` path as the editor's attachment chips;
+        // markdown filenames open the in-app preview (EXP-1003, web parity).
         let attachment_url = format!("/api/attachments/{}", row.id);
-        let previewable =
-            row.is_image && queries::absolute_api_url(cx, &attachment_url).is_some();
+        let markdown = is_markdown_attachment(Some(&row.content_type), Some(&row.filename));
+        let previewable = (row.is_image || markdown)
+            && queries::absolute_api_url(cx, &attachment_url).is_some();
         let filename_cell: AnyElement = if previewable {
             let label = row.filename.clone();
+            let markdown_target = markdown.then(|| MarkdownPreviewTarget {
+                attachment_id: row.id.clone(),
+                filename: row.filename.clone(),
+                size_bytes: row.size_bytes,
+                team_id: active_team_id(&self.nav, cx),
+            });
             div()
                 .id(SharedString::from(format!("storage-preview-{}", row.id)))
                 .min_w_0()
@@ -335,15 +344,16 @@ impl StoragePane {
                 .text_ellipsis()
                 .cursor_pointer()
                 .hover(|this| this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
-                .on_click(move |_, window, cx| {
-                    crate::image_preview::open_image_preview(
+                .on_click(move |_, window, cx| match &markdown_target {
+                    Some(target) => open_markdown_preview(target.clone(), window, cx),
+                    None => crate::image_preview::open_image_preview(
                         attachment_url.clone(),
                         label.clone(),
                         None,
                         None,
                         window,
                         cx,
-                    );
+                    ),
                 })
                 .child(SharedString::from(row.filename.clone()))
                 .into_any_element()

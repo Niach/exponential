@@ -382,6 +382,13 @@ class CommentThreadViewModel @Inject constructor(
         }
     }
 
+    /**
+     * EXP-1003: the markdown preview's loader for comment attachments —
+     * throws (keeping the HTTP status) so the sheet shows its own copy.
+     */
+    suspend fun loadAttachmentBytes(attachment: AttachmentEntity): ByteArray =
+        fetchAttachmentBytes(appContext, attachmentsApi, auth.activeAccountId.value, attachment)
+
     // Composer draft + in-flight flag, hoisted here (EXP-240) so the expanding
     // bottom-bar composer keeps its text across collapse/expand, rotation, and
     // the thread/bar being separate composables sharing this screen-level VM.

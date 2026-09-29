@@ -1307,6 +1307,13 @@ class IssueDetailViewModel @AssistedInject constructor(
             _busyAttachmentIds.value = _busyAttachmentIds.value - attachment.id
         }
     }
+
+    /**
+     * EXP-1003: the markdown preview's loader — throws (keeping the HTTP
+     * status) instead of reporting, so the sheet shows its own error copy.
+     */
+    suspend fun loadAttachmentBytes(attachment: AttachmentEntity): ByteArray =
+        fetchAttachmentBytes(appContext, attachmentsApi, auth.activeAccountId.value, attachment)
 }
 
 /**

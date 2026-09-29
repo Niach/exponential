@@ -82,6 +82,69 @@ public enum AttachmentFiles {
         !isInlineImage(contentType: contentType) && !isInlineMedia(contentType: contentType)
     }
 
+    // MARK: - Markdown preview (EXP-1003)
+
+    /// EXP-1003 — a markdown attachment opens in the in-app preview instead of
+    /// Quick Look. A `text/markdown`/`text/x-markdown` essence always counts; a
+    /// generic type (`""`, `text/plain`, octet-stream) falls back to the
+    /// `.md`/`.markdown` extension; any other specific type never does.
+    /// Mirrored ×4 from web `isMarkdownAttachment`
+    /// (apps/web/src/lib/attachment-files.ts).
+    public static func isMarkdown(contentType: String, filename: String) -> Bool {
+        let essence = normalized(contentType)
+        if markdownContentTypes.contains(essence) { return true }
+        guard essence.isEmpty || essence == "text/plain" || essence == fallbackContentType else {
+            return false
+        }
+        let name = filename.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return name.hasSuffix(".md") || name.hasSuffix(".markdown")
+    }
+
+    /// 1 MiB — above it the preview shows a download hint instead of rendering
+    /// (web `MARKDOWN_PREVIEW_MAX_BYTES`).
+    public static let markdownPreviewMaxBytes = 1024 * 1024
+
+    /// What a fetched markdown file renders as.
+    public enum MarkdownPreviewOutcome: Equatable, Sendable {
+        case ready(String)
+        case tooLarge
+    }
+
+    /// The first half of the double size check: a synced `size_bytes` over the
+    /// ceiling goes straight to the too-large hint without a request.
+    public static func markdownPreviewSkipsFetch(sizeBytes: Int) -> Bool {
+        sizeBytes > markdownPreviewMaxBytes
+    }
+
+    /// The second half: legacy rows carry `size_bytes = 0`, so the decoded
+    /// text is measured too. Counted in UTF-16 units for parity with JS
+    /// `text.length`; invalid UTF-8 decodes lossily (U+FFFD), never fails.
+    public static func markdownPreviewOutcome(data: Data) -> MarkdownPreviewOutcome {
+        let text = String(decoding: data, as: UTF8.self)
+        return text.utf16.count > markdownPreviewMaxBytes ? .tooLarge : .ready(text)
+    }
+
+    /// The preview's error copy, byte-identical to the web dialog's.
+    public static func markdownPreviewErrorMessage(_ error: Error) -> String {
+        if let attachmentsError = error as? AttachmentsError,
+           case let .httpError(code, _) = attachmentsError
+        {
+            return code == 404
+                ? "This file is no longer available."
+                : "Couldn't load this file (HTTP \(code))."
+        }
+        let message = error.userFacingMessage
+        return message.isEmpty ? "Couldn't load this file." : message
+    }
+
+    /// The preview's subtitle: `Markdown · <size>` or plain `Markdown` for a
+    /// row without a known size. Same formatter as the Files row.
+    public static func markdownPreviewSubtitle(sizeBytes: Int) -> String {
+        sizeBytes > 0
+            ? "Markdown · \(Int64(sizeBytes).formatted(.byteCount(style: .file)))"
+            : "Markdown"
+    }
+
     /// Canonical upload form of a picker-derived content type: lowercased media
     /// essence with any `;`-parameter suffix stripped, falling back to
     /// `application/octet-stream`. Mirrors the server's
@@ -129,6 +192,8 @@ public enum AttachmentFiles {
         let base = contentType.split(separator: ";", maxSplits: 1).first.map(String.init) ?? contentType
         return base.trimmingCharacters(in: .whitespaces).lowercased()
     }
+
+    private static let markdownContentTypes: Set<String> = ["text/markdown", "text/x-markdown"]
 
     private static let archiveContentTypes: Set<String> = [
         "application/zip",

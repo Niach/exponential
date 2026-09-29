@@ -209,7 +209,9 @@ struct AttachmentFileTile: View {
 /// inline tiles stacked vertically (EXP-723 activity redesign — a comment's
 /// screenshot is usually its point, and a 64pt crop showed none of it);
 /// everything else stays a chip. Both tap through to Quick Look over the same
-/// download-to-temp path the Files section uses. Passing `onRemove` turns it
+/// download-to-temp path the Files section uses; EXP-1003: a markdown chip
+/// opens the in-app `AttachmentMarkdownPreviewSheet` instead, whose Download
+/// is the save route. Passing `onRemove` turns it
 /// into the edit-mode strip (an X on every tile — removals become permanent
 /// when the edit saves).
 struct CommentAttachmentsStrip: View {
@@ -221,6 +223,8 @@ struct CommentAttachmentsStrip: View {
 
     @State private var previewURL: URL?
     @State private var downloadingId: String?
+    /// EXP-1003: the markdown chip shown in the in-app preview sheet.
+    @State private var markdownPreview: AttachmentEntity?
 
     private var images: [AttachmentEntity] {
         attachments.filter { AttachmentFiles.isInlineImage(contentType: $0.contentType) }
@@ -254,6 +258,9 @@ struct CommentAttachmentsStrip: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .quickLookPreview($previewURL)
+            .sheet(item: $markdownPreview) { attachment in
+                AttachmentMarkdownPreviewSheet(attachment: attachment)
+            }
         }
     }
 
@@ -316,7 +323,14 @@ struct CommentAttachmentsStrip: View {
     private func fileChip(_ attachment: AttachmentEntity) -> some View {
         HStack(spacing: 8) {
             Button {
-                preview(attachment)
+                if AttachmentFiles.isMarkdown(
+                    contentType: attachment.contentType,
+                    filename: attachment.filename
+                ) {
+                    markdownPreview = attachment
+                } else {
+                    preview(attachment)
+                }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: AttachmentFiles.sfSymbolName(forContentType: attachment.contentType))

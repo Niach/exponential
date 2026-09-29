@@ -98,4 +98,94 @@ final class AttachmentFilesTests: XCTestCase {
             120
         )
     }
+
+    // MARK: - EXP-1003 markdown preview
+
+    /// The web's `attachment-files.test.ts` table, mirrored ×4.
+    func testIsMarkdownMirrorsTheWebTable() {
+        let cases: [(String, String, Bool)] = [
+            ("text/markdown", "notes.md", true),
+            ("text/markdown; charset=utf-8", "x", true),
+            ("text/x-markdown", "x.txt", true),
+            ("", "README.md", true),
+            ("application/octet-stream", "a.MD", true),
+            ("text/plain", "spec.markdown", true),
+            ("text/plain", "spec.txt", false),
+            ("application/pdf", "spec.md", false),
+            ("image/png", "x.md", false),
+            ("text/csv", "x.md", false),
+        ]
+        for (contentType, filename, expected) in cases {
+            XCTAssertEqual(
+                AttachmentFiles.isMarkdown(contentType: contentType, filename: filename),
+                expected,
+                "\(contentType) / \(filename)"
+            )
+        }
+    }
+
+    func testIsMarkdownTrimsTheFilenameAndLowercasesTheType() {
+        XCTAssertTrue(AttachmentFiles.isMarkdown(contentType: "", filename: "  notes.md  "))
+        XCTAssertTrue(AttachmentFiles.isMarkdown(contentType: "TEXT/MARKDOWN", filename: "x"))
+        XCTAssertTrue(AttachmentFiles.isMarkdown(contentType: " Text/Plain ", filename: "a.Markdown"))
+        XCTAssertFalse(AttachmentFiles.isMarkdown(contentType: "", filename: "md"))
+    }
+
+    func testMarkdownPreviewCeilingIsOneMebibyte() {
+        XCTAssertEqual(AttachmentFiles.markdownPreviewMaxBytes, 1_048_576)
+    }
+
+    func testMarkdownPreviewSkipsFetchOnlyAboveTheCeiling() {
+        let max = AttachmentFiles.markdownPreviewMaxBytes
+        XCTAssertFalse(AttachmentFiles.markdownPreviewSkipsFetch(sizeBytes: max))
+        XCTAssertTrue(AttachmentFiles.markdownPreviewSkipsFetch(sizeBytes: max + 1))
+        XCTAssertFalse(AttachmentFiles.markdownPreviewSkipsFetch(sizeBytes: 0))
+    }
+
+    func testMarkdownPreviewOutcomeMeasuresTheFetchedText() {
+        let max = AttachmentFiles.markdownPreviewMaxBytes
+        let atMax = String(repeating: "a", count: max)
+        XCTAssertEqual(
+            AttachmentFiles.markdownPreviewOutcome(data: Data(atMax.utf8)),
+            .ready(atMax)
+        )
+        XCTAssertEqual(
+            AttachmentFiles.markdownPreviewOutcome(data: Data(String(repeating: "a", count: max + 1).utf8)),
+            .tooLarge
+        )
+        XCTAssertEqual(
+            AttachmentFiles.markdownPreviewOutcome(data: Data("# Hi".utf8)),
+            .ready("# Hi")
+        )
+    }
+
+    func testMarkdownPreviewOutcomeDecodesInvalidUtf8Lossily() {
+        XCTAssertEqual(
+            AttachmentFiles.markdownPreviewOutcome(data: Data([0x61, 0xFF, 0x62])),
+            .ready("a\u{FFFD}b")
+        )
+    }
+
+    func testMarkdownPreviewErrorMessagesMatchTheWebCopy() {
+        XCTAssertEqual(
+            AttachmentFiles.markdownPreviewErrorMessage(AttachmentsError.httpError(404, "")),
+            "This file is no longer available."
+        )
+        XCTAssertEqual(
+            AttachmentFiles.markdownPreviewErrorMessage(AttachmentsError.httpError(500, "boom")),
+            "Couldn't load this file (HTTP 500)."
+        )
+        XCTAssertEqual(
+            AttachmentFiles.markdownPreviewErrorMessage(AttachmentsError.invalidUrl),
+            "Invalid attachment URL"
+        )
+    }
+
+    func testMarkdownPreviewSubtitle() {
+        XCTAssertEqual(AttachmentFiles.markdownPreviewSubtitle(sizeBytes: 0), "Markdown")
+        XCTAssertEqual(
+            AttachmentFiles.markdownPreviewSubtitle(sizeBytes: 2048),
+            "Markdown · \(Int64(2048).formatted(.byteCount(style: .file)))"
+        )
+    }
 }
