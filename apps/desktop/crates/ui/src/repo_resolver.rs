@@ -11,14 +11,16 @@
 //!
 //! The v4 model is one repo per board via `boards.repositoryId`; the server
 //! returns each repo with the `boards[]` it backs (the web `repositories.list`
-//! loader — `[{ id, name, slug }]`). A board resolves to the repo whose
-//! `boards[]` contains its id — the only resolution this entity serves (the
-//! desktop is board-scoped everywhere; the action runner resolves its own
-//! `repository_id` off its own `repositories.list` read, off-window).
+//! loader — `[{ id, name, slug }]`). EXP-1133: the IDE surfaces are
+//! REPO-scoped, not board-scoped — [`RepoResolver::lookup_active`] serves the
+//! window's picked repo (the shared picker atop Files / Source Control) out
+//! of the team's board-backed repos, so the trunk never follows whichever
+//! board was last open (the action runner resolves its own `repository_id`
+//! off its own `repositories.list` read, off-window).
 //!
 //! Consumer-driven, like every other load gate in this crate: a surface calls
 //! [`RepoResolver::ensure_loaded`] at render time (idempotent — one fetch per
-//! team) and reads [`RepoResolver::lookup_board`]. The fetch keys on the active
+//! team) and reads [`RepoResolver::lookup_active`]. The fetch keys on the active
 //! team, so switching boards within a team reuses the cache; the
 //! surfaces `cx.observe(&resolver, …)` to re-render when the fetch lands.
 //!
@@ -192,19 +194,46 @@ impl RepoResolver {
         .detach();
     }
 
-    /// Resolve a board's repo (git bar / run bar / file tree / `+` shell
-    /// scope): the repo whose `boards[]` contains `board_id`.
-    pub fn lookup_board(&self, board_id: &str) -> RepoLookup {
-        match &self.state {
-            State::Idle | State::Loading => RepoLookup::Loading,
-            State::Error(msg) => RepoLookup::Error(msg.clone()),
-            State::Ready(repos) => match repos
-                .iter()
-                .find(|repo| repo.board_ids.iter().any(|id| id == board_id))
-            {
-                Some(repo) => RepoLookup::Found(repo.clone()),
-                None => RepoLookup::NotFound,
-            },
+    /// EXP-1133: the repositories the IDE surfaces can show — every repo
+    /// backing one of the active team's boards, in sidebar board order
+    /// (deduped: two boards on one repo list it once). `None` until
+    /// `repositories.list` resolved FOR THE ACTIVE TEAM (a team switch
+    /// reads as loading, never as the old team's rows).
+    pub fn scope_repos(&self, cx: &App) -> Option<Vec<ResolvedRepo>> {
+        let State::Ready(repos) = &self.state else {
+            return None;
+        };
+        let team_id = navigation::active_team_id(&self.nav, cx)?;
+        if self.team_id.as_deref() != Some(team_id.as_str()) {
+            return None;
+        }
+        let board_order: Vec<String> = Store::global(cx)
+            .collections()
+            .boards_in_team(&team_id, cx)
+            .iter()
+            .map(|board| board.id.clone())
+            .collect();
+        Some(order_scope_repos(repos, &board_order))
+    }
+
+    /// EXP-1133: the ONE repo the window's IDE surfaces (Files, Source
+    /// Control, trunk sync, the `+` shell) show: the team's explicit pick
+    /// from the shared repo picker while it still backs a board, else the
+    /// first of [`Self::scope_repos`]. Deliberately NOT the active board's
+    /// repo — browsing boards must never re-scope the trunk underneath.
+    pub fn lookup_active(&self, cx: &App) -> RepoLookup {
+        if let State::Error(msg) = &self.state {
+            return RepoLookup::Error(msg.clone());
+        }
+        let Some(repos) = self.scope_repos(cx) else {
+            return RepoLookup::Loading;
+        };
+        let picked = navigation::active_team_id(&self.nav, cx).and_then(|team_id| {
+            self.nav.read(cx).picked_repo(&team_id).map(str::to_string)
+        });
+        match pick_active(&repos, picked.as_deref()) {
+            Some(repo) => RepoLookup::Found(repo.clone()),
+            None => RepoLookup::NotFound,
         }
     }
 
@@ -315,6 +344,34 @@ pub(crate) fn batch_branch_conflict(branches: &[Option<String>]) -> Option<(Stri
     None
 }
 
+/// EXP-1133: the board-backed repos in `board_order` (sidebar order), each
+/// once. Repos whose boards all left the order (trashed/archived) drop out.
+fn order_scope_repos(repos: &[ResolvedRepo], board_order: &[String]) -> Vec<ResolvedRepo> {
+    let mut ordered: Vec<ResolvedRepo> = Vec::new();
+    for board_id in board_order {
+        let Some(repo) = repos
+            .iter()
+            .find(|repo| repo.board_ids.iter().any(|id| id == board_id))
+        else {
+            continue;
+        };
+        if !ordered
+            .iter()
+            .any(|seen| seen.repository_id == repo.repository_id)
+        {
+            ordered.push(repo.clone());
+        }
+    }
+    ordered
+}
+
+/// EXP-1133: the picked repo while it is still in scope, else the first.
+fn pick_active<'a>(repos: &'a [ResolvedRepo], picked: Option<&str>) -> Option<&'a ResolvedRepo> {
+    picked
+        .and_then(|id| repos.iter().find(|repo| repo.repository_id == id))
+        .or_else(|| repos.first())
+}
+
 /// One `repositories.list` row → [`ResolvedRepo`]. Pure so the branch-handling
 /// (L30: keep the server value, never fabricate `main`) is unit-testable.
 fn resolved_from_row(row: RepoRow) -> ResolvedRepo {
@@ -394,6 +451,47 @@ mod tests {
         assert_eq!(resolved.default_branch.as_deref(), Some("master"));
         assert_eq!(resolved.repository_id, "repo-1");
         assert_eq!(resolved.board_ids, vec!["proj-1".to_string()]);
+    }
+
+    fn repo(id: &str, boards: &[&str]) -> ResolvedRepo {
+        ResolvedRepo {
+            repository_id: id.to_string(),
+            full_name: format!("acme/{id}"),
+            default_branch: None,
+            board_ids: boards.iter().map(|board| board.to_string()).collect(),
+        }
+    }
+
+    fn ids(repos: &[ResolvedRepo]) -> Vec<&str> {
+        repos.iter().map(|repo| repo.repository_id.as_str()).collect()
+    }
+
+    /// EXP-1133: the IDE repo list follows sidebar BOARD order, lists a repo
+    /// shared by two boards once, and drops repos no listed board backs.
+    #[test]
+    fn scope_repos_follow_board_order_deduped() {
+        let repos = vec![
+            repo("api", &["b-api"]),
+            repo("web", &["b-web", "b-web-2"]),
+            repo("orphan", &["b-trashed"]),
+        ];
+        let order: Vec<String> = ["b-web", "b-repo-less", "b-api", "b-web-2"]
+            .iter()
+            .map(|id| id.to_string())
+            .collect();
+        assert_eq!(ids(&order_scope_repos(&repos, &order)), vec!["web", "api"]);
+    }
+
+    /// EXP-1133: an explicit pick wins while it is in scope; a stale or
+    /// absent pick falls back to the FIRST repo, never an empty scope.
+    #[test]
+    fn pick_active_prefers_the_pick_then_the_first() {
+        let repos = vec![repo("web", &["b1"]), repo("api", &["b2"])];
+        let active = |pick| pick_active(&repos, pick).map(|repo| repo.repository_id.as_str());
+        assert_eq!(active(Some("api")), Some("api"));
+        assert_eq!(active(Some("gone")), Some("web"));
+        assert_eq!(active(None), Some("web"));
+        assert!(pick_active(&[], Some("api")).is_none());
     }
 
     /// EXP-712: the board's own pin wins over the repo default, and an

@@ -748,6 +748,31 @@ mod tests {
     // ---- auto_sync outcome matrix (scope F: the run-config safety
     // invariant — a skipped sync must leave HEAD untouched) ----
 
+    /// EXP-1133: a trunk cloned while its remote was EMPTY sits on an unborn
+    /// branch; once the remote gains commits the pass must fast-forward it
+    /// (it used to read as up to date forever — an empty Files tree and
+    /// history over a repo with commits on origin).
+    #[test]
+    fn auto_sync_fast_forwards_an_unborn_trunk() {
+        let d = temp_dir("autosync-unborn");
+        let bare = d.0.join("empty.git");
+        git(&d.0, &["init", "--quiet", "--bare", "-b", "main", bare.to_str().unwrap()]);
+        let work = d.0.join("work");
+        git(&d.0, &["clone", "--quiet", bare.to_str().unwrap(), work.to_str().unwrap()]);
+
+        let pusher = d.0.join("pusher");
+        init_repo(&pusher);
+        write(&pusher, "first.txt", "first\n");
+        commit_all(&pusher, "first");
+        git(&pusher, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git(&pusher, &["push", "--quiet", "origin", "main"]);
+
+        let outcome = auto_sync(&work, &dummy_url()).unwrap();
+        assert_eq!(outcome, AutoSyncOutcome::FastForwarded);
+        assert!(work.join("first.txt").exists());
+        assert_eq!(head_commit(&work), head_commit(&pusher));
+    }
+
     #[test]
     fn auto_sync_fast_forwards_when_clean_and_behind_only() {
         let d = temp_dir("autosync-ff");
