@@ -488,6 +488,113 @@ final class AgentAccountsRowsTests: XCTestCase {
         )
     }
 
+    // EXP-1137: a build with the sign-out body offers "Sign out" on every
+    // signed-in login and "Remove account" on the ambient one too; the fixed
+    // order ×4 is sign in, set as default, sign out, remove (web
+    // `accountChipActions`, desktop `chip_actions`, Android `chipActions`).
+    func testSignOutAndTheAmbientRemovalRideTheSignOutCap() throws {
+        func chip(
+            _ signedIn: Bool,
+            _ active: Bool,
+            _ health: AgentAccountHealth,
+            profileId: String = "work"
+        ) -> AgentProfileUsageRow {
+            AgentProfileUsageRow(
+                key: "dev:codex:\(profileId)",
+                deviceId: "dev",
+                deviceLabel: "mint",
+                mine: true,
+                online: true,
+                agent: "codex",
+                profileId: profileId,
+                profileLabel: "Work",
+                active: active,
+                signedIn: signedIn,
+                email: "me@example.com",
+                plan: nil,
+                usage: nil,
+                checkedAt: nil,
+                health: health
+            )
+        }
+        XCTAssertEqual(AgentAccountsRows.signOutCap, "account-sign-out")
+        XCTAssertTrue(AgentAccountsRows.isAmbient("system"))
+        XCTAssertTrue(AgentAccountsRows.isAmbient(""))
+        XCTAssertFalse(AgentAccountsRows.isAmbient("work"))
+
+        // The ambient login, healthy and active (the screenshot's first row):
+        // a sign-out and a removal instead of no menu at all.
+        let ambient = chip(true, true, .ok, profileId: AgentAccountsRows.systemProfileId)
+        XCTAssertTrue(AgentAccountsRows.chipSignsOut(
+            ambient, canAgentLogin: true, canSignOutAccount: true
+        ))
+        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
+            ambient, canAgentLogin: true, canRemoveAccount: false, canSignOutAccount: true
+        ))
+        // ...and neither on an EXP-862 build, with the server's sentence.
+        XCTAssertEqual(
+            AgentAccountsRows.signOutBlockReason(
+                ambient, canAgentLogin: true, canSignOutAccount: false
+            ),
+            AgentAccountsRows.signOutOldApp
+        )
+        XCTAssertEqual(
+            AgentAccountsRows.removeAccountBlockReason(
+                ambient, canAgentLogin: true, canRemoveAccount: true, canSignOutAccount: false
+            ),
+            AgentAccountsRows.signOutOldApp
+        )
+        // The ambient login, signed out (the screenshot's second row): the
+        // sign-in and the removal that hides it, nothing to sign out of.
+        let deadAmbient = chip(false, true, .signedOut, profileId: AgentAccountsRows.systemProfileId)
+        XCTAssertTrue(AgentAccountsRows.chipSignsIn(deadAmbient))
+        XCTAssertFalse(AgentAccountsRows.chipSignsOut(
+            deadAmbient, canAgentLogin: true, canSignOutAccount: true
+        ))
+        XCTAssertEqual(
+            AgentAccountsRows.signOutBlockReason(
+                deadAmbient, canAgentLogin: true, canSignOutAccount: true
+            ),
+            "That login is already signed out there."
+        )
+        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
+            deadAmbient, canAgentLogin: true, canRemoveAccount: true, canSignOutAccount: true
+        ))
+        // A revoked named credential still signs out: that is how it leaves.
+        XCTAssertTrue(AgentAccountsRows.chipSignsOut(
+            chip(true, false, .needsRelogin), canAgentLogin: true, canSignOutAccount: true
+        ))
+        // The sign-out cap alone never removes a NAMED profile, and
+        // `agent-login` is required for everything.
+        XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
+            chip(true, false, .ok), canAgentLogin: true, canRemoveAccount: false, canSignOutAccount: true
+        ))
+        XCTAssertFalse(AgentAccountsRows.chipSignsOut(
+            chip(true, false, .ok), canAgentLogin: false, canSignOutAccount: true
+        ))
+
+        // The device cap, and the pinned sentences.
+        let signer = SteerDevice(deviceId: "dev", deviceLabel: "dev", caps: [AgentAccountsRows.signOutCap])
+        XCTAssertTrue(signer.canSignOutAccount)
+        XCTAssertFalse(SteerDevice(deviceId: "dev", deviceLabel: "dev", caps: ["account-remove"]).canSignOutAccount)
+        XCTAssertEqual(
+            AgentAccountsRows.signOutConfirmCopy(account: "me@example.com", device: "mint"),
+            "Sign me@example.com out on mint? The login stays listed so it can sign in again; the account itself is untouched."
+        )
+        XCTAssertEqual(
+            AgentAccountsRows.signOutConfirmCopy(
+                account: "me@example.com", device: "mint", ambientAgentLabel: "Claude"
+            ),
+            "Sign me@example.com out on mint? That is the machine's own Claude login, so the Claude CLI there is signed out too; the account itself is untouched."
+        )
+        XCTAssertEqual(
+            AgentAccountsRows.removeAmbientAccountConfirmCopy(
+                account: "me@example.com", device: "mint", agentLabel: "Codex"
+            ),
+            "Remove me@example.com from mint? The machine's own Codex login is signed out there, including for the Codex CLI in the terminal, and hidden here until it signs in again; the account itself is untouched."
+        )
+    }
+
     // The cap the rule reads is the one `SteerDevice.canSwitchAccount` looks
     // for — locked so a rename cannot silently disable the switch everywhere.
     func testTheSwitchCapIsTheDeviceCap() throws {

@@ -1610,6 +1610,14 @@ export const deviceWorktrees = pgTable(
 // NON-DESTRUCTIVE, no logout, no login, no credential touched, the device
 // just re-heartbeats `agent_accounts`; gated on the `agent-login` cap like a
 // remote sign-in) |
+// `agent_profile_remove` (EXP-862, payload {agent, profileId} — delete THIS
+// machine's copy of a login: the profile dir and its index row, never the
+// account; EXP-1137: `system` = sign the ambient login out there and hide
+// its row until it signs in again, cap `account-sign-out`) |
+// `agent_profile_sign_out` (EXP-1137, payload {agent, profileId} — sign ONE
+// login out on the machine and keep its row: claude's own `auth logout` in
+// that profile's config dir, codex's credential file deleted, never `codex
+// logout`; cap `account-sign-out`) |
 // `update_now` (FEED-36, payload {} — end every live session on the machine
 // and restart on the queued self-update; cap-gated on `update-now`) |
 // `agent_update` (payload {agent} — run that agent CLI's own self-updater on

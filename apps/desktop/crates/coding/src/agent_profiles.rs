@@ -11,8 +11,12 @@
 //!
 //! `system` is the reserved id of the ambient login (the CLI's own default
 //! dir, whatever the user's shell has it at): it is never a directory here,
-//! never removable, and always listed first. An agent with no config-dir
-//! variable has no profiles at all.
+//! never deletable, and always listed first. An agent with no config-dir
+//! variable has no profiles at all. EXP-1137: "Remove account" on the ambient
+//! login signs it out there and sets the per-agent [`ambient_hidden`] flag,
+//! which keeps the signed-out row off the heartbeat until that login signs
+//! in again ([`crate::doctor::DoctorReport::agent_accounts_detailed`] clears
+//! it the moment the probe sees a login).
 //!
 //! The index also carries the device's per-agent DEFAULT account
 //! ([`active_profile`]) — the profile the local Start-coding dialog and the
@@ -63,13 +67,19 @@ impl AgentProfile {
     }
 }
 
-/// `profiles.json`: the custom profiles (never `system`) and the active id.
+/// `profiles.json`: the custom profiles (never `system`), the active id and
+/// (EXP-1137) whether the ambient login was removed from the account list.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct Index {
     #[serde(skip_serializing_if = "Option::is_none")]
     active: Option<String>,
     profiles: Vec<AgentProfile>,
+    /// EXP-1137: "Remove account" was asked for the ambient login. While set
+    /// (and the ambient login is signed out) the heartbeat omits its row,
+    /// and the default falls to the first named profile instead of it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    ambient_hidden: bool,
 }
 
 /// Whether `account` names the ambient login (`None`, blank or `system`).
@@ -349,13 +359,44 @@ pub fn remember_emails(data_dir: &Path, accounts: &mut crate::agent_accounts::Ag
 
 /// The device's per-agent DEFAULT account: the profile a local start picks
 /// when nothing else is said, and the one the heartbeat flags `active`.
-/// `system` unless set to an existing custom profile.
+/// `system` unless set to an existing custom profile — or, EXP-1137, the
+/// FIRST custom profile while the ambient login is hidden (a removed login
+/// must not stay the machine's default: the heartbeat would mirror a dead
+/// login into the top-level fields and no row would carry `active`).
 pub fn active_profile(data_dir: &Path, agent: CodingAgent) -> String {
     let index = read_index(data_dir, agent);
     index
         .active
         .filter(|id| index.profiles.iter().any(|profile| &profile.id == id))
+        .or_else(|| {
+            index
+                .ambient_hidden
+                .then(|| index.profiles.first().map(|profile| profile.id.clone()))
+                .flatten()
+        })
         .unwrap_or_else(|| SYSTEM_PROFILE.to_string())
+}
+
+/// EXP-1137: whether "Remove account" hid the ambient login of `agent`.
+pub fn ambient_hidden(data_dir: &Path, agent: CodingAgent) -> bool {
+    config_env_var(agent).is_some() && read_index(data_dir, agent).ambient_hidden
+}
+
+/// EXP-1137: hide the ambient login of `agent` (its signed-out row leaves the
+/// heartbeat) or show it again. Writes only on a change.
+pub fn set_ambient_hidden(data_dir: &Path, agent: CodingAgent, hidden: bool) -> io::Result<()> {
+    if config_env_var(agent).is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("{} has no account profiles", agent.id()),
+        ));
+    }
+    let mut index = read_index(data_dir, agent);
+    if index.ambient_hidden == hidden {
+        return Ok(());
+    }
+    index.ambient_hidden = hidden;
+    write_index(data_dir, agent, &index)
 }
 
 /// Set the per-agent default account (`system` clears it).
@@ -482,6 +523,39 @@ mod tests {
         remove(&dir, CodingAgent::Codex, &work.id).unwrap();
         assert_eq!(active_profile(&dir, CodingAgent::Codex), SYSTEM_PROFILE);
         set_active_profile(&dir, CodingAgent::Codex, SYSTEM_PROFILE).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // EXP-1137: a hidden ambient login is never the machine's default while
+    // a named profile exists — and the flag survives the index round trip
+    // without changing the file of a machine that never set it.
+    #[test]
+    fn a_hidden_ambient_never_becomes_the_default() {
+        let dir = temp_dir("hidden");
+        assert!(!ambient_hidden(&dir, CodingAgent::Codex));
+        // Hiding on a machine with only the ambient login: the flag holds,
+        // the default stays `system` (there is nothing else to fall to).
+        set_ambient_hidden(&dir, CodingAgent::Codex, true).unwrap();
+        assert!(ambient_hidden(&dir, CodingAgent::Codex));
+        assert_eq!(active_profile(&dir, CodingAgent::Codex), SYSTEM_PROFILE);
+        let raw = std::fs::read_to_string(index_path(&dir, CodingAgent::Codex)).unwrap();
+        assert!(raw.contains("\"ambientHidden\": true"), "{raw}");
+
+        // With named profiles the FIRST one is the default while hidden —
+        // whether nothing was ever set or the set one was removed.
+        let work = create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let home = create(&dir, CodingAgent::Codex, "Home").unwrap();
+        assert_eq!(active_profile(&dir, CodingAgent::Codex), work.id);
+        set_active_profile(&dir, CodingAgent::Codex, &home.id).unwrap();
+        assert_eq!(active_profile(&dir, CodingAgent::Codex), home.id);
+        remove(&dir, CodingAgent::Codex, &home.id).unwrap();
+        assert_eq!(active_profile(&dir, CodingAgent::Codex), work.id);
+        // Clearing it (the ambient login signed in again) restores the old rule.
+        set_ambient_hidden(&dir, CodingAgent::Codex, false).unwrap();
+        assert!(!ambient_hidden(&dir, CodingAgent::Codex));
+        assert_eq!(active_profile(&dir, CodingAgent::Codex), SYSTEM_PROFILE);
+        let raw = std::fs::read_to_string(index_path(&dir, CodingAgent::Codex)).unwrap();
+        assert!(!raw.contains("ambientHidden"), "a cleared flag leaves the file: {raw}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

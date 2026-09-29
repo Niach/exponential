@@ -634,6 +634,7 @@ export const SEMANTIC_ICONS = {
   "ui-server": `server`,
   "ui-share": `share-2`,
   "ui-sign-in": `log-in`,
+  "ui-sign-out": `log-out`,
   "ui-staging": `flask-conical`,
   "ui-stop": `circle-stop`,
   "ui-submit": `circle-arrow-up`,

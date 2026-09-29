@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-29-account-sign-out`,
+    date: `2026-09-29`,
+    title: `Sign agent accounts out`,
+    summary: `Every agent login under a device has a Sign out entry in its menu, and the machine's own login can be removed too.`,
+    body: `- **Devices**: every agent login listed under a machine offers Sign out in its "..." menu, on the web, in the desktop app and on iOS and Android. The machine's own login (the one the CLI in your terminal uses) can now be removed as well: it is signed out there and hidden until it signs in again. Removing never touches the account itself. Update the desktop app or CLI on the machine to pick this up.`,
+  },
+  {
     id: `2026-09-29-release-train`,
     date: `2026-09-29`,
     title: `Release train 2026-09-29`,

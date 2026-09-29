@@ -132,10 +132,10 @@ pub struct HeartbeatInput<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct PendingCommand {
     pub id: String,
-    /// `agent_login` | `agent_login_code` | `agent_usage_refresh` | `agent_profile_use` |
-    /// `agent_profile_remove` | `update_now` | `agent_update`; unknown kinds
-    /// are completed `ok: false` ("unsupported") by the executor, never
-    /// dropped silently.
+    /// `agent_login` | `agent_login_code` | `agent_usage_refresh` |
+    /// `agent_profile_use` | `agent_profile_remove` | `agent_profile_sign_out` |
+    /// `update_now` | `agent_update`; unknown kinds are completed `ok: false`
+    /// ("unsupported") by the executor, never dropped silently.
     #[serde(default)]
     pub kind: String,
     /// `agent_login`: `{agent, switch}` (both STRINGS — the payload column is
@@ -143,9 +143,11 @@ pub struct PendingCommand {
     /// (EXP-765). `agent_usage_refresh`: `{agent, profileId}` — force
     /// the usage collector past its shared TTL (never past the rate-limit
     /// floor; the reply names the next allowed time when hot).
-    /// `agent_profile_use` (EXP-849) and `agent_profile_remove` (EXP-862)
-    /// carry the same `{agent, profileId}`: make that login the machine's
-    /// default, or delete the machine's copy of it (never the account).
+    /// `agent_profile_use` (EXP-849), `agent_profile_remove` (EXP-862) and
+    /// `agent_profile_sign_out` (EXP-1137) carry the same `{agent,
+    /// profileId}`: make that login the machine's default, delete the
+    /// machine's copy of it (the ambient `system` login: sign it out and hide
+    /// it), or sign it out and keep it (never the account).
     /// `update_now` (FEED-36): `{}` — end every live session and apply the
     /// queued daemon self-update. `agent_update`: `{agent}` — run that agent
     /// CLI's own self-updater here (`coding::update_agent`) and re-probe the
@@ -747,6 +749,42 @@ pub fn create_agent_profile_remove_command(
     )
 }
 
+/// `devices.createCommand` for an `agent_profile_sign_out` (EXP-1137) — ask
+/// one of the CALLER's own machines to sign `profile_id`'s login for `agent`
+/// out and keep its row.
+///
+/// The machine runs claude's own `auth logout` inside that profile's config
+/// dir, or deletes codex's credential file (never `codex logout`, which would
+/// revoke the account server-wide); the profile stays for a later sign-in.
+/// It rides the `agent-login` and `account-sign-out` caps (the server gates
+/// on both), and the device refuses a login a live run is on. The same cap
+/// lets `agent_profile_remove` take the ambient login (`system`): signed out
+/// there and hidden until it signs in again.
+pub fn create_agent_profile_sign_out_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+    profile_id: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        profile_id: &'a str,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_profile_sign_out",
+            agent,
+            profile_id,
+        },
+    )
+}
+
 /// One `device_commands` row (`devices.getCommand` / `devices.listCommands`).
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1030,6 +1068,25 @@ mod tests {
     /// EXP-484: the queued login command names its agent and whether it is a
     /// switch — `switch` is a JSON BOOLEAN on the wire (the server encodes
     /// the payload's string form).
+    /// EXP-1137: the sign-out rides the same `{agent, profileId}` wire as
+    /// the removal, under its own kind.
+    #[test]
+    fn agent_profile_sign_out_command_posts_agent_and_profile() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-9"}}}"#);
+        let created =
+            create_agent_profile_sign_out_command(&client(&base), "dev-1", "codex", "system")
+                .unwrap();
+        assert_eq!(created.id, "cmd-9");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/devices.createCommand HTTP/1.1"));
+        assert!(
+            request.ends_with(
+                r#"{"deviceId":"dev-1","kind":"agent_profile_sign_out","agent":"codex","profileId":"system"}"#
+            ),
+            "{request}"
+        );
+    }
+
     #[test]
     fn agent_login_command_posts_agent_and_switch() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-7"}}}"#);

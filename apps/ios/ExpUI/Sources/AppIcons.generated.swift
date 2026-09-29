@@ -817,6 +817,8 @@ public enum AppIcons {
     public static let uiShare: String = "share-2"
     /// Concept `ui-sign-in`.
     public static let uiSignIn: String = "log-in"
+    /// Concept `ui-sign-out`.
+    public static let uiSignOut: String = "log-out"
     /// Concept `ui-staging`.
     public static let uiStaging: String = "flask-conical"
     /// Concept `ui-stop`.
