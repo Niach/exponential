@@ -50,6 +50,19 @@ export interface OidcProviderOption {
 type OAuthStartError = { code?: string; message?: string } | null
 
 /**
+ * EXP-1132: where a failed provider round-trip lands — back on login WITH the
+ * destination, so an invite link survives a cancelled or refused sign-in
+ * (Better Auth appends `error=<reason>`, the page explains it). Without it the
+ * failure went to Better Auth's error route, which in production bounces to
+ * `/` and drops the redirect.
+ */
+export function oauthErrorCallbackURL(redirectTo: string | undefined): string {
+  return redirectTo
+    ? `/auth/login?redirect=${encodeURIComponent(redirectTo)}`
+    : `/auth/login`
+}
+
+/**
  * Shared OAuth sign-in state/handlers for the login and register pages.
  * `error` is shared with the page's password form so both surface one message.
  */
@@ -89,6 +102,7 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
       authClient.signIn.oauth2({
         providerId,
         callbackURL: withFirstTouchParams(redirectTo || `/`),
+        errorCallbackURL: oauthErrorCallbackURL(redirectTo),
       })
     )
 
@@ -97,6 +111,7 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
       authClient.signIn.social({
         provider: `google`,
         callbackURL: withFirstTouchParams(redirectTo || `/`),
+        errorCallbackURL: oauthErrorCallbackURL(redirectTo),
       })
     )
 
@@ -105,6 +120,7 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
       authClient.signIn.social({
         provider: `apple`,
         callbackURL: withFirstTouchParams(redirectTo || `/`),
+        errorCallbackURL: oauthErrorCallbackURL(redirectTo),
       })
     )
 

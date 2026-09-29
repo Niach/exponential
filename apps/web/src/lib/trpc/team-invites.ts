@@ -17,6 +17,7 @@ import { buildAuthConfig } from "@/lib/auth/config"
 import {
   claimPlaceholder,
   createPlaceholderMember,
+  deletePlaceholderIfOrphaned,
   mergePlaceholderIntoUser,
   normalizeInviteEmail,
   resolvePlaceholderIdentity,
@@ -264,23 +265,34 @@ export const teamInvitesRouter = router({
             await deleteSupersededInvitesFor(tx, input.teamId, target.id)
             placeholderUserId = target.id
           } else if (email) {
-            const [existing] = await tx
+            const [addressOwner] = await tx
               .select({ id: users.id, placeholderAt: users.placeholderAt })
               .from(users)
               .where(sql`lower(${users.email}) = ${email}`)
               .limit(1)
-            const [member] = existing
+            const [member] = addressOwner
               ? await tx
                   .select({ id: teamMembers.id })
                   .from(teamMembers)
                   .where(
                     and(
                       eq(teamMembers.teamId, input.teamId),
-                      eq(teamMembers.userId, existing.id)
+                      eq(teamMembers.userId, addressOwner.id)
                     )
                   )
                   .limit(1)
               : [undefined]
+            // EXP-1132: a placeholder no team seats and nothing references
+            // (its team was deleted before the purge existed) is a ghost, not
+            // an account — drop it so this invite creates a fresh, BOUND
+            // placeholder; otherwise the invitee's accept from another
+            // address would join unbound and leave the ghost behind.
+            const existing =
+              addressOwner?.placeholderAt &&
+              !member &&
+              (await deletePlaceholderIfOrphaned(tx, addressOwner.id))
+                ? undefined
+                : addressOwner
             if (existing && member) {
               if (!existing.placeholderAt) {
                 throw new TRPCError({

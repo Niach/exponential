@@ -202,6 +202,15 @@ export const auth = betterAuth({
       }
     },
   },
+  // EXP-1132: an OAuth callback that fails before its state is readable (a
+  // state-cookie mismatch from a mail app's in-app browser, an expired flow)
+  // knows no errorCallbackURL; Better Auth's default error route then bounces
+  // to `/` in production, which read as "sent back to login for no reason"
+  // and dropped the invite. Land on login instead: it renders `?error=` and
+  // a remembered invite (lib/pending-invite.ts) resumes after sign-in.
+  onAPIError: {
+    errorURL: `/auth/login`,
+  },
   session: {
     expiresIn: 60 * 60 * 24 * 60,
     updateAge: 60 * 60 * 24,

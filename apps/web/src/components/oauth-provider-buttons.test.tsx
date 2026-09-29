@@ -10,6 +10,7 @@ import {
   APPLE_PROVIDER_KEY,
   GOOGLE_PROVIDER_KEY,
   OAuthProviderButtons,
+  oauthErrorCallbackURL,
   useOAuthSignIn,
 } from "@/components/oauth-provider-buttons"
 
@@ -83,6 +84,7 @@ describe(`useOAuthSignIn`, () => {
     expect(mockState.social).toHaveBeenCalledWith({
       provider: `google`,
       callbackURL: `/t/acme`,
+      errorCallbackURL: `/auth/login?redirect=%2Ft%2Facme`,
     })
     expect(result.current.error).toBe(`Provider not found`)
     expect(result.current.pendingProvider).toBeNull()
@@ -99,6 +101,7 @@ describe(`useOAuthSignIn`, () => {
     expect(mockState.social).toHaveBeenCalledWith({
       provider: `apple`,
       callbackURL: `/`,
+      errorCallbackURL: `/auth/login`,
     })
     expect(result.current.error).toBe(`Couldn't sign you in. Try again.`)
     expect(result.current.pendingProvider).toBeNull()
@@ -117,6 +120,7 @@ describe(`useOAuthSignIn`, () => {
     expect(mockState.oauth2).toHaveBeenCalledWith({
       providerId: `authentik`,
       callbackURL: `/`,
+      errorCallbackURL: `/auth/login`,
     })
     expect(result.current.error).toBe(`Too many requests`)
     expect(result.current.pendingProvider).toBeNull()
@@ -144,6 +148,13 @@ describe(`useOAuthSignIn`, () => {
 
     expect(result.current.error).toBe(``)
     expect(result.current.pendingProvider).toBe(GOOGLE_PROVIDER_KEY)
+  })
+
+  it(`sends provider failures back to login with the destination`, () => {
+    expect(oauthErrorCallbackURL(undefined)).toBe(`/auth/login`)
+    expect(oauthErrorCallbackURL(`/invite/abc`)).toBe(
+      `/auth/login?redirect=%2Finvite%2Fabc`
+    )
   })
 
   it(`exposes distinct keys for the built-in providers`, () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/hooks/use-session"
 import { trpc } from "@/lib/trpc-client"
@@ -13,6 +13,11 @@ import {
 } from "@exp/ui"
 import { Users, LoaderCircle, CircleAlert, CircleCheck } from "lucide-react"
 import { pageTitle } from "@/lib/page-title"
+import {
+  clearPendingInviteFor,
+  readPendingInvite,
+  rememberPendingInvite,
+} from "@/lib/pending-invite"
 
 export const Route = createFileRoute(`/invite/$token`)({
   head: () => ({ meta: [{ title: pageTitle(`Team Invite`) }] }),
@@ -23,7 +28,10 @@ export const Route = createFileRoute(`/invite/$token`)({
 function InviteAcceptPage() {
   const { token } = Route.useParams()
   const navigate = useNavigate()
-  const { data: session } = useSession()
+  // EXP-1132: nothing renders until the session resolves — right after the
+  // OAuth return a signed-in viewer used to see "Sign in or create account"
+  // for a beat and be sent back to login.
+  const { data: session, isPending: sessionPending } = useSession()
   const [accepting, setAccepting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -56,6 +64,7 @@ function InviteAcceptPage() {
         setLoading(false)
       })
       .catch((err) => {
+        clearPendingInviteFor(token)
         setError(err.message || `Invalid or expired invite link`)
         setLoading(false)
       })
@@ -68,6 +77,7 @@ function InviteAcceptPage() {
       const { team } = await trpc.teamInvites.accept.mutate({
         token,
       })
+      clearPendingInviteFor(token)
       setSuccess(true)
       setTimeout(() => {
         navigate({
@@ -92,6 +102,7 @@ function InviteAcceptPage() {
       .mutate({ token }, { context: { skipErrorToast: true } })
       .then(({ team }) => {
         if (cancelled) return
+        clearPendingInviteFor(token)
         setUsedForViewer(false)
         setSuccess(true)
         setTimeout(() => {
@@ -102,17 +113,46 @@ function InviteAcceptPage() {
         }, 1500)
       })
       .catch(() => {
-        if (!cancelled) setUsedForViewer(true)
+        if (cancelled) return
+        clearPendingInviteFor(token)
+        setUsedForViewer(true)
       })
     return () => {
       cancelled = true
     }
   }, [inviteUsed, viewerLoggedIn, usedForViewer, token, navigate])
 
+  // EXP-1132: remember the invite across the sign-in detour; once the
+  // visitor comes back signed in, finish what they started — the accept runs
+  // by itself instead of asking for a second click. Anything that lands them
+  // on onboarding instead resumes here from the remembered token.
+  const inviteOpen =
+    !!invite && !invite.acceptedAt && invite.expiresAt >= new Date()
+  const autoAccepted = useRef(false)
+  useEffect(() => {
+    if (loading || sessionPending || !invite) return
+    if (!inviteOpen) {
+      if (!invite.acceptedAt) clearPendingInviteFor(token)
+      return
+    }
+    if (!viewerLoggedIn) {
+      rememberPendingInvite(token)
+      return
+    }
+    if (autoAccepted.current || readPendingInvite() !== token) return
+    autoAccepted.current = true
+    // Consumed on the attempt: a failed accept (seat limit, ...) shows its
+    // error here once and never bounces onboarding back to this page.
+    clearPendingInviteFor(token)
+    void handleAccept()
+    // handleAccept is a fresh closure each render; the ref makes this once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, sessionPending, invite, inviteOpen, viewerLoggedIn, token])
+
   // The probe above decides whether a used invite is the viewer's own.
   const probing = inviteUsed && viewerLoggedIn && usedForViewer === null
 
-  if (loading || (probing && !success)) {
+  if (loading || sessionPending || (probing && !success)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <LoaderCircle className="h-8 w-8 animate-spin text-muted-foreground" />

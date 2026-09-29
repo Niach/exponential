@@ -190,6 +190,8 @@ const mergePlaceholderIntoUser = vi.fn(async () => ({
   merged: true,
   deletedPlaceholder: true,
 }))
+// EXP-1132: false = the address's placeholder is still referenced somewhere.
+const deletePlaceholderIfOrphaned = vi.fn(async (..._args: unknown[]) => false)
 vi.mock(`@/lib/placeholder-members`, async (importOriginal) => ({
   // eslint-disable-next-line quotes
   ...(await importOriginal<typeof import("@/lib/placeholder-members")>()),
@@ -198,6 +200,8 @@ vi.mock(`@/lib/placeholder-members`, async (importOriginal) => ({
   claimPlaceholder: (...args: unknown[]) => claimPlaceholder(...(args as [])),
   mergePlaceholderIntoUser: (...args: unknown[]) =>
     mergePlaceholderIntoUser(...(args as [])),
+  deletePlaceholderIfOrphaned: (...args: unknown[]) =>
+    deletePlaceholderIfOrphaned(...args),
 }))
 
 import {
@@ -250,6 +254,8 @@ beforeEach(() => {
   assertCanInviteMember.mockResolvedValue(undefined)
   createPlaceholderMember.mockClear()
   claimPlaceholder.mockClear()
+  deletePlaceholderIfOrphaned.mockClear()
+  deletePlaceholderIfOrphaned.mockResolvedValue(false)
   mergePlaceholderIntoUser.mockClear()
   mergePlaceholderIntoUser.mockResolvedValue({
     merged: true,
@@ -465,6 +471,43 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
     expect(inserts[0]!.table).toBe(teamInvites)
     expect(inserts[0]!.values.placeholderUserId).toBeNull()
     expect(result.memberUserId).toBeNull()
+    // Still referenced elsewhere, so it survives the orphan check.
+    expect(deletePlaceholderIfOrphaned).toHaveBeenCalledWith(
+      expect.anything(),
+      `ph-elsewhere`
+    )
+  })
+
+  it(`replaces a zero-team ghost placeholder with a fresh BOUND one (EXP-1132)`, async () => {
+    // The import seated the address in a team that was later deleted: no
+    // membership, nothing references it any more.
+    deletePlaceholderIfOrphaned.mockResolvedValue(true)
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    selectQueue.push([{ id: `ph-ghost`, placeholderAt: new Date() }])
+    selectQueue.push([])
+    selectQueue.push([{ name: `Acme` }])
+
+    const result = await caller().create({ teamId: WS, email: `x@example.com` })
+
+    expect(deletePlaceholderIfOrphaned).toHaveBeenCalledWith(
+      expect.anything(),
+      `ph-ghost`
+    )
+    expect(createPlaceholderMember).toHaveBeenCalledTimes(1)
+    expect(inserts[0]!.table).toBe(teamInvites)
+    expect(inserts[0]!.values.placeholderUserId).toBe(`ph-1`)
+    expect(result.memberUserId).toBe(`ph-1`)
+  })
+
+  it(`never runs the orphan check on a claimed account`, async () => {
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    selectQueue.push([{ id: `user-real`, placeholderAt: null }])
+    selectQueue.push([])
+    selectQueue.push([{ name: `Acme` }])
+
+    await caller().create({ teamId: WS, email: `real@example.com` })
+
+    expect(deletePlaceholderIfOrphaned).not.toHaveBeenCalled()
   })
 
   it(`re-invites a placeholder at a corrected address and name`, async () => {

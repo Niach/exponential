@@ -150,6 +150,16 @@ vi.mock(`@/lib/billing/billing-handover`, () => ({
 }))
 
 const deleteStorageObjects = vi.fn(async () => {})
+// EXP-1132: the orphan check itself is placeholder-members' contract; here
+// only that the delete hands it the team's placeholder members.
+const deletePlaceholdersIfOrphaned = vi.fn(async (..._args: unknown[]) => {})
+vi.mock(`@/lib/placeholder-members`, async (importOriginal) => ({
+  // eslint-disable-next-line quotes
+  ...(await importOriginal<typeof import("@/lib/placeholder-members")>()),
+  deletePlaceholdersIfOrphaned: (...args: unknown[]) =>
+    deletePlaceholdersIfOrphaned(...args),
+}))
+
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: (...args: unknown[]) =>
     deleteStorageObjects(...(args as [])),
@@ -434,6 +444,22 @@ describe(`teams.delete (EXP-188: no last-team guard)`, () => {
     )
     expect(deletes).toHaveLength(0)
     expect(deleteStorageObjects).not.toHaveBeenCalled()
+  })
+
+  it(`purges the team's orphaned placeholder members after the cascade (EXP-1132)`, async () => {
+    deletePlaceholdersIfOrphaned.mockClear()
+    selectQueue.push([{ storageKey: `attachments/a.png` }])
+    selectQueue.push([]) // session attachments
+    // The roster's placeholders, read before the delete (deduped).
+    selectQueue.push([{ id: `ph-1` }, { id: `ph-2` }, { id: `ph-1` }])
+
+    await caller().delete({ teamId: WS })
+
+    expect(deletes[0]!.table).toBe(teams)
+    expect(deletePlaceholdersIfOrphaned).toHaveBeenCalledWith(expect.anything(), [
+      `ph-1`,
+      `ph-2`,
+    ])
   })
 
   it(`runs the billing gate before deleting a normal team`, async () => {

@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "crypto"
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import {
   attachments,
   comments,
@@ -382,6 +382,38 @@ export async function deletePlaceholderIfOrphaned(
   if (!row?.orphaned) return false
   await tx.delete(users).where(eq(users.id, userId))
   return true
+}
+
+/**
+ * EXP-1132: the placeholder members of teams about to be deleted. A team
+ * delete cascades their team_members rows (and the team's issues/comments)
+ * but never the `users` rows — read them BEFORE the delete and hand them to
+ * `deletePlaceholdersIfOrphaned` after it, or they linger forever as
+ * zero-team ghosts that a later invite to the same address cannot bind to.
+ */
+export async function collectPlaceholderMemberIds(
+  tx: DbOrTx,
+  teamIds: string[]
+): Promise<string[]> {
+  if (teamIds.length === 0) return []
+  const rows = await tx
+    .select({ id: users.id })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .where(
+      and(inArray(teamMembers.teamId, teamIds), isNotNull(users.placeholderAt))
+    )
+  return [...new Set(rows.map((row) => row.id))]
+}
+
+/** `deletePlaceholderIfOrphaned` over a batch (team deletes). */
+export async function deletePlaceholdersIfOrphaned(
+  tx: DbOrTx,
+  userIds: string[]
+): Promise<void> {
+  for (const userId of userIds) {
+    await deletePlaceholderIfOrphaned(tx, userId)
+  }
 }
 
 /**

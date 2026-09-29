@@ -139,6 +139,27 @@ function LoginPage() {
     window.location.href = withFirstTouchParams(destination || `/`)
   }, [destination])
 
+  // EXP-1132: a visitor who is ALREADY signed in and was sent here with a
+  // destination (an invite link opened mid-OAuth-return, a stale tab) goes
+  // straight on instead of signing in a second time. Never for the MCP
+  // resume or the native handoff (those are ceremonies of their own), nor
+  // when the page is here to explain an error.
+  React.useEffect(() => {
+    if (!redirectTo || oauthResumeUrl || nativeHandoff || errorParam) return
+    let cancelled = false
+    void authClient
+      .getSession()
+      .then(({ data }) => {
+        if (!cancelled && data?.user && destination) {
+          window.location.replace(withFirstTouchParams(destination))
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [redirectTo, oauthResumeUrl, nativeHandoff, errorParam, destination])
+
   // Passkey conditional UI (EXP-857): browsers that support it list the
   // user's passkeys in the email field's autofill, so a returning user
   // never has to pick a method. The pending request is aborted by any later
