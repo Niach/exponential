@@ -1214,6 +1214,17 @@
         "result": "pr"
       },
       {
+        "name": "pr_update",
+        "title": "Update pull request",
+        "blurb": "Rewrites the title or description of an open pull request.",
+        "progressive": "Updating pull request",
+        "done": "Updated pull request",
+        "progressiveMany": "Updating {n} pull requests",
+        "doneMany": "Updated {n} pull requests",
+        "subjectKey": "issueId",
+        "result": "pr"
+      },
+      {
         "name": "report_bug",
         "title": "Report a bug",
         "blurb": "Files a bug about Exponential itself with the people who build it.",
@@ -1676,6 +1687,7 @@
       { "name": "pr_merge", "refs": "issue@results[]" },
       { "name": "pr_open", "refs": "issue@$issueId issue@$issueIds[]" },
       { "name": "pr_retarget", "refs": "issue@$issueId" },
+      { "name": "pr_update", "refs": "issue@results[]" },
       { "name": "report_bug", "refs": "issue@" },
       { "name": "repositories_add", "refs": "repository@" },
       { "name": "repositories_branch_diff", "refs": "" },

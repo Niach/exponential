@@ -174,7 +174,10 @@ import {
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
-import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
+import {
+  loadRepositoryByFullName,
+  loadRepositoryForTeam,
+} from "@/lib/trpc/repositories"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
 import { endSessionByAgent } from "@/lib/coding-session-end"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
@@ -485,7 +488,7 @@ function assertHelpdeskEnabled(enabled: boolean) {
 }
 
 const REUSED_PR_NOTE = (head: string) =>
-  `${head} already had an open PR: linked to it (its title, body and base are unchanged).`
+  `${head} already had an open PR: linked to it (its title, body and base are unchanged; exponential_pr_update rewrites the title or body).`
 
 // FEED-59: open the PR, or hand back the one already OPEN on `head` (a batch
 // run that implemented more issues on its branch) so the caller links the
@@ -3289,6 +3292,196 @@ export function registerExponentialTools(
         })
         noteAgentIssueActivity(id, user.id)
         return ok({ ok: true, base: result.base })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // EXP-1139: rewrite an open PR's title and/or body. `pr_open` refuses to
+  // reopen a PR that exists (FEED-59), and agents hold no `gh` — so a later
+  // commit that changed the scope used to leave the GitHub description
+  // stale for good. Same subject forms as pr_merge (issueId / issueIds /
+  // repositoryId + prNumber); with NO subject the X-Exp-Session-Id header
+  // names the run, whose own PR is edited (its issue's, its batch's, or the
+  // chore PR pr_open stamped on the row). The tRPC twins own the guards.
+  const prUpdateInput = strictInput({
+    issueId: z.string().min(1).optional(),
+    issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
+    repositoryId: uuidString.optional(),
+    prNumber: z.number().int().positive().optional(),
+    title: z.string().trim().min(1).max(255).optional(),
+    body: z.string().max(60_000).optional(),
+  })
+  server.registerTool(
+    `exponential_pr_update`,
+    {
+      description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all to edit the PR of the run this call comes from. Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
+      inputSchema: prUpdateInput,
+    },
+    async ({ issueId, issueIds, repositoryId, prNumber, title, body }) => {
+      try {
+        if (title === undefined && body === undefined) {
+          throw new Error(`Pass a title, a body, or both.`)
+        }
+        const fields = {
+          ...(title !== undefined ? { title } : {}),
+          ...(body !== undefined ? { body } : {}),
+        }
+        const subjects = [
+          Boolean(issueId),
+          Boolean(issueIds?.length),
+          Boolean(repositoryId) || prNumber !== undefined,
+        ].filter(Boolean).length
+        if (subjects > 1) {
+          throw new Error(
+            `Provide exactly one of issueId, issueIds or repositoryId + prNumber`
+          )
+        }
+        if (Boolean(repositoryId) !== (prNumber !== undefined)) {
+          throw new Error(`repositoryId and prNumber must be passed together`)
+        }
+
+        let rawIds: string[] | null = issueIds ?? (issueId ? [issueId] : null)
+        let chore: { repositoryId: string; prNumber: number } | null =
+          repositoryId ? { repositoryId, prNumber: prNumber! } : null
+
+        // No subject: the run's OWN PR, off the session header.
+        if (!rawIds && !chore) {
+          const callerSession = await loadCallerSession()
+          if (!callerSession) {
+            throw new Error(
+              `Provide issueId, issueIds or repositoryId + prNumber: no run header names a pull request here.`
+            )
+          }
+          if (callerSession.issueId) {
+            rawIds = [callerSession.issueId]
+          } else if (
+            callerSession.prUrl &&
+            callerSession.prNumber != null &&
+            callerSession.teamId
+          ) {
+            // The chore PR pr_open parked this issue-less run on (EXP-734).
+            const repoFullName = repoFromPrUrl(callerSession.prUrl)
+            if (!repoFullName) {
+              throw new Error(`The run's pull request URL is not a GitHub PR URL`)
+            }
+            const repo = await loadRepositoryByFullName(
+              callerSession.teamId,
+              repoFullName
+            )
+            chore = { repositoryId: repo.id, prNumber: callerSession.prNumber }
+          } else if (callerSession.branch && callerSession.teamId) {
+            // A batch run: its issues share the branch pr_open stamped on
+            // the row, and the PR on it.
+            const batchRows = await db
+              .select({ id: issues.id })
+              .from(issues)
+              .where(
+                and(
+                  eq(issues.teamId, callerSession.teamId),
+                  eq(issues.branch, callerSession.branch),
+                  isNotNull(issues.prUrl)
+                )
+              )
+            if (batchRows.length === 0) {
+              throw new Error(
+                `This run has no pull request yet. Open one with exponential_pr_open, or name the PR (issueId, issueIds or repositoryId + prNumber).`
+              )
+            }
+            rawIds = batchRows.map((row) => row.id)
+          } else {
+            throw new Error(
+              `This run has no pull request yet. Open one with exponential_pr_open, or name the PR (issueId, issueIds or repositoryId + prNumber).`
+            )
+          }
+        }
+
+        if (chore) {
+          const choreRepo = await loadRepositoryForTeam(chore.repositoryId)
+          assertTeamFullyGranted(access, choreRepo.teamId)
+          await resolveTeamAccess(user.id, choreRepo.teamId)
+          await caller(user, request).repositories.updatePull({
+            repositoryId: chore.repositoryId,
+            prNumber: chore.prNumber,
+            ...fields,
+          })
+          return ok({
+            results: [
+              {
+                repositoryId: chore.repositoryId,
+                prNumber: chore.prNumber,
+                updated: true,
+              },
+            ],
+          })
+        }
+
+        // Resolve + authorize every issue up front — a scope/membership
+        // violation fails the WHOLE call (never a per-item "result").
+        const ids: string[] = []
+        for (const raw of rawIds!) {
+          const id = await resolveIssueId(raw, user.id, access)
+          if (!ids.includes(id)) ids.push(id)
+        }
+        for (const id of ids) {
+          const issueCtx = await getIssueTeamContext(id)
+          assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
+          await resolveTeamAccess(user.id, issueCtx.teamId)
+        }
+
+        // One update per distinct PR: issues sharing a batch prUrl collapse
+        // onto the first listed issue (like pr_merge).
+        const rows = await db
+          .select({
+            id: issues.id,
+            identifier: issues.identifier,
+            prUrl: issues.prUrl,
+          })
+          .from(issues)
+          .where(inArray(issues.id, ids))
+        const rowById = new Map(rows.map((row) => [row.id, row]))
+        const seenPrUrls = new Set<string>()
+        const targets: { id: string; identifier: string }[] = []
+        for (const id of ids) {
+          const row = rowById.get(id)
+          if (row?.prUrl) {
+            if (seenPrUrls.has(row.prUrl)) continue
+            seenPrUrls.add(row.prUrl)
+          }
+          targets.push({ id, identifier: row?.identifier ?? id })
+        }
+
+        const trpcCaller = caller(user, request)
+        const results: {
+          issueId: string
+          identifier: string
+          updated: boolean
+          url?: string
+          error?: string
+        }[] = []
+        for (const target of targets) {
+          try {
+            const updated = await trpcCaller.issues.updatePr({
+              issueId: target.id,
+              ...fields,
+            })
+            results.push({
+              issueId: target.id,
+              identifier: target.identifier,
+              updated: true,
+              url: updated.url,
+            })
+          } catch (e) {
+            results.push({
+              issueId: target.id,
+              identifier: target.identifier,
+              updated: false,
+              error: e instanceof Error ? e.message : String(e),
+            })
+          }
+        }
+        return ok({ results })
       } catch (e) {
         return err(e)
       }

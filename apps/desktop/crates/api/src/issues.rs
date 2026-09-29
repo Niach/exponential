@@ -631,6 +631,75 @@ pub fn pr_files(client: &TrpcClient, issue_id: &str) -> Result<PrFiles, ApiError
     client.query_with_input("issues.prFiles", &PrFilesInput { issue_id })
 }
 
+// ---------------------------------------------------------------------------
+// issues.prDescription + issues.updatePr (EXP-1139)
+// ---------------------------------------------------------------------------
+
+/// Output of `issues.prDescription` — the PR's title and body as GitHub holds
+/// them (never a synced column). Every field is `None` when the issue has no
+/// linked PR. `state` is `open`/`closed`/`merged`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrDescription {
+    pub repo: Option<String>,
+    pub pr_number: Option<i64>,
+    pub url: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub state: Option<String>,
+}
+
+/// Fetch the title + body of the issue's PR (`issues.prDescription`).
+/// Blocking — background executor only (§3.5).
+pub fn pr_description(client: &TrpcClient, issue_id: &str) -> Result<PrDescription, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        issue_id: &'a str,
+    }
+    client.query_with_input("issues.prDescription", &Input { issue_id })
+}
+
+/// Output of `issues.updatePr` — `{"updated": true, url, number}`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePrResult {
+    pub updated: bool,
+    pub url: String,
+    pub number: i64,
+}
+
+/// `issues.updatePr` — rewrite the title and/or body of the issue's OPEN PR
+/// on GitHub through the App (the Reviews description card's Edit; the same
+/// procedure the MCP `exponential_pr_update` tool uses). An omitted field
+/// keeps its value; the server refuses a call with neither. Guard failures
+/// surface as [`ApiError::Http`] with the server's message, like
+/// [`close_pr`]. Blocking; background executor only (§3.5).
+pub fn update_pr(
+    trpc: &TrpcClient,
+    issue_id: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+) -> Result<UpdatePrResult, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        issue_id: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        body: Option<&'a str>,
+    }
+    trpc.mutation(
+        "issues.updatePr",
+        &Input {
+            issue_id,
+            title,
+            body,
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1082,6 +1151,74 @@ mod tests {
                 assert!(message.contains("GitHub returned 404"));
             }
             other => panic!("expected Http error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decodes_pr_description_and_nulls_without_a_pr() {
+        let (base, request) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repo":"acme/widgets","prNumber":42,"url":"https://github.com/acme/widgets/pull/42","title":"EXP-1: Fix","body":"Closes #EXP-1","state":"open"}}}"#,
+        );
+        let out = pr_description(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
+        assert_eq!(out.pr_number, Some(42));
+        assert_eq!(out.title.as_deref(), Some("EXP-1: Fix"));
+        assert_eq!(out.body.as_deref(), Some("Closes #EXP-1"));
+        assert_eq!(out.state.as_deref(), Some("open"));
+        let request = request.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/issues.prDescription?input="));
+        assert!(request.contains("%22issueId%22"));
+
+        let (base, _) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repo":null,"prNumber":null,"url":null,"title":null,"body":null,"state":null}}}"#,
+        );
+        let out = pr_description(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
+        assert_eq!(out, PrDescription { repo: None, pr_number: None, url: None, title: None, body: None, state: None });
+    }
+
+    #[test]
+    fn update_pr_sends_only_the_given_fields() {
+        let (base, request) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"updated":true,"url":"https://github.com/acme/widgets/pull/42","number":42}}}"#,
+        );
+        let out = update_pr(
+            &client(&base),
+            "1f7f6f9e-0000-4000-8000-000000000000",
+            None,
+            Some("Closes #EXP-1\n\nNow with tests."),
+        )
+        .unwrap();
+        assert!(out.updated);
+        assert_eq!(out.number, 42);
+        let request = request.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.updatePr HTTP/1.1"));
+        // An omitted title is ABSENT, not null: null would be refused by the
+        // server's `z.string()` and the caller would read "invalid input".
+        assert!(request.ends_with(
+            r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000","body":"Closes #EXP-1\n\nNow with tests."}"#
+        ));
+    }
+
+    #[test]
+    fn update_pr_surfaces_the_servers_refusal() {
+        let (base, _) = one_shot_server(
+            412,
+            r#"{"error":{"message":"The pull request is merged. Only open pull requests can be edited.","code":-32000,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+        );
+        let result = update_pr(
+            &client(&base),
+            "1f7f6f9e-0000-4000-8000-000000000000",
+            Some("New title"),
+            None,
+        );
+        match result {
+            Err(ApiError::Http { status, message }) => {
+                assert_eq!(status, 412);
+                assert!(message.contains("Only open pull requests"));
+            }
+            other => panic!("expected an Http error, got {other:?}"),
         }
     }
 }

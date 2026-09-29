@@ -171,6 +171,7 @@ describe(`identifier acceptance (EXP-707 theme A)`, () => {
     [`exponential_pr_open`, `issueId`],
     [`exponential_pr_merge`, `issueId`],
     [`exponential_pr_retarget`, `issueId`],
+    [`exponential_pr_update`, `issueId`],
     [`exponential_issues_pr_files`, `issueId`],
     [`exponential_repositories_branch_diff`, `issueId`],
     [`exponential_sessions_start`, `issueId`],
@@ -184,6 +185,7 @@ describe(`identifier acceptance (EXP-707 theme A)`, () => {
     for (const tool of [
       `exponential_pr_open`,
       `exponential_pr_merge`,
+      `exponential_pr_update`,
       `exponential_sessions_start`,
     ]) {
       expect(

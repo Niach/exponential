@@ -48,6 +48,7 @@ import {
 import { useSteerConfig } from "@/components/agent-session"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { publishReviewFiles } from "@/lib/review-files-slot"
+import { PrDescriptionCard } from "@/components/pr-description-card"
 
 // Review-detail (EXP-106): the PR/branch diff for one review, with Merge/Close
 // actions moved off the issue detail. The representative issue carries the PR;
@@ -395,6 +396,14 @@ function ReviewDetailPage() {
         <div
           className={cn(`mx-auto w-full max-w-5xl`, MOBILE_WORK_BAR_CLEARANCE, `md:pb-4`)}
         >
+          {/* EXP-1139: the PR's title + body as GitHub holds them, over the
+              diff — with Edit for a member while the PR is open, the same
+              procedure the MCP pr_update tool uses. */}
+          <PrDescriptionCard
+            issue={issue}
+            canEdit={Boolean(isMember)}
+            className="mx-3 mt-2 md:mx-4 md:mt-3"
+          />
           {filesState.kind === `loading` ? (
             <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
               <UiLoadingIcon className="size-3.5 animate-spin" /> Loading

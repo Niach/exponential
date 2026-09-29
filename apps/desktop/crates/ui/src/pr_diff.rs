@@ -41,9 +41,21 @@ use sync::Store;
 use crate::controls::WebControl as _;
 use crate::diff::DiffView;
 use crate::icons::registry;
+use crate::markdown::{MarkdownView, RefResolver};
 use crate::navigation::{navigate, Screen};
 use crate::pr_merge::{close_pr_key, MergeOp, MergeState};
 use crate::queries;
+
+/// EXP-1139: the PR's title + body as GitHub holds them (`issues.prDescription`,
+/// never a synced column) — what the description card under the review
+/// header draws. Re-fetched on every re-point and after the edit dialog
+/// saves; GitHub stays the source of truth.
+enum DescriptionState {
+    Idle,
+    Loading,
+    Ready(api::issues::PrDescription),
+    Error(String),
+}
 
 /// EXP-895: the diff column is the shared WORK column
 /// ([`crate::work_header::WORK_COLUMN_W`], applied by [`crate::diff_pane`]) —
@@ -65,6 +77,17 @@ pub struct PrDiffView {
     /// Everything else (counts, file list, GitHub, close, the merge slot) is
     /// the same pane a review shows.
     pub(crate) embedded: bool,
+    /// EXP-1139: the description card's state + fold (open by default: a
+    /// review is read top to bottom, the description first).
+    description: DescriptionState,
+    description_expanded: bool,
+    /// The issue the description state belongs to. The screens panel points
+    /// this view BEFORE the issues shape has synced, so the render-time
+    /// check below fetches once the synced row shows a PR.
+    description_for: Option<String>,
+    /// Bumped per fetch so a slow answer for the PREVIOUS review never lands
+    /// on the current one.
+    description_seq: u64,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -106,8 +129,226 @@ impl PrDiffView {
             folded_dirs: std::collections::HashSet::new(),
             filter,
             embedded: false,
+            description: DescriptionState::Idle,
+            description_expanded: true,
+            description_for: None,
+            description_seq: 0,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-1139: fetch the PR's title + body for the description card. A
+    /// no-op on the embedded pane (the issue tab's work header owns the
+    /// issue; the card is the REVIEW screen's) and for an issue without a PR.
+    pub(crate) fn fetch_description(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.embedded {
+            return;
+        }
+        let Some(issue_id) = self.issue_id.clone() else {
+            return;
+        };
+        let Some(client) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.description_for = Some(issue_id.clone());
+        self.description_seq += 1;
+        let seq = self.description_seq;
+        self.description = DescriptionState::Loading;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::issues::pr_description(&client, &issue_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.description_seq != seq {
+                    return;
+                }
+                this.description = match result {
+                    Ok(description) if description.title.is_some() => {
+                        DescriptionState::Ready(description)
+                    }
+                    Ok(_) => DescriptionState::Idle,
+                    Err(err) => DescriptionState::Error(err.user_message()),
+                };
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The description card: title · `#N` · Edit (members, open PR) · fold,
+    /// the body underneath as read-only markdown. `None` while the issue has
+    /// no PR or the pane is embedded.
+    fn render_description_card(
+        &mut self,
+        issue: &domain::rows::Issue,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let pr_number = issue.pr_number?;
+        let is_open = issue.pr_state.as_deref() == Some("open");
+        let muted = cx.theme().muted_foreground;
+        let expanded = self.description_expanded;
+        let (title, body, loading, error): (SharedString, Option<String>, bool, Option<String>) =
+            match &self.description {
+                DescriptionState::Idle => return None,
+                DescriptionState::Loading => ("Pull request".into(), None, true, None),
+                DescriptionState::Ready(description) => (
+                    SharedString::from(description.title.clone().unwrap_or_default()),
+                    Some(description.body.clone().unwrap_or_default()),
+                    false,
+                    None,
+                ),
+                DescriptionState::Error(message) => {
+                    ("Pull request".into(), None, false, Some(message.clone()))
+                }
+            };
+
+        let chevron = if expanded {
+            registry::UI_CHEVRON_DOWN
+        } else {
+            registry::UI_CHEVRON_RIGHT
+        };
+        let mut header = gpui_component::h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .child(
+                gpui_component::h_flex()
+                    .id("pr-description-fold")
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap_2()
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.description_expanded = !this.description_expanded;
+                        cx.notify();
+                    }))
+                    .child(Icon::new(chevron).size_3p5().text_color(muted))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .child(title.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(muted)
+                            .child(SharedString::from(format!("#{pr_number}"))),
+                    ),
+            );
+        if loading {
+            header = header.child(div().text_xs().text_color(muted).child("Loading…"));
+        }
+        if is_open {
+            if let DescriptionState::Ready(description) = &self.description {
+                let issue_id = issue.id.clone();
+                let seed_title = description.title.clone().unwrap_or_default();
+                let seed_body = description.body.clone().unwrap_or_default();
+                let view = cx.entity().downgrade();
+                header = header.child(
+                    crate::controls::ghost_icon_button(
+                        "pr-description-edit",
+                        Icon::new(registry::UI_EDIT),
+                        cx,
+                    )
+                    .tooltip("Edit title and description")
+                    .on_click(move |_, window, cx| {
+                        let view = view.clone();
+                        let on_saved: std::rc::Rc<dyn Fn(&mut Window, &mut App)> =
+                            std::rc::Rc::new(move |_, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |this, cx| this.fetch_description(cx));
+                                }
+                            });
+                        crate::pr_description_dialog::open(
+                            window,
+                            cx,
+                            issue_id.clone(),
+                            pr_number,
+                            seed_title.clone(),
+                            seed_body.clone(),
+                            on_saved,
+                        );
+                    })
+                    .into_any_element(),
+                );
+            }
+        }
+
+        let mut card = crate::surface::glass_card()
+            .w_full()
+            .min_w_0()
+            .mx_1()
+            .mb_2()
+            .child(header);
+        if expanded {
+            if let Some(message) = error {
+                card = card.child(
+                    div()
+                        .w_full()
+                        .border_t_1()
+                        .border_color(cx.theme().border)
+                        .px_3()
+                        .py_2()
+                        .text_xs()
+                        .text_color(cx.theme().danger)
+                        .child(SharedString::from(message)),
+                );
+            } else if let Some(body) = body {
+                let content: gpui::AnyElement = if body.trim().is_empty() {
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("No description.")
+                        .into_any_element()
+                } else {
+                    let mut view = MarkdownView::new(
+                        SharedString::from(format!("pr-description-{}", issue.id)),
+                        body,
+                    )
+                    .selectable(true);
+                    if let Some(team_id) = crate::navigation::active_team_id(
+                        &crate::navigation::nav_for_window(window, cx),
+                        cx,
+                    ) {
+                        let team = team_id.clone();
+                        view = view.resolver(RefResolver::from_store(team_id)).on_open_issue(
+                            move |identifier, window, cx| {
+                                crate::description_editor::open_issue_by_identifier(
+                                    &team, identifier, window, cx,
+                                );
+                            },
+                        );
+                    }
+                    div().w_full().min_w_0().text_sm().child(view).into_any_element()
+                };
+                card = card.child(
+                    div()
+                        .id("pr-description-body")
+                        .w_full()
+                        .min_w_0()
+                        .max_h(gpui::px(320.))
+                        .overflow_y_scroll()
+                        .border_t_1()
+                        .border_color(cx.theme().border)
+                        .px_3()
+                        .py_2()
+                        .child(content),
+                );
+            }
+        }
+        Some(card.into_any_element())
     }
 
     /// Re-point at `issue_id` and fetch its PR files (no-op on the same id).
@@ -133,6 +374,9 @@ impl PrDiffView {
         MergeState::clear_error(cx);
         self.diff
             .update(cx, |diff, cx| diff.fetch(Arc::new(client), issue_id, cx));
+        // EXP-1139: the description rides the same re-point.
+        self.description_expanded = true;
+        self.fetch_description(cx);
     }
 
     /// EXP-889 — the counts the pane is showing (`+N −M`), for the work
@@ -393,11 +637,30 @@ impl Render for PrDiffView {
             );
         }
 
+        // EXP-1139: the description card under the header row — the review
+        // screen's only (an embedded pane has no header, and no card).
+        let description = if self.embedded {
+            None
+        } else {
+            // The synced row may have landed after `set_issue` ran (a cold
+            // start into a deep link): fetch once it shows a PR.
+            if let Some(issue) = issue.as_ref() {
+                if issue.pr_number.is_some()
+                    && self.description_for.as_deref() != Some(issue.id.as_str())
+                {
+                    self.fetch_description(cx);
+                }
+            }
+            issue
+                .as_ref()
+                .and_then(|issue| self.render_description_card(issue, window, cx))
+        };
+
         // EXP-889: embedded in an issue tab the work header above IS the
         // header — the identifier, the merge pill and the GitHub link are
         // already up there, and a second row would say everything twice.
         let header = (!self.embedded).then(|| {
-            gpui_component::h_flex()
+            let row = gpui_component::h_flex()
                 .w_full()
                 .flex_shrink_0()
                 .h(gpui::px(36.))
@@ -427,7 +690,13 @@ impl Render for PrDiffView {
                         .children(trailing)
                         .children(merge.map(|merge| crate::diff_pane::render_merge_slot(merge, cx)))
                         .children(github),
-                )
+                );
+            gpui_component::v_flex()
+                .w_full()
+                .flex_shrink_0()
+                .min_w_0()
+                .child(row)
+                .children(description)
                 .into_any_element()
         });
 

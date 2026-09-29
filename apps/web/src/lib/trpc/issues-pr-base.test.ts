@@ -17,6 +17,13 @@ const h = vi.hoisted(() => ({
   })),
   resolvePrBaseState: vi.fn(),
   retargetPullRequest: vi.fn(async () => {}),
+  // EXP-1139: the description rewrite.
+  updatePullRequest: vi.fn(async () => {}),
+  getIssueTeamContext: vi.fn(async () => ({
+    teamId: `ws-1`,
+    boardId: `board-1`,
+  })),
+  assertTeamMember: vi.fn(async () => undefined),
   diagnoseUnmergeablePr: vi.fn(
     async (): Promise<{ message: string; conflict: boolean } | null> => null
   ),
@@ -93,6 +100,8 @@ vi.mock(`@/lib/team-membership`, async (importOriginal) => {
   return {
     ...actual,
     assertIssueAccess: h.assertIssueAccess,
+    getIssueTeamContext: h.getIssueTeamContext,
+    assertTeamMember: h.assertTeamMember,
   }
 })
 
@@ -111,6 +120,7 @@ vi.mock(`@/lib/integrations/github-pr`, async (importOriginal) => {
     closePullRequest: vi.fn(),
     resolvePrBaseState: h.resolvePrBaseState,
     retargetPullRequest: h.retargetPullRequest,
+    updatePullRequest: h.updatePullRequest,
     diagnoseUnmergeablePr: h.diagnoseUnmergeablePr,
   }
 })
@@ -348,6 +358,132 @@ describe(`issues.retargetPr (EXP-324)`, () => {
       code: `PRECONDITION_FAILED`,
       message: `The pull request is merged. Only open pull requests can be retargeted.`,
     })
+  })
+})
+
+describe(`issues.updatePr (EXP-1139)`, () => {
+  it(`PATCHes the given fields against the repo the PR lives in`, async () => {
+    h.selectQueue.push([
+      { prNumber: 241, prUrl: PR_URL, prState: `open` },
+    ])
+    const result = await caller.updatePr({
+      issueId: ISSUE_ID,
+      body: `Closes #EXP-320\n\nNow with the picker.`,
+    })
+    expect(h.updatePullRequest).toHaveBeenCalledWith({
+      repo: `owner/repo`,
+      prNumber: 241,
+      title: undefined,
+      body: `Closes #EXP-320\n\nNow with the picker.`,
+      token: `tok`,
+    })
+    expect(result).toEqual({ updated: true, url: PR_URL, number: 241 })
+  })
+
+  it(`refuses a call that changes nothing`, async () => {
+    await expect(
+      caller.updatePr({ issueId: ISSUE_ID })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.updatePullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a non-open PR`, async () => {
+    h.selectQueue.push([
+      { prNumber: 241, prUrl: PR_URL, prState: `merged` },
+    ])
+    await expect(
+      caller.updatePr({ issueId: ISSUE_ID, title: `Late rename` })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `The pull request is merged. Only open pull requests can be edited.`,
+    })
+    expect(h.updatePullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`maps GitHub's 404 onto NOT_FOUND`, async () => {
+    h.selectQueue.push([
+      { prNumber: 241, prUrl: PR_URL, prState: `open` },
+    ])
+    h.updatePullRequest.mockRejectedValueOnce(
+      new GitHubMergeError(404, `Not Found`)
+    )
+    await expect(
+      caller.updatePr({ issueId: ISSUE_ID, title: `x` })
+    ).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+      message: `Pull request not found on GitHub`,
+    })
+  })
+
+  it(`refuses a severed installation link`, async () => {
+    h.selectQueue.push([
+      { prNumber: 241, prUrl: PR_URL, prState: `open` },
+    ])
+    h.isInstallationLinkedToTeam.mockResolvedValueOnce(false)
+    await expect(
+      caller.updatePr({ issueId: ISSUE_ID, title: `x` })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    expect(h.updatePullRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe(`issues.prDescription (EXP-1139)`, () => {
+  it(`reads the title and body off GitHub`, async () => {
+    h.selectQueue.push([{ prNumber: 241, prUrl: PR_URL }])
+    h.getPullRequest.mockResolvedValueOnce({
+      state: `open`,
+      merged: false,
+      draft: false,
+      headRef: `exp/EXP-320`,
+      baseRef: `master`,
+      mergeable: true,
+      mergeableState: `clean`,
+      title: `EXP-320: Stacked child`,
+      body: `Closes #EXP-320`,
+      url: PR_URL,
+    } as never)
+    const result = await caller.prDescription({ issueId: ISSUE_ID })
+    expect(result).toEqual({
+      repo: `owner/repo`,
+      prNumber: 241,
+      url: PR_URL,
+      title: `EXP-320: Stacked child`,
+      body: `Closes #EXP-320`,
+      state: `open`,
+    })
+    expect(h.getPullRequest).toHaveBeenCalledWith(`owner/repo`, 241, `tok`)
+  })
+
+  it(`reports merged as its own state`, async () => {
+    h.selectQueue.push([{ prNumber: 241, prUrl: PR_URL }])
+    h.getPullRequest.mockResolvedValueOnce({
+      state: `closed`,
+      merged: true,
+      draft: false,
+      headRef: `exp/EXP-320`,
+      baseRef: `master`,
+      mergeable: null,
+      mergeableState: null,
+      title: `t`,
+      body: ``,
+      url: PR_URL,
+    } as never)
+    const result = await caller.prDescription({ issueId: ISSUE_ID })
+    expect(result.state).toBe(`merged`)
+  })
+
+  it(`answers nulls for an issue without a PR`, async () => {
+    h.selectQueue.push([{ prNumber: null, prUrl: null }])
+    const result = await caller.prDescription({ issueId: ISSUE_ID })
+    expect(result).toEqual({
+      repo: null,
+      prNumber: null,
+      url: null,
+      title: null,
+      body: null,
+      state: null,
+    })
+    expect(h.getPullRequest).not.toHaveBeenCalled()
   })
 })
 
