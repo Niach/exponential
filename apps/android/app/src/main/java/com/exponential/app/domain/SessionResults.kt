@@ -36,6 +36,15 @@ const val MAX_SESSION_RESULTS = 60
 const val SESSION_RESULT_TILE_HEIGHT = 320
 
 /**
+ * EXP-1128: a picture whose probed width/height is UNDER this is TALL (a
+ * full-page capture; a phone shot at ~0.46 never is). A tall picture takes the
+ * 4:3 frame top-cropped with a Tall badge instead of rendering as a sliver, and
+ * opens fit-to-width in a vertical scroll. Strict: exactly 1:3 is not tall.
+ * Fixture `session-results.json` `tiles` (×4).
+ */
+const val SESSION_RESULT_TALL_ASPECT = 1.0 / 3.0
+
+/**
  * One published screenshot. [width]/[height] are probed at upload and null
  * whenever the image could not be measured — the renderer then falls back to
  * 4:3 rather than guessing.
@@ -169,8 +178,20 @@ fun groupSessionResults(entries: List<SessionResultEntry>): List<SessionResultGr
 }
 
 /**
+ * EXP-1128: true when the probed aspect is under [SESSION_RESULT_TALL_ASPECT];
+ * an unmeasured picture is never tall.
+ */
+fun sessionResultIsTall(entry: SessionResultEntry): Boolean {
+    val width = entry.width ?: return false
+    val height = entry.height ?: return false
+    return width.toDouble() / height.toDouble() < SESSION_RESULT_TALL_ASPECT
+}
+
+/**
  * The tile's width at a fixed [height] — the probed aspect, else 4:3 (a
- * desktop screenshot's shape, and the least surprising placeholder).
+ * desktop screenshot's shape, and the least surprising placeholder). A TALL
+ * picture (EXP-1128) takes the 4:3 frame too: the tile shows its top, never a
+ * sliver.
  */
 fun sessionResultTileWidth(
     entry: SessionResultEntry,
@@ -178,7 +199,7 @@ fun sessionResultTileWidth(
 ): Int {
     val width = entry.width
     val entryHeight = entry.height
-    val aspect = if (width != null && entryHeight != null) {
+    val aspect = if (width != null && entryHeight != null && !sessionResultIsTall(entry)) {
         width.toDouble() / entryHeight.toDouble()
     } else {
         4.0 / 3.0

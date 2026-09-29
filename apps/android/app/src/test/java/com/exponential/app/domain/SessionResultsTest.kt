@@ -5,6 +5,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -141,6 +143,24 @@ class SessionResultsTest {
         assertEquals(320, sessionResultTileHeightFitting(entries, 0))
         assertEquals(320, sessionResultTileHeightFitting(entries, -10))
         assertEquals(320, sessionResultTileHeightFitting(emptyList(), 10))
+    }
+
+    // EXP-1128: the tall rule, the fixture's `tiles` cases ×4 — a full-page
+    // capture flags tall and takes the 4:3 frame; a phone shot never does.
+    @Test
+    fun `frames a tall capture at 4-3 and flags it`() {
+        val cases = sessionResultsFixture()["tiles"]!!.jsonObject["cases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val entry = entry(
+                case["width"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.int,
+                case["height"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.int,
+            )
+            assertEquals(name, case["tall"]!!.jsonPrimitive.boolean, sessionResultIsTall(entry))
+            assertEquals(name, case["widthAt320"]!!.jsonPrimitive.int, sessionResultTileWidth(entry, 320))
+        }
     }
 
     private fun entry(width: Int?, height: Int?) =

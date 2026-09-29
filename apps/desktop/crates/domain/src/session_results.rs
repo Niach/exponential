@@ -31,6 +31,13 @@ pub const MAX_SESSION_RESULTS: usize = 60;
 /// the same screen line up on one baseline instead of stair-stepping.
 pub const SESSION_RESULT_TILE_HEIGHT: f32 = 320.0;
 
+/// EXP-1128: a picture whose probed width/height is UNDER this is TALL (a
+/// full-page capture; a phone shot at ~0.46 never is). A tall picture takes
+/// the 4:3 frame top-cropped with a Tall badge instead of rendering as a
+/// sliver, and opens fit-to-width in a vertical scroll. Strict: exactly 1:3
+/// is not tall. Fixture `session-results.json` `tiles` (×4).
+pub const SESSION_RESULT_TALL_ASPECT: f32 = 1.0 / 3.0;
+
 /// One published picture.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionResultEntry {
@@ -173,12 +180,26 @@ pub fn group_session_results(entries: &[SessionResultEntry]) -> Vec<SessionResul
     groups
 }
 
+/// EXP-1128: true when the probed aspect is under
+/// [`SESSION_RESULT_TALL_ASPECT`]; an unmeasured picture is never tall.
+pub fn session_result_is_tall(entry: &SessionResultEntry) -> bool {
+    match (entry.width, entry.height) {
+        (Some(width), Some(tall)) if width > 0 && tall > 0 => {
+            (width as f32 / tall as f32) < SESSION_RESULT_TALL_ASPECT
+        }
+        _ => false,
+    }
+}
+
 /// The tile's width at `height`: the probed aspect, or 4:3 when either side
-/// is unknown. Rounded — a fractional pixel width leaves a hairline seam
-/// between a tile and its border.
+/// is unknown. A TALL picture (EXP-1128) takes the 4:3 frame too — the tile
+/// shows its top, never a sliver. Rounded — a fractional pixel width leaves
+/// a hairline seam between a tile and its border.
 pub fn session_result_tile_width(entry: &SessionResultEntry, height: f32) -> f32 {
     let aspect = match (entry.width, entry.height) {
-        (Some(width), Some(tall)) if width > 0 && tall > 0 => width as f32 / tall as f32,
+        (Some(width), Some(tall)) if width > 0 && tall > 0 && !session_result_is_tall(entry) => {
+            width as f32 / tall as f32
+        }
         _ => 4.0 / 3.0,
     };
     (height * aspect).round()
@@ -428,6 +449,34 @@ mod tests {
         let mut half = entry("Shots", "Android", "a4");
         half.width = Some(800);
         assert_eq!(session_result_tile_width(&half, 300.0), 400.0);
+    }
+
+    /// EXP-1128: the tall rule, the fixture's `tiles` cases ×4 — a full-page
+    /// capture flags tall and takes the 4:3 frame; a phone shot never does.
+    #[test]
+    fn session_result_tile_width_frames_a_tall_capture_at_4_3_and_flags_it() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap();
+        let cases = fixture["tiles"]["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let mut shot = entry("Shots", "Web", "a1");
+            shot.width = case["width"].as_u64().map(|value| value as u32);
+            shot.height = case["height"].as_u64().map(|value| value as u32);
+            assert_eq!(
+                session_result_is_tall(&shot),
+                case["tall"].as_bool().unwrap(),
+                "fixture case: {name}"
+            );
+            assert_eq!(
+                session_result_tile_width(&shot, SESSION_RESULT_TILE_HEIGHT),
+                case["widthAt320"].as_f64().unwrap() as f32,
+                "fixture case: {name}"
+            );
+        }
     }
 
     /// The page keeps the base height until the WIDEST tile would overflow

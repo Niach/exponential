@@ -66,6 +66,18 @@
       ]
     }
   ],
+  "tiles": {
+    "$comment": "EXP-1128: sessionResultIsTall = probed width/height < 1/3 (strict; a phone shot at ~0.46 is never tall). sessionResultTileWidth(entry, 320) = round(320 * aspect): the probed aspect, else 4:3; a TALL picture takes the 4:3 frame too (rendered top-cropped with a Tall badge, opened fit-to-width in a vertical scroll) so it never renders as a sliver. Mirrored ×4: web session-results.ts, desktop session_results.rs, iOS SessionResults.swift, Android SessionResults.kt.",
+    "cases": [
+      { "name": "landscape web shot", "width": 1600, "height": 900, "tall": false, "widthAt320": 569 },
+      { "name": "phone shot never crops", "width": 1170, "height": 2532, "tall": false, "widthAt320": 148 },
+      { "name": "exactly 1:3 is not tall", "width": 1080, "height": 3240, "tall": false, "widthAt320": 107 },
+      { "name": "full-page desktop capture", "width": 1440, "height": 7696, "tall": true, "widthAt320": 427 },
+      { "name": "full-page mobile capture", "width": 780, "height": 25094, "tall": true, "widthAt320": 427 },
+      { "name": "unmeasured is the 4:3 frame, not tall", "width": null, "height": null, "tall": false, "widthAt320": 427 },
+      { "name": "one side unknown", "width": 800, "height": null, "tall": false, "widthAt320": 427 }
+    ]
+  },
   "issueResultsRun": {
     "now": "2026-09-29T12:00:00Z",
     "cases": [

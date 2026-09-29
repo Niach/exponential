@@ -19,6 +19,13 @@ export const MAX_SESSION_RESULTS = 60
  *  row of an iOS, an Android and a web shot reads as one strip. */
 export const SESSION_RESULT_TILE_HEIGHT = 320
 
+/** EXP-1128: a picture whose probed width/height is UNDER this is TALL (a
+ *  full-page capture; a phone shot at ~0.46 never is). A tall picture takes
+ *  the 4:3 frame top-cropped with a Tall badge instead of rendering as a
+ *  sliver, and opens fit-to-width in a vertical scroll. Strict: exactly 1:3
+ *  is not tall. Fixture `session-results.json` `tiles` (×4). */
+export const SESSION_RESULT_TALL_ASPECT = 1 / 3
+
 export interface SessionResultEntry {
   topic: string
   label: string
@@ -169,14 +176,28 @@ export function sessionResultPictures(
   return groups.flatMap((group) => group.entries)
 }
 
+/** EXP-1128: true when the probed aspect is under `SESSION_RESULT_TALL_ASPECT`;
+ *  an unmeasured picture is never tall. */
+export function sessionResultIsTall(
+  entry: Pick<SessionResultEntry, `width` | `height`>
+): boolean {
+  return (
+    entry.width !== null &&
+    entry.height !== null &&
+    entry.width / entry.height < SESSION_RESULT_TALL_ASPECT
+  )
+}
+
 /** The tile's width at a fixed height — the probed aspect, else 4:3 (a
- *  desktop screenshot's shape, and the least surprising placeholder). */
+ *  desktop screenshot's shape, and the least surprising placeholder). A TALL
+ *  picture (EXP-1128) takes the 4:3 frame too: the tile shows its top, never
+ *  a sliver. */
 export function sessionResultTileWidth(
   entry: Pick<SessionResultEntry, `width` | `height`>,
   height: number = SESSION_RESULT_TILE_HEIGHT
 ): number {
   const aspect =
-    entry.width !== null && entry.height !== null
+    entry.width !== null && entry.height !== null && !sessionResultIsTall(entry)
       ? entry.width / entry.height
       : 4 / 3
   return Math.round(height * aspect)

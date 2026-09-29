@@ -23,6 +23,13 @@ public let maxSessionResults = 60
 /// row of an iOS, an Android and a web shot reads as one strip.
 public let sessionResultTileHeight: CGFloat = 320
 
+/// EXP-1128: a picture whose probed width/height is UNDER this is TALL (a
+/// full-page capture; a phone shot at ~0.46 never is). A tall picture takes
+/// the 4:3 frame top-cropped with a Tall badge instead of rendering as a
+/// sliver, and opens fit-to-width in a vertical scroll. Strict: exactly 1:3
+/// is not tall. Fixture `session-results.json` `tiles` (×4).
+public let sessionResultTallAspect: CGFloat = 1.0 / 3.0
+
 public struct SessionResultEntry: Equatable, Sendable {
     public let topic: String
     public let label: String
@@ -193,14 +200,22 @@ public func sessionResultPictures(_ groups: [SessionResultGroup]) -> [SessionRes
     groups.flatMap(\.entries)
 }
 
+/// EXP-1128: true when the probed aspect is under `sessionResultTallAspect`;
+/// an unmeasured picture is never tall.
+public func sessionResultIsTall(_ entry: SessionResultEntry) -> Bool {
+    guard let width = entry.width, let height = entry.height else { return false }
+    return CGFloat(width) / CGFloat(height) < sessionResultTallAspect
+}
+
 /// The tile's width at a fixed height — the probed aspect, else 4:3 (a desktop
-/// screenshot's shape, and the least surprising placeholder).
+/// screenshot's shape, and the least surprising placeholder). A TALL picture
+/// (EXP-1128) takes the 4:3 frame too: the tile shows its top, never a sliver.
 public func sessionResultTileWidth(
     _ entry: SessionResultEntry,
     height: CGFloat = sessionResultTileHeight
 ) -> CGFloat {
     let aspect: CGFloat
-    if let width = entry.width, let entryHeight = entry.height {
+    if let width = entry.width, let entryHeight = entry.height, !sessionResultIsTall(entry) {
         aspect = CGFloat(width) / CGFloat(entryHeight)
     } else {
         aspect = 4.0 / 3.0
