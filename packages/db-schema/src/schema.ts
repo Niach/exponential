@@ -208,6 +208,11 @@ export const teams = pgTable(`teams`, {
   // `endSessions` override sit on top. Synced so every client renders the
   // toggle and the desktop's batch self-close honours it.
   endSessionsOnMerge: boolean(`end_sessions_on_merge`).notNull().default(true),
+  // EXP-1105 — yolo mode (owner toggle, default off): every PR an agent opens
+  // via MCP `pr_open` squash-merges at once, and every client hides Reviews
+  // (desktop also Files + Source Control) unless something failed (an open PR
+  // left behind, a trunk-sync conflict). Synced so the nav can gate.
+  yoloMode: boolean(`yolo_mode`).notNull().default(false),
   // EXP-630 — the estimate scale (contract `issueEstimation`, a documented
   // varchar): `none` (default) hides estimates everywhere; the other values
   // pick the ladder the picker offers and how a value reads (t-shirt).

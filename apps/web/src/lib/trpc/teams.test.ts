@@ -333,6 +333,7 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
       `prOpenedStatusId`,
       `slug`,
       `updatedAt`,
+      `yoloMode`,
     ])
   })
 })

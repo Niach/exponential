@@ -2,7 +2,9 @@ package com.exponential.app.data.db
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -45,5 +47,15 @@ class TeamEntityDecodeTest {
     @Test
     fun `a row without estimation_type still decodes`() {
         assertNull(json.decodeFromString(TeamEntity.serializer(), row("")).estimationType)
+    }
+
+    // EXP-1105: yolo_mode arrives as Electric's "t"/"f" text or tRPC's
+    // camelCase boolean; an older server without the column = off.
+    @Test
+    fun `yolo_mode decodes from Electric text, tRPC camelCase, and absence`() {
+        assertTrue(json.decodeFromString(TeamEntity.serializer(), row(",\n  \"yolo_mode\": \"t\"")).yoloMode)
+        assertFalse(json.decodeFromString(TeamEntity.serializer(), row(",\n  \"yolo_mode\": \"f\"")).yoloMode)
+        assertTrue(json.decodeFromString(TeamEntity.serializer(), row(",\n  \"yoloMode\": true")).yoloMode)
+        assertFalse(json.decodeFromString(TeamEntity.serializer(), row("")).yoloMode)
     }
 }

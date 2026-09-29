@@ -509,6 +509,49 @@ fn helpdesk_enabled(nav: &Entity<Navigation>, cx: &App) -> bool {
         == Some(true)
 }
 
+/// EXP-1105: whether the ACTIVE team runs in yolo mode — Reviews, Files and
+/// Source Control leave the rail for every member (git FAILURES still bring
+/// Reviews / Source Control back). Pre-column rows hydrate `None` → off.
+fn yolo_mode(nav: &Entity<Navigation>, cx: &App) -> bool {
+    active_team_id(nav, cx)
+        .and_then(|id| {
+            Store::global(cx)
+                .collections()
+                .teams
+                .read(cx)
+                .get(&id)
+                .map(|team| team.yolo_mode())
+        })
+        .unwrap_or(false)
+}
+
+/// EXP-1105: which of the three yolo-hideable rail entries render. Off =
+/// all three (today's rail). On = Files never; Reviews only while open PRs
+/// exist (in yolo mode every agent PR auto-merges, so an open one means that
+/// merge FAILED); Source Control only while the trunk needs attention or its
+/// sync failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct YoloRail {
+    reviews: bool,
+    files: bool,
+    source_control: bool,
+}
+
+fn yolo_rail(yolo: bool, has_reviews: bool, sc_failing: bool) -> YoloRail {
+    if !yolo {
+        return YoloRail {
+            reviews: true,
+            files: true,
+            source_control: true,
+        };
+    }
+    YoloRail {
+        reviews: has_reviews,
+        files: false,
+        source_control: sc_failing,
+    }
+}
+
 /// The Support tool window's open/resolved filter (the server's
 /// `helpdesk.listThreads` filter enum).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2354,6 +2397,9 @@ impl Render for RailView {
         // EXP-509: real glyphs instead of colored dots — a yellow warning
         // triangle for attention, a red cross for the sticky error, and a
         // SPINNING refresh while a pull/clone runs.
+        // EXP-1105: the same two failure inputs the badge reads (attention
+        // or a sticky sync error) — a pull merely in flight is not one.
+        let sc_failing = sc_attention.is_some() || git_bar.read(cx).sync_error().is_some();
         let sc_badge = if sc_attention.is_some() {
             Some(RailBadge::Icon(
                 registry::UI_WARNING,
@@ -2417,6 +2463,46 @@ impl Render for RailView {
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 crate::session_bar::open_new_shell(window, cx);
             }));
+
+        // EXP-1105: yolo mode hides Reviews / Files / Source Control unless
+        // a git failure needs a person (see `yolo_rail`).
+        let rail_gate = yolo_rail(yolo_mode(&self.nav, cx), has_reviews, sc_failing);
+        let reviews_entry = rail_gate.reviews.then(|| {
+            self.rail_screen_entry(
+                "rail-reviews",
+                Icon::from(ExpIcon::GitPullRequest),
+                "Reviews",
+                Screen::Reviews,
+                // Review green (EXP-214): open PRs are "stuff to do",
+                // colored like the in_review issue status.
+                has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
+                cx,
+            )
+        });
+        let files_entry = rail_gate.files.then(|| {
+            self.rail_tool_icon(
+                "rail-files",
+                Icon::new(registry::NAV_FILES),
+                ToolWindow::Files,
+                "Files",
+                None,
+                None,
+                cx,
+            )
+        });
+        let sc_entry = rail_gate.source_control.then(|| {
+            self.rail_tool_icon(
+                "rail-source-control",
+                Icon::from(ExpIcon::GitMerge),
+                ToolWindow::SourceControl,
+                "Source Control",
+                Some(sc_tooltip),
+                sc_badge,
+                cx,
+            )
+        });
+        // The "This device" block (rule + label) goes with its entries.
+        let show_device_section = files_entry.is_some() || sc_entry.is_some();
 
         if self.compact {
             // EXP-870: the ICON column. Same destinations in the same order
@@ -2488,38 +2574,15 @@ impl Render for RailView {
                             workflows_badge.clone(),
                             cx,
                         ))
-                        .child(self.rail_screen_entry(
-                            "rail-reviews",
-                            Icon::from(ExpIcon::GitPullRequest),
-                            "Reviews",
-                            Screen::Reviews,
-                            has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
-                            cx,
-                        ))
+                        .children(reviews_entry)
                         .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
                         .children(pinned_section)
                         .child(self.divider(cx))
                         .children(board_icons)
                         .children(running_section)
-                        .child(self.divider(cx))
-                        .child(self.rail_tool_icon(
-                            "rail-files",
-                            Icon::new(registry::NAV_FILES),
-                            ToolWindow::Files,
-                            "Files",
-                            None,
-                            None,
-                            cx,
-                        ))
-                        .child(self.rail_tool_icon(
-                            "rail-source-control",
-                            Icon::from(ExpIcon::GitMerge),
-                            ToolWindow::SourceControl,
-                            "Source Control",
-                            Some(sc_tooltip),
-                            sc_badge,
-                            cx,
-                        )),
+                        .when(show_device_section, |rail| rail.child(self.divider(cx)))
+                        .children(files_entry)
+                        .children(sc_entry),
                 ))
                 .child(self.render_account_button(cx))
                 .child(terminal_entry)
@@ -2630,16 +2693,8 @@ impl Render for RailView {
                     ))
                     // EXP-706: Reviews is a full-page screen like the three
                     // above it, not a tool window with a docked list.
-                    .child(self.rail_screen_entry(
-                        "rail-reviews",
-                        Icon::from(ExpIcon::GitPullRequest),
-                        "Reviews",
-                        Screen::Reviews,
-                        // Review green (EXP-214): open PRs are "stuff to do",
-                        // colored like the in_review issue status.
-                        has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
-                        cx,
-                    ))
+                    // EXP-1105: absent in yolo mode unless a merge failed.
+                    .children(reviews_entry)
                     // EXP-791: "Agent", the web sidebar's word for the Chat
                     // page (EXP-772). EXP-818: it is a TOOL now — the sessions
                     // list on the left, the Chat prompt in the center until a
@@ -2654,27 +2709,14 @@ impl Render for RailView {
                     // EXP-923: Running — MY live runs, the live half of the
                     // retired top-tab group.
                     .children(running_section)
-                    .child(self.section_rule(cx))
-                    // Repo tool windows — this machine's trunk clone.
-                    .child(self.section_label("This device", cx))
-                    .child(self.rail_tool_icon(
-                        "rail-files",
-                        Icon::new(registry::NAV_FILES),
-                        ToolWindow::Files,
-                        "Files",
-                        None,
-                        None,
-                        cx,
-                    ))
-                    .child(self.rail_tool_icon(
-                        "rail-source-control",
-                        Icon::from(ExpIcon::GitMerge),
-                        ToolWindow::SourceControl,
-                        "Source Control",
-                        Some(sc_tooltip),
-                        sc_badge,
-                        cx,
-                    )),
+                    // Repo tool windows — this machine's trunk clone. EXP-1105:
+                    // the rule + label vanish with both entries (yolo mode).
+                    .when(show_device_section, |rail| {
+                        rail.child(self.section_rule(cx))
+                            .child(self.section_label("This device", cx))
+                    })
+                    .children(files_entry)
+                    .children(sc_entry),
             )
             // EXP-1022: the What's-new card, floating over the scroll area's
             // bottom edge in the column's gutter; the `sidebar_scroll_pane` shell
@@ -5024,9 +5066,40 @@ impl Render for ListPanel {
 #[cfg(test)]
 mod tests {
     use super::{
-        focused_list, row_origin_for, InboxTab, ListMode, ToolWindow,
+        focused_list, row_origin_for, yolo_rail, InboxTab, ListMode, ToolWindow, YoloRail,
     };
     use crate::navigation::{Screen, TabOrigin};
+
+    /// EXP-1105: yolo mode hides Reviews / Files / Source Control, but a git
+    /// failure (an open PR = a failed auto-merge; trunk attention or a sync
+    /// error) brings its entry back. Off = today's rail, whatever the inputs.
+    #[test]
+    fn yolo_rail_hides_entries_until_a_failure_surfaces() {
+        let all = YoloRail {
+            reviews: true,
+            files: true,
+            source_control: true,
+        };
+        for (reviews, sc) in [(false, false), (true, false), (false, true), (true, true)] {
+            assert_eq!(yolo_rail(false, reviews, sc), all);
+        }
+        assert_eq!(
+            yolo_rail(true, false, false),
+            YoloRail {
+                reviews: false,
+                files: false,
+                source_control: false,
+            }
+        );
+        assert_eq!(
+            yolo_rail(true, true, true),
+            YoloRail {
+                reviews: true,
+                files: false,
+                source_control: true,
+            }
+        );
+    }
 
     /// EXP-851: every list in the origin vocabulary maps onto exactly the
     /// SCREEN it became — what a rail entry opens, what a ListNav back row

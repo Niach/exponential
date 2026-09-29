@@ -40,8 +40,11 @@ vi.mock(`@/hooks/use-unread-notifications`, () => ({
   useUnreadNotificationCount: () => 0,
   useUnreadSupportCount: () => 0,
 }))
+const openPrs = { current: 0 }
 vi.mock(`@/hooks/use-nav-counts`, () => ({
-  useReviewsOpenPrCount: () => 0,
+  useReviewsOpenPrCount: () => openPrs.current,
+  // Mirrors the real hook: yolo mode hides Reviews unless a PR is open.
+  useShowsReviews: (t?: Team) => t?.yoloMode !== true || openPrs.current > 0,
   useAgentsRunningCount: () => ({ count: 0, needsInput: false }),
 }))
 
@@ -50,9 +53,12 @@ import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 const team = { id: `t1`, name: `Acme`, helpdeskEnabled: false } as Team
 const boards = [{ id: `b1`, slug: `web`, name: `Web` }] as Board[]
 
-function renderBar(boardList: Board[] | undefined = boards) {
+function renderBar(
+  boardList: Board[] | undefined = boards,
+  teamRow: Team = team
+) {
   return render(
-    <MobileTabBar teamSlug="acme" team={team} boards={boardList} />
+    <MobileTabBar teamSlug="acme" team={teamRow} boards={boardList} />
   )
 }
 
@@ -112,5 +118,30 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
     const compose = screen.getByTestId(`compose-button`)
     expect(compose.getAttribute(`aria-disabled`)).toBeNull()
     expect(compose.getAttribute(`aria-label`)).toBe(`New issue`)
+  })
+})
+
+describe(`MobileTabBar Reviews in yolo mode (EXP-1105)`, () => {
+  beforeEach(() => {
+    route.value = ``
+    openPrs.current = 0
+  })
+
+  const reviewsTab = () => screen.queryByLabelText(`Reviews`)
+
+  it(`keeps Reviews when yolo mode is off`, () => {
+    renderBar()
+    expect(reviewsTab()).toBeTruthy()
+  })
+
+  it(`hides Reviews in yolo mode while nothing is left open`, () => {
+    renderBar(boards, { ...team, yoloMode: true })
+    expect(reviewsTab()).toBeNull()
+  })
+
+  it(`brings Reviews back in yolo mode while a PR is open`, () => {
+    openPrs.current = 1
+    renderBar(boards, { ...team, yoloMode: true })
+    expect(reviewsTab()).toBeTruthy()
   })
 })

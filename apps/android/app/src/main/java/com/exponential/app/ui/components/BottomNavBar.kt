@@ -110,7 +110,15 @@ fun BottomNavBar(
     onCompose: () -> Unit,
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * EXP-1105: false while the active team runs in yolo mode with no open PR
+     * (agents merge their own work); an open PR there = a failed auto-merge,
+     * so the caller passes `!yoloMode || reviewsOpen`.
+     */
+    showsReviews: Boolean = true,
 ) {
+    // Four fixed tabs (Issues, My Work, Devices, Actions) + Support + Reviews.
+    val tabCount = 4 + (if (showsSupport) 1 else 0) + (if (showsReviews) 1 else 0)
     // Six tabs (helpdesk on) must still fit a 360dp screen beside the compose
     // circle: pull the outer padding in. The tab itself is the shared 44dp
     // square on every count (EXP-698) — six of them plus the bar's own 4dp
@@ -120,7 +128,7 @@ fun BottomNavBar(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(
-                horizontal = BottomNavDefaults.horizontalInset(showsSupport),
+                horizontal = BottomNavDefaults.horizontalInset(tabCount),
                 vertical = 8.dp,
             ),
         verticalAlignment = Alignment.CenterVertically,
@@ -181,16 +189,19 @@ fun BottomNavBar(
             )
             // Reviews sits last (EXP-147/EXP-152/EXP-686) — the same open-PR
             // glyph the Reviews rows use. Green dot while open PRs await
-            // review (EXP-214).
-            TabItem(
-                icon = ExpIcons.navReviews,
-                contentDescription = "Reviews",
-                testTag = "tab-reviews",
-                active = reviewsActive,
-                showDot = reviewsOpen,
-                dotColor = ReviewsGreen,
-                onClick = onReviews,
-            )
+            // review (EXP-214). Hidden in yolo mode until a PR is open
+            // (EXP-1105).
+            if (showsReviews) {
+                TabItem(
+                    icon = ExpIcons.navReviews,
+                    contentDescription = "Reviews",
+                    testTag = "tab-reviews",
+                    active = reviewsActive,
+                    showDot = reviewsOpen,
+                    dotColor = ReviewsGreen,
+                    onClick = onReviews,
+                )
+            }
         }
 
         Spacer(Modifier.weight(1f))
@@ -399,6 +410,7 @@ object BottomNavDefaults {
     /** Six tabs plus the compose circle need the tighter gutter to fit 360dp. */
     val HorizontalInsetCompact: Dp = 12.dp
 
-    fun horizontalInset(showsSupport: Boolean): Dp =
-        if (showsSupport) HorizontalInsetCompact else HorizontalInset
+    /** The gutter for a bar showing [tabCount] tabs (4..6, EXP-1105). */
+    fun horizontalInset(tabCount: Int): Dp =
+        if (tabCount >= 6) HorizontalInsetCompact else HorizontalInset
 }

@@ -179,6 +179,8 @@ export const teamsRouter = router({
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
         helpdeskEnabled: z.boolean().optional(),
+        // EXP-1105: yolo mode (auto-merge every agent PR, hide Reviews).
+        yoloMode: z.boolean().optional(),
         // EXP-630: the estimate scale; `none` switches estimates off (values
         // already set stay on the rows, hidden until a scale is picked again).
         estimationType: issueEstimationSchema.optional(),

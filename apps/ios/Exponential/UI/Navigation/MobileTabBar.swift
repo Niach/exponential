@@ -28,6 +28,10 @@ struct MobileTabBar: View {
     let agentsNeedInput: Bool
     let reviewsOpen: Bool
     let showsSupport: Bool
+    /// EXP-1105: false while the active team runs in yolo mode (PRs
+    /// auto-merge) and no PR is open. An open PR there means an auto-merge
+    /// failed, so the navigator keeps the tab while one exists.
+    var showsReviews: Bool = true
     let supportUnread: Bool
     /// EXP-973: whether the New-issue arm can go anywhere. The split capsule
     /// itself rides EVERY bar-visible route now; only a team with no board at
@@ -63,8 +67,8 @@ struct MobileTabBar: View {
         return "none"
     }
 
-    /// Issues · My Work · (Support) · Devices · Actions · Reviews.
-    private var tabCount: Int { showsSupport ? 6 : 5 }
+    /// Issues · My Work · (Support) · Devices · Actions · (Reviews).
+    private var tabCount: Int { 4 + (showsSupport ? 1 : 0) + (showsReviews ? 1 : 0) }
 
     var body: some View {
         HStack(spacing: MobileTabBarMetrics.launcherGap) {
@@ -124,15 +128,18 @@ struct MobileTabBar: View {
                 // Reviews sits last (EXP-147/EXP-152/EXP-686) — the same
                 // open-PR glyph the in_review status uses. Green dot while
                 // open PRs await review (EXP-214).
-                tab(
-                    glyph: AppIcons.navReviews,
-                    label: "Reviews",
-                    active: reviewsActive,
-                    badge: reviewsOpen,
-                    badgeColor: DesignTokens.Semantic.green,
-                    action: onReviews
-                )
-                .accessibilityIdentifier("tab-reviews")
+                // EXP-1105: hidden in yolo mode unless a PR is open.
+                if showsReviews {
+                    tab(
+                        glyph: AppIcons.navReviews,
+                        label: "Reviews",
+                        active: reviewsActive,
+                        badge: reviewsOpen,
+                        badgeColor: DesignTokens.Semantic.green,
+                        action: onReviews
+                    )
+                    .accessibilityIdentifier("tab-reviews")
+                }
             }
             .animation(motion.standard, value: activeKey)
             .padding(MobileTabBarMetrics.pillPadding)

@@ -120,7 +120,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v51_automation_account",
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
-             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped"]
+             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
+             "v57_team_yolo_mode"]
         )
     }
 
@@ -167,8 +168,52 @@ final class DatabaseMigrationTests: XCTestCase {
              "v51_automation_account",
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
-             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped"]
+             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
+             "v57_team_yolo_mode"]
         )
+    }
+
+    // v57 (EXP-1105): a pre-v57 store's `teams` lacks `yolo_mode` (simulated
+    // by dropping the v1 column after migrating through v56); the guarded
+    // ALTER adds it defaulting false, keeps rows, and resets the teams offset.
+    func testTeamYoloModeAddedToExistingStore() throws {
+        let pool = try makePool("team-yolo-mode")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v56_workflow_start_on_dropped")
+        try pool.write { db in
+            try db.alter(table: "teams") { t in
+                t.drop(column: "yolo_mode")
+            }
+            try db.execute(sql: """
+                INSERT INTO "teams" ("id", "name", "slug", "created_at", "updated_at")
+                VALUES ('t1', 'Acme', 'acme', '2026-09-29', '2026-09-29')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('teams', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "teams").contains("yolo_mode"))
+        let yolo = try pool.read { db in
+            try Bool.fetchOne(db, sql: #"SELECT "yolo_mode" FROM "teams" WHERE "id" = 't1'"#)
+        }
+        XCTAssertEqual(yolo, false)
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch"
+                    FROM "electric_offsets" WHERE "shape" = 'teams'
+                    """
+            )
+        }
+        XCTAssertEqual(offset?["handle"] as String?, "")
+        XCTAssertEqual(offset?["offset"] as String?, "-1")
+        XCTAssertEqual(offset?["needs_refetch"] as Int?, 1)
+        XCTAssertNoThrow(try migrator.migrate(pool))
     }
 
     // v56 (EXP-1066/EXP-1090): a store migrated through v55 whose
@@ -517,7 +562,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v51_automation_account",
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
-             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped"]
+             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
+             "v57_team_yolo_mode"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -612,7 +658,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v51_automation_account",
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
-             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped"]
+             "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
+             "v57_team_yolo_mode"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1385,6 +1432,8 @@ final class DatabaseMigrationTests: XCTestCase {
         // The team-level helpdesk switch (EXP-180 Support inbox) IS stored —
         // the teams shape serves it and the Support segment gates on it.
         XCTAssertTrue(try columnNames(pool, "teams").contains("helpdesk_enabled"))
+        // EXP-1105: yolo mode hides Reviews; synced on the teams shape.
+        XCTAssertTrue(try columnNames(pool, "teams").contains("yolo_mode"))
         // notifications.team_id (nullable): set on issue-less support_reply
         // rows so the inbox can group them per team.
         let notifTeamId = try pool.read { db in

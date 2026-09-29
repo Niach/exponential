@@ -1065,6 +1065,13 @@
       "when": 1790682811831,
       "tag": "0151_mcp_server_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1790702039413,
+      "tag": "0152_team_yolo_mode",
+      "breakpoints": true
     }
   ]
 }

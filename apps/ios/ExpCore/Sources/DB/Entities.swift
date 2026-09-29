@@ -45,6 +45,9 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
     // Team-level helpdesk switch (EXP-180): when true, every member sees the
     // Support inbox (standalone tickets via the helpdesk tRPC router).
     public let helpdeskEnabled: Bool
+    /// EXP-1105 yolo mode: PRs auto-merge, so the Reviews tab hides unless
+    /// an open PR (= a failed auto-merge) is waiting.
+    public let yoloMode: Bool
     /// EXP-630: the team's estimate scale (contract `issueEstimation`). NULL
     /// (a pre-rotation snapshot) reads as `none` = estimates off.
     public let estimationType: String?
@@ -57,6 +60,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
         slug: String,
         iconUrl: String?,
         helpdeskEnabled: Bool = false,
+        yoloMode: Bool = false,
         estimationType: String? = nil,
         createdAt: String,
         updatedAt: String
@@ -66,6 +70,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
         self.slug = slug
         self.iconUrl = iconUrl
         self.helpdeskEnabled = helpdeskEnabled
+        self.yoloMode = yoloMode
         self.estimationType = estimationType
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -79,6 +84,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
         case id, name, slug
         case iconUrl = "icon_url"
         case helpdeskEnabled = "helpdesk_enabled"
+        case yoloMode = "yolo_mode"
         case estimationType = "estimation_type"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -97,6 +103,7 @@ extension TeamEntity: Codable {
         slug = try c.decode(String.self, forKey: .slug)
         iconUrl = try c.decodeIfPresent(String.self, forKey: .iconUrl)
         helpdeskEnabled = c.decodeWireBool(forKey: .helpdeskEnabled, default: false)
+        yoloMode = c.decodeWireBool(forKey: .yoloMode, default: false)
         estimationType = try c.decodeIfPresent(String.self, forKey: .estimationType)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)

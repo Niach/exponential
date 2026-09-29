@@ -26,7 +26,7 @@ import {
   useUnreadNotificationCount,
   useUnreadSupportCount,
 } from "@/hooks/use-unread-notifications"
-import { useReviewsOpenPrCount } from "@/hooks/use-nav-counts"
+import { useReviewsOpenPrCount, useShowsReviews } from "@/hooks/use-nav-counts"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 import { workflowOpenQuestions } from "@/lib/workflows/open-questions"
@@ -365,6 +365,7 @@ export function TeamSidebarRail({
 }) {
   const params = { teamSlug }
   const { data: session } = useSession()
+  const showsReviews = useShowsReviews(team ?? undefined, boards)
   // EXP-862: while a pinned action seeds the composer, its pin owns the
   // highlight — the Agent icon must not claim the page too.
   const composerSeeded = useRouterState({
@@ -412,10 +413,12 @@ export function TeamSidebarRail({
           <NavWorkflowsIcon className="size-4" />
           <WorkflowsQuestionBadge asking={workflowsAsking} placement="icon" />
         </RailItem>
-        <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
-          <NavReviewsIcon className="size-4" />
-          <ReviewsOpenBadge boards={boards} teamId={team?.id} placement="icon" />
-        </RailItem>
+        {showsReviews && (
+          <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
+            <NavReviewsIcon className="size-4" />
+            <ReviewsOpenBadge boards={boards} teamId={team?.id} placement="icon" />
+          </RailItem>
+        )}
         <RailItem
           label="Agent"
           link={{ to: `/t/$teamSlug/agent`, params }}

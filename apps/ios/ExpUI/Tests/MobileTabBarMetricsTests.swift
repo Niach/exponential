@@ -27,6 +27,18 @@ final class MobileTabBarMetricsTests: XCTestCase {
         XCTAssertEqual(MobileTabBarMetrics.tabWidth(tabs: 5), 44)
     }
 
+    func testFourTabsStayRoomy() {
+        // EXP-1105: yolo mode (no open PR) hides Reviews; without Support
+        // that leaves four tabs on the roomy metrics.
+        XCTAssertFalse(MobileTabBarMetrics.isCompact(tabs: 4))
+        let width = MobileTabBarMetrics.barWidth(
+            tabs: 4, launcher: MobileTabBarMetrics.capsuleWidth
+        )
+        // 12 + (4×44 + 3×2 + 6) + 8 + 104.5 + 12 = 324.5
+        XCTAssertEqual(width, 324.5)
+        XCTAssertLessThanOrEqual(width, MobileTabBarMetrics.smallestPhoneWidth)
+    }
+
     func testTheLoneCircleIsNeverTheTighterCase() {
         for tabs in 5...6 {
             XCTAssertLessThan(

@@ -61,6 +61,12 @@ pub struct Team {
     /// enabled, matching the server DEFAULT true.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub end_sessions_on_merge: Option<bool>,
+    /// EXP-1105 yolo mode: `Some(true)` hides Reviews, Files and Source
+    /// Control for every member (failures still surface) and auto-merges
+    /// every PR an agent opens. `None` (pre-column rows) = off, matching the
+    /// server DEFAULT false.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub yolo_mode: Option<bool>,
     /// EXP-630: the estimate scale (contract `issueEstimation`): `none` (or
     /// a pre-column `None`) = estimates off; the others pick the ladder and
     /// how a value reads (t-shirt = XS…XL over the fibonacci points).
@@ -97,6 +103,7 @@ impl Team {
             pr_merged_status_id: None,
             pr_merged_automation: None,
             end_sessions_on_merge: None,
+            yolo_mode: None,
             estimation_type: None,
             created_at: None,
             updated_at: None,
@@ -110,6 +117,12 @@ impl Team {
     /// default), so only an explicit `false` keeps sessions running.
     pub fn ends_sessions_on_merge(&self) -> bool {
         self.end_sessions_on_merge != Some(false)
+    }
+
+    /// EXP-1105: whether the team runs in yolo mode. Only an explicit `true`
+    /// turns it on; pre-column rows read as off (the server default).
+    pub fn yolo_mode(&self) -> bool {
+        self.yolo_mode == Some(true)
     }
 }
 
@@ -2023,6 +2036,38 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(team.helpdesk_enabled, None);
+    }
+
+    #[test]
+    fn team_yolo_mode_hydrates_tolerantly() {
+        // EXP-1105: SQLite TEXT store form ("t"/"f") plus the bare wire bool.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-1",
+            "name": "Acme",
+            "yolo_mode": "t"
+        }))
+        .unwrap();
+        assert_eq!(team.yolo_mode, Some(true));
+        assert!(team.yolo_mode());
+
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-2",
+            "name": "Beta",
+            "yolo_mode": false
+        }))
+        .unwrap();
+        assert_eq!(team.yolo_mode, Some(false));
+        assert!(!team.yolo_mode());
+
+        // Pre-column rows degrade to None (off), never a dropped row.
+        let team: Team = serde_json::from_value(json!({
+            "id": "w-3",
+            "name": "Legacy"
+        }))
+        .unwrap();
+        assert_eq!(team.yolo_mode, None);
+        assert!(!team.yolo_mode());
+        assert!(!Team::seeded("w-4", "Seeded", None).yolo_mode());
     }
 
     #[test]

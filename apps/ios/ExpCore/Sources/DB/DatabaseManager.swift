@@ -192,6 +192,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Team-level helpdesk switch (EXP-180): gates the Support
                 // inbox on every client. Synced on the teams shape.
                 t.column("helpdesk_enabled", .boolean).notNull().defaults(to: false)
+                // EXP-1105: yolo mode (auto-merge; hides Reviews unless a
+                // PR is open). Synced on the teams shape.
+                t.column("yolo_mode", .boolean).notNull().defaults(to: false)
                 // EXP-630: the estimate scale (contract `issueEstimation`);
                 // nullable, NULL reads as `none` = estimates off.
                 t.column("estimation_type", .text)
@@ -2059,6 +2062,26 @@ public final class DatabaseManager: @unchecked Sendable {
                 try db.alter(table: "workflows") { t in
                     t.drop(column: "start_on")
                 }
+            }
+        }
+
+        // v57 (EXP-1105 yolo mode): `teams.yolo_mode` joined the teams
+        // shape's column allowlist. Guarded additive ALTER (a fresh v1 store
+        // already declares it), resetting the teams offset only when it
+        // actually added the column so the next sync refetches the flag.
+        migrator.registerMigration("v57_team_yolo_mode") { db in
+            guard try db.tableExists("teams") else { return }
+            let existing = Set(try db.columns(in: "teams").map(\.name))
+            guard !existing.contains("yolo_mode") else { return }
+            try db.alter(table: "teams") { t in
+                t.add(column: "yolo_mode", .boolean).notNull().defaults(to: false)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'teams'
+                    """)
             }
         }
 
