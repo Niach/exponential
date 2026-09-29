@@ -66,9 +66,11 @@ export function mcpServerInstructions(gates: {
   // EXP-933: the same tool files the run's REPORT (the close-out lives on the
   // issue's Results, not in chat), and the notify rule rides here because
   // only a run has an issue whose Results a notification can open.
+  // EXP-1144: the screenshot half is a RULE with a deadline (before the PR),
+  // not a description — the descriptive line was read and skipped.
   if (gates.sessionResults) {
     paragraphs.push(
-      `Close out with a report: exponential_sessions_results files a GFM text per topic ('Summary' first: what you did) above its screenshots (one topic per screen, one label per picture) on the issue's Results. File it before you finish, not as a chat summary. exponential_notifications_send pings a person (default you) when a long task is done or a decision is needed; it opens that Results.`
+      `Close out with a report, never a chat summary: exponential_sessions_results files GFM text per topic ('Summary' first: what you did) over screenshots (one topic per screen, one label each) on the issue's Results; screenshot every visible change BEFORE exponential_pr_open. exponential_notifications_send pings a person (default you) when a long task ends or a decision waits; it opens them.`
     )
   }
   return paragraphs.join(`\n\n`)

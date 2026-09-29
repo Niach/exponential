@@ -55,7 +55,7 @@ One branch `exp/<IDENT>` and one PR per issue; a batch shares one branch and one
 
 ## Results
 
-Your close-out report goes to `exponential_sessions_results`, not a chat summary: a GFM `text` (what you did, `#IDENT` refs) per `topic`, `Summary` first, then one per screen with `label`ed pictures (`web`, `ios`) uploaded by the returned `curl` line. It shows on the issue's Results. `exponential_attachments_upload` without `dataBase64` returns such a link for a file on an issue; a second call with `attachmentId` alone finalizes it; `exponential_attachments_list` lists them.
+Your close-out report goes to `exponential_sessions_results`, not a chat summary: a GFM `text` (what you did, `#IDENT` refs) per `topic`, `Summary` first, then one per screen with `label`ed pictures (`web`, `ios`) uploaded by the returned `curl` line; it shows on the issue's Results. Screenshot every visible change BEFORE the PR; name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
 
 Ping a person with `exponential_notifications_send` when a long task finished, a decision waits on them, or they asked; `recipients` default to you, the row opens your Results.
 
