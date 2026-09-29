@@ -10,7 +10,7 @@ import {
   providerProfileFromClaims,
   resolvePlaceholderIdentity,
 } from "@/lib/placeholder-members"
-import { teamInvites, users } from "@/db/schema"
+import { teamInvites, teamMembers, users } from "@/db/schema"
 
 // A minimal transaction fake for the effectful helpers: `select()` shifts
 // rows off a FIFO queue, `insert`/`update` record their writes, `update(...)
@@ -135,6 +135,14 @@ describe(`claimPlaceholder`, () => {
     expect(sqlText(updates[0]!.set.onboardingCompletedAt)).toContain(`coalesce`)
     expect(updates[1]!.table).toBe(teamInvites)
     expect(updates[1]!.set.acceptedAt).toBeInstanceOf(Date)
+    // EXP-1141: only the invites of teams that SEAT the row — one bound to a
+    // seatless placeholder is a join still to happen on the invite page, so
+    // the mailbox sign-in must not consume it.
+    expect(flattenSqlChunks(updates[1]!.where)).toContain(
+      teamInvites.placeholderUserId
+    )
+    expect(sqlText(updates[1]!.where)).toContain(`exists`)
+    expect(flattenSqlChunks(updates[1]!.where)).toContain(teamMembers.userId)
   })
 
   it(`is a no-op for a real account`, async () => {

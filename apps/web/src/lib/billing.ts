@@ -404,9 +404,11 @@ export type InviteCapacity = { remaining: number | null }
 
 // Pending = unaccepted AND unexpired. Expired rows are dead weight the accept
 // path rejects anyway, so they must not hold a seat. EXP-630: an invite bound
-// to a placeholder member is excluded too — the seat for an INVITED
+// to a placeholder SEATED here is excluded too — the seat for an INVITED
 // placeholder is charged by countTeamMembers below (which counts exactly
-// those), so counting the invite as well would charge it twice.
+// those), so counting the invite as well would charge it twice. EXP-1141: one
+// bound to a placeholder with no seat here (a removed member re-invited) is
+// charged nowhere else, so it counts like a plain link.
 export async function countPendingInvites(teamId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -415,8 +417,11 @@ export async function countPendingInvites(teamId: string): Promise<number> {
       and(
         eq(teamInvites.teamId, teamId),
         isNull(teamInvites.acceptedAt),
-        isNull(teamInvites.placeholderUserId),
-        gt(teamInvites.expiresAt, new Date())
+        gt(teamInvites.expiresAt, new Date()),
+        or(
+          isNull(teamInvites.placeholderUserId),
+          sql`not exists (select 1 from ${teamMembers} where ${teamMembers.teamId} = ${teamInvites.teamId} and ${teamMembers.userId} = ${teamInvites.placeholderUserId})`
+        )
       )
     )
   return row?.count ?? 0

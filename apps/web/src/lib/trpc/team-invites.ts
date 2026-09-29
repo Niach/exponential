@@ -127,6 +127,22 @@ async function hasLiveSentInvite(
   return Boolean(row)
 }
 
+// EXP-1141: does this placeholder hold a team_members row on ANY roster? A
+// seated one belongs to that team (its invite here stays unbound); a seatless
+// one is nobody's, so an invite to its address binds it (or, when nothing
+// references it, replaces it).
+async function isSeatedAnywhere(
+  tx: Pick<typeof db, `select`>,
+  userId: string
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: teamMembers.id })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+    .limit(1)
+  return Boolean(row)
+}
+
 // Whether an invited person could ever sign in AS the placeholder row: a
 // mail transport (the sign-in code and the password reset land on the
 // mailbox) or a social/OIDC provider (the login links onto the row by
@@ -282,14 +298,21 @@ export const teamInvitesRouter = router({
                   )
                   .limit(1)
               : [undefined]
-            // EXP-1132: a placeholder no team seats and nothing references
-            // (its team was deleted before the purge existed) is a ghost, not
-            // an account — drop it so this invite creates a fresh, BOUND
-            // placeholder; otherwise the invitee's accept from another
-            // address would join unbound and leave the ghost behind.
+            // A placeholder NO team seats (its team was deleted before the
+            // purge existed, or it was removed from this roster) is either a
+            // ghost nothing references — EXP-1132: drop it so this invite
+            // creates a fresh, BOUND placeholder — or a row that still
+            // carries attributions (a removed member's comments, an import's
+            // authorship) — EXP-1141: it stays and is bound AS IT IS. Left
+            // unbound, the invitee's accept from another address would join
+            // beside the row and leave it behind forever.
+            const seatless =
+              addressOwner?.placeholderAt && !member
+                ? !(await isSeatedAnywhere(tx, addressOwner.id))
+                : false
             const existing =
-              addressOwner?.placeholderAt &&
-              !member &&
+              addressOwner &&
+              seatless &&
               (await deletePlaceholderIfOrphaned(tx, addressOwner.id))
                 ? undefined
                 : addressOwner
@@ -310,11 +333,23 @@ export const teamInvitesRouter = router({
               }
               await deleteSupersededInvitesFor(tx, input.teamId, existing.id)
               placeholderUserId = existing.id
+            } else if (existing && seatless) {
+              // EXP-1141: the referenced, seatless placeholder. Bound but NOT
+              // seated (a typed address proves nothing): accepting from
+              // another account merges its attributions here and takes a
+              // fresh seat (mergePlaceholderIntoUser inserts one when the
+              // placeholder holds none), signing in through its mailbox
+              // claims the row and joins from the invite page. The seat is
+              // taken on accept, so every send is gated like a first one.
+              await assertCanInviteMember(input.teamId)
+              await deleteSupersededInvitesFor(tx, input.teamId, existing.id)
+              placeholderUserId = existing.id
             } else if (existing) {
-              // A real account — or another team's unclaimed placeholder,
-              // which is treated exactly the same: a typed address proves
-              // nothing, so it is never seated here; the person joins by
-              // accepting, and the invite stays unbound (no placeholder id).
+              // A real account — or a placeholder SEATED on another team's
+              // roster, which is treated exactly the same: a typed address
+              // proves nothing, so it is never seated here; the person joins
+              // by accepting, and the invite stays unbound (no placeholder
+              // id), leaving the other team's row theirs.
               await assertCanInviteMember(input.teamId)
             } else if (placeholderClaimable()) {
               await assertCanInviteMember(input.teamId)
@@ -696,13 +731,28 @@ export const teamInvitesRouter = router({
       // and keeps the row; the member stays until removed from the roster.
       // EXP-1076: an unsent row (`sent_at` NULL, already lapsed) takes the
       // same path — expiring a dead link is a harmless no-op, and the roster
-      // row must survive either way.
+      // row must survive either way. EXP-1141: an invite bound to a
+      // placeholder that holds NO seat here has no roster row reading it —
+      // an expired one would linger invisible, so it is deleted like a plain
+      // link invite.
       if (invite.placeholderUserId && !invite.acceptedAt) {
-        await ctx.db
-          .update(teamInvites)
-          .set({ expiresAt: new Date() })
-          .where(eq(teamInvites.id, input.id))
-        return { ok: true }
+        const [seated] = await ctx.db
+          .select({ id: teamMembers.id })
+          .from(teamMembers)
+          .where(
+            and(
+              eq(teamMembers.teamId, invite.teamId),
+              eq(teamMembers.userId, invite.placeholderUserId)
+            )
+          )
+          .limit(1)
+        if (seated) {
+          await ctx.db
+            .update(teamInvites)
+            .set({ expiresAt: new Date() })
+            .where(eq(teamInvites.id, input.id))
+          return { ok: true }
+        }
       }
 
       await ctx.db.delete(teamInvites).where(eq(teamInvites.id, input.id))

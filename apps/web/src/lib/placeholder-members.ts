@@ -169,6 +169,12 @@ export async function createUnsentPlaceholderInvite(
  * mailbox WITHOUT ever having been invited (the import seats them, `sent_at`
  * NULL) lands here too and becomes a seated member with no seat gate — seat
  * gates block new INVITES, never members already on the roster.
+ *
+ * EXP-1141: only invites of teams that SEAT the row are stamped. An invite
+ * bound to a seatless placeholder (a removed member with comments, re-invited)
+ * is a join still to happen — stamping it here would consume the link before
+ * the person reaches the invite page, which seats them (teamInvites.accept,
+ * the placeholder-is-the-accepter path) under the ordinary seat gate.
  */
 export async function claimPlaceholder(
   tx: DbOrTx,
@@ -191,7 +197,8 @@ export async function claimPlaceholder(
     .where(
       and(
         eq(teamInvites.placeholderUserId, userId),
-        isNull(teamInvites.acceptedAt)
+        isNull(teamInvites.acceptedAt),
+        sql`exists (select 1 from ${teamMembers} where ${teamMembers.teamId} = ${teamInvites.teamId} and ${teamMembers.userId} = ${userId})`
       )
     )
 }
