@@ -113,7 +113,9 @@ fun CreateIssueScreen(
     // until it closes with content in it.
     draftId: String? = null,
     // EXP-1097: the issue this one is filed UNDER (the detail's Sub-issues
-    // `+`, `board/{boardId}/new?parent={id}`). Null = a top-level issue.
+    // `+`, `board/{boardId}/new?parent={id}`). Null = a top-level issue. A
+    // sub-issue form never touches `issue_drafts` (EXP-1130): a draft carries
+    // no parent, so it rides share mode's deferred-upload pipeline instead.
     parentIssueId: String? = null,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
@@ -260,6 +262,11 @@ fun CreateIssueScreen(
     // What makes this form worth keeping (EXP-878): a real title, a
     // description, or at least one file already uploaded against the draft.
     val hasDraftContent = title.isNotBlank() || description.isNotBlank() || draftFiles.isNotEmpty()
+    // Uploads wait for the create (the `draft://` placeholder pipeline) instead
+    // of going up eagerly against a draft row: share mode has no draft, and a
+    // sub-issue form must never mint one (EXP-1130 — a kill mid-compose would
+    // leave a parent-less row that resumes as a TOP-LEVEL issue).
+    val deferUploads = shareMode || parentIssueId != null
 
     // The form as a draft row. A `draft://` placeholder is never persisted —
     // on the draft path uploads are eager, so one can only come from a share
@@ -292,15 +299,11 @@ fun CreateIssueScreen(
         if (isCreating) return
         // EXACTLY ONE write per close, never while typing (EXP-878): content
         // is saved silently as a draft, an emptied existing draft is deleted,
-        // and a blank untouched form writes nothing at all. Share mode keeps
-        // its own pending-upload pipeline and writes no drafts. A sub-issue
-        // form (EXP-1097) writes none either: a draft carries no parent, so
-        // resuming it would file a TOP-LEVEL issue (web's sub-issue composer
-        // never drafts); a draft an eager upload already minted is dropped.
+        // and a blank untouched form writes nothing at all. The deferred
+        // paths (share mode, a sub-issue form — EXP-1097/1130) hold their
+        // picks in memory and never wrote a row, so they owe nothing.
         var wrote = false
-        if (!shareMode && parentIssueId != null) {
-            if (draftMaterialized) viewModel.discardDraft(draftKey)
-        } else if (!shareMode) {
+        if (!deferUploads) {
             if (hasDraftContent) {
                 viewModel.persistDraft(snapshot())
                 wrote = true
@@ -345,7 +348,7 @@ fun CreateIssueScreen(
                 // Only sent once the row actually EXISTS (resumed, or
                 // materialised by an eager upload) — `issues.create` answers
                 // NOT_FOUND for a draft id nothing was ever written under.
-                draftId = draftKey.takeIf { !shareMode && draftMaterialized },
+                draftId = draftKey.takeIf { !deferUploads && draftMaterialized },
                 parentId = parentIssueId.takeIf { !shareMode },
             )
             if (createdId != null) {
@@ -456,10 +459,10 @@ fun CreateIssueScreen(
                     // EXP-878: on the draft path the pick is uploaded RIGHT
                     // AWAY against the draft (creating it if needed) and the
                     // editor gets the final `/api/attachments/{id}` URL — the
-                    // issue-detail model. Share mode keeps the placeholder
-                    // pipeline that uploads after the create.
+                    // issue-detail model. Share mode and a sub-issue form keep
+                    // the placeholder pipeline that uploads after the create.
                     onUploadImage = { uri ->
-                        if (shareMode) {
+                        if (deferUploads) {
                             val placeholder = "$DRAFT_URL_PREFIX${UUID.randomUUID()}"
                             pendingImages[placeholder] = uri
                             placeholder
@@ -468,7 +471,7 @@ fun CreateIssueScreen(
                         }
                     },
                     onUploadMedia = { prepared ->
-                        if (shareMode) {
+                        if (deferUploads) {
                             val placeholder = "$DRAFT_URL_PREFIX${UUID.randomUUID()}"
                             pendingMedia[placeholder] = prepared
                             placeholder
@@ -487,7 +490,7 @@ fun CreateIssueScreen(
                     // into the description, other files become draft
                     // attachments uploaded once the issue exists.
                     onAttachFile = { uri ->
-                        if (shareMode) {
+                        if (deferUploads) {
                             pendingFiles.add(uri)
                         } else {
                             scope.launch {
@@ -499,8 +502,8 @@ fun CreateIssueScreen(
                 )
 
                 // Files, only once there is one (the section never announces
-                // its own emptiness — EXP-327). Share mode still holds URIs;
-                // the draft path shows the rows it already uploaded.
+                // its own emptiness — EXP-327). The deferred paths still hold
+                // URIs; the draft path shows the rows it already uploaded.
                 if (pendingFiles.isNotEmpty()) {
                     DraftFilesSection(
                         files = pendingFiles,
