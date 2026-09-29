@@ -398,6 +398,16 @@ async fn run_turn(
             }
             StopReason::EndTurn
         }
+        // FEED-62: a message claude folds into the running turn. Claude
+        // answers it only with that turn's `result`, so it stays open until
+        // the test releases the turn, exactly like the steered one.
+        text if text.starts_with("fold ") => {
+            let deadline = Instant::now() + BUDGET;
+            while Instant::now() < deadline && !state.released.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            StopReason::EndTurn
+        }
         // The steered turn: held until the test releases it.
         "steered" => {
             let deadline = Instant::now() + BUDGET;
@@ -1383,6 +1393,45 @@ fn mid_turn_messages_keep_send_order_under_the_turn_slot_bound() {
         .collect();
     assert_eq!(rows, vec!["steered", "one", "two", "three"]);
     assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
+    harness.session.kill("killed");
+}
+
+/// FEED-62: claude answers a mid-turn message only when the running turn
+/// ends, so every such prompt stays open for the whole turn. Queued lines
+/// must still ALL reach the agent while the turn runs (the CLI then takes
+/// them in together at its next boundary), never one per finished turn
+/// behind the `TURN_SLOTS` bound.
+#[test]
+fn queued_mid_turn_messages_all_reach_the_agent_while_the_turn_runs() {
+    let harness = start_fake("queue-batch");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+
+    harness.session.send_prompt("steered".to_string());
+    until("the first turn", || prompts() >= 1);
+    for text in ["fold one", "fold two", "fold three"] {
+        harness.session.steer(text.to_string());
+    }
+    // The turn is NOT released: with the slot bound in the way only one of
+    // the three would have reached the agent by now.
+    until("every queued message reaches the agent mid-turn", || prompts() >= 4);
+    let seen = harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
+    assert_eq!(seen, vec!["steered", "fold one", "fold two", "fold three"]);
+    assert!(!signal.is_idle(), "the turn is still running");
+
+    harness.state.released.store(true, Ordering::SeqCst);
+    until("the idle edge", || signal.is_idle());
+    let rows: Vec<String> = events_of(&harness.sink, "user_message")
+        .iter()
+        .filter_map(|event| event["text"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(rows, vec!["steered", "fold one", "fold two", "fold three"]);
+    assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
+
+    // The slots were never taken by the folded lines, so the next turn
+    // still starts at once.
+    harness.session.send_prompt("after".to_string());
+    until("the next turn", || prompts() >= 5);
     harness.session.kill("killed");
 }
 
