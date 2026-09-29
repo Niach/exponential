@@ -302,17 +302,12 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                 {showMcp && (
                   /* EXP-792: WHICH team servers the run connects to — the
                      picker greys the ones the caller has not connected. */
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    <span className="flex-1 text-sm text-foreground">
-                      MCP servers
-                    </span>
-                    <McpServerPicker
-                      servers={model.mcpServers!}
-                      selectedIds={launch.mcpServerIds}
-                      onToggle={launch.toggleMcpServer}
-                      connectHref={model.mcpConnectHref}
-                    />
-                  </div>
+                  <McpServerPicker
+                    servers={model.mcpServers!}
+                    selectedIds={launch.mcpServerIds}
+                    onToggle={launch.toggleMcpServer}
+                    connectHref={model.mcpConnectHref}
+                  />
                 )}
               </GlassGroup>
             </div>

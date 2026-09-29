@@ -42,17 +42,6 @@ export const MCP_AUTH_LABELS: Record<McpAuth, string> = {
   secret: `API key`,
 }
 
-/** Well-known hosted servers the Add dialog offers as one-click tiles. Plain
- * names, no brand marks: the tile is a shortcut for pasting the URL. */
-export const MCP_CATALOG: readonly { name: string; url: string }[] = [
-  { name: `Linear`, url: `https://mcp.linear.app/mcp` },
-  { name: `Notion`, url: `https://mcp.notion.com/mcp` },
-  { name: `Sentry`, url: `https://mcp.sentry.dev/mcp` },
-  { name: `Stripe`, url: `https://mcp.stripe.com` },
-  { name: `Vercel`, url: `https://mcp.vercel.com` },
-  { name: `Supabase`, url: `https://mcp.supabase.com/mcp` },
-]
-
 /** A run can use the server as the caller stands: nothing to sign in to, or
  * the caller's own credential is usable. Everything else = "Connect first". */
 export function mcpServerReady(

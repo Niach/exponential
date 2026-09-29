@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import type { ReactNode } from "react"
+import type { ComponentType, ReactNode, SVGProps } from "react"
 
 import { cn } from "../cn"
 import { Combobox } from "../combobox"
@@ -47,13 +47,20 @@ import type { PickerOption } from "../picker-option"
 // device settings, the workflow screens) keep the circles until the
 // integration node swaps them onto this API.
 
+/** What a row may lead with: a registry concept glyph, or one of the
+ *  generated BRAND marks (`@exp/ui` `brandIcon()`, the MCP catalog). Both
+ *  take SVG props and size through `className`; a brand mark keeps its own
+ *  fills, so a row `color` tints a glyph and leaves a mark alone. */
+export type PickerGlyph = LucideIcon | ComponentType<SVGProps<SVGSVGElement>>
+
 export interface PickerItem<T extends string = string> {
   /** The stable identity of the row; also what search matches on. */
   value: T
   /** What the row reads as. A string also seeds the search keywords. */
   label: ReactNode
-  /** A leading glyph — always a concept icon, never a raw lucide import. */
-  icon?: LucideIcon
+  /** A leading glyph — a concept icon or a generated brand mark, never a
+   *  raw lucide import or a hand-drawn path. */
+  icon?: PickerGlyph
   /** A colour for the glyph (a board's hex, a label's dot, a status tone).
    *  A hex (or any CSS colour) tints the glyph; a Tailwind text class is
    *  applied as-is. With no `icon` the colour draws as the row's DOT — that

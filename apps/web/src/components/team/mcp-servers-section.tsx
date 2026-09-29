@@ -48,6 +48,13 @@ import {
   TooltipContent,
   TooltipTrigger,
   ExponentialLogo,
+  MCP_CATALOG,
+  PickerItemBody,
+  PickerList,
+  getMcpServerIcon,
+  mcpServerPickerItems,
+  type McpCatalogEntry,
+  type PickerItem,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -57,7 +64,6 @@ import {
   isNavigableAuthorizeUrl,
   UNSAFE_AUTHORIZE_URL_MESSAGE,
   MCP_AUTH_LABELS,
-  MCP_CATALOG,
   MCP_TRANSPORT_LABELS,
   MCP_VARIABLE_NAME_RE,
   mcpAuthLine,
@@ -73,7 +79,6 @@ import { builtinExpTools } from "@/lib/agent-feed"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { cn } from "@/lib/utils"
 
-const McpIcon = conceptIcon(`ui-mcp`)
 const AddIcon = conceptIcon(`ui-add`)
 const EditIcon = conceptIcon(`ui-edit`)
 const RemoveIcon = conceptIcon(`ui-delete`)
@@ -453,10 +458,28 @@ export function TeamMcpServersSection({
 // ── Probe + catalog ──────────────────────────────────────────────────────────
 
 /** What a probe hands the form: the prefilled draft and, when the server
- * could not be checked, a soft note (the owner may still save). */
+ * could not be checked, a soft note (the owner may still save). A TEMPLATE
+ * pick (a `{host}` catalog URL, never probed) asks the form to focus the URL
+ * field: the host is the one thing the owner has to type. */
 interface ProbeSeed {
   draft: McpServerDraft
   note: string | null
+  focus?: `url`
+}
+
+/** A template catalog entry's seed: the form opens on the template itself,
+ * name from the id, OAuth (every self-managed entry is), no probe. */
+function templateSeed(entry: McpCatalogEntry): ProbeSeed {
+  return {
+    draft: {
+      ...EMPTY_MCP_SERVER_DRAFT,
+      url: entry.url,
+      name: entry.id,
+      auth: `oauth`,
+    },
+    note: null,
+    focus: `url`,
+  }
 }
 
 /** `mcpServers.probe` → a prefilled draft. A failure never blocks: the draft
@@ -500,8 +523,18 @@ function useProbe(teamId: string) {
   return { probing, probe }
 }
 
-/** The catalog tiles + "Or paste a server URL". Shared by the empty state
- * (inline) and the Add dialog's first step. */
+function hostLabel(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/** ONE search box over the well-known servers: type to filter them, or paste
+ * any server's URL and pick its "Use …" row. The rows are `@exp/ui`'s MCP
+ * picker rows in a `PickerList` (the dialog is already a surface). Shared by
+ * the empty state (inline) and the Add dialog's first step. */
 function CatalogPicker({
   teamId,
   existing,
@@ -514,79 +547,76 @@ function CatalogPicker({
   onManual?: () => void
 }) {
   const { probing, probe } = useProbe(teamId)
-  const [url, setUrl] = useState(``)
-  const urlProblem = url.trim() ? mcpUrlProblem(url) : null
-  const pick = async (target: string, name: string) => {
+  const [query, setQuery] = useState(``)
+  const typed = query.trim()
+  const typedUrl = /^https?:\/\//i.test(typed) ? typed : null
+  const urlProblem = typedUrl ? mcpUrlProblem(typedUrl) : null
+  // Rows are keyed by catalog id (a template and a hosted entry may share a
+  // mark, never an id); the pasted-URL row by the URL itself. A template is
+  // never "Added": any number of self-managed hosts may exist.
+  const catalog = mcpServerPickerItems(
+    MCP_CATALOG.map((entry) => {
+      const added =
+        !entry.template &&
+        existing.some((server) => sameMcpUrl(server.url, entry.url))
+      return {
+        id: entry.id,
+        name: entry.name,
+        url: entry.url,
+        description: added ? `Added` : entry.template ? `Your own host` : undefined,
+        disabled: added,
+      }
+    })
+  )
+  const items: PickerItem[] = typedUrl
+    ? [
+        {
+          value: typedUrl,
+          label: `Use ${hostLabel(typedUrl)}`,
+          icon: getMcpServerIcon({ url: typedUrl }),
+          description: urlProblem ?? typedUrl,
+          disabled: urlProblem !== null,
+          keywords: [typed],
+        },
+        ...catalog,
+      ]
+    : catalog
+  const pick = async (value: string) => {
     if (probing) return
-    onPicked(await probe(target.trim(), name))
+    const entry = MCP_CATALOG.find((candidate) => candidate.id === value)
+    if (entry?.template) {
+      onPicked(templateSeed(entry))
+      return
+    }
+    const url = entry ? entry.url : value
+    onPicked(await probe(url, entry ? entry.id : ``))
   }
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {MCP_CATALOG.map((entry) => {
-          const added = existing.some((server) => sameMcpUrl(server.url, entry.url))
-          const loading = probing === entry.url
-          return (
-            <Button
-              key={entry.url}
-              type="button"
-              variant="glass"
-              data-testid="mcp-catalog-tile"
-              disabled={added || probing !== null}
-              title={added ? `${entry.name} is already on the team` : entry.url}
-              className="h-auto justify-start gap-2 rounded-md px-3 py-2.5"
-              onClick={() => void pick(entry.url, entry.name.toLowerCase())}
-            >
-              {loading ? (
-                <LoadingIcon className="size-4 animate-spin" />
-              ) : (
-                <McpIcon className="size-4" />
-              )}
-              <span className="flex min-w-0 flex-col items-start text-left">
-                <span className="text-sm text-foreground">{entry.name}</span>
-                <span className="text-[11px] font-normal text-muted-foreground">
-                  {added ? `Added` : new URL(entry.url).host}
-                </span>
-              </span>
-            </Button>
-          )
-        })}
-      </div>
-      <form
-        className="flex flex-col gap-1.5"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (url.trim() && !urlProblem) void pick(url, ``)
-        }}
-      >
-        <Label htmlFor="mcp-paste-url" className="px-1 text-xs font-normal text-muted-foreground">
-          Or paste a server URL
-        </Label>
-        <div className="flex items-center gap-2">
-          <Input
-            id="mcp-paste-url"
-            value={url}
-            placeholder="https://mcp.example.com/mcp"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            inputMode="url"
-            onChange={(event) => setUrl(event.target.value)}
-          />
-          <Button
-            type="submit"
-            disabled={!url.trim() || urlProblem !== null || probing !== null}
+    <div className="flex flex-col gap-2">
+      <PickerList
+        mode="single"
+        items={items}
+        value={null}
+        onChange={(value) => void pick(value)}
+        search
+        inputVariant="field"
+        searchPlaceholder="Search or paste a server URL"
+        query={query}
+        onQueryChange={setQuery}
+        emptyText="No match. Paste the server's URL instead."
+        listClassName="max-h-[60dvh] sm:max-h-96"
+        renderItem={(item) => (
+          <span
+            data-testid="mcp-catalog-row"
+            className="flex min-w-0 flex-1 items-center gap-2.5"
           >
-            {probing !== null && probing === url.trim() && (
-              <LoadingIcon className="animate-spin" />
+            <PickerItemBody item={item} />
+            {probing === item.value && (
+              <LoadingIcon className="ml-auto size-4 shrink-0 animate-spin text-muted-foreground" />
             )}
-            Continue
-          </Button>
-        </div>
-        {urlProblem && (
-          <p className="px-1 text-xs text-destructive">{urlProblem}</p>
+          </span>
         )}
-      </form>
+      />
       {onManual && (
         <Button
           type="button"
@@ -644,10 +674,11 @@ function ServerRow({
   onRemove: () => void
 }) {
   const target = mcpServerTarget(server)
+  const Glyph = getMcpServerIcon(server)
   const needsSignIn = server.auth !== `none`
   return (
     <ListRow className="gap-3 px-3 py-2" data-testid="mcp-server-row">
-      <McpIcon className="size-4 shrink-0 text-foreground/70" />
+      <Glyph className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-1.5">
           <span className="min-w-0 truncate text-sm font-medium">
@@ -978,6 +1009,7 @@ function McpServerDialog({
     start ?? EMPTY_MCP_SERVER_DRAFT
   )
   const [note, setNote] = useState<string | null>(seed?.note ?? null)
+  const [focus, setFocus] = useState<`url` | null>(seed?.focus ?? null)
   const [advanced, setAdvanced] = useState(start?.transport === `stdio`)
   const patch = (fields: Partial<McpServerDraft>) =>
     setDraft((current) => ({ ...current, ...fields }))
@@ -1010,6 +1042,7 @@ function McpServerDialog({
               onPicked={(picked) => {
                 setDraft(picked.draft)
                 setNote(picked.note)
+                setFocus(picked.focus ?? null)
                 setAdvanced(false)
                 setStep(`form`)
               }}
@@ -1048,6 +1081,8 @@ function McpServerDialog({
                   autoCorrect="off"
                   spellCheck={false}
                   inputMode="url"
+                  // A template pick: the host is what the owner types next.
+                  autoFocus={focus === `url`}
                   onChange={(event) => patch({ url: event.target.value })}
                 />
               )}

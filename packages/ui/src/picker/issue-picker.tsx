@@ -1,8 +1,8 @@
-import type { LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
 
 import {
   Picker,
+  type PickerGlyph,
   type PickerItem,
   type PickerSurfaceProps,
 } from "./picker"
@@ -23,7 +23,7 @@ export interface IssuePickerIssue {
    *  hand can still render; every real call site resolves it, because the
    *  relations linker — the look EXP-1021 is measured against — leads each
    *  row with it. The one-line `IDENT Title` label is unchanged. */
-  icon?: LucideIcon
+  icon?: PickerGlyph
   /** The glyph's colour: a builtin status' Tailwind token class, or a custom
    *  row's hex. */
   color?: string

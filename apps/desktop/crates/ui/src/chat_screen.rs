@@ -1040,6 +1040,8 @@ impl ChatScreenView {
                 name: entry.config.name.clone(),
                 blocked: launch_options::mcp_block_reason(&entry.connection),
                 enabled_by_default: entry.config.enabled_by_default,
+                url: entry.config.url.clone(),
+                command: entry.config.command.clone(),
             })
             .collect()
     }

@@ -315,6 +315,19 @@ export interface DomainContract {
     }[]
   }
   /**
+   * The MCP catalog: the well-known hosted servers the Add dialog offers by
+   * name (web + desktop; the natives have no MCP surface). `mark` is a
+   * packages/icons `brand` slug (the REAL brand mark, selfh.st/icons light
+   * SVG), rendered on web through `@exp/ui`'s `getMcpServerIcon` and on the
+   * desktop through `registry::brand`. A `url` containing `{host}` is a
+   * TEMPLATE for a self-managed install: it is never probed and never
+   * counts as "Added"; picking it opens the form on the template with the
+   * URL field focused.
+   */
+  mcpCatalog: {
+    servers: readonly { id: string; name: string; url: string; mark: string }[]
+  }
+  /**
    * EXP-846: the Exponential MCP tool display table, one row per tool the
    * server registers. A client strips `prefix` (after any `mcp__…__` MCP
    * namespace) off a tool call's name, finds the row and renders the brand

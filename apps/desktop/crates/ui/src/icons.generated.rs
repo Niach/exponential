@@ -859,3 +859,97 @@ pub const UI_WIDGET: ExpIcon = ExpIcon::Megaphone;
 pub const WORK_FACES: ExpIcon = ExpIcon::Layers2;
 /// Registry concept `work-results` -> Lucide `images`.
 pub const WORK_RESULTS: ExpIcon = ExpIcon::Images;
+
+/// The MCP catalog's brand marks (icons.json `brand`): selfh.st/icons LIGHT
+/// SVGs shipped verbatim as `assets/icons/brand-<slug>.svg` (CC-BY-4.0; the
+/// marks are their owners' trademarks, reproduced nominatively). gpui
+/// rasterizes them to a one-tint mask like every other asset, so a call site
+/// picks the tint; `contract::MCP_CATALOG_MARKS` names them by slug.
+pub mod brand {
+    use crate::icons::ExpIcon;
+
+    /// Every vendored slug, sorted.
+    pub const SLUGS: &[&str] = &[
+        "airtable",
+        "box",
+        "cloudflare",
+        "dropbox",
+        "figma",
+        "github",
+        "gitlab",
+        "jira",
+        "linear",
+        "netlify",
+        "notion",
+        "paypal",
+        "posthog",
+        "sentry",
+        "slack",
+        "stripe",
+        "supabase",
+        "todoist",
+    ];
+
+    /// A catalog `mark` slug -> its asset. `None` for a slug this build
+    /// does not vendor.
+    pub fn by_slug(slug: &str) -> Option<ExpIcon> {
+        Some(match slug {
+            "airtable" => ExpIcon::BrandAirtable,
+            "box" => ExpIcon::BrandBox,
+            "cloudflare" => ExpIcon::BrandCloudflare,
+            "dropbox" => ExpIcon::BrandDropbox,
+            "figma" => ExpIcon::BrandFigma,
+            "github" => ExpIcon::BrandGithub,
+            "gitlab" => ExpIcon::BrandGitlab,
+            "jira" => ExpIcon::BrandJira,
+            "linear" => ExpIcon::BrandLinear,
+            "netlify" => ExpIcon::BrandNetlify,
+            "notion" => ExpIcon::BrandNotion,
+            "paypal" => ExpIcon::BrandPaypal,
+            "posthog" => ExpIcon::BrandPosthog,
+            "sentry" => ExpIcon::BrandSentry,
+            "slack" => ExpIcon::BrandSlack,
+            "stripe" => ExpIcon::BrandStripe,
+            "supabase" => ExpIcon::BrandSupabase,
+            "todoist" => ExpIcon::BrandTodoist,
+            _ => return None,
+        })
+    }
+
+    /// Formagrid, Inc..
+    pub const AIRTABLE: ExpIcon = ExpIcon::BrandAirtable;
+    /// Box, Inc..
+    pub const BOX: ExpIcon = ExpIcon::BrandBox;
+    /// Cloudflare, Inc..
+    pub const CLOUDFLARE: ExpIcon = ExpIcon::BrandCloudflare;
+    /// Dropbox, Inc..
+    pub const DROPBOX: ExpIcon = ExpIcon::BrandDropbox;
+    /// Figma, Inc..
+    pub const FIGMA: ExpIcon = ExpIcon::BrandFigma;
+    /// GitHub, Inc..
+    pub const GITHUB: ExpIcon = ExpIcon::BrandGithub;
+    /// GitLab Inc..
+    pub const GITLAB: ExpIcon = ExpIcon::BrandGitlab;
+    /// Atlassian Pty Ltd.
+    pub const JIRA: ExpIcon = ExpIcon::BrandJira;
+    /// Linear Orbit, Inc..
+    pub const LINEAR: ExpIcon = ExpIcon::BrandLinear;
+    /// Netlify, Inc..
+    pub const NETLIFY: ExpIcon = ExpIcon::BrandNetlify;
+    /// Notion Labs, Inc..
+    pub const NOTION: ExpIcon = ExpIcon::BrandNotion;
+    /// PayPal, Inc..
+    pub const PAYPAL: ExpIcon = ExpIcon::BrandPaypal;
+    /// PostHog, Inc..
+    pub const POSTHOG: ExpIcon = ExpIcon::BrandPosthog;
+    /// Functional Software, Inc..
+    pub const SENTRY: ExpIcon = ExpIcon::BrandSentry;
+    /// Slack Technologies, LLC.
+    pub const SLACK: ExpIcon = ExpIcon::BrandSlack;
+    /// Stripe, Inc..
+    pub const STRIPE: ExpIcon = ExpIcon::BrandStripe;
+    /// Supabase, Inc..
+    pub const SUPABASE: ExpIcon = ExpIcon::BrandSupabase;
+    /// Doist Inc..
+    pub const TODOIST: ExpIcon = ExpIcon::BrandTodoist;
+}

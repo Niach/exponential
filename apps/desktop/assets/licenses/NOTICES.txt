@@ -18258,6 +18258,15 @@ Exceptions — three operating-system marks (EXP-924), not Lucide glyphs:
   packages/icons/svg/). Offered in the device icon picker; the marks are
   trademarks of their respective owners, used nominatively.
 
+Exceptions — the MCP catalog's brand marks (brand-*.svg), not Lucide
+glyphs:
+- brand-github.svg … brand-todoist.svg — the LIGHT SVGs of selfh.st/icons
+  (https://github.com/selfhst/icons, CC-BY-4.0), copied byte-for-byte by
+  packages/icons/scripts/generate.ts from packages/icons/brand/ (512-unit
+  viewBox, white fills; never recoloured or redrawn). They label the
+  well-known hosted MCP servers in Settings › MCP servers; each mark is a
+  trademark of its owner (named in icons.json `brand`), used nominatively.
+
 Exceptions — two sign-in brand marks (EXP-9), not Lucide glyphs:
 - apple.svg  — Apple logo glyph (path from Simple Icons, CC0), rendered
   monochrome on the "Sign in with Apple" button.
@@ -18301,6 +18310,18 @@ The collection is licensed CC-BY-4.0. The Apple logo, the Windows logo and Tux
 are trademarks of their respective owners, used nominatively to let a user
 label a machine by the operating system it runs; the licence below covers the
 icon files, not the marks.
+
+The MCP catalog (Settings › MCP servers, web and desktop) draws the brand mark
+of each well-known hosted server from the same collection: the LIGHT SVGs of
+github, gitlab, linear, jira, notion, slack, sentry, stripe, paypal, supabase,
+cloudflare, netlify, figma, airtable, box, dropbox, posthog and todoist,
+vendored verbatim under packages/icons/brand/ (512-unit viewBox, white fills).
+packages/icons emits each one unchanged: as a React component on the web and
+as the file itself under apps/desktop/assets/icons/brand-<slug>.svg; sizing is
+the only thing a call site changes. Those marks are their owners' trademarks
+(listed under Trademarks), reproduced nominatively so a member can tell which
+service a server belongs to; the licence below covers the icon files, not the
+marks. iOS and Android have no MCP surface and bundle none of them.
 
 ..............................................................................
 CC-BY-4.0 — selfh.st/icons
@@ -19082,25 +19103,97 @@ obtained.
 
 The marks below are reproduced NOMINATIVELY: each one identifies the product
 or platform it labels, so that a person can tell which sign-in provider,
-coding agent or download they are choosing. They are the property of their
-respective owners.
+coding agent, download or hosted MCP server they are choosing. They are the
+property of their respective owners.
 
 They are not open-source components and no open-source licence is claimed over
 them. Nothing in this file grants any right to use them. Exponential is not
 affiliated with, endorsed by, or sponsored by any of the owners named below.
 
+  Airtable logo
+    Owner: Formagrid, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
   Apple logo
     Owner: Apple Inc.
     Used to label the "Sign in with Apple" button and the macOS download link.
+  Box logo
+    Owner: Box, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
   Claude logo
     Owner: Anthropic PBC
     Used to label the Claude coding agent in agent pickers and session views.
+  Cloudflare logo
+    Owner: Cloudflare, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
   Codex logo
     Owner: OpenAI, L.L.C.
     Used to label the Codex coding agent in agent pickers and session views.
+  Dropbox logo
+    Owner: Dropbox, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Figma logo
+    Owner: Figma, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  GitHub logo (the Invertocat)
+    Owner: GitHub, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  GitLab logo (the Tanuki)
+    Owner: GitLab Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
   Google "G" logo
     Owner: Google LLC
     Used to label the "Sign in with Google" button.
+  Jira logo
+    Owner: Atlassian Pty Ltd
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Linear logo
+    Owner: Linear Orbit, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Netlify logo
+    Owner: Netlify, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Notion logo
+    Owner: Notion Labs, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  PayPal logo
+    Owner: PayPal, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  PostHog logo
+    Owner: PostHog, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Sentry logo
+    Owner: Functional Software, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Slack logo
+    Owner: Slack Technologies, LLC
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Stripe logo
+    Owner: Stripe, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Supabase logo
+    Owner: Supabase, Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
+  Todoist logo
+    Owner: Doist Inc.
+    Used to label its hosted MCP server in the MCP catalog and on a team's
+    server rows (selfh.st/icons light SVG, unmodified).
 
 
 ==============================================================================

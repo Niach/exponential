@@ -25,7 +25,12 @@ const connection = (status: string, error: string | null = null) => ({
 })
 
 const SERVERS = [
-  { id: `srv-1`, name: `Linear`, connection: connection(`connected`) },
+  {
+    id: `srv-1`,
+    name: `Linear`,
+    url: `https://mcp.linear.app/mcp`,
+    connection: connection(`connected`),
+  },
   { id: `srv-2`, name: `Sentry`, connection: connection(`not_connected`) },
   { id: `srv-3`, name: `Docs`, connection: connection(`not_needed`) },
   { id: `srv-4`, name: `Notion`, connection: connection(`error`, `refresh failed`) },
@@ -98,6 +103,16 @@ describe(`McpServerPicker`, () => {
     expect(
       rows()[3]!.querySelector(`[data-slot=picker-description]`)?.textContent
     ).toBe(`Reconnect first`)
+  })
+
+  it(`draws a catalog server's brand mark, a plug for the rest`, () => {
+    open()
+    const linear = rows()[0]!.querySelector(`svg`)!
+    expect(linear.getAttribute(`viewBox`)).toBe(`0 0 512 512`)
+    expect(linear.getAttribute(`class`)).toContain(`size-4`)
+    expect(linear.querySelector(`path`)?.getAttribute(`fill`)).toBe(`#fff`)
+    const docs = rows()[2]!.querySelector(`svg`)!
+    expect(docs.getAttribute(`viewBox`)).toBe(`0 0 24 24`)
   })
 
   it(`hides the filter field for a short list`, () => {

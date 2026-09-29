@@ -117,6 +117,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`picker-status`]: `Inputs & pickers`,
   [`picker-priority`]: `Inputs & pickers`,
   [`picker-label`]: `Inputs & pickers`,
+  [`picker-mcp`]: `Inputs & pickers`,
   [`sub-shell`]: `Surfaces`,
   menu: `Surfaces`,
   [`issue-context-menu`]: `Surfaces`,

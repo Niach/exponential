@@ -312,12 +312,19 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
                         `bg-glass-active`,
                       // The highlight IS the mark, so it has to outrank the
                       // hover/keyboard highlight cmdk paints on the active
-                      // row: the inset stroke is what separates "picked"
-                      // from "the cursor is here".
+                      // row: the stroke is what separates "picked" from "the
+                      // cursor is here". Every row carries the (transparent)
+                      // border so picking never shifts a row.
+                      multiple &&
+                        selectionStyle === `highlight` &&
+                        `border border-transparent`,
+                      // Adjacent picks read as ONE block: the shared edge
+                      // loses its stroke and its corners, so three picked
+                      // rows are one box, not three stacked pills.
                       multiple &&
                         selectionStyle === `highlight` &&
                         isSelected &&
-                        `font-medium text-foreground ring-1 ring-glass-stroke-active ring-inset`
+                        `font-medium text-foreground border-glass-stroke-active [&:has(+[data-picked=true])]:rounded-b-none [&:has(+[data-picked=true])]:border-b-transparent [[data-picked=true]+&]:rounded-t-none [[data-picked=true]+&]:border-t-transparent`
                     )}
                     onSelect={() => selection.pick(option)}
                   >

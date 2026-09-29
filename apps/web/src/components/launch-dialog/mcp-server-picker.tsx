@@ -6,31 +6,28 @@
 // instead of adding it (the list refetches when this tab is visible again).
 // Hidden by the caller when the team has no servers.
 //
-// EXP-1030: the rows are the shared `Picker` primitive's (EXP-1021) in
-// `mode="multi"` — the pick reads as the row's own highlight — and the note
-// rides the primitive's muted second line (`description`).
+// The rows are `@exp/ui`'s `McpServerPicker` (the shared `Picker` in
+// `mode="multi"`, each server by its glyph), the trigger the glass ladder's
+// `row` like its sibling options.
 import {
-  Picker,
+  McpServerPicker as McpServerPickerSurface,
   PickerItemBody,
-  Pill,
-  conceptIcon,
-  type PickerItem,
+  PickerTrigger,
+  pickerSummary,
 } from "@exp/ui"
 import { mcpNotReadyLabel, type McpServerRow } from "@/lib/mcp-servers"
 import { cn } from "@/lib/utils"
-
-const McpIcon = conceptIcon(`settings-mcp`)
 
 export function mcpPickSummary(
   servers: readonly Pick<McpServerRow, `id` | `name`>[],
   selectedIds: readonly string[]
 ): string {
-  const names = servers
-    .filter((server) => selectedIds.includes(server.id))
-    .map((server) => server.name)
-  if (names.length === 0) return `None`
-  if (names.length <= 2) return names.join(`, `)
-  return `${names[0]}, ${names[1]} +${names.length - 2}`
+  return pickerSummary(
+    servers
+      .filter((server) => selectedIds.includes(server.id))
+      .map((server) => server.name),
+    `None`
+  )
 }
 
 export function McpServerPicker({
@@ -39,31 +36,30 @@ export function McpServerPicker({
   onToggle,
   connectHref,
   disabled,
-  renderTrigger,
 }: {
-  servers: readonly Pick<McpServerRow, `id` | `name` | `connection`>[]
+  servers: readonly Pick<
+    McpServerRow,
+    `id` | `name` | `url` | `command` | `connection`
+  >[]
   selectedIds: readonly string[]
   onToggle: (id: string) => void
   /** The settings deep link that connects `serverId` (null = no link). */
   connectHref: (serverId: string) => string | null
   disabled?: boolean
-  /** Replaces the default pill (a settings row renders its own value). */
-  renderTrigger?: (summary: string) => React.ReactNode
 }) {
-  const summary = mcpPickSummary(servers, selectedIds)
   const notes = new Map(
     servers.map((server) => [server.id, mcpNotReadyLabel(server)])
   )
-  const items: PickerItem[] = servers.map((server) => ({
-    value: server.id,
-    label: server.name,
-    description: notes.get(server.id) ?? undefined,
-  }))
 
   return (
-    <Picker
-      mode="multi"
-      items={items}
+    <McpServerPickerSurface
+      servers={servers.map((server) => ({
+        id: server.id,
+        name: server.name,
+        url: server.url,
+        command: server.command,
+        description: notes.get(server.id) ?? undefined,
+      }))}
       value={selectedIds}
       // The primitive hands back the whole next selection; this picker's hosts
       // own one id at a time, so the change is reported as the toggled row.
@@ -81,10 +77,7 @@ export function McpServerPicker({
       }}
       disabled={disabled}
       search={servers.length > 6}
-      searchPlaceholder="Filter servers…"
-      emptyText="No servers found."
       width="md"
-      mobileTitle="MCP servers"
       renderItem={(item) => {
         const note = notes.get(item.value) ?? null
         return (
@@ -101,14 +94,17 @@ export function McpServerPicker({
         )
       }}
       trigger={
-        renderTrigger ? (
-          renderTrigger(summary)
-        ) : (
-          <Pill mode="action" disabled={disabled}>
-            <McpIcon className="size-3" />
-            <span className="max-w-[9rem] truncate">{summary}</span>
-          </Pill>
-        )
+        <PickerTrigger
+          variant="row"
+          label="MCP servers"
+          value={
+            selectedIds.length > 0
+              ? mcpPickSummary(servers, selectedIds)
+              : undefined
+          }
+          placeholder="None"
+          disabled={disabled}
+        />
       }
     />
   )

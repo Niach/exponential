@@ -10,6 +10,15 @@ Exceptions — three operating-system marks (EXP-924), not Lucide glyphs:
   packages/icons/svg/). Offered in the device icon picker; the marks are
   trademarks of their respective owners, used nominatively.
 
+Exceptions — the MCP catalog's brand marks (brand-*.svg), not Lucide
+glyphs:
+- brand-github.svg … brand-todoist.svg — the LIGHT SVGs of selfh.st/icons
+  (https://github.com/selfhst/icons, CC-BY-4.0), copied byte-for-byte by
+  packages/icons/scripts/generate.ts from packages/icons/brand/ (512-unit
+  viewBox, white fills; never recoloured or redrawn). They label the
+  well-known hosted MCP servers in Settings › MCP servers; each mark is a
+  trademark of its owner (named in icons.json `brand`), used nominatively.
+
 Exceptions — two sign-in brand marks (EXP-9), not Lucide glyphs:
 - apple.svg  — Apple logo glyph (path from Simple Icons, CC0), rendered
   monochrome on the "Sign in with Apple" button.

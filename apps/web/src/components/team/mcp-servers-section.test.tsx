@@ -3,10 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@exp/ui"
 import { TeamMcpServersSection } from "@/components/team/mcp-servers-section"
 
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= ResizeObserverStub as never
+Element.prototype.scrollIntoView ??= function scrollIntoView() {}
+
 // EXP-792: the easy MCP page. Each row offers the VIEWER one action from
 // their own connection (Connect / Set key / Connected / Reconnect / "No
 // sign-in needed"), owner controls are hidden from members, adding from a
-// catalog tile probes then (for OAuth) connects right away, and the deep
+// catalog row probes then (for OAuth) connects right away, and the deep
 // link's `?connect=` / `?mcp=` one-shots fire once and are consumed.
 
 const mockState = vi.hoisted(() => ({
@@ -134,6 +142,34 @@ describe(`TeamMcpServersSection`, () => {
     expect(mockState.assign).not.toHaveBeenCalled()
   })
 
+  it(`probes a pasted URL from the same search box`, async () => {
+    mockState.list.mockResolvedValue([])
+    mockState.probe.mockResolvedValue({
+      url: `https://mcp.example.com/mcp`,
+      suggestedName: `example`,
+      auth: `none`,
+      reachable: true,
+      error: null,
+      scopes: [],
+    })
+    render(<TeamMcpServersSection teamId="t1" isOwner />)
+
+    fireEvent.change(
+      await screen.findByPlaceholderText(`Search or paste a server URL`),
+      { target: { value: `https://mcp.example.com/mcp` } }
+    )
+    fireEvent.click(
+      await screen.findByRole(`option`, { name: /Use mcp\.example\.com/ })
+    )
+    await waitFor(() =>
+      expect(mockState.probe).toHaveBeenCalledWith(
+        { teamId: `t1`, url: `https://mcp.example.com/mcp` },
+        expect.anything()
+      )
+    )
+    expect((await screen.findByLabelText(`Name`) as HTMLInputElement).value).toBe(`example`)
+  })
+
   it(`adds a catalog server on an empty team and connects the owner at once`, async () => {
     mockState.list.mockResolvedValue([])
     mockState.probe.mockResolvedValue({
@@ -148,7 +184,7 @@ describe(`TeamMcpServersSection`, () => {
     mockState.connect.mockResolvedValue({ authorizeUrl: `https://linear.app/oauth` })
     render(<TeamMcpServersSection teamId="t1" isOwner />)
 
-    fireEvent.click(await screen.findByRole(`button`, { name: /Linear/ }))
+    fireEvent.click(await screen.findByRole(`option`, { name: /Linear/ }))
     await screen.findByText(`Members sign in with their own account (OAuth)`)
     expect((screen.getByLabelText(`Name`) as HTMLInputElement).value).toBe(`linear`)
     fireEvent.click(screen.getByRole(`button`, { name: `Save and connect` }))
@@ -166,6 +202,48 @@ describe(`TeamMcpServersSection`, () => {
       }),
       expect.anything()
     )
+  })
+
+  it(`opens a template entry on the form, unprobed, with the URL field focused`, async () => {
+    mockState.list.mockResolvedValue([])
+    render(<TeamMcpServersSection teamId="t1" isOwner />)
+
+    const row = await screen.findByRole(`option`, { name: /GitLab \(self-managed\)/ })
+    expect(row.textContent).toContain(`Your own host`)
+    // A template is never "Added" and never disabled.
+    expect(row.getAttribute(`aria-disabled`)).not.toBe(`true`)
+    fireEvent.click(row)
+
+    const url = (await screen.findByLabelText(`URL`)) as HTMLInputElement
+    expect(url.value).toBe(`https://{host}/api/v4/mcp`)
+    expect(document.activeElement).toBe(url)
+    expect((screen.getByLabelText(`Name`) as HTMLInputElement).value).toBe(`gitlab-self-managed`)
+    expect(mockState.probe).not.toHaveBeenCalled()
+    await screen.findByText(`Members sign in with their own account (OAuth)`)
+  })
+
+  it(`marks an added catalog server and draws its brand mark on the row`, async () => {
+    mockState.list.mockResolvedValue([
+      server(`linear`, `oauth`, `connected`, { url: `https://mcp.linear.app/mcp` }),
+    ])
+    render(<TeamMcpServersSection teamId="t1" isOwner />)
+    await screen.findByText(`linear`)
+    // The settings row wears the Linear mark (512 grid, its own fill), not a concept glyph.
+    const mark = rowOf(`linear`).querySelector(`svg`)!
+    expect(mark.getAttribute(`viewBox`)).toBe(`0 0 512 512`)
+    expect(mark.getAttribute(`class`)).toContain(`size-4`)
+    expect(mark.querySelector(`path`)?.getAttribute(`fill`)).toBe(`#fff`)
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Add server` }))
+    const added = await screen.findByRole(`option`, { name: /Linear/ })
+    expect(added.textContent).toContain(`Added`)
+    expect(added.getAttribute(`aria-disabled`)).toBe(`true`)
+    // Every catalog row leads with a brand mark.
+    const rows = screen.getAllByTestId(`mcp-catalog-row`)
+    expect(rows.length).toBeGreaterThanOrEqual(19)
+    for (const row of rows) {
+      expect(row.querySelector(`svg`)?.getAttribute(`viewBox`)).toBe(`0 0 512 512`)
+    }
   })
 
   it(`toasts the callback verdict once and consumes the request`, async () => {

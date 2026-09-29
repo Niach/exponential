@@ -153,7 +153,31 @@ describe(`Picker presentation (EXP-1029 → EXP-1021)`, () => {
     expect(picked).toHaveLength(1)
     expect(picked[0]!.textContent).toContain(`Alpha`)
     expect(picked[0]!.className).toContain(`bg-glass-active`)
-    expect(picked[0]!.className).toContain(`ring-glass-stroke-active`)
+    expect(picked[0]!.className).toContain(`border-glass-stroke-active`)
+  })
+
+  it(`adjacent multi picks merge into one block`, () => {
+    setViewport(1280)
+    render(
+      <Picker
+        mode="multi"
+        items={items}
+        value={[`a`, `b`]}
+        onChange={vi.fn()}
+        trigger={trigger}
+      />
+    )
+    open()
+    const picked = rows().filter(
+      (row) => row.getAttribute(`data-picked`) === `true`
+    )
+    expect(picked).toHaveLength(2)
+    // The shared edge loses its stroke and its corners on BOTH rows: three
+    // picked rows read as one box, never three stacked pills. Sibling
+    // selectors carry it, so a row picked on its own keeps every corner.
+    expect(picked[0]!.className).toContain(`[&:has(+[data-picked=true])]:rounded-b-none`)
+    expect(picked[1]!.className).toContain(`[[data-picked=true]+&]:rounded-t-none`)
+    expect(picked[0]!.nextElementSibling).toBe(picked[1])
   })
 
   it(`single mode marks the picked row with a trailing check, never a wash`, () => {
@@ -176,7 +200,7 @@ describe(`Picker presentation (EXP-1029 → EXP-1021)`, () => {
     expect(picked.querySelector(`[data-selected-glyph="check"]`)).not.toBeNull()
     // The single arm never borrows the multi arm's mark.
     expect(picked.getAttribute(`data-picked`)).toBe(`true`)
-    expect(picked.className).not.toContain(`ring-glass-stroke-active`)
+    expect(picked.className).not.toContain(`border-glass-stroke-active`)
     // …and never the circle pair the multi arm retired.
     expect(document.querySelectorAll(`[data-selected-glyph="selected"]`)).toHaveLength(0)
     expect(document.querySelectorAll(`[data-selected-glyph="unselected"]`)).toHaveLength(0)

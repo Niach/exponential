@@ -276,6 +276,24 @@ that were never granted.
 This sits alongside, and follows the same rule as, EXP-375's trademarks section:
 marks and non-OSS components each get their own heading, never an OSS one.
 
+### Brand marks in the MCP catalog (2026-09-29)
+
+Settings › MCP servers (web + desktop) labels each well-known hosted server
+with its REAL brand mark. The files are the LIGHT SVGs of selfh.st/icons
+(CC-BY-4.0, attribution carried in the selfh.st/icons entry of the notices),
+vendored verbatim under `packages/icons/brand/` and emitted unchanged by
+`packages/icons` (a React component per slug for the web, the file itself as
+`apps/desktop/assets/icons/brand-<slug>.svg` for the desktop). The licence
+covers the icon FILES; the marks themselves are their owners' trademarks and
+are listed one by one under the notices' Trademarks heading with the owner
+and the nominative use. Rules that follow from that: never recolour, restyle
+or redraw a mark (sizing is the only change a call site may make), never fold
+one into the Lucide grid, never ship one where no such server is offered (the
+natives have no MCP surface and bundle none). Adding a catalog entry = a light
+SVG under `brand/`, a row in `icons.json` `brand` (with `owner`), a row in
+`contract.json` `mcpCatalog`, a `TRADEMARKS` row in
+`packages/licenses/curated/supplement.ts`, then the three generators.
+
 ## How this is enforced — EXP-375
 
 The rule above is mechanical, not aspirational. `packages/licenses` generates

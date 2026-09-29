@@ -56,6 +56,7 @@ pub(crate) mod device_picker;
 pub(crate) mod icon_picker;
 pub(crate) mod issue_picker;
 pub(crate) mod label_picker;
+pub(crate) mod mcp_server_picker;
 pub(crate) mod priority_picker;
 pub(crate) mod status_picker;
 
@@ -705,10 +706,21 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     .when(fit.is_some(), |rows| rows.flex_1().min_h_0())
                     .when(fit.is_none(), |rows| rows.max_h(px(PICKER_ROWS_MAX_HEIGHT)))
                     .overflow_y_scroll();
+                // EXP-792 (web `Picker` highlight rows): a picked row's
+                // neighbours in the RENDERED list decide which of its edges
+                // keep the stroke and the radius, so a run of picked rows
+                // reads as ONE bordered block, not stacked pills.
+                let picked_here: Vec<bool> =
+                    visible.iter().map(|ix| items[*ix].state(&value) == PickerChecked::All).collect();
                 for (position, ix) in visible.into_iter().enumerate() {
                     let item = &items[ix];
                     let mark = item.state(&value);
                     let selected = mark != PickerChecked::None;
+                    let (top_edge, bottom_edge) = multi_row_edges(
+                        multi && mark == PickerChecked::All,
+                        position > 0 && picked_here[position - 1],
+                        picked_here.get(position + 1).copied().unwrap_or(false),
+                    );
                     let disabled = !row_enabled(item);
                     let item_value = item.value.clone();
                     let on_change = on_change.clone();
@@ -742,11 +754,27 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                         cx,
                     )
                     // A border on EVERY row, transparent unless the row is
-                    // picked: the mark must not move the rows it marks.
+                    // picked: the mark must not move the rows it marks. An
+                    // edge shared with another picked row loses its stroke
+                    // AND its corners; gpui has one border colour per
+                    // element, so the shared edge's 1px goes to padding
+                    // instead — same height, no seam, no shift.
                     .border_1()
                     .border_color(gpui::transparent_black())
                     .when(multi && mark == PickerChecked::All, |row| {
                         row.border_color(t::glass::STROKE_ACTIVE.to_hsla())
+                    })
+                    .when(!top_edge, |row| {
+                        row.border_t_0()
+                            .pt(px(PICKER_ROW_PY + 1.))
+                            .rounded_tl(px(0.))
+                            .rounded_tr(px(0.))
+                    })
+                    .when(!bottom_edge, |row| {
+                        row.border_b_0()
+                            .pb(px(PICKER_ROW_PY + 1.))
+                            .rounded_bl(px(0.))
+                            .rounded_br(px(0.))
                     })
                     .when(disabled, |row| row.text_color(cx.theme().muted_foreground))
                     .on_hover(move |hovered, _window, cx| {
@@ -822,6 +850,23 @@ pub(crate) fn row_fills(
         row_fill(multi, mark, at_cursor, cursor),
         row_fill(multi, mark, !disabled, cursor),
     )
+}
+
+/// `pickers::picker_row_filled`'s vertical padding (`py_1`), which a joined
+/// edge grows by the 1px border it gives up.
+const PICKER_ROW_PY: f32 = 4.;
+
+/// Which of a search-surface row's edges keep their stroke and corners:
+/// `(top, bottom)`. EXP-792, the web primitive's highlight rows: a picked
+/// MULTI row drops its top edge when the row ABOVE is picked and its bottom
+/// edge when the row BELOW is, so adjacent picks fuse into ONE bordered
+/// block. An unpicked row (and every single-pick row) keeps both edges: its
+/// border is transparent anyway, and its corners are the plain row's.
+pub(crate) fn multi_row_edges(picked: bool, prev_picked: bool, next_picked: bool) -> (bool, bool) {
+    if !picked {
+        return (true, true);
+    }
+    (!prev_picked, !next_picked)
 }
 
 /// [`row_fills`] for a SINGLE-pick row, where the mark is the trailing check
@@ -1288,6 +1333,22 @@ mod tests {
         assert_eq!(row_fill(false, PickerChecked::All, true, cursor), Some(cursor));
         assert_eq!(row_fill(false, PickerChecked::All, false, cursor), None);
         assert_eq!(row_fill(true, PickerChecked::None, false, cursor), None);
+    }
+
+    /// EXP-792: adjacent picked rows fuse — the shared edge loses its stroke
+    /// and its corners on BOTH sides, the outer edges keep theirs, and an
+    /// unpicked row between two picks breaks the run.
+    #[test]
+    fn adjacent_picked_rows_share_one_border() {
+        // Three picked rows in a row: a top cap, a middle, a bottom cap.
+        assert_eq!(multi_row_edges(true, false, true), (true, false));
+        assert_eq!(multi_row_edges(true, true, true), (false, false));
+        assert_eq!(multi_row_edges(true, true, false), (false, true));
+        // A lone pick is a full pill.
+        assert_eq!(multi_row_edges(true, false, false), (true, true));
+        // An unpicked row never joins, whatever its neighbours do.
+        assert_eq!(multi_row_edges(false, true, true), (true, true));
+        assert_eq!(multi_row_edges(false, false, false), (true, true));
     }
 
     /// EXP-1045 review round 2: the HOVERED fill is the one the pointer

@@ -14,6 +14,7 @@ pub(crate) mod picker_icon;
 pub(crate) mod picker_status;
 pub(crate) mod picker_priority;
 pub(crate) mod picker_label;
+pub(crate) mod picker_mcp;
 pub(crate) mod sub_shell;
 pub(crate) mod menu;
 pub(crate) mod toast;
@@ -58,6 +59,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_status::ID, owner: picker_status::OWNER, render: picker_status::render },
     Entry { id: picker_priority::ID, owner: picker_priority::OWNER, render: picker_priority::render },
     Entry { id: picker_label::ID, owner: picker_label::OWNER, render: picker_label::render },
+    Entry { id: picker_mcp::ID, owner: picker_mcp::OWNER, render: picker_mcp::render },
     Entry { id: sub_shell::ID, owner: sub_shell::OWNER, render: sub_shell::render },
     Entry { id: menu::ID, owner: menu::OWNER, render: menu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },

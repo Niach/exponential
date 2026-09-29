@@ -964,6 +964,19 @@ impl McpServersPane {
             .items_center()
             .px_3()
             .py_2()
+            // EXP-792: the row wears the server's glyph (the picker's
+            // `mcp_server_icon`: the brand mark of a catalog URL, a shell for
+            // a command, else the plug), so the list and the composer's pick
+            // read the same. A mark is a one-tint mask like any Lucide glyph.
+            .child(
+                Icon::from(crate::picker::mcp_server_picker::mcp_server_icon(
+                    config.url.as_deref(),
+                    config.command.as_deref(),
+                ))
+                .size(gpui::px(14.))
+                .flex_shrink_0()
+                .text_color(muted),
+            )
             .child(
                 v_flex()
                     .flex_1()

@@ -34,7 +34,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_component::{h_flex, select::Select, v_flex, ActiveTheme as _, Disableable as _, Icon};
+use gpui_component::{h_flex, select::Select, ActiveTheme as _, Disableable as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
 
@@ -67,6 +67,31 @@ pub(crate) struct McpServerOption {
     pub(crate) blocked: Option<String>,
     /// Seeds the FIRST pick (`enabledByDefault`) — ready servers only.
     pub(crate) enabled_by_default: bool,
+    /// The row's glyph + second line come from these
+    /// ([`crate::picker::mcp_server_picker::mcp_server_icon`]).
+    pub(crate) url: Option<String>,
+    pub(crate) command: Option<String>,
+}
+
+/// The options as the shared picker reads them
+/// ([`crate::picker::mcp_server_picker::McpPickerServer`]): a blocked
+/// server keeps its reason as the second line and stays PICKABLE (the
+/// launch then starts without it), so `disabled` is never set — the row
+/// only dims ([`more_options_popover`]).
+pub(crate) fn mcp_picker_servers(
+    servers: &[McpServerOption],
+) -> Vec<crate::picker::mcp_server_picker::McpPickerServer> {
+    servers
+        .iter()
+        .map(|server| crate::picker::mcp_server_picker::McpPickerServer {
+            id: server.id.clone(),
+            name: server.name.clone(),
+            url: server.url.clone(),
+            command: server.command.clone(),
+            description: server.blocked.clone(),
+            disabled: false,
+        })
+        .collect()
 }
 
 /// The multiselect's trailing value — web `mcpPickSummary`, string for
@@ -976,18 +1001,17 @@ impl LaunchOptionsSection {
         self.mcp_seeded = false;
     }
 
-    /// Tick/untick one server. Kept in REGISTRY order so the launcher's
+    /// The picker's new set. Kept in REGISTRY order so the launcher's
     /// per-server env positions (`EXP_MCP_TOKEN_<n>`) follow the list the
-    /// person sees, not the order they happened to click in.
-    pub(crate) fn toggle_mcp_server(&mut self, id: &str) {
-        if let Some(at) = self.mcp_selected.iter().position(|picked| picked == id) {
-            self.mcp_selected.remove(at);
-            return;
-        }
-        self.mcp_selected.push(id.to_string());
-        let order: Vec<&str> = self.mcp_servers.iter().map(|s| s.id.as_str()).collect();
-        self.mcp_selected
-            .sort_by_key(|id| order.iter().position(|known| known == id).unwrap_or(usize::MAX));
+    /// person sees, not the order they happened to click in; an id the
+    /// list no longer offers is dropped.
+    pub(crate) fn set_mcp_selected(&mut self, ids: Vec<String>) {
+        self.mcp_selected = self
+            .mcp_servers
+            .iter()
+            .filter(|server| ids.iter().any(|id| id == &server.id))
+            .map(|server| server.id.clone())
+            .collect();
     }
 
     /// EXP-872: every signed-in login the TARGET machine reports, ACROSS
@@ -1337,8 +1361,9 @@ pub(crate) struct MoreOptions {
 /// The popover surface is the ONLY edge: the rows are hairline-divided and
 /// carry no fill and no radius of their own
 /// ([`surface::glass_group_rows_bare`]) — a `glass_group` in here would be a
-/// card inside a card. The MCP servers are drawn as TICK ROWS in the same
-/// ladder rather than behind a second popover: one overlay, one click.
+/// card inside a card. The MCP servers row is the shared multi picker's
+/// trigger (web `McpServerPicker` off a `row` trigger): label leading, the
+/// pick's summary trailing, the servers behind it by glyph + host.
 pub(crate) fn more_options_popover<V: Render>(
     prefix: &'static str,
     trigger: Button,
@@ -1352,7 +1377,7 @@ pub(crate) fn more_options_popover<V: Render>(
     Popover::new(SharedString::from(format!("{prefix}-more-popover")))
         .p_1()
         .trigger(trigger)
-        .content(move |_, _window, cx| {
+        .content(move |_, window, cx| {
             let Some(options) = view
                 .upgrade()
                 .and_then(|entity| read(entity.read(cx)).map(|section| section.more_options(cx)))
@@ -1436,72 +1461,57 @@ pub(crate) fn more_options_popover<V: Render>(
                 );
             }
 
-            // EXP-792: the team's MCP servers, ticked in place.
+            // EXP-792: the team's MCP servers behind the shared picker. The
+            // row IS the trigger; a blocked server reads its reason as the
+            // second line and DIMS, but still toggles (the launch starts
+            // without it — a warning, never a blocker).
             if !options.mcp_servers.is_empty() {
-                rows.push(
-                    surface::bare_row_shell().child("MCP servers").child(
-                        div().text_xs().text_color(muted).child(SharedString::from(
-                            mcp_pick_summary(&options.mcp_servers, &options.mcp_selected),
-                        )),
-                    ),
-                );
-                for server in &options.mcp_servers {
-                    let checked = options.mcp_selected.iter().any(|id| id == &server.id);
-                    let id = server.id.clone();
-                    let view = view.clone();
-                    let blocked = server.blocked.clone();
-                    // A tick row is CLICKABLE, so it is stateful; the plain
-                    // wrapper is what carries the ladder's hairline.
-                    rows.push(div().w_full().child(
-                        surface::bare_row_shell()
-                            .id(SharedString::from(format!("{prefix}-mcp-{}", server.id)))
-                            .cursor_pointer()
-                            .when(blocked.is_some(), |row| row.opacity(0.5))
-                            .child(
-                                h_flex()
-                                    .min_w_0()
-                                    .gap_2()
-                                    .items_center()
-                                    // The ROW owns the click — the glyph is a
-                                    // MARK, not a second control.
-                                    .children(crate::pickers::selection_glyph(
-                                        true,
-                                        if checked {
-                                            crate::pickers::SelectionState::Selected
-                                        } else {
-                                            crate::pickers::SelectionState::Unselected
-                                        },
-                                        cx,
-                                    ))
-                                    .child(
-                                        v_flex()
-                                            .min_w_0()
-                                            .gap_0p5()
-                                            .child(
-                                                div()
-                                                    .truncate()
-                                                    .child(SharedString::from(server.name.clone())),
-                                            )
-                                            .children(blocked.map(|reason| {
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(muted)
-                                                    .truncate()
-                                                    .child(SharedString::from(reason))
-                                            })),
-                                    ),
-                            )
-                            .on_click(move |_, _window, cx| {
-                                if let Some(entity) = view.upgrade() {
-                                    let id = id.clone();
-                                    entity.update(cx, |entity, cx| {
-                                        access(entity).toggle_mcp_server(&id);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    ));
-                }
+                let servers = mcp_picker_servers(&options.mcp_servers);
+                let dimmed: Vec<String> = options
+                    .mcp_servers
+                    .iter()
+                    .filter(|server| server.blocked.is_some())
+                    .map(|server| server.id.clone())
+                    .collect();
+                let view = view.clone();
+                let trigger = surface::bare_row_shell()
+                    .cursor_pointer()
+                    .child("MCP servers")
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(mcp_pick_summary(
+                                &options.mcp_servers,
+                                &options.mcp_selected,
+                            ))),
+                    )
+                    .into_any_element();
+                let picker = crate::picker::mcp_server_picker::mcp_server_picker(
+                    &servers,
+                    options.mcp_selected.clone(),
+                    trigger,
+                    std::rc::Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
+                        if let Some(entity) = view.upgrade() {
+                            entity.update(cx, |entity, cx| {
+                                access(entity).set_mcp_selected(ids);
+                                cx.notify();
+                            });
+                        }
+                    }),
+                )
+                .id(SharedString::from(format!("{prefix}-mcp-picker")))
+                .render_item(move |item, cx| {
+                    let body = crate::picker::picker_item_body(item, cx);
+                    if dimmed.iter().any(|id| id == &item.value) {
+                        h_flex().flex_1().min_w_0().opacity(0.5).child(body).into_any_element()
+                    } else {
+                        body
+                    }
+                });
+                rows.push(div().w_full().child(picker.render(window, cx)));
             }
 
             div()
@@ -1526,7 +1536,33 @@ mod tests {
             name: name.into(),
             blocked: None,
             enabled_by_default: on_by_default,
+            ..Default::default()
         }
+    }
+
+    /// EXP-792: the shared picker's rows — a blocked server keeps its reason
+    /// as the second line but is NEVER disabled (it still toggles; the
+    /// launch merely starts without it), and the glyph inputs travel.
+    #[test]
+    fn picker_rows_keep_a_blocked_server_pickable() {
+        let servers = vec![
+            McpServerOption {
+                url: Some("https://mcp.linear.app/mcp".into()),
+                ..server("a", "Linear", true)
+            },
+            McpServerOption {
+                blocked: Some(MCP_CONNECT_FIRST.to_string()),
+                command: Some("npx acme".into()),
+                ..server("b", "Local", false)
+            },
+        ];
+        let rows = mcp_picker_servers(&servers);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].url.as_deref(), Some("https://mcp.linear.app/mcp"));
+        assert_eq!(rows[0].description, None);
+        assert_eq!(rows[1].command.as_deref(), Some("npx acme"));
+        assert_eq!(rows[1].description.as_deref(), Some(MCP_CONNECT_FIRST));
+        assert!(rows.iter().all(|row| !row.disabled));
     }
 
     /// EXP-792: web `mcpPickSummary`, string for string — two names spell

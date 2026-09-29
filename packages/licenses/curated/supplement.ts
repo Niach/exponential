@@ -114,6 +114,7 @@ export const ICONS: CuratedEntry[] = [
     body: [
       `EXP-924: the device icon picker offers three operating-system marks Lucide does not ship (os-apple, os-windows, os-linux). Their outlines come from selfh.st/icons (https://github.com/selfhst/icons, the apple-light, microsoft-windows-light and linux-light SVGs, kept unmodified under packages/icons/svg/). packages/icons scales each single path from its 512-unit viewBox into an 18-unit live area centred in Lucide's 24-unit grid and emits it into all four clients; that scaling is the only change made.`,
       `The collection is licensed CC-BY-4.0. The Apple logo, the Windows logo and Tux are trademarks of their respective owners, used nominatively to let a user label a machine by the operating system it runs; the licence below covers the icon files, not the marks.`,
+      `The MCP catalog (Settings › MCP servers, web and desktop) draws the brand mark of each well-known hosted server from the same collection: the LIGHT SVGs of github, gitlab, linear, jira, notion, slack, sentry, stripe, paypal, supabase, cloudflare, netlify, figma, airtable, box, dropbox, posthog and todoist, vendored verbatim under packages/icons/brand/ (512-unit viewBox, white fills). packages/icons emits each one unchanged: as a React component on the web and as the file itself under apps/desktop/assets/icons/brand-<slug>.svg; sizing is the only thing a call site changes. Those marks are their owners' trademarks (listed under Trademarks), reproduced nominatively so a member can tell which service a server belongs to; the licence below covers the icon files, not the marks. iOS and Android have no MCP surface and bundle none of them.`,
     ],
     reproduce: [
       { label: `CC-BY-4.0 — selfh.st/icons`, path: `packages/licenses/texts/spdx/CC-BY-4.0.txt` },
@@ -226,10 +227,120 @@ export const TRADEMARKS: Trademark[] = [
     clients: [`marketing`],
     use: `label the Linux download link`,
   },
+  // The MCP catalog's brand marks (packages/icons `brand`, contract
+  // `mcpCatalog`): web + desktop only, the natives have no MCP surface.
+  {
+    mark: `GitHub logo (the Invertocat)`,
+    owner: `GitHub, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `GitLab logo (the Tanuki)`,
+    owner: `GitLab Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Linear logo`,
+    owner: `Linear Orbit, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Jira logo`,
+    owner: `Atlassian Pty Ltd`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Notion logo`,
+    owner: `Notion Labs, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Slack logo`,
+    owner: `Slack Technologies, LLC`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Sentry logo`,
+    owner: `Functional Software, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Stripe logo`,
+    owner: `Stripe, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `PayPal logo`,
+    owner: `PayPal, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Supabase logo`,
+    owner: `Supabase, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Cloudflare logo`,
+    owner: `Cloudflare, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Netlify logo`,
+    owner: `Netlify, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Figma logo`,
+    owner: `Figma, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Airtable logo`,
+    owner: `Formagrid, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Box logo`,
+    owner: `Box, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Dropbox logo`,
+    owner: `Dropbox, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `PostHog logo`,
+    owner: `PostHog, Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
+  {
+    mark: `Todoist logo`,
+    owner: `Doist Inc.`,
+    clients: [`desktop`, `web`],
+    use: `label its hosted MCP server in the MCP catalog and on a team's server rows (selfh.st/icons light SVG, unmodified)`,
+  },
 ]
 
 export const TRADEMARK_STATEMENT = [
-  `The marks below are reproduced NOMINATIVELY: each one identifies the product or platform it labels, so that a person can tell which sign-in provider, coding agent or download they are choosing. They are the property of their respective owners.`,
+  `The marks below are reproduced NOMINATIVELY: each one identifies the product or platform it labels, so that a person can tell which sign-in provider, coding agent, download or hosted MCP server they are choosing. They are the property of their respective owners.`,
   `They are not open-source components and no open-source licence is claimed over them. Nothing in this file grants any right to use them. Exponential is not affiliated with, endorsed by, or sponsored by any of the owners named below.`,
 ]
 

@@ -442,6 +442,29 @@
   "mcpAuth": {
     "values": ["none", "oauth", "secret"]
   },
+  "mcpCatalog": {
+    "servers": [
+      { "id": "github", "name": "GitHub", "url": "https://api.githubcopilot.com/mcp/", "mark": "github" },
+      { "id": "gitlab", "name": "GitLab", "url": "https://gitlab.com/api/v4/mcp", "mark": "gitlab" },
+      { "id": "gitlab-self-managed", "name": "GitLab (self-managed)", "url": "https://{host}/api/v4/mcp", "mark": "gitlab" },
+      { "id": "linear", "name": "Linear", "url": "https://mcp.linear.app/mcp", "mark": "linear" },
+      { "id": "atlassian", "name": "Jira & Confluence", "url": "https://mcp.atlassian.com/v1/mcp", "mark": "jira" },
+      { "id": "notion", "name": "Notion", "url": "https://mcp.notion.com/mcp", "mark": "notion" },
+      { "id": "slack", "name": "Slack", "url": "https://mcp.slack.com/mcp", "mark": "slack" },
+      { "id": "sentry", "name": "Sentry", "url": "https://mcp.sentry.dev/mcp", "mark": "sentry" },
+      { "id": "stripe", "name": "Stripe", "url": "https://mcp.stripe.com", "mark": "stripe" },
+      { "id": "paypal", "name": "PayPal", "url": "https://mcp.paypal.com/mcp", "mark": "paypal" },
+      { "id": "supabase", "name": "Supabase", "url": "https://mcp.supabase.com/mcp", "mark": "supabase" },
+      { "id": "cloudflare", "name": "Cloudflare", "url": "https://mcp.cloudflare.com/mcp", "mark": "cloudflare" },
+      { "id": "netlify", "name": "Netlify", "url": "https://mcp.netlify.com/mcp", "mark": "netlify" },
+      { "id": "figma", "name": "Figma", "url": "https://mcp.figma.com/mcp", "mark": "figma" },
+      { "id": "airtable", "name": "Airtable", "url": "https://mcp.airtable.com/mcp", "mark": "airtable" },
+      { "id": "box", "name": "Box", "url": "https://mcp.box.com/mcp", "mark": "box" },
+      { "id": "dropbox", "name": "Dropbox", "url": "https://mcp.dropbox.com/mcp", "mark": "dropbox" },
+      { "id": "posthog", "name": "PostHog", "url": "https://mcp.posthog.com/mcp", "mark": "posthog" },
+      { "id": "todoist", "name": "Todoist", "url": "https://ai.todoist.net/mcp", "mark": "todoist" }
+    ]
+  },
   "actionTrigger": {
     "eventValues": [
       "created",

@@ -14,6 +14,7 @@ import { entry as pickerIcon } from "./picker-icon.tsx"
 import { entry as pickerStatus } from "./picker-status.tsx"
 import { entry as pickerPriority } from "./picker-priority.tsx"
 import { entry as pickerLabel } from "./picker-label.tsx"
+import { entry as pickerMcp } from "./picker-mcp.tsx"
 import { entry as subShell } from "./sub-shell.tsx"
 import { entry as menu } from "./menu.tsx"
 import { entry as toast } from "./toast.tsx"
@@ -39,6 +40,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   pickerStatus,
   pickerPriority,
   pickerLabel,
+  pickerMcp,
   subShell,
   menu,
   toast,
