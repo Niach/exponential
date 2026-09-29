@@ -266,3 +266,17 @@ describe(`work faces`, () => {
     expect(faceShowsContextMenu(`results`)).toBe(false)
   })
 })
+
+// EXP-933: the issue's Results run, fixture-locked ×4.
+import resultsFixture from "@exp/domain-contract/fixtures/session-results.json"
+import { issueResultsRun } from "./work-faces"
+
+describe(`issueResultsRun`, () => {
+  const now = new Date(resultsFixture.issueResultsRun.now)
+  for (const c of resultsFixture.issueResultsRun.cases) {
+    it(c.name, () => {
+      const picked = issueResultsRun(c.rows, c.issueId, c.boundId, c.me ?? undefined, now)
+      expect(picked?.id ?? null).toBe(c.expected)
+    })
+  }
+})

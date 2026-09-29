@@ -984,6 +984,7 @@ describe(`exponential_notifications_send`, () => {
       deduped: [{ id: `user-1`, email: `u@example.com` }],
       notMembers: [],
       unknown: [`ghost@example.com`],
+      opens: null,
     })
     expect(send).toHaveBeenCalledWith({
       teamId: WS,
@@ -991,8 +992,39 @@ describe(`exponential_notifications_send`, () => {
       recipientIds: [`user-1`, `user-2`],
       title: `Build finished`,
       body: `All green.`,
+      issueId: null,
     })
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
+  })
+
+  // EXP-933: a run pings its own person without looking anyone up.
+  it(`defaults recipients to the caller`, async () => {
+    send.mockResolvedValue({ delivered: [`user-1`], declined: [], notMembers: [], deduped: [] })
+    const result = await tool(`exponential_notifications_send`)({ teamId: WS, title: `Done` })
+    expect(parseOk(result)).toMatchObject({ ok: true })
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientIds: [`user-1`], issueId: null })
+    )
+  })
+
+  it(`asks for a team outside a session when none can be derived`, async () => {
+    const result = await tool(`exponential_notifications_send`)({ title: `Done` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Pass teamId`)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it(`targets a named issue and derives the team from it`, async () => {
+    const ISSUE = `11111111-2222-4333-8444-555555555555`
+    // Every select in this mock answers the same rows: the issue lookup reads
+    // `teamId`, the member lookup `id`/`email`.
+    dbRows.current = [{ id: `user-1`, email: `u@example.com`, teamId: WS }]
+    send.mockResolvedValue({ delivered: [`user-1`], declined: [], notMembers: [], deduped: [] })
+    const result = await tool(`exponential_notifications_send`)({ title: `Done`, issueId: ISSUE })
+    expect(parseOk(result)).toMatchObject({ opens: { issueId: ISSUE, face: `results` } })
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: WS, issueId: ISSUE, recipientIds: [`user-1`] })
+    )
   })
 
   it(`reports a recipient who blocked teammates' agents as declined, not an error`, async () => {
@@ -2811,6 +2843,56 @@ describe(`exponential_sessions_results`, () => {
     // Every response carries what the run has published so far.
     expect(payload.results).toEqual([{ topic: `nav`, label: `web` }])
     expect(h.db.update).not.toHaveBeenCalled()
+  })
+
+  // EXP-933: the run's report text lands directly, no upload link.
+  it(`files a topic's report text under the row lock, without a link`, async () => {
+    dbRows.current = [runRow({ results: [picture(`nav`, `web`, `att-1`)] })]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `Summary`, text: `  ## Done\n- shipped #EXP-1  ` })
+    expect(parseOk(result)).toEqual({
+      topic: `Summary`,
+      text: 24,
+      results: [
+        { topic: `nav`, label: `web` },
+        { topic: `Summary`, text: 24 },
+      ],
+    })
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        results: [
+          expect.objectContaining({ attachmentId: `att-1` }),
+          expect.objectContaining({ topic: `Summary`, label: null, text: `## Done\n- shipped #EXP-1` }),
+        ],
+      })
+    )
+  })
+
+  it(`files text and mints a picture link in one call`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `nav`, text: `The nav`, label: `web` })
+    const payload = parseOk(result) as { uploadUrl: string; results: unknown }
+    expect(payload.uploadUrl).toContain(`/api/session-results/`)
+    expect(payload.results).toEqual([{ topic: `nav`, text: 7 }])
+  })
+
+  it(`removes only a topic's text with remove + text ''`, async () => {
+    dbRows.current = [
+      runRow({
+        results: [
+          { topic: `nav`, label: null, attachmentId: null, width: null, height: null, text: `x` },
+          picture(`nav`, `web`, `att-1`),
+        ],
+      }),
+    ]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `nav`, text: ``, remove: true })
+    expect(parseOk(result)).toMatchObject({ removed: 1, results: [{ topic: `nav`, label: `web` }] })
+    expect(h.deleteObject).not.toHaveBeenCalled()
   })
 
   it(`removes one label, reclaiming its row and its object`, async () => {

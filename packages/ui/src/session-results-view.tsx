@@ -1,10 +1,18 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from "react"
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react"
 import { Button } from "./button"
 import { GlassSectionHeader } from "./glass-rows"
 import { ImagePreviewDialog } from "./image-preview-dialog"
 import {
   groupSessionResults,
   SESSION_RESULT_TILE_HEIGHT,
+  sessionResultPictures,
+  type SessionResultGroup,
   sessionResultTileHeightFitting,
   sessionResultTileWidth,
   type SessionResultEntry,
@@ -12,6 +20,7 @@ import {
 import { cn } from "./cn"
 
 // EXP-879: the RESULTS face — the screenshots a run published with
+// (EXP-933: and each topic's GFM report text, above its tiles)
 // `exponential_sessions_results`, read off the synced `coding_sessions.results`
 // jsonb. One group band per topic (EXP-818's `GlassSectionHeader`, the same
 // band every list wears) over a wrapping strip of tiles; every tile is the
@@ -94,21 +103,31 @@ function ResultTile({
 
 export function SessionResultsView({
   results,
+  groups: groupsProp,
   attachmentSrc,
+  renderText,
 }: {
-  results: readonly SessionResultEntry[]
+  /** Pictures only (EXP-879); `groups` wins when both are passed. */
+  results?: readonly SessionResultEntry[]
+  /** EXP-933: the report — `parseSessionResultGroups`, text and pictures. */
+  groups?: readonly SessionResultGroup[]
   /** The URL a published shot reads from — the app owns the route, this
    *  package only owns the tiles. */
   attachmentSrc: (attachmentId: string) => string
+  /** EXP-933: renders a topic's GFM text. The app owns the markdown renderer
+   *  (issue pills, links); without one the text shows as plain pre-wrapped
+   *  prose. */
+  renderText?: (text: string) => ReactNode
 }) {
   const [preview, setPreview] = useState<SessionResultEntry | null>(null)
-  const groups = groupSessionResults(results)
+  const groups = groupsProp ?? groupSessionResults(results ?? [])
+  const pictures = sessionResultPictures(groups)
   // Every band's wrapping strip sits in the SAME column, so one measurement
   // (the root's content width) fits the whole page.
   const containerRef = useRef<HTMLDivElement>(null)
   const width = useContentWidth(containerRef)
   const height = width
-    ? sessionResultTileHeightFitting(results, width)
+    ? sessionResultTileHeightFitting(pictures, width)
     : SESSION_RESULT_TILE_HEIGHT
   return (
     <div
@@ -119,6 +138,19 @@ export function SessionResultsView({
       {groups.map((group) => (
         <div key={group.topic} className="flex flex-col">
           <GlassSectionHeader label={group.topic} />
+          {group.text !== null && (
+            <div
+              className="max-w-3xl pb-3 text-sm"
+              data-testid="session-result-text"
+            >
+              {renderText ? (
+                renderText(group.text)
+              ) : (
+                <p className="whitespace-pre-wrap">{group.text}</p>
+              )}
+            </div>
+          )}
+          {group.entries.length > 0 && (
           <div className="flex flex-wrap gap-3">
             {group.entries.map((entry) => (
               <ResultTile
@@ -130,6 +162,7 @@ export function SessionResultsView({
               />
             ))}
           </div>
+          )}
         </div>
       ))}
       {preview && (

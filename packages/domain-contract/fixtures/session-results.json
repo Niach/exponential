@@ -1,0 +1,148 @@
+{
+  "$comment": "EXP-933: the Results face as a REPORT. coding_sessions.results entries are pictures {topic,label,attachmentId,width,height} or a topic's GFM text {topic,label:null,attachmentId:null,text}. parseSessionResultGroups folds both into groups in FIRST-SEEN topic order (either kind opens a topic); a group's text is its FIRST text entry, trimmed at both ends, null without one; pictures keep publish order and the 60-picture cap. A text entry needs a non-blank text; a picture needs topic+label+attachmentId (a picture with a text field is still a picture). issueResultsRun picks the run whose results an ISSUE shows: codingTarget (bound live own run, else newest live own run, else newest own run) when that run has any group, else the NEWEST run on the issue by startedAt (ties: larger id) by ANY member with at least one group, else null. Mirrored by packages/ui session-results.ts + apps/web work-faces.ts, desktop, iOS and Android.",
+  "groups": [
+    {
+      "name": "null blob",
+      "raw": null,
+      "expected": []
+    },
+    {
+      "name": "pictures only keep today's grouping",
+      "raw": [
+        { "topic": "nav", "label": "web", "attachmentId": "a1", "width": 100, "height": 50 },
+        { "topic": "nav", "label": "ios", "attachmentId": "a2", "width": null, "height": null },
+        { "topic": "chat", "label": "web", "attachmentId": "a3" }
+      ],
+      "expected": [
+        { "topic": "nav", "text": null, "entries": [{ "label": "web", "attachmentId": "a1" }, { "label": "ios", "attachmentId": "a2" }] },
+        { "topic": "chat", "text": null, "entries": [{ "label": "web", "attachmentId": "a3" }] }
+      ]
+    },
+    {
+      "name": "a summary text first opens the report, text sits on its own topic",
+      "raw": [
+        { "topic": "Summary", "label": null, "attachmentId": null, "width": null, "height": null, "text": "  ## Done\n- shipped #EXP-1\n  " },
+        { "topic": "nav", "label": null, "attachmentId": null, "text": "The nav bar" },
+        { "topic": "nav", "label": "web", "attachmentId": "a1", "width": 100, "height": 50 }
+      ],
+      "expected": [
+        { "topic": "Summary", "text": "## Done\n- shipped #EXP-1", "entries": [] },
+        { "topic": "nav", "text": "The nav bar", "entries": [{ "label": "web", "attachmentId": "a1" }] }
+      ]
+    },
+    {
+      "name": "text filed after a topic's pictures still attaches to that topic",
+      "raw": [
+        { "topic": "nav", "label": "web", "attachmentId": "a1" },
+        { "topic": "chat", "label": "web", "attachmentId": "a2" },
+        { "topic": "nav", "label": null, "attachmentId": null, "text": "Later words" }
+      ],
+      "expected": [
+        { "topic": "nav", "text": "Later words", "entries": [{ "label": "web", "attachmentId": "a1" }] },
+        { "topic": "chat", "text": null, "entries": [{ "label": "web", "attachmentId": "a2" }] }
+      ]
+    },
+    {
+      "name": "blank text, missing topic and malformed rows drop; the first text of a topic wins",
+      "raw": [
+        { "topic": "a", "label": null, "attachmentId": null, "text": "   " },
+        { "label": null, "attachmentId": null, "text": "no topic" },
+        "junk",
+        [1],
+        { "topic": "b", "text": "first" },
+        { "topic": "b", "text": "second" },
+        { "topic": "c", "label": "web", "attachmentId": "a9", "text": "ignored on a picture" }
+      ],
+      "expected": [
+        { "topic": "b", "text": "first", "entries": [] },
+        { "topic": "c", "text": null, "entries": [{ "label": "web", "attachmentId": "a9" }] }
+      ]
+    },
+    {
+      "name": "a JSON string blob parses like the array",
+      "raw": "[{\"topic\":\"Summary\",\"label\":null,\"attachmentId\":null,\"text\":\"Hi\"}]",
+      "expected": [
+        { "topic": "Summary", "text": "Hi", "entries": [] }
+      ]
+    }
+  ],
+  "issueResultsRun": {
+    "now": "2026-09-29T12:00:00Z",
+    "cases": [
+      {
+        "name": "no runs, no results",
+        "issueId": "i1",
+        "me": "u1",
+        "boundId": null,
+        "rows": [],
+        "expected": null
+      },
+      {
+        "name": "my newest run with results wins",
+        "issueId": "i1",
+        "me": "u1",
+        "boundId": null,
+        "rows": [
+          { "id": "r1", "issueId": "i1", "userId": "u1", "status": "ended", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T09:00:00Z", "results": [{ "topic": "Summary", "text": "old" }] },
+          { "id": "r2", "issueId": "i1", "userId": "u1", "status": "ended", "startedAt": "2026-09-29T10:00:00Z", "updatedAt": "2026-09-29T11:00:00Z", "results": [{ "topic": "Summary", "text": "new" }] }
+        ],
+        "expected": "r2"
+      },
+      {
+        "name": "a teammate's run carries the issue's results when I have none",
+        "issueId": "i1",
+        "me": "u1",
+        "boundId": null,
+        "rows": [
+          { "id": "r1", "issueId": "i1", "userId": "u2", "status": "ended", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T09:00:00Z", "results": [{ "topic": "nav", "label": "web", "attachmentId": "a1" }] }
+        ],
+        "expected": "r1"
+      },
+      {
+        "name": "my target run without results falls through to the newest run with results",
+        "issueId": "i1",
+        "me": "u1",
+        "boundId": null,
+        "rows": [
+          { "id": "r1", "issueId": "i1", "userId": "u2", "status": "ended", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T09:00:00Z", "results": [{ "topic": "Summary", "text": "teammate" }] },
+          { "id": "r2", "issueId": "i1", "userId": "u1", "status": "running", "startedAt": "2026-09-29T11:59:00Z", "updatedAt": "2026-09-29T11:59:30Z", "results": [] },
+          { "id": "r3", "issueId": "i1", "userId": "u2", "status": "ended", "startedAt": "2026-09-29T07:00:00Z", "updatedAt": "2026-09-29T07:30:00Z", "results": [{ "topic": "Summary", "text": "older" }] }
+        ],
+        "expected": "r1"
+      },
+      {
+        "name": "the bound live own run with results beats a newer teammate run",
+        "issueId": "i1",
+        "me": "u1",
+        "boundId": "r1",
+        "rows": [
+          { "id": "r1", "issueId": "i1", "userId": "u1", "status": "running", "startedAt": "2026-09-29T09:00:00Z", "updatedAt": "2026-09-29T11:59:30Z", "results": [{ "topic": "Summary", "text": "mine" }] },
+          { "id": "r2", "issueId": "i1", "userId": "u2", "status": "ended", "startedAt": "2026-09-29T11:00:00Z", "updatedAt": "2026-09-29T11:30:00Z", "results": [{ "topic": "Summary", "text": "theirs" }] }
+        ],
+        "expected": "r1"
+      },
+      {
+        "name": "other issues and unparseable results never count",
+        "issueId": "i1",
+        "me": "u1",
+        "boundId": null,
+        "rows": [
+          { "id": "r1", "issueId": "i2", "userId": "u1", "status": "ended", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T09:00:00Z", "results": [{ "topic": "Summary", "text": "elsewhere" }] },
+          { "id": "r2", "issueId": "i1", "userId": "u2", "status": "ended", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T09:00:00Z", "results": [{ "topic": "Summary", "text": "  " }] }
+        ],
+        "expected": null
+      },
+      {
+        "name": "without a signed-in user the newest run with results still shows",
+        "issueId": "i1",
+        "me": null,
+        "boundId": null,
+        "rows": [
+          { "id": "r1", "issueId": "i1", "userId": "u2", "status": "ended", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T09:00:00Z", "results": [{ "topic": "Summary", "text": "x" }] },
+          { "id": "r2", "issueId": "i1", "userId": "u3", "status": "ended", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T09:00:00Z", "results": [{ "topic": "Summary", "text": "y" }] }
+        ],
+        "expected": "r2"
+      }
+    ]
+  }
+}

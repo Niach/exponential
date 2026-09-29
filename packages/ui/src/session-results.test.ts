@@ -81,6 +81,7 @@ describe(`session results`, () => {
     expect(groupSessionResults(entries)).toEqual([
       {
         topic: `chatui`,
+        text: null,
         entries: [
           { topic: `chatui`, label: `web`, attachmentId: `a1`, width: null, height: null },
           { topic: `chatui`, label: `ios`, attachmentId: `a3`, width: null, height: null },
@@ -88,6 +89,7 @@ describe(`session results`, () => {
       },
       {
         topic: `nav`,
+        text: null,
         entries: [
           { topic: `nav`, label: `web`, attachmentId: `a2`, width: null, height: null },
         ],
@@ -139,4 +141,24 @@ describe(`session results`, () => {
     expect(sessionResultTileHeightFitting(entries, Number.NaN)).toBe(320)
     expect(sessionResultTileHeightFitting([], 10)).toBe(320)
   })
+})
+
+// EXP-933: the report fixture, shared ×4.
+import fixture from "@exp/domain-contract/fixtures/session-results.json"
+import { parseSessionResultGroups } from "./session-results"
+
+describe(`session results report fixture`, () => {
+  for (const c of fixture.groups) {
+    it(c.name, () => {
+      const groups = parseSessionResultGroups(c.raw).map((group) => ({
+        topic: group.topic,
+        text: group.text,
+        entries: group.entries.map((entry) => ({
+          label: entry.label,
+          attachmentId: entry.attachmentId,
+        })),
+      }))
+      expect(groups).toEqual(c.expected)
+    })
+  }
 })

@@ -1,7 +1,7 @@
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import type { SessionConfigState } from "@/lib/agent-feed"
-import { type SessionDotTone } from "@exp/ui"
+import { hasSessionResults, type SessionDotTone } from "@exp/ui"
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
 // session) with up to four FACES held as screen state, never as navigation:
@@ -129,6 +129,27 @@ export function codingTarget<T extends CodingTargetRow>(
     if (bound) return bound
   }
   return newest(live) ?? newest(mine)
+}
+
+/**
+ * EXP-933: the run whose Results an ISSUE shows. Results live on the run but
+ * sync team-wide, and an agent message deep-links a teammate to the ISSUE's
+ * Results — so this is not limited to my runs: `codingTarget` when that run
+ * has results, else the newest run on the issue (any member) that has any.
+ * Fixture: `packages/domain-contract/fixtures/session-results.json` (×4).
+ */
+export function issueResultsRun<T extends CodingTargetRow & { results?: unknown }>(
+  rows: readonly T[],
+  issueId: string,
+  boundId: string | null | undefined,
+  me: string | undefined,
+  now: Date
+): T | null {
+  const own = codingTarget(rows, issueId, boundId, me, now)
+  if (own && hasSessionResults(own.results)) return own
+  return newest(
+    rows.filter((row) => row.issueId === issueId && hasSessionResults(row.results))
+  )
 }
 
 /** EXP-934: the header's `…` CONTEXT MENU (Share · Move to board · Unmark

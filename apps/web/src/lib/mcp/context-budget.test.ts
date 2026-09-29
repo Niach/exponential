@@ -296,6 +296,8 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   })
   expect(noRun).not.toContain(`exponential_sessions_results`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_results`)
+  // EXP-933: the notify rule rides the same run-only paragraph.
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_notifications_send`)
 })
 
 /** The repo root, walked up from the vitest cwd (apps/web). */
@@ -341,6 +343,9 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     `exponential_attachments_list`,
     `exponential_attachments_upload`,
     `exponential_sessions_compact`,
+    // EXP-933: when to notify, and the close-out report's tool.
+    `exponential_notifications_send`,
+    `exponential_sessions_results`,
   ]) {
     expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)
   }

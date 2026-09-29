@@ -32,24 +32,24 @@ export function mcpServerInstructions(gates: {
     // the team's configured status automation, and a team configured to "do
     // nothing" means exactly that (the agent never compensates). Direct
     // status writes remain for one case only: the user explicitly asks.
-    `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Status changes are automatic (PR tools apply the team's automation); set one only if asked. Search for exponential_* tools for boards, labels, statuses, members, attachments, notifications, actions, automations, sessions, devices, helpdesk, repos and teams.`,
-    `exponential_pr_open takes 'issueId' for one issue, 'issueIds' plus 'head' for one combined PR over several, or 'repositoryId' plus 'head' for an issue-less chore PR. exponential_pr_merge mirrors that: 'issueId'/'issueIds', or 'repositoryId' plus 'prNumber'. Merging your own PR never ends your session. A merge refused for a stale base: call exponential_pr_retarget, rebase onto the new base, force-push with --force-with-lease, merge again.`,
+    `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Status changes are automatic (PR tools apply the team's automation); set one only if asked. Search for exponential_* tools for boards, members, attachments, notifications, actions, automations, sessions, devices, helpdesk, repos and teams.`,
+    `exponential_pr_open takes 'issueId', 'issueIds' plus 'head' for one combined PR, or 'repositoryId' plus 'head' for an issue-less chore PR; exponential_pr_merge mirrors it ('repositoryId' plus 'prNumber'). Merging your own PR never ends your session. A merge refused for a stale base: exponential_pr_retarget, rebase, force-push with --force-with-lease, merge again.`,
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
-    `Team MCP servers (Linear, Sentry...) live in exponential_mcp_servers_*, never a repo .mcp.json.`,
+    `Team MCP servers (Linear, Sentry...) live in exponential_mcp_servers_*, not a repo .mcp.json.`,
   ]
   if (gates.reportBug) {
     paragraphs.push(
-      `When Exponential ITSELF misbehaves while you work — a tool result that contradicts its docs, a dropped remote start, a sync or UI glitch — file it right then with exponential_report_bug. It reaches Exponential's developers, never the user's project.`
+      `When Exponential ITSELF misbehaves (a tool result contradicting its docs, a dropped remote start, a sync or UI glitch), file it right then with exponential_report_bug. It reaches Exponential's developers, never the user's project.`
     )
   }
   if (gates.sessionsEnd) {
     // EXP-700: only a run another run started can ask its starter — the
     // exception rides the same paragraph, and askParent implies sessionsEnd.
     paragraphs.push(
-      `This run is unattended (an automation or another agent started it). When you are done, call exponential_sessions_end LAST with a one-paragraph summary of what you did (finished, stopped for a human, or changed nothing); leave the worktree clean first. That call ends the run; nobody is watching, so do not wait for replies.` +
+      `This run is unattended (an automation or another agent started it). Finish with exponential_sessions_end LAST: a one-paragraph summary (finished, stopped for a human, or changed nothing), worktree clean. It ends the run; nobody is watching, so never wait for replies.` +
         (gates.askParent
-          ? ` One exception: blocked on something only your starter knows, call exponential_sessions_ask_parent, then stop and wait — the answer arrives as a user message. Never wait silently without asking.`
+          ? ` Blocked on something only your starter knows: call exponential_sessions_ask_parent, then stop and wait for the answer (a user message). Never wait silently.`
           : ``)
     )
   }
@@ -63,9 +63,12 @@ export function mcpServerInstructions(gates: {
   }
   // EXP-879: LAST, so it is the thing a truncating client keeps least — but
   // present, because a run that is never asked for a picture never takes one.
+  // EXP-933: the same tool files the run's REPORT (the close-out lives on the
+  // issue's Results, not in chat), and the notify rule rides here because
+  // only a run has an issue whose Results a notification can open.
   if (gates.sessionResults) {
     paragraphs.push(
-      `Screenshot what you changed: exponential_sessions_results returns an upload link and a curl line; one topic per screen, one label per picture. Publish before you finish.`
+      `Close out with a report: exponential_sessions_results files a GFM text per topic ('Summary' first: what you did) above its screenshots (one topic per screen, one label per picture) on the issue's Results. File it before you finish, not as a chat summary. exponential_notifications_send pings a person (default you) when a long task is done or a decision is needed; it opens that Results.`
     )
   }
   return paragraphs.join(`\n\n`)

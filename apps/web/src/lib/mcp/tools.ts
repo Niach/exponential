@@ -24,6 +24,8 @@ import {
   MAX_START_PROMPT,
   SESSION_RESULT_TEXT_MAX,
   SESSION_RESULTS_MAX,
+  SESSION_RESULT_REPORT_MAX,
+  SESSION_RESULTS_REPORT_TOTAL_MAX,
   UUID_RE,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -127,6 +129,7 @@ import { mintAttachmentToken } from "@/lib/storage/attachment-token"
 import { mintSessionResultToken } from "@/lib/storage/session-result-token"
 import {
   removeSessionResults,
+  upsertSessionResultText,
   resultsSummary,
 } from "@/lib/session-result-writes"
 import { appBaseUrl } from "@/lib/notification-email-policy"
@@ -3507,15 +3510,16 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_results`,
       {
-        description: `Publish a screenshot of your work on this run: it shows up on the Results face in every Exponential client. Pictures group by topic (one screen or flow), one label each, so ios/android/web shots of one screen read side by side. Without remove, label is required: you get an uploadUrl, its 10-minute expiry and a ready curl line for your PNG/JPEG/WebP (10 MB max). The same topic and label REPLACES that picture, a new label appends; remove: true deletes that label, or the whole topic without one. Every call returns this run current topic/label list.`,
+        description: `Publish your run's REPORT on the issue's Results face in every client: per topic, a GFM text (what you did; headings, bullets, code, #IDENT refs) above its screenshots, topics in first-seen order ('Summary' first). text sets the topic's text. label asks for a picture (web/ios/android): an uploadUrl, its 10-minute expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Returns the run's list.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),
           label: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX).optional(),
+          text: z.string().max(SESSION_RESULT_REPORT_MAX).optional(),
           remove: z.boolean().optional(),
         }),
       },
-      async ({ topic, label, remove }) => {
+      async ({ topic, label, text, remove }) => {
         try {
           if (!sessionId) {
             return err(
@@ -3555,11 +3559,15 @@ export function registerExponentialTools(
                 .limit(1)
                 .for(`update`)
               if (!locked) throw new Error(`Session not found`)
+              const removeText = text !== undefined && !label
               const { results, removedAttachmentIds } = removeSessionResults(
                 locked.results,
-                { topic, label: label ?? null }
+                { topic, label: label ?? null, text: removeText }
               )
-              if (removedAttachmentIds.length === 0) {
+              const textGone =
+                (locked.results ?? []).length - results.length >
+                removedAttachmentIds.length
+              if (removedAttachmentIds.length === 0 && !textGone) {
                 return {
                   results: locked.results,
                   removedAttachmentIds,
@@ -3573,6 +3581,13 @@ export function registerExponentialTools(
                 .update(codingSessions)
                 .set({ results, updatedAt: new Date() })
                 .where(eq(codingSessions.id, sessionId))
+              if (removedAttachmentIds.length === 0) {
+                return {
+                  results,
+                  removedAttachmentIds,
+                  gone: [] as Array<{ storageKey: string | null }>,
+                }
+              }
               const gone = await tx
                 .delete(sessionAttachments)
                 .where(inArray(sessionAttachments.id, removedAttachmentIds))
@@ -3582,7 +3597,8 @@ export function registerExponentialTools(
             const { results, removedAttachmentIds, gone } = outcome
             if (removedAttachmentIds.length === 0) {
               return ok({
-                removed: 0,
+                removed:
+                  (row.results ?? []).length - (results ?? []).length > 0 ? 1 : 0,
                 topic,
                 label: label ?? null,
                 results: resultsSummary(results),
@@ -3608,10 +3624,10 @@ export function registerExponentialTools(
             })
           }
 
-          if (!label) {
+          if (!label && text === undefined) {
             return err(
               new Error(
-                `label is required to publish a picture (it names this one picture inside the topic, e.g. web/ios/android). Pass remove: true to delete the whole topic instead.`
+                `Pass text (the topic's report) and/or label: label is required to publish a picture (one picture inside the topic, e.g. web/ios/android). Pass remove: true to delete the whole topic instead.`
               )
             )
           }
@@ -3625,9 +3641,50 @@ export function registerExponentialTools(
               )
             )
           }
+          // EXP-933: the report text lands right here, under the same row
+          // lock the upload route and remove take (jsonb read-modify-write).
+          let current = row.results
+          if (text !== undefined) {
+            const trimmed = text.trim()
+            if (!trimmed) {
+              return err(
+                new Error(
+                  `text is empty. To delete a topic's text pass remove: true with text: ''.`
+                )
+              )
+            }
+            const written = await db.transaction(async (tx) => {
+              const [locked] = await tx
+                .select({ results: codingSessions.results })
+                .from(codingSessions)
+                .where(eq(codingSessions.id, sessionId))
+                .limit(1)
+                .for(`update`)
+              if (!locked) throw new Error(`Session not found`)
+              const next = upsertSessionResultText(locked.results, topic, trimmed)
+              if (!next) return null
+              await tx
+                .update(codingSessions)
+                .set({ results: next, updatedAt: new Date() })
+                .where(eq(codingSessions.id, sessionId))
+              return next
+            })
+            if (!written) {
+              return err(
+                new Error(
+                  `This run's results are full (${SESSION_RESULTS_MAX} entries or ${SESSION_RESULTS_REPORT_TOTAL_MAX} characters of text in all). Shorten the text or remove a topic first.`
+                )
+              )
+            }
+            current = written
+            if (!label) {
+              return ok({ topic, text: trimmed.length, results: resultsSummary(current) })
+            }
+          }
+          if (!label) throw new Error(`unreachable: label checked above`)
           // Fail here rather than after the agent took (and uploaded) a
           // screenshot; the upload route re-checks under its row lock.
-          const published = row.results ?? []
+          const published = current ?? []
           const replaces = published.some(
             (result) => result?.topic === topic && result?.label === label
           )
@@ -3657,7 +3714,7 @@ export function registerExponentialTools(
             curl: `curl -sS -F file=@screenshot.png "${uploadUrl}"`,
             topic,
             label,
-            results: resultsSummary(row.results),
+            results: resultsSummary(current),
           })
         } catch (e) {
           return err(e)
@@ -4513,16 +4570,55 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_notifications_send`,
     {
-      description: `Send a notification (inbox row + push) to members of a team, or to yourself. recipients are user ids or emails of team members. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.`,
+      description: `Notify people (inbox row + push): a long task finished, a decision is needed, or someone asked to be pinged. recipients = team members' user ids or emails, default yourself. issueId (UUID or identifier) = what the row opens: that issue's Results, which every member may see; default this run's issue. teamId defaults to the issue's team or this run's. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.`,
       inputSchema: strictInput({
-        teamId: uuidString,
-        recipients: z.array(z.string().min(1).max(320)).min(1).max(20),
+        teamId: uuidString.optional(),
+        recipients: z.array(z.string().min(1).max(320)).min(1).max(20).optional(),
         title: z.string().min(1).max(120),
         body: z.string().max(2000).optional(),
+        issueId: z.string().min(1).max(64).optional(),
       }),
     },
-    async ({ teamId, recipients, title, body }) => {
+    async ({ teamId: requestedTeamId, recipients: requestedRecipients, title, body, issueId: requestedIssueId }) => {
       try {
+        // EXP-933: the target is the AGENT's choice (an issue every recipient
+        // may open, never the personal run); unnamed, a run bound to an issue
+        // links that issue's Results. The team follows the target, then the
+        // run, so a run needs neither id to ping its own person.
+        let targetIssueId: string | null = null
+        let issueTeamId: string | null = null
+        if (requestedIssueId) {
+          targetIssueId = await resolveIssueId(requestedIssueId, user.id, access)
+        }
+        const caller =
+          !requestedIssueId || !requestedTeamId ? await loadCallerSession() : null
+        if (
+          !targetIssueId &&
+          caller?.issueId &&
+          (!requestedTeamId || requestedTeamId === caller.teamId)
+        ) {
+          targetIssueId = caller.issueId
+        }
+        if (targetIssueId) {
+          const [target] = await db
+            .select({ teamId: boards.teamId })
+            .from(issues)
+            .innerJoin(boards, eq(boards.id, issues.boardId))
+            .where(and(eq(issues.id, targetIssueId), boardVisible()))
+            .limit(1)
+          if (!target) throw new Error(`Issue not found`)
+          issueTeamId = target.teamId
+        }
+        const teamId = requestedTeamId ?? issueTeamId ?? caller?.teamId ?? null
+        if (!teamId) {
+          throw new Error(
+            `Pass teamId (or issueId): outside a coding session there is no team to default to.`
+          )
+        }
+        if (issueTeamId && issueTeamId !== teamId) {
+          throw new Error(`The target issue is not in this team.`)
+        }
+        const recipients = requestedRecipients ?? [user.id]
         // A team-level WRITE (it pushes to every named member), so it takes
         // the full team grant like invites/helpdesk/actions, not visibility.
         assertTeamFullyGranted(access, teamId)
@@ -4564,6 +4660,7 @@ export function registerExponentialTools(
           recipientIds: [...resolved.keys()],
           title: title.trim(),
           body: body?.trim() || null,
+          issueId: targetIssueId,
         })
         const describe = (ids: string[]) =>
           ids.map((id) => ({ id, email: resolved.get(id)?.email ?? null }))
@@ -4574,6 +4671,7 @@ export function registerExponentialTools(
           deduped: describe(outcome.deduped),
           notMembers: describe(outcome.notMembers),
           unknown,
+          opens: targetIssueId ? { issueId: targetIssueId, face: `results` } : null,
         })
       } catch (e) {
         return err(e)

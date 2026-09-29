@@ -3,7 +3,7 @@
 // `coding_sessions.results` jsonb.
 //
 // The blob is a FLAT, ORDERED list: `{ topic, label, attachmentId, width,
-// height }`. Grouping is derived, never stored, so an agent that publishes
+// height }`, and since EXP-933 a topic's report text `{ topic, text }`. Grouping is derived, never stored, so an agent that publishes
 // `web` then `ios` under one topic and later a second topic keeps the order it
 // chose. `(topic, label)` is the upsert key (the server replaces in place), so
 // a client only ever renders what it reads.
@@ -48,7 +48,7 @@ function dimension(value: unknown): number | null {
  * always returns a clean list: a malformed entry is DROPPED, never rendered as
  * a broken tile, and the list is capped like the writer caps it.
  */
-export function parseSessionResults(raw: unknown): SessionResultEntry[] {
+function records(raw: unknown): Record<string, unknown>[] {
   let value = raw
   if (typeof value === `string`) {
     const trimmed = value.trim()
@@ -60,21 +60,34 @@ export function parseSessionResults(raw: unknown): SessionResultEntry[] {
     }
   }
   if (!Array.isArray(value)) return []
-  const entries: SessionResultEntry[] = []
+  const out: Record<string, unknown>[] = []
   for (const row of value) {
     if (!row || typeof row !== `object` || Array.isArray(row)) continue
-    const record = row as Record<string, unknown>
-    const topic = text(record.topic)
-    const label = text(record.label)
-    const attachmentId = text(record.attachmentId)
-    if (!topic || !label || !attachmentId) continue
-    entries.push({
-      topic,
-      label,
-      attachmentId,
-      width: dimension(record.width),
-      height: dimension(record.height),
-    })
+    out.push(row as Record<string, unknown>)
+  }
+  return out
+}
+
+function picture(record: Record<string, unknown>): SessionResultEntry | null {
+  const topic = text(record.topic)
+  const label = text(record.label)
+  const attachmentId = text(record.attachmentId)
+  if (!topic || !label || !attachmentId) return null
+  return {
+    topic,
+    label,
+    attachmentId,
+    width: dimension(record.width),
+    height: dimension(record.height),
+  }
+}
+
+export function parseSessionResults(raw: unknown): SessionResultEntry[] {
+  const entries: SessionResultEntry[] = []
+  for (const record of records(raw)) {
+    const entry = picture(record)
+    if (!entry) continue
+    entries.push(entry)
     if (entries.length >= MAX_SESSION_RESULTS) break
   }
   return entries
@@ -82,11 +95,14 @@ export function parseSessionResults(raw: unknown): SessionResultEntry[] {
 
 export interface SessionResultGroup {
   topic: string
+  /** EXP-933: the topic's GFM report text (rendered ABOVE its pictures), null
+   *  without one. */
+  text: string | null
   entries: SessionResultEntry[]
 }
 
 /** Groups by topic in FIRST-SEEN order, keeping each group's entries in the
- *  order the agent published them. */
+ *  order the agent published them. Pictures only: `text` stays null. */
 export function groupSessionResults(
   entries: readonly SessionResultEntry[]
 ): SessionResultGroup[] {
@@ -95,13 +111,62 @@ export function groupSessionResults(
   for (const entry of entries) {
     let group = byTopic.get(entry.topic)
     if (!group) {
-      group = { topic: entry.topic, entries: [] }
+      group = { topic: entry.topic, text: null, entries: [] }
       byTopic.set(entry.topic, group)
       groups.push(group)
     }
     group.entries.push(entry)
   }
   return groups
+}
+
+/**
+ * EXP-933: the Results face as a REPORT — pictures AND each topic's text
+ * (`{topic, label: null, attachmentId: null, text}`), grouped in FIRST-SEEN
+ * topic order whichever kind opened the topic. A topic's text is its FIRST
+ * non-blank text entry, trimmed; pictures keep the 60 cap. Fixture:
+ * `packages/domain-contract/fixtures/session-results.json` (×4).
+ */
+export function parseSessionResultGroups(raw: unknown): SessionResultGroup[] {
+  const groups: SessionResultGroup[] = []
+  const byTopic = new Map<string, SessionResultGroup>()
+  const open = (topic: string) => {
+    let group = byTopic.get(topic)
+    if (!group) {
+      group = { topic, text: null, entries: [] }
+      byTopic.set(topic, group)
+      groups.push(group)
+    }
+    return group
+  }
+  let pictures = 0
+  for (const record of records(raw)) {
+    const entry = picture(record)
+    if (entry) {
+      if (pictures >= MAX_SESSION_RESULTS) continue
+      pictures += 1
+      open(entry.topic).entries.push(entry)
+      continue
+    }
+    const topic = text(record.topic)
+    const body = text(record.text)
+    if (!topic || !body) continue
+    const group = open(topic)
+    if (group.text === null) group.text = body
+  }
+  return groups
+}
+
+/** True when the blob has anything for the Results face to show. */
+export function hasSessionResults(raw: unknown): boolean {
+  return parseSessionResultGroups(raw).length > 0
+}
+
+/** Every picture of a set of groups, in order — what the tile sizing reads. */
+export function sessionResultPictures(
+  groups: readonly SessionResultGroup[]
+): SessionResultEntry[] {
+  return groups.flatMap((group) => group.entries)
 }
 
 /** The tile's width at a fixed height — the probed aspect, else 4:3 (a

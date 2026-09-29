@@ -473,15 +473,29 @@ export const codingSessionBlockedSchema = z.object({
 // through the coding-sessions shape on every heartbeat, so a big array
 // multiplies sync traffic by every live client. Escape hatch if they ever
 // pinch: a `session_results` table + its own shape.
+//
+// EXP-933: an entry may instead carry `text` (GFM, the run's REPORT for that
+// topic: what it did, headings/bullets/code/issue refs) with `label` and
+// `attachmentId` null — one text entry per topic, rendered ABOVE the topic's
+// pictures, so topics in first-seen order read as a report. Old readers drop
+// label-less entries (every parser requires label + attachmentId), so the
+// shape change is backward safe. Text caps are load-bearing for the same
+// heartbeat reason as the count cap.
 export const SESSION_RESULT_TEXT_MAX = 80
 export const SESSION_RESULTS_MAX = 60
+export const SESSION_RESULT_REPORT_MAX = 4000
+export const SESSION_RESULTS_REPORT_TOTAL_MAX = 12000
 
 export interface CodingSessionResult {
   topic: string
-  label: string
-  attachmentId: string
+  /** null on a text entry. */
+  label: string | null
+  /** null on a text entry. */
+  attachmentId: string | null
   width: number | null
   height: number | null
+  /** EXP-933: the topic's GFM report text; absent/null on a picture. */
+  text?: string | null
 }
 
 // Tolerant for the same reason codingSessionBlockedSchema is: a malformed
@@ -492,6 +506,7 @@ export const codingSessionResultSchema = z.object({
   attachmentId: z.string().max(64).nullish(),
   width: z.number().int().nullish(),
   height: z.number().int().nullish(),
+  text: z.string().max(SESSION_RESULT_REPORT_MAX).nullish(),
 })
 
 // Why a user is subscribed to an issue (issue_subscribers.source, pg enum).
