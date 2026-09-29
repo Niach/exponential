@@ -373,6 +373,24 @@ pub(crate) fn card_row(shape: RowShape, options: &DiffOptions) -> gpui::Div {
 /// 1px border a flush row sits inside.
 pub(crate) const FLUSH_INNER_RADIUS: f32 = theme::tokens::radius::XL - 1.;
 
+/// EXP-1142: the height `rows` lay out to under `options`. Every row is
+/// fixed-height (the same constants [`render_diff_row`] sizes them with), so
+/// a caller can tell BEFORE layout whether a height-bounded body scrolls —
+/// gpui clips to a rectangle, so a scrolling body cannot sit flush in a
+/// rounded corner (a mid-diff line wash would poke square past it).
+pub(crate) fn rows_height(rows: &[RenderRow], options: &DiffOptions) -> f32 {
+    rows.iter()
+        .map(|row| match row {
+            RenderRow::FileGap => FILE_GAP_H,
+            RenderRow::FileHeader { .. } => options.header_h(),
+            RenderRow::Note { .. } => NOTE_ROW_H,
+            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } | RenderRow::Line { .. } => {
+                options.line_h()
+            }
+        })
+        .sum()
+}
+
 /// GitHub's one-letter vocabulary over the contract's statuses.
 pub(crate) fn status_letter(status: DiffStatus) -> &'static str {
     match status {
@@ -1477,6 +1495,47 @@ impl Render for DiffView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1142: the pre-layout height IS the render-time height — the
+    /// compact card rows at their constants, the note and the gap at theirs.
+    #[test]
+    fn rows_height_sums_the_fixed_row_heights() {
+        let line = || RenderRow::Line {
+            kind: DiffLineKind::Add,
+            old_no: None,
+            new_no: Some(1),
+            text: "x".into(),
+            highlights: Vec::new(),
+        };
+        let rows = vec![
+            RenderRow::FileHeader {
+                path: "a/b.rs".into(),
+                name: "b.rs".into(),
+                dir: "a/".into(),
+                previous_path: None,
+                status: DiffStatus::Modified,
+                additions: 1,
+                deletions: 0,
+                binary: false,
+            },
+            RenderRow::HunkHeader { header: "@@".into() },
+            line(),
+            line(),
+            RenderRow::Unchanged { lines: 3 },
+            RenderRow::Note { message: "n".into() },
+            RenderRow::FileGap,
+        ];
+        let compact = DiffOptions::card();
+        assert_eq!(
+            rows_height(&rows, &compact),
+            FILE_HEADER_H_COMPACT + 4. * LINE_ROW_H_COMPACT + NOTE_ROW_H + FILE_GAP_H
+        );
+        assert_eq!(
+            rows_height(&rows, &DiffOptions::pane()),
+            FILE_HEADER_H + 4. * LINE_ROW_H + NOTE_ROW_H + FILE_GAP_H
+        );
+        assert_eq!(rows_height(&[], &compact), 0.);
+    }
 
     /// A small real patch, inline: the fixtures moved to
     /// `packages/domain-contract/fixtures/diff/cases.json` (EXP-895), which is

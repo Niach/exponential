@@ -12,7 +12,8 @@
 //! caret), so the scope row reads as one "repo · branch" pair.
 
 use gpui::{
-    AnyElement, App, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window,
+    AnyElement, App, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _,
+    Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -21,7 +22,24 @@ use gpui_component::{
 };
 
 use crate::icons::registry;
+use crate::navigation::{self, Navigation};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup};
+
+/// EXP-1142: what a repo-scoped surface says when the window has NO team to
+/// scope to — a signed-in user before their first team, or after leaving
+/// the last one.
+pub(crate) const NO_TEAM_NOTICE: &str =
+    "Join or create a team to browse its repositories.";
+
+/// EXP-1142: the notice a repo-scoped surface shows INSTEAD of its loading
+/// state when there is no team. `None` while the teams + boards shapes are
+/// still snapshotting (the loading state is honest then) and whenever a
+/// team resolves. Files used to say "Loading files…" forever here: no team
+/// means the resolver never leaves `Loading`, so nothing else ends it.
+pub(crate) fn no_team_notice(nav: &Entity<Navigation>, cx: &App) -> Option<&'static str> {
+    (navigation::shapes_ready(cx) && navigation::active_team_id(nav, cx).is_none())
+        .then_some(NO_TEAM_NOTICE)
+}
 
 /// The repo picker trigger, or `None` while the team has fewer than two
 /// board-backed repositories (or they are still resolving).

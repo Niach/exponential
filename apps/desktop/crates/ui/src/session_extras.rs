@@ -500,6 +500,9 @@ pub(crate) fn render_edit_card(
         .overflow_hidden()
         .border_t_1()
         .border_color(hairline);
+    // EXP-1142: an OPEN last body taller than its cap scrolls inside a
+    // rectangular clip, so it cannot take the card's rounded corners.
+    let mut last_scrolls = false;
     for (index, row) in view.rows.iter().take(shown).enumerate() {
         let last = ends_card && index + 1 == shown;
         let opened = match open {
@@ -514,12 +517,29 @@ pub(crate) fn render_edit_card(
             slot = slot.border_t_1().border_color(hairline);
         }
         let body = match &row.file {
-            Some(file) => edit_row_ready(id, index, &row.path, file, opened, last, on_toggle_row.clone(), cx),
+            Some(file) => {
+                let (body, scrolls) =
+                    edit_row_ready(id, index, &row.path, file, opened, last, on_toggle_row.clone(), cx);
+                last_scrolls |= last && scrolls;
+                body
+            }
             None => edit_row_stub(row, cx),
         };
         rows = rows.child(slot.child(body));
     }
     card = card.child(rows);
+    // EXP-1142: the scrolling body ends on a hairline; the band under it is
+    // the card's own bottom, deep enough (the inner radius) that the clip's
+    // square corners lie above the curve instead of through it.
+    if last_scrolls {
+        card = card.child(
+            div()
+                .w_full()
+                .h(gpui::px(crate::diff::FLUSH_INNER_RADIUS))
+                .border_t_1()
+                .border_color(hairline),
+        );
+    }
     // EXP-786: what the publisher cut off the members' patches, in the words
     // every client says it in.
     if has_note {
@@ -569,6 +589,9 @@ pub(crate) fn render_edit_card(
 }
 
 /// A `ready` row: the shared file-card header, plus its patch when open.
+/// The flag says whether that open body SCROLLS (it is taller than
+/// [`domain::contract::DIFF_UI_INLINE_DIFF_MAX_HEIGHT`], EXP-1142) — then it
+/// takes no rounded bottom, and the card lays a band under it.
 fn edit_row_ready(
     id: FeedItemId,
     index: usize,
@@ -578,20 +601,24 @@ fn edit_row_ready(
     last: bool,
     on_toggle_row: EditRowClick,
     cx: &App,
-) -> AnyElement {
-    let options = DiffOptions {
-        flush_round_bottom: last,
-        ..DiffOptions::card()
-    };
+) -> (AnyElement, bool) {
+    let base = DiffOptions::card();
     // A collapsed row shows its header and nothing else — highlighting the
     // whole patch to throw it away is the EXP-884 lag in miniature.
     let rows = if open {
-        file_rows(file, &cx.theme().highlight_theme, &options)
+        file_rows(file, &cx.theme().highlight_theme, &base)
     } else {
         vec![crate::diff::file_header_only(file)]
     };
+    let scrolls = open
+        && crate::diff::rows_height(rows.get(1..).unwrap_or_default(), &base)
+            > domain::contract::DIFF_UI_INLINE_DIFF_MAX_HEIGHT as f32;
+    let options = DiffOptions {
+        flush_round_bottom: last && !scrolls,
+        ..base
+    };
     let Some(header) = rows.first() else {
-        return div().into_any_element();
+        return (div().into_any_element(), scrolls);
     };
     // A COMPOSITE id: a card has one row per PATH of a whole edit run, so an
     // arithmetic key (`id * 64 + index`) collides the moment a card is deep.
@@ -647,7 +674,7 @@ fn edit_row_ready(
                 .child(body),
         );
     }
-    column.into_any_element()
+    (column.into_any_element(), scrolls)
 }
 
 /// A `pending` / `done` / `failed` row: the path, and what became of it. None

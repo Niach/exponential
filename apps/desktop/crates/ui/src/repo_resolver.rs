@@ -198,7 +198,11 @@ impl RepoResolver {
     /// backing one of the active team's boards, in sidebar board order
     /// (deduped: two boards on one repo list it once). `None` until
     /// `repositories.list` resolved FOR THE ACTIVE TEAM (a team switch
-    /// reads as loading, never as the old team's rows).
+    /// reads as loading, never as the old team's rows) AND the synced
+    /// boards shape reached its first `up-to-date` (EXP-1142): the order
+    /// is read off the boards rows, so a `repositories.list` that lands
+    /// before the cold-start boards snapshot would otherwise resolve to an
+    /// EMPTY scope and flash "No repository linked" on every trunk surface.
     pub fn scope_repos(&self, cx: &App) -> Option<Vec<ResolvedRepo>> {
         let State::Ready(repos) = &self.state else {
             return None;
@@ -207,8 +211,11 @@ impl RepoResolver {
         if self.team_id.as_deref() != Some(team_id.as_str()) {
             return None;
         }
-        let board_order: Vec<String> = Store::global(cx)
-            .collections()
+        let collections = Store::global(cx).collections();
+        if !collections.boards.read(cx).is_ready() {
+            return None; // the boards observer re-renders every surface
+        }
+        let board_order: Vec<String> = collections
             .boards_in_team(&team_id, cx)
             .iter()
             .map(|board| board.id.clone())

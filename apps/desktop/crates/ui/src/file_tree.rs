@@ -234,6 +234,9 @@ pub struct FileTreeView {
     /// The shared per-window repo resolver (§4.2) — the trunk clone root comes
     /// from here instead of a per-tree `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
+    /// The window's navigation — the team the tree scopes to (EXP-1142: a
+    /// window with no team shows a notice, not an endless loading state).
+    nav: Entity<navigation::Navigation>,
     window_id: WindowId,
     /// The repository scope the tree is showing (EXP-1133).
     repository_id: Option<String>,
@@ -288,6 +291,8 @@ impl FileTreeView {
         let mut subscriptions = vec![
             // Scope follows the window's repo pick (EXP-1133) on the nav.
             cx.observe(&nav, |_, _, cx| cx.notify()),
+            // The no-team notice (EXP-1142) reads the synced teams.
+            cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             // The repo scope's board order reads the synced boards.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // A trunk clone / pull landing: an unloaded (not-yet-cloned)
@@ -318,6 +323,7 @@ impl FileTreeView {
 
         Self {
             repo_resolver,
+            nav,
             window_id: window.window_handle().window_id(),
             repository_id: None,
             seen_sync_seq,
@@ -748,7 +754,11 @@ impl Render for FileTreeView {
 
         let still_resolving = matches!(self.load, Load::Idle | Load::Loading);
         let body: gpui::AnyElement = if self.active_root.is_none() {
-            if still_resolving {
+            // EXP-1142: no team = nothing will ever resolve; say so instead
+            // of "Loading files…" for good.
+            if let Some(notice) = crate::repo_scope::no_team_notice(&self.nav, cx) {
+                self.render_placeholder(notice, cx)
+            } else if still_resolving {
                 self.render_placeholder("Loading files…", cx)
             } else {
                 self.render_placeholder(crate::source_control::NO_REPOSITORY_NOTICE, cx)

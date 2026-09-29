@@ -1438,8 +1438,7 @@ pub fn set_active_repo(window: &Window, cx: &mut App, repository_id: String) {
         true
     });
     if changed {
-        let picks = nav.read(cx).repo_picks.clone();
-        persist_repo_picks(cx, picks);
+        persist_repo_pick(cx, team_id, repository_id);
     }
 }
 
@@ -1613,8 +1612,11 @@ fn load_repo_picks(cx: &App) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-/// EXP-1133: remember the per-team repo picks (best-effort, off-thread).
-fn persist_repo_picks(cx: &mut App, picks: HashMap<String, String>) {
+/// EXP-1133: remember ONE team's repo pick (best-effort, off-thread).
+/// EXP-1142: merged into the persisted map, never the window's whole map
+/// written over it — two windows picking repos for different teams used to
+/// make the last writer win on disk (the in-memory picks were right).
+fn persist_repo_pick(cx: &mut App, team_id: String, repository_id: String) {
     let Some(path) = settings_json_path(cx) else {
         return;
     };
@@ -1624,11 +1626,31 @@ fn persist_repo_picks(cx: &mut App, picks: HashMap<String, String>) {
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
             update_settings_json(&path, |object| {
-                let picks = serde_json::to_value(picks).unwrap_or_default();
-                object.insert(LAST_REPO_BY_TEAM_KEY.to_string(), picks);
+                merge_repo_pick(object, &team_id, &repository_id);
             });
         })
         .detach();
+}
+
+/// Set `team_id`'s pick in the persisted `lastRepoByTeam` object, keeping
+/// every other team's entry (a malformed value is replaced by a fresh map).
+fn merge_repo_pick(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    team_id: &str,
+    repository_id: &str,
+) {
+    let picks = object
+        .entry(LAST_REPO_BY_TEAM_KEY.to_string())
+        .or_insert_with(|| serde_json::Value::Object(Default::default()));
+    if !picks.is_object() {
+        *picks = serde_json::Value::Object(Default::default());
+    }
+    if let Some(picks) = picks.as_object_mut() {
+        picks.insert(
+            team_id.to_string(),
+            serde_json::Value::String(repository_id.to_string()),
+        );
+    }
 }
 
 /// Read-modify-write `settings.json` under the cross-process settings lock
@@ -2513,6 +2535,31 @@ mod tests {
             })
         );
         assert_eq!(percent_decode("a%2Bb%zz"), "a+b%zz");
+    }
+
+    /// EXP-1142: a pick lands beside the OTHER teams' persisted picks — one
+    /// window's write must not erase what another window picked.
+    #[test]
+    fn merge_repo_pick_keeps_other_teams_entries() {
+        let mut object = serde_json::Map::new();
+        object.insert(
+            LAST_REPO_BY_TEAM_KEY.to_string(),
+            serde_json::json!({ "team-a": "repo-1" }),
+        );
+        merge_repo_pick(&mut object, "team-b", "repo-2");
+        merge_repo_pick(&mut object, "team-a", "repo-3");
+        assert_eq!(
+            object[LAST_REPO_BY_TEAM_KEY],
+            serde_json::json!({ "team-a": "repo-3", "team-b": "repo-2" })
+        );
+        // Absent or malformed: a fresh map, never a panic or a silent skip.
+        let mut fresh = serde_json::Map::new();
+        merge_repo_pick(&mut fresh, "team-a", "repo-1");
+        assert_eq!(fresh[LAST_REPO_BY_TEAM_KEY], serde_json::json!({ "team-a": "repo-1" }));
+        let mut broken = serde_json::Map::new();
+        broken.insert(LAST_REPO_BY_TEAM_KEY.to_string(), serde_json::json!("nope"));
+        merge_repo_pick(&mut broken, "team-a", "repo-1");
+        assert_eq!(broken[LAST_REPO_BY_TEAM_KEY], serde_json::json!({ "team-a": "repo-1" }));
     }
 
     /// The seed constructors name exactly one thing each, and the
