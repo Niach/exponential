@@ -753,13 +753,19 @@ impl Render for WorkflowView {
                 self.scrolled(empty_face_line(NO_RESULTS_LABEL, cx))
             }
             (Face::Results, _, _) => {
-                let groups = domain::session_results::group_session_results(&results);
+                let groups = results;
                 let width = (f32::from(window.viewport_size().width)
                     - crate::shell::window_left_column_width(window, cx))
                 .min(crate::work_header::WORK_COLUMN_W)
                     - 2. * crate::issue_detail::DETAIL_GUTTER;
                 let images = self.images.clone();
-                let page = crate::session_results::render(&groups, width.max(200.), &images, cx);
+                let page = crate::session_results::render(
+                    &groups,
+                    width.max(200.),
+                    &images,
+                    row.team_id.as_deref(),
+                    cx,
+                );
                 self.scrolled(page)
             }
             (Face::Diff, Some(_), _) => self.scrolled(empty_face_line(NO_CHANGES_LABEL, cx)),
@@ -1439,14 +1445,26 @@ fn chip_facts(strip: &[StripWave], infos: &[NodeInfo]) -> Vec<Vec<ChipFacts>> {
         .collect()
 }
 
-/// The ONE runs' results, in scope order.
-fn collect_results(sessions: &[CodingSession]) -> Vec<domain::session_results::SessionResultEntry> {
-    sessions
-        .iter()
-        .flat_map(|session| {
-            domain::session_results::parse_session_results(session.results.as_ref())
-        })
-        .collect()
+/// The ONE runs' results, in scope order: each run's groups
+/// (`domain::session_results::parse_session_result_groups`, EXP-933 — text
+/// counts too), a topic two runs share merged into one band (first text
+/// wins, pictures appended).
+fn collect_results(sessions: &[CodingSession]) -> Vec<domain::session_results::SessionResultGroup> {
+    let mut groups: Vec<domain::session_results::SessionResultGroup> = Vec::new();
+    for session in sessions {
+        for group in domain::session_results::parse_session_result_groups(session.results.as_ref()) {
+            match groups.iter_mut().find(|existing| existing.topic == group.topic) {
+                Some(existing) => {
+                    if existing.text.is_none() {
+                        existing.text = group.text;
+                    }
+                    existing.entries.extend(group.entries);
+                }
+                None => groups.push(group),
+            }
+        }
+    }
+    groups
 }
 
 /// A display state's colour.

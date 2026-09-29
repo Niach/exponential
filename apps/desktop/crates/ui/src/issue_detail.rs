@@ -493,6 +493,15 @@ pub struct IssueDetailView {
     /// nothing goes on the history stack. Cleared on every issue switch and
     /// the moment the PR stops being open (the web `fallbackFace`).
     changes_open: bool,
+    /// EXP-933: the tab's RESULTS face is up on THIS issue — a TEAMMATE's run
+    /// report (`work_header::issue_results_run`) read inside the issue
+    /// surface, never by opening their run. Keyed by the issue id rather than
+    /// a bool so an inbox/OS-notification deep link can ask for it BEFORE the
+    /// navigation re-points this view (the switch keeps it only for that
+    /// issue). My own run's results stay the run's sub-face.
+    results_open_for: Option<String>,
+    /// The image cache behind that face's tiles, built on first open.
+    results_images: Option<Entity<crate::markdown::ImageCache>>,
     /// The embedded [`crate::pr_diff::PrDiffView`] behind that face, built
     /// the first time it opens (its fetch is `issues.prFiles`, one snapshot
     /// per issue).
@@ -614,6 +623,8 @@ impl IssueDetailView {
             sub_issue_composer: None,
             resumable: None,
             changes_open: false,
+            results_open_for: None,
+            results_images: None,
             changes: None,
             changes_requested: None,
             tab_states: Default::default(),
@@ -636,9 +647,71 @@ impl IssueDetailView {
             self.flush_description(cx);
             // Re-opening the face is a fresh attempt at the pane's fetch.
             self.changes_requested = None;
+            self.results_open_for = None;
         }
         self.changes_open = open;
         cx.notify();
+    }
+
+    /// EXP-933 — put this tab on the issue's RESULTS face (a teammate's run
+    /// report) or back off it. `issue_id` names the issue it is for: a deep
+    /// link asks before the navigation re-points the view, and the switch
+    /// keeps the request only for that issue.
+    pub(crate) fn set_results_open_for(
+        &mut self,
+        issue_id: Option<String>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.results_open_for == issue_id {
+            return;
+        }
+        if issue_id.is_some() {
+            self.flush_title(cx);
+            self.flush_description(cx);
+            self.changes_open = false;
+        }
+        self.results_open_for = issue_id;
+        cx.notify();
+    }
+
+    /// Whether the Results face is up on `issue_id`.
+    fn results_open_on(&self, issue_id: &str) -> bool {
+        self.results_open_for.as_deref() == Some(issue_id)
+    }
+
+    /// EXP-933 — the issue's Results face: the teammate run's report through
+    /// the SAME page a run's own Results face renders. `None` when that run
+    /// has nothing (any more) to show.
+    fn render_results_face(
+        &mut self,
+        issue: &Issue,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        let row = crate::work_header::issue_results_row(&issue.id, None, cx)?;
+        let groups =
+            domain::session_results::parse_session_result_groups(row.results.as_ref());
+        if groups.is_empty() {
+            return None;
+        }
+        let images = self
+            .results_images
+            .get_or_insert_with(|| {
+                let transport = queries::attachment_transport(cx);
+                cx.new(|_| crate::markdown::ImageCache::new(transport))
+            })
+            .clone();
+        let width = f32::from(window.viewport_size().width)
+            .min(crate::work_header::WORK_COLUMN_W)
+            - 2. * DETAIL_GUTTER;
+        let team_id = row.team_id.clone();
+        Some(crate::session_results::render(
+            &groups,
+            width.max(200.),
+            &images,
+            team_id.as_deref(),
+            cx,
+        ))
     }
 
     /// EXP-889 — the Changes face's pane, built on first open and re-pointed
@@ -778,6 +851,11 @@ impl IssueDetailView {
         // when the face opens again: `set_issue` on it is the refetch.)
         self.changes_open = false;
         self.changes_requested = None;
+        // EXP-933: a Results request survives the switch only when it was
+        // made FOR the incoming issue (the inbox/notification deep link).
+        if self.results_open_for.as_deref() != Some(issue_id.as_str()) {
+            self.results_open_for = None;
+        }
         // The files rail's transient state belongs to the OUTGOING issue —
         // a pending upload row or a busy marker must never leak onto the
         // incoming one (the in-flight requests themselves keep running and
@@ -2257,13 +2335,24 @@ impl IssueDetailView {
         });
         // EXP-879: the Results item reads the SYNCED row, not an open view —
         // a run whose screen this window never built still has its pictures.
-        let results = run_id
-            .as_deref()
-            .is_some_and(|run_id| !crate::work_header::run_results(run_id, cx).is_empty());
+        // EXP-933: the item keys on the run whose results the ISSUE shows —
+        // mine when my target has any, else the newest teammate run with
+        // some (`issue_results_run`), text-only reports included.
+        let results_row = crate::work_header::issue_results_row(&issue.id, run_id.as_deref(), cx);
+        let results = results_row.is_some();
+        // Mine = today's path (the run's own Results sub-face); a teammate's
+        // opens right here, as this tab's face.
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let results_run_mine = results_row
+            .as_ref()
+            .filter(|row| row.user_id.is_some() && row.user_id == me)
+            .map(|row| row.id.clone());
+        let results_open = self.results_open_on(&issue.id);
         // EXP-889: the issue's own open pull request IS a Changes face, with
         // or without a run of mine (the web `hasChanges`).
         let pr_changes = crate::queries::is_reviewable(issue);
         let active = match (self.changes_open, face_state.as_ref().map(|state| state.active)) {
+            _ if results_open => Face::Results,
             (true, _) => Face::Diff,
             (_, Some(crate::screens::TabFace::Run)) => Face::Run,
             _ => Face::Issue,
@@ -2305,13 +2394,32 @@ impl IssueDetailView {
                     // this toggle only renders while the tab IS on its issue
                     // screen.)
                     if face == Face::Issue || (face == Face::Diff && !run_diff) {
-                        let _ = this
-                            .update(cx, |this, cx| this.set_changes_open(face == Face::Diff, cx));
+                        let _ = this.update(cx, |this, cx| {
+                            this.set_results_open_for(None, cx);
+                            this.set_changes_open(face == Face::Diff, cx);
+                        });
                         return;
                     }
-                    let Some(run_id) = run_id.clone() else {
+                    // EXP-933: Results opens the run the ISSUE's results come
+                    // from — my own on its sub-face, a teammate's in place.
+                    let run_id = if face == Face::Results {
+                        match results_run_mine.clone() {
+                            Some(mine) => Some(mine),
+                            None => {
+                                let issue_id = issue_id.clone();
+                                let _ = this.update(cx, |this, cx| {
+                                    this.set_results_open_for(Some(issue_id), cx);
+                                });
+                                return;
+                            }
+                        }
+                    } else {
+                        run_id.clone()
+                    };
+                    let Some(run_id) = run_id else {
                         return;
                     };
+                    let _ = this.update(cx, |this, cx| this.set_results_open_for(None, cx));
                     // Leaving for the RUN puts the issue side back on its
                     // issue face: the session screen's own `Issue` pick must
                     // land on the issue, never back on its PR files.
@@ -2344,7 +2452,10 @@ impl IssueDetailView {
                 // EXP-950: the caret's pick opens THAT run on the tab's Run
                 // face — the checked one too, since none is on show here.
                 Rc::new(move |run_id, window, cx| {
-                    let _ = menu_this.update(cx, |this, cx| this.set_changes_open(false, cx));
+                    let _ = menu_this.update(cx, |this, cx| {
+                        this.set_results_open_for(None, cx);
+                        this.set_changes_open(false, cx);
+                    });
                     crate::screens::set_tab_face(
                         &menu_issue_id,
                         crate::screens::TabFace::Run,
@@ -2466,7 +2577,25 @@ impl Render for IssueDetailView {
             // closing the face notifies, exactly as the toggle does.
             self.set_changes_open(false, cx);
         }
+        // EXP-933: the RESULTS face (a teammate's run report) — built before
+        // the header so a report that vanished drops the toggle back onto
+        // the issue in the same frame.
+        let results_face = if self.results_open_on(&issue.id) {
+            let face = self.render_results_face(&issue, window, cx);
+            if face.is_none() {
+                self.set_results_open_for(None, cx);
+            }
+            face
+        } else {
+            None
+        };
         let header = self.render_header(&issue, window, cx);
+        if let Some(results_face) = results_face {
+            return view
+                .child(header)
+                .child(div().flex_1().min_h_0().w_full().child(results_face))
+                .into_any_element();
+        }
         // EXP-889: the CHANGES face — the issue's open PR read through the
         // SAME pane as a review and a run's diff (`pr_diff` over
         // `issues.prFiles`), under the same work header. No run of mine is

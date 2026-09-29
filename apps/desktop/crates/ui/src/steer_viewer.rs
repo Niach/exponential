@@ -2625,8 +2625,10 @@ impl SteerSessionView {
     /// ONE reader, `domain::session_results`). The row is re-snapshotted on
     /// every `coding_sessions` notify, so this follows a run that publishes
     /// while it is being watched.
-    pub(crate) fn results_entries(&self) -> Vec<domain::session_results::SessionResultEntry> {
-        domain::session_results::parse_session_results(
+    /// EXP-933: GROUPS, pictures AND each topic's report text — a run that
+    /// published only text still has a Results face.
+    pub(crate) fn results_groups(&self) -> Vec<domain::session_results::SessionResultGroup> {
+        domain::session_results::parse_session_result_groups(
             self.row.as_ref().and_then(|row| row.results.as_ref()),
         )
     }
@@ -2639,7 +2641,7 @@ impl SteerSessionView {
     /// nothing falls back to the transcript rather than to a blank page.
     pub(crate) fn set_run_face(&mut self, face: RunFace, cx: &mut gpui::Context<Self>) {
         let face = match face {
-            RunFace::Results if self.results_entries().is_empty() => RunFace::Run,
+            RunFace::Results if self.results_groups().is_empty() => RunFace::Run,
             face => face,
         };
         if self.run_face == face {
@@ -2762,14 +2764,16 @@ impl SteerSessionView {
         if self.run_face != RunFace::Results {
             return None;
         }
-        let groups = domain::session_results::group_session_results(&self.results_entries());
+        let groups = self.results_groups();
         if groups.is_empty() {
             return None;
         }
+        let team_id = self.ref_team_id(cx);
         Some(crate::session_results::render(
             &groups,
             self.results_row_width(window),
             &self.images,
+            team_id.as_deref(),
             cx,
         ))
     }
@@ -4444,7 +4448,9 @@ impl SteerSessionView {
                 display,
                 detail.as_deref(),
                 *failed,
+                *settled,
                 preview.as_ref(),
+                &self.session_id,
                 cx,
             ),
             None => tool_row(name, detail.as_deref(), *failed, cx).into_any_element(),
@@ -7327,12 +7333,19 @@ fn tool_row(name: &str, detail: Option<&str>, failed: bool, cx: &App) -> impl In
 ///
 /// Every part is optional: the mark plus the caption is a complete row, and a
 /// tool that answers `none` never gets more. Mirrored ×4.
+///
+/// EXP-933: a SETTLED, successful `results` call (`sessions_results`) carries
+/// an `Open Results` button that puts `run_id` — the run this transcript is —
+/// on its Results face.
+#[allow(clippy::too_many_arguments)]
 fn exp_tool_call_row(
     id: FeedItemId,
     display: steer::ExpToolDisplay,
     detail: Option<&str>,
     failed: bool,
+    settled: bool,
     preview: Option<&steer::frames::ToolPreview>,
+    run_id: &str,
     cx: &mut App,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
@@ -7364,9 +7377,14 @@ fn exp_tool_call_row(
                     .child(SharedString::from(detail.to_string())),
             )
         });
-    let body = (!failed)
-        .then(|| preview.and_then(|preview| exp_tool_preview_row(id, display.result, preview, cx)))
-        .flatten();
+    let body = if display.result == steer::exp_tool::result::RESULTS {
+        (settled && !failed && !run_id.is_empty())
+            .then(|| exp_open_results_button(id, run_id, cx))
+    } else {
+        (!failed)
+            .then(|| preview.and_then(|preview| exp_tool_preview_row(id, display.result, preview, cx)))
+            .flatten()
+    };
     match body {
         Some(body) => v_flex()
             .w_full()
@@ -7379,6 +7397,36 @@ fn exp_tool_call_row(
     }
 }
 
+/// The label of the button under a settled `sessions_results` row — ×4.
+pub(crate) const OPEN_RESULTS_LABEL: &str = "Open Results";
+
+/// EXP-933 — `Open Results` under a settled `sessions_results` call: the run's
+/// Results face, through the panel's pending-face path (it applies once the
+/// run's view exists).
+fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement {
+    let run_id = run_id.to_string();
+    h_flex()
+        .child(
+            Button::new(("steer-exp-open-results", id as usize))
+                .ghost()
+                .cursor_pointer()
+                .xsmall()
+                .icon(Icon::new(registry::WORK_RESULTS))
+                .text_color(cx.theme().muted_foreground)
+                .label(OPEN_RESULTS_LABEL)
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    crate::screens::set_run_face(
+                        &run_id,
+                        crate::screens::RunFace::Results,
+                        window,
+                        cx,
+                    );
+                }),
+        )
+        .into_any_element()
+}
+
 /// EXP-846 — the settled preview under an Exponential tool row, by contract
 /// result kind:
 ///
@@ -7388,6 +7436,7 @@ fn exp_tool_call_row(
 ///   degrades to the identifier and title the tool itself reported;
 /// * `pr` — a link row opening the pull request in the browser;
 /// * `list` — "N results";
+/// * `results` — never reaches here: its row carries `Open Results` instead;
 /// * `session` / `board` / `action` / `automation` / `comment` — a name chip;
 /// * `none` — nothing: the caption said it all.
 ///
@@ -7487,7 +7536,7 @@ fn exp_tool_preview_row(
                     .child(SharedString::from(exp_tool_result_count(count)))
                     .into_any_element()
             }),
-        kind::NONE => None,
+        kind::NONE | kind::RESULTS => None,
         // session / board / action / automation / comment: a name chip.
         _ => exp_preview_label(preview).map(|label| exp_preview_chip(registry::CODING_TOOL, label, cx)),
     }

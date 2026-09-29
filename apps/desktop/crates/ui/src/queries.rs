@@ -848,6 +848,17 @@ pub struct InboxGroup {
     pub unread: usize,
 }
 
+impl InboxGroup {
+    /// EXP-933: an issue entry whose LATEST notification is an agent's
+    /// message (`agent_message` now may carry the target issue) opens that
+    /// issue on its RESULTS — the report the agent is pointing at — rather
+    /// than on the issue face.
+    pub fn opens_results(&self) -> bool {
+        self.items.first().and_then(|n| n.kind.as_deref())
+            == Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)
+    }
+}
+
 /// One synthetic Support card (EXP-180): issue-less `support_reply`
 /// notifications, ONE group per ticket team. These synced rows are the
 /// desktop's passive helpdesk signal (EXP-638 raises them as OS
@@ -3594,6 +3605,39 @@ mod tests {
         assert_eq!(second.team_name, None);
         assert_eq!(second.unread(), 0);
         assert_eq!(entries.iter().map(InboxEntry::unread).sum::<usize>(), 2);
+    }
+
+    /// EXP-933: an `agent_message` WITH an issue groups under that issue,
+    /// and the group opens on Results only while that message is the latest.
+    #[test]
+    fn inbox_issue_group_opens_results_when_its_latest_is_an_agent_message() {
+        let issue = inbox_issue("i-1");
+        let resolve = |id: &str| (id == "i-1").then(|| issue.clone());
+        let entries = build_inbox_entries(
+            vec![
+                notification("c-1", Some("i-1"), Some("w-1"), "issue_comment", "2026-07-18T09:00:00Z", true),
+                notification("m-1", Some("i-1"), Some("w-1"), "agent_message", "2026-07-18T10:00:00Z", false),
+            ],
+            resolve,
+            |_| None,
+        );
+        assert_eq!(entries.len(), 1);
+        let InboxEntry::Issue(group) = &entries[0] else {
+            panic!("expected an Issue entry");
+        };
+        assert!(group.opens_results());
+        let entries = build_inbox_entries(
+            vec![
+                notification("m-1", Some("i-1"), Some("w-1"), "agent_message", "2026-07-18T09:00:00Z", true),
+                notification("c-1", Some("i-1"), Some("w-1"), "issue_comment", "2026-07-18T10:00:00Z", false),
+            ],
+            resolve,
+            |_| None,
+        );
+        let InboxEntry::Issue(group) = &entries[0] else {
+            panic!("expected an Issue entry");
+        };
+        assert!(!group.opens_results());
     }
 
     /// EXP-980: a blocked run's row is issue-less and names its run — one

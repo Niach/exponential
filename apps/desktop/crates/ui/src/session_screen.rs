@@ -485,10 +485,11 @@ impl SessionScreenView {
         &self.inner
     }
 
-    /// EXP-879: how many pictures the run has published — 0 hides the
-    /// Results item (the face is not offered on a run with nothing to show).
+    /// EXP-879/EXP-933: how many result TOPICS (pictures or report text) the
+    /// run has published — 0 hides the Results item (the face is not offered
+    /// on a run with nothing to show).
     pub(crate) fn results_count(&self, cx: &App) -> usize {
-        self.inner.read(cx).results_entries().len()
+        self.inner.read(cx).results_groups().len()
     }
 
     /// Put the run on one of its sub-faces — the toggle's Run / Changes /

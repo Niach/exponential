@@ -56,7 +56,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset};
-use domain::contract::{NOTIFICATION_TYPE_SESSION_BLOCKED, NOTIFICATION_TYPE_SUPPORT_REPLY};
+use domain::contract::{
+    NOTIFICATION_TYPE_AGENT_MESSAGE, NOTIFICATION_TYPE_SESSION_BLOCKED,
+    NOTIFICATION_TYPE_SUPPORT_REPLY,
+};
 use domain::rows::Notification;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, Entity, Global, SharedString,
@@ -174,6 +177,9 @@ fn parse_created_at(row: &Notification) -> Option<DateTime<FixedOffset>> {
 enum Route {
     /// Issue detail, scoped on the issue's board.
     Issue { issue_id: String },
+    /// EXP-933: an agent's message about an issue — that issue's RESULTS
+    /// (`work_header::open_issue_results`), scoped like [`Route::Issue`].
+    IssueResults { issue_id: String },
     /// The ticket team's Support tool (`None` = the legacy team-less row —
     /// the current team's Support, like the generic rail group).
     Support { team_id: Option<String> },
@@ -186,6 +192,11 @@ enum Route {
 
 fn route_for(row: &Notification) -> Route {
     if let Some(issue_id) = &row.issue_id {
+        if row.kind.as_deref() == Some(NOTIFICATION_TYPE_AGENT_MESSAGE) {
+            return Route::IssueResults {
+                issue_id: issue_id.clone(),
+            };
+        }
         return Route::Issue {
             issue_id: issue_id.clone(),
         };
@@ -603,27 +614,8 @@ fn route_to(route: Route, cx: &mut App) {
 /// Land a route in `window` — the rail Inbox rows' own paths.
 fn land(route: Route, window: &mut Window, cx: &mut App) {
     match route {
-        Route::Issue { issue_id } => {
-            let target = {
-                let collections = Store::global(cx).collections();
-                let issues = collections.issues.read(cx);
-                let boards = collections.boards.read(cx);
-                issues.get(&issue_id).map(|issue| {
-                    let team_id = boards
-                        .get(&issue.board_id)
-                        .map(|board| board.team_id.clone());
-                    (issue.board_id.clone(), team_id)
-                })
-            };
-            match target {
-                Some((board_id, team_id)) => {
-                    switch_team_if_needed(team_id, window, cx);
-                    navigation::open_issue_scoped(window, cx, issue_id, board_id);
-                }
-                // Not synced (yet) — the Inbox row will resolve it later.
-                None => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
-            }
-        }
+        Route::Issue { issue_id } => land_issue(issue_id, false, window, cx),
+        Route::IssueResults { issue_id } => land_issue(issue_id, true, window, cx),
         Route::Support { team_id } => {
             switch_team_if_needed(team_id, window, cx);
             sidebar::activate_tool(window, cx, ToolWindow::Support);
@@ -646,6 +638,37 @@ fn land(route: Route, window: &mut Window, cx: &mut App) {
             switch_team_if_needed(team_id, window, cx);
             crate::session_screen::open_session(&session_id, window, cx)
         }
+    }
+}
+
+/// An issue route, scoped on the issue's board; `results` = open it on its
+/// Results (EXP-933). An issue that has not synced yet opens the Inbox.
+fn land_issue(issue_id: String, results: bool, window: &mut Window, cx: &mut App) {
+    let target = {
+        let collections = Store::global(cx).collections();
+        let issues = collections.issues.read(cx);
+        let boards = collections.boards.read(cx);
+        issues.get(&issue_id).map(|issue| {
+            let team_id = boards
+                .get(&issue.board_id)
+                .map(|board| board.team_id.clone());
+            (issue.board_id.clone(), team_id)
+        })
+    };
+    match target {
+        Some((board_id, team_id)) => {
+            switch_team_if_needed(team_id, window, cx);
+            if results {
+                let id = issue_id.clone();
+                crate::work_header::open_issue_results(&id, window, cx, move |window, cx| {
+                    navigation::open_issue_scoped(window, cx, issue_id, board_id);
+                });
+            } else {
+                navigation::open_issue_scoped(window, cx, issue_id, board_id);
+            }
+        }
+        // Not synced (yet) — the Inbox row will resolve it later.
+        None => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
     }
 }
 
@@ -739,6 +762,35 @@ mod tests {
             inbox_tab,
             team_id: Some("team-a".to_string()),
         }
+    }
+
+    /// EXP-933: an agent's message about an issue opens that issue's
+    /// Results; an issue-less one (EXP-801) still lands in the Inbox.
+    #[test]
+    fn an_agent_message_with_an_issue_routes_to_its_results() {
+        let message = Notification {
+            kind: Some(NOTIFICATION_TYPE_AGENT_MESSAGE.to_string()),
+            ..row("m", "2026-08-27T10:00:00+00:00")
+        };
+        assert_eq!(
+            route_for(&message),
+            Route::IssueResults {
+                issue_id: "issue-m".to_string()
+            }
+        );
+        let issueless = Notification {
+            issue_id: None,
+            ..message.clone()
+        };
+        assert_eq!(route_for(&issueless), Route::Inbox);
+        // A burst of them about one issue still goes straight there.
+        let toast = compose(&[message.clone(), Notification { id: "m2".into(), ..message }]).unwrap();
+        assert_eq!(
+            toast.route,
+            Route::IssueResults {
+                issue_id: "issue-m".to_string()
+            }
+        );
     }
 
     #[test]

@@ -197,6 +197,18 @@ pub(crate) fn set_tab_face(
     set_screen(window, cx, Some(target));
 }
 
+/// EXP-933 — ask this window's issue detail to open `issue_id` on its
+/// RESULTS face (a teammate's run report). Made before the navigation
+/// re-points the shared view; the switch keeps it for that issue only.
+pub(crate) fn request_issue_results(issue_id: &str, window: &mut Window, cx: &mut App) {
+    let Some(panel) = screens_for_window(window, cx) else {
+        return;
+    };
+    let detail = panel.read(cx).issue_detail.clone();
+    let wanted = issue_id.to_string();
+    detail.update(cx, |detail, cx| detail.set_results_open_for(Some(wanted), cx));
+}
+
 /// EXP-877/EXP-879 — put `run_id` on one of its SUB-FACES (the transcript,
 /// its changes, its results) in THIS window.
 ///
