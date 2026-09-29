@@ -146,6 +146,9 @@ pub struct SourceControlView {
     /// The shared per-window repo resolver (§4.2) — the trunk repo comes from
     /// here instead of a per-screen `repositories.list` call.
     repo_resolver: Entity<RepoResolver>,
+    /// The window's navigation — the team this screen scopes to (EXP-1142:
+    /// no team shows a notice, not "Resolving repository…" forever).
+    nav: Entity<navigation::Navigation>,
     /// Right pane — the shared UNIFIED diff renderer (`set_prepared`, §4.4;
     /// EXP-895 at [`DiffOptions::source_control`]: one flat, always-open list,
     /// because the file list beside it IS the navigation).
@@ -210,6 +213,7 @@ impl SourceControlView {
             seen_sync_seq,
             seen_selection: ScSelection::None,
             repo_resolver,
+            nav,
             diff,
             scope_repo: None,
             scope_load: Load::Idle,
@@ -758,7 +762,13 @@ impl SourceControlView {
         // through to the definitive "no repository linked" notice during sync.
         // That is a lie with a screenshot of its own — the store's
         // `source-control` shot was exactly this state (EXP-566).
-        if matches!(self.scope_load, Load::Idle | Load::Loading) && self.scope.is_none() {
+        // EXP-1142: with no team the resolver never settles — the notice
+        // replaces the resolving state rather than following it.
+        let no_team = crate::repo_scope::no_team_notice(&self.nav, cx);
+        if no_team.is_none()
+            && matches!(self.scope_load, Load::Idle | Load::Loading)
+            && self.scope.is_none()
+        {
             return div()
                 .size_full()
                 .flex()
@@ -778,7 +788,7 @@ impl SourceControlView {
                 .p_4()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child(NO_REPOSITORY_NOTICE)
+                .child(no_team.unwrap_or(NO_REPOSITORY_NOTICE))
                 .into_any_element();
         }
         if !self.clone_ready() {
