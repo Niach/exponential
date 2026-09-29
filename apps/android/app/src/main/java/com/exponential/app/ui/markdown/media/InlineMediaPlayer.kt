@@ -1,4 +1,4 @@
-@file:OptIn(UnstableApi::class)
+@file:androidx.annotation.OptIn(UnstableApi::class)
 
 package com.exponential.app.ui.markdown.media
 

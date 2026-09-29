@@ -212,6 +212,11 @@ jobs:
       - name: Android unit tests
         working-directory: apps/android
         run: ./gradlew :app:testProductionDebugUnitTest --no-daemon
+      # EXP-1009 — lint aborts on error-level findings (media3's
+      # UnsafeOptInUsageError slipped through while only unit tests ran).
+      - name: Android lint
+        working-directory: apps/android
+        run: ./gradlew :app:lintProductionDebug --no-daemon
       # EXP-375 — the Android inventory is the TRANSITIVELY RESOLVED runtime
       # graph (compose-bom and firebase-bom expand to artifacts
       # libs.versions.toml never names), so it needs a real gradle resolve.
