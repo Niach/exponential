@@ -147,6 +147,7 @@ import {
   type EmojiDataset,
   type PickerOption,
   type SessionResultEntry,
+  type SessionResultGroup,
   type StatusGlyphProps,
   TREE_BASE,
   TREE_INDENT,
@@ -755,6 +756,23 @@ const SESSION_RESULTS_FIXTURE: SessionResultEntry[] = [
   { topic: `Issue header`, label: `ios`, attachmentId: `a2`, width: 390, height: 844 },
   { topic: `Emoji picker`, label: `web`, attachmentId: `a3`, width: 1440, height: 900 },
   { topic: `Emoji picker`, label: `android`, attachmentId: `a4`, width: 412, height: 915 },
+]
+
+/* EXP-933: the same run as a REPORT — a text-only `Summary` topic first, then
+   the screens, one of them with its own text above its tiles. Text entries
+   are `{ topic, label: null, attachmentId: null, text }` on the wire. */
+const SESSION_RESULT_GROUPS_FIXTURE: SessionResultGroup[] = [
+  {
+    topic: `Summary`,
+    text: `Moved the issue header onto the shared \`WorkHeader\` and gave the emoji picker a Recent row.\n\n- Header: one row on every width\n- Picker: recents persist per device`,
+    entries: [],
+  },
+  {
+    topic: `Issue header`,
+    text: `The title wraps at two lines; the face toggle stays right-aligned.`,
+    entries: SESSION_RESULTS_FIXTURE.slice(0, 2),
+  },
+  { topic: `Emoji picker`, text: null, entries: SESSION_RESULTS_FIXTURE.slice(2) },
 ]
 
 /* -------------------------------------------------------------- the specs */
@@ -4020,7 +4038,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `session-results`,
     title: `Session results`,
     kind: `Lists & rows`,
-    blurb: `EXP-879: the screenshots a run published with \`exponential_sessions_results\`, read off the synced jsonb. One group band per topic over a wrapping strip of tiles, so an iOS, an Android and a web shot of ONE screen read as one row — which only works because every tile is the same height and takes its width from the probed aspect (a 4:3 desktop frame stands in when the upload could not be measured). On a narrow column the whole page scales down by ONE factor, the widest tile's overflow, rather than letting a row clip or each row pick its own size. Tapping a tile opens the shared lightbox. The tile URL is passed in: this package owns the tiles, the app owns the route.`,
+    blurb: `EXP-879: the screenshots a run published with \`exponential_sessions_results\`, read off the synced jsonb — EXP-933: and each topic's GFM report text (\`text\` entries), drawn above its tiles by the app's markdown renderer (\`renderText\`; plain pre-wrapped prose without one), so a text-only \`Summary\` topic reads as the run's report. One group band per topic over a wrapping strip of tiles, so an iOS, an Android and a web shot of ONE screen read as one row — which only works because every tile is the same height and takes its width from the probed aspect (a 4:3 desktop frame stands in when the upload could not be measured). On a narrow column the whole page scales down by ONE factor, the widest tile's overflow, rather than letting a row clip or each row pick its own size. Tapping a tile opens the shared lightbox. The tile URL is passed in: this package owns the tiles, the app owns the route.`,
     status: {
       web: ok(
         `SessionResultsView`,
@@ -4037,7 +4055,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     island: () => (
       <SessionResultsView
-        results={SESSION_RESULTS_FIXTURE}
+        groups={SESSION_RESULT_GROUPS_FIXTURE}
         attachmentSrc={() => THUMB_FIXTURE_SRC}
       />
     ),

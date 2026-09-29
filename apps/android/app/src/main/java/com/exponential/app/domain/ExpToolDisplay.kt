@@ -39,6 +39,8 @@ object ExpToolDisplay {
     const val RESULT_ACTION = "action"
     const val RESULT_AUTOMATION = "automation"
     const val RESULT_LIST = "list"
+    /** EXP-933: `sessions_results` — the card offers `Open Results`. */
+    const val RESULT_RESULTS = "results"
 
     /**
      * The Exponential MCP tool a call NAMES, or null for anything else.

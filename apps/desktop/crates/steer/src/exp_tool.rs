@@ -130,6 +130,9 @@ pub mod result {
     pub const ACTION: &str = "action";
     pub const AUTOMATION: &str = "automation";
     pub const LIST: &str = "list";
+    /// EXP-933: `sessions_results` — the run's Results face (the report the
+    /// agent is filing); a settled row offers `Open Results`.
+    pub const RESULTS: &str = "results";
 }
 
 #[cfg(test)]
@@ -224,6 +227,32 @@ mod tests {
         assert_eq!(exp_tool_preview_spec("exponential_actions_delete"), Some(""));
         assert_eq!(exp_tool_preview_spec("mcp__other__issues_create"), None);
         assert_eq!(exp_tool_preview_spec("Bash"), None);
+    }
+
+    /// EXP-933: `sessions_results` answers with the RESULTS kind (it used to
+    /// be `session`), and every named kind is one the contract lists.
+    #[test]
+    fn sessions_results_answers_the_results_kind() {
+        let display = exp_tool_display("mcp__exponential__exponential_sessions_results", true)
+            .expect("ours");
+        assert_eq!(display.result, result::RESULTS);
+        for kind in [
+            result::NONE,
+            result::ISSUE,
+            result::PR,
+            result::COMMENT,
+            result::SESSION,
+            result::BOARD,
+            result::ACTION,
+            result::AUTOMATION,
+            result::LIST,
+            result::RESULTS,
+        ] {
+            assert!(
+                domain::contract::EXP_TOOL_RESULT_KINDS.contains(&kind),
+                "{kind} is not a contract result kind"
+            );
+        }
     }
 
     /// EXP-862 — the settings list: every built-in tool, its wire name whole

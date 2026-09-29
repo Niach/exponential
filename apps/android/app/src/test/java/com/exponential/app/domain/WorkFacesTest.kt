@@ -1,6 +1,11 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.db.CodingSessionEntity
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -286,5 +291,38 @@ class WorkFacesTest {
         assertFalse(faceShowsContextMenu(WorkFaceKind.Run))
         assertFalse(faceShowsContextMenu(WorkFaceKind.Changes))
         assertFalse(faceShowsContextMenu(WorkFaceKind.Results))
+    }
+
+    // EXP-933: `issueResultsRun` against the shared `session-results.json`.
+    @Test
+    fun `every fixture issueResultsRun case picks the expected run`() {
+        val section = sessionResultsFixture()["issueResultsRun"]!!.jsonObject
+        val now = WireTimestamps.parseEpochMs(section["now"]!!.jsonPrimitive.content)!!
+        val cases = section["cases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        fun str(obj: JsonObject, key: String): String? =
+            obj[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+        for (element in cases) {
+            val case = element.jsonObject
+            val rows = case["rows"]!!.jsonArray.map { rowElement ->
+                val row = rowElement.jsonObject
+                CodingSessionEntity(
+                    id = str(row, "id")!!,
+                    issueId = str(row, "issueId"),
+                    teamId = "team-1",
+                    userId = str(row, "userId")!!,
+                    status = str(row, "status")!!,
+                    startedAt = str(row, "startedAt")!!,
+                    createdAt = str(row, "startedAt")!!,
+                    updatedAt = str(row, "updatedAt")!!,
+                    results = row["results"]?.toString(),
+                )
+            }
+            assertEquals(
+                str(case, "name"),
+                str(case, "expected"),
+                issueResultsRun(rows, str(case, "issueId")!!, str(case, "boundId"), str(case, "me"), now)?.id,
+            )
+        }
     }
 }

@@ -1,3 +1,4 @@
+import ExpCore
 import FirebaseMessaging
 import Foundation
 import UIKit
@@ -44,29 +45,26 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        if userInfo["type"] as? String == "support_reply",
-           let threadId = userInfo["threadId"] as? String {
-            // Helpdesk pushes (EXP-180) carry a threadId and NO issue keys —
-            // route to the Support thread view instead of an issue.
-            deepLinkBus.navigateToSupportThread(threadId, userId: userInfo["userId"] as? String)
-        } else if userInfo["type"] as? String == "session_blocked" {
-            // A blocked run (EXP-980) carries no issue keys — its `sessionId`
-            // is the run to open. Without one (the run has been pruned) the
-            // row lives in the inbox and nowhere else, so the tap lands there.
-            if let sessionId = userInfo["sessionId"] as? String {
-                deepLinkBus.navigateToSession(sessionId, userId: userInfo["userId"] as? String)
-            } else {
-                deepLinkBus.navigateToInbox(userId: userInfo["userId"] as? String)
-            }
-        } else if userInfo["type"] as? String == "agent_message" {
-            // An agent's message (EXP-801) carries no issue keys either — it
-            // renders in the My Work inbox, so the tap opens that.
-            deepLinkBus.navigateToInbox(userId: userInfo["userId"] as? String)
-        } else if let issueId = userInfo["issueId"] as? String {
-            // The payload's userId identifies which signed-in account the
-            // push was for; the navigator opens the issue under that account
-            // instead of whichever one is active.
-            deepLinkBus.navigateToIssue(issueId, userId: userInfo["userId"] as? String)
+        // The payload's userId identifies which signed-in account the push
+        // was for; the navigator opens it under that account instead of
+        // whichever one is active.
+        let userId = userInfo["userId"] as? String
+        switch NotificationRouting.pushTarget(userInfo) {
+        case let .supportThread(threadId):
+            // Helpdesk pushes (EXP-180) carry a threadId and NO issue keys.
+            deepLinkBus.navigateToSupportThread(threadId, userId: userId)
+        case let .session(sessionId):
+            // A blocked run (EXP-980): its `sessionId` is the run to open.
+            deepLinkBus.navigateToSession(sessionId, userId: userId)
+        case .inbox:
+            // An issue-less agent message (EXP-801), or a blocked run whose
+            // row was pruned: the row lives in the inbox and nowhere else.
+            deepLinkBus.navigateToInbox(userId: userId)
+        case let .issue(issueId, face):
+            // EXP-933: a targeted agent message opens the issue's Results.
+            deepLinkBus.navigateToIssue(issueId, userId: userId, face: face)
+        case .none:
+            break
         }
         completionHandler()
     }

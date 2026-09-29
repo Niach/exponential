@@ -527,7 +527,8 @@
       "board",
       "action",
       "automation",
-      "list"
+      "list",
+      "results"
     ],
     "tools": [
       {
@@ -1336,13 +1337,13 @@
       {
         "name": "sessions_results",
         "title": "Publish results",
-        "blurb": "Publishes a screenshot of the run's work, grouped by topic with a label per picture.",
+        "blurb": "Publishes the run's report on the issue's Results: GFM text and screenshots, grouped by topic.",
         "progressive": "Publishing results",
         "done": "Published results",
         "progressiveMany": "Publishing results {n} times",
         "doneMany": "Published results {n} times",
         "subjectKey": "topic",
-        "result": "session"
+        "result": "results"
       },
       {
         "name": "sessions_start",

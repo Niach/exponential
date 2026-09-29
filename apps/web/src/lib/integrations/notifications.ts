@@ -749,6 +749,10 @@ async function deliverToTeam(args: {
   pushData: Record<string, string>
   /** EXP-980: the run a `session_blocked` row routes to. */
   sessionId?: string
+  /** EXP-933: the issue an `agent_message` opens (its Results). The board
+   *  columns then fill from the issue trigger (trash-scoped like any issue
+   *  row); callers check the issue belongs to `teamId`. */
+  issueId?: string | null
 }): Promise<TeamDelivery> {
   const recipients = await deliverableRecipients(args.teamId, [
     ...new Set(args.recipientIds),
@@ -765,7 +769,7 @@ async function deliverToTeam(args: {
     insert into notifications (user_id, issue_id, team_id, session_id, type, title, body, pushed_at)
     select
       r.user_id,
-      null,
+      ${args.issueId ?? null}::uuid,
       ${args.teamId}::uuid,
       ${args.sessionId ?? null}::uuid,
       ${args.type}::notification_type,
@@ -777,7 +781,7 @@ async function deliverToTeam(args: {
       select 1
       from notifications existing
       where existing.user_id = r.user_id
-        and existing.issue_id is null
+        and existing.issue_id is not distinct from ${args.issueId ?? null}::uuid
         and existing.type = ${args.type}::notification_type
         and existing.title = ${args.title}
         and existing.body is not distinct from ${args.body}::text
@@ -839,8 +843,9 @@ export interface AgentMessageOutcome {
 /**
  * EXP-801: an agent messages team members (or its own user) over MCP —
  * `exponential_notifications_send`. Synchronous, unlike the fire-and-forget
- * fan-outs: the agent gets told who received it. An issue-less inbox row
- * (`agent_message`, team-scoped like support_reply) + the usual push-first
+ * fan-outs: the agent gets told who received it. An inbox row
+ * (`agent_message`, team-scoped like support_reply; EXP-933: with `issueId`
+ * it rides that issue and opens its Results face ×4) + the usual push-first
  * delivery (per-type prefs still mute push; email follows via the digest).
  * The recipient's `allow_agent_messages` pref is a BLOCK, not a mute: a
  * declined recipient gets no row at all. The sender's own user always
@@ -852,6 +857,8 @@ export async function sendAgentMessage(args: {
   recipientIds: string[]
   title: string
   body: string | null
+  /** EXP-933: the issue whose Results the row opens; null = opens nothing. */
+  issueId?: string | null
 }): Promise<AgentMessageOutcome> {
   const requested = [...new Set(args.recipientIds)]
   const [team] = await db
@@ -860,6 +867,10 @@ export async function sendAgentMessage(args: {
     .where(eq(teams.id, args.teamId))
     .limit(1)
   if (!team) throw new Error(`Team not found`)
+  const issue = args.issueId ? await loadIssueMeta(args.issueId) : null
+  if (args.issueId && (!issue || issue.teamId !== args.teamId)) {
+    throw new Error(`The target issue is not in this team.`)
+  }
 
   const blocked = await getAgentMessageBlocklist(
     requested.filter((id) => id !== args.senderUserId)
@@ -876,7 +887,19 @@ export async function sendAgentMessage(args: {
     // the reader must know whose agent is talking (and whom to mute).
     title: `${name}'s agent: ${args.title}`,
     body: args.body,
-    pushData: { teamId: args.teamId, teamSlug: team.slug },
+    issueId: issue?.id ?? null,
+    // EXP-933: a targeted message deep-links the tap to the issue's Results
+    // face, with the same issue keys deliver() pushes (EXP-264).
+    pushData: issue
+      ? {
+          teamId: args.teamId,
+          teamSlug: team.slug,
+          issueId: issue.id,
+          identifier: issue.identifier,
+          boardSlug: issue.boardSlug,
+          face: `results`,
+        }
+      : { teamId: args.teamId, teamSlug: team.slug },
   })
   const members = new Set(result.members)
   const delivered = new Set(result.delivered)

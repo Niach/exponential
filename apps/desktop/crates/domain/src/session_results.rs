@@ -51,7 +51,81 @@ pub struct SessionResultEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionResultGroup {
     pub topic: String,
+    /// EXP-933 — the topic's GFM REPORT text (rendered ABOVE its pictures),
+    /// `None` without one. A text-only topic is a group with no entries.
+    pub text: Option<String>,
     pub entries: Vec<SessionResultEntry>,
+}
+
+/// The blob's array elements, whether it arrived structured or as the TEXT
+/// SQLite hands a jsonb column over as. Anything else = nothing.
+fn blob_items(raw: Option<&Value>) -> Vec<Value> {
+    match raw {
+        Some(Value::Array(items)) => items.clone(),
+        Some(Value::String(text)) => match serde_json::from_str::<Value>(text) {
+            Ok(Value::Array(items)) => items,
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// EXP-933 — the Results face as a REPORT: pictures AND each topic's text
+/// (`{topic, label: null, attachmentId: null, text}`), grouped in FIRST-SEEN
+/// topic order whichever kind opened the topic. A topic's text is its FIRST
+/// non-blank text entry, trimmed; an element usable as a picture is a picture
+/// (its `text` ignored); pictures keep the [`MAX_SESSION_RESULTS`] cap. The
+/// twin of `@exp/ui` `parseSessionResultGroups`, locked by
+/// `packages/domain-contract/fixtures/session-results.json` (×4).
+pub fn parse_session_result_groups(raw: Option<&Value>) -> Vec<SessionResultGroup> {
+    let mut groups: Vec<SessionResultGroup> = Vec::new();
+    fn open<'a>(groups: &'a mut Vec<SessionResultGroup>, topic: &str) -> &'a mut SessionResultGroup {
+        let index = match groups.iter().position(|group| group.topic == topic) {
+            Some(index) => index,
+            None => {
+                groups.push(SessionResultGroup {
+                    topic: topic.to_string(),
+                    text: None,
+                    entries: Vec::new(),
+                });
+                groups.len() - 1
+            }
+        };
+        &mut groups[index]
+    }
+    let mut pictures = 0usize;
+    for item in blob_items(raw) {
+        if let Some(entry) = entry_from(&item) {
+            if pictures >= MAX_SESSION_RESULTS {
+                continue;
+            }
+            pictures += 1;
+            let topic = entry.topic.clone();
+            open(&mut groups, &topic).entries.push(entry);
+            continue;
+        }
+        let Some(object) = item.as_object() else {
+            continue;
+        };
+        let field = |key: &str| -> Option<String> {
+            let value = object.get(key)?.as_str()?.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        };
+        let (Some(topic), Some(body)) = (field("topic"), field("text")) else {
+            continue;
+        };
+        let group = open(&mut groups, &topic);
+        if group.text.is_none() {
+            group.text = Some(body);
+        }
+    }
+    groups
+}
+
+/// EXP-933 — true when the blob has anything for the Results face to show
+/// (a picture OR a topic's text).
+pub fn has_session_results(raw: Option<&Value>) -> bool {
+    !parse_session_result_groups(raw).is_empty()
 }
 
 /// Read `coding_sessions.results` — see the module docs for the tolerance
@@ -91,6 +165,7 @@ pub fn group_session_results(entries: &[SessionResultEntry]) -> Vec<SessionResul
             Some(group) => group.entries.push(entry.clone()),
             None => groups.push(SessionResultGroup {
                 topic: entry.topic.clone(),
+                text: None,
                 entries: vec![entry.clone()],
             }),
         }
@@ -189,6 +264,57 @@ mod tests {
             width: None,
             height: None,
         }
+    }
+
+    /// EXP-933 — the shared fixture's `groups` cases, byte for byte the
+    /// web/iOS/Android ones.
+    #[test]
+    fn parse_session_result_groups_matches_the_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap();
+        let cases = fixture["groups"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let raw = &case["raw"];
+            let groups = parse_session_result_groups(Some(raw));
+            let actual: Vec<Value> = groups
+                .iter()
+                .map(|group| {
+                    serde_json::json!({
+                        "topic": group.topic,
+                        "text": group.text,
+                        "entries": group.entries.iter().map(|entry| serde_json::json!({
+                            "label": entry.label,
+                            "attachmentId": entry.attachment_id,
+                        })).collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+            assert_eq!(Value::Array(actual), case["expected"], "fixture case: {name}");
+            assert_eq!(
+                has_session_results(Some(raw)),
+                !groups.is_empty(),
+                "fixture case: {name}"
+            );
+        }
+        assert!(!has_session_results(None));
+    }
+
+    /// EXP-933 — the 60 cap counts PICTURES only: a topic's text filed after
+    /// the cap still reaches its group.
+    #[test]
+    fn parse_session_result_groups_caps_pictures_but_keeps_later_text() {
+        let mut items: Vec<Value> = (0..70)
+            .map(|index| serde_json::json!({"topic": "Shots", "label": "Web", "attachmentId": format!("a{index}")}))
+            .collect();
+        items.push(serde_json::json!({"topic": "Summary", "text": "Done"}));
+        let groups = parse_session_result_groups(Some(&Value::Array(items)));
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].entries.len(), MAX_SESSION_RESULTS);
+        assert_eq!(groups[1].text.as_deref(), Some("Done"));
     }
 
     /// The ORDER of the blob is the order of the page, and one malformed

@@ -6,7 +6,7 @@ import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import {
   DiffCounts,
-  parseSessionResults,
+  parseSessionResultGroups,
   useIsMobile,
   type SessionDotTone,
 } from "@exp/ui"
@@ -26,9 +26,18 @@ import { useSteerConfig } from "@/components/agent-session"
 import { BoardNotFound } from "@/components/board-not-found"
 import { IssueChangesFace } from "@/components/issue-changes-face"
 import { IssueDetailView } from "@/components/issue-detail-view"
+import {
+  IssueResultsBody,
+  IssueResultsFace,
+} from "@/components/issue-results-face"
 import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
 import { selectIssueRuns } from "@/lib/past-runs"
-import { availableFaces, codingTarget, isSessionLive } from "@/lib/work-faces"
+import {
+  availableFaces,
+  codingTarget,
+  isSessionLive,
+  issueResultsRun,
+} from "@/lib/work-faces"
 import {
   ISSUE_FACE_LABEL,
   RESULTS_FACE_LABEL,
@@ -37,7 +46,7 @@ import {
 } from "@/components/team/work-face-toggle"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 
-type IssueSearch = { from?: string; view?: `diff` }
+type IssueSearch = { from?: string; view?: `diff` | `results` }
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
@@ -56,10 +65,16 @@ export const Route = createFileRoute(
   // absent means the main menu stays.
   // EXP-893: `?view=diff` is the phone's Changes face over the issue's PR
   // files (a run's live diff lives on the session route instead).
+  // EXP-933: `?view=results` is the issue's Results face — the report of the
+  // run `issueResultsRun` picks (any member's), drawn on the issue itself;
+  // an agent message deep-links here. No results = the issue face.
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
-    view: search.view === `diff` ? `diff` : undefined,
+    view:
+      search.view === `diff` || search.view === `results`
+        ? search.view
+        : undefined,
   }),
   component: IssueDetailPage,
 })
@@ -192,12 +207,33 @@ function IssueDetailPage() {
   )
   const openComposer = useOpenComposer()
 
-  // EXP-879: the issue never holds the results itself — they belong to the
-  // RUN, so its Results segment opens the run's `?view=results`.
-  const runResults = useMemo(
-    () => parseSessionResults(runTarget?.results),
-    [runTarget?.results]
+  // EXP-879/933: the results belong to a RUN — `issueResultsRun` picks it
+  // (my target run when it has results, else the newest run on the issue by
+  // ANY member that has some). My run: the Results segment opens the run's
+  // `?view=results`. A teammate's: the issue draws the report itself
+  // (`?view=results` here), since their run is not mine to open.
+  const resultsRun = useMemo(
+    () =>
+      issue
+        ? issueResultsRun(
+            (runRows ?? []) as CodingSession[],
+            issue.id,
+            boundRunId?.kind === `issue` ? boundRunId.runId : undefined,
+            currentUserId,
+            now
+          )
+        : null,
+    [runRows, issue, boundRunId, currentUserId, now]
   )
+  const resultGroups = useMemo(
+    () => parseSessionResultGroups(resultsRun?.results),
+    [resultsRun?.results]
+  )
+  const hasResults = resultsRun !== null && resultGroups.length > 0
+  const resultsMine =
+    hasResults && Boolean(currentUserId) && resultsRun.userId === currentUserId
+  /** A stale or result-less `?view=results` falls back to the issue face. */
+  const showResults = search.view === `results` && hasResults
 
   const goRun = useCallback(
     (sessionId: string, view?: `diff` | `results`) => {
@@ -214,7 +250,7 @@ function IssueDetailPage() {
     [navigate, teamSlug, search.from, isMobile]
   )
   const goFace = useCallback(
-    (view?: `diff`) => {
+    (view?: `diff` | `results`) => {
       if (!board) return
       void navigate({
         to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
@@ -266,6 +302,11 @@ function IssueDetailPage() {
   }
 
   const readOnly = !permissions.canMutateIssue(issue)
+  const openResults = () => {
+    if (!resultsRun) return
+    if (resultsMine) goRun(resultsRun.id, `results`)
+    else goFace(`results`)
+  }
 
   // EXP-893: the phone. Faces are screen state behind `replace` navigations,
   // so Back always leaves the issue. The Changes face: the run's live diff
@@ -277,7 +318,7 @@ function IssueDetailPage() {
       hasIssue: true,
       hasRun: Boolean(runTarget),
       hasChanges,
-      hasResults: runResults.length > 0,
+      hasResults,
     })
     const runLive = runTarget ? isSessionLive(runTarget, now) : false
     // The synced row is all the issue face knows: live → the running dot
@@ -291,7 +332,7 @@ function IssueDetailPage() {
     const switcher = (
       <MobileFaceSwitcher
         faces={faces}
-        face={showChanges ? `changes` : `issue`}
+        face={showChanges ? `changes` : showResults ? `results` : `issue`}
         runs={issueRuns}
         viewedRunId={runTarget?.id ?? null}
         diffStats={changesStats}
@@ -303,8 +344,8 @@ function IssueDetailPage() {
           else if (next === `changes`) {
             if (diffStats.fileCount > 0 && runTarget) goRun(runTarget.id, `diff`)
             else goFace(`diff`)
-          } else if (next === `results` && runTarget) {
-            goRun(runTarget.id, `results`)
+          } else if (next === `results`) {
+            openResults()
           }
         }}
         onOpenRun={(target) => goRun(target.id)}
@@ -322,6 +363,21 @@ function IssueDetailPage() {
           readOnly={readOnly}
           origin={search.from}
           filesState={prFilesState}
+          switcher={switcher}
+          dot={dot}
+        />
+      )
+    }
+    if (showResults) {
+      return (
+        <IssueResultsFace
+          issue={issue}
+          board={board}
+          teamSlug={teamSlug}
+          teamId={team.id}
+          readOnly={readOnly}
+          origin={search.from}
+          groups={resultGroups}
           switcher={switcher}
           dot={dot}
         />
@@ -353,16 +409,25 @@ function IssueDetailPage() {
       teamId={team.id}
       readOnly={readOnly}
       origin={search.from}
+      faceBody={
+        showResults ? <IssueResultsBody groups={resultGroups} /> : undefined
+      }
       faceToggle={
         <WorkFaceToggle
-          face="issue"
+          face={showResults ? `results` : `issue`}
           runMenu={{
             runs: issueRuns,
             checkedRunId: runTarget?.id,
             onOpen: (target) => goRun(target.id),
           }}
           items={[
-            { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: () => {} },
+            {
+              face: `issue`,
+              label: ISSUE_FACE_LABEL,
+              onSelect: () => {
+                if (showResults) goFace()
+              },
+            },
             ...(runTarget
               ? [
                   {
@@ -388,13 +453,14 @@ function IssueDetailPage() {
                   },
                 ]
               : []),
-            // EXP-879: the run's published screenshots, last in the strip.
-            ...(runTarget && runResults.length > 0
+            // EXP-879/933: the report, last in the strip — mine opens on my
+            // run, a teammate's right here on the issue.
+            ...(hasResults
               ? [
                   {
                     face: `results` as const,
                     label: RESULTS_FACE_LABEL,
-                    onSelect: () => goRun(runTarget.id, `results`),
+                    onSelect: openResults,
                   },
                 ]
               : []),

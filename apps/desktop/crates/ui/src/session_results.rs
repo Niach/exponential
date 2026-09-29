@@ -16,6 +16,11 @@
 //! [`ImageCache`], exactly like a comment's attachment; a click opens the
 //! in-app lightbox at full size, never the browser.
 //!
+//! EXP-933: the page is the run's REPORT — a topic may carry GFM TEXT
+//! (read-only [`crate::markdown::MarkdownView`], `#IDENT`/`@email` pills
+//! resolved against `team_id`) rendered between its band and its tiles; a
+//! text-only topic is a band + text.
+//!
 //! This face carries NO Stop/Resume (the Run face owns it) and NO merge bar
 //! (Changes owns it) — it is a page you look at.
 
@@ -32,7 +37,7 @@ use domain::session_results::{
 };
 
 use crate::issue_detail::{centered_column, DETAIL_GUTTER};
-use crate::markdown::{placeholder_box, ImageCache, ImageSlot};
+use crate::markdown::{placeholder_box, ImageCache, ImageSlot, MarkdownView, RefResolver};
 
 /// The whole page for one run's results, ready to drop into the pane slot
 /// under the work header. Never called with an empty `groups` — an empty
@@ -47,6 +52,7 @@ pub(crate) fn render(
     groups: &[SessionResultGroup],
     available_width: f32,
     images: &Entity<ImageCache>,
+    team_id: Option<&str>,
     cx: &mut App,
 ) -> AnyElement {
     // ONE height for the page, not one per band — a shot's counterpart in the
@@ -71,6 +77,25 @@ pub(crate) fn render(
         for (tile_ix, entry) in group.entries.iter().enumerate() {
             tiles = tiles.child(tile(entry, height, (group_ix, tile_ix), images, cx));
         }
+        let text = group.text.as_ref().map(|text| {
+            let mut view = MarkdownView::new(
+                SharedString::from(format!("session-result-text-{group_ix}")),
+                text.clone(),
+            )
+            .selectable(true)
+            .images(images.clone());
+            if let Some(team_id) = team_id {
+                let team = team_id.to_string();
+                view = view
+                    .resolver(RefResolver::from_store(team_id))
+                    .on_open_issue(move |identifier, window, cx| {
+                        crate::description_editor::open_issue_by_identifier(
+                            &team, identifier, window, cx,
+                        );
+                    });
+            }
+            div().w_full().min_w_0().text_sm().child(view)
+        });
         page = page.child(
             v_flex()
                 .w_full()
@@ -82,7 +107,8 @@ pub(crate) fn render(
                     None,
                     cx,
                 ))
-                .child(tiles),
+                .children(text)
+                .when(!group.entries.is_empty(), |band| band.child(tiles)),
         );
     }
     div()

@@ -60,8 +60,8 @@ pub(crate) fn header_action_size(in_tray: bool) -> PillSize {
 
 /// Which face of a top tab is up. `Diff` = the CHANGES face — the run's
 /// worktree diff while a run of mine has one, else (EXP-889) the issue's own
-/// open pull request; `Results` (EXP-879) = the run's published pictures, a
-/// sub-face of the run: no run of mine, no Results.
+/// open pull request; `Results` (EXP-879) = a run's published report: my
+/// run's sub-face, or (EXP-933) a teammate's report shown on the issue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Face {
     Issue,
@@ -87,9 +87,10 @@ pub(crate) struct FaceToggle {
     /// branch). Counts are not known until the files are fetched, so the
     /// item wears the word [`CHANGES_FACE_LABEL`] until `diff` is `Some`.
     pub pr_changes: bool,
-    /// EXP-879: the run has published at least one picture, so the Results
-    /// item exists. Unlike the Changes item it needs `run` — a result
-    /// without a run is not a face.
+    /// EXP-879/EXP-933: the issue's results run
+    /// ([`issue_results_run`]) or this run has published something (a
+    /// picture or report text), so the Results item exists — with or
+    /// without a run of mine, like the web `availableFaces`.
     pub results: bool,
     pub active: Face,
     /// EXP-886 / EXP-950: the issue's runs of mine
@@ -171,7 +172,9 @@ impl FaceToggle {
             items.push(Face::Diff);
         }
         // EXP-879: Results comes LAST — issue, run, changes, results.
-        if self.run.is_some() && self.results {
+        // EXP-933: independent of a run of MINE — a teammate's report is the
+        // issue's Results too (web `availableFaces`).
+        if self.results {
             items.push(Face::Results);
         }
         items
@@ -365,6 +368,39 @@ pub(crate) fn coding_target<'a>(
     newest(&live).or_else(|| newest(&mine))
 }
 
+/// EXP-933 — the run whose Results an ISSUE shows. Results live on the run
+/// but sync team-wide, and an agent message deep-links a teammate to the
+/// ISSUE's Results, so this is not limited to my runs: [`coding_target`] when
+/// that run has results, else the NEWEST run on the issue (`started_at`, tie
+/// the larger id) by ANY member that has any. The twin of the web
+/// `work-faces.ts` `issueResultsRun`, locked by
+/// `packages/domain-contract/fixtures/session-results.json` (×4).
+pub(crate) fn issue_results_run<'a>(
+    rows: impl IntoIterator<Item = &'a domain::rows::CodingSession>,
+    issue_id: &str,
+    bound: Option<&str>,
+    me: Option<&str>,
+    now_epoch: i64,
+) -> Option<&'a domain::rows::CodingSession> {
+    let rows: Vec<&'a domain::rows::CodingSession> = rows
+        .into_iter()
+        .filter(|row| row.issue_id.as_deref() == Some(issue_id))
+        .collect();
+    let has = |row: &domain::rows::CodingSession| {
+        domain::session_results::has_session_results(row.results.as_ref())
+    };
+    if let Some(me) = me {
+        if let Some(own) = coding_target(rows.iter().copied(), issue_id, bound, me, now_epoch) {
+            if has(own) {
+                return Some(own);
+            }
+        }
+    }
+    rows.into_iter()
+        .filter(|row| has(row))
+        .max_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id)))
+}
+
 /// The pure rule. `target` is the run the tab is about ([`coding_target`]);
 /// a run that is not mine (a teammate's) never yields anything but Start, a
 /// live one Stop, an ENDED one Resume when a machine can take it, anything
@@ -404,24 +440,55 @@ pub(crate) fn coding_action(
     }
 }
 
-/// EXP-879 — `run_id`'s published results off the synced `coding_sessions`
-/// row (the ONE reader, `domain::session_results`). Empty when the run has
-/// published nothing, when its row has not synced yet, or when there is no
-/// run at all — all three mean the same thing to the toggle: no Results
-/// face.
-pub(crate) fn run_results(
-    run_id: &str,
+/// EXP-933 — [`issue_results_run`] over the synced rows, as its row: the
+/// run whose Results the issue shows, mine or a teammate's. `None` when no
+/// run on the issue published anything.
+pub(crate) fn issue_results_row(
+    issue_id: &str,
+    bound: Option<&str>,
     cx: &App,
-) -> Vec<domain::session_results::SessionResultEntry> {
-    let Some(store) = Store::try_global(cx) else {
-        return Vec::new();
-    };
+) -> Option<domain::rows::CodingSession> {
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let store = Store::try_global(cx)?;
     let sessions = store.collections().coding_sessions.read(cx);
-    sessions
-        .iter()
-        .find(|row| row.id == run_id)
-        .map(|row| domain::session_results::parse_session_results(row.results.as_ref()))
-        .unwrap_or_default()
+    let now = chrono::Utc::now().timestamp();
+    issue_results_run(sessions.iter(), issue_id, bound, me.as_deref(), now).cloned()
+}
+
+/// EXP-933 — open `issue_id` on its RESULTS (the inbox's `agent_message`
+/// rows and their OS notifications): the issue's results run when it is MINE
+/// opens on that run's Results sub-face (the header toggle's own path); a
+/// TEAMMATE's report opens as the issue tab's Results face; no results at all
+/// = just the issue. `open` is the caller's own issue navigation (scoped on
+/// its board, or from the inbox with its origin).
+pub(crate) fn open_issue_results(
+    issue_id: &str,
+    window: &mut gpui::Window,
+    cx: &mut App,
+    open: impl FnOnce(&mut gpui::Window, &mut App),
+) {
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let row = issue_results_row(issue_id, None, cx);
+    let mine = row
+        .as_ref()
+        .filter(|row| row.user_id.is_some() && row.user_id == me)
+        .map(|row| row.id.clone());
+    if row.is_some() && mine.is_none() {
+        // Ask BEFORE the navigation re-points the shared detail view — the
+        // switch keeps the request because it names the incoming issue.
+        crate::screens::request_issue_results(issue_id, window, cx);
+    }
+    open(window, cx);
+    if let Some(run_id) = mine {
+        crate::screens::set_tab_face(
+            issue_id,
+            crate::screens::TabFace::Run,
+            Some(run_id.clone()),
+            window,
+            cx,
+        );
+        crate::screens::set_run_face(&run_id, crate::screens::RunFace::Results, window, cx);
+    }
 }
 
 /// [`coding_target`] over the synced rows, as its row. `None` when I have no
@@ -1318,6 +1385,55 @@ mod tests {
             .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
     }
 
+    /// EXP-933 — the shared fixture's `issueResultsRun` cases (×4): my
+    /// coding target when it has results, else the newest run on the issue by
+    /// ANY member with results.
+    #[test]
+    fn issue_results_run_matches_the_shared_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap();
+        let block = &fixture["issueResultsRun"];
+        let now = chrono::DateTime::parse_from_rfc3339(block["now"].as_str().unwrap())
+            .unwrap()
+            .timestamp();
+        let cases = block["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let rows: Vec<domain::rows::CodingSession> = case["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    serde_json::from_value(serde_json::json!({
+                        "id": row["id"],
+                        "issue_id": row["issueId"],
+                        "user_id": row["userId"],
+                        "status": row["status"],
+                        "started_at": row["startedAt"],
+                        "updated_at": row["updatedAt"],
+                        "results": row["results"],
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            let picked = issue_results_run(
+                rows.iter(),
+                case["issueId"].as_str().unwrap(),
+                case["boundId"].as_str(),
+                case["me"].as_str(),
+                now,
+            );
+            assert_eq!(
+                picked.map(|row| row.id.as_str()),
+                case["expected"].as_str(),
+                "fixture case: {name}"
+            );
+        }
+    }
+
     /// An own LIVE run never hides behind a NEWER ended one: the target is
     /// the live row and the action is Stop (the web `ownLive` order).
     #[test]
@@ -1493,10 +1609,10 @@ mod tests {
     }
 
     /// EXP-879: Results is the FOURTH face, always last — issue, run,
-    /// changes, results — and a sub-face of the run: with no run of mine it
-    /// is not offered at all (unlike Changes since EXP-889).
+    /// changes, results. EXP-933: it no longer needs a run of mine — a
+    /// teammate's report is the issue's Results too.
     #[test]
-    fn the_results_face_comes_last_and_needs_a_run() {
+    fn the_results_face_comes_last_and_needs_no_run_of_mine() {
         let toggle = |issue: bool, run: Option<&str>, diff: Option<(u32, u32)>, results: bool| {
             FaceToggle {
                 issue,
@@ -1518,8 +1634,12 @@ mod tests {
             toggle(true, Some("r"), None, true).items(),
             vec![Face::Issue, Face::Run, Face::Results],
         );
-        // A result without a run is not a face.
-        assert_eq!(toggle(true, None, None, true).items(), vec![Face::Issue]);
+        // A teammate's results with no run of mine: still a face.
+        assert_eq!(
+            toggle(true, None, None, true).items(),
+            vec![Face::Issue, Face::Results],
+        );
+        assert_eq!(toggle(true, None, None, false).items(), vec![Face::Issue]);
     }
 
     /// EXP-879: the fourth face's label, byte-identical with the web and the

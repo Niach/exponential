@@ -91,6 +91,9 @@ public enum ExpToolResultKind: String, Sendable, CaseIterable {
     case action
     case automation
     case list
+    /// EXP-933: `sessions_results` — the run's report; the row offers
+    /// `Open Results` (the Work screen's Results face).
+    case results
 
     public init(wire: String) {
         // Spelled out rather than `?? .none`: a `none` CASE beside Optional's

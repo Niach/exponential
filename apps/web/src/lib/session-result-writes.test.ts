@@ -5,6 +5,7 @@ import {
   removeSessionResults,
   resultsSummary,
   upsertSessionResult,
+  upsertSessionResultText,
 } from "./session-result-writes"
 
 // EXP-879: the server-side list algebra behind the token upload route and MCP
@@ -123,5 +124,61 @@ describe(`exceedsSessionResultsCap`, () => {
       )
     expect(exceedsSessionResultsCap(list(60))).toBe(false)
     expect(exceedsSessionResultsCap(list(61))).toBe(true)
+  })
+})
+
+// EXP-933: a topic's report text rides the same list as its pictures.
+describe(`upsertSessionResultText`, () => {
+  it(`appends a new topic's text at the end`, () => {
+    const results = upsertSessionResultText([entry(`a`, `web`, `x`)], `Summary`, `Did it`)
+    expect(results?.map((row) => [row.topic, row.label, row.text ?? null])).toEqual([
+      [`a`, `web`, null],
+      [`Summary`, null, `Did it`],
+    ])
+  })
+
+  it(`puts text for a topic that has pictures ABOVE them`, () => {
+    const results = upsertSessionResultText(
+      [entry(`a`, `web`, `x`), entry(`b`, `web`, `y`)],
+      `b`,
+      `About b`
+    )
+    expect(results?.map((row) => row.attachmentId ?? row.text)).toEqual([`x`, `About b`, `y`])
+  })
+
+  it(`replaces a topic's text in place`, () => {
+    const first = upsertSessionResultText(null, `t`, `one`)
+    const second = upsertSessionResultText([...(first ?? []), entry(`u`, `web`, `z`)], `t`, `two`)
+    expect(second?.map((row) => row.text ?? row.attachmentId)).toEqual([`two`, `z`])
+  })
+
+  it(`refuses a list whose report text outgrows the total cap`, () => {
+    let results: CodingSessionResult[] | null = null
+    for (let i = 0; i < 3; i++) results = upsertSessionResultText(results, `t${i}`, `x`.repeat(4000))
+    expect(results).not.toBeNull()
+    expect(upsertSessionResultText(results, `t3`, `x`)).toBeNull()
+  })
+
+  it(`a picture upsert never replaces the topic's text`, () => {
+    const withText = upsertSessionResultText(null, `t`, `report`) ?? []
+    const { results } = upsertSessionResult(withText, entry(`t`, `web`, `a`))
+    expect(results).toHaveLength(2)
+  })
+
+  it(`removing a label keeps the text, removing text keeps the pictures, removing the topic drops both`, () => {
+    const list = [...(upsertSessionResultText(null, `t`, `r`) ?? []), entry(`t`, `web`, `a`)]
+    expect(removeSessionResults(list, { topic: `t`, label: `web` }).results).toHaveLength(1)
+    expect(removeSessionResults(list, { topic: `t`, text: true }).results.map((r) => r.attachmentId)).toEqual([`a`])
+    const whole = removeSessionResults(list, { topic: `t` })
+    expect(whole.results).toEqual([])
+    expect(whole.removedAttachmentIds).toEqual([`a`])
+  })
+
+  it(`summarises text entries by length`, () => {
+    const list = [...(upsertSessionResultText(null, `t`, `abc`) ?? []), entry(`t`, `web`, `a`)]
+    expect(resultsSummary(list)).toEqual([
+      { topic: `t`, text: 3 },
+      { topic: `t`, label: `web` },
+    ])
   })
 })

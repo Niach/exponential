@@ -190,9 +190,10 @@ final class WorkflowDetailModel {
         order.compactMap { id in nodes.first { $0.id == id } }
     }
 
-    /// Every run's published screenshots, by topic.
+    /// Every run's published report — each run's topics (text and
+    /// screenshots) in turn, concatenated (EXP-933, like web).
     var resultGroups: [SessionResultGroup] {
-        groupSessionResults(sessions.flatMap { parseSessionResults($0.results) })
+        sessions.flatMap { parseSessionResultGroups($0.results) }
     }
 
     func devicePresentation(_ session: CodingSessionEntity) -> SessionDevicePresentation {

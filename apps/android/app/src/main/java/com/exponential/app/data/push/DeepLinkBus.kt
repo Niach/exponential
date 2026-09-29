@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.asStateFlow
 @Singleton
 class DeepLinkBus @Inject constructor() {
     sealed interface Target {
-        data class Issue(val id: String) : Target
+        // EXP-933: [face] = the Work screen face to open on (`results` for an
+        // agent message's report); null = the default Issue face.
+        data class Issue(val id: String, val face: String? = null) : Target
         data class Invite(val token: String) : Target
 
         // exponential://support/{threadId} — a support_reply push tap (EXP-180).
@@ -78,8 +80,8 @@ class DeepLinkBus @Inject constructor() {
     private val _githubConnected = MutableStateFlow(GithubConnected())
     val githubConnected: StateFlow<GithubConnected> = _githubConnected.asStateFlow()
 
-    fun openIssue(id: String) {
-        _target.value = Target.Issue(id)
+    fun openIssue(id: String, face: String? = null) {
+        _target.value = Target.Issue(id, face)
     }
 
     fun openInvite(token: String) {

@@ -83,6 +83,9 @@ interface IssueDetailViewProps {
   /** EXP-870/877: the md+ work header's face toggle (`WorkFaceToggle`) — the
    *  issue and its run are one work tab with faces. */
   faceToggle?: React.ReactNode
+  /** EXP-933: md+ — a non-issue face (the issue's Results) drawn in the work
+   *  column IN PLACE of the issue body, under the same header. */
+  faceBody?: React.ReactNode
   /** EXP-893: the phone's Work screen parts — the face switcher for the
    *  bar's right circle (absent = the Start coding circle) and the shown
    *  session's state dot for the header title. */
@@ -152,6 +155,7 @@ export function IssueDetailView({
   origin,
   showMobileHeader = true,
   faceToggle,
+  faceBody,
   mobileWork,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
@@ -781,15 +785,19 @@ export function IssueDetailView({
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           <div ref={bodyScrollRef} className="flex-1 min-h-0 overflow-y-auto">
             <div className={WORK_COLUMN_CLASS}>
-              {editor}
-              {attachmentError}
-              {filesSection}
-              {/* EXP-760: relations sit BELOW the description (Linear's
-                  order); EXP-1097: as grouped bands. */}
-              {relationsSection}
-              {prRow}
-              {widgetCard}
-              {timeline}
+              {faceBody ?? (
+                <>
+                  {editor}
+                  {attachmentError}
+                  {filesSection}
+                  {/* EXP-760: relations sit BELOW the description (Linear's
+                      order); EXP-1097: as grouped bands. */}
+                  {relationsSection}
+                  {prRow}
+                  {widgetCard}
+                  {timeline}
+                </>
+              )}
             </div>
           </div>
         </div>

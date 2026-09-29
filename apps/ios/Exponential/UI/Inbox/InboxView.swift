@@ -31,7 +31,9 @@ struct InboxListContent: View {
                     ForEach(viewModel.entries) { entry in
                         switch entry {
                         case .issue(let group):
-                            NavigationLink(value: AppRoute.issue(accountId: accountId, id: group.issue.id)) {
+                            // EXP-933: an agent's message on the issue (its
+                            // report) opens the issue's Results face.
+                            NavigationLink(value: issueRoute(group)) {
                                 streamRow(group)
                             }
                             .buttonStyle(.plain)
@@ -101,6 +103,12 @@ struct InboxListContent: View {
             // row was fully hidden under it before.
             .tabBarBottomInset()
         }
+    }
+
+    private func issueRoute(_ group: InboxViewModel.Group) -> AppRoute {
+        let face = NotificationRouting.issueFace(latestType: group.latest?.type)
+        if face == .issue { return .issue(accountId: accountId, id: group.issue.id) }
+        return .issueFace(accountId: accountId, id: group.issue.id, face: face)
     }
 
     private func streamRow(_ group: InboxViewModel.Group) -> some View {

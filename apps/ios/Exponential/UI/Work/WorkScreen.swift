@@ -28,6 +28,10 @@ struct WorkScreen: View {
     /// until the reader picks one from the switcher.
     @State private var shownSessionId: String?
     @State private var userPickedRun = false
+    /// EXP-933: the requested `initialFace` while it is not available YET
+    /// (a Results push lands before the issue's runs synced): the fallback
+    /// holds off until the runs were read, then lets go either way.
+    @State private var pendingInitialFace: WorkFaceKind?
     @State private var issueVM: IssueDetailViewModel?
     @State private var subjectModel: WorkSubjectModel?
     /// What the session view last reported (`RunChrome`). Held across a
@@ -106,7 +110,9 @@ struct WorkScreen: View {
         self.subject = subject
         self.onFaceChange = onFaceChange
         switch subject {
-        case .issue: _face = State(initialValue: initialFace)
+        case .issue:
+            _face = State(initialValue: initialFace)
+            _pendingInitialFace = State(initialValue: initialFace == .issue ? nil : initialFace)
         case .session: _face = State(initialValue: .run)
         }
     }
@@ -178,14 +184,26 @@ struct WorkScreen: View {
         runChrome.hasDiff || shownDiff != nil
     }
 
-    /// EXP-879: the shown run's PUBLISHED results, off its synced row. Like
-    /// the run's own diff this is a sub-face of Run — no run of mine, no
-    /// results — so it reads `shownSession`, never the issue.
-    private var sessionResults: [SessionResultEntry] {
-        parseSessionResults(shownSession?.results)
+    /// EXP-933: the run whose Results this screen shows. An ISSUE shows its
+    /// report for everyone (`WorkFaces.issueResultsRun` over every member's
+    /// runs: my coding target when it has results, else the newest run with
+    /// any) — unless the reader picked a run of their own that has results.
+    /// An issue-less run shows its own.
+    private var resultsSession: CodingSessionEntity? {
+        guard issueId != nil else { return shownSession }
+        if userPickedRun, let shownSession, hasSessionResults(shownSession.results) {
+            return shownSession
+        }
+        return subjectModel?.resultsRun(boundId: boundSessionId)
     }
 
-    private var hasResults: Bool { !sessionResults.isEmpty }
+    /// EXP-879/933: the results run's PUBLISHED report — pictures and each
+    /// topic's text, grouped — off its synced row.
+    private var sessionResultGroups: [SessionResultGroup] {
+        parseSessionResultGroups(resultsSession?.results)
+    }
+
+    private var hasResults: Bool { !sessionResultGroups.isEmpty }
 
     private var availableFaces: [WorkFaceKind] {
         WorkFaces.availableFaces(
@@ -251,7 +269,14 @@ struct WorkScreen: View {
 
     /// The switcher offers Start coding once the shown run ended for good.
     private var offerStart: Bool {
-        shownEnded && !ownEndedResumable && startVisible
+        (shownEnded && !ownEndedResumable && startVisible) || resultsOnlySwitcher
+    }
+
+    /// EXP-933: no run of mine, but the issue has a teammate's Results — the
+    /// Issue face's circle is the switcher then (Results + Start coding in
+    /// its menu), not the bare Start circle that would hide the report.
+    private var resultsOnlySwitcher: Bool {
+        !hasRun && hasResults && startVisible
     }
 
     private var switcherTargets: [WorkFaces.SwitcherTarget] {
@@ -459,7 +484,7 @@ struct WorkScreen: View {
     @ViewBuilder
     private var resultsFace: some View {
         if hasResults {
-            SessionResultsFace(groups: groupSessionResults(sessionResults)) { switcherView }
+            SessionResultsFace(groups: sessionResultGroups) { switcherView }
         } else {
             ProgressView().tint(.white)
         }
@@ -475,6 +500,9 @@ struct WorkScreen: View {
             switcher: { switcherView }
         )
         .id(session.id)
+        // EXP-933: the inline `sessions_results` card opens THIS screen's
+        // Results face.
+        .environment(\.openResultsFace, { switchFace(.results) })
     }
 
     private var switcherView: some View {
@@ -854,6 +882,9 @@ struct WorkScreen: View {
             .onChange(of: availableFaces) { _, faces in
                 facesChanged(faces)
             }
+            .onChange(of: subjectModel?.runsResolved) { _, _ in
+                facesChanged(availableFaces)
+            }
             // EXP-932: the switcher's `+N −M`, off the diff edge — totalled
             // from the model's ONE memoised parse (`parsedDiff`), the same
             // files the Changes face draws; nothing is parsed a second time.
@@ -1036,6 +1067,15 @@ struct WorkScreen: View {
     }
 
     private func facesChanged(_ faces: [WorkFaceKind]) {
+        if let pending = pendingInitialFace {
+            if faces.contains(pending) || face != pending {
+                pendingInitialFace = nil
+            } else if subjectModel?.runsResolved != true {
+                return
+            } else {
+                pendingInitialFace = nil
+            }
+        }
         guard !faces.isEmpty, !faces.contains(face) else { return }
         if let next = WorkFaces.fallbackFace(shown: face, available: faces) {
             face = next
@@ -1097,7 +1137,7 @@ struct WorkScreen: View {
     /// The Issue face's trailing circle: the switcher once a run of mine
     /// exists, else the Start circle behind its gates (EXP-240).
     private var issueBarTrailing: IssueBarTrailing {
-        if hasRun {
+        if hasRun || hasResults {
             if case .hidden = switcherMode { return .hidden }
             return .switcher
         }

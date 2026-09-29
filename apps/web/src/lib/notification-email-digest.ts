@@ -33,11 +33,8 @@ import { getEmailPrefsMap } from "@/lib/notification-prefs"
 import {
   DIGEST_SCAN_MAX_AGE_MS,
   appBaseUrl,
-  buildInboxDeepLinkPath,
-  buildSessionDeepLinkPath,
-  buildIssueDeepLinkPath,
-  buildSupportDeepLinkPath,
   buildUnsubscribeUrl,
+  digestItemPath,
   digestSendability,
   isTransientSendError,
   planEmailDigest,
@@ -262,27 +259,11 @@ export async function runEmailDigestSweep(
         const digestItems: DigestEmailItem[] = items.map((item) => ({
           title: item.title,
           body: item.body,
-          url:
-            item.teamSlug && item.boardSlug && item.issueIdentifier
-              ? `${base}${buildIssueDeepLinkPath({
-                  teamSlug: item.teamSlug,
-                  boardSlug: item.boardSlug,
-                  identifier: item.issueIdentifier,
-                })}`
-              : // Issue-less helpdesk rows link to the team's Support
-                // inbox (REV2-51) — the surface the row's team_id exists
-                // to route to.
-                item.type === `support_reply` && item.notificationTeamSlug
-                ? `${base}${buildSupportDeepLinkPath(item.notificationTeamSlug)}`
-                : // EXP-801: an agent's message lives in the team's Inbox.
-                  item.type === `agent_message` && item.notificationTeamSlug
-                  ? `${base}${buildInboxDeepLinkPath(item.notificationTeamSlug)}`
-                  : // EXP-980: a blocked run links to the run itself.
-                    item.type === `session_blocked` &&
-                      item.notificationTeamSlug &&
-                      item.sessionId
-                    ? `${base}${buildSessionDeepLinkPath(item.notificationTeamSlug, item.sessionId)}`
-                    : null,
+          // EXP-933: one rule for every row's link (`digestItemPath`).
+          url: (() => {
+            const path = digestItemPath(item)
+            return path ? `${base}${path}` : null
+          })(),
         }))
         const result = await sendNotificationDigestEmail({
           to,

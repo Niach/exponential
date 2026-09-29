@@ -6,7 +6,8 @@ import UIKit
 
 /// EXP-879: the Work screen's RESULTS face — the screenshots the shown run
 /// published with `exponential_sessions_results`, read off its synced
-/// `coding_sessions.results` blob.
+/// `coding_sessions.results` blob. EXP-933: the run's REPORT — each topic's
+/// GFM text renders above its tiles.
 ///
 /// ONE scrolling page: a filled group band (EXP-818) per topic, then a
 /// WRAPPING ROW of equal-height tiles under it, each captioned with its label.
@@ -35,10 +36,20 @@ struct SessionResultsFace<Trailing: View>: View {
 
     private var horizontalPadding: CGFloat { 16 }
 
+    /// Report text resolves its inline `/api/attachments/{id}` images through
+    /// the same member-gated loader the tiles use.
+    private var markdownContext: AgentMarkdownContext {
+        AgentMarkdownContext(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient
+        )
+    }
+
     /// The widest tile at the pinned height decides the page's scale.
     private var tileHeight: CGFloat {
         sessionResultTileHeightFitting(
-            groups.flatMap(\.entries),
+            sessionResultPictures(groups),
             availableWidth: contentWidth - horizontalPadding * 2
         )
     }
@@ -46,15 +57,27 @@ struct SessionResultsFace<Trailing: View>: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                ForEach(groups) { group in
+                // By position: the workflow page concatenates several runs'
+                // reports, so one topic can repeat.
+                ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                     VStack(alignment: .leading, spacing: 0) {
                         GlassSectionBand(group.topic)
-                        FlowLayout(spacing: 12) {
-                            ForEach(group.entries, id: \.attachmentId) { entry in
-                                tile(entry)
-                            }
+                        // EXP-933: the topic's report text sits ABOVE its
+                        // tiles; a text-only topic is header + text.
+                        if let text = group.text {
+                            AgentMarkdownText(text: text, context: markdownContext)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 8)
+                                .padding(.bottom, group.entries.isEmpty ? 0 : 12)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        if !group.entries.isEmpty {
+                            FlowLayout(spacing: 12) {
+                                ForEach(group.entries, id: \.attachmentId) { entry in
+                                    tile(entry)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
             }
@@ -188,5 +211,19 @@ private struct SessionResultTile: View {
             )
             image = try? await loader.load(entry.url)
         }
+    }
+}
+
+/// EXP-933: switches the enclosing Work screen to its Results face — what the
+/// inline `sessions_results` card's `Open Results` button calls. nil outside a
+/// Work screen (the card then draws no button).
+private struct OpenResultsFaceKey: EnvironmentKey {
+    nonisolated(unsafe) static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var openResultsFace: (() -> Void)? {
+        get { self[OpenResultsFaceKey.self] }
+        set { self[OpenResultsFaceKey.self] = newValue }
     }
 }

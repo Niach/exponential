@@ -3236,6 +3236,8 @@ impl ListPanel {
             .filter(|n| n.read_at.is_none())
             .map(|n| n.id.clone())
             .collect();
+        // EXP-933: an agent's message about this issue opens its Results.
+        let opens_results = group.opens_results();
         // Items are newest first — `first()` IS the latest.
         let latest = group.items.first();
         let time: SharedString = latest
@@ -3265,13 +3267,22 @@ impl ListPanel {
                 // Web `markGroupRead`: clear the group's unreads
                 // (the Electric echo removes the dot), then open.
                 mark_group_read(&unread_ids, cx);
-                this.open_from_list(
-                    Screen::IssueDetail {
-                        issue_id: issue_id.clone(),
-                    },
-                    window,
-                    cx,
-                );
+                let screen = Screen::IssueDetail {
+                    issue_id: issue_id.clone(),
+                };
+                if opens_results {
+                    let origin = this.row_origin(cx);
+                    crate::work_header::open_issue_results(&issue_id, window, cx, move |window, cx| {
+                        match origin {
+                            Some(origin) => {
+                                crate::navigation::navigate_from(window, cx, screen, origin)
+                            }
+                            None => navigate(window, cx, screen),
+                        }
+                    });
+                    return;
+                }
+                this.open_from_list(screen, window, cx);
             }))
                         // Leading circular type badge (the latest item's kind).
                         .child(

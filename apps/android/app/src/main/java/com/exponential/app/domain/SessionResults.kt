@@ -48,10 +48,15 @@ data class SessionResultEntry(
     val height: Int? = null,
 )
 
-/** A topic and the entries published under it, in publication order. */
+/**
+ * A topic and the entries published under it, in publication order, plus
+ * (EXP-933) the topic's GFM report [text] rendered ABOVE its pictures — null
+ * without one.
+ */
 data class SessionResultGroup(
     val topic: String,
     val entries: List<SessionResultEntry>,
+    val text: String? = null,
 )
 
 private val resultsJson = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -81,27 +86,70 @@ private fun JsonObject.dimension(name: String): Int? {
  * DROPPED rather than rendered as a broken tile; the list is capped like the
  * writer caps it.
  */
-fun parseSessionResults(raw: String?): List<SessionResultEntry> {
+private fun records(raw: String?): List<JsonObject> {
     val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return emptyList()
     val array = runCatching { resultsJson.parseToJsonElement(trimmed) }.getOrNull() as? JsonArray
         ?: return emptyList()
+    return array.mapNotNull { it as? JsonObject }
+}
+
+private fun picture(row: JsonObject): SessionResultEntry? {
+    val topic = row.text("topic") ?: return null
+    val label = row.text("label") ?: return null
+    val attachmentId = row.text("attachmentId") ?: return null
+    return SessionResultEntry(
+        topic = topic,
+        label = label,
+        attachmentId = attachmentId,
+        width = row.dimension("width"),
+        height = row.dimension("height"),
+    )
+}
+
+fun parseSessionResults(raw: String?): List<SessionResultEntry> {
     val entries = mutableListOf<SessionResultEntry>()
-    for (element in array) {
-        val row = element as? JsonObject ?: continue
-        val topic = row.text("topic") ?: continue
-        val label = row.text("label") ?: continue
-        val attachmentId = row.text("attachmentId") ?: continue
-        entries += SessionResultEntry(
-            topic = topic,
-            label = label,
-            attachmentId = attachmentId,
-            width = row.dimension("width"),
-            height = row.dimension("height"),
-        )
+    for (row in records(raw)) {
+        entries += picture(row) ?: continue
         if (entries.size >= MAX_SESSION_RESULTS) break
     }
     return entries
 }
+
+/**
+ * EXP-933: the Results face as a REPORT — pictures AND each topic's text
+ * (`{topic, label: null, attachmentId: null, text}`), grouped in FIRST-SEEN
+ * topic order whichever kind opened the topic. A topic's text is its FIRST
+ * non-blank text entry, trimmed; pictures keep the 60 cap. Fixture:
+ * `packages/domain-contract/fixtures/session-results.json` (×4).
+ */
+fun parseSessionResultGroups(raw: String?): List<SessionResultGroup> {
+    val order = mutableListOf<String>()
+    val entries = linkedMapOf<String, MutableList<SessionResultEntry>>()
+    val texts = mutableMapOf<String, String>()
+    fun open(topic: String): MutableList<SessionResultEntry> =
+        entries.getOrPut(topic) {
+            order += topic
+            mutableListOf()
+        }
+    var pictures = 0
+    for (row in records(raw)) {
+        val entry = picture(row)
+        if (entry != null) {
+            if (pictures >= MAX_SESSION_RESULTS) continue
+            pictures += 1
+            open(entry.topic) += entry
+            continue
+        }
+        val topic = row.text("topic") ?: continue
+        val body = row.text("text") ?: continue
+        open(topic)
+        if (topic !in texts) texts[topic] = body
+    }
+    return order.map { topic -> SessionResultGroup(topic, entries.getValue(topic).toList(), texts[topic]) }
+}
+
+/** True when the blob has anything for the Results face to show. */
+fun hasSessionResults(raw: String?): Boolean = parseSessionResultGroups(raw).isNotEmpty()
 
 /**
  * Groups by topic in FIRST-SEEN order, keeping each group's entries in the

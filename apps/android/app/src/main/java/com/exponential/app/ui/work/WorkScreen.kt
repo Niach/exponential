@@ -39,9 +39,9 @@ import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingTarget
 import com.exponential.app.domain.faceShowsContextMenu
 import com.exponential.app.domain.fallbackFace
-import com.exponential.app.domain.groupSessionResults
 import com.exponential.app.domain.isSessionLive
-import com.exponential.app.domain.parseSessionResults
+import com.exponential.app.domain.issueResultsRun
+import com.exponential.app.domain.parseSessionResultGroups
 import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.shouldAutoBack
 import com.exponential.app.domain.switcherBadge
@@ -100,9 +100,14 @@ fun WorkScreen(
     // EXP-1097: the Sub-issues `+` — the create screen on the parent's board
     // with the parent preset. Null hides the `+`.
     onCreateSubIssue: ((boardId: String, parentId: String) -> Unit)? = null,
+    // EXP-933: the face to open on (`issue/{id}?face=results` from an agent
+    // message's inbox row or push); null = the subject's default face. A face
+    // not yet available falls back like any vanished face.
+    initialFace: WorkFaceKind? = null,
 ) {
     // ── Screen state (survives rotation and process death) ─────────────────
-    var faceName by rememberSaveable { mutableStateOf<String?>(null) }
+    var faceName by rememberSaveable { mutableStateOf(initialFace?.name) }
+    var initialFacePending by rememberSaveable { mutableStateOf(initialFace != null) }
     var shownSessionId by rememberSaveable {
         mutableStateOf((subject as? WorkSubject.Session)?.id)
     }
@@ -281,8 +286,16 @@ fun WorkScreen(
     // EXP-879: the run's published screenshots, parsed off the synced blob.
     // Results is a SUB-FACE of Run — no shown run, no results — which the
     // `shownSession` read gives for free.
-    val sessionResults = remember(shownSession?.results) { parseSessionResults(shownSession?.results) }
-    val resultGroups = remember(sessionResults) { groupSessionResults(sessionResults) }
+    // EXP-933: an ISSUE subject shows the issue's results for EVERYONE —
+    // `issueResultsRun` over every member's runs on it (my target run when it
+    // has any, else the newest run with results) — so a teammate reading the
+    // issue sees the report too. An issue-less run keeps its own results.
+    val resultsSource: String? = if (issueId != null) {
+        issueResultsRun(issueSessions, issueId, shownSessionId, currentUserId, liveClock)?.results
+    } else {
+        shownSession?.results
+    }
+    val resultGroups = remember(resultsSource) { parseSessionResultGroups(resultsSource) }
     val faces = availableFaces(
         hasIssue = issueId != null,
         hasRun = shownSessionId != null,
@@ -294,7 +307,16 @@ fun WorkScreen(
     val face = fallbackFace(wantedFace, faces) ?: wantedFace
     // Where a face lands when it vanishes under the reader (the diff cleared,
     // the run row went): changes → run → issue.
-    LaunchedEffect(face, wantedFace) { if (face != wantedFace) faceName = face.name }
+    // EXP-933: an ARRIVAL face (`?face=results`) waits for its data to sync
+    // instead of being overwritten by the fallback on the first empty frame;
+    // it settles once it shows, or once the reader picks another face.
+    LaunchedEffect(face, wantedFace) {
+        if (initialFacePending) {
+            if (face == wantedFace || wantedFace != initialFace) initialFacePending = false
+            return@LaunchedEffect
+        }
+        if (face != wantedFace) faceName = face.name
+    }
 
     // EXP-1121: Start coding ALWAYS renders for a member while remote start
     // is on (`readiness.visible`) — solid and white once every step is met,
@@ -516,6 +538,11 @@ fun WorkScreen(
                             onOpenIssue = onOpenIssue,
                             trailingBarSlot = trailingSlot,
                             composerSwitcherSlot = composerSwitcherSlot,
+                            onOpenResults = if (WorkFaceKind.Results in faces) {
+                                { faceName = WorkFaceKind.Results.name }
+                            } else {
+                                null
+                            },
                         )
                     }
                 }

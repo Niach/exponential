@@ -76,6 +76,7 @@ import com.exponential.app.ui.issue.ChangesScreen
 import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.work.WorkScreen
+import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.ui.work.WorkSubject
 import com.exponential.app.ui.workflows.WorkflowDetailScreen
 import com.exponential.app.ui.workflows.WorkflowsScreen
@@ -141,7 +142,7 @@ fun AppNavHost() {
             // keeps the only thing single top bought us: a re-tap for what is
             // already on screen stays a no-op.
             is DeepLinkBus.Target.Issue ->
-                navController.navigateDeepLink("issue/${target.id}")
+                navController.navigateIssueDeepLink(target.id, target.face)
             is DeepLinkBus.Target.Invite ->
                 navController.navigateDeepLink("invite/${target.token}")
             // Same snapshot hazard as the issue route: SupportThreadViewModel
@@ -177,7 +178,7 @@ fun AppNavHost() {
                             // switch first; IssueDetail re-scopes reactively.
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        navController.navigateDeepLink("issue/${resolution.issueId}")
+                        navController.navigateIssueDeepLink(resolution.issueId, face = null)
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -636,6 +637,8 @@ private fun AuthenticatedNav(
                 },
                 // EXP-980: a blocked-run row opens the run it is about.
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
+                // EXP-933: an agent message's issue row → its Results face.
+                onOpenIssueResults = { id -> navController.navigate("issue/$id?face=results") },
                 // Support-group taps land on the Support tab (the inbox
                 // ViewModel has already selected the group's team).
                 onOpenSupport = {
@@ -810,12 +813,27 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
-        composable("issue/{issueId}") { entry ->
+        composable(
+            ISSUE_ROUTE,
+            arguments = listOf(
+                navArgument("face") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
             // EXP-893: the Work screen on its Issue face — the run and the
-            // diff are FACES of the same screen, never routes.
+            // diff are FACES of the same screen, never routes. EXP-933:
+            // `?face=results` (an agent message's inbox row or push) opens it
+            // on the Results face instead.
             val issueId = entry.arguments?.getString("issueId").orEmpty()
+            val initialFace = entry.arguments?.getString("face")?.let { face ->
+                WorkFaceKind.entries.firstOrNull { it.name.equals(face, ignoreCase = true) }
+            }
             WorkScreen(
                 subject = WorkSubject.Issue(issueId),
+                initialFace = initialFace,
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },

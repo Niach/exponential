@@ -41,6 +41,9 @@ public enum WorkFaces {
     public static let changesFaceLabel = "Changes"
     /// EXP-879: the run's published screenshots.
     public static let resultsFaceLabel = "Results"
+    /// EXP-933: the inline `sessions_results` card's button that switches the
+    /// Work screen to its Results face, byte-identical ×4.
+    public static let openResultsLabel = "Open Results"
     /// The switcher menu's extra row once the shown run ended for good.
     public static let startCodingLabel = "Start coding"
 
@@ -118,6 +121,24 @@ public enum WorkFaces {
             return bound
         }
         return newest(live) ?? newest(mine)
+    }
+
+    /// EXP-933: the run whose RESULTS an issue shows — `codingTarget` when
+    /// that run has any, else the newest run on the issue (startedAt, ties:
+    /// larger id) by ANY member with results. Fixture
+    /// `session-results.json` `issueResultsRun` (×4).
+    public static func issueResultsRun(
+        _ rows: [CodingSessionEntity],
+        issueId: String,
+        boundId: String?,
+        me: String?,
+        now: Date
+    ) -> CodingSessionEntity? {
+        if let own = codingTarget(rows, issueId: issueId, boundId: boundId, me: me, now: now),
+           hasSessionResults(own.results) {
+            return own
+        }
+        return newest(rows.filter { $0.issueId == issueId && hasSessionResults($0.results) })
     }
 
     /// EXP-934: the header's `…` CONTEXT MENU (Share · Move to board · Unmark

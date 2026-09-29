@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { SessionResultsView } from "./session-results-view"
-import type { SessionResultEntry } from "./session-results"
+import { parseSessionResultGroups, type SessionResultEntry } from "./session-results"
 
 // EXP-879: the results face — one band per topic, one tile per entry, the
 // label under the shot and the shared lightbox behind a tap.
@@ -79,5 +79,26 @@ describe(`SessionResultsView`, () => {
       />
     )
     expect(document.querySelectorAll(`img`).length).toBe(0)
+  })
+})
+
+// EXP-933: a topic's report text renders above its tiles, through the app's
+// renderer when one is passed.
+describe(`SessionResultsView report text`, () => {
+  it(`renders each topic's text, a text-only topic included`, () => {
+    const { getAllByTestId, getByText } = render(
+      <SessionResultsView
+        groups={parseSessionResultGroups([
+          { topic: `Summary`, text: `Did **it**` },
+          { topic: `nav`, text: `The nav` },
+          { topic: `nav`, label: `web`, attachmentId: `a1`, width: 100, height: 50 },
+        ])}
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+        renderText={(text) => <span>md:{text}</span>}
+      />
+    )
+    expect(getAllByTestId(`session-result-text`)).toHaveLength(2)
+    expect(getByText(`md:Did **it**`)).toBeTruthy()
+    expect(getAllByTestId(`session-result-a1`)).toHaveLength(1)
   })
 })

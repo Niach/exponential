@@ -837,7 +837,8 @@ final class WorkflowNodeWorkTests: XCTestCase {
             me: "me", now: now
         )
         XCTAssertEqual(single.subject, .issue(id: "i"))
-        XCTAssertEqual(single.faces, [.issue, .changes])
+        // EXP-933: no Run face, but the ISSUE's Results are every member's.
+        XCTAssertEqual(single.faces, [.issue, .changes, .results])
     }
 
     func testASingleIssueNodeUsesTheIssuesCodingTarget() {

@@ -79,6 +79,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -124,6 +125,7 @@ import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.isSessionLive
+import com.exponential.app.domain.OPEN_RESULTS_LABEL
 import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.sessionModel
 import com.exponential.app.ui.components.BarCapsule
@@ -350,6 +352,26 @@ fun RunFace(
      * Results become unreachable while it is open.
      */
     composerSwitcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
+    /** EXP-933: switches the host to its Results face — the inline
+     *  `sessions_results` card's `Open Results` button. Null hides it. */
+    onOpenResults: (() -> Unit)? = null,
+) {
+    CompositionLocalProvider(LocalOpenResults provides onOpenResults) {
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, composerSwitcherSlot)
+    }
+}
+
+/** EXP-933: the host's "show the Results face" hop, read by the transcript's
+ *  `sessions_results` card deep inside the feed. */
+private val LocalOpenResults = staticCompositionLocalOf<(() -> Unit)?> { null }
+
+@Composable
+private fun RunFaceContent(
+    viewModel: AgentSessionViewModel,
+    padding: PaddingValues,
+    onOpenIssue: (String) -> Unit,
+    trailingBarSlot: @Composable () -> Unit,
+    composerSwitcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)?,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -4323,7 +4345,29 @@ private fun ExpToolCallRow(
             }
         }
         if (item.settled && !item.failed) {
-            ExpToolPreview(display = display, preview = item.preview)
+            if (display.result == ExpToolDisplay.RESULT_RESULTS) {
+                // EXP-933: the run published its report — one tap to the
+                // Work screen's Results face, not a preview of it.
+                val openResults = LocalOpenResults.current
+                if (openResults != null) {
+                    ExpToolPreviewRow(onClick = openResults) {
+                        Icon(
+                            ExpIcons.workResults,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        )
+                        Text(
+                            OPEN_RESULTS_LABEL,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            } else {
+                ExpToolPreview(display = display, preview = item.preview)
+            }
         }
     }
 }
@@ -4401,6 +4445,8 @@ private fun ExpToolPreview(display: ExpToolRow, preview: ToolResultPreview?) {
                 )
             }
         }
+        // `results` renders its `Open Results` button in [ExpToolCallRow].
+        ExpToolDisplay.RESULT_RESULTS -> Unit
         // `none`, and any result kind a newer contract invents: the caption
         // already said what happened.
         else -> Unit

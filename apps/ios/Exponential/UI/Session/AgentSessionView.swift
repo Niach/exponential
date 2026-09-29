@@ -3221,6 +3221,7 @@ private struct ToolRow: View {
 ///   pr                            → a link row opening the pull request
 ///   list                          → "N results"
 ///   session/board/action/automation → a name chip
+///   results                       → an `Open Results` button (EXP-933)
 ///   none                          → the caption alone
 ///
 /// EXP-920: a preview that carries `refs` (what the answer touched, one
@@ -3241,6 +3242,7 @@ private struct ExpToolRow: View {
     let refs: AgentIssueRefContext?
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.openResultsFace) private var openResultsFace
 
     private var trimmedSubject: String? {
         guard let subject else { return nil }
@@ -3271,7 +3273,30 @@ private struct ExpToolRow: View {
             if settled, let preview {
                 previewRow(preview)
             }
+            // EXP-933: a settled `sessions_results` call (a failed one never
+            // reaches this row) offers its report on the Results face.
+            if settled, display.result == .results, let openResultsFace {
+                openResultsButton(openResultsFace)
+            }
         }
+    }
+
+    private func openResultsButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                AppIcon(AppIcons.workResults, size: 11)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(WorkFaces.openResultsLabel)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .glassRow()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("exp-tool-open-results")
     }
 
     @ViewBuilder
@@ -3303,6 +3328,9 @@ private struct ExpToolRow: View {
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
+        case .results:
+            // The `Open Results` button below the row IS its preview.
+            EmptyView()
         case .session, .board, .action, .automation, .comment:
             // A name/identifier chip — never a bare uuid: an id the reader
             // cannot place says less than the caption already did.

@@ -569,6 +569,40 @@ export function buildInboxDeepLinkPath(teamSlug: string): string {
   return `/t/${encodeURIComponent(teamSlug)}/inbox`
 }
 
+// EXP-933: the path a digest item links to (null = unlinked text). An issue
+// row → the issue, and an `agent_message` about one → that issue's Results
+// face (`?view=results`: the agent's message points at its report);
+// issue-less rows → Support (`support_reply`), the Inbox (`agent_message`)
+// or the run (`session_blocked`).
+export function digestItemPath(item: {
+  type: string
+  teamSlug: string | null
+  boardSlug: string | null
+  issueIdentifier: string | null
+  notificationTeamSlug: string | null
+  sessionId: string | null
+}): string | null {
+  if (item.teamSlug && item.boardSlug && item.issueIdentifier) {
+    const path = buildIssueDeepLinkPath({
+      teamSlug: item.teamSlug,
+      boardSlug: item.boardSlug,
+      identifier: item.issueIdentifier,
+    })
+    return item.type === `agent_message` ? `${path}?view=results` : path
+  }
+  if (!item.notificationTeamSlug) return null
+  if (item.type === `support_reply`) {
+    return buildSupportDeepLinkPath(item.notificationTeamSlug)
+  }
+  if (item.type === `agent_message`) {
+    return buildInboxDeepLinkPath(item.notificationTeamSlug)
+  }
+  if (item.type === `session_blocked` && item.sessionId) {
+    return buildSessionDeepLinkPath(item.notificationTeamSlug, item.sessionId)
+  }
+  return null
+}
+
 // The run — the link target for `session_blocked` digest items (EXP-980):
 // the ONE run URL (EXP-870), whatever the run is about.
 export function buildSessionDeepLinkPath(
