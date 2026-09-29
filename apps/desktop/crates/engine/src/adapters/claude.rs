@@ -937,7 +937,7 @@ impl ClaudeSession {
             // fresh run has no conversation to carry a base from.
             carried_base: spec.context_layers.carried_base.clone(),
             resumed_conversation: spec.resume.is_some(),
-            title_requested: spec.resume.is_some(),
+            title_requested: spec.resume.is_some() || !spec.name_conversation,
             ..State::default()
         };
         let account_profile = coding::profile_id(options.account.as_deref());
@@ -3959,8 +3959,10 @@ impl ClaudeSession {
     }
 
     /// EXP-1134: an SDK-mode claude (2.1.282 on) never names a conversation
-    /// by itself, so a FRESH one asks for its name once, off its first real
-    /// prompt (a slash command names nothing). A resume keeps the name the
+    /// by itself, so a FRESH chat run asks for its name once, off its first
+    /// real prompt (a slash command names nothing). An issue or action run is
+    /// listed under its issue or action and never asks
+    /// ([`AdapterSpec::name_conversation`]); a resume keeps the name the
     /// transcript already carries. Never awaited: the answer (a small model
     /// call) lands while the turn runs.
     fn request_title(self: &Arc<Self>, cx: &ConnectionTo<Client>, text: &str) {

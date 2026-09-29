@@ -118,6 +118,7 @@ fn adapter_spec(scenario: &str, work: &Path, session_id: &str, exit: ChildExitLi
         reaper_settings_path: Some(work.join("claude-hooks/1/row.settings.json")),
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
+        name_conversation: false,
         exit,
     }
 }
