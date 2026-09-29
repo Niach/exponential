@@ -106,6 +106,7 @@ export function SessionResultsView({
   groups: groupsProp,
   attachmentSrc,
   renderText,
+  className,
 }: {
   /** Pictures only (EXP-879); `groups` wins when both are passed. */
   results?: readonly SessionResultEntry[]
@@ -118,6 +119,8 @@ export function SessionResultsView({
    *  (issue pills, links); without one the text shows as plain pre-wrapped
    *  prose. */
   renderText?: (text: string) => ReactNode
+  /** Overrides the page gutter (a host that already pads passes `px-0`). */
+  className?: string
 }) {
   const [preview, setPreview] = useState<SessionResultEntry | null>(null)
   const groups = groupsProp ?? groupSessionResults(results ?? [])
@@ -132,17 +135,27 @@ export function SessionResultsView({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col gap-4 py-3"
+      // The COLUMN (text + tiles) sits at the band's LABEL; the band pulls
+      // out by its own px-3 (`-mx-3`), so it lines up with the work header's
+      // title while a report reads as one column under each header. The
+      // column, not the band, is what `useContentWidth` measures, so tiles
+      // fit it exactly.
+      className={cn(`flex flex-col gap-6 px-7 py-5 md:px-9`, className)}
       data-testid="session-results"
     >
       {groups.map((group, index) => (
         // Keyed by position too: a workflow concatenates several runs'
         // groups, so one topic may band twice.
         <div key={`${index}/${group.topic}`} className="flex flex-col">
-          <GlassSectionHeader label={group.topic} />
+          <GlassSectionHeader label={group.topic} className="-mx-3 w-auto" />
           {group.text !== null && (
             <div
-              className="max-w-3xl pb-3 text-sm"
+              className={cn(
+                `max-w-3xl pt-2 text-sm`,
+                // TipTap's trailing-node paragraph is an empty line under a
+                // closing code block or list; read-only it is only a gap.
+                `[&_.tiptap-content>p:last-child:has(>br.ProseMirror-trailingBreak:only-child)]:hidden`
+              )}
               data-testid="session-result-text"
             >
               {renderText ? (
@@ -153,7 +166,7 @@ export function SessionResultsView({
             </div>
           )}
           {group.entries.length > 0 && (
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 pt-3">
             {group.entries.map((entry) => (
               <ResultTile
                 key={`${entry.topic}/${entry.label}/${entry.attachmentId}`}

@@ -73,7 +73,7 @@ export function IssueResultsFace({
       />
       <div
         className={cn(
-          `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40 px-4`,
+          `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
           MOBILE_WORK_BAR_CLEARANCE
         )}
       >

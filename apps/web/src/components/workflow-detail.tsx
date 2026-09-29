@@ -1899,6 +1899,9 @@ function ResultsFace({ sessions }: { sessions: readonly CodingSession[] }) {
           groups={groups}
           attachmentSrc={(id) => `/api/attachments/${id}`}
           renderText={renderResultText}
+          // The workflow panel already pads its faces (its px-4 takes the
+          // bands' -mx-3 overhang).
+          className="px-3"
         />
       )}
     </div>
