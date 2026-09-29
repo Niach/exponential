@@ -98,6 +98,10 @@ pub struct DiffOptions {
     /// edited-files card), so it drops its own frame — no outer border, no
     /// radius, no fill; the rows separate on a hairline instead.
     pub flush: bool,
+    /// EXP-1136: a flush file that ENDS its parent card rounds its bottom
+    /// corners to the card's inner radius — gpui clips children to a plain
+    /// rectangle, so a square fill would poke past the card's rounded corner.
+    pub flush_round_bottom: bool,
 }
 
 impl DiffOptions {
@@ -111,6 +115,7 @@ impl DiffOptions {
             compact: false,
             highlight: true,
             flush: false,
+            flush_round_bottom: false,
         }
     }
 
@@ -123,6 +128,7 @@ impl DiffOptions {
             compact: false,
             highlight: true,
             flush: false,
+            flush_round_bottom: false,
         }
     }
 
@@ -135,6 +141,7 @@ impl DiffOptions {
             compact: false,
             highlight: true,
             flush: false,
+            flush_round_bottom: false,
         }
     }
 
@@ -149,6 +156,7 @@ impl DiffOptions {
             compact: true,
             highlight: false,
             flush: true,
+            flush_round_bottom: false,
         }
     }
 
@@ -322,11 +330,17 @@ impl RowShape {
 /// [`theme::tokens::radius::MD`] — the same three tokens
 /// [`crate::surface::glass_row_card`] uses, sliced per row.
 /// EXP-916: `flush` drops the frame entirely — the row is painted inside a
-/// parent card that already carries the border, the radius and the fill.
-pub(crate) fn card_row(shape: RowShape, flush: bool) -> gpui::Div {
+/// parent card that already carries the border, the radius and the fill; with
+/// `flush_round_bottom` (EXP-1136) a bottom slice keeps the card's inner
+/// corner so the last row sits flush in it.
+pub(crate) fn card_row(shape: RowShape, options: &DiffOptions) -> gpui::Div {
     let chrome = shape.chrome();
-    if flush {
-        return div().w_full().min_w_0().overflow_hidden();
+    if options.flush {
+        let row = div().w_full().min_w_0().overflow_hidden();
+        if options.flush_round_bottom && chrome.round_bottom {
+            return row.rounded_b(px(FLUSH_INNER_RADIUS));
+        }
+        return row;
     }
     let stroke = theme::tokens::glass::STROKE_ROW.to_hsla();
     let radius = px(theme::tokens::radius::MD);
@@ -354,6 +368,10 @@ pub(crate) fn card_row(shape: RowShape, flush: bool) -> gpui::Div {
     }
     row
 }
+
+/// The inner corner of [`crate::surface::glass_card`]: its radius minus the
+/// 1px border a flush row sits inside.
+pub(crate) const FLUSH_INNER_RADIUS: f32 = theme::tokens::radius::XL - 1.;
 
 /// GitHub's one-letter vocabulary over the contract's statuses.
 pub(crate) fn status_letter(status: DiffStatus) -> &'static str {
@@ -843,7 +861,7 @@ pub(crate) fn render_diff_row(
             };
             file_header_row(row, shape, options, chevron, cx).into_any_element()
         }
-        RenderRow::Note { message } => card_row(shape, options.flush)
+        RenderRow::Note { message } => card_row(shape, options)
             .flex()
             .items_center()
             .h(px(NOTE_ROW_H))
@@ -852,7 +870,7 @@ pub(crate) fn render_diff_row(
             .text_color(theme.muted_foreground)
             .child(message.clone())
             .into_any_element(),
-        RenderRow::HunkHeader { header } => card_row(shape, options.flush)
+        RenderRow::HunkHeader { header } => card_row(shape, options)
             .flex()
             .items_center()
             .h(px(options.line_h()))
@@ -868,7 +886,7 @@ pub(crate) fn render_diff_row(
                     .child(header.clone()),
             )
             .into_any_element(),
-        RenderRow::Unchanged { lines } => card_row(shape, options.flush)
+        RenderRow::Unchanged { lines } => card_row(shape, options)
             .flex()
             .items_center()
             .justify_center()
@@ -916,7 +934,7 @@ pub(crate) fn render_diff_row(
                         value.map(|n| n.to_string()).unwrap_or_default(),
                     ))
             };
-            let mut line = card_row(shape, options.flush)
+            let mut line = card_row(shape, options)
                 .flex()
                 .items_center()
                 .h(px(options.line_h()))
@@ -997,13 +1015,13 @@ fn file_header_row(
         ..
     } = row
     else {
-        return card_row(shape, options.flush);
+        return card_row(shape, options);
     };
     let theme = cx.theme();
     let mono = theme.mono_font_family.clone();
     let muted = theme.muted_foreground;
     let text_size = px(options.text_size() + 1.);
-    let mut header = card_row(shape, options.flush)
+    let mut header = card_row(shape, options)
         // EXP-916: the file header is the ONE glassy band of a diff — the
         // section-band fill every other grouped list wears, never an opaque
         // bar: the code under it must still read as one surface.

@@ -470,25 +470,38 @@ pub(crate) fn render_edit_card(
     } else {
         view.rows.len().min(preview)
     };
+    // EXP-1136: only the title and the footers are padded — the file rows run
+    // edge to edge inside the frame, and the last one sits on its bottom.
     let mut card = crate::surface::glass_card()
         .w_full()
         .min_w_0()
-        .gap_1()
-        .px_2()
-        .py_1p5()
         .child(
             h_flex()
                 .w_full()
                 .min_w_0()
                 .gap_1p5()
+                .px_2()
+                .py_1p5()
                 .items_center()
                 .text_2xs()
                 .text_color(muted)
                 .child(Icon::new(registry::CODING_DIFF).xsmall())
                 .child(SharedString::from(view.title.clone())),
         );
-    let mut rows = v_flex().w_full().min_w_0().overflow_hidden();
+    let has_note = view.truncated_lines > 0;
+    let has_fold = !live_clamped && domain::edit_card::edit_card_more_label(view.rows.len()).is_some();
+    // The last row ENDS the card when no footer follows it: it takes the
+    // card's inner bottom corners.
+    let ends_card = !has_note && !has_fold;
+    let hairline = theme::tokens::glass::STROKE_ROW.to_hsla();
+    let mut rows = v_flex()
+        .w_full()
+        .min_w_0()
+        .overflow_hidden()
+        .border_t_1()
+        .border_color(hairline);
     for (index, row) in view.rows.iter().take(shown).enumerate() {
+        let last = ends_card && index + 1 == shown;
         let opened = match open {
             Some(open) => open.contains(&row.path),
             // Untouched: the card follows the run — exactly the live row.
@@ -498,12 +511,10 @@ pub(crate) fn render_edit_card(
         // A hairline is the only seam between two stacked file cards — the
         // parent card already carries the border and the radius.
         if index > 0 {
-            slot = slot
-                .border_t_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
+            slot = slot.border_t_1().border_color(hairline);
         }
         let body = match &row.file {
-            Some(file) => edit_row_ready(id, index, &row.path, file, opened, on_toggle_row.clone(), cx),
+            Some(file) => edit_row_ready(id, index, &row.path, file, opened, last, on_toggle_row.clone(), cx),
             None => edit_row_stub(row, cx),
         };
         rows = rows.child(slot.child(body));
@@ -511,10 +522,13 @@ pub(crate) fn render_edit_card(
     card = card.child(rows);
     // EXP-786: what the publisher cut off the members' patches, in the words
     // every client says it in.
-    if view.truncated_lines > 0 {
+    if has_note {
         card = card.child(
             div()
-                .px_1()
+                .border_t_1()
+                .border_color(hairline)
+                .px_2()
+                .py_1()
                 .text_2xs()
                 .text_color(muted)
                 .child(SharedString::from(truncated_lines_note(
@@ -540,7 +554,10 @@ pub(crate) fn render_edit_card(
                     TextButtonVariant::Text,
                     cx,
                 )
-                .px_1()
+                .px_2()
+                .py_1()
+                .border_t_1()
+                .border_color(hairline)
                 .on_click(move |event: &ClickEvent, window, cx| {
                     cx.stop_propagation();
                     on_toggle_more(event, window, cx);
@@ -558,10 +575,14 @@ fn edit_row_ready(
     path: &str,
     file: &DiffFile,
     open: bool,
+    last: bool,
     on_toggle_row: EditRowClick,
     cx: &App,
 ) -> AnyElement {
-    let options = DiffOptions::card();
+    let options = DiffOptions {
+        flush_round_bottom: last,
+        ..DiffOptions::card()
+    };
     // A collapsed row shows its header and nothing else — highlighting the
     // whole patch to throw it away is the EXP-884 lag in miniature.
     let rows = if open {
@@ -581,11 +602,14 @@ fn edit_row_ready(
         "session-edit-body-{id}-{index}"
     )));
     let clicked = path.to_string();
+    let mut header_slot = div().id(row_id).w_full().min_w_0();
+    // A collapsed LAST row is the card's bottom edge: its hover wash takes
+    // the card's inner corners too.
+    if last && !open {
+        header_slot = header_slot.rounded_b(gpui::px(crate::diff::FLUSH_INNER_RADIUS));
+    }
     let mut column = v_flex().w_full().min_w_0().child(
-        div()
-            .id(row_id)
-            .w_full()
-            .min_w_0()
+        header_slot
             .cursor_pointer()
             .hover(|this| this.bg(cx.theme().list_hover))
             .on_click(move |_: &ClickEvent, window, cx| {
@@ -602,8 +626,14 @@ fn edit_row_ready(
     );
     if open {
         let mut body = v_flex().w_full().min_w_0();
-        for row in rows.iter().skip(1) {
-            body = body.child(render_diff_row(row, RowShape::Middle, gpui::px(0.), &options, cx));
+        let count = rows.len().saturating_sub(1);
+        for (at, row) in rows.iter().skip(1).enumerate() {
+            let shape = if at + 1 == count {
+                RowShape::Bottom
+            } else {
+                RowShape::Middle
+            };
+            body = body.child(render_diff_row(row, shape, gpui::px(0.), &options, cx));
         }
         column = column.child(
             div()
