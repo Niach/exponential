@@ -361,6 +361,22 @@ fun agentProfileRemoveCommand(deviceId: String, agent: String, profileId: String
     }
 
 /**
+ * The `agent_profile_sign_out` input for [DevicesApi.createCommand] (EXP-1137) —
+ * the machine signs the login [profileId] for [agent] OUT and keeps its row:
+ * claude's own `auth logout` inside that profile's config dir, codex's
+ * credential file deleted (never `codex logout`). The ACCOUNT is untouched.
+ * The ambient login (`system`) is taken too. Gated on BOTH
+ * [SteerDevice.canAgentLogin] and [SteerDevice.canSignOutAccount].
+ */
+fun agentProfileSignOutCommand(deviceId: String, agent: String, profileId: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_profile_sign_out")
+        put("agent", agent)
+        put("profileId", profileId)
+    }
+
+/**
  * The `agent_login_code` input for [DevicesApi.createCommand] (EXP-765) — hand
  * the authorization code the browser showed back to the sign-in still waiting
  * on the machine, which types it into that login's prompt. The server trims

@@ -4,7 +4,8 @@
 //!
 //! `~/.codex/auth.json` is deliberately never read. Codex owns its
 //! credential (refresh included); we ask the CLI what it knows and take the
-//! answer. The whole exchange is four messages:
+//! answer. (EXP-1137's sign-out deletes the file on request — that is the
+//! only touch, and it never reads it.) The whole exchange is four messages:
 //!
 //! ```text
 //! → {"id":1,"method":"initialize","params":{"clientInfo":{…}}}

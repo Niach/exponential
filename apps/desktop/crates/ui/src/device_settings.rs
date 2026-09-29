@@ -283,6 +283,7 @@ pub(crate) fn own_agent_status(
     if let Some(demo) = dev_agent_status() {
         return (demo.accounts, demo.usage);
     }
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
     let hub = CodingHub::global(cx);
     let hub = hub.read(cx);
     let status = hub.agent_status.clone().unwrap_or_default();
@@ -290,6 +291,9 @@ pub(crate) fn own_agent_status(
     if accounts.is_empty() {
         if let Some(report) = hub.doctor.report.as_ref() {
             accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
+            // EXP-1137: the stand-in must not resurrect a removed ambient
+            // login the collection would hide.
+            coding::doctor::hide_removed_ambient_logins(&data_dir, &mut accounts);
         }
     }
     (accounts, status.usage)

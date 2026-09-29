@@ -75,12 +75,13 @@ import {
 // relay is a dumb pipe and the same strings land here via `register`. Caps
 // are free strings the executor names (coding doctor.rs DEVICE_CAPS +
 // ACTION_CAPS); the ones this router gates on: `agent-login`,
-// `account-switch` (EXP-849: honours `account` on a live-run resume), `agent-usage-refresh`
-// (EXP-747 C4), `update-now` (FEED-36: runs `update_now`) and
-// `account-remove` (EXP-862: runs `agent_profile_remove`) and `stacked-start`
-// (EXP-897: reads a start frame's `stack` payload). The daemon advertises 22
-// today (13 build + 9 action caps), so the ceiling sits at 24 with headroom,
-// not AT the count.
+// `account-switch` (EXP-849: honours `account` on a live-run resume),
+// `agent-usage-refresh` (EXP-747 C4), `update-now` (FEED-36: runs
+// `update_now`), `account-remove` (EXP-862: runs `agent_profile_remove`),
+// `account-sign-out` (EXP-1137: runs `agent_profile_sign_out` and removes its
+// ambient login) and `stacked-start` (EXP-897: reads a start frame's `stack`
+// payload). The daemon advertises 22 today (13 build + 9 action caps), so the
+// ceiling sits at 24 with headroom, not AT the count.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(24)
 
@@ -364,6 +365,8 @@ const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
   `agent_usage_refresh`,
   `agent_profile_use`,
   `agent_profile_remove`,
+  // EXP-1137: signing a login out twice is one wish.
+  `agent_profile_sign_out`,
   // "Update claude here" twice is one wish: the machine's updater is
   // idempotent, and a second click while the first is queued reuses it.
   `agent_update`,
@@ -379,15 +382,36 @@ function isSystemProfileId(profileId: string | undefined): boolean {
 
 /** EXP-862: whether the device's last heartbeat reported `profileId` as one of
  * `agent`'s logins. A removal is destructive on the machine, so its target has
- * to be a row the requester could actually see. */
+ * to be a row the requester could actually see. EXP-1137: a machine that
+ * reports the agent with NO profile rows reports exactly its ambient login
+ * (the pre-profile payload), so `system` counts as reported there too. */
 function deviceReportsProfile(
   accounts: DeviceAgentAccounts | null,
   agent: string,
   profileId: string
 ): boolean {
-  return (accounts?.[agent]?.profiles ?? []).some(
-    (profile) => profile.id === profileId
-  )
+  const account = accounts?.[agent]
+  if (!account) return false
+  const profiles = account.profiles ?? []
+  if (profiles.length === 0) return isSystemProfileId(profileId)
+  return profiles.some((profile) => profile.id === profileId)
+}
+
+/** EXP-1137: the sentence both refusals share when a build cannot run
+ * `agent_profile_sign_out` (or remove its ambient login, which signs it out
+ * first). Byte-identical ×4 (`SIGN_OUT_OLD_APP` on every client). */
+const SIGN_OUT_OLD_APP = `That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.`
+
+/** EXP-1137: `agent-login` + `account-sign-out` — the machine drives its
+ * logins at all AND knows the sign-out body. */
+function assertSignOutCaps(row: { caps: string[] | null }): void {
+  const caps = row.caps ?? []
+  if (!caps.includes(`agent-login`) || !caps.includes(`account-sign-out`)) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: SIGN_OUT_OLD_APP,
+    })
+  }
 }
 
 /** FEED-36: `update_now` needs a daemon that knows the kind — an older build
@@ -994,8 +1018,15 @@ export const devicesRouter = router({
           // EXP-862: delete THIS machine's copy of an agent login (its
           // profile dir and its index row). The ACCOUNT is untouched: the
           // device never runs `codex logout` (that revokes the account
-          // server-wide), it only forgets the credential it holds.
+          // server-wide), it only forgets the credential it holds. EXP-1137:
+          // the ambient login (`system`) is taken too — the machine signs it
+          // out and hides the row until it signs in again (cap
+          // `account-sign-out`).
           `agent_profile_remove`,
+          // EXP-1137: sign ONE login out on the machine and keep its row —
+          // claude's own `auth logout` inside that profile's config dir, or
+          // codex's credential file deleted (never `codex logout`).
+          `agent_profile_sign_out`,
           `update_now`,
           `agent_update`,
         ]),
@@ -1124,30 +1155,57 @@ export const devicesRouter = router({
             message: `agent_profile_remove needs an agent and a profileId`,
           })
         }
-        // The ambient login is the agent CLI's own, not ours to delete: it
-        // has no profile dir to remove, and `codex logout` is never in this
-        // path. The device refuses it too; refusing here keeps the round
-        // trip off a machine that could only say no.
+        // EXP-1137: the ambient login is the agent CLI's own config dir, so
+        // "removing" it means signing it out there and hiding the row — a
+        // build without the sign-out body would leave the row pending
+        // forever, so it gates on `account-sign-out` instead of
+        // `account-remove`. Refusing here keeps the round trip off a machine
+        // that could only say no.
         if (isSystemProfileId(input.profileId)) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `That machine's own agent login cannot be removed from Exponential`,
-          })
+          assertSignOutCaps(row)
+        } else {
+          const caps = row.caps ?? []
+          if (!caps.includes(`agent-login`) || !caps.includes(`account-remove`)) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`,
+            })
+          }
         }
-        const caps = row.caps ?? []
-        if (!caps.includes(`agent-login`) || !caps.includes(`account-remove`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`,
-          })
-        }
-        if (!deviceReportsProfile(row.agentAccounts, input.agent, input.profileId)) {
+        const profileId = isSystemProfileId(input.profileId)
+          ? `system`
+          : input.profileId
+        if (!deviceReportsProfile(row.agentAccounts, input.agent, profileId)) {
           throw new TRPCError({
             code: `NOT_FOUND`,
             message: `That account is no longer reported by the device`,
           })
         }
-        payload = { agent: input.agent, profileId: input.profileId }
+        payload = { agent: input.agent, profileId }
+      }
+
+      // EXP-1137: "Sign out" — the machine signs ONE login out and keeps its
+      // row (a named profile stays listed for a later sign-in; the ambient
+      // login stays the CLI's own). Same gates as the ambient removal: the
+      // caps, and a login the machine actually reported.
+      if (input.kind === `agent_profile_sign_out`) {
+        if (!input.agent || !input.profileId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_profile_sign_out needs an agent and a profileId`,
+          })
+        }
+        assertSignOutCaps(row)
+        const profileId = isSystemProfileId(input.profileId)
+          ? `system`
+          : input.profileId
+        if (!deviceReportsProfile(row.agentAccounts, input.agent, profileId)) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `That account is no longer reported by the device`,
+          })
+        }
+        payload = { agent: input.agent, profileId }
       }
 
       if (input.kind === `agent_usage_refresh`) {

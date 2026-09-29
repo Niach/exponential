@@ -1997,6 +1997,26 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
       },
     ],
   ]
+  // EXP-1137: a build that also signs logins out (and so may remove its
+  // ambient one).
+  const signOutProbe = (
+    agentAccounts: Record<string, unknown> = reportedAccounts()
+  ) => [
+    [
+      {
+        id: `row-1`,
+        caps: [
+          `agent-login`,
+          `agent-usage-refresh`,
+          `account-switch`,
+          `account-remove`,
+          `account-sign-out`,
+        ],
+        agentAccounts,
+      },
+    ],
+  ]
+  const SIGN_OUT_OLD_APP = `That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.`
 
   it(`queues the agent and the profile id`, async () => {
     h.state.selectQueue = [...capableProbe(), []]
@@ -2114,9 +2134,14 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     })
   })
 
-  it(`refuses the machine's own ambient login`, async () => {
+  // EXP-1137: the machine's own ambient login is taken too — it signs out
+  // there and hides — but ONLY on a build with the sign-out body, and the
+  // id lands normalized so the device reads one spelling.
+  it(`queues the ambient login on a build that can sign out, normalized`, async () => {
     for (const profileId of [`system`, ` system `]) {
-      h.state.selectQueue = removeProbe()
+      h.state.inserted.length = 0
+      h.state.selectQueue = [...signOutProbe(), []]
+      h.state.insertReturning = [[{ id: `cmd-12` }]]
       await expect(
         caller.createCommand({
           deviceId: `dev-1`,
@@ -2124,8 +2149,29 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
           agent: `claude`,
           profileId,
         })
-      ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+      ).resolves.toEqual({ id: `cmd-12` })
+      expect(h.state.inserted[0]).toMatchObject({
+        kind: `agent_profile_remove`,
+        payload: { agent: `claude`, profileId: `system` },
+      })
     }
+  })
+
+  it(`refuses the ambient login on a build without account-sign-out`, async () => {
+    // `account-remove` alone is the EXP-862 build: it would refuse the
+    // ambient login on the machine, so the round trip is refused here.
+    h.state.selectQueue = removeProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_remove`,
+        agent: `claude`,
+        profileId: `system`,
+      })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: SIGN_OUT_OLD_APP,
+    })
     expect(h.state.inserted).toHaveLength(0)
   })
 
@@ -2188,14 +2234,109 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   // EXP-862: asking twice for an idempotent command asks for the same end
   // state — the pending row is reused instead of failing the mutation with
   // "That command is already queued".
+  // EXP-1137: "Sign out" — one login signed out on the machine, its row
+  // kept. Same gates as the ambient removal: both caps, a reported login.
+  it(`queues agent_profile_sign_out for a named and for the ambient login`, async () => {
+    for (const profileId of [`work`, `system`]) {
+      h.state.inserted.length = 0
+      h.state.selectQueue = [...signOutProbe(), []]
+      h.state.insertReturning = [[{ id: `cmd-13` }]]
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_profile_sign_out`,
+          agent: `claude`,
+          profileId,
+        })
+      ).resolves.toEqual({ id: `cmd-13` })
+      expect(h.state.inserted[0]).toMatchObject({
+        deviceRowId: `row-1`,
+        kind: `agent_profile_sign_out`,
+        payload: { agent: `claude`, profileId },
+      })
+    }
+  })
+
+  it(`reads a profile-less report as the ambient login`, async () => {
+    // A machine that never added a second account reports the pre-profile
+    // payload: no rows, and the top-level fields ARE its ambient login.
+    h.state.selectQueue = [
+      ...signOutProbe({ codex: { signedIn: true } }),
+      [],
+    ]
+    h.state.insertReturning = [[{ id: `cmd-14` }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_sign_out`,
+        agent: `codex`,
+        profileId: `system`,
+      })
+    ).resolves.toEqual({ id: `cmd-14` })
+    // ...but a named id there is still a miss, and so is an agent it never
+    // reported at all.
+    for (const [agent, profileId] of [
+      [`codex`, `work`],
+      [`claude`, `system`],
+    ] as const) {
+      h.state.selectQueue = signOutProbe({ codex: { signedIn: true } })
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_profile_sign_out`,
+          agent,
+          profileId,
+        })
+      ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    }
+  })
+
+  it(`refuses a sign-out on a build without both caps, naming the update`, async () => {
+    for (const caps of [
+      [],
+      [`agent-login`],
+      [`account-sign-out`],
+      [`agent-login`, `account-remove`],
+    ]) {
+      h.state.selectQueue = [
+        [{ id: `row-1`, caps, agentAccounts: reportedAccounts() }],
+      ]
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_profile_sign_out`,
+          agent: `claude`,
+          profileId: `work`,
+        })
+      ).rejects.toMatchObject({
+        code: `PRECONDITION_FAILED`,
+        message: SIGN_OUT_OLD_APP,
+      })
+    }
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`sign-out needs an agent and a profile id`, async () => {
+    h.state.selectQueue = signOutProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_sign_out`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
   it(`reuses the pending row for an idempotent kind`, async () => {
     for (const kind of [
       `agent_usage_refresh`,
       `agent_profile_use`,
       `agent_profile_remove`,
+      `agent_profile_sign_out`,
     ] as const) {
       h.state.inserted.length = 0
-      h.state.selectQueue = [...removeProbe(), [{ id: `cmd-pending` }]]
+      h.state.selectQueue = [...signOutProbe(), [{ id: `cmd-pending` }]]
       await expect(
         caller.createCommand({
           deviceId: `dev-1`,

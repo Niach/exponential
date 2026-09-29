@@ -141,6 +141,10 @@ fun AgentsScreen(
     var removeTargetAccount by remember {
         mutableStateOf<Pair<SteerDevice, AgentProfileUsageRow>?>(null)
     }
+    // EXP-1137: the login whose "Sign out" is waiting on its confirm.
+    var signOutTargetAccount by remember {
+        mutableStateOf<Pair<SteerDevice, AgentProfileUsageRow>?>(null)
+    }
     // EXP-944: which machines are UNFOLDED. Collapsed is the default — the
     // list answers "which machines do I have and are they up" first, and three
     // machines' worth of logins, usage bars and Add-account pills made that
@@ -200,6 +204,7 @@ fun AgentsScreen(
                                 logins = deviceLogins?.get(device.deviceId),
                                 onSetAccountDefault = { row -> viewModel.useAccountHere(device, row) },
                                 onRemoveAccount = { row -> removeTargetAccount = device to row },
+                                onSignOutAccount = { row -> signOutTargetAccount = device to row },
                                 // EXP-862: the sign-in link, its code field and
                                 // the waiting state live in ONE sheet, opened
                                 // on the login that needs the repair — the
@@ -264,14 +269,45 @@ fun AgentsScreen(
     // The confirm names the login and the machine and says in the same breath
     // that the account itself survives (the pinned sentence ×4).
     removeTargetAccount?.let { (device, row) ->
-        RemoveAccountDialog(
-            accountLabel = AgentAccountsRows.loginLabel(row),
-            deviceLabel = device.displayLabel,
+        // EXP-1137: the ambient login's sentence says it is signed out on the
+        // machine (terminal CLI included) and hidden.
+        val text = if (AgentAccountsRows.isAmbient(row.profileId)) {
+            AgentAccountsRows.removeAmbientAccountConfirm(
+                AgentAccountsRows.loginLabel(row),
+                device.displayLabel,
+                agentLabel(row.agent),
+            )
+        } else {
+            AgentAccountsRows.removeAccountConfirm(AgentAccountsRows.loginLabel(row), device.displayLabel)
+        }
+        AccountConfirmDialog(
+            title = AgentAccountsRows.ACTION_REMOVE,
+            text = text,
+            confirmLabel = "Remove",
             onConfirm = {
                 viewModel.removeAccountHere(device, row.agent, row.profileId)
                 removeTargetAccount = null
             },
             onDismiss = { removeTargetAccount = null },
+        )
+    }
+
+    // EXP-1137: "Sign out" — the machine signs the login out and keeps the
+    // row; the machine's own login names the terminal CLI that goes with it.
+    signOutTargetAccount?.let { (device, row) ->
+        AccountConfirmDialog(
+            title = AgentAccountsRows.ACTION_SIGN_OUT,
+            text = AgentAccountsRows.signOutConfirm(
+                AgentAccountsRows.loginLabel(row),
+                device.displayLabel,
+                if (AgentAccountsRows.isAmbient(row.profileId)) agentLabel(row.agent) else null,
+            ),
+            confirmLabel = "Sign out",
+            onConfirm = {
+                viewModel.signOutAccountHere(device, row.agent, row.profileId)
+                signOutTargetAccount = null
+            },
+            onDismiss = { signOutTargetAccount = null },
         )
     }
 
@@ -309,19 +345,25 @@ fun AgentsScreen(
     }
 }
 
-/** The pinned confirm ×4 — see [AgentAccountsRows.removeAccountConfirm]. */
+/**
+ * The pinned confirms ×4 — see [AgentAccountsRows.removeAccountConfirm],
+ * [AgentAccountsRows.removeAmbientAccountConfirm] and
+ * [AgentAccountsRows.signOutConfirm]: a destructive account entry never fires
+ * straight off a menu row.
+ */
 @Composable
-private fun RemoveAccountDialog(
-    accountLabel: String,
-    deviceLabel: String,
+private fun AccountConfirmDialog(
+    title: String,
+    text: String,
+    confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(AgentAccountsRows.ACTION_REMOVE) },
-        text = { Text(AgentAccountsRows.removeAccountConfirm(accountLabel, deviceLabel)) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Remove") } },
+        title = { Text(title) },
+        text = { Text(text) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -433,6 +475,8 @@ private fun MachineRow(
     onSetAccountDefault: (AgentProfileUsageRow) -> Unit,
     /** EXP-862 "Remove account": the machine drops ITS copy of the login. */
     onRemoveAccount: (AgentProfileUsageRow) -> Unit,
+    /** EXP-1137 "Sign out": the machine signs the login out and keeps its row. */
+    onSignOutAccount: (AgentProfileUsageRow) -> Unit,
     /** EXP-849: run the agent's own sign-in here — the login sheet owns the flow. */
     onSignInAccount: (AgentProfileUsageRow) -> Unit,
     /** EXP-909: sign a NEW login in on this machine (the device-bound sheet). */
@@ -655,6 +699,7 @@ private fun MachineRow(
                 commandStates = commandStates,
                 onSetDefault = onSetAccountDefault,
                 onRemove = onRemoveAccount,
+                onSignOut = onSignOutAccount,
                 onSignIn = onSignInAccount,
                 onAddAccount = onAddAccount,
                 modifier = Modifier.padding(start = 20.dp),
@@ -683,6 +728,7 @@ private fun DeviceLoginRows(
     commandStates: Map<String, DeviceCommandUiState>,
     onSetDefault: (AgentProfileUsageRow) -> Unit,
     onRemove: (AgentProfileUsageRow) -> Unit,
+    onSignOut: (AgentProfileUsageRow) -> Unit,
     onSignIn: (AgentProfileUsageRow) -> Unit,
     onAddAccount: () -> Unit,
     modifier: Modifier = Modifier,
@@ -709,9 +755,11 @@ private fun DeviceLoginRows(
                         canSwitch = device.canSwitchAccount,
                         canRemove = device.canRemoveAccount,
                         canAgentLogin = device.canAgentLogin,
+                        canSignOut = device.canSignOutAccount,
                         state = commandStates[deviceLoginCommandKey(login)],
                         onSetDefault = { onSetDefault(login) },
                         onRemove = { onRemove(login) },
+                        onSignOut = { onSignOut(login) },
                         onSignIn = { onSignIn(login) },
                     )
                 }
@@ -750,9 +798,12 @@ private fun DeviceLoginRow(
     canRemove: Boolean,
     /** …and `agent-login`, which a removal needs as well. */
     canAgentLogin: Boolean,
+    /** EXP-1137: …and `account-sign-out`, for the sign-out and the ambient removal. */
+    canSignOut: Boolean,
     state: DeviceCommandUiState?,
     onSetDefault: () -> Unit,
     onRemove: () -> Unit,
+    onSignOut: () -> Unit,
     onSignIn: () -> Unit,
 ) {
     val nowMs = rememberUsageClock()
@@ -761,15 +812,17 @@ private fun DeviceLoginRow(
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
     var menuOpen by remember { mutableStateOf(false) }
     // EXP-862: the entries, decided in ONE place ×4 — a signed-out or expired
-    // login offers a sign-in and nothing else; a healthy one can become the
-    // machine's default and can be removed from it. Empty = the row is a
-    // statement (a teammate's machine, an offline one, the ambient login).
+    // login offers a sign-in first; a healthy one can become the machine's
+    // default, be signed out (EXP-1137) and be removed from it. Empty = the
+    // row is a statement (a teammate's machine, an offline one, a build too
+    // old for any of the commands).
     val actions = if (actionable) {
         AgentAccountsRows.chipActions(
             row,
             canSwitchAccount = canSwitch,
             canRemoveAccount = canRemove,
             canAgentLogin = canAgentLogin,
+            canSignOutAccount = canSignOut,
         )
     } else {
         emptyList()
@@ -862,6 +915,10 @@ private fun DeviceLoginRow(
                                 menuOpen = false
                                 onRemove()
                             },
+                            onSignOut = {
+                                menuOpen = false
+                                onSignOut()
+                            },
                         )
                     }
                 }
@@ -906,9 +963,11 @@ private fun DeviceLoginRow(
 
 /**
  * EXP-862: the account chip menu, identical on a machine row and on an account
- * row's machine chip — never a logout (signing codex out would revoke the
- * account server-wide) and never a credential copy: the files stay where the
- * CLI wrote them, and "Remove account" deletes only THIS machine's copy.
+ * row's machine chip — never `codex logout` (it would revoke the account
+ * server-wide) and never a credential copy: the files stay where the CLI wrote
+ * them. "Remove account" deletes only THIS machine's copy; EXP-1137's "Sign
+ * out" is the agent's own way out (claude's `auth logout`, codex's credential
+ * file deleted) and keeps the row.
  */
 @Composable
 private fun AccountChipMenuItems(
@@ -917,6 +976,7 @@ private fun AccountChipMenuItems(
     onSignIn: () -> Unit,
     onSetDefault: () -> Unit,
     onRemove: () -> Unit,
+    onSignOut: () -> Unit,
 ) {
     actions.forEach { action ->
         when (action) {
@@ -931,6 +991,13 @@ private fun AccountChipMenuItems(
                 leadingIcon = { Icon(ExpIcons.uiSwap, contentDescription = null) },
                 enabled = !busy,
                 onClick = onSetDefault,
+            )
+            AgentAccountsRows.ACTION_SIGN_OUT -> GlassMenuItem(
+                text = { Text(action) },
+                leadingIcon = { Icon(ExpIcons.uiSignOut, contentDescription = null) },
+                enabled = !busy,
+                destructive = true,
+                onClick = onSignOut,
             )
             AgentAccountsRows.ACTION_REMOVE -> GlassMenuItem(
                 text = { Text(action) },

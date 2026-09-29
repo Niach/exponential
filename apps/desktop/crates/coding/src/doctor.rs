@@ -112,6 +112,10 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   delete ONE account's login from this machine (its profile dir and its
 ///   index row), never the account itself. An older build would leave the
 ///   row pending forever, so the server refuses to queue it without the cap.
+/// - `account-sign-out` (EXP-1137) — this build runs `agent_profile_sign_out`
+///   (sign one login out here, keep its row) and takes `agent_profile_remove`
+///   for the AMBIENT login (sign it out and hide its row until it signs in
+///   again). Same reasoning: the server refuses both without the cap.
 /// - `stacked-start` (EXP-897): this build reads a `start_session` frame's
 ///   `stack` payload and cuts the branch from the lower PR's branch. A build
 ///   without it would run UNSTACKED while the server had already written the
@@ -125,8 +129,8 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   as a kill of a possibly-live child.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 12 + 9 = 21.
-pub const DEVICE_CAPS: [&str; 12] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 9 = 22.
+pub const DEVICE_CAPS: [&str; 13] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -135,6 +139,7 @@ pub const DEVICE_CAPS: [&str; 12] = [
     "acp",
     ACCOUNT_SWITCH_CAP,
     ACCOUNT_REMOVE_CAP,
+    ACCOUNT_SIGN_OUT_CAP,
     "agent-usage-refresh",
     "update-now",
     STACKED_START_CAP,
@@ -159,6 +164,11 @@ pub const ACCOUNT_SWITCH_CAP: &str = "account-switch";
 /// a client deciding whether a machine can delete one of its logins never
 /// repeats the string.
 pub const ACCOUNT_REMOVE_CAP: &str = "account-remove";
+
+/// EXP-1137's account-sign-out cap, by name: the ONE place the literal lives,
+/// so a client deciding whether a machine can sign one of its logins out (or
+/// remove its ambient one) never repeats the string.
+pub const ACCOUNT_SIGN_OUT_CAP: &str = "account-sign-out";
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
@@ -323,6 +333,20 @@ impl DoctorReport {
         match agent {
             CodingAgent::Claude => &self.claude,
             CodingAgent::Codex => &self.codex,
+        }
+    }
+
+    /// EXP-1137: re-run ONE agent's check (`check_agent`, exactly what
+    /// [`run_doctor`] would build for it) — after a sign-out, the ambient
+    /// login's row in this report is stale and would keep naming the login
+    /// that just left, and everything the heartbeat says about the ambient
+    /// login (`agent_accounts_detailed`'s `system` row, its usage
+    /// eligibility) reads off this check.
+    pub fn reprobe_agent(&mut self, settings: &Settings, agent: CodingAgent) {
+        let check = check_agent(settings, agent);
+        match agent {
+            CodingAgent::Claude => self.claude = check,
+            CodingAgent::Codex => self.codex = check,
         }
     }
 
@@ -567,6 +591,7 @@ impl DoctorReport {
             account.profiles = rows;
             accounts.insert(agent.id().to_string(), account);
         }
+        hide_removed_ambient_logins(data_dir, &mut accounts);
         // EXP-1013: a signed-out login still names its last email.
         crate::agent_profiles::remember_emails(data_dir, &mut accounts);
         // The rebuilt top-level rows above start from the probe's identity,
@@ -575,6 +600,48 @@ impl DoctorReport {
         ProfileAccounts {
             accounts,
             usage_eligible,
+        }
+    }
+}
+
+/// EXP-1137 — the heartbeat's view of a REMOVED ambient login
+/// ([`crate::agent_profiles::ambient_hidden`]): while it is signed out, its
+/// `system` row leaves `profiles`, and an agent with no other login leaves the
+/// map altogether (every client synthesizes a "Default · Signed out" row
+/// from a profile-less account, and the device's own "Signed out" badge with
+/// it). The moment the probe sees the ambient login signed in again — a
+/// terminal `codex login`, or "Add account" into it — the flag clears and the
+/// row is back. The ONE choke point: both hosts' beats, the forced collects
+/// and the command bodies all build the map here; the two producers that
+/// ship the profile-less [`DoctorReport::agent_accounts`] instead (the
+/// desktop's register and its settings pane's stand-in) apply this filter
+/// themselves, so a hidden row never rides either.
+pub fn hide_removed_ambient_logins(data_dir: &Path, accounts: &mut AgentAccounts) {
+    for agent in CodingAgent::ALL {
+        if !crate::agent_profiles::ambient_hidden(data_dir, agent) {
+            continue;
+        }
+        let Some(account) = accounts.get_mut(agent.id()) else {
+            continue;
+        };
+        let system = crate::agent_profiles::SYSTEM_PROFILE;
+        let ambient_signed_in = if account.profiles.is_empty() {
+            account.signed_in
+        } else {
+            account
+                .profiles
+                .iter()
+                .any(|row| row.id == system && row.signed_in)
+        };
+        if ambient_signed_in {
+            // Best effort: an unwritable index costs the memory, never the
+            // heartbeat — the row is reported either way.
+            let _ = crate::agent_profiles::set_ambient_hidden(data_dir, agent, false);
+            continue;
+        }
+        account.profiles.retain(|row| row.id != system);
+        if account.profiles.is_empty() {
+            accounts.remove(agent.id());
         }
     }
 }
@@ -652,18 +719,31 @@ pub fn run_doctor(settings: &Settings) -> DoctorReport {
     // process never sees — re-read it so "Check tools" (and every later
     // spawn) finds a just-installed git/agent without an app restart.
     terminal::process::refresh_windows_path();
-    let claude_program = settings.resolved_path_for(CodingAgent::Claude);
-    let codex_program = settings.resolved_path_for(CodingAgent::Codex);
-    let mut claude = check_tool(Tool::Claude, &claude_program);
-    apply_version_gate(&mut claude);
-    apply_auth_gate(&mut claude, &claude_program);
-    let mut codex = check_tool(Tool::Codex, &codex_program);
-    apply_auth_gate(&mut codex, &codex_program);
-    apply_codex_acp(&mut codex);
     DoctorReport {
-        claude,
-        codex,
+        claude: check_agent(settings, CodingAgent::Claude),
+        codex: check_agent(settings, CodingAgent::Codex),
         git: check_tool(Tool::Git, "git"),
+    }
+}
+
+/// ONE agent's row of [`run_doctor`]: the tool check plus its gates, so a
+/// re-probe of a single agent (EXP-1137: after a sign-out) reads exactly what
+/// the full doctor would.
+fn check_agent(settings: &Settings, agent: CodingAgent) -> ToolCheck {
+    let program = settings.resolved_path_for(agent);
+    match agent {
+        CodingAgent::Claude => {
+            let mut claude = check_tool(Tool::Claude, &program);
+            apply_version_gate(&mut claude);
+            apply_auth_gate(&mut claude, &program);
+            claude
+        }
+        CodingAgent::Codex => {
+            let mut codex = check_tool(Tool::Codex, &program);
+            apply_auth_gate(&mut codex, &program);
+            apply_codex_acp(&mut codex);
+            codex
+        }
     }
 }
 
@@ -1551,6 +1631,12 @@ mod tests {
         assert!(DEVICE_CAPS.contains(&ACCOUNT_REMOVE_CAP));
         assert!(!ACTION_CAPS.contains(&ACCOUNT_REMOVE_CAP));
         assert!(signed_out.contains(&ACCOUNT_REMOVE_CAP.to_string()));
+        // EXP-1137: signing a login out is a build cap too — a signed-out
+        // machine may still hold the dead credential the sign-out clears.
+        assert_eq!(ACCOUNT_SIGN_OUT_CAP, "account-sign-out");
+        assert!(DEVICE_CAPS.contains(&ACCOUNT_SIGN_OUT_CAP));
+        assert!(!ACTION_CAPS.contains(&ACCOUNT_SIGN_OUT_CAP));
+        assert!(signed_out.contains(&ACCOUNT_SIGN_OUT_CAP.to_string()));
     }
 
     /// EXP-792: a forced usage refresh is a property of the BINARY — a
@@ -2017,6 +2103,74 @@ mod tests {
         assert!(!work.active);
         assert!(!work.signed_in, "an unreadable profile probe reads signed out");
         assert_eq!(claude.email.as_deref(), Some("dev@acme.test"));
+    }
+
+    /// EXP-1137: a REMOVED ambient login stays off the heartbeat while it is
+    /// signed out — its `system` row goes, and an agent with no other login
+    /// goes with it — and comes back by itself the moment the probe sees it
+    /// signed in again.
+    #[test]
+    fn a_removed_ambient_login_leaves_the_heartbeat_until_it_signs_in_again() {
+        let dir = profile_data_dir("hidden");
+        let signed_out_codex = || {
+            let mut codex = green(Tool::Codex, "0.46.0");
+            codex.account = Some(AgentAccount {
+                signed_in: false,
+                checked_at: "2026-01-01T00:00:00.000Z".into(),
+                ..AgentAccount::default()
+            });
+            codex
+        };
+        let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");
+        claude.account = Some(AgentAccount {
+            signed_in: true,
+            email: Some("dev@acme.test".into()),
+            checked_at: "2026-01-01T00:00:00.000Z".into(),
+            ..AgentAccount::default()
+        });
+        let report = DoctorReport {
+            claude,
+            codex: signed_out_codex(),
+            git: green(Tool::Git, "2.44.0"),
+        };
+        let settings = Settings::default();
+        let stamp = "2026-02-02T00:00:00.000Z";
+
+        // Not hidden: the pre-profile payload, signed out and all.
+        let accounts = report.agent_accounts_with_profiles(&settings, &dir, stamp);
+        assert!(!accounts["codex"].signed_in);
+
+        // Hidden, no other login: the agent leaves the map — nothing left to
+        // synthesize a "Default · Signed out" row from. claude is untouched.
+        crate::agent_profiles::set_ambient_hidden(&dir, CodingAgent::Codex, true).unwrap();
+        let accounts = report.agent_accounts_with_profiles(&settings, &dir, stamp);
+        assert!(!accounts.contains_key("codex"), "{accounts:?}");
+        assert_eq!(accounts["claude"].email.as_deref(), Some("dev@acme.test"));
+
+        // Hidden, a named profile beside it: only the `system` row goes, and
+        // the named one carries `active` (the hidden login is never the
+        // default), so the top-level fields mirror IT.
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let accounts = report.agent_accounts_with_profiles(&settings, &dir, stamp);
+        let codex = accounts.get("codex").expect("codex row");
+        assert_eq!(codex.profiles.len(), 1, "{:?}", codex.profiles);
+        assert_eq!(codex.profiles[0].id, work.id);
+        assert!(codex.profiles[0].active);
+        assert!(
+            crate::agent_profiles::ambient_hidden(&dir, CodingAgent::Codex),
+            "still hidden: the ambient login is still signed out"
+        );
+
+        // Signed in again: the flag clears itself and the row is back first.
+        let mut signed_in = report.clone();
+        signed_in.codex.account.as_mut().unwrap().signed_in = true;
+        let accounts = signed_in.agent_accounts_with_profiles(&settings, &dir, stamp);
+        let codex = accounts.get("codex").expect("codex row");
+        assert_eq!(codex.profiles.len(), 2);
+        assert_eq!(codex.profiles[0].id, crate::agent_profiles::SYSTEM_PROFILE);
+        assert!(codex.profiles[0].signed_in);
+        assert!(!crate::agent_profiles::ambient_hidden(&dir, CodingAgent::Codex));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

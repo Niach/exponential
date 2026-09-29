@@ -230,6 +230,17 @@ export function deviceCanRemoveAccount(
   return (device.caps ?? []).includes(`account-remove`)
 }
 
+/** EXP-1137: the machine runs `agent_profile_sign_out` (sign one login out,
+ * keep its row) and takes `agent_profile_remove` for its AMBIENT login (sign
+ * it out and hide the row). An older build would leave either row pending
+ * forever, so requesters hide "Sign out" and the ambient "Remove account"
+ * instead; the server refuses both on their behalf either way. */
+export function deviceCanSignOutAccount(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`account-sign-out`)
+}
+
 /** EXP-484: the machine runs the `agent_login` device command (the desktop
  * app and the CLI daemon both advertise it). Without the cap the queued row
  * would sit pending forever, so requesters hide Login/Switch account. */

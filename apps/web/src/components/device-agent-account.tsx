@@ -7,21 +7,25 @@
 // rules below are unchanged, because they were always about one login on one
 // machine.
 //
-// The menu is THREE states and nothing else, hand-mirrored ×4 (desktop
-// `agent_account_actions.rs` / `machines.rs`, iOS `DeviceLogins`, Android
-// `AgentAccountsRows.chipActions`):
+// The menu is ONE rule, hand-mirrored ×4 (desktop `usage_bar.rs` /
+// `machines.rs`, iOS `DeviceLogins`, Android `AgentAccountsRows.chipActions`),
+// its entries in this fixed order:
 //
-//   - signed out, or a credential that expired here: "Sign in", alone. A dead
-//     login cannot be switched to, and removing it repairs nothing.
-//   - healthy, and NOT the machine's current login: "Set as default"
-//     (`agent_profile_use` — no login flow, no logout, no credential copied)
-//     and "Remove account".
-//   - healthy, and already the machine's login: "Remove account".
+//   - "Sign in": signed out, or a credential that expired here.
+//   - "Set as default": healthy and NOT the machine's current login
+//     (`agent_profile_use` — no login flow, no logout, no credential copied).
+//   - "Sign out" (EXP-1137): signed in, on a build with the sign-out body
+//     (`agent_profile_sign_out`: claude's own `auth logout` inside that
+//     profile's config dir, codex's credential file deleted — never `codex
+//     logout`, which revokes the account server-wide). The row stays.
+//   - "Remove account": a named profile on a build with `account-remove`
+//     (deletes THIS machine's copy of the login: its profile dir and its
+//     index row); EXP-1137: the machine's own AMBIENT login too, on a build
+//     with the sign-out body — it is signed out there and hidden until it
+//     signs in again.
 //
-// "Remove account" deletes THIS machine's copy of the login (its profile dir
-// and its index row); the account itself is untouched, which is exactly what
-// the confirm says (`removeAccountConfirmCopy`). Nothing here ever runs a
-// logout: `codex logout` revokes the account server-wide.
+// The account itself is untouched by every entry, which is exactly what each
+// confirm says (`lib/agent-account-remove.ts`).
 //
 // A login with no entry at all (a teammate's machine, an offline one, a build
 // that takes none of the commands) is a statement, not a control — and its
@@ -66,7 +70,11 @@ import {
 } from "@/lib/agent-usage"
 import {
   canRemoveAccountOn,
+  canSignOutAccountOn,
+  isAmbientProfile,
   removeAccountConfirmCopy,
+  removeAmbientAccountConfirmCopy,
+  signOutConfirmCopy,
 } from "@/lib/agent-account-remove"
 import {
   deviceCanAgentLogin,
@@ -79,15 +87,17 @@ import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 
 const SignInIcon = conceptIcon(`ui-sign-in`)
+const SignOutIcon = conceptIcon(`ui-sign-out`)
 const SwapIcon = conceptIcon(`ui-swap`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const ExternalLinkIcon = conceptIcon(`ui-external-link`)
 
-/** The chip menu's three entries, byte-identical ×4 (Android
+/** The chip menu's four entries, byte-identical ×4 (Android
  * `AgentAccountsRows.ACTION_*`). */
 export const ACTION_SIGN_IN = `Sign in`
 export const ACTION_SET_DEFAULT = `Set as default`
+export const ACTION_SIGN_OUT = `Sign out`
 export const ACTION_REMOVE = `Remove account`
 
 /** The command key the dialog tracks a per-agent login under. */
@@ -143,8 +153,8 @@ export function chipSetsDefault(
  * keeps "Sign in" as its first (and only repairing) entry, but it no longer
  * ENDS there — a dead named profile can be removed too, and codex logins,
  * which are signed out far more often than claude's, were left with a menu of
- * one. Only the ambient login still offers just the sign-in: it is the CLI's
- * own config dir, not ours to delete. */
+ * one. EXP-1137: a signed-in login offers "Sign out", and the ambient login
+ * offers "Remove account" too, on a build with the sign-out body. */
 export function accountChipActions(
   device: Pick<SteerDevice, `caps`>,
   row: AccountChipRow
@@ -154,6 +164,7 @@ export function accountChipActions(
   if (chipSetsDefault(row, deviceCanSwitchAccount(device))) {
     out.push(ACTION_SET_DEFAULT)
   }
+  if (canSignOutAccountOn(device, row)) out.push(ACTION_SIGN_OUT)
   if (canRemoveAccountOn(device, row)) out.push(ACTION_REMOVE)
   return out
 }
@@ -249,11 +260,14 @@ export function AccountChipMenu({
 }) {
   const [busy, setBusy] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
   const actions = accountChipActions(device, row)
   const deviceLabel = device.deviceLabel || device.deviceId
+  const ambient = isAmbientProfile(row.profileId)
+  const loginLabel = accountLabel ?? accountChipLabel(row)
 
   const queue = async (
-    kind: `agent_profile_use` | `agent_profile_remove`,
+    kind: `agent_profile_use` | `agent_profile_remove` | `agent_profile_sign_out`,
     success: string,
     failure: string
   ) => {
@@ -318,6 +332,16 @@ export function AccountChipMenu({
               {ACTION_SET_DEFAULT}
             </DropdownMenuItem>
           )}
+          {actions.includes(ACTION_SIGN_OUT) && (
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={busy}
+              onSelect={() => setConfirmSignOut(true)}
+            >
+              <SignOutIcon />
+              {ACTION_SIGN_OUT}
+            </DropdownMenuItem>
+          )}
           {actions.includes(ACTION_REMOVE) && (
             <DropdownMenuItem
               variant="destructive"
@@ -331,8 +355,50 @@ export function AccountChipMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* EXP-1137: destructive too — a sign-out on the machine's own login
+          also signs the CLI in the person's terminal out, and the sentence
+          says so. */}
+      <AlertDialog
+        open={confirmSignOut}
+        onOpenChange={(open) => {
+          if (!open && !busy) setConfirmSignOut(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{ACTION_SIGN_OUT}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {signOutConfirmCopy(
+                loginLabel,
+                deviceLabel,
+                ambient ? agentLabel(row.agent) : null
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(event) => {
+                event.preventDefault()
+                setConfirmSignOut(false)
+                void queue(
+                  `agent_profile_sign_out`,
+                  `${deviceLabel} will sign this login out.`,
+                  `Couldn't sign the account out on that device`
+                )
+              }}
+            >
+              {busy && <LoaderCircle className="animate-spin" />}
+              Sign out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Destructive, so it asks — and the sentence says in the same breath
-          that only this device's copy of the login goes. */}
+          that only this device's copy of the login goes (the ambient login:
+          signed out there and hidden, EXP-1137). */}
       <AlertDialog
         open={confirmRemove}
         onOpenChange={(open) => {
@@ -343,10 +409,13 @@ export function AccountChipMenu({
           <AlertDialogHeader>
             <AlertDialogTitle>{ACTION_REMOVE}</AlertDialogTitle>
             <AlertDialogDescription>
-              {removeAccountConfirmCopy(
-                accountLabel ?? accountChipLabel(row),
-                deviceLabel
-              )}
+              {ambient
+                ? removeAmbientAccountConfirmCopy(
+                    loginLabel,
+                    deviceLabel,
+                    agentLabel(row.agent)
+                  )
+                : removeAccountConfirmCopy(loginLabel, deviceLabel)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

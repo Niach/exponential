@@ -8,6 +8,7 @@ import {
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
   deviceCanRemoveAccount,
+  deviceCanSignOutAccount,
   deviceCanStackStart,
   deviceCanSwitchAccount,
   deviceCanUpdateNow,
@@ -563,6 +564,19 @@ describe(`deviceCanRemoveAccount`, () => {
     ).toBe(false)
     expect(deviceCanRemoveAccount({ caps: [] })).toBe(false)
     expect(deviceCanRemoveAccount({ caps: undefined as never })).toBe(false)
+  })
+})
+
+// EXP-1137: signing a login out (and removing the machine's own ambient one)
+// is its own capability — same reasoning, same hiding.
+describe(`deviceCanSignOutAccount`, () => {
+  it(`is true only when the machine advertises account-sign-out`, () => {
+    expect(deviceCanSignOutAccount({ caps: [`account-sign-out`] })).toBe(true)
+    expect(
+      deviceCanSignOutAccount({ caps: [`account-remove`, `agent-login`] })
+    ).toBe(false)
+    expect(deviceCanSignOutAccount({ caps: [] })).toBe(false)
+    expect(deviceCanSignOutAccount({ caps: undefined as never })).toBe(false)
   })
 })
 

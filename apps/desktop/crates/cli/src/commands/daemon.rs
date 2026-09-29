@@ -1831,20 +1831,30 @@ fn issue_resume_record(
     })
 }
 
-/// EXP-862 — the accounts the runs this daemon hosts are using right now
-/// (`agent_profile_remove` refuses to delete one a live run is on). The live
-/// row does not carry the account, the run RECORD does (`runs.json`), so the
-/// live ids resolve through the registry — ONE load for the whole pass
-/// (`run_registry::all`), never one parse per session. Order follows
-/// `session_ids`; unknown ids and ambient (account-less) runs are skipped,
-/// exactly as a per-id `run_registry::get` produced. Mirrored by the IDE's
+/// EXP-862 — the logins the runs this daemon hosts are using right now, as
+/// `(agent, profile id)` pairs (`agent_profile_remove` and, EXP-1137,
+/// `agent_profile_sign_out` refuse to pull one out from under a live run).
+/// The live row does not carry the account, the run RECORD does
+/// (`runs.json`), so the live ids resolve through the registry — ONE load for
+/// the whole pass (`run_registry::all`), never one parse per session. Order
+/// follows `session_ids`; unknown ids are skipped. EXP-1137: an ambient
+/// (account-less) run is a run on the `system` login, not no login — it is
+/// what an ambient sign-out must refuse for. Mirrored by the IDE's
 /// `device_sync::live_run_accounts`.
-fn live_run_accounts(data_dir: &Path, session_ids: &[String]) -> Vec<String> {
+fn live_run_accounts(
+    data_dir: &Path,
+    session_ids: &[String],
+) -> Vec<(coding::CodingAgent, String)> {
     let records = coding::run_registry::all(data_dir);
     session_ids
         .iter()
         .filter_map(|id| records.iter().find(|record| record.session_id == *id))
-        .filter_map(|record| record.account())
+        .map(|record| {
+            (
+                record.agent,
+                coding::profile_id(record.account().as_deref()),
+            )
+        })
         .collect()
 }
 
@@ -2730,9 +2740,17 @@ fn run_device_command(
         // EXP-862 — "remove account": delete this machine's copy of a login
         // (the profile dir, credentials included, and its index row). The
         // ACCOUNT is untouched — never `codex logout`, which revokes it
-        // server-wide — and nothing leaves the machine. The ambient login and
-        // an account a live run here is using are both refused.
-        "agent_profile_remove" => {
+        // server-wide — and nothing leaves the machine. EXP-1137: the ambient
+        // login is signed out and hidden instead. An account a live run here
+        // is using is refused.
+        //
+        // EXP-1137 — "sign out": the same guard, and the login's credential
+        // goes the agent's own way while its row stays.
+        //
+        // Both raise `doctor_soon`: the ambient login's row in the cached
+        // report is stale the moment it signs out, and the advertisement
+        // (runnable agents) follows the fresh check on the next loop turn.
+        kind @ ("agent_profile_remove" | "agent_profile_sign_out") => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
             let profile = command.payload["profileId"].as_str().unwrap_or("system");
             match coding::CodingAgent::parse(agent) {
@@ -2751,23 +2769,41 @@ fn run_device_command(
                         .map(|live| live.session.session_id.clone())
                         .collect();
                     let live_accounts = live_run_accounts(&ctx.data_dir, &live_ids);
-                    match coding::agent_usage::remove_profile(
-                        &ctx.data_dir,
-                        &settings,
-                        &report,
-                        agent,
-                        profile,
-                        &live_accounts,
-                        coding::run_registry::now_secs(),
-                    ) {
-                        Ok(payload) => {
+                    let now = coding::run_registry::now_secs();
+                    let (outcome, done) = if kind == "agent_profile_remove" {
+                        (
+                            coding::agent_usage::remove_profile(
+                                &ctx.data_dir,
+                                &settings,
+                                &report,
+                                agent,
+                                profile,
+                                &live_accounts,
+                                now,
+                            ),
+                            format!("The {} account was removed from this machine.", agent.id()),
+                        )
+                    } else {
+                        (
+                            coding::agent_usage::sign_out_profile(
+                                &ctx.data_dir,
+                                &settings,
+                                &report,
+                                agent,
+                                profile,
+                                &live_accounts,
+                                now,
+                            ),
+                            format!("The {} account was signed out on this machine.", agent.id()),
+                        )
+                    };
+                    match outcome {
+                        Ok((payload, _)) => {
                             if let Ok(mut slot) = slots.agent_status.lock() {
                                 *slot = Some(payload);
                             }
-                            (
-                                true,
-                                format!("The {} account was removed from this machine.", agent.id()),
-                            )
+                            doctor_soon.store(true, Ordering::SeqCst);
+                            (true, done)
                         }
                         Err(error) => (false, error),
                     }
@@ -6433,15 +6469,15 @@ mod tests {
         coding::run_registry::record(&dir, with_account("sess-a", Some("shadow")));
 
         let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+        let pair = |account: &str| (coding::CodingAgent::Claude, account.to_string());
+        // EXP-1137: an ambient run is a run on the `system` login — the pair
+        // an ambient sign-out must refuse for — never a skipped row.
         assert_eq!(
             live_run_accounts(&dir, &ids(&["sess-c", "sess-b", "sess-a", "sess-missing"])),
-            vec!["personal".to_string(), "shadow".to_string()]
+            vec![pair("personal"), pair("system"), pair("shadow")]
         );
         assert!(live_run_accounts(&dir, &[]).is_empty());
-        assert!(
-            live_run_accounts(&dir, &ids(&["sess-b"])).is_empty(),
-            "the ambient login is no account"
-        );
+        assert_eq!(live_run_accounts(&dir, &ids(&["sess-b"])), vec![pair("system")]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

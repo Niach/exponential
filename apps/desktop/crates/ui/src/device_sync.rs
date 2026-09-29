@@ -1044,25 +1044,37 @@ fn run_device_command(
         // EXP-862 — "remove account": delete THIS machine's copy of a login
         // (its profile dir, credentials included, and its index row). The
         // account itself is untouched: no `codex logout` (it would revoke the
-        // account server-wide) and no request leaves the machine. Refused for
-        // the ambient login and for an account a live run here is using.
-        "agent_profile_remove" => {
+        // account server-wide) and no request leaves the machine. EXP-1137:
+        // the ambient login is signed out and hidden instead. Refused for an
+        // account a live run here is using.
+        //
+        // EXP-1137 — "sign out": the same guard; the credential goes the
+        // agent's own way and the row stays.
+        //
+        // Both raise `doctor_soon`: the cached report's ambient row is stale
+        // the moment that login signs out, and the hub's doctor (runnable
+        // agents, the advertisement) must follow the fresh check.
+        kind @ ("agent_profile_remove" | "agent_profile_sign_out") => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
             let profile = command.payload["profileId"].as_str().unwrap_or("system");
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
-                Some(agent) => match remove_agent_profile(snapshot, agent, profile) {
-                    Ok(payload) => {
-                        complete(
-                            snapshot,
-                            &command.id,
-                            true,
-                            &format!("The {} account was removed from this machine.", agent.id()),
-                        );
-                        return CommandDisposition::Refreshed(payload);
+                Some(agent) => {
+                    let remove = kind == "agent_profile_remove";
+                    match change_agent_profile(snapshot, agent, profile, remove) {
+                        Ok(payload) => {
+                            snapshot.doctor_soon.store(true, Ordering::SeqCst);
+                            let done = if remove {
+                                format!("The {} account was removed from this machine.", agent.id())
+                            } else {
+                                format!("The {} account was signed out on this machine.", agent.id())
+                            };
+                            complete(snapshot, &command.id, true, &done);
+                            return CommandDisposition::Refreshed(payload);
+                        }
+                        Err(error) => (false, error),
                     }
-                    Err(error) => (false, error),
-                },
+                }
             }
         }
         other => {
@@ -1102,28 +1114,38 @@ fn use_agent_profile(
     )
 }
 
-/// EXP-862 — the device side of `agent_profile_remove`, over the ONE shared
-/// body ([`coding::agent_usage::remove_profile`]): delete this machine's copy
-/// of `profile`'s login for `agent`, then re-report so every client's account
-/// list loses the chip on this beat.
-fn remove_agent_profile(
+/// EXP-862 — the device side of `agent_profile_remove` (`remove`) and, EXP-1137,
+/// `agent_profile_sign_out`, over the ONE shared body each
+/// ([`coding::agent_usage::remove_profile`] /
+/// [`coding::agent_usage::sign_out_profile`]): change this machine's copy of
+/// `profile`'s login for `agent`, then re-report so every client's account
+/// list moves on this beat.
+fn change_agent_profile(
     snapshot: &BeatSnapshot,
     agent: coding::CodingAgent,
     profile: &str,
+    remove: bool,
 ) -> Result<coding::agent_usage::AgentStatusPayload, String> {
     let report = match &snapshot.doctor {
         Some(report) => report.clone(),
         None => coding::run_doctor(&snapshot.settings),
     };
-    coding::agent_usage::remove_profile(
+    let live = live_run_accounts(&snapshot.data_dir, &snapshot.live_session_ids);
+    let body = if remove {
+        coding::agent_usage::remove_profile
+    } else {
+        coding::agent_usage::sign_out_profile
+    };
+    body(
         &snapshot.data_dir,
         &snapshot.settings,
         &report,
         agent,
         profile,
-        &live_run_accounts(&snapshot.data_dir, &snapshot.live_session_ids),
+        &live,
         now_unix_secs(),
     )
+    .map(|(payload, _)| payload)
 }
 
 /// EXP-862 — the accounts the runs this app hosts are using right now. The
@@ -1132,12 +1154,17 @@ fn remove_agent_profile(
 /// load for the whole pass (`run_registry::all`), never one parse per live
 /// session. Order follows `session_ids`, and a duplicated id resolves to its
 /// first record, exactly as a per-id `run_registry::get` would.
-fn live_run_accounts(data_dir: &std::path::Path, session_ids: &[String]) -> Vec<String> {
+fn live_run_accounts(
+    data_dir: &std::path::Path,
+    session_ids: &[String],
+) -> Vec<(coding::CodingAgent, String)> {
     let records = coding::run_registry::all(data_dir);
     session_ids
         .iter()
         .filter_map(|id| records.iter().find(|record| record.session_id == *id))
-        .filter_map(|record| record.account())
+        // EXP-1137: an ambient (account-less) run is a run on the `system`
+        // login, not no login — an ambient sign-out must refuse for it.
+        .map(|record| (record.agent, coding::profile_id(record.account().as_deref())))
         .collect()
 }
 
@@ -1237,6 +1264,30 @@ pub(crate) fn remove_agent_profile_here(
     profile: &str,
     cx: &mut App,
 ) -> Result<(), String> {
+    change_agent_profile_here(agent, profile, true, cx)
+}
+
+/// EXP-1137 — the LOCAL "sign out" (the Devices row's own menu on THIS
+/// machine): the same body the `agent_profile_sign_out` command runs, plus
+/// the hub mirror.
+pub(crate) fn sign_out_agent_profile_here(
+    agent: coding::CodingAgent,
+    profile: &str,
+    cx: &mut App,
+) -> Result<(), String> {
+    change_agent_profile_here(agent, profile, false, cx)
+}
+
+/// The shared local body of [`remove_agent_profile_here`] and
+/// [`sign_out_agent_profile_here`]. After a change the hub's doctor is
+/// re-run (EXP-1137): the ambient login's row in the cached report is stale
+/// the moment it signs out, and the runnable-agent gates read that report.
+fn change_agent_profile_here(
+    agent: coding::CodingAgent,
+    profile: &str,
+    remove: bool,
+    cx: &mut App,
+) -> Result<(), String> {
     let data_dir = crate::coding_flow::coding_data_dir(cx);
     let hub = crate::coding_flow::CodingHub::global(cx);
     let (settings, report) =
@@ -1247,19 +1298,26 @@ pub(crate) fn remove_agent_profile_here(
     };
     let live = LocalSessions::global(cx);
     let live_session_ids = live.read(cx).session_ids();
-    let status = coding::agent_usage::remove_profile(
+    let live_accounts = live_run_accounts(&data_dir, &live_session_ids);
+    let body = if remove {
+        coding::agent_usage::remove_profile
+    } else {
+        coding::agent_usage::sign_out_profile
+    };
+    let (status, _) = body(
         &data_dir,
         &settings,
         &report,
         agent,
         profile,
-        &live_run_accounts(&data_dir, &live_session_ids),
+        &live_accounts,
         now_unix_secs(),
     )?;
     hub.update(cx, |hub, cx| {
         hub.agent_status = Some(status);
         cx.notify();
     });
+    crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
     Ok(())
 }
 
@@ -1440,12 +1498,15 @@ mod tests {
         coding::run_registry::record(&dir, run_record(&dir, "sess-a", Some("shadow")));
 
         let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+        let pair = |account: &str| (coding::CodingAgent::Claude, account.to_string());
+        // EXP-1137: an ambient run is a run on the `system` login — the pair
+        // an ambient sign-out must refuse for — never a skipped row.
         assert_eq!(
             live_run_accounts(&dir, &ids(&["sess-c", "sess-b", "sess-a", "sess-missing"])),
-            vec!["personal".to_string(), "shadow".to_string()]
+            vec![pair("personal"), pair("system"), pair("shadow")]
         );
         assert!(live_run_accounts(&dir, &[]).is_empty());
-        assert!(live_run_accounts(&dir, &ids(&["sess-b"])).is_empty(), "the ambient login is no account");
+        assert_eq!(live_run_accounts(&dir, &ids(&["sess-b"])), vec![pair("system")]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
