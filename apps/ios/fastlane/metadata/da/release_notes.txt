@@ -1,4 +1,3 @@
-- Issues: "Start coding" er altid tilgængelig på et issue; når noget mangler, åbner den en "Ready to code?"-tjekliste med en løsning for hvert trin, herunder valg af boardets repository
-- Issues: et sub-issue viser sit overordnede issue over titlen, sub-issues viser deres fremskridt med en ring og et + til at tilføje et nyt, og relationer grupperes i sammenfoldelige sektioner
-- Login: tilmelding med en e-mailkode spørger om dit navn
-- Agentkørsler: badget for stack, batch og kørsler vises i alle visninger af et stykke arbejde
+- Agenter: hvert agentlogin under en maskine har "Sign out" i sin menu, og maskinens eget login kan også fjernes
+- Agentkørsler: chatkørsler får igen deres navn fra Claude
+- MCP-servere: forbind din egen konto til en af teamets MCP-servere én gang på webben, så bruger alle kørsler, du starter på en hvilken som helst maskine, den

@@ -1,4 +1,3 @@
-- Issues: „Start coding“ ist bei einem Issue immer verfügbar; fehlt etwas, öffnet sich eine „Ready to code?“-Checkliste mit einer Lösung für jeden Schritt, einschließlich der Auswahl des Repositorys für das Board
-- Issues: ein Sub-Issue nennt sein übergeordnetes Issue über dem Titel, Sub-Issues zeigen ihren Fortschritt mit einem Ring und einem + zum Hinzufügen, und Beziehungen werden in einklappbaren Abschnitten gruppiert
-- Anmeldung: die Registrierung mit einem E-Mail-Code fragt nach deinem Namen
-- Agent-Läufe: das Badge für Stack, Batch und Läufe erscheint in jeder Ansicht einer Arbeit
+- Agenten: jeder Agent-Login unter einer Maschine bietet „Sign out“ in seinem Menü, und auch der eigene Login der Maschine lässt sich entfernen
+- Agent-Läufe: Chat-Läufe bekommen ihren Namen wieder von Claude
+- MCP-Server: verbinde dein eigenes Konto einmal im Web mit einem MCP-Server des Teams, und jeder Lauf, den du auf einer beliebigen Maschine startest, nutzt es

@@ -240,6 +240,7 @@ fun AgentsScreen(
                                 // start, but only its owner can fix it.
                                 onSetAccountDefault = {},
                                 onRemoveAccount = {},
+                                onSignOutAccount = {},
                                 onSignInAccount = {},
                                 onAddAccount = {},
                             )

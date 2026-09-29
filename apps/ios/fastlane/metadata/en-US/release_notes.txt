@@ -1,4 +1,3 @@
-- Issues: Start coding is always on an issue; when something is missing it opens a "Ready to code?" checklist with a fix for each step, including picking the board's repository
-- Issues: a sub-issue names its parent above the title, sub-issues show their progress with a ring and a + to add one, and relations group into foldable sections
-- Sign-in: signing up with an email code asks for your name
-- Agent runs: the stack, batch and runs badge shows on every face of a piece of work
+- Agents: every agent login under a machine offers Sign out in its menu, and the machine's own login can be removed too
+- Agent runs: chat runs get their name from Claude again
+- MCP servers: connect your own account to a team MCP server once on the web, and every run you start on any machine uses it

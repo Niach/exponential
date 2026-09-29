@@ -359,7 +359,10 @@ export async function mergePlaceholderIntoUser(
  * Drop an unclaimed placeholder row once nothing points at it: no membership
  * left and no attribution anywhere (comments cascade with their author, so a
  * referenced row stays — it then reads like any former member). Never touches
- * a claimed account. Also called by teamMembers.remove.
+ * a claimed account: neither one whose `placeholder_at` was cleared nor one a
+ * provider login already linked an `accounts` row to (someone signed in
+ * through the placeholder's mailbox before the claim hook flipped the flag).
+ * Also called by teamMembers.remove. Mirrored by the 0150 purge migration.
  */
 export async function deletePlaceholderIfOrphaned(
   tx: DbOrTx,
@@ -369,6 +372,7 @@ export async function deletePlaceholderIfOrphaned(
   // names, and `"user_id" = "id"` would resolve `id` to the subquery's table.
   const result = await tx.execute(sql`
     SELECT u.placeholder_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM accounts acc WHERE acc.user_id = u.id)
       AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = u.id)
       AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.assignee_id = u.id OR i.creator_id = u.id)
       AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.author_id = u.id)

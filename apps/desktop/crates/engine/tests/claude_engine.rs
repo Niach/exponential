@@ -136,6 +136,7 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
         base_branch: None,
         base_ref: None,
         run_cleanup: None,
+        mcp_warnings: Vec::new(),
         spawn: terminal::pty::SpawnSpec::new("claude"),
         acp: coding::AcpLaunch {
             prompt: seed,

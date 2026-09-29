@@ -2362,6 +2362,56 @@ describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
     expect(lastStartBody().account).toBeUndefined()
   })
 
+  // Compat shim (cleanup round 29): a build advertising the retired `mcp`
+  // cap (desktop/CLI <= 0.14.56) resolves the picks on-device and refuses a
+  // start it cannot resolve, so the server drops them from its frame
+  // instead. Delete with the shim.
+  it(`drops mcpServerIds from the frame to a device advertising the retired mcp cap`, async () => {
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    try {
+      h.dbQueue.push([{ id: MCP_A, teamId: `ws-1` }])
+      queueOwnDevice({ caps: [`agent-start`, `start-prompt`, `mcp`] })
+      await caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        mcpServerIds: [MCP_A],
+        account: `work`,
+      })
+      expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+      expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, account: `work` })
+      // `undefined` = absent on the wire (the relay body is JSON), as the
+      // empty-list case above asserts.
+      expect(lastStartBody().mcpServerIds).toBeUndefined()
+      expect(warn).toHaveBeenCalledTimes(1)
+
+      // The action frame too.
+      h.relayPostStart.mockClear()
+      queueAction()
+      h.dbQueue.push([{ id: MCP_A, teamId: `ws-1` }])
+      queueOwnDevice({ caps: [`mcp`] })
+      await caller.startSession({
+        actionId: ACTION_ID,
+        deviceId: `dev-1`,
+        mcpServerIds: [MCP_A],
+      })
+      expect(lastStartBody()).toMatchObject({ actionId: ACTION_ID })
+      expect(lastStartBody().mcpServerIds).toBeUndefined()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it(`keeps mcpServerIds for a device without the retired cap`, async () => {
+    h.dbQueue.push([{ id: MCP_A, teamId: `ws-1` }])
+    queueOwnDevice({ caps: [`agent-start`, `start-prompt`, `stacked-start`] })
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      mcpServerIds: [MCP_A],
+    })
+    expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, mcpServerIds: [MCP_A] })
+  })
+
   it(`caps the list at 16 uuids and the account at 64 chars`, async () => {
     for (const extra of [
       { mcpServerIds: Array.from({ length: 17 }, (_, i) => uuid(i)) },

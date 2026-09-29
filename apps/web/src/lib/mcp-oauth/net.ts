@@ -5,7 +5,10 @@
 // addresses only (lib/import/public-address.ts), redirects are refused so a
 // public URL cannot bounce to a private one, and the residual DNS-rebind
 // window is the same accepted one as the import path. A self-host may point
-// at its LAN (a local MCP server is a legitimate target there).
+// at its LAN (a local MCP server is a legitimate target there) and its GET
+// discovery may follow redirects; a POST never does, anywhere: a 307/308
+// from a token or registration endpoint would re-post the refresh token or
+// client secret to wherever it pointed.
 import {
   isPublicAddress,
   resolvesToPublicAddresses,
@@ -51,18 +54,26 @@ export async function assertFetchableUrl(raw: string): Promise<URL> {
  * never a token). */
 export async function mcpFetch(url: string, init: RequestInit = {}): Promise<Response> {
   await assertFetchableUrl(url)
+  const method = (init.method ?? `GET`).toUpperCase()
   try {
     return await fetch(url, {
       ...init,
-      redirect: cloud() ? `error` : `follow`,
+      redirect: method === `GET` && !cloud() ? `follow` : `error`,
       signal: AbortSignal.timeout(MCP_HTTP_TIMEOUT_MS),
     })
   } catch (e) {
     const name = (e as { name?: string })?.name
+    // A refused redirect: undici wraps it as TypeError("fetch failed") with
+    // an "unexpected redirect" cause, Bun throws "Unexpected redirect".
+    const text = `${(e as { message?: string })?.message ?? ``} ${
+      (e as { cause?: { message?: string } })?.cause?.message ?? ``
+    }`
     throw new McpHttpError(
       name === `TimeoutError` || name === `AbortError`
         ? `timed out`
-        : `could not connect`
+        : /redirect/i.test(text)
+          ? `answered with a redirect`
+          : `could not connect`
     )
   }
 }

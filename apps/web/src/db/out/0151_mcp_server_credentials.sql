@@ -55,4 +55,7 @@ ALTER TABLE "mcp_oauth_flows" ADD CONSTRAINT "mcp_oauth_flows_user_id_users_id_f
 ALTER TABLE "mcp_oauth_flows" ADD CONSTRAINT "mcp_oauth_flows_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "mcp_oauth_flows" ADD CONSTRAINT "mcp_oauth_flows_server_id_mcp_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."mcp_servers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_mcp_credentials_user" ON "mcp_credentials" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "idx_mcp_oauth_flows_user" ON "mcp_oauth_flows" USING btree ("user_id");
+CREATE INDEX "idx_mcp_oauth_flows_user" ON "mcp_oauth_flows" USING btree ("user_id");--> statement-breakpoint
+-- Cleanup round 29: the device-run OAuth flow is gone (the server exchanges the code now); pending
+-- mcp_oauth_* device commands have no consumer left and would linger forever.
+DELETE FROM "device_commands" WHERE "kind" LIKE 'mcp\_oauth\_%';

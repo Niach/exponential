@@ -1095,6 +1095,13 @@ pub struct PreparedLaunch {
     /// issue/batch sessions (their worktrees survive by design) and for
     /// runs with no worktree of their own.
     pub run_cleanup: Option<RunCleanup>,
+    /// EXP-792: every picked team MCP server this run starts WITHOUT (not
+    /// connected, refresh failed, removed, the resolve call failed) plus the
+    /// server's own launch notes, as [`ResolvedMcp::warnings`] left them.
+    /// Never a secret and never a blocker: the hosts show them (the desktop
+    /// as one toast, the CLI as log lines) so a run missing its tools is not
+    /// a silent one. Empty for every pick-less launch.
+    pub mcp_warnings: Vec<String>,
     /// The agent invocation in the worktree (§7.1 step 7): program, cwd and
     /// env. `args` is always EMPTY — the ACP adapter composes the argv.
     pub spawn: SpawnSpec,
@@ -2278,6 +2285,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         // Changes view shows this issue's own work and not the whole stack.
         base_ref: Some(format!("origin/{base_branch}")),
         run_cleanup: None,
+        mcp_warnings: team_mcp.warnings.clone(),
         spawn,
         tab_title,
         tab_title_prefix,
@@ -3097,6 +3105,7 @@ fn prepare_action(
             .as_ref()
             .map(|base| format!("origin/{base}")),
         run_cleanup,
+        mcp_warnings: team_mcp.warnings.clone(),
         spawn,
         tab_title,
         tab_title_prefix: tab_prefix,
@@ -3947,6 +3956,7 @@ fn prepare_resume_run(
         base_ref: (!default_branch.is_empty())
             .then(|| format!("origin/{default_branch}")),
         run_cleanup,
+        mcp_warnings: team_mcp.warnings.clone(),
         spawn,
         tab_title,
         tab_title_prefix: tab_prefix,
@@ -8320,6 +8330,53 @@ mod tests {
         drop(requests);
         assert_eq!(resolve_mcp_servers(&deps, &[]), ResolvedMcp::default());
         assert_eq!(captured.lock().unwrap().len(), 1);
+    }
+
+    /// The second half of the rule above: the warning is not just logged
+    /// and dropped, it RIDES the prepared launch so the hosts can show it
+    /// (the desktop as a toast, the CLI as a log line). A pick the member
+    /// has not connected lands as `skipped` and the run still prepares,
+    /// with no team servers and that one note.
+    #[cfg(unix)]
+    #[test]
+    fn a_skipped_mcp_pick_rides_the_prepared_launch() {
+        let dir = temp_dir("mcp-degraded-prepared");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
+            (
+                200,
+                r#"{"result":{"data":{"servers":[],"skipped":[{"id":"srv-9","name":"Linear","reason":"not connected"}],"warnings":[]}}}"#.to_string(),
+            ),
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let mut deps = make_deps(
+            &base,
+            &dir.0,
+            Arc::new(FakeWorktrees {
+                worktree: worktree.clone(),
+                seen: Default::default(),
+            }),
+        );
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        let mut request = request("EXP-42");
+        request.options.mcp_server_ids = vec!["srv-9".to_string()];
+
+        let prepared = match prepare(&PrepareRequest::Issue(request), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(
+            prepared.mcp_warnings,
+            vec![
+                "MCP server Linear: not connected; starting without it. Connect it in Settings → MCP servers."
+                    .to_string()
+            ]
+        );
+        assert!(prepared.acp.servers.is_empty());
+        assert!(prepared.acp.mcp_secrets.is_empty());
     }
 
     /// EXP-792: a resume re-resolves the RECORDED pick (fresh tokens): the

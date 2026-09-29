@@ -1,4 +1,3 @@
-- Issue-uri: „Start coding” este mereu disponibil pe un issue; când lipsește ceva, deschide o listă de verificare „Ready to code?” cu o remediere pentru fiecare pas, inclusiv alegerea repository-ului boardului
-- Issue-uri: un sub-issue își numește issue-ul părinte deasupra titlului, sub-issue-urile își arată progresul cu un inel și un + pentru a adăuga unul nou, iar relațiile se grupează în secțiuni pliabile
-- Autentificare: înregistrarea cu un cod primit pe email îți cere numele
-- Rulări ale agentului: insigna pentru stack, batch și rulări apare în fiecare vizualizare a unei lucrări
+- Agenți: fiecare autentificare de agent de sub o mașină oferă „Sign out” în meniul său, iar autentificarea proprie a mașinii poate fi și ea eliminată
+- Rulări ale agentului: rulările de chat primesc din nou numele de la Claude
+- Servere MCP: conectează-ți o singură dată contul pe web la un server MCP al echipei, iar fiecare rulare pe care o pornești pe orice mașină îl va folosi

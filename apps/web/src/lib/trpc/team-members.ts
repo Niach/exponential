@@ -4,6 +4,8 @@ import {
   devices,
   issues,
   issueSubscribers,
+  mcpCredentials,
+  mcpOauthFlows,
   pins,
   teamMembers,
 } from "@/db/schema"
@@ -194,6 +196,29 @@ export const teamMembersRouter = router({
           .delete(pins)
           .where(
             and(eq(pins.teamId, target.teamId), eq(pins.userId, target.userId))
+          )
+        // Membership end = credential end (EXP-792 retention). The server
+        // holds each member's MCP credentials per team (`mcp_credentials`);
+        // an ex-member's tokens and secrets for this team's servers have no
+        // launcher left to serve and must not outlive the membership, nor
+        // may a pending sign-in of theirs still land one. Both go in the
+        // same transaction; a re-invited member connects afresh.
+        await tx
+          .delete(mcpCredentials)
+          .where(
+            and(
+              eq(mcpCredentials.teamId, target.teamId),
+              eq(mcpCredentials.userId, target.userId)
+            )
+          )
+        await tx
+          .delete(mcpOauthFlows)
+          .where(
+            and(
+              eq(mcpOauthFlows.teamId, target.teamId),
+              eq(mcpOauthFlows.userId, target.userId),
+              eq(mcpOauthFlows.status, `pending`)
+            )
           )
         await tx
           .update(issues)

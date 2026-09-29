@@ -1,4 +1,3 @@
-- Issues: “Start coding” is altijd beschikbaar bij een issue; ontbreekt er iets, dan opent een “Ready to code?”-checklist met een oplossing voor elke stap, inclusief het kiezen van de repository van het board
-- Issues: een sub-issue noemt zijn bovenliggende issue boven de titel, sub-issues tonen hun voortgang met een ring en een + om er een toe te voegen, en relaties worden gegroepeerd in inklapbare secties
-- Aanmelden: bij registratie met een e-mailcode wordt om je naam gevraagd
-- Agentruns: de badge voor stack, batch en runs staat in elke weergave van een stuk werk
+- Agents: elke agentlogin onder een machine biedt “Sign out” in het menu, en ook de eigen login van de machine kan worden verwijderd
+- Agentruns: chatruns krijgen hun naam weer van Claude
+- MCP-servers: koppel je eigen account één keer op het web aan een MCP-server van het team, en elke run die je op welke machine dan ook start, gebruikt die

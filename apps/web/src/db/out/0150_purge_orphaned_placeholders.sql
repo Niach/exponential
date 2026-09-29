@@ -5,8 +5,12 @@
 -- deletes purge them now (lib/placeholder-members.ts
 -- `deletePlaceholdersIfOrphaned`); this drops the ones already stranded, with
 -- the exact `deletePlaceholderIfOrphaned` predicate. Idempotent.
+-- A placeholder that a provider login already linked an "accounts" row to
+-- (someone signed in through its mailbox) but whose claim hook never flipped
+-- `placeholder_at` is a real login: never purge it.
 DELETE FROM "users" u
 WHERE u."placeholder_at" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "accounts" acc WHERE acc."user_id" = u."id")
   AND NOT EXISTS (SELECT 1 FROM "team_members" tm WHERE tm."user_id" = u."id")
   AND NOT EXISTS (SELECT 1 FROM "issues" i WHERE i."assignee_id" = u."id" OR i."creator_id" = u."id")
   AND NOT EXISTS (SELECT 1 FROM "comments" c WHERE c."author_id" = u."id")

@@ -107,9 +107,36 @@ impl TokenStore {
         ] {
             self.delete(account_id, kind);
         }
-        // The retired device-held MCP credentials (EXP-792, before the
-        // server held them): an older build's leftovers go with the account.
-        let _ = fs::remove_dir_all(self.account_dir(account_id).join("mcp"));
+        self.purge_retired_mcp(account_id);
+    }
+
+    /// EXP-792: the retired device-held MCP credentials (`accounts/<id>/mcp/`,
+    /// from before the server held them): OAuth access + refresh tokens,
+    /// typed secrets and DCR client ids in plaintext 0600 files no build
+    /// reads or refreshes any more. An in-place upgrade would otherwise keep
+    /// them indefinitely, so they go the first time the account is loaded or
+    /// signed in after the upgrade (every host, desktop and CLI daemon,
+    /// passes through `AuthStore` for that), not only when the account is
+    /// removed. Returns whether anything was removed; a missing dir is the
+    /// steady state and says nothing.
+    pub fn purge_retired_mcp(&self, account_id: &str) -> bool {
+        let dir = self.account_dir(account_id).join("mcp");
+        match fs::remove_dir_all(&dir) {
+            Ok(()) => {
+                log::info!(
+                    "[auth] removed the retired device-held MCP credentials of account {account_id}"
+                );
+                true
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
+            Err(err) => {
+                log::warn!(
+                    "[auth] could not remove the retired MCP credentials at {}: {err}",
+                    dir.display()
+                );
+                false
+            }
+        }
     }
 
     // ---- file store ----
@@ -246,6 +273,26 @@ mod tests {
         assert_eq!(store.get("acct-1", SecretKind::SessionToken), None);
         // Delete is idempotent.
         store.delete("acct-1", SecretKind::SessionToken);
+    }
+
+    /// EXP-792: the pre-rewrite `accounts/<id>/mcp/` tree goes on the first
+    /// purge, the account's live secrets stay, and a second pass is a no-op
+    /// (a missing dir is the steady state).
+    #[test]
+    fn purge_retired_mcp_removes_the_dir_once_and_keeps_the_live_secrets() {
+        let dir = TempDir::new("mcp-purge");
+        let store = TokenStore::file_only(dir.0.clone());
+        let mcp = dir.0.join("accounts").join("a").join("mcp");
+        fs::create_dir_all(mcp.join("x")).unwrap();
+        fs::write(mcp.join("x").join("oauth"), r#"{"access":"t"}"#).unwrap();
+        store.set("a", SecretKind::SessionToken, "tok").unwrap();
+
+        assert!(store.purge_retired_mcp("a"));
+        assert!(!mcp.exists());
+        assert_eq!(store.get("a", SecretKind::SessionToken).as_deref(), Some("tok"));
+        assert!(!store.purge_retired_mcp("a"));
+        // An account that never had the dir is a no-op too.
+        assert!(!store.purge_retired_mcp("never"));
     }
 
     #[test]

@@ -1,10 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest"
 import {
   clearPendingInviteFor,
+  loginErrorFromSearch,
   parsePendingInvite,
   readPendingInvite,
   rememberPendingInvite,
+  resolveLoginDestination,
 } from "@/lib/pending-invite"
+import { oauthErrorMessage } from "@/lib/deep-link"
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -29,6 +32,51 @@ describe(`parsePendingInvite`, () => {
     expect(parsePendingInvite(`not json`, now)).toBeNull()
     expect(parsePendingInvite(raw({ token: ``, savedAt: now }), now)).toBeNull()
     expect(parsePendingInvite(raw({ token: `abc` }), now)).toBeNull()
+  })
+})
+
+describe(`resolveLoginDestination`, () => {
+  it(`lets an explicit destination win over a remembered invite`, () => {
+    expect(resolveLoginDestination(`/t/acme`, `abc`)).toBe(`/t/acme`)
+    expect(resolveLoginDestination(`/api/mobile-oauth-return`, `abc`)).toBe(
+      `/api/mobile-oauth-return`
+    )
+  })
+
+  it(`resumes the remembered invite when the redirect was lost`, () => {
+    expect(resolveLoginDestination(undefined, `abc`)).toBe(`/invite/abc`)
+    expect(resolveLoginDestination(``, `abc`)).toBe(`/invite/abc`)
+    expect(resolveLoginDestination(null, `abc`)).toBe(`/invite/abc`)
+  })
+
+  it(`falls back to the root with neither`, () => {
+    expect(resolveLoginDestination(undefined, null)).toBe(`/`)
+    expect(resolveLoginDestination(``, undefined)).toBe(`/`)
+  })
+})
+
+describe(`loginErrorFromSearch`, () => {
+  it(`keeps the native hop's error reason`, () => {
+    expect(loginErrorFromSearch({ error: `access_denied` })).toBe(`access_denied`)
+    expect(loginErrorFromSearch({ error: `state_mismatch`, state: `x` })).toBe(
+      `state_mismatch`
+    )
+  })
+
+  it(`folds Better Auth's state-less callback marker into the error`, () => {
+    expect(loginErrorFromSearch({ state: `state_not_found` })).toBe(`state_not_found`)
+    // Same copy as the state-cookie drop it is a variant of.
+    expect(oauthErrorMessage(loginErrorFromSearch({ state: `state_not_found` }))).toBe(
+      oauthErrorMessage(`state_mismatch`)
+    )
+  })
+
+  it(`ignores other or non-string values`, () => {
+    expect(loginErrorFromSearch({})).toBeUndefined()
+    expect(loginErrorFromSearch({ error: `` })).toBeUndefined()
+    expect(loginErrorFromSearch({ error: 42 })).toBeUndefined()
+    expect(loginErrorFromSearch({ state: `abc123` })).toBeUndefined()
+    expect(loginErrorFromSearch({ state: [`state_not_found`] })).toBeUndefined()
   })
 })
 

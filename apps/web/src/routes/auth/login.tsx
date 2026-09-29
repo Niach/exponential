@@ -12,6 +12,11 @@ import {
   SIGN_UP_NAME_COPY,
 } from "@/lib/auth/sign-up-copy"
 import { oauthErrorMessage } from "@/lib/deep-link"
+import {
+  loginErrorFromSearch,
+  readPendingInvite,
+  resolveLoginDestination,
+} from "@/lib/pending-invite"
 import { useState } from "react"
 import { conceptIcon, Button, Input, Label, AuthFormShell, PasswordInput } from "@exp/ui"
 import {
@@ -65,8 +70,9 @@ export const Route = createFileRoute(`/auth/login`)({
     ...search,
     redirect: sanitizeRedirectPath(search.redirect),
     // The native OAuth hop bounces failures here as `?error=<reason>`
-    // (REV2-53) — kept as a string so the page can render it.
-    error: typeof search.error === `string` ? search.error : undefined,
+    // (REV2-53), Better Auth a state-less callback as `?state=state_not_found`;
+    // both fold into one string the page renders.
+    error: loginErrorFromSearch(search),
   }),
 })
 
@@ -135,30 +141,37 @@ function LoginPage() {
     await authClient.getSession()
     // Full-page navigation wipes the in-memory first-touch capture —
     // forward any ref/utm params so the next load can claim them
-    // (cookieless attribution, EXP-362; no-op without params).
-    window.location.href = withFirstTouchParams(destination || `/`)
+    // (cookieless attribution, EXP-362; no-op without params). EXP-1132: with
+    // no destination the remembered invite is resumed here too, not only by
+    // onboarding, so an existing member whose OAuth return dropped the
+    // redirect still lands on the invite.
+    window.location.href = withFirstTouchParams(
+      resolveLoginDestination(destination, readPendingInvite())
+    )
   }, [destination])
 
   // EXP-1132: a visitor who is ALREADY signed in and was sent here with a
-  // destination (an invite link opened mid-OAuth-return, a stale tab) goes
-  // straight on instead of signing in a second time. Never for the MCP
-  // resume or the native handoff (those are ceremonies of their own), nor
-  // when the page is here to explain an error.
+  // destination (an invite link opened mid-OAuth-return, a stale tab) or
+  // with an invite remembered goes straight on instead of signing in a
+  // second time. Never for the MCP resume or the native handoff (those are
+  // ceremonies of their own), nor when the page is here to explain an error.
   React.useEffect(() => {
-    if (!redirectTo || oauthResumeUrl || nativeHandoff || errorParam) return
+    if (oauthResumeUrl || nativeHandoff || errorParam) return
+    const target = resolveLoginDestination(destination, readPendingInvite())
+    if (target === `/`) return
     let cancelled = false
     void authClient
       .getSession()
       .then(({ data }) => {
-        if (!cancelled && data?.user && destination) {
-          window.location.replace(withFirstTouchParams(destination))
+        if (!cancelled && data?.user) {
+          window.location.replace(withFirstTouchParams(target))
         }
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [redirectTo, oauthResumeUrl, nativeHandoff, errorParam, destination])
+  }, [oauthResumeUrl, nativeHandoff, errorParam, destination])
 
   // Passkey conditional UI (EXP-857): browsers that support it list the
   // user's passkeys in the email field's autofill, so a returning user

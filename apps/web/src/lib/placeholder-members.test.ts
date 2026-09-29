@@ -258,4 +258,33 @@ describe(`team-delete placeholder purge (EXP-1132)`, () => {
     expect(execute).toHaveBeenCalledTimes(2)
     expect(deleted).toEqual([users])
   })
+
+  it(`keeps a placeholder a provider login already linked an accounts row to`, async () => {
+    // Someone signed in through the placeholder's mailbox but the claim hook
+    // never flipped placeholder_at: the row IS a login now, so the orphan
+    // predicate must refuse it alongside the attribution guards.
+    const { tx, execute } = fakeTx()
+    execute.mockResolvedValueOnce({ rows: [{ orphaned: false }] } as never)
+    ;(tx as { delete: unknown }).delete = vi.fn()
+
+    await deletePlaceholdersIfOrphaned(tx, [`ph-linked`])
+
+    const calls = execute.mock.calls as unknown[][]
+    const predicate = sqlText(calls[0]?.[0]).replace(/\s+/g, ` `)
+    expect(predicate).toContain(`u.placeholder_at IS NOT NULL`)
+    expect(predicate).toContain(
+      `NOT EXISTS (SELECT 1 FROM accounts acc WHERE acc.user_id = u.id)`
+    )
+    for (const guard of [
+      `team_members tm WHERE tm.user_id = u.id`,
+      `issues i WHERE i.assignee_id = u.id OR i.creator_id = u.id`,
+      `comments c WHERE c.author_id = u.id`,
+      `issue_events e WHERE e.actor_user_id = u.id`,
+      `attachments a WHERE a.uploader_id = u.id`,
+      `workflows w WHERE w.creator_id = u.id`,
+    ]) {
+      expect(predicate).toContain(`NOT EXISTS (SELECT 1 FROM ${guard})`)
+    }
+    expect((tx as { delete: ReturnType<typeof vi.fn> }).delete).not.toHaveBeenCalled()
+  })
 })

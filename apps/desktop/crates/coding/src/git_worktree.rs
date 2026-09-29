@@ -1524,10 +1524,17 @@ fatal: couldn't find remote ref nope\n";
         fs::create_dir_all(&repo).unwrap();
         git(&repo, &["init", "--quiet"]);
         let gitdir = repo.join(".git");
+        // Stamp the mtimes by hand: Linux stamps files off the kernel's
+        // coarse clock, which lags `SystemTime::now()` by up to a jiffy, so a
+        // lock written right after `op_started` can read as older than it
+        // and the sweep would skip it (CI red from PR #873 to #883).
+        let op_started = std::time::SystemTime::now();
+        let stamp = |path: &Path, at: std::time::SystemTime| {
+            fs::File::options().write(true).open(path).unwrap().set_modified(at).unwrap();
+        };
         let old_lock = gitdir.join("refs/heads/old.lock");
         fs::write(&old_lock, "").unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(1_100));
-        let op_started = std::time::SystemTime::now() + std::time::Duration::from_secs(1);
+        stamp(&old_lock, op_started - std::time::Duration::from_secs(5));
         fs::create_dir_all(gitdir.join("refs/remotes/origin")).unwrap();
         let created = [
             gitdir.join("refs/remotes/origin/main.lock"),
@@ -1536,6 +1543,7 @@ fatal: couldn't find remote ref nope\n";
         ];
         for path in &created {
             fs::write(path, "").unwrap();
+            stamp(path, op_started);
         }
         let tmp_pack = gitdir.join("objects/pack/tmp_pack_abc123");
         fs::write(&tmp_pack, "").unwrap();

@@ -1,4 +1,3 @@
-- Issues : « Start coding » est toujours disponible sur une issue ; s'il manque quelque chose, il ouvre une checklist « Ready to code? » avec un correctif pour chaque étape, y compris le choix du dépôt du board
-- Issues : une sous-issue indique son issue parente au-dessus du titre, les sous-issues affichent leur progression avec un anneau et un + pour en ajouter une, et les relations se regroupent en sections repliables
-- Connexion : l'inscription avec un code par e-mail vous demande votre nom
-- Runs de l'agent : le badge de stack, de lot et de runs s'affiche sur chaque vue d'un travail
+- Agents : chaque connexion d'agent sous une machine propose « Sign out » dans son menu, et la connexion propre à la machine peut aussi être supprimée
+- Runs de l'agent : les runs de chat reçoivent de nouveau leur nom de Claude
+- Serveurs MCP : connectez votre propre compte à un serveur MCP de l'équipe une seule fois sur le web, et chaque run que vous lancez sur n'importe quelle machine l'utilise

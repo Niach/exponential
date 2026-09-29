@@ -1,0 +1,1 @@
+Every agent login under a machine offers Sign out in its menu, and the machine's own login can be removed too. Chat runs get their name from Claude again. Connect your own account to a team MCP server once on the web, and every run you start on any machine uses it.
