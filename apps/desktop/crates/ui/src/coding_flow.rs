@@ -48,7 +48,8 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::InputState,
-    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    notification::Notification,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 use terminal::TerminalManager;
@@ -1461,6 +1462,9 @@ pub fn spawn_into_window(
     let started_reason_for_nav = started_reason.clone();
     let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
     let run_cleanup = prepared.run_cleanup.clone();
+    // EXP-792: the team MCP servers this run starts WITHOUT, shown once the
+    // engine is up (a launch that fails shows its own error instead).
+    let mcp_warnings = std::mem::take(&mut prepared.mcp_warnings);
 
     let Some(trpc) = queries::trpc_client(cx) else {
         return Err("Not signed in.".to_string());
@@ -1577,6 +1581,15 @@ pub fn spawn_into_window(
     drop(launch_hold);
     if should_open_session(started_reason_for_nav.as_deref()) {
         crate::session_screen::open_session(&session_id, window, cx);
+    }
+    // EXP-792: a picked server the run starts without is not a silent
+    // degradation: ONE toast names every skipped server (the launcher's
+    // resolver already logged each line).
+    if !mcp_warnings.is_empty() {
+        window.push_notification(
+            Notification::warning(SharedString::from(mcp_warnings.join("\n"))),
+            cx,
+        );
     }
     Ok(())
 }

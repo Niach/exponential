@@ -520,4 +520,34 @@ export const mcpServersRouter = router({
         serverIds: input.serverIds,
       })
     }),
+
+  // Compat shim (cleanup round 29): desktop/CLI <= 0.14.56 resolve a start's
+  // `mcp_server_ids` against this QUERY (no input; the per-device secret
+  // store held the values) and turn a NOT_FOUND into a launch blocker that
+  // refuses the start. Answer them with the plain registry rows of every
+  // team the caller belongs to, in the old decoder's field set (non-secret
+  // columns only; a credential never rides here). Delete once
+  // CLIENT_MIN_VERSION_DESKTOP and _CLI pass 0.14.56.
+  listForDevice: authedProcedure.query(async ({ ctx }) => {
+    const teamIds = await getUserTeamIds(ctx.session.user.id)
+    if (teamIds.length === 0) return []
+    return ctx.db
+      .select({
+        id: mcpServers.id,
+        teamId: mcpServers.teamId,
+        name: mcpServers.name,
+        transport: mcpServers.transport,
+        url: mcpServers.url,
+        headerNames: mcpServers.headerNames,
+        command: mcpServers.command,
+        args: mcpServers.args,
+        envNames: mcpServers.envNames,
+        scopes: mcpServers.scopes,
+        auth: mcpServers.auth,
+        enabledByDefault: mcpServers.enabledByDefault,
+      })
+      .from(mcpServers)
+      .where(inArray(mcpServers.teamId, teamIds))
+      .orderBy(asc(mcpServers.name))
+  }),
 })

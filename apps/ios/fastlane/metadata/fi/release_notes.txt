@@ -1,4 +1,3 @@
-- Issuet: ”Start coding” on aina käytettävissä issuessa; kun jotain puuttuu, se avaa ”Ready to code?” -tarkistuslistan, jossa on korjaus jokaiseen vaiheeseen, myös boardin repositorion valintaan
-- Issuet: sub-issue näyttää yläissuensa otsikon yläpuolella, sub-issuet näyttävät edistymisensä renkaalla ja uuden lisäämiseen tarkoitetulla +-painikkeella, ja suhteet ryhmitellään kokoontaitettaviin osioihin
-- Kirjautuminen: sähköpostikoodilla rekisteröityessä sinulta kysytään nimesi
-- Agenttiajot: stackin, erän ja ajojen merkki näkyy työn jokaisessa näkymässä
+- Agentit: jokainen koneen alla oleva agenttikirjautuminen tarjoaa valikossaan ”Sign out” -toiminnon, ja myös koneen oman kirjautumisen voi poistaa
+- Agenttiajot: Claude nimeää chat-ajot taas
+- MCP-palvelimet: yhdistä oma tilisi tiimin MCP-palvelimeen kerran verkossa, niin jokainen millä tahansa koneella käynnistämäsi ajo käyttää sitä

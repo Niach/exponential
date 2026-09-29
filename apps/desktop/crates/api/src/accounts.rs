@@ -140,6 +140,9 @@ impl AuthStore {
             if let Some(token) = token_store.get(&account.id, SecretKind::SessionToken) {
                 tokens.insert(account.id.clone(), token);
             }
+            // EXP-792: an upgraded install drops the retired device-held MCP
+            // credentials the first time it boots with this account.
+            token_store.purge_retired_mcp(&account.id);
         }
 
         let (events_tx, events_rx) = flume::unbounded();
@@ -240,6 +243,9 @@ impl AuthStore {
 
         self.token_store
             .set(&account.id, SecretKind::SessionToken, token)?;
+        // EXP-792: same as the load path, for an account that was signed
+        // out before the upgrade and comes back now.
+        self.token_store.purge_retired_mcp(&account.id);
 
         {
             let mut state = self.state.write().unwrap();
@@ -407,6 +413,39 @@ mod tests {
         let hostile = account_id_for("http://localhost:5173", "../../etc");
         assert!(!hostile.contains('/'));
         assert_eq!(hostile, "localhost-5173--..-..-etc");
+    }
+
+    /// EXP-792: the retired device-held MCP credentials go the first time
+    /// the account is activated after the upgrade, at load (every host's
+    /// startup) and at sign-in, not only when the account is removed.
+    #[test]
+    fn activating_an_account_purges_the_retired_mcp_credentials() {
+        let dir = TempDir::new("mcp-purge");
+        let seed = |id: &str| {
+            let mcp = dir.0.join("accounts").join(id).join("mcp");
+            fs::create_dir_all(mcp.join("x")).unwrap();
+            fs::write(mcp.join("x").join("oauth"), r#"{"access":"t"}"#).unwrap();
+            mcp
+        };
+        let store = test_store(&dir);
+        let account = store
+            .sign_in("app.exponential.at", "tok-A", &user())
+            .unwrap();
+
+        // Load: every remembered account, its live token untouched.
+        let mcp = seed(&account.id);
+        drop(store);
+        let store = test_store(&dir);
+        assert!(!mcp.exists());
+        assert_eq!(store.token(&account.id).as_deref(), Some("tok-A"));
+
+        // Sign-in: the same purge.
+        let mcp = seed(&account.id);
+        store
+            .sign_in("app.exponential.at", "tok-B", &user())
+            .unwrap();
+        assert!(!mcp.exists());
+        assert_eq!(store.token(&account.id).as_deref(), Some("tok-B"));
     }
 
     #[test]

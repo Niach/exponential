@@ -769,6 +769,25 @@ export const steerRouter = router({
         return ids
       }
 
+      // Compat shim (cleanup round 29): desktop/CLI <= 0.14.56 advertise the
+      // retired `mcp` cap and resolve a frame's `mcpServerIds` on the DEVICE
+      // (its own secret store + the dropped `mcpServers.listForDevice`); an
+      // id it cannot resolve refuses the whole start, and every composer
+      // preselects the enabledByDefault servers. Such a machine gets the
+      // frame WITHOUT the picks (logged, never refused) and runs plain.
+      // Delete once CLIENT_MIN_VERSION_DESKTOP and _CLI pass 0.14.56.
+      const RETIRED_MCP_CAP = `mcp`
+      const mcpServerIdsForDevice = (
+        device: TargetDevice,
+        ids: string[] | undefined
+      ): string[] | undefined => {
+        if (!ids || !device.caps.includes(RETIRED_MCP_CAP)) return ids
+        console.warn(
+          `[steer] dropping ${ids.length} MCP server pick(s): ${device.label || input.deviceId} runs a pre-0.14.57 build that resolves them on-device`
+        )
+        return undefined
+      }
+
       const targetDeviceColumns = {
         agents: devicesTable.agents,
         unauthedAgents: devicesTable.unauthedAgents,
@@ -1347,7 +1366,7 @@ export const steerRouter = router({
           subagentModel: input.subagentModel,
           ultracode: input.ultracode,
           planMode: input.planMode,
-          mcpServerIds,
+          mcpServerIds: mcpServerIdsForDevice(device, mcpServerIds),
           account: input.account,
         })
         if (!result.ok) {
@@ -1468,7 +1487,7 @@ export const steerRouter = router({
         ultracode: input.ultracode,
         planMode: input.planMode,
         resume: input.resume,
-        mcpServerIds,
+        mcpServerIds: mcpServerIdsForDevice(device, mcpServerIds),
         account: input.account,
       }
 

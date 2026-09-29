@@ -32,7 +32,8 @@ function selectChain(): Promise<unknown[]> & Record<string, () => unknown> {
   return p
 }
 
-const deletes: { table: unknown }[] = []
+// Deletes record the drizzle table object plus tx placement.
+const deletes: { table: unknown; inTx: boolean }[] = []
 const updates: { table: unknown; values: Record<string, unknown> }[] = []
 // Raw-SQL calls (the REV-23 advisory lock), with tx placement.
 const executes: { query: unknown; inTx: boolean }[] = []
@@ -58,7 +59,7 @@ const fakeDb: FakeDb = {
   select: () => selectChain(),
   delete: (table: unknown) => ({
     where: () => {
-      deletes.push({ table })
+      deletes.push({ table, inTx })
       return Promise.resolve()
     },
   }),
@@ -120,6 +121,8 @@ import {
   devices,
   issues,
   issueSubscribers,
+  mcpCredentials,
+  mcpOauthFlows,
   pins,
   teamMembers,
 } from "@/db/schema"
@@ -167,12 +170,16 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     const result = await callerFor(`user-a`).remove({ memberId: MEMBER_ID })
 
     expect(result).toEqual({ ok: true })
-    expect(deletes).toHaveLength(3)
+    expect(deletes).toHaveLength(5)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
     // EXP-778: and their pins in that team — the per-user pins shape would
     // otherwise keep streaming target-less rows to the ex-member.
     expect(deletes[2]!.table).toBe(pins)
+    // EXP-792 retention: and their server-held MCP credentials + pending
+    // sign-ins for this team.
+    expect(deletes[3]!.table).toBe(mcpCredentials)
+    expect(deletes[4]!.table).toBe(mcpOauthFlows)
     // REV2-28: their assignments in that team are cleared too.
     // EXP-481: and their device shares with this team — the synced devices
     // shape scopes on shared_team_ids single-table and cannot re-check
@@ -207,10 +214,12 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     await callerFor(`user-b`).remove({ memberId: MEMBER_ID })
 
     expect(assertTeamMember).not.toHaveBeenCalled()
-    expect(deletes).toHaveLength(3)
+    expect(deletes).toHaveLength(5)
     expect(deletes[0]!.table).toBe(teamMembers)
     expect(deletes[1]!.table).toBe(issueSubscribers)
     expect(deletes[2]!.table).toBe(pins)
+    expect(deletes[3]!.table).toBe(mcpCredentials)
+    expect(deletes[4]!.table).toBe(mcpOauthFlows)
     expect(updates).toEqual([
       { table: issues, values: { assigneeId: null } },
       {
@@ -218,6 +227,28 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
         values: { sharedTeamIds: expect.anything(), updatedAt: expect.any(Date) },
       },
     ])
+  })
+
+  // EXP-792 retention: the server holds each member's MCP tokens/secrets per
+  // team; a membership end must not leave them (or a pending sign-in that
+  // would still land one) behind. Same transaction as the membership delete.
+  it(`leaving the team forgets the member's MCP credentials`, async () => {
+    selectQueue.push([targetRow(`member`)], [targetRow(`member`)])
+
+    await callerFor(`user-b`).remove({ memberId: MEMBER_ID })
+
+    const credentialDeletes = deletes.filter(
+      (d) => d.table === mcpCredentials || d.table === mcpOauthFlows
+    )
+    expect(credentialDeletes.map((d) => d.table)).toEqual([
+      mcpCredentials,
+      mcpOauthFlows,
+    ])
+    // Inside the write transaction, after the membership row went.
+    expect(credentialDeletes.every((d) => d.inTx)).toBe(true)
+    expect(deletes.findIndex((d) => d.table === mcpCredentials)).toBeGreaterThan(
+      deletes.findIndex((d) => d.table === teamMembers)
+    )
   })
 
   it(`still refuses to remove the last owner (guard survives the transaction refactor)`, async () => {

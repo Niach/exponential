@@ -68,3 +68,35 @@ export function clearPendingInvite(): void {
 export function clearPendingInviteFor(token: string): void {
   if (readPendingInvite() === token) clearPendingInvite()
 }
+
+/**
+ * Pure: where a completed login goes next. An explicit destination (the
+ * `redirect` param or the MCP OAuth resume) always wins; without one the
+ * remembered invite is resumed, so an EXISTING member whose OAuth return lost
+ * the redirect (a state-cookie drop lands on `/auth/login?error=...`, no
+ * `redirect`) still reaches the invite instead of their old team while the
+ * invite idles in storage for a day.
+ */
+export function resolveLoginDestination(
+  destination: string | null | undefined,
+  pendingInvite: string | null | undefined
+): string {
+  if (destination) return destination
+  if (pendingInvite) return `/invite/${pendingInvite}`
+  return `/`
+}
+
+/**
+ * Pure: the login page's `error` search value. The native OAuth hop bounces
+ * failures here as `?error=<reason>` (REV2-53); Better Auth itself sends a
+ * callback that carries NO `state` query to `/auth/login?state=state_not_found`
+ * (a `state` param, not `error`), which used to render a blank form. Fold that
+ * marker into the same error slug the copy map explains.
+ */
+export const STATE_NOT_FOUND = `state_not_found`
+
+export function loginErrorFromSearch(search: Record<string, unknown>): string | undefined {
+  if (typeof search.error === `string` && search.error.length > 0) return search.error
+  if (search.state === STATE_NOT_FOUND) return STATE_NOT_FOUND
+  return undefined
+}

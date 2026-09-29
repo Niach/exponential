@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-29-release-train-evening`,
+    date: `2026-09-29`,
+    title: `Release train 2026-09-29, evening`,
+    summary: `Team MCP servers with one connect per member, invite links that survive the sign-in detour, chat runs named by Claude again, agent logins that sign out, and a desktop app whose Files and Source Control follow the active repository.`,
+    body: `- **MCP servers**: one list per team. Every member connects their own account once (Connect for OAuth, Set key for an API key) and the server keeps the credential encrypted, so every run on every machine, remote starts and automations use it; unconnected servers are skipped, never block a start. Owners add a server from a catalog or a pasted URL, the technical fields sit behind Advanced, and the per-device server lists are gone.
+- **Invites**: an invite link opened before signing in survives the detour: a cancelled or refused provider sign-in returns to the login page with the invite, a visitor who is already signed in goes straight on, and the invite accepts itself once you are back. Deleting a team also removes the invited placeholders it leaves behind.
+- **Agent accounts**: every agent login under a machine offers Sign out in its "..." menu on every client, and the machine's own login can be removed too.
+- **Chat runs**: a chat run gets its name from Claude again.
+- **Desktop app**: Files and Source Control follow the repository you pick, the + shell opens in that repository, the edited-files card rows run edge to edge with a cleaner diff box, and Linux windows paint opaque instead of showing unblurred transparency on Wayland.`,
+  },
+  {
     id: `2026-09-29-account-sign-out`,
     date: `2026-09-29`,
     title: `Sign agent accounts out`,

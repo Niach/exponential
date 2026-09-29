@@ -1,4 +1,3 @@
-- Issue-k: a „Start coding” mindig elérhető egy issue-n; ha valami hiányzik, megnyit egy „Ready to code?” ellenőrzőlistát, amely minden lépéshez javítást kínál, beleértve a board repositoryjának kiválasztását is
-- Issue-k: egy al-issue a cím fölött megnevezi a szülő issue-ját, az al-issue-k egy gyűrűvel mutatják a haladásukat, egy + gombbal újat adhatsz hozzá, a kapcsolatok pedig összecsukható szakaszokba rendeződnek
-- Bejelentkezés: az e-mailes kóddal történő regisztráció megkérdezi a neved
-- Ügynökfutások: a stack, batch és futások jelvénye egy munka minden nézetén megjelenik
+- Ügynökök: egy gép alatti minden ügynökbejelentkezés menüjében ott a „Sign out”, és a gép saját bejelentkezése is eltávolítható
+- Ügynökfutások: a chatfutások nevét ismét a Claude adja
+- MCP-szerverek: kapcsold össze egyszer a weben a saját fiókodat a csapat egyik MCP-szerverével, és minden futás, amelyet bármelyik gépen indítasz, azt használja

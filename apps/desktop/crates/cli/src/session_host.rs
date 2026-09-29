@@ -245,6 +245,10 @@ pub fn launch(
     let repository_id = prepared.repository_id.clone();
     let clone = prepared.clone.clone();
     let session_agent = acp_session_agent(&prepared);
+    // EXP-792: the team MCP servers this run starts WITHOUT. The daemon has
+    // no toast, so the run's log names them once the engine is up (the
+    // desktop shows the same lines as one notification).
+    let mcp_warnings = std::mem::take(&mut prepared.mcp_warnings);
     // EXP-444/EXP-432: a start whose requester is not this daemon's account
     // runs on a shared host — snapshot it before the engine takes ownership.
     let foreign_host = prepared
@@ -309,6 +313,9 @@ pub fn launch(
             coding::end_session_best_effort(&env.ctx.trpc, &session_id)
         })
     })?;
+    for warning in &mcp_warnings {
+        log::warn!("coding session {session_id}: {warning}");
+    }
 
     Ok(RunningSession {
         session_id,

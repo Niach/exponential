@@ -1,4 +1,3 @@
-- Issue: „Start coding” jest zawsze dostępne w issue; gdy czegoś brakuje, otwiera listę kontrolną „Ready to code?” z poprawką dla każdego kroku, w tym z wyborem repozytorium boardu
-- Issue: sub-issue pokazuje nad tytułem swoje nadrzędne issue, sub-issue pokazują postęp pierścieniem i przyciskiem + do dodania kolejnego, a relacje grupują się w zwijane sekcje
-- Logowanie: rejestracja kodem z e-maila pyta o Twoje imię
-- Przebiegi agenta: plakietka stacku, batcha i przebiegów widnieje w każdym widoku danej pracy
+- Agenci: każde logowanie agenta pod maszyną ma w menu „Sign out”, a usunąć można też własne logowanie maszyny
+- Przebiegi agenta: przebiegi czatu znów otrzymują nazwę od Claude
+- Serwery MCP: połącz raz w wersji webowej swoje konto z zespołowym serwerem MCP, a każdy przebieg uruchomiony na dowolnej maszynie będzie z niego korzystał

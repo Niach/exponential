@@ -1,4 +1,3 @@
-- Issues: «Start coding» está sempre disponível num issue; quando falta algo, abre uma checklist «Ready to code?» com uma correção para cada passo, incluindo a escolha do repositório do board
-- Issues: um sub-issue indica o issue principal acima do título, os sub-issues mostram o seu progresso com um anel e um + para adicionar outro, e as relações agrupam-se em secções recolhíveis
-- Início de sessão: o registo com um código por email pede o seu nome
-- Execuções do agente: o selo de stack, lote e execuções aparece em todas as vistas de um trabalho
+- Agentes: cada sessão de agente numa máquina oferece «Sign out» no seu menu, e a sessão da própria máquina também pode ser removida
+- Execuções do agente: as execuções de chat voltam a receber o nome do Claude
+- Servidores MCP: ligue a sua conta a um servidor MCP da equipa uma única vez na web, e todas as execuções que iniciar em qualquer máquina passam a usá-la

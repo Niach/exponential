@@ -1,4 +1,3 @@
-- Issues: „Start coding“ je pri issue vždy dostupné; keď niečo chýba, otvorí checklist „Ready to code?“ s opravou pre každý krok vrátane výberu repozitára boardu
-- Issues: sub-issue nad názvom uvádza svoje nadradené issue, sub-issues ukazujú svoj postup krúžkom a tlačidlom + na pridanie ďalšieho a vzťahy sa zoskupujú do zbaliteľných sekcií
-- Prihlásenie: registrácia pomocou e-mailového kódu sa opýta na vaše meno
-- Behy agenta: odznak stacku, dávky a behov sa zobrazuje v každom pohľade na rozpracovanú prácu
+- Agenti: každé prihlásenie agenta pod strojom ponúka v ponuke „Sign out“ a odstrániť sa dá aj vlastné prihlásenie stroja
+- Behy agenta: chatové behy opäť dostávajú názov od Claude
+- MCP servery: raz na webe pripojte svoj účet k tímovému MCP serveru a použije ho každý beh, ktorý spustíte na akomkoľvek stroji

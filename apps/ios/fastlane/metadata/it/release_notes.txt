@@ -1,4 +1,3 @@
-- Issue: «Start coding» è sempre disponibile su un issue; quando manca qualcosa, apre una checklist «Ready to code?» con una correzione per ogni passaggio, inclusa la scelta del repository del board
-- Issue: un sub-issue indica il suo issue padre sopra il titolo, i sub-issue mostrano il loro avanzamento con un anello e un + per aggiungerne uno, e le relazioni si raggruppano in sezioni comprimibili
-- Accesso: la registrazione con un codice via email chiede il tuo nome
-- Esecuzioni dell'agente: il badge di stack, batch ed esecuzioni appare in ogni vista di un lavoro
+- Agenti: ogni accesso di un agente sotto una macchina offre «Sign out» nel suo menu, e si può rimuovere anche l'accesso della macchina stessa
+- Esecuzioni dell'agente: le esecuzioni di chat ricevono di nuovo il nome da Claude
+- Server MCP: collega il tuo account a un server MCP del team una sola volta dal web, e ogni esecuzione che avvii su qualsiasi macchina lo userà

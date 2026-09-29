@@ -1,4 +1,3 @@
-- Issuei: „Start coding“ je uvijek dostupan na issueu; kad nešto nedostaje, otvara popis „Ready to code?“ s popravkom za svaki korak, uključujući odabir repozitorija boarda
-- Issuei: sub-issue navodi svoj nadređeni issue iznad naslova, sub-issuei prikazuju svoj napredak prstenom i znakom + za dodavanje novog, a veze se grupiraju u sklopive odjeljke
-- Prijava: registracija kodom iz e-pošte traži vaše ime
-- Izvođenja agenta: oznaka za stack, batch i izvođenja prikazuje se u svakom prikazu posla
+- Agenti: svaka prijava agenta ispod stroja u svom izborniku nudi „Sign out“, a može se ukloniti i vlastita prijava stroja
+- Izvođenja agenta: chat izvođenjima naziv ponovno daje Claude
+- MCP poslužitelji: jednom na webu povežite svoj račun s timskim MCP poslužiteljem i koristit će ga svako izvođenje koje pokrenete na bilo kojem stroju

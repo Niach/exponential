@@ -660,6 +660,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         base_branch: None,
         base_ref: Some("origin/master".to_string()),
         run_cleanup: None,
+        mcp_warnings: Vec::new(),
         spawn: terminal::pty::SpawnSpec::new("claude"),
         acp: coding::AcpLaunch {
             prompt: None,
