@@ -1,3 +1,4 @@
+import ExpCore
 import Foundation
 
 @Observable
@@ -12,6 +13,9 @@ final class DeepLinkBus: @unchecked Sendable {
     // EXP-92 — where the account is known from the URL-host match, not a
     // userId). Wins over the userId mapping when set.
     var pendingIssueAccountId: String?
+    // EXP-933: the Work face the issue link opens on — `.results` for an
+    // agent's targeted message (its report), `.issue` otherwise.
+    var pendingIssueFace: WorkFaceKind = .issue
     var pendingInviteToken: String?
     // A support_reply push tap (EXP-180): the ticket to open in the Support
     // thread view. Carries the recipient's server user id like issue pushes so
@@ -38,15 +42,17 @@ final class DeepLinkBus: @unchecked Sendable {
     // link and would re-open itself in a loop.
     var pendingExternalUrl: URL?
 
-    func navigateToIssue(_ issueId: String, userId: String? = nil) {
+    func navigateToIssue(_ issueId: String, userId: String? = nil, face: WorkFaceKind = .issue) {
         pendingIssueUserId = userId
         pendingIssueAccountId = nil
+        pendingIssueFace = face
         pendingIssueId = issueId
     }
 
     func navigateToIssue(_ issueId: String, accountId: String) {
         pendingIssueUserId = nil
         pendingIssueAccountId = accountId
+        pendingIssueFace = .issue
         pendingIssueId = issueId
     }
 
@@ -83,6 +89,7 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingIssueId = nil
         pendingIssueUserId = nil
         pendingIssueAccountId = nil
+        pendingIssueFace = .issue
         return id
     }
 

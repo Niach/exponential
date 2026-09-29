@@ -143,4 +143,100 @@ final class SessionResultsTests: XCTestCase {
         XCTAssertEqual(sessionResultTileHeightFitting(entries, availableWidth: 0), 320)
         XCTAssertEqual(sessionResultTileHeightFitting([], availableWidth: 358), 320)
     }
+
+    // MARK: EXP-933 — the report fixture (`session-results.json`), same case
+    // names ×4.
+
+    private func fixture() throws -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/session-results.json")
+        let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+        return try XCTUnwrap(json as? [String: Any])
+    }
+
+    /// The fixture's `raw` as the entity's stored TEXT: a string stays as is,
+    /// JSON null is nil, anything else is re-serialized.
+    private func rawString(_ value: Any?) throws -> String? {
+        guard let value, !(value is NSNull) else { return nil }
+        if let string = value as? String { return string }
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
+        return String(data: data, encoding: .utf8)
+    }
+
+    func testGroupsPicturesAndTextPerTheFixture() throws {
+        let cases = try XCTUnwrap(try fixture()["groups"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]])
+            let groups = parseSessionResultGroups(try rawString(testCase["raw"]))
+            XCTAssertEqual(groups.map(\.topic), expected.map { $0["topic"] as? String }, name)
+            XCTAssertEqual(
+                groups.map(\.text), expected.map { $0["text"] as? String }, name
+            )
+            XCTAssertEqual(
+                groups.map { $0.entries.map { "\($0.label)|\($0.attachmentId)" } },
+                expected.map { group in
+                    (group["entries"] as? [[String: Any]] ?? []).map {
+                        "\($0["label"] as? String ?? "")|\($0["attachmentId"] as? String ?? "")"
+                    }
+                },
+                name
+            )
+            XCTAssertEqual(hasSessionResults(try rawString(testCase["raw"])), !expected.isEmpty, name)
+        }
+    }
+
+    func testTextEntriesDoNotCountTowardThe60PictureCap() {
+        var rows: [String] = [#"{"topic":"Summary","text":"Report"}"#]
+        for index in 0..<70 {
+            rows.append(#"{"topic":"t","label":"l\#(index)","attachmentId":"a\#(index)"}"#)
+        }
+        rows.append(#"{"topic":"late","text":"after the cap"}"#)
+        let groups = parseSessionResultGroups("[\(rows.joined(separator: ","))]")
+        XCTAssertEqual(groups.map(\.topic), ["Summary", "t", "late"])
+        XCTAssertEqual(sessionResultPictures(groups).count, maxSessionResults)
+        XCTAssertEqual(groups.last?.text, "after the cap")
+    }
+
+    func testPicksTheIssueResultsRunPerTheFixture() throws {
+        let block = try XCTUnwrap(try fixture()["issueResultsRun"] as? [String: Any])
+        let now = try XCTUnwrap(WireTimestamps.parse(try XCTUnwrap(block["now"] as? String)))
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let rows = try XCTUnwrap(testCase["rows"] as? [[String: Any]]).map { row in
+                CodingSessionEntity(
+                    id: row["id"] as? String ?? "",
+                    issueId: row["issueId"] as? String,
+                    teamId: "team-1",
+                    userId: row["userId"] as? String ?? "",
+                    deviceLabel: nil,
+                    status: row["status"] as? String ?? "ended",
+                    results: try rawString(row["results"]),
+                    startedAt: row["startedAt"] as? String ?? "",
+                    endedAt: nil,
+                    createdAt: row["startedAt"] as? String ?? "",
+                    updatedAt: row["updatedAt"] as? String ?? ""
+                )
+            }
+            XCTAssertEqual(
+                WorkFaces.issueResultsRun(
+                    rows,
+                    issueId: try XCTUnwrap(testCase["issueId"] as? String),
+                    boundId: testCase["boundId"] as? String,
+                    me: testCase["me"] as? String,
+                    now: now
+                )?.id,
+                testCase["expected"] as? String,
+                name
+            )
+        }
+    }
 }

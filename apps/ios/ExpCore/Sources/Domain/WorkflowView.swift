@@ -668,7 +668,7 @@ public extension WorkflowView {
                     hasIssue: false,
                     hasRun: true,
                     hasChanges: false,
-                    hasResults: !parseSessionResults(row.results).isEmpty
+                    hasResults: hasSessionResults(row.results)
                 )
             )
         }
@@ -681,7 +681,11 @@ public extension WorkflowView {
                 hasIssue: true,
                 hasRun: target != nil,
                 hasChanges: issuePushed,
-                hasResults: !parseSessionResults(target?.results).isEmpty
+                // EXP-933: an issue's Results are every member's
+                // (`issueResultsRun`), like the Work screen reads them.
+                hasResults: WorkFaces.issueResultsRun(
+                    sessions, issueId: issueId, boundId: nil, me: me, now: now
+                ) != nil
             )
         )
     }

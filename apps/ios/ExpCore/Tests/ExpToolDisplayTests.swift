@@ -52,6 +52,10 @@ final class ExpToolDisplayTests: XCTestCase {
         XCTAssertEqual(list?.result, .list)
 
         XCTAssertEqual(ExpToolDisplay.resolve(toolName: "exponential_pr_open")?.result, .pr)
+        // EXP-933: the run's report offers `Open Results`.
+        XCTAssertEqual(
+            ExpToolDisplay.resolve(toolName: "exponential_sessions_results")?.result, .results
+        )
         XCTAssertEqual(
             ExpToolDisplay.resolve(toolName: "exponential_teams_update")?.result,
             ExpToolResultKind.none

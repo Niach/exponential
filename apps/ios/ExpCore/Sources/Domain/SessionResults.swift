@@ -71,11 +71,9 @@ private func resultDimension(_ value: Any?) -> Int? {
     return Int(double)
 }
 
-/// Tolerant reader for the jsonb column as the entity stores it: raw JSON
-/// text. nil, blank and unparseable all read as "no results", and a malformed
-/// entry is DROPPED rather than rendered as a broken tile. The list is capped
-/// exactly like the writer caps it.
-public func parseSessionResults(_ raw: String?) -> [SessionResultEntry] {
+/// The blob's object rows: nil, blank, unparseable and non-array all read as
+/// none, and a non-object row is dropped.
+private func resultRecords(_ raw: String?) -> [[String: Any]] {
     guard let raw else { return [] }
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty,
@@ -83,23 +81,35 @@ public func parseSessionResults(_ raw: String?) -> [SessionResultEntry] {
           let object = try? JSONSerialization.jsonObject(with: data),
           let rows = object as? [Any]
     else { return [] }
+    return rows.compactMap { $0 as? [String: Any] }
+}
 
+/// A PICTURE entry needs topic + label + attachmentId (a text field on it is
+/// ignored: it is still a picture).
+private func resultPicture(_ record: [String: Any]) -> SessionResultEntry? {
+    guard let topic = resultText(record["topic"]),
+          let label = resultText(record["label"]),
+          let attachmentId = resultText(record["attachmentId"])
+    else { return nil }
+    return SessionResultEntry(
+        topic: topic,
+        label: label,
+        attachmentId: attachmentId,
+        width: resultDimension(record["width"]),
+        height: resultDimension(record["height"])
+    )
+}
+
+/// Tolerant reader for the jsonb column as the entity stores it: raw JSON
+/// text. nil, blank and unparseable all read as "no results", and a malformed
+/// entry is DROPPED rather than rendered as a broken tile. The list is capped
+/// exactly like the writer caps it. Pictures only (EXP-933 text entries are
+/// read by `parseSessionResultGroups`).
+public func parseSessionResults(_ raw: String?) -> [SessionResultEntry] {
     var entries: [SessionResultEntry] = []
-    for row in rows {
-        guard let record = row as? [String: Any],
-              let topic = resultText(record["topic"]),
-              let label = resultText(record["label"]),
-              let attachmentId = resultText(record["attachmentId"])
-        else { continue }
-        entries.append(
-            SessionResultEntry(
-                topic: topic,
-                label: label,
-                attachmentId: attachmentId,
-                width: resultDimension(record["width"]),
-                height: resultDimension(record["height"])
-            )
-        )
+    for record in resultRecords(raw) {
+        guard let entry = resultPicture(record) else { continue }
+        entries.append(entry)
         if entries.count >= maxSessionResults { break }
     }
     return entries
@@ -107,10 +117,14 @@ public func parseSessionResults(_ raw: String?) -> [SessionResultEntry] {
 
 public struct SessionResultGroup: Equatable, Sendable, Identifiable {
     public let topic: String
+    /// EXP-933: the topic's GFM report text (rendered ABOVE its pictures), nil
+    /// without one.
+    public let text: String?
     public let entries: [SessionResultEntry]
 
-    public init(topic: String, entries: [SessionResultEntry]) {
+    public init(topic: String, text: String? = nil, entries: [SessionResultEntry]) {
         self.topic = topic
+        self.text = text
         self.entries = entries
     }
 
@@ -132,6 +146,51 @@ public func groupSessionResults(
         byTopic[entry.topic]?.append(entry)
     }
     return topics.map { SessionResultGroup(topic: $0, entries: byTopic[$0] ?? []) }
+}
+
+/// EXP-933: the Results face as a REPORT — pictures AND each topic's text
+/// (`{topic, label: null, attachmentId: null, text}`), grouped in FIRST-SEEN
+/// topic order whichever kind opened the topic. A topic's text is its FIRST
+/// non-blank text entry, trimmed; pictures keep the 60 cap. Fixture:
+/// `packages/domain-contract/fixtures/session-results.json` (×4).
+public func parseSessionResultGroups(_ raw: String?) -> [SessionResultGroup] {
+    var topics: [String] = []
+    var texts: [String: String] = [:]
+    var byTopic: [String: [SessionResultEntry]] = [:]
+    func open(_ topic: String) {
+        if byTopic[topic] == nil {
+            topics.append(topic)
+            byTopic[topic] = []
+        }
+    }
+    var pictures = 0
+    for record in resultRecords(raw) {
+        if let entry = resultPicture(record) {
+            if pictures >= maxSessionResults { continue }
+            pictures += 1
+            open(entry.topic)
+            byTopic[entry.topic]?.append(entry)
+            continue
+        }
+        guard let topic = resultText(record["topic"]),
+              let body = resultText(record["text"])
+        else { continue }
+        open(topic)
+        if texts[topic] == nil { texts[topic] = body }
+    }
+    return topics.map {
+        SessionResultGroup(topic: $0, text: texts[$0], entries: byTopic[$0] ?? [])
+    }
+}
+
+/// True when the blob has anything for the Results face to show.
+public func hasSessionResults(_ raw: String?) -> Bool {
+    !parseSessionResultGroups(raw).isEmpty
+}
+
+/// Every picture of a set of groups, in order — what the tile sizing reads.
+public func sessionResultPictures(_ groups: [SessionResultGroup]) -> [SessionResultEntry] {
+    groups.flatMap(\.entries)
 }
 
 /// The tile's width at a fixed height — the probed aspect, else 4:3 (a desktop

@@ -68,6 +68,7 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertEqual(WorkFaces.faceLabel(.run, multipleRuns: true), "Runs")
         XCTAssertEqual(WorkFaces.faceLabel(.changes), "Changes")
         XCTAssertEqual(WorkFaces.faceLabel(.results), "Results")
+        XCTAssertEqual(WorkFaces.openResultsLabel, "Open Results")
         XCTAssertEqual(WorkFaces.steerComposerPlaceholder, "Type / for commands")
         XCTAssertEqual(WorkFaces.planModeLabel, "Plan mode")
         XCTAssertEqual(WorkFaces.startCodingLabel, "Start coding")

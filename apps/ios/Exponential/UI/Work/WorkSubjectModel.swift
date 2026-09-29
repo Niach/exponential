@@ -72,6 +72,14 @@ final class WorkSubjectModel {
     private let db: DatabaseManager
 
     private var runRows: [CodingSessionEntity] = []
+    /// EXP-933: EVERY run on the issue, by any member — the pool
+    /// `WorkFaces.issueResultsRun` picks the issue's Results from, so a
+    /// teammate's report shows for everyone. `runRows` is its own-run slice.
+    private var allIssueRows: [CodingSessionEntity] = []
+    /// EXP-933: whether the issue's runs have been READ at least once — a
+    /// screen opened straight onto a run face (a Results push) waits for it
+    /// before falling back.
+    private(set) var runsResolved = false
     /// EXP-974: the shown run's whole resume component (every row reachable
     /// through `resumed_from_id` in either direction, forks included);
     /// `RunChain.chain` picks the one succession out of it.
@@ -103,6 +111,7 @@ final class WorkSubjectModel {
     /// from the run menu lands here), or the bound session itself.
     func session(id: String) -> CodingSessionEntity? {
         if let row = runRows.first(where: { $0.id == id }) { return row }
+        if let row = allIssueRows.first(where: { $0.id == id }) { return row }
         if let row = chainRows.first(where: { $0.id == id }) { return row }
         if boundSession?.id == id { return boundSession }
         if shownRow?.id == id { return shownRow }
@@ -134,6 +143,17 @@ final class WorkSubjectModel {
         guard let issueId else { return boundSession }
         return WorkFaces.codingTarget(
             runRows, issueId: issueId, boundId: boundId, me: currentUserId, now: now
+        )
+    }
+
+    /// EXP-933: the run whose RESULTS the issue shows (`WorkFaces.issueResultsRun`):
+    /// the coding target when it has any, else the newest run on the issue by
+    /// ANY member with results. nil for an issue-less subject (its Results are
+    /// the shown run's own).
+    func resultsRun(boundId: String?) -> CodingSessionEntity? {
+        guard let issueId else { return nil }
+        return WorkFaces.issueResultsRun(
+            allIssueRows, issueId: issueId, boundId: boundId, me: currentUserId, now: now
         )
     }
 
@@ -326,12 +346,14 @@ final class WorkSubjectModel {
     /// the ordering on the way out.
     private func startObservingRuns() {
         guard runObservationTask == nil else { return }
-        guard let issueId, let currentUserId, !currentUserId.isEmpty else { return }
+        guard let issueId else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let me = currentUserId ?? ""
+        // EXP-933: every member's runs on the issue (the Results pool); the
+        // run switcher keeps reading the own-run slice.
         let observation = ValueObservation.tracking { db in
             try CodingSessionEntity
                 .filter(Column("issue_id") == issueId)
-                .filter(Column("user_id") == currentUserId)
                 .fetchAll(db)
         }
         runObservationTask = Task { [weak self] in
@@ -339,7 +361,9 @@ final class WorkSubjectModel {
                 do {
                     for try await rows in observation.values(in: pool) {
                         guard let self else { return }
-                        self.runRows = rows
+                        self.allIssueRows = rows
+                        self.runsResolved = true
+                        self.runRows = me.isEmpty ? [] : rows.filter { $0.userId == me }
                         self.rebuildIssueRuns()
                     }
                     return

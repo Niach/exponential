@@ -24,6 +24,9 @@ enum AppRoute: Hashable {
     case support
     case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
+    /// EXP-933: an issue's Work screen opened on a given face — an agent's
+    /// targeted message (inbox row or push) lands on its Results.
+    case issueFace(accountId: String, id: String, face: WorkFaceKind)
     /// New issue (EXP-687): a pushed PAGE, not a sheet — back icon top-left,
     /// `Create` pill top-right, exactly like Android's CreateIssueScreen.
     /// Creating replaces this route with the issue it filed.
@@ -381,7 +384,9 @@ struct MainNavigator: View {
                 // host match); push taps only know the recipient's userId.
                 let accountId = deps.deepLinkBus.pendingIssueAccountId
                     ?? issueAccountId(forUserId: deps.deepLinkBus.pendingIssueUserId)
-                appendIssueRoute(accountId: accountId, issueId: issueId)
+                appendIssueRoute(
+                    accountId: accountId, issueId: issueId, face: deps.deepLinkBus.pendingIssueFace
+                )
                 _ = deps.deepLinkBus.consume()
             }
         }
@@ -429,9 +434,10 @@ struct MainNavigator: View {
         .task {
             let pendingAccountId = deps.deepLinkBus.pendingIssueAccountId
             let userId = deps.deepLinkBus.pendingIssueUserId
+            let face = deps.deepLinkBus.pendingIssueFace
             if let issueId = deps.deepLinkBus.consume() {
                 let accountId = pendingAccountId ?? issueAccountId(forUserId: userId)
-                appendIssueRoute(accountId: accountId, issueId: issueId)
+                appendIssueRoute(accountId: accountId, issueId: issueId, face: face)
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
@@ -705,6 +711,9 @@ struct MainNavigator: View {
         case let .issue(accountId, id):
             // EXP-893: the Work screen on its Issue face.
             WorkScreen(subject: .issue(id: id))
+                .environment(\.accountId, accountId)
+        case let .issueFace(accountId, id, face):
+            WorkScreen(subject: .issue(id: id), initialFace: face)
                 .environment(\.accountId, accountId)
         case let .createIssue(accountId, boardId, draftId, parentId):
             CreateIssueView(boardId: boardId, draftId: draftId, parentId: parentId) { createdId in
@@ -1008,8 +1017,12 @@ struct MainNavigator: View {
     /// already in flight by the time this route lands, so there is nothing
     /// useful to await here (initialSync only passively polls the active
     /// account's teams table; it starts no shape fetch).
-    private func appendIssueRoute(accountId: String, issueId: String) {
-        path.append(AppRoute.issue(accountId: accountId, id: issueId))
+    private func appendIssueRoute(accountId: String, issueId: String, face: WorkFaceKind = .issue) {
+        if face == .issue {
+            path.append(AppRoute.issue(accountId: accountId, id: issueId))
+        } else {
+            path.append(AppRoute.issueFace(accountId: accountId, id: issueId, face: face))
+        }
     }
 
     /// EXP-801: land on My Work's Inbox segment for the push's recipient —
