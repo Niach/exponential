@@ -129,9 +129,35 @@ pub struct ConflictState {
 // ---------------------------------------------------------------------------
 
 /// `git status --porcelain=v2 --branch` → parsed changes + ahead/behind.
+///
+/// EXP-1133: an UNBORN branch (a trunk cloned while its remote was still
+/// empty) prints no `# branch.ab` header, so it read as "0 behind" forever
+/// and the ff-only autopull never caught it up — the IDE showed an empty
+/// tree and history over a repo with commits on origin. Its behind count is
+/// every commit on the upstream (it has none of its own).
 pub fn status(repo: &Path) -> Result<StatusSummary, GitError> {
     let raw = run_git(Some(repo), &["status", "--porcelain=v2", "--branch"], None, "git status")?;
-    Ok(parse_status(&raw))
+    let mut summary = parse_status(&raw);
+    if is_unborn(&raw) {
+        if let Some(upstream) = summary.upstream.as_deref().filter(|up| !up.starts_with('-')) {
+            // A gone upstream ref (nothing fetched yet) fails — stays 0.
+            if let Ok(count) = run_git(
+                Some(repo),
+                &["rev-list", "--count", upstream, "--"],
+                None,
+                "git rev-list --count",
+            ) {
+                summary.behind = count.trim().parse().unwrap_or(0);
+            }
+        }
+    }
+    Ok(summary)
+}
+
+/// Whether a porcelain-v2 status snapshot is on an unborn branch (no commit
+/// yet — `# branch.oid (initial)`).
+fn is_unborn(raw: &str) -> bool {
+    raw.lines().any(|line| line.trim_end() == "# branch.oid (initial)")
 }
 
 /// `git log --format=<NUL-separated>` paged (`skip`/`limit`, v4 §4.4 "200 at a
@@ -806,6 +832,12 @@ mod tests {
     }
 
     // ---- parse_status ----
+
+    #[test]
+    fn is_unborn_reads_the_initial_oid() {
+        assert!(is_unborn("# branch.oid (initial)\n# branch.head main\n"));
+        assert!(!is_unborn("# branch.oid abc123\n# branch.head main\n"));
+    }
 
     #[test]
     fn parse_status_string_reads_branch_ab_and_kinds() {
