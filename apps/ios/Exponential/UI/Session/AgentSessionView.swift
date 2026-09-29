@@ -82,6 +82,8 @@ struct AgentSessionView<Switcher: View>: View {
     /// the server ends the run and flips `pr_state`, and the pill disappears
     /// when that echo syncs back.
     @State private var showMergeConfirm = false
+    /// EXP-1145: the stack merge dialog, and the choice it was opened with.
+    @State private var stackMergeChoice: PrStack.StackMergeChoice?
     @State private var merging = false
     /// EXP-706: the refusal AND whether the server diagnosed a REAL content
     /// conflict — the only case a retry can never fix, and the only one the
@@ -252,6 +254,25 @@ struct AgentSessionView<Switcher: View>: View {
                 } else {
                     Text("Merges the pull request, completes every linked issue, and closes the coding session.")
                 }
+            }
+            // EXP-1145: an issue PR that is a stack member with other open
+            // members asks first; a run's own `.session` PR never does.
+            .confirmationDialog(
+                PrStack.stackMergeChoiceTitle,
+                isPresented: Binding(
+                    get: { stackMergeChoice != nil },
+                    set: { if !$0 { stackMergeChoice = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: stackMergeChoice
+            ) { choice in
+                Button(PrStack.mergeStackLabel) { mergeStack(topIssueId: choice.topIssueId) }
+                Button(PrStack.mergeThisPrLabel) {
+                    if let model { merge(model) }
+                }
+                Button(PrStack.stackMergeCancelLabel, role: .cancel) {}
+            } message: { choice in
+                Text(choice.body)
             }
             // EXP-724: `/clear` discards the conversation, so confirm rows
             // confirm before the frames go out. Copy is byte-identical ×4.
@@ -1764,7 +1785,7 @@ struct AgentSessionView<Switcher: View>: View {
         FloatingBarSolidPill(
             accessibilityLabel: "Merge pull request",
             enabled: !merging,
-            action: { showMergeConfirm = true }
+            action: { requestMerge(model) }
         ) {
             if merging {
                 ProgressView().controlSize(.small).tint(.black.opacity(0.6))
@@ -1809,6 +1830,40 @@ struct AgentSessionView<Switcher: View>: View {
         return steerEnabled
             && mergeFailure?.isConflict == true
             && !(model?.mergeIssue?.branch ?? "").isEmpty
+    }
+
+    /// EXP-1145: the stack dialog for an issue PR in a stack with other open
+    /// members, the plain merge confirm otherwise.
+    private func requestMerge(_ model: AgentSessionModel) {
+        if let choice = stackMergeChoice(for: model) {
+            stackMergeChoice = choice
+        } else {
+            showMergeConfirm = true
+        }
+    }
+
+    private func stackMergeChoice(for model: AgentSessionModel) -> PrStack.StackMergeChoice? {
+        guard case let .issue(issueId) = model.mergeTarget, let stackModel else { return nil }
+        let issue = model.mergeIssue.flatMap { $0.id == issueId ? $0 : nil }
+            ?? stackModel.issue(id: issueId)
+        guard let issue else { return nil }
+        return PrStack.stackMergeChoice(issue, issues: stackModel.prIssues)
+    }
+
+    /// EXP-1145: "Merge stack" merges the whole stack through its TOP member.
+    private func mergeStack(topIssueId: String) {
+        mergeFailure = nil
+        merging = true
+        Task {
+            do {
+                try await deps.issuesApi.mergePr(
+                    accountId: accountId, issueId: topIssueId, mergeStack: true
+                )
+            } catch {
+                mergeFailure = MergeFailure(error: error)
+            }
+            merging = false
+        }
     }
 
     /// Merge the session's PR. No local surgery on success: the server ends

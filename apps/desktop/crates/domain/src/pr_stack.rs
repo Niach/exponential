@@ -276,6 +276,142 @@ where
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// EXP-1145: the stack merge choice
+// ---------------------------------------------------------------------------
+//
+// A PLAIN Merge control on a stack member with another OPEN member asks
+// first: merge the whole stack, or this pull request alone. Mirrored ×4 by
+// name (web `lib/pr-stack.ts` `stackMergeChoice`, iOS
+// `PrStack.stackMergeChoice`, Android `PrStack.stackMergeChoice`), locked by
+// `packages/domain-contract/fixtures/stack-merge-choice.json`.
+
+/// The dialog's title.
+pub const STACK_MERGE_CHOICE_TITLE: &str = "This pull request is part of a stack";
+/// The dialog's secondary button: the plain single-PR merge.
+pub const MERGE_THIS_PR_LABEL: &str = "Merge this pull request";
+/// The dialog's dismiss button.
+pub const STACK_MERGE_CANCEL_LABEL: &str = "Cancel";
+
+const THIS_ONE: &str = "this one";
+
+/// Everything the stack merge dialog says (EXP-1145).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackMergeChoice {
+    /// The chain's OPEN members, bottom → top, one label per pull request
+    /// (`EXP-874 +2` for a batch PR).
+    pub members: Vec<String>,
+    /// 1-based, from the bottom: where the pull request being merged sits.
+    pub position: usize,
+    /// The bottom member's issue id.
+    pub bottom_issue_id: String,
+    /// The top member's issue id: what `mergePr({ mergeStack: true })` takes.
+    pub top_issue_id: String,
+    /// `EXP-1105 → EXP-1144 (this one) → EXP-1150`.
+    pub listing: String,
+    /// What Merge stack does.
+    pub stack_sentence: String,
+    /// What Merge this pull request does.
+    pub this_sentence: String,
+    /// The dialog's body: the listing, a blank line, the two sentences.
+    pub body: String,
+}
+
+/// Whether merging `issue`'s pull request from a plain Merge control needs
+/// the stack dialog, and everything that dialog says (EXP-1145, mirrored ×4,
+/// fixture-locked by `stack-merge-choice.json`).
+///
+/// `None` = a plain merge: the issue has no open pull request, or its stack
+/// has no OTHER open member. Only OPEN pull requests form the chain, and the
+/// candidates are read in identifier order so every client picks the same
+/// representative for a fork or a batch ([`stack_chain`] keeps the FIRST
+/// issue per branch).
+pub fn stack_merge_choice(issue: &Issue, issues: &[Issue]) -> Option<StackMergeChoice> {
+    if issue.pr_state.as_deref() != Some("open") {
+        return None;
+    }
+    let mut open: Vec<Issue> = issues
+        .iter()
+        .filter(|row| row.pr_state.as_deref() == Some("open"))
+        .cloned()
+        .collect();
+    open.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+    if !open.iter().any(|row| row.id == issue.id) {
+        open.insert(0, issue.clone());
+    }
+    let chain = stack_chain(issue, &open);
+    if chain.len() < 2 {
+        return None;
+    }
+    let index = chain.iter().position(|member| member.id == issue.id)?;
+
+    // A batch PR's siblings share its url: one label per pull request.
+    let label = |member: &Issue| -> String {
+        let siblings = match member.pr_url.as_deref() {
+            Some(url) => open
+                .iter()
+                .filter(|row| row.id != member.id && row.pr_url.as_deref() == Some(url))
+                .count(),
+            None => 0,
+        };
+        if siblings > 0 {
+            format!("{} +{siblings}", member.identifier)
+        } else {
+            member.identifier.clone()
+        }
+    };
+    let members: Vec<String> = chain.iter().map(|member| label(member)).collect();
+    let own = &members[index];
+    let below = &members[..index];
+    let above = &members[index + 1..];
+
+    let listing = members
+        .iter()
+        .enumerate()
+        .map(|(at, name)| {
+            if at == index {
+                format!("{name} ({THIS_ONE})")
+            } else {
+                name.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" \u{2192} ");
+    let stack_sentence = format!(
+        "{MERGE_STACK_LABEL} lands all {} pull requests, bottom-up.",
+        members.len()
+    );
+    let lands_below = match below.len() {
+        0 => format!("{own} alone"),
+        1 => format!("{own} and the one below it ({})", below.join(", ")),
+        n => format!("{own} and the {n} below it ({})", below.join(", ")),
+    };
+    let left_open = match above.len() {
+        0 => ", the whole stack.".to_string(),
+        1 => format!(
+            "; {} is retargeted onto the base branch and stays open.",
+            above.join(", ")
+        ),
+        _ => format!(
+            "; {} are retargeted onto the base branch and stay open.",
+            above.join(", ")
+        ),
+    };
+    let this_sentence = format!("{MERGE_THIS_PR_LABEL} lands {lands_below}{left_open}");
+    let body = format!("{listing}\n\n{stack_sentence}\n{this_sentence}");
+
+    Some(StackMergeChoice {
+        members,
+        position: index + 1,
+        bottom_issue_id: chain[0].id.clone(),
+        top_issue_id: chain[chain.len() - 1].id.clone(),
+        listing,
+        stack_sentence,
+        this_sentence,
+        body,
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -293,6 +429,30 @@ pub(crate) mod tests {
             "pr_base_branch": base,
             "pr_url": head.map(|head| format!("https://github.com/o/r/pull/{head}")),
             "pr_state": head.map(|_| "open"),
+        }))
+        .unwrap()
+    }
+
+    /// A fixture row with every column [`stack_merge_choice`] reads.
+    fn stack_row(
+        id: &str,
+        identifier: &str,
+        head: Option<&str>,
+        base: Option<&str>,
+        pr_state: Option<&str>,
+        pr_url: Option<&str>,
+    ) -> Issue {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "board_id": "board-1",
+            "number": 1,
+            "identifier": identifier,
+            "title": identifier,
+            "status": "in_progress",
+            "branch": head,
+            "pr_base_branch": base,
+            "pr_url": pr_url,
+            "pr_state": pr_state,
         }))
         .unwrap()
     }
@@ -423,5 +583,95 @@ pub(crate) mod tests {
             })
             .collect();
         assert_eq!(shape, ["EXP-99@0", "EXP-11@0+", "EXP-12@1+", "EXP-13@2"]);
+    }
+
+    /// EXP-1145: `stack-merge-choice.json` locks the dialog ×4.
+    #[test]
+    fn stack_merge_choice_matches_the_fixture() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            labels: Labels,
+            cases: Vec<Case>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Labels {
+            title: String,
+            merge_stack: String,
+            merge_this: String,
+            cancel: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: String,
+            issue: String,
+            issues: Vec<Row>,
+            choice: Option<Choice>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Row {
+            id: String,
+            identifier: String,
+            branch: Option<String>,
+            pr_base_branch: Option<String>,
+            pr_state: Option<String>,
+            pr_url: Option<String>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Choice {
+            members: Vec<String>,
+            position: usize,
+            bottom_issue_id: String,
+            top_issue_id: String,
+            listing: String,
+            stack_sentence: String,
+            this_sentence: String,
+            body: String,
+        }
+
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/stack-merge-choice.json"
+        ))
+        .expect("stack-merge-choice.json parses");
+        assert_eq!(STACK_MERGE_CHOICE_TITLE, fixture.labels.title);
+        assert_eq!(MERGE_STACK_LABEL, fixture.labels.merge_stack);
+        assert_eq!(MERGE_THIS_PR_LABEL, fixture.labels.merge_this);
+        assert_eq!(STACK_MERGE_CANCEL_LABEL, fixture.labels.cancel);
+        assert!(!fixture.cases.is_empty());
+
+        for case in fixture.cases {
+            let issues: Vec<Issue> = case
+                .issues
+                .iter()
+                .map(|row| {
+                    stack_row(
+                        &row.id,
+                        &row.identifier,
+                        row.branch.as_deref(),
+                        row.pr_base_branch.as_deref(),
+                        row.pr_state.as_deref(),
+                        row.pr_url.as_deref(),
+                    )
+                })
+                .collect();
+            let issue = issues
+                .iter()
+                .find(|row| row.id == case.issue)
+                .unwrap_or_else(|| panic!("{}: the merged issue is listed", case.name));
+            let actual = stack_merge_choice(issue, &issues);
+            let expected = case.choice.map(|choice| StackMergeChoice {
+                members: choice.members,
+                position: choice.position,
+                bottom_issue_id: choice.bottom_issue_id,
+                top_issue_id: choice.top_issue_id,
+                listing: choice.listing,
+                stack_sentence: choice.stack_sentence,
+                this_sentence: choice.this_sentence,
+                body: choice.body,
+            });
+            assert_eq!(actual, expected, "{}", case.name);
+        }
     }
 }

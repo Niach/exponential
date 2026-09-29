@@ -1167,6 +1167,14 @@ export interface SmartMergeResult {
   stackNumber: number | null
   /** Every member at-or-below the merged one (bottom → top, incl. itself). */
   stackMemberNumbers: number[]
+  /** EXP-1145: the at-or-below members GitHub already listed as MERGED before
+   *  this call. They landed earlier, so a note must never count them as
+   *  "also merged" now. Absent = none known (the legacy path). */
+  alreadyMergedMemberNumbers?: number[]
+  /** EXP-1145: the OPEN members ABOVE the merged one (bottom → top). GitHub
+   *  retargets them onto the stack's base; they stay open. Absent = none
+   *  known. */
+  openMemberNumbersAbove?: number[]
 }
 
 /**
@@ -1225,6 +1233,14 @@ export async function mergePullRequestSmart(opts: {
   const atOrBelow = stack
     ? membersAtOrBelowNumber(stack, prNumber)
     : [prNumber]
+  // EXP-1145: what this merge does NOT land — members that merged before it,
+  // and the open ones above it (GitHub retargets those onto the base).
+  const alreadyMerged = stack
+    ? stack.members
+        .filter((member) => atOrBelow.includes(member.number) && member.merged)
+        .map((member) => member.number)
+    : []
+  const openAbove = stack ? openMembersAbove(stack, prNumber) : []
 
   const started = await mergePullRequestAsync({
     repo,
@@ -1264,6 +1280,8 @@ export async function mergePullRequestSmart(opts: {
     viaStack: true,
     stackNumber,
     stackMemberNumbers: atOrBelow,
+    alreadyMergedMemberNumbers: alreadyMerged,
+    openMemberNumbersAbove: openAbove,
   }
 }
 
@@ -1273,6 +1291,19 @@ function isStackedRefusal(err: unknown): boolean {
     (err.status === 405 || err.status === 422) &&
     STACKED_PR_REFUSAL.test(err.message)
   )
+}
+
+/** EXP-1145: the stack's OPEN members strictly above `prNumber` (bottom →
+ *  top) — what a merge of `prNumber` leaves open, retargeted onto the base. */
+export function openMembersAbove(stack: PullStack, prNumber: number): number[] {
+  const index = stack.members.findIndex(
+    (member) => member.number === prNumber
+  )
+  if (index < 0) return []
+  return stack.members
+    .slice(index + 1)
+    .filter((member) => !member.merged && member.state !== `closed`)
+    .map((member) => member.number)
 }
 
 /** The stack's members at or below `prNumber` (bottom → top, inclusive). */

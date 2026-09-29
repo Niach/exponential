@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-29-stack-merge-asks`,
+    date: `2026-09-29`,
+    title: `Merging a stacked pull request asks first`,
+    summary: `Merge on a pull request that belongs to a stack asks whether to merge the whole stack or this pull request only, on every client.`,
+    body: `- **Stacked pull requests**: the Merge button on the Changes face, the issue header and the run view asks first when the pull request is part of a stack with other open members. Merge stack lands every open pull request bottom-up; Merge this pull request lands it and the open ones below it, while the ones above stay open on the base branch. A pull request whose stack has nothing else open merges as before.
+- **Agents**: the result of exponential_pr_merge on a stack member names the pull requests it landed below and the ones it left open, and never lists an already merged one.`,
+  },
+  {
     id: `2026-09-29-release-train-evening`,
     date: `2026-09-29`,
     title: `Release train 2026-09-29, evening`,

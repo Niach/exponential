@@ -707,6 +707,20 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /**
+     * EXP-1145: non-null when the Merge pill's issue PR ([mergeIssue], the one
+     * it actually merges) is a member of a PR stack with another OPEN member,
+     * so the pill asks first (Merge stack / Merge this pull request / Cancel).
+     * A run's OWN PR ([MergeTarget.Session]) never asks.
+     */
+    val stackMergeChoice: StateFlow<PrStack.StackMergeChoice?> = combine(
+        mergeTarget,
+        mergeIssue,
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+    ) { target, row, issues ->
+        if (target is MergeTarget.Issue && row != null) PrStack.stackMergeChoice(row, issues) else null
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private val _merging = MutableStateFlow(false)
     val merging: StateFlow<Boolean> = _merging
 
@@ -742,6 +756,25 @@ class AgentSessionViewModel @AssistedInject constructor(
                     if (t is CancellationException) throw t
                     // Conflicts, branch protection and GitHub App errors are the
                     // common, persistent failures — same copy as Agents/Reviews.
+                    _mergeError.value =
+                        MergeFailure.from(t, "The pull request could not be merged")
+                }
+            _merging.value = false
+        }
+    }
+
+    /**
+     * EXP-1145: merge the whole stack [topIssueId] tops, bottom-up
+     * (`issues.mergePr({ mergeStack: true })`), with [merge]'s state handling.
+     */
+    fun mergeStack(topIssueId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _mergeError.value = null
+            _merging.value = true
+            runCatching { issuesApi.mergePr(accountId, topIssueId, mergeStack = true) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
                     _mergeError.value =
                         MergeFailure.from(t, "The pull request could not be merged")
                 }

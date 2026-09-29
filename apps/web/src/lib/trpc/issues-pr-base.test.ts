@@ -31,6 +31,8 @@ const h = vi.hoisted(() => ({
       viaStack: boolean
       stackNumber: number | null
       stackMemberNumbers: number[]
+      alreadyMergedMemberNumbers?: number[]
+      openMemberNumbersAbove?: number[]
     }> => ({
       merged: true,
       queued: false,
@@ -798,6 +800,60 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
     await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toEqual({
       merged: true,
       mergedPrUrls: [`https://github.com/owner/repo/pull/241`],
+    })
+  })
+
+  // EXP-1145: the note is the agent's only account of what a mid-stack merge
+  // did. A member GitHub already listed as merged landed EARLIER (PR #886 was
+  // once reported "also merged" a train after it had), and the open members
+  // above stay open on the stack's base — both halves are named.
+  it(`never counts an already-merged member as also merged, and names the members left open`, async () => {
+    _clearPrActorClaims()
+    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
+    h.selectQueue.push([]) // completeStackCohort's member rows
+    h.findStackForPull.mockResolvedValueOnce({
+      number: 7,
+      members: [{ number: 239 }, { number: 240 }, { number: 241 }, { number: 242 }],
+    } as never)
+    h.mergePullRequestSmart.mockResolvedValueOnce({
+      merged: true,
+      queued: false,
+      sha: `abc`,
+      viaStack: true,
+      stackNumber: 7,
+      stackMemberNumbers: [239, 240, 241],
+      alreadyMergedMemberNumbers: [239],
+      openMemberNumbersAbove: [242],
+    })
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toMatchObject({
+      merged: true,
+      note: `Merging stacked PR #241 also merged every unmerged PR below it: #240. PRs above it stay open, retargeted onto the stack's base: #242.`,
+    })
+  })
+
+  it(`a bottom member's merge names only what it left open above`, async () => {
+    _clearPrActorClaims()
+    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
+    h.selectQueue.push([]) // completeStackCohort's member rows
+    h.findStackForPull.mockResolvedValueOnce({
+      number: 7,
+      members: [{ number: 241 }, { number: 242 }],
+    } as never)
+    h.mergePullRequestSmart.mockResolvedValueOnce({
+      merged: true,
+      queued: false,
+      sha: `abc`,
+      viaStack: true,
+      stackNumber: 7,
+      stackMemberNumbers: [241],
+      alreadyMergedMemberNumbers: [],
+      openMemberNumbersAbove: [242],
+    })
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toMatchObject({
+      merged: true,
+      note: `Merging stacked PR #241 merged nothing below it. PRs above it stay open, retargeted onto the stack's base: #242.`,
     })
   })
 
