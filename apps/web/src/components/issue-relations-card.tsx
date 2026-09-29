@@ -742,7 +742,12 @@ export function IssueRelationsSection({
   phone?: boolean
 }) {
   const model = useIssueRelationsView(issue.id)
-  const [composing, setComposing] = useState(false)
+  // The composer belongs to the issue it was opened on: prev/next onto
+  // another issue closes it (the section is not remounted per issue).
+  const [composingFor, setComposingFor] = useState<string | null>(null)
+  const composing = composingFor === issue.id
+  const setComposing = (open: boolean) =>
+    setComposingFor(open ? issue.id : null)
   const showBands = !phone && model.view.bands.length > 0
   const hasSubIssues = model.view.subIssues.total > 0
   if (readOnly && !hasSubIssues && !showBands) return null
