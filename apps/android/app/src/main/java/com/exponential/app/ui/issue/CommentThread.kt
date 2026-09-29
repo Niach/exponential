@@ -38,10 +38,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.commentKindOf
 import com.exponential.app.domain.ActivityFold
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.isMarkdownAttachment
+import com.exponential.app.ui.components.AttachmentMarkdownPreviewSheet
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
@@ -97,6 +100,11 @@ fun CommentThread(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var editingId by remember { mutableStateOf<String?>(null) }
+    // EXP-1003: the markdown attachment open in the in-app preview sheet.
+    var preview by remember { mutableStateOf<AttachmentEntity?>(null) }
+    // The sheet's Download runs one download at a time (no busy tracking on
+    // this view model, unlike the Files rail's).
+    var downloading by remember { mutableStateOf(false) }
     // Expanded collapsed-runs, keyed by the run's first event id so sync
     // re-emits don't reset expansion; reset per issue.
     var expandedRuns by remember(issueId) { mutableStateOf(setOf<String>()) }
@@ -282,12 +290,21 @@ fun CommentThread(
                                 },
                                 attachmentsByComment = attachmentsByComment,
                                 onOpenAttachment = { attachment ->
-                                    scope.launch {
-                                        // No in-app viewer: hand the bytes to
-                                        // whatever app renders the type.
-                                        val local = viewModel.downloadToCache(attachment)
-                                            ?: return@launch
-                                        openFile(context, local, attachment.contentType)
+                                    if (isMarkdownAttachment(
+                                            attachment.contentType,
+                                            attachment.filename,
+                                        )
+                                    ) {
+                                        // EXP-1003: markdown previews in the app.
+                                        preview = attachment
+                                    } else {
+                                        scope.launch {
+                                            // No in-app viewer: hand the bytes
+                                            // to whatever app renders the type.
+                                            val local = viewModel.downloadToCache(attachment)
+                                                ?: return@launch
+                                            openFile(context, local, attachment.contentType)
+                                        }
                                     }
                                 },
                                 editAttachments = editAttachments,
@@ -302,6 +319,27 @@ fun CommentThread(
                 }
             }
         }
+    }
+
+    preview?.let { target ->
+        AttachmentMarkdownPreviewSheet(
+            attachment = target,
+            load = viewModel::loadAttachmentBytes,
+            downloading = downloading,
+            onDownload = {
+                if (downloading) return@AttachmentMarkdownPreviewSheet
+                scope.launch {
+                    downloading = true
+                    try {
+                        val local = viewModel.downloadToCache(target) ?: return@launch
+                        shareFile(context, local, target.contentType)
+                    } finally {
+                        downloading = false
+                    }
+                }
+            },
+            onDismiss = { preview = null },
+        )
     }
 }
 

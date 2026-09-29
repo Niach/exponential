@@ -2,6 +2,7 @@ package com.exponential.app.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -91,5 +92,82 @@ class AttachmentFilesTest {
     @Test
     fun sanitizeKeepsOrdinaryNames() {
         assertEquals("Q3 report (final).pdf", sanitizeFilename("Q3 report (final).pdf"))
+    }
+
+    // EXP-1003: the web's isMarkdownAttachment table (attachment-files.test.ts),
+    // replicated on every client.
+    @Test
+    fun markdownAttachmentMatchesTheWebTable() {
+        val cases = listOf(
+            Triple("text/markdown", "notes.md", true),
+            Triple("text/markdown; charset=utf-8", "x", true),
+            Triple("text/x-markdown", "x.txt", true),
+            Triple("", "README.md", true),
+            Triple("application/octet-stream", "a.MD", true),
+            Triple("text/plain", "spec.markdown", true),
+            Triple("text/plain", "spec.txt", false),
+            Triple("application/pdf", "spec.md", false),
+            Triple("image/png", "x.md", false),
+            Triple("text/csv", "x.md", false),
+        )
+        for ((type, name, expected) in cases) {
+            assertEquals("$type / $name", expected, isMarkdownAttachment(type, name))
+        }
+    }
+
+    @Test
+    fun markdownAttachmentToleratesMissingFields() {
+        assertTrue(isMarkdownAttachment(null, "a.md"))
+        assertTrue(isMarkdownAttachment("text/markdown", null))
+        assertTrue(isMarkdownAttachment("  TEXT/Markdown  ", "x"))
+        assertTrue(isMarkdownAttachment("", "  notes.md  "))
+        assertFalse(isMarkdownAttachment(null, null))
+    }
+
+    @Test
+    fun markdownPreviewCeilingIsOneMebibyte() {
+        assertEquals(1_048_576L, MARKDOWN_PREVIEW_MAX_BYTES)
+    }
+
+    @Test
+    fun precheckRefusesOnlyRowsOverTheCeiling() {
+        assertEquals(
+            MarkdownPreviewState.TooLarge,
+            markdownPreviewPrecheck(MARKDOWN_PREVIEW_MAX_BYTES + 1),
+        )
+        assertNull(markdownPreviewPrecheck(MARKDOWN_PREVIEW_MAX_BYTES))
+        // Legacy rows carry size_bytes = 0: fetch, and let the body decide.
+        assertNull(markdownPreviewPrecheck(0))
+    }
+
+    @Test
+    fun outcomeChecksTheFetchedText() {
+        assertEquals(
+            MarkdownPreviewState.Ready("# Hi"),
+            markdownPreviewOutcome("# Hi".toByteArray()),
+        )
+        val max = MARKDOWN_PREVIEW_MAX_BYTES.toInt()
+        assertTrue(
+            markdownPreviewOutcome(ByteArray(max) { 'a'.code.toByte() })
+                is MarkdownPreviewState.Ready,
+        )
+        assertEquals(
+            MarkdownPreviewState.TooLarge,
+            markdownPreviewOutcome(ByteArray(max + 1) { 'a'.code.toByte() }),
+        )
+    }
+
+    @Test
+    fun invalidUtf8StillRenders() {
+        assertEquals(
+            MarkdownPreviewState.Ready("a\uFFFD"),
+            markdownPreviewOutcome(byteArrayOf('a'.code.toByte(), 0xFF.toByte())),
+        )
+    }
+
+    @Test
+    fun httpErrorsUseTheWebCopy() {
+        assertEquals("This file is no longer available.", markdownPreviewHttpError(404))
+        assertEquals("Couldn't load this file (HTTP 500).", markdownPreviewHttpError(500))
     }
 }

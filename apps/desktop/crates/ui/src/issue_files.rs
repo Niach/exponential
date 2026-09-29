@@ -49,6 +49,33 @@ pub(crate) fn is_inline_media(content_type: Option<&str>) -> bool {
     is_inline_video(content_type) || is_inline_audio(content_type)
 }
 
+/// EXP-1003: the in-app markdown preview's ceiling (1 MiB) — larger files
+/// get the download hint instead. Mirrors web `MARKDOWN_PREVIEW_MAX_BYTES`.
+pub(crate) const MARKDOWN_PREVIEW_MAX_BYTES: usize = 1024 * 1024;
+
+/// EXP-1003: does this attachment open in the in-app markdown preview? A
+/// markdown essence type always does; an untyped/generic one
+/// (`""`, `text/plain`, `application/octet-stream`) falls back to a
+/// `.md`/`.markdown` filename; any other type never does. Mirrors web
+/// `isMarkdownAttachment` (`attachment-files.ts`) ×4.
+pub(crate) fn is_markdown_attachment(content_type: Option<&str>, filename: Option<&str>) -> bool {
+    let essence = content_type
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if matches!(essence.as_str(), "text/markdown" | "text/x-markdown") {
+        return true;
+    }
+    if !matches!(essence.as_str(), "" | "text/plain" | "application/octet-stream") {
+        return false;
+    }
+    let name = filename.unwrap_or_default().trim().to_ascii_lowercase();
+    name.ends_with(".md") || name.ends_with(".markdown")
+}
+
 /// EXP-824: a media duration chip — `0:07`, `2:34`, `1:02:03` (hours only
 /// once there are any; seconds floor, never round up past the real length).
 /// Mirrors the web/iOS/Android formatter byte for byte.
@@ -739,6 +766,33 @@ mod tests {
         assert_eq!(second, first);
         assert_eq!(*transport.0.lock().unwrap(), 1, "the cached clip is reused");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1003: the web's `attachment-files.test.ts` table, replicated ×4.
+    #[test]
+    fn markdown_classification_matches_the_web_table() {
+        for (content_type, filename, expected) in [
+            ("text/markdown", "notes.md", true),
+            ("text/markdown; charset=utf-8", "x", true),
+            ("text/x-markdown", "x.txt", true),
+            ("", "README.md", true),
+            ("application/octet-stream", "a.MD", true),
+            ("text/plain", "spec.markdown", true),
+            ("text/plain", "spec.txt", false),
+            ("application/pdf", "spec.md", false),
+            ("image/png", "x.md", false),
+            ("text/csv", "x.md", false),
+        ] {
+            assert_eq!(
+                is_markdown_attachment(Some(content_type), Some(filename)),
+                expected,
+                "{content_type:?} {filename:?}"
+            );
+        }
+        assert!(is_markdown_attachment(None, Some("README.md")));
+        assert!(is_markdown_attachment(Some("text/markdown"), None));
+        assert!(!is_markdown_attachment(None, None));
+        assert_eq!(MARKDOWN_PREVIEW_MAX_BYTES, 1_048_576);
     }
 
     #[test]

@@ -42,9 +42,10 @@ use domain::rows::Attachment;
 
 use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
+use crate::attachment_markdown_preview::{open_markdown_preview, MarkdownPreviewTarget};
 use crate::issue_files::{
     attachment_label, fetch_attachment_to_temp, format_bytes, icon_for_content_type,
-    is_inline_image,
+    is_inline_image, is_markdown_attachment,
 };
 use crate::markdown::{placeholder_box, AttachmentTransport, ImageCache, ImageSlot};
 use crate::media_tile::{render_media_tile, MediaTile};
@@ -338,8 +339,9 @@ fn with_remove_badge(
 
 /// One non-image attachment chip: type glyph · filename · size (+ the edit
 /// mode ✕). Clicking fetches the bytes through the auth-gated transport into
-/// a temp file and hands the path to the OS — the desktop ships no viewers of
-/// its own (EXP-297).
+/// a temp file and hands the path to the OS (EXP-297) — except a MARKDOWN
+/// file, which opens the in-app preview dialog (EXP-1003, web parity; its
+/// footer carries the Download).
 fn file_chip(
     attachment: &Attachment,
     remove: Option<impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>,
@@ -348,6 +350,11 @@ fn file_chip(
     use crate::surface::{PillMode, PillSize};
     let label = attachment_label(attachment);
     let attachment_id = attachment.id.clone();
+    let preview = is_markdown_attachment(
+        attachment.content_type.as_deref(),
+        attachment.filename.as_deref(),
+    )
+    .then(|| MarkdownPreviewTarget::from_attachment(attachment));
     // EXP-698: the ONE small pill. ACTION, not readonly — clicking it opens
     // the file, which is exactly what `PillMode::Action` names.
     let mut chip = crate::surface::glass_pill(
@@ -377,8 +384,9 @@ fn file_chip(
         )
         .on_click({
             let label = label.clone();
-            move |_, window, cx| {
-                open_attachment_file(attachment_id.clone(), label.clone(), window, cx);
+            move |_, window, cx| match &preview {
+                Some(target) => open_markdown_preview(target.clone(), window, cx),
+                None => open_attachment_file(attachment_id.clone(), label.clone(), window, cx),
             }
         });
 
@@ -438,6 +446,55 @@ pub(crate) fn open_attachment_file(
                     cx,
                 );
             }
+        });
+    })
+    .detach();
+}
+
+/// "Save as…" — the native save dialog + a background fetch/write, the
+/// exact shape of the description editor's image download. Shared by the
+/// Files rail and the markdown preview's Download (EXP-1003); the outcome
+/// lands as a notification in `window` (dialog windows render that layer
+/// too).
+pub(crate) fn save_attachment_as(
+    attachment_id: String,
+    label: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(transport) = queries::attachment_transport(cx) else {
+        return;
+    };
+    let directory = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let receiver = cx.prompt_for_new_path(&directory, Some(&label));
+    let url = format!("/api/attachments/{attachment_id}");
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        // Receiver error = dialog dismissed/unsupported; None = cancelled.
+        let Ok(Ok(Some(path))) = receiver.await else {
+            return;
+        };
+        let write_path = path.clone();
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                let bytes = transport.fetch(&url)?;
+                std::fs::write(&write_path, bytes)?;
+                anyhow::Ok(())
+            })
+            .await;
+        let note = match result {
+            Ok(()) => Notification::info(SharedString::from(format!(
+                "Saved to {}",
+                path.display()
+            ))),
+            Err(error) => {
+                log::warn!("[ui] attachment download failed for {attachment_id}: {error}");
+                Notification::error(SharedString::from(format!("Download failed: {error}")))
+            }
+        };
+        let _ = handle.update(cx, |_, window, cx| {
+            window.push_notification(note, cx);
         });
     })
     .detach();

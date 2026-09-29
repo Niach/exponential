@@ -55,8 +55,9 @@ use crate::coding_flow::StartCodingControl;
 use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
     all_attachment_ids, attachment_label, description_embed, description_fragment,
-    file_attachments, format_bytes, icon_for_content_type,
+    file_attachments, format_bytes, icon_for_content_type, is_markdown_attachment,
 };
+use crate::attachment_markdown_preview::{open_markdown_preview, MarkdownPreviewTarget};
 use crate::navigation::{navigate, Screen};
 use crate::issue_header::{spawn_issue_update, IssueHeader};
 use crate::queries;
@@ -1630,8 +1631,8 @@ impl IssueDetailView {
             .into_any_element()
     }
 
-    /// One synced file row: type glyph · filename · size · Open / Save as /
-    /// Delete.
+    /// One synced file row: type glyph · filename · size · Open (Preview for
+    /// markdown, EXP-1003) / Save as / Delete.
     fn render_file_row(
         &self,
         attachment: &Attachment,
@@ -1641,6 +1642,10 @@ impl IssueDetailView {
         let label = attachment_label(attachment);
         let busy = self.busy_files.contains(&id);
         let glyph = icon_for_content_type(attachment.content_type.as_deref());
+        let markdown = is_markdown_attachment(
+            attachment.content_type.as_deref(),
+            attachment.filename.as_deref(),
+        );
 
         h_flex()
             .w_full()
@@ -1675,7 +1680,21 @@ impl IssueDetailView {
                         attachment.size_bytes.unwrap_or_default(),
                     ))),
             )
-            .child({
+            .child(if markdown {
+                // EXP-1003: a markdown row PREVIEWS in-app instead of handing
+                // the file to the OS (web parity); Save as… stays beside it.
+                let target = MarkdownPreviewTarget::from_attachment(attachment);
+                crate::controls::ghost_icon_button(
+                    SharedString::from(format!("issue-file-preview-{id}")),
+                    Icon::new(registry::UI_WATCH),
+                    cx,
+                )
+                    .tooltip("Preview")
+                    .on_click(move |_, window, cx| {
+                        open_markdown_preview(target.clone(), window, cx);
+                    })
+                    .into_any_element()
+            } else {
                 let (id, label) = (id.clone(), label.clone());
                 crate::controls::ghost_icon_button(
                     SharedString::from(format!("issue-file-open-{id}")),
@@ -1687,6 +1706,7 @@ impl IssueDetailView {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_file(id.clone(), label.clone(), window, cx);
                     }))
+                    .into_any_element()
             })
             .child({
                 let (id, label) = (id.clone(), label.clone());
@@ -1697,9 +1717,14 @@ impl IssueDetailView {
                 )
                     .disabled(busy)
                     .tooltip("Save as…")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.save_file_as(id.clone(), label.clone(), window, cx);
-                    }))
+                    .on_click(move |_, window, cx| {
+                        crate::comment_attachments::save_attachment_as(
+                            id.clone(),
+                            label.clone(),
+                            window,
+                            cx,
+                        );
+                    })
             })
             .child({
                 let (id, label) = (id.clone(), label.clone());
@@ -1995,53 +2020,6 @@ impl IssueDetailView {
                 cx.notify();
             })
             .ok();
-        })
-        .detach();
-    }
-
-    /// "Save as…" — the native save dialog + a background fetch/write, the
-    /// exact shape of the description editor's image download.
-    fn save_file_as(
-        &mut self,
-        attachment_id: String,
-        label: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(transport) = queries::attachment_transport(cx) else {
-            return;
-        };
-        let directory = dirs::download_dir().unwrap_or_else(|| PathBuf::from("."));
-        let receiver = cx.prompt_for_new_path(&directory, Some(&label));
-        let url = format!("/api/attachments/{attachment_id}");
-        let handle = window.window_handle();
-        cx.spawn(async move |_, cx| {
-            // Receiver error = dialog dismissed/unsupported; None = cancelled.
-            let Ok(Ok(Some(path))) = receiver.await else {
-                return;
-            };
-            let write_path = path.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let bytes = transport.fetch(&url)?;
-                    std::fs::write(&write_path, bytes)?;
-                    anyhow::Ok(())
-                })
-                .await;
-            let note = match result {
-                Ok(()) => Notification::info(SharedString::from(format!(
-                    "Saved to {}",
-                    path.display()
-                ))),
-                Err(error) => {
-                    log::warn!("[ui] attachment download failed for {attachment_id}: {error}");
-                    Notification::error(SharedString::from(format!("Download failed: {error}")))
-                }
-            };
-            let _ = handle.update(cx, |_, window, cx| {
-                window.push_notification(note, cx);
-            });
         })
         .detach();
     }

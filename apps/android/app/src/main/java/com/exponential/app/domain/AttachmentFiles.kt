@@ -61,6 +61,67 @@ fun canonicalContentType(raw: String?): String {
     return essence.ifEmpty { "application/octet-stream" }
 }
 
+/**
+ * EXP-1003: a Files row that previews IN the app through the markdown
+ * renderer instead of being handed to another app. The ×4 mirror of the
+ * web's `isMarkdownAttachment` (EXP-955): matched by the stored type, or by
+ * the extension when the type is empty / generic (Safari uploads `.md` as
+ * octet-stream, some pickers as text/plain).
+ */
+fun isMarkdownAttachment(contentType: String?, filename: String?): Boolean {
+    val essence = (contentType ?: "").substringBefore(';').trim().lowercase()
+    if (essence == "text/markdown" || essence == "text/x-markdown") return true
+    if (essence != "" && essence != "text/plain" && essence != "application/octet-stream") {
+        return false
+    }
+    return MARKDOWN_EXTENSION.containsMatchIn((filename ?: "").trim())
+}
+
+private val MARKDOWN_EXTENSION = Regex("\\.(md|markdown)$", RegexOption.IGNORE_CASE)
+
+/**
+ * EXP-1003: the largest markdown file the preview fetches and renders (the
+ * web's `MARKDOWN_PREVIEW_MAX_BYTES`). Anything bigger is a download.
+ */
+const val MARKDOWN_PREVIEW_MAX_BYTES: Long = 1024L * 1024
+
+/** EXP-1003: the markdown preview sheet's phases, mirroring the web dialog. */
+sealed interface MarkdownPreviewState {
+    data object Loading : MarkdownPreviewState
+    data class Ready(val markdown: String) : MarkdownPreviewState
+    data object TooLarge : MarkdownPreviewState
+    data class Error(val message: String) : MarkdownPreviewState
+}
+
+/**
+ * The first of the two size checks: a row whose recorded size is over the
+ * ceiling is [MarkdownPreviewState.TooLarge] WITHOUT a fetch; null = fetch.
+ */
+fun markdownPreviewPrecheck(sizeBytes: Long): MarkdownPreviewState? =
+    if (sizeBytes > MARKDOWN_PREVIEW_MAX_BYTES) MarkdownPreviewState.TooLarge else null
+
+/**
+ * The second size check, on the fetched bytes — legacy rows carry
+ * `size_bytes = 0`, so only the body tells. Compares the decoded text's
+ * UTF-16 length, the web's `text.length`.
+ */
+fun markdownPreviewOutcome(bytes: ByteArray): MarkdownPreviewState {
+    val text = bytes.decodeToString()
+    return if (text.length > MARKDOWN_PREVIEW_MAX_BYTES) {
+        MarkdownPreviewState.TooLarge
+    } else {
+        MarkdownPreviewState.Ready(text)
+    }
+}
+
+/** The web's copy for a non-2xx attachment fetch. */
+fun markdownPreviewHttpError(status: Int): String =
+    if (status == 404) {
+        "This file is no longer available."
+    } else {
+        "Couldn't load this file (HTTP $status)."
+    }
+
 /** Non-image upload cap (the server's `maxFileUploadBytes`). */
 const val MAX_FILE_UPLOAD_BYTES: Long = 50L * 1024 * 1024
 

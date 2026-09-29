@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.AttachmentEntity
+import com.exponential.app.domain.isMarkdownAttachment
+import com.exponential.app.ui.components.AttachmentMarkdownPreviewSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
@@ -47,6 +49,11 @@ import kotlinx.coroutines.launch
  * are attached from the description editor's image button ("Photo library /
  * Files"), which is the one place a user reaches for when adding something —
  * so with nothing attached this section renders nothing at all.
+ *
+ * EXP-1003: a markdown row (`isMarkdownAttachment`, the web's EXP-955 rule)
+ * previews IN the app instead — a tap opens [AttachmentMarkdownPreviewSheet]
+ * and its menu leads with "Preview"; "Open" (another app), Share and Delete
+ * stay on every row.
  */
 @Composable
 fun IssueFilesSection(
@@ -60,6 +67,7 @@ fun IssueFilesSection(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf<AttachmentEntity?>(null) }
+    var preview by remember { mutableStateOf<AttachmentEntity?>(null) }
 
     // No files (and none in flight): stay out of the way entirely. A failed
     // upload keeps a pending row, so errors still have somewhere to surface.
@@ -78,6 +86,11 @@ fun IssueFilesSection(
                 subtitle = Formatter.formatShortFileSize(context, file.sizeBytes),
                 busy = file.id in busyIds,
                 canDelete = canDelete,
+                onPreview = if (isMarkdownAttachment(file.contentType, file.filename)) {
+                    { preview = file }
+                } else {
+                    null
+                },
                 onOpen = {
                     scope.launch {
                         val local = viewModel.downloadToCache(file) ?: return@launch
@@ -126,6 +139,21 @@ fun IssueFilesSection(
             },
         )
     }
+
+    preview?.let { target ->
+        AttachmentMarkdownPreviewSheet(
+            attachment = target,
+            load = viewModel::loadAttachmentBytes,
+            downloading = target.id in busyIds,
+            onDownload = {
+                scope.launch {
+                    val local = viewModel.downloadToCache(target) ?: return@launch
+                    shareFile(context, local, target.contentType)
+                }
+            },
+            onDismiss = { preview = null },
+        )
+    }
 }
 
 @Composable
@@ -134,6 +162,8 @@ private fun FileRow(
     subtitle: String,
     busy: Boolean,
     canDelete: Boolean,
+    /** EXP-1003: set for markdown rows — the row tap previews in the app. */
+    onPreview: (() -> Unit)?,
     onOpen: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
@@ -142,7 +172,7 @@ private fun FileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = !busy, onClick = onOpen)
+            .clickable(enabled = !busy, onClick = onPreview ?: onOpen)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -181,8 +211,18 @@ private fun FileRow(
                 borderless = true,
             )
             GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (onPreview != null) {
+                    GlassMenuItem(
+                        leadingIcon = { Icon(ExpIcons.uiWatch, contentDescription = null) },
+                        text = { Text("Preview") },
+                        onClick = {
+                            menuOpen = false
+                            onPreview()
+                        },
+                    )
+                }
                 GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiWatch, contentDescription = null) },
+                    leadingIcon = { Icon(ExpIcons.uiExternalLink, contentDescription = null) },
                     text = { Text("Open") },
                     onClick = {
                         menuOpen = false
