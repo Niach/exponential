@@ -769,11 +769,18 @@ private fun AuthenticatedNav(
             // successful create or once it was saved as a draft.
             val pendingShare by teamSelection.pendingShare.collectAsStateWithLifecycle()
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
+            val parentIssueId = entry.arguments?.getString("parent")?.takeIf { it.isNotBlank() }
             CreateIssueScreen(
                 onBack = { navController.popBackStack() },
-                onCreated = { issueId -> navController.openCreatedIssue(issueId) },
+                // A sub-issue (EXP-1097) returns to its PARENT, where the new
+                // child syncs into the Sub-issues list, so filing several is
+                // `+`, create, `+` (web's composer stays on the parent too).
+                onCreated = { issueId ->
+                    if (parentIssueId != null) navController.popBackStack()
+                    else navController.openCreatedIssue(issueId)
+                },
                 draftId = entry.arguments?.getString("draft")?.takeIf { it.isNotBlank() },
-                parentIssueId = entry.arguments?.getString("parent")?.takeIf { it.isNotBlank() },
+                parentIssueId = parentIssueId,
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { teamSelection.consumePendingShare() },
             )
@@ -801,7 +808,10 @@ private fun AuthenticatedNav(
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
-                    navController.navigate("board/$boardId/new?parent=$parentId")
+                    // Single-top: a double-tap on `+` pushes ONE form.
+                    navController.navigate("board/$boardId/new?parent=$parentId") {
+                        launchSingleTop = true
+                    }
                 },
             )
         }
@@ -828,7 +838,10 @@ private fun AuthenticatedNav(
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
-                    navController.navigate("board/$boardId/new?parent=$parentId")
+                    // Single-top: a double-tap on `+` pushes ONE form.
+                    navController.navigate("board/$boardId/new?parent=$parentId") {
+                        launchSingleTop = true
+                    }
                 },
             )
         }

@@ -1,3 +1,4 @@
-- Boards: na een nieuwe aanmelding of een volledige hersynchronisatie toont een board een laadindicator tot de issues binnen zijn, in plaats van kort “No issues yet” en de checklist om te beginnen te tonen
-- Agentruns: claude-runs in planmodus op een bijgewerkte desktopapp of CLI gebruiken hun tools weer in plaats van elke aanroep te weigeren
-- Agentruns: een run op een lege repository maakt zijn eerste commit en start in plaats van vast te lopen
+- Issues: “Start coding” is altijd beschikbaar bij een issue; ontbreekt er iets, dan opent een “Ready to code?”-checklist met een oplossing voor elke stap, inclusief het kiezen van de repository van het board
+- Issues: een sub-issue noemt zijn bovenliggende issue boven de titel, sub-issues tonen hun voortgang met een ring en een + om er een toe te voegen, en relaties worden gegroepeerd in inklapbare secties
+- Aanmelden: bij registratie met een e-mailcode wordt om je naam gevraagd
+- Agentruns: de badge voor stack, batch en runs staat in elke weergave van een stuk werk

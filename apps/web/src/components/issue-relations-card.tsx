@@ -468,7 +468,13 @@ function RelationIssueRow({
           variant="ghost"
           size="icon-xs"
           aria-label={`Remove relation to ${row.identifier}`}
-          className="shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+          // A phone has no hover: an invisible tap target beside the avatar
+          // would delete a link unseen, so there it is always drawn.
+          className={cn(
+            `shrink-0 text-muted-foreground`,
+            !phone &&
+              `opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100`
+          )}
           onClick={() => removeRelation(relation)}
         >
           <UiCloseIcon className="size-3.5" />

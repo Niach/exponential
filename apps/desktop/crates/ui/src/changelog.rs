@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-29-release-train",
+    date: "2026-09-29",
+    title: "Release train 2026-09-29",
+    summary: "Start coding is always on an issue with a \"Ready to code?\" checklist that fixes what is missing, sub-issues and relations get their own bands, sign-up asks for your name, the CLI adds devices and sessions commands, and a new machine installs with one command.",
+    body: r#"- **Start coding**: every issue shows Start coding on every client. When something is missing (GitHub, the board's repository, an online machine) it opens a "Ready to code?" checklist with one fix per step, including picking the repository right there; the bulk bar, the Agent composer and Getting started use the same checklist.
+- **Issues**: a sub-issue names its parent above the title, sub-issues sit in their own band with a progress ring and a +, and every other relation folds into its own band. The stack, batch and runs badge shows on every face of a piece of work.
+- **Sign-up**: signing up with an email code asks for your name instead of guessing it from the address.
+- **Devices**: Add device shows an install command carrying a one-time token, so a new machine signs in, installs the daemon and turns on auto-update with one command. The CLI adds `exponential devices` and `exponential sessions` (list, show, log, message, kill) and starts runs on another machine with `--device`.
+- **Desktop app and CLI**: fetches and pushes that stall stop and clean up after themselves instead of hanging, account rotation probes each agent once per beat and keeps an account you picked, and workflow node tooltips always say what the node is.
+- **Self-hosting**: this release removes server support for iOS below 0.14.45, Android below 0.14.46 and desktop or CLI below 0.14.54. Set `CLIENT_MIN_VERSION_*` to those versions before upgrading (see `selfhost/.env.example`)."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-28-release-train",
     date: "2026-09-28",
     title: "Release train 2026-09-28",
@@ -53,21 +68,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     body: r#"- **Agent runs**: a claude run in plan mode no longer falls into the auto-mode classifier that refused every tool call, because the desktop app and the CLI pin auto mode off for every run they launch (update the machine to pick it up). A run on an empty repository creates its first commit and starts instead of hanging.
 - **Agent page**: the Recent runs panel on the web and in the desktop app wears the back row every side panel does, and the history button hides while the panel is up.
 - **Phones**: after a fresh sign-in or a full resync a board shows a spinner until its issues arrive, instead of flashing "No issues yet" and the getting-started checklist, and the iPhone waits for its boards the same way."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-26-release-train-evening",
-    date: "2026-09-26",
-    title: "Release train 2026-09-26, evening",
-    summary: "One merge control per pull request row, a workflow's event log under its graph, a red dot for a run waiting on you, a refusal to start an issue twice, and a desktop app that logs and keeps its heartbeat.",
-    body: r#"- **Reviews**: every pull request row carries exactly one control on every client: Merge for a plain pull request, Merge stack at the bottom of a stack, and a node's pull request of a running or paused workflow says it merges through the workflow. The server refuses to merge such a node's pull request by hand.
-- **Workflows**: a workflow whose final pull request was closed offers Open final PR on every client, the event log sits under the graph and a picked node shows only its own events, a review verdict and a skipped node write their own lines, and a review run started by hand nests under its node.
-- **Agent runs**: a run waiting on your answer wears a red dot, a workflow run on another account says which one, and a repeated failure logs once per distinct cause.
-- **Starting a run**: starting an issue or a batch that already has a live run says so instead of starting a second one, and an agent that asked for a run gets an error instead of a silent nothing. Unlinking the last blocker of a node that has not started makes it a proposal instead of a ready root.
-- **Phones**: the Run face scrolls to its newest rows again.
-- **Desktop app**: the heartbeat never stops silently, a run keeps its busy spinner while background agents work, an image seed posts one user message, a run started by an agent or a workflow lands in the sidebar instead of taking the screen, the sidebar scrollbars are slim and stay beside the rows, and the app writes a rotating log file next to its data."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

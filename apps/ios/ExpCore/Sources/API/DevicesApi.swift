@@ -176,12 +176,9 @@ private struct CreateCommandInput: Encodable {
     /// `agent_login_code` (EXP-765: `agent` + `code` required).
     /// EXP-1042: this client no longer emits `worktree_remove` /
     /// `worktree_prune` — the worktree inventory is an IDE surface now, and
-    /// EXP-1060 (compat round 26) retired those kinds server-side; the
-    /// `repoFullName`/`branch` fields they alone needed are always nil (the
-    /// server ignores them).
+    /// EXP-1060 (compat round 26) retired those kinds server-side along with
+    /// the `repoFullName`/`branch` keys they alone needed.
     let kind: String
-    let repoFullName: String?
-    let branch: String?
     /// EXP-484: contract `codingAgent` id for `agent_login` (an id outside
     /// the contract is refused
     /// server-side — it has no remote sign-in).
@@ -208,7 +205,7 @@ private struct CreateCommandInput: Encodable {
     let newProfileLabel: String?
 
     enum CodingKeys: String, CodingKey {
-        case deviceId, kind, repoFullName, branch, agent, code, profileId, newProfileLabel
+        case deviceId, kind, agent, code, profileId, newProfileLabel
         case switchAccount = "switch"
     }
 }
@@ -353,7 +350,7 @@ public final class DevicesApi: Sendable {
     /// EXP-1042: the app sends only the `agent_login*` kinds. It no longer
     /// emits `worktree_remove` / `worktree_prune` (the inventory left the
     /// phone for the IDE); EXP-1060 (compat round 26) retired those kinds
-    /// server-side, so `repoFullName`/`branch` stay nil.
+    /// server-side along with their `repoFullName`/`branch` keys.
     /// EXP-484: `agent_login` needs `agent` (and optionally `switchAccount`) —
     /// the device runs the agent's own sign-in and completes the command early
     /// with the URL/code as its `result`.
@@ -363,8 +360,6 @@ public final class DevicesApi: Sendable {
         accountId: String,
         deviceId: String,
         kind: String,
-        repoFullName: String? = nil,
-        branch: String? = nil,
         agent: String? = nil,
         switchAccount: Bool? = nil,
         code: String? = nil,
@@ -375,9 +370,8 @@ public final class DevicesApi: Sendable {
             accountId: accountId,
             path: "devices.createCommand",
             input: CreateCommandInput(
-                deviceId: deviceId, kind: kind, repoFullName: repoFullName, branch: branch,
-                agent: agent, switchAccount: switchAccount, code: code, profileId: profileId,
-                newProfileLabel: newProfileLabel
+                deviceId: deviceId, kind: kind, agent: agent, switchAccount: switchAccount,
+                code: code, profileId: profileId, newProfileLabel: newProfileLabel
             )
         )
     }

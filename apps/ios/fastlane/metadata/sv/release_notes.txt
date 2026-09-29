@@ -1,3 +1,4 @@
-- Boards: efter en ny inloggning eller en fullständig omsynkronisering visar ett board en laddningsindikator tills dess issues har kommit, i stället för att blixtra till med ”No issues yet” och kom-igång-checklistan
-- Agentkörningar: claude-körningar i planläge i en uppdaterad skrivbordsapp eller CLI använder sina verktyg igen i stället för att neka varje anrop
-- Agentkörningar: en körning på ett tomt repository skapar sin första commit och startar i stället för att hänga sig
+- Issues: ”Start coding” finns alltid på ett issue; när något saknas öppnas en ”Ready to code?”-checklista med en åtgärd för varje steg, inklusive att välja boardets repository
+- Issues: ett sub-issue visar sitt överordnade issue ovanför titeln, sub-issues visar sina framsteg med en ring och ett + för att lägga till ett nytt, och relationer grupperas i hopfällbara sektioner
+- Inloggning: registrering med en e-postkod frågar efter ditt namn
+- Agentkörningar: märket för stack, batch och körningar visas i varje vy av ett arbete

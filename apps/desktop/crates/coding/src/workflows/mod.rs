@@ -110,9 +110,6 @@ pub fn launch_options(
 /// The note a node carries while its agent is rate limited (EXP-1065: a
 /// hold keeps the node's own state and says why here).
 pub const NOTE_RATE_LIMITED: &str = "Waiting for the account's reset";
-/// The two hold notes engines before EXP-1065 wrote next to `waiting`;
-/// recognised so the mirror clears them once the hold is over.
-const LEGACY_HOLD_NOTES: [&str; 2] = ["Needs an answer", "Rate limited"];
 /// The note a node carries when its run ended with nothing to review.
 pub const NOTE_NO_PULL_REQUEST: &str = "The run ended without a pull request";
 /// EXP-1007: the note a node carries when its start never came up on the
@@ -2105,7 +2102,6 @@ fn desired_state(
 /// never touched while the state stands).
 fn is_engine_hold_note(note: &str) -> bool {
     note == NOTE_RATE_LIMITED
-        || LEGACY_HOLD_NOTES.contains(&note)
         || note.starts_with(NOTE_WAVE_GATE_PREFIX)
         || (note.starts_with("Its blockers ") && note.ends_with("one has to merge the other in"))
         || (note.starts_with("Its base ") && note.contains("could not be built"))

@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
+import { boardVisible } from "@/lib/board-visibility"
 import {
   codingSessions,
   issues,
@@ -675,7 +676,8 @@ export const repositoriesRouter = router({
           repositoryId: boards.repositoryId,
         })
         .from(boards)
-        .where(eq(boards.teamId, input.teamId))
+        // Trashed/archived boards are gone for the "used by …" tag too.
+        .where(and(eq(boards.teamId, input.teamId), boardVisible()))
 
       // The sharers' display identity for the ×4 "Shared by" rows (EXP-557).
       const sharerIds = [

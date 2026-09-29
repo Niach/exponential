@@ -1,3 +1,4 @@
-- Boardy: po novom prihlásení alebo úplnej resynchronizácii board ukazuje indikátor načítania, kým nedorazia jeho issues, namiesto toho, aby na chvíľu preblikol „No issues yet“ a úvodný checklist
-- Behy agenta: behy claude v režime plánu v aktualizovanej desktopovej aplikácii alebo CLI znova používajú svoje nástroje namiesto odmietania každého volania
-- Behy agenta: beh na prázdnom repozitári vytvorí svoj prvý commit a spustí sa namiesto toho, aby sa zasekol
+- Issues: „Start coding“ je pri issue vždy dostupné; keď niečo chýba, otvorí checklist „Ready to code?“ s opravou pre každý krok vrátane výberu repozitára boardu
+- Issues: sub-issue nad názvom uvádza svoje nadradené issue, sub-issues ukazujú svoj postup krúžkom a tlačidlom + na pridanie ďalšieho a vzťahy sa zoskupujú do zbaliteľných sekcií
+- Prihlásenie: registrácia pomocou e-mailového kódu sa opýta na vaše meno
+- Behy agenta: odznak stacku, dávky a behov sa zobrazuje v každom pohľade na rozpracovanú prácu

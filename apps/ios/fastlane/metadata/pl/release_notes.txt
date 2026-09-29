@@ -1,3 +1,4 @@
-- Boardy: po nowym zalogowaniu lub pełnej ponownej synchronizacji board pokazuje wskaźnik ładowania, dopóki nie dotrą jego issue, zamiast na moment wyświetlać „No issues yet” i listę pierwszych kroków
-- Przebiegi agenta: przebiegi claude w trybie planu w zaktualizowanej aplikacji desktopowej lub CLI znów używają swoich narzędzi zamiast odrzucać każde wywołanie
-- Przebiegi agenta: przebieg na pustym repozytorium tworzy swój pierwszy commit i startuje zamiast się zawieszać
+- Issue: „Start coding” jest zawsze dostępne w issue; gdy czegoś brakuje, otwiera listę kontrolną „Ready to code?” z poprawką dla każdego kroku, w tym z wyborem repozytorium boardu
+- Issue: sub-issue pokazuje nad tytułem swoje nadrzędne issue, sub-issue pokazują postęp pierścieniem i przyciskiem + do dodania kolejnego, a relacje grupują się w zwijane sekcje
+- Logowanie: rejestracja kodem z e-maila pyta o Twoje imię
+- Przebiegi agenta: plakietka stacku, batcha i przebiegów widnieje w każdym widoku danej pracy

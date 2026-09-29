@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest"
+import { PgDialect } from "drizzle-orm/pg-core"
 import {
+  createInstallToken,
   generateInstallToken,
   hashInstallToken,
   isInstallTokenShape,
@@ -25,6 +27,35 @@ describe(`install token shape (EXP-1111)`, () => {
     expect(isInstallTokenShape(`expu_${a.token.slice(5)}`)).toBe(false)
     expect(isInstallTokenShape(`expi_short`)).toBe(false)
     expect(isInstallTokenShape(42)).toBe(false)
+  })
+})
+
+describe(`createInstallToken`, () => {
+  it(`revokes the caller's earlier unused tokens: one live token per user`, async () => {
+    const calls: string[] = []
+    let deleteWhere: unknown
+    const database = {
+      delete: () => ({
+        where: async (cond: unknown) => {
+          calls.push(`delete`)
+          deleteWhere = cond
+        },
+      }),
+      insert: () => ({
+        values: async () => {
+          calls.push(`insert`)
+        },
+      }),
+    }
+    const now = new Date(`2026-09-29T10:00:00Z`)
+    const minted = await createInstallToken(database as never, `user-1`, now)
+
+    expect(calls).toEqual([`delete`, `insert`])
+    const { sql, params } = new PgDialect().sqlToQuery(deleteWhere as never)
+    // Every row of the caller, unused ones included — not just spent/expired.
+    expect(sql).toBe(`"cli_install_tokens"."user_id" = $1`)
+    expect(params).toEqual([`user-1`])
+    expect(minted.expiresAt.getTime()).toBe(now.getTime() + 15 * 60 * 1000)
   })
 })
 

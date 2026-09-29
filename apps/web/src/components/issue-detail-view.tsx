@@ -679,6 +679,7 @@ export function IssueDetailView({
   // The phone draws those bands in its properties sheet instead.
   const relationsSection = (
     <IssueRelationsSection
+      key={issue.id}
       issue={issue}
       teamId={teamId}
       users={users}

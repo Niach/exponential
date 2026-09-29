@@ -3811,10 +3811,17 @@ function ExpToolRow({
   // the publisher sends as the call's `detail`. Once the call SETTLED the
   // answer's own title/identifier is the better word for the same thing (and
   // the honest one while a publisher derives `detail` generically), so it
-  // wins there.
+  // wins there. EXP-1127: a single ref (`preview.refs`) is read first; the
+  // legacy `title`/`identifier` stay as the permanent pre-EXP-920 branch.
+  const ref =
+    item.preview?.refs?.length === 1 ? item.preview.refs[0] : undefined
   const subject =
     (item.settled
-      ? (item.preview?.title ?? item.preview?.identifier ?? item.detail)
+      ? (ref?.title ??
+        ref?.identifier ??
+        item.preview?.title ??
+        item.preview?.identifier ??
+        item.detail)
       : item.detail) ?? null
   return (
     <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>

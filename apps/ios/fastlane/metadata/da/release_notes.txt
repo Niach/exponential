@@ -1,3 +1,4 @@
-- Boards: efter en ny login eller en fuld gensynkronisering viser et board en indlæsningsindikator, indtil dets issues er kommet, i stedet for kortvarigt at vise "No issues yet" og kom-i-gang-tjeklisten
-- Agentkørsler: claude-kørsler i plantilstand på en opdateret desktop-app eller CLI bruger deres værktøjer igen i stedet for at afvise hvert kald
-- Agentkørsler: en kørsel på et tomt repository opretter sit første commit og starter i stedet for at hænge
+- Issues: "Start coding" er altid tilgængelig på et issue; når noget mangler, åbner den en "Ready to code?"-tjekliste med en løsning for hvert trin, herunder valg af boardets repository
+- Issues: et sub-issue viser sit overordnede issue over titlen, sub-issues viser deres fremskridt med en ring og et + til at tilføje et nyt, og relationer grupperes i sammenfoldelige sektioner
+- Login: tilmelding med en e-mailkode spørger om dit navn
+- Agentkørsler: badget for stack, batch og kørsler vises i alle visninger af et stykke arbejde

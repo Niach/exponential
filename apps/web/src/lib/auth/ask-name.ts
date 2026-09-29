@@ -87,8 +87,20 @@ export async function nameRequiredForOtpSignIn(
   return sameString(hashOtp(body.otp), digest)
 }
 
+/** The cap on a sign-up name, in characters (code points). */
+export const SIGN_UP_NAME_MAX = 100
+
+/** The `name` the plugin gets: trimmed and capped. An all-whitespace name
+ *  comes out as `` (no name), which the plugin stores as the empty string
+ *  and `fallbackUserName` then defaults, exactly as for a blank one. */
+export function normalizeSignUpName(name: string): string {
+  return Array.from(name.trim()).slice(0, SIGN_UP_NAME_MAX).join(``).trimEnd()
+}
+
 /** The `hooks.before` middleware (`lib/auth/index.ts`): throws the plugin's
- *  own error shape, `{ code, message }`, as a 400. */
+ *  own error shape, `{ code, message }`, as a 400. Otherwise it hands the
+ *  plugin a trimmed, capped `name`; a body without a string `name` passes
+ *  untouched. */
 export function askNameBeforeHook(options: {
   signUpDisabled: boolean
   allowedAttempts: number
@@ -104,7 +116,13 @@ export function askNameBeforeHook(options: {
       },
       ctx.context.internalAdapter
     )
-    if (!required) return
+    if (!required) {
+      const body = ctx.body as { name?: unknown } | undefined
+      if (typeof body?.name !== `string`) return
+      const name = normalizeSignUpName(body.name)
+      if (name === body.name) return
+      return { context: { body: { ...body, name } } }
+    }
     throw new APIError(`BAD_REQUEST`, {
       code: NAME_REQUIRED_CODE,
       message: `A name is required to create this account.`,

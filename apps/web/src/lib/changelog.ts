@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-29-release-train`,
+    date: `2026-09-29`,
+    title: `Release train 2026-09-29`,
+    summary: `Start coding is always on an issue with a "Ready to code?" checklist that fixes what is missing, sub-issues and relations get their own bands, sign-up asks for your name, the CLI adds devices and sessions commands, and a new machine installs with one command.`,
+    body: `- **Start coding**: every issue shows Start coding on every client. When something is missing (GitHub, the board's repository, an online machine) it opens a "Ready to code?" checklist with one fix per step, including picking the repository right there; the bulk bar, the Agent composer and Getting started use the same checklist.
+- **Issues**: a sub-issue names its parent above the title, sub-issues sit in their own band with a progress ring and a +, and every other relation folds into its own band. The stack, batch and runs badge shows on every face of a piece of work.
+- **Sign-up**: signing up with an email code asks for your name instead of guessing it from the address.
+- **Devices**: Add device shows an install command carrying a one-time token, so a new machine signs in, installs the daemon and turns on auto-update with one command. The CLI adds \`exponential devices\` and \`exponential sessions\` (list, show, log, message, kill) and starts runs on another machine with \`--device\`.
+- **Desktop app and CLI**: fetches and pushes that stall stop and clean up after themselves instead of hanging, account rotation probes each agent once per beat and keeps an account you picked, and workflow node tooltips always say what the node is.
+- **Self-hosting**: this release removes server support for iOS below 0.14.45, Android below 0.14.46 and desktop or CLI below 0.14.54. Set \`CLIENT_MIN_VERSION_*\` to those versions before upgrading (see \`selfhost/.env.example\`).`,
+  },
+  {
     id: `2026-09-28-release-train`,
     date: `2026-09-28`,
     title: `Release train 2026-09-28`,

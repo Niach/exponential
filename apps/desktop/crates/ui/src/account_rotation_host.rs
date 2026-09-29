@@ -26,7 +26,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use coding::account_rotation::{Decision, Hold, InflightProbes, ProbeBatch, RotationTracker, WalledRun};
+use coding::account_rotation::{
+    Decision, Hold, InflightClaim, InflightProbes, ProbeBatch, RotationTracker, WalledRun,
+};
 use coding::workflows::events::{TrpcEventSink, WorkflowEventSink as _};
 use gpui::App;
 
@@ -41,7 +43,7 @@ struct RotationState {
     /// The agents with a probe batch (and its switches) in flight: never
     /// probed twice, their chains kept in the tracker while a switch has
     /// ended the old run but not yet registered the new one.
-    inflight: Mutex<InflightProbes>,
+    inflight: Arc<Mutex<InflightProbes>>,
     /// Which hold each walled session was last logged under, so a hold is
     /// logged once per change instead of every beat.
     holds: Mutex<HashMap<String, &'static str>>,
@@ -64,7 +66,7 @@ pub fn start_account_rotation_host(cx: &mut App) {
     }
     let state = Arc::new(RotationState {
         tracker: Mutex::new(RotationTracker::new()),
-        inflight: Mutex::new(InflightProbes::new()),
+        inflight: Arc::new(Mutex::new(InflightProbes::new())),
         holds: Mutex::new(HashMap::new()),
         records: Mutex::new(HashMap::new()),
         reading: Mutex::new(HashSet::new()),
@@ -259,13 +261,13 @@ fn beat(state: &Arc<RotationState>, cx: &mut App) {
             );
             continue;
         };
-        if !lock(&state.inflight).claim(&batch) {
+        let Some(claim) = InflightProbes::claim_guarded(&state.inflight, &batch) else {
             continue;
-        }
+        };
         for run in &batch.runs {
             lock(&state.holds).remove(&run.session_id);
         }
-        spawn_probe(Arc::clone(state), batch, settings.clone(), report, data_dir.clone(), cx);
+        spawn_probe(Arc::clone(state), batch, claim, settings.clone(), report, data_dir.clone(), cx);
     }
 }
 
@@ -290,6 +292,7 @@ fn read_record(state: Arc<RotationState>, session_id: String, data_dir: std::pat
 fn spawn_probe(
     state: Arc<RotationState>,
     batch: ProbeBatch,
+    claim: InflightClaim,
     settings: coding::Settings,
     report: coding::DoctorReport,
     data_dir: std::path::PathBuf,
@@ -303,6 +306,9 @@ fn spawn_probe(
         batch.agent.id()
     );
     cx.spawn(async move |cx| {
+        // Releases the agent however this task ends (a dropped task, a
+        // panicking probe), not only on the normal path below.
+        let _claim = claim;
         let agent = batch.agent;
         let probe_dir = data_dir.clone();
         let profiles = cx
@@ -345,7 +351,6 @@ fn spawn_probe(
                 .spawn(async move { chains.save(&data_dir, now_ms) })
                 .detach();
         }
-        lock(&state.inflight).release(agent);
     })
     .detach();
 }

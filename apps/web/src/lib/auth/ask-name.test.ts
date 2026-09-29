@@ -8,6 +8,8 @@ import {
   fallbackUserName,
   hashOtp,
   nameRequiredForOtpSignIn,
+  normalizeSignUpName,
+  SIGN_UP_NAME_MAX,
 } from "./ask-name"
 
 // EXP-1026: the gate runs against a REAL Better Auth instance (memory
@@ -179,6 +181,37 @@ describe(`email-code sign-up name step (EXP-1026)`, () => {
     expect(res.status).toBe(200)
     expect(res.json.user.name).toBe(`grace.hopper`)
   })
+
+  it(`stores the name trimmed and capped`, async () => {
+    const otp = await requestCode(h, `new@example.com`)
+    const res = await post(
+      h,
+      `/sign-in/email-otp`,
+      { email: `new@example.com`, otp, name: `  ${`A`.repeat(150)}  ` },
+      ASK
+    )
+    expect(res.status).toBe(200)
+    expect(res.json.user.name).toBe(`A`.repeat(SIGN_UP_NAME_MAX))
+
+    const other = await requestCode(h, `ada@example.com`)
+    const trimmed = await post(h, `/sign-in/email-otp`, {
+      email: `ada@example.com`,
+      otp: other,
+      name: `  Ada Lovelace \n`,
+    })
+    expect(trimmed.json.user.name).toBe(`Ada Lovelace`)
+  })
+
+  it(`without the header an all-whitespace name keeps the mailbox fallback`, async () => {
+    const otp = await requestCode(h, `grace.hopper@example.com`)
+    const res = await post(h, `/sign-in/email-otp`, {
+      email: `grace.hopper@example.com`,
+      otp,
+      name: `   `,
+    })
+    expect(res.status).toBe(200)
+    expect(res.json.user.name).toBe(`grace.hopper`)
+  })
 })
 
 describe(`nameRequiredForOtpSignIn`, () => {
@@ -227,6 +260,14 @@ describe(`nameRequiredForOtpSignIn`, () => {
       )
     ).toBe(false)
     expect(await nameRequiredForOtpSignIn(input({ signUpDisabled: true }), ok)).toBe(false)
+  })
+
+  it(`normalizeSignUpName trims, caps by code point and empties a blank one`, () => {
+    expect(normalizeSignUpName(`  Ada  `)).toBe(`Ada`)
+    expect(normalizeSignUpName(` \t `)).toBe(``)
+    expect(normalizeSignUpName(`x`.repeat(99) + `  y`)).toBe(`x`.repeat(99))
+    const emoji = `\u{1F600}`.repeat(SIGN_UP_NAME_MAX + 5)
+    expect(Array.from(normalizeSignUpName(emoji))).toHaveLength(SIGN_UP_NAME_MAX)
   })
 
   it(`fallbackUserName keeps a real name and defaults a blank one`, () => {

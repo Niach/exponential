@@ -1513,6 +1513,221 @@
         "bands": [],
         "relationCount": 0
       }
+    },
+    {
+      "name": "a self-loop is dropped; same trailing number sorts by string (EXP-3 < VAPP-3); no trailing number sorts last",
+      "input": {
+        "subjectId": "v1",
+        "issues": [
+          {
+            "id": "v1",
+            "identifier": "VAPP-1",
+            "title": "Issue VAPP-1",
+            "status": "in_progress"
+          },
+          {
+            "id": "v3",
+            "identifier": "VAPP-3",
+            "title": "Issue VAPP-3",
+            "status": "backlog"
+          },
+          {
+            "id": "e3",
+            "identifier": "EXP-3",
+            "title": "Issue EXP-3",
+            "status": "backlog"
+          },
+          {
+            "id": "e10",
+            "identifier": "EXP-10",
+            "title": "Issue EXP-10",
+            "status": "in_progress"
+          },
+          {
+            "id": "ex",
+            "identifier": "EXP-X",
+            "title": "Issue EXP-X",
+            "status": "backlog"
+          },
+          {
+            "id": "dr",
+            "identifier": "DRAFT",
+            "title": "Issue DRAFT",
+            "status": "backlog"
+          },
+          {
+            "id": "c3",
+            "identifier": "EXP-3a",
+            "title": "Issue EXP-3a",
+            "status": "done"
+          }
+        ],
+        "relations": [
+          {
+            "type": "parent",
+            "issueId": "v1",
+            "relatedIssueId": "v1"
+          },
+          {
+            "type": "blocks",
+            "issueId": "v1",
+            "relatedIssueId": "v1"
+          },
+          {
+            "type": "related",
+            "issueId": "v1",
+            "relatedIssueId": "v1"
+          },
+          {
+            "type": "blocks",
+            "issueId": "ex",
+            "relatedIssueId": "v1"
+          },
+          {
+            "type": "blocks",
+            "issueId": "v3",
+            "relatedIssueId": "v1"
+          },
+          {
+            "type": "blocks",
+            "issueId": "e10",
+            "relatedIssueId": "v1"
+          },
+          {
+            "type": "blocks",
+            "issueId": "e3",
+            "relatedIssueId": "v1"
+          },
+          {
+            "type": "blocks",
+            "issueId": "dr",
+            "relatedIssueId": "v1"
+          },
+          {
+            "type": "parent",
+            "issueId": "v1",
+            "relatedIssueId": "ex"
+          },
+          {
+            "type": "parent",
+            "issueId": "v1",
+            "relatedIssueId": "v3"
+          },
+          {
+            "type": "parent",
+            "issueId": "v1",
+            "relatedIssueId": "c3"
+          },
+          {
+            "type": "parent",
+            "issueId": "v1",
+            "relatedIssueId": "e3"
+          },
+          {
+            "type": "parent",
+            "issueId": "v1",
+            "relatedIssueId": "dr"
+          }
+        ],
+        "toggled": [],
+        "showAll": [
+          "blocked_by"
+        ]
+      },
+      "expected": {
+        "parent": null,
+        "subIssues": {
+          "rows": [
+            {
+              "id": "e3",
+              "identifier": "EXP-3",
+              "title": "Issue EXP-3",
+              "status": "backlog",
+              "open": true
+            },
+            {
+              "id": "v3",
+              "identifier": "VAPP-3",
+              "title": "Issue VAPP-3",
+              "status": "backlog",
+              "open": true
+            },
+            {
+              "id": "dr",
+              "identifier": "DRAFT",
+              "title": "Issue DRAFT",
+              "status": "backlog",
+              "open": true
+            },
+            {
+              "id": "c3",
+              "identifier": "EXP-3a",
+              "title": "Issue EXP-3a",
+              "status": "done",
+              "open": false
+            },
+            {
+              "id": "ex",
+              "identifier": "EXP-X",
+              "title": "Issue EXP-X",
+              "status": "backlog",
+              "open": true
+            }
+          ],
+          "done": 1,
+          "total": 5,
+          "progress": "1/5"
+        },
+        "bands": [
+          {
+            "key": "blocked_by",
+            "title": "Blocked by",
+            "count": 5,
+            "openCount": 5,
+            "expanded": true,
+            "rows": [
+              {
+                "id": "e3",
+                "identifier": "EXP-3",
+                "title": "Issue EXP-3",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "v3",
+                "identifier": "VAPP-3",
+                "title": "Issue VAPP-3",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "e10",
+                "identifier": "EXP-10",
+                "title": "Issue EXP-10",
+                "status": "in_progress",
+                "open": true
+              },
+              {
+                "id": "dr",
+                "identifier": "DRAFT",
+                "title": "Issue DRAFT",
+                "status": "backlog",
+                "open": true
+              },
+              {
+                "id": "ex",
+                "identifier": "EXP-X",
+                "title": "Issue EXP-X",
+                "status": "backlog",
+                "open": true
+              }
+            ],
+            "more": null,
+            "less": "Show less"
+          }
+        ],
+        "relationCount": 5
+      }
     }
   ]
 }

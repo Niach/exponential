@@ -2536,7 +2536,8 @@ export const workflowNodes = pgTable(
     // latest verdict.
     reviewRound: integer(`review_round`).notNull().default(0),
     review: jsonb().$type<WorkflowNodeReview>(),
-    // Why the node is `failed` or `waiting`, one line, engine-written.
+    // Why the node is `failed` (or the latest review note), one line,
+    // engine-written.
     note: varchar({ length: 500 }),
     touches: text().array().notNull().default(sql`'{}'::text[]`),
     ...timestamps,

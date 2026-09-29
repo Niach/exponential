@@ -1523,13 +1523,13 @@ impl RotationHost {
             }
         }
         for batch in plan.probes {
-            if !lock_or_recover(&self.inflight).claim(&batch) {
+            let Some(claim) = coding::account_rotation::InflightProbes::claim_guarded(&self.inflight, &batch) else {
                 continue;
-            }
+            };
             for run in &batch.runs {
                 self.holds.clear(&run.session_id);
             }
-            self.spawn_probe(batch, doctor.clone(), settings.clone());
+            self.spawn_probe(batch, claim, doctor.clone(), settings.clone());
         }
     }
 
@@ -1538,6 +1538,7 @@ impl RotationHost {
     fn spawn_probe(
         &self,
         batch: coding::account_rotation::ProbeBatch,
+        claim: coding::account_rotation::InflightClaim,
         doctor: coding::DoctorReport,
         settings: coding::Settings,
     ) {
@@ -1551,9 +1552,11 @@ impl RotationHost {
             .as_ref()
             .and_then(|manager| manager.store(&ctx.account.id));
         let tracker = Arc::clone(&self.tracker);
-        let inflight = Arc::clone(&self.inflight);
         let reservations = self.reservations.clone();
         std::thread::spawn(move || {
+            // Releases the agent however this thread ends — a panicking
+            // probe included, not only the normal path below.
+            let _claim = claim;
             let ids: Vec<&str> = batch.runs.iter().map(|run| run.session_id.as_str()).collect();
             log::info!(
                 "account rotation [{}]: {} run(s) walled between turns — reading every {} profile's usage once",
@@ -1589,24 +1592,27 @@ impl RotationHost {
                     decision,
                 );
                 if !switched {
-                    // EXP-1107: a switch that did not happen spends neither
-                    // the cap nor the cooldown; the chain retries after the
-                    // short spacing.
+                    // EXP-1107: a switch refused before it began spends
+                    // neither the cap nor the cooldown; the chain retries
+                    // after the short spacing.
                     let mut tracker = lock_or_recover(&tracker);
                     let now = chrono::Utc::now().timestamp_millis();
                     tracker.undo_switch(&run.chain_key, now_ms, now);
                     tracker.save(&ctx.data_dir, now);
                 }
             }
-            lock_or_recover(&inflight).release(batch.agent);
         });
     }
 }
 
-/// Act on one rotation decision for `run`. `false` = a switch that did NOT
-/// happen (skipped for a resume already in flight, or failed): the caller
-/// undoes the rotation the tracker counted. A wait, or a switch made, is
-/// `true`.
+/// Act on one rotation decision for `run`. `false` = a switch refused
+/// before it began (a resume of the run already in flight, or the agent
+/// started a turn): the caller undoes the rotation the tracker counted. A
+/// wait, a switch made, or a switch that FAILED (no local record, workspace
+/// gone, the run did not stop in time, a launch error) is `true` — like the
+/// desktop's, a failure keeps its count and the cooldown spaces the retry,
+/// rather than a forced probe of every profile every beat for a run that
+/// can never resume.
 #[allow(clippy::too_many_arguments)]
 fn act_on_rotation(
     ctx: &Arc<Ctx>,
@@ -1678,12 +1684,16 @@ fn act_on_rotation(
                     record("account_switched", event_message);
                     true
                 }
-                Err(err) => {
+                Err(err) if err.is::<SwitchBusy>() => {
                     log::warn!(
-                        "account rotation [{}]: switch failed, retrying soon: {err:#}",
+                        "account rotation [{}]: switch refused — the agent started a turn; retrying soon",
                         run.session_id
                     );
                     false
+                }
+                Err(err) => {
+                    log::warn!("account rotation [{}]: switch failed: {err:#}", run.session_id);
+                    true
                 }
             }
         }
@@ -2158,6 +2168,28 @@ impl NodeHold<'_> {
     }
 }
 
+/// A mid-turn account switch, refused: typed so the rotation can tell it
+/// (retry soon, nothing spent) from a switch that failed.
+#[derive(Debug)]
+struct SwitchBusy {
+    session_id: String,
+}
+
+impl std::fmt::Display for SwitchBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The ×4 sentence (`SessionAccountSwitch.REASON_BUSY`), so the log says
+        // exactly what the requester's own disabled row says.
+        write!(
+            f,
+            "account switch for {} refused — \
+             The agent is working — switching waits for the turn to finish.",
+            self.session_id
+        )
+    }
+}
+
+impl std::error::Error for SwitchBusy {}
+
 /// EXP-849 — end the live run an account switch is taking over, so the resume
 /// can re-enter it under the other login: the agent cannot be in two processes
 /// in one worktree.
@@ -2177,12 +2209,7 @@ fn end_for_account_switch(sessions: &Sessions, session_id: &str) -> anyhow::Resu
         return Ok(());
     };
     if !live.is_idle() {
-        // The ×4 sentence (`SessionAccountSwitch.REASON_BUSY`), so the log says
-        // exactly what the requester's own disabled row says.
-        anyhow::bail!(
-            "account switch for {session_id} refused — \
-             The agent is working — switching waits for the turn to finish."
-        );
+        return Err(SwitchBusy { session_id: session_id.to_string() }.into());
     }
     log::info!("account switch: ending live session {session_id} before the resume");
     live.kill();

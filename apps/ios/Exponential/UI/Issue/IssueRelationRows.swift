@@ -46,8 +46,9 @@ struct IssueRelationListRow: View {
                     .fixedSize()
                 Text(row.title)
                     .font(.subheadline)
-                    // A finished sub-task recedes (web `text-foreground/60`).
-                    .foregroundStyle(.white.opacity(row.status == IssueStatus.done.rawValue ? 0.6 : 1))
+                    // A closed counterpart (done, cancelled, duplicate)
+                    // recedes (web `!row.open && text-foreground/60`).
+                    .foregroundStyle(.white.opacity(row.open ? 1 : 0.6))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)

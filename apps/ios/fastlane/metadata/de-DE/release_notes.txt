@@ -1,3 +1,4 @@
-- Boards: nach einer frischen Anmeldung oder einer vollständigen Neusynchronisierung zeigt ein Board einen Ladekreis, bis seine Issues da sind, statt kurz „No issues yet“ und die Einstiegs-Checkliste aufblitzen zu lassen
-- Agent-Läufe: claude-Läufe im Plan-Modus auf einer aktualisierten Desktop-App oder CLI nutzen ihre Werkzeuge wieder, statt jeden Aufruf abzulehnen
-- Agent-Läufe: ein Lauf auf einem leeren Repository erstellt seinen ersten Commit und startet, statt hängen zu bleiben
+- Issues: „Start coding“ ist bei einem Issue immer verfügbar; fehlt etwas, öffnet sich eine „Ready to code?“-Checkliste mit einer Lösung für jeden Schritt, einschließlich der Auswahl des Repositorys für das Board
+- Issues: ein Sub-Issue nennt sein übergeordnetes Issue über dem Titel, Sub-Issues zeigen ihren Fortschritt mit einem Ring und einem + zum Hinzufügen, und Beziehungen werden in einklappbaren Abschnitten gruppiert
+- Anmeldung: die Registrierung mit einem E-Mail-Code fragt nach deinem Namen
+- Agent-Läufe: das Badge für Stack, Batch und Läufe erscheint in jeder Ansicht einer Arbeit

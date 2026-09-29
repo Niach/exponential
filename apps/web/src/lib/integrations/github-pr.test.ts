@@ -282,6 +282,20 @@ describe(`findOpenPullByHead`, () => {
     })
   })
 
+  it(`narrows to one base when asked (the PR behind a 422)`, async () => {
+    const fetchImpl = vi.fn(async (_url: string) => jsonResponse(200, []))
+    await findOpenPullByHead(
+      `owner/repo`,
+      `exp/batch-a14a29c3`,
+      `tok`,
+      fetchImpl as unknown as GitHubFetch,
+      `release/1.2`
+    )
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      `https://api.github.com/repos/owner/repo/pulls?state=open&head=owner:exp%2Fbatch-a14a29c3&base=release%2F1.2&per_page=1`
+    )
+  })
+
   it(`returns null when the head has no open PR`, async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(200, []))
     expect(

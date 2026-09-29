@@ -856,6 +856,12 @@ pub(crate) fn git_output(
     let mut command = terminal::process::background_command("git");
     command.args(progress.as_deref().unwrap_or(args));
     command.env("GIT_TERMINAL_PROMPT", "0");
+    if progress.is_some() {
+        // git-lfs prints no progress on a piped stderr either, so a long LFS
+        // upload/download read as idle and was killed; its meter lines
+        // (`Uploading LFS objects:  50% (1/2), …`) strip like git's.
+        command.env("GIT_LFS_FORCE_PROGRESS", "1");
+    }
     // C-locale messages: error-text classification (and stable test
     // assertions) rely on git's English phrasing — localized git would
     // break them.
@@ -1229,10 +1235,13 @@ const LOCK_SWEEP_QUIET: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// EXP-1011 — after a timeout kill in `cwd`'s repo, remove what the killed
 /// git could leave behind: `*.lock` files (`refs/**`, `packed-refs`,
-/// `shallow`, `HEAD`, `FETCH_HEAD`, `config`, and the op's own `index`) and
-/// `objects/pack/tmp_{pack,idx,rev}_*` garbage. A SIGKILLed git removes
-/// none of them, and a leftover ref lock fails every later fetch with
-/// "cannot lock ref … File exists".
+/// `shallow`, `HEAD`, `FETCH_HEAD`, `config`, and the op's own `index`). A
+/// SIGKILLed git removes none of them, and a leftover ref lock fails every
+/// later fetch with "cannot lock ref … File exists". Its
+/// `objects/pack/tmp_{pack,idx,rev}_*` garbage stays: it blocks nothing,
+/// `git gc` prunes it, and in a shared object store it cannot be told from
+/// a concurrent fetch's in-progress pack (unlinking that one fails it with
+/// "unable to rename temporary pack").
 ///
 /// Only files the killed op could own go: modified AT OR AFTER `op_started`
 /// (a lock older than the op was not its — the op would have failed on it
@@ -1289,15 +1298,6 @@ fn sweep_stale_git_files(
         candidates.push(common_dir.join(name));
     }
     collect_ref_locks(&common_dir.join("refs"), &mut candidates);
-    if let Ok(entries) = std::fs::read_dir(common_dir.join("objects").join("pack")) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if ["tmp_pack_", "tmp_idx_", "tmp_rev_"].iter().any(|prefix| name.starts_with(prefix)) {
-                candidates.push(entry.path());
-            }
-        }
-    }
     candidates.sort();
     candidates.dedup();
     candidates
@@ -1413,6 +1413,11 @@ fatal: couldn't find remote ref nope\n";
             "From https://github.com/acme/web\n ! [rejected]        main -> main (non-fast-forward)\nfatal: couldn't find remote ref nope\n"
         );
         assert!(strip_progress(b"Receiving objects: 100% (3/3), done.\n").is_empty());
+        // git-lfs's meter, forced on by `GIT_LFS_FORCE_PROGRESS`.
+        assert!(strip_progress(
+            b"Uploading LFS objects:  50% (1/2), 1.2 MB | 600 KB/s\rUploading LFS objects: 100% (2/2), 2.4 MB | 1.1 MB/s, done.\n"
+        )
+        .is_empty());
     }
 
     #[cfg(unix)]
@@ -1509,8 +1514,9 @@ fatal: couldn't find remote ref nope\n";
         assert!(!inflight_ops().contains(&pid));
     }
 
-    /// EXP-1011: a timeout kill sweeps the locks and pack garbage the killed
-    /// op could have left — and nothing older than it, nor anything else.
+    /// EXP-1011: a timeout kill sweeps the locks the killed op could have
+    /// left — and nothing older than it, nor anything else: pack temp files
+    /// may be a concurrent fetch's, in flight in the shared object store.
     #[test]
     fn the_sweep_takes_only_the_killed_ops_leftovers() {
         let dir = temp_dir("sweep");
@@ -1527,11 +1533,12 @@ fatal: couldn't find remote ref nope\n";
             gitdir.join("refs/remotes/origin/main.lock"),
             gitdir.join("packed-refs.lock"),
             gitdir.join("shallow.lock"),
-            gitdir.join("objects/pack/tmp_pack_abc123"),
         ];
         for path in &created {
             fs::write(path, "").unwrap();
         }
+        let tmp_pack = gitdir.join("objects/pack/tmp_pack_abc123");
+        fs::write(&tmp_pack, "").unwrap();
         let keeper = gitdir.join("refs/remotes/origin/main");
         fs::write(&keeper, "0000000000000000000000000000000000000000\n").unwrap();
         // Still being written (inside `quiet`): a live git's, left alone.
@@ -1547,6 +1554,7 @@ fatal: couldn't find remote ref nope\n";
         assert_eq!(canon(&swept), canon(&expected));
         assert!(created.iter().all(|path| !path.exists()));
         assert!(old_lock.exists(), "a lock older than the op is not its");
+        assert!(tmp_pack.exists(), "pack temp files may be a live fetch's");
         assert!(keeper.exists());
     }
 

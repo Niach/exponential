@@ -1,3 +1,4 @@
-- Boards: after a fresh sign-in or a full resync a board shows a spinner until its issues arrive, instead of flashing "No issues yet" and the getting-started checklist
-- Agent runs: plan-mode claude runs on an updated desktop app or CLI use their tools again instead of refusing every call
-- Agent runs: a run on an empty repository creates its first commit and starts instead of hanging
+- Issues: Start coding is always on an issue; when something is missing it opens a "Ready to code?" checklist with a fix for each step, including picking the board's repository
+- Issues: a sub-issue names its parent above the title, sub-issues show their progress with a ring and a + to add one, and relations group into foldable sections
+- Sign-in: signing up with an email code asks for your name
+- Agent runs: the stack, batch and runs badge shows on every face of a piece of work

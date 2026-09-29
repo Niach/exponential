@@ -419,7 +419,8 @@ export const auth = betterAuth({
   },
   hooks: {
     // EXP-1026: a name-less first sign-in with a code, from a client that
-    // sends `X-Exp-Ask-Name: 1`, answers NAME_REQUIRED with the code intact.
+    // sends `X-Exp-Ask-Name: 1`, answers NAME_REQUIRED with the code intact;
+    // every other one gets its `name` trimmed and capped.
     before: askNameBeforeHook({
       signUpDisabled: isPasswordSignupDisabled(),
       allowedAttempts: EMAIL_OTP_ALLOWED_ATTEMPTS,

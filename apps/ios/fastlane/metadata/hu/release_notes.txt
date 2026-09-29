@@ -1,3 +1,4 @@
-- Boardok: új bejelentkezés vagy teljes újraszinkronizálás után a board töltésjelzőt mutat, amíg meg nem érkeznek az issue-i, ahelyett, hogy felvillanna a „No issues yet” és a kezdő ellenőrzőlista
-- Ügynökfutások: a frissített asztali alkalmazáson vagy CLI-n tervmódban futó claude-futások ismét használják az eszközeiket, ahelyett, hogy minden hívást elutasítanának
-- Ügynökfutások: az üres repositoryn indított futás létrehozza az első commitját és elindul, ahelyett, hogy elakadna
+- Issue-k: a „Start coding” mindig elérhető egy issue-n; ha valami hiányzik, megnyit egy „Ready to code?” ellenőrzőlistát, amely minden lépéshez javítást kínál, beleértve a board repositoryjának kiválasztását is
+- Issue-k: egy al-issue a cím fölött megnevezi a szülő issue-ját, az al-issue-k egy gyűrűvel mutatják a haladásukat, egy + gombbal újat adhatsz hozzá, a kapcsolatok pedig összecsukható szakaszokba rendeződnek
+- Bejelentkezés: az e-mailes kóddal történő regisztráció megkérdezi a neved
+- Ügynökfutások: a stack, batch és futások jelvénye egy munka minden nézetén megjelenik

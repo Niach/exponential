@@ -530,6 +530,16 @@ fn render_row(
         )
     });
     let issue_id = other.id.clone();
+    let mut title = div()
+        .flex_1()
+        .min_w_0()
+        .text_sm()
+        .truncate()
+        .child(SharedString::from(row.title.clone()));
+    // A closed issue's title is dimmed (web `text-foreground/60`).
+    if !row.open {
+        title = title.text_color(cx.theme().foreground.opacity(0.6));
+    }
     // EXP-760: the row opens the shared issue hover preview — the same card
     // the `#IDENT` pills in prose show. The row's painted rectangle is the
     // anchor, captured at prepaint (the `Popup` recipe) because a hover
@@ -588,14 +598,7 @@ fn render_row(
                     .font_family(theme::terminal::FONT_FAMILY)
                     .child(SharedString::from(row.identifier.clone())),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .truncate()
-                    .child(SharedString::from(row.title.clone())),
-            )
+            .child(title)
             .children(
                 relation_id
                     .map(|relation_id| remove_button(&format!("{slug}-{}", other.id), relation_id)),
