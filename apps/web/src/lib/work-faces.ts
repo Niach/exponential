@@ -25,6 +25,9 @@ export const RUNS_FACE_LABEL = `Runs`
 export const CHANGES_FACE_LABEL = `Changes`
 /** EXP-879: the run's published results. */
 export const RESULTS_FACE_LABEL = `Results`
+/** EXP-933: the transcript card under a settled `sessions_results` call that
+ *  switches the run to its Results face. */
+export const OPEN_RESULTS_LABEL = `Open Results`
 /** The switcher menu's extra row once the shown run ended for good. */
 export const START_CODING_LABEL = `Start coding`
 

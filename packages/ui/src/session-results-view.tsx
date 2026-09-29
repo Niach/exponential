@@ -135,8 +135,10 @@ export function SessionResultsView({
       className="flex flex-col gap-4 py-3"
       data-testid="session-results"
     >
-      {groups.map((group) => (
-        <div key={group.topic} className="flex flex-col">
+      {groups.map((group, index) => (
+        // Keyed by position too: a workflow concatenates several runs'
+        // groups, so one topic may band twice.
+        <div key={`${index}/${group.topic}`} className="flex flex-col">
           <GlassSectionHeader label={group.topic} />
           {group.text !== null && (
             <div

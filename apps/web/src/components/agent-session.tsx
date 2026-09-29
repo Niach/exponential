@@ -1,7 +1,9 @@
 import type { ReactNode } from "react"
 import {
+  createContext,
   Fragment,
   memo,
+  useContext,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -51,7 +53,7 @@ import {
   AgentBrandMark,
   ContextRing,
   SessionResultsView,
-  parseSessionResults,
+  parseSessionResultGroups,
   RUN_TITLE_CLASS,
   WORK_COLUMN_CLASS,
   WorkHeader,
@@ -62,7 +64,11 @@ import {
   AttachmentThumb,
   DisclosureHeader,
 } from "@exp/ui"
-import { availableFaces, phaseDotTone } from "@/lib/work-faces"
+import {
+  availableFaces,
+  OPEN_RESULTS_LABEL,
+  phaseDotTone,
+} from "@/lib/work-faces"
 import { publishReviewFiles } from "@/lib/review-files-slot"
 import { runHasEnded } from "@/lib/past-runs"
 import type { CodingSession } from "@/db/schema"
@@ -203,6 +209,7 @@ import { cn } from "@/lib/utils"
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
 const CodingAssistantIcon = conceptIcon(`coding-assistant`)
+const OpenResultsIcon = conceptIcon(`work-results`)
 const CodingCompactIcon = conceptIcon(`coding-compact`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingPlanIcon = conceptIcon(`coding-plan`)
@@ -871,9 +878,10 @@ export function AgentSessionView({
   )
 
   /** EXP-879: the screenshots this run published (`coding_sessions.results`,
-   *  a synced jsonb blob). Empty = no Results face. */
-  const results = useMemo(
-    () => parseSessionResults(session.results),
+   *  a synced jsonb blob) — EXP-933: and each topic's report text, grouped.
+   *  Empty = no Results face. */
+  const resultGroups = useMemo(
+    () => parseSessionResultGroups(session.results),
     [session.results]
   )
 
@@ -905,7 +913,7 @@ export function AgentSessionView({
           },
         ]
       : []),
-    ...(results.length > 0
+    ...(resultGroups.length > 0
       ? [
           {
             face: `results` as const,
@@ -928,7 +936,13 @@ export function AgentSessionView({
   const showDiffFace = face === `diff` && changesFiles.length > 0
   /** EXP-879: the results face stands only while the run published something
    *  — a stale `?view=results` falls back to the run face, like the diff. */
-  const showResultsFace = face === `results` && results.length > 0
+  const showResultsFace = face === `results` && resultGroups.length > 0
+  /** EXP-933: the transcript's `Open Results` card switches THIS run to its
+   *  Results face — offered once there is a face to switch to. */
+  const openResults = useMemo(
+    () => (resultGroups.length > 0 ? () => onFace(`results`) : null),
+    [resultGroups.length, onFace]
+  )
   /** EXP-893: the subject HAS changes — a live diff, PR files, or an open PR
    *  whose files are one fetch away. The phone's Changes face exists then. */
   const hasChanges =
@@ -1093,7 +1107,7 @@ export function AgentSessionView({
           hasIssue: Boolean(onIssueFace),
           hasRun: true,
           hasChanges,
-          hasResults: results.length > 0,
+          hasResults: resultGroups.length > 0,
         }),
         face: showDiffFace ? `changes` : showResultsFace ? `results` : `run`,
         runs: issueRuns,
@@ -1216,6 +1230,7 @@ export function AgentSessionView({
   )
 
   return (
+    <OpenResultsContext.Provider value={openResults}>
     <div className="flex h-full min-h-0 flex-col">
       {/* EXP-851/850 §10: on a phone the header IS `MobileDetailHeader` —
           byte-identical to the issue, review, support-thread and session-issue
@@ -1324,8 +1339,9 @@ export function AgentSessionView({
         >
           <div className={cn(WORK_COLUMN_CLASS)}>
             <SessionResultsView
-              results={results}
+              groups={resultGroups}
               attachmentSrc={(id) => `/api/attachments/${id}`}
+              renderText={renderResultText}
             />
           </div>
         </div>
@@ -1868,6 +1884,7 @@ export function AgentSessionView({
 
       {killDialog}
     </div>
+    </OpenResultsContext.Provider>
   )
 }
 
@@ -2349,6 +2366,12 @@ function FeedMarkdown({
       bareIssueRefs
     />
   )
+}
+
+/** EXP-933: a Results topic's report text — the steering feed's read-only
+ *  chat markdown (links, bare issue refs), shared by every Results face. */
+export function renderResultText(text: string) {
+  return <FeedMarkdown text={text} ariaLabel={`Results report`} />
 }
 
 /** Feed text: markdown when it carries any (EXP-440), else the plain
@@ -3789,6 +3812,31 @@ const ToolOutput = memo(function ToolOutput({
   )
 })
 
+/** EXP-933: how a transcript row switches the run it sits in to its Results
+ *  face; null outside a run view, or while the run has published nothing. */
+const OpenResultsContext = createContext<(() => void) | null>(null)
+
+/** EXP-933: a settled `sessions_results` call (contract result kind
+ *  `results`) — the one-tap way from the transcript to what it published. */
+function OpenResultsCard() {
+  const openResults = useContext(OpenResultsContext)
+  if (!openResults) return null
+  return (
+    <div className="ml-5 pt-1">
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 text-xs"
+        onClick={openResults}
+        data-testid="open-results-card"
+      >
+        <OpenResultsIcon className="size-3.5" />
+        {OPEN_RESULTS_LABEL}
+      </Button>
+    </div>
+  )
+}
+
 /** EXP-846: an Exponential MCP call. The brand mark leads (the same asset the
  *  auth shell and the About card draw), then the contract caption —
  *  progressive while the call runs ("Creating issue"), done once it settled
@@ -3854,8 +3902,13 @@ function ExpToolRow({
         )}
         {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
       </div>
-      {!failed && item.preview && (
-        <ExpToolResult kind={display.result} preview={item.preview} />
+      {!failed && display.result === `results` && item.settled === true ? (
+        <OpenResultsCard />
+      ) : (
+        !failed &&
+        item.preview && (
+          <ExpToolResult kind={display.result} preview={item.preview} />
+        )
       )}
     </div>
   )

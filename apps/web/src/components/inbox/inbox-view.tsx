@@ -92,7 +92,8 @@ type SupportGroup = {
 }
 
 // EXP-801: an agent's message (`agent_message`, issue-less, team-scoped) is
-// its own entry — one per row, never bundled: each is a distinct thing
+// its own entry (EXP-933: one WITH an issue joins that issue's group and
+// opens its Results) — one per row, never bundled: each is a distinct thing
 // someone's agent said. Clicking marks it read; there is nowhere to go.
 //
 // EXP-980: a `session_blocked` row (a run of yours hit a rate limit) is the
@@ -494,7 +495,14 @@ export function InboxView({
                     boardSlug: g.board.slug,
                     issueIdentifier: g.issue.identifier,
                   }}
-                  search={from ? { from } : {}}
+                  // EXP-933: an agent's message about an issue opens the
+                  // issue's Results — what the agent is pointing at.
+                  search={{
+                    ...(from ? { from } : {}),
+                    ...(latest.type === `agent_message`
+                      ? { view: `results` as const }
+                      : {}),
+                  }}
                   onClick={() => void markGroupRead(g)}
                 >
                   {issueRowBody}

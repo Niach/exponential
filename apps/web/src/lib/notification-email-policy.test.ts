@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   buildIssueDeepLinkPath,
+  digestItemPath,
   buildUnsubscribeUrl,
   buildSupportDeepLinkPath,
   defaultEmailPrefs,
@@ -788,5 +789,56 @@ describe(`url builders`, () => {
         identifier: `MET-12`,
       })
     ).toBe(`/t/metric/boards/web/issues/MET-12`)
+  })
+})
+
+describe(`digestItemPath`, () => {
+  const issueRow = {
+    teamSlug: `metric`,
+    boardSlug: `web`,
+    issueIdentifier: `MET-12`,
+    notificationTeamSlug: `metric`,
+    sessionId: null,
+  }
+  const issueLess = {
+    teamSlug: null,
+    boardSlug: null,
+    issueIdentifier: null,
+    notificationTeamSlug: `metric`,
+    sessionId: null,
+  }
+
+  it(`links an issue row to the issue`, () => {
+    expect(digestItemPath({ ...issueRow, type: `comment` })).toBe(
+      `/t/metric/boards/web/issues/MET-12`
+    )
+  })
+
+  it(`links an agent message about an issue to its Results face`, () => {
+    expect(digestItemPath({ ...issueRow, type: `agent_message` })).toBe(
+      `/t/metric/boards/web/issues/MET-12?view=results`
+    )
+  })
+
+  it(`links an issue-less agent message to the team inbox`, () => {
+    expect(digestItemPath({ ...issueLess, type: `agent_message` })).toBe(
+      `/t/metric/inbox`
+    )
+  })
+
+  it(`links issue-less support replies and blocked runs`, () => {
+    expect(digestItemPath({ ...issueLess, type: `support_reply` })).toBe(
+      `/t/metric/support`
+    )
+    expect(
+      digestItemPath({ ...issueLess, type: `session_blocked`, sessionId: `s1` })
+    ).toBe(`/t/metric/sessions/s1`)
+    expect(digestItemPath({ ...issueLess, type: `session_blocked` })).toBeNull()
+  })
+
+  it(`leaves a row with nowhere to go unlinked`, () => {
+    expect(
+      digestItemPath({ ...issueLess, notificationTeamSlug: null, type: `comment` })
+    ).toBeNull()
   })
 })

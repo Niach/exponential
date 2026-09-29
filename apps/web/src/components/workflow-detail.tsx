@@ -33,7 +33,7 @@ import {
   IssueChip as IssueChipView,
   IssueChipStack,
   LiveDot,
-  parseSessionResults,
+  parseSessionResultGroups,
   PrGithubButton,
   SessionResultsView,
   Skeleton,
@@ -62,7 +62,10 @@ import {
   type WorkFace,
   type WorkFaceItem,
 } from "@/components/team/work-face-toggle"
-import { AgentSessionView } from "@/components/agent-session"
+import {
+  AgentSessionView,
+  renderResultText,
+} from "@/components/agent-session"
 import { ChangesView } from "@/components/changes-view"
 import { IssueBlocksPopover } from "@/components/issue-blocks-badge"
 import { IssueDetailView } from "@/components/issue-detail-view"
@@ -1874,15 +1877,17 @@ function NodeChanges({
   )
 }
 
-/** × Results: every scoped run's published screenshots, by topic. */
+/** × Results: every scoped run's published report — each run's topics (text
+ *  and screenshots) in turn, concatenated (EXP-933). */
 function ResultsFace({ sessions }: { sessions: readonly CodingSession[] }) {
-  const results = useMemo(
-    () => sessions.flatMap((session) => parseSessionResults(session.results)),
+  const groups = useMemo(
+    () =>
+      sessions.flatMap((session) => parseSessionResultGroups(session.results)),
     [sessions]
   )
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4">
-      {results.length === 0 ? (
+      {groups.length === 0 ? (
         <p
           className="py-3 text-sm text-muted-foreground"
           data-testid="workflow-results-empty"
@@ -1891,8 +1896,9 @@ function ResultsFace({ sessions }: { sessions: readonly CodingSession[] }) {
         </p>
       ) : (
         <SessionResultsView
-          results={results}
+          groups={groups}
           attachmentSrc={(id) => `/api/attachments/${id}`}
+          renderText={renderResultText}
         />
       )}
     </div>
