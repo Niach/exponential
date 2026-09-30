@@ -12,7 +12,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// EXP-893: the phone Work screen's pure rules. Test names mirror web
+// EXP-893: the phone Work screen's pure rules — EXP-1150: face tabs, the
+// body swipe (`swipeTarget`) and the Run bar's one circle (`runBarTrailing`).
+// Test names mirror web
 // `work-faces.test.ts` and iOS `WorkFacesTests.swift`.
 class WorkFacesTest {
 
@@ -128,85 +130,27 @@ class WorkFacesTest {
     }
 
     @Test
-    fun `offers the other faces as switcher targets`() {
+    fun `swipes to the neighbouring face`() {
+        val all = listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Changes, WorkFaceKind.Results)
+        assertEquals(WorkFaceKind.Run, swipeTarget(all, WorkFaceKind.Issue, SwipeDirection.Left))
+        assertEquals(WorkFaceKind.Changes, swipeTarget(all, WorkFaceKind.Run, SwipeDirection.Left))
+        assertEquals(WorkFaceKind.Run, swipeTarget(all, WorkFaceKind.Changes, SwipeDirection.Right))
+        assertEquals(WorkFaceKind.Issue, swipeTarget(all, WorkFaceKind.Run, SwipeDirection.Right))
+        assertNull(swipeTarget(all, WorkFaceKind.Issue, SwipeDirection.Right))
+        assertNull(swipeTarget(all, WorkFaceKind.Results, SwipeDirection.Left))
         assertEquals(
-            listOf(SwitcherTarget.Face(WorkFaceKind.Issue), SwitcherTarget.Face(WorkFaceKind.Changes)),
-            switcherTargets(
-                listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Changes),
-                WorkFaceKind.Run,
-                listOf("a"),
-                "a",
-                false,
-            ),
+            WorkFaceKind.Results,
+            swipeTarget(listOf(WorkFaceKind.Issue, WorkFaceKind.Results), WorkFaceKind.Issue, SwipeDirection.Left),
         )
-        assertEquals(
-            emptyList<SwitcherTarget>(),
-            switcherTargets(listOf(WorkFaceKind.Issue), WorkFaceKind.Issue, emptyList(), null, false),
-        )
+        assertNull(swipeTarget(listOf(WorkFaceKind.Issue), WorkFaceKind.Run, SwipeDirection.Left))
+        assertNull(swipeTarget(emptyList(), WorkFaceKind.Issue, SwipeDirection.Left))
     }
 
     @Test
-    fun `expands the run face into one row per run with two or more`() {
-        assertEquals(
-            listOf(SwitcherTarget.Run("a"), SwitcherTarget.Run("b")),
-            switcherTargets(listOf(WorkFaceKind.Issue, WorkFaceKind.Run), WorkFaceKind.Issue, listOf("a", "b"), "a", false),
-        )
-        // On the Run face the shown run is not a target.
-        assertEquals(
-            listOf(
-                SwitcherTarget.Face(WorkFaceKind.Issue),
-                SwitcherTarget.Run("b"),
-                SwitcherTarget.Face(WorkFaceKind.Changes),
-            ),
-            switcherTargets(
-                listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Changes),
-                WorkFaceKind.Run,
-                listOf("a", "b"),
-                "a",
-                false,
-            ),
-        )
-    }
-
-    @Test
-    fun `prepends start coding when the shown run ended for good`() {
-        assertEquals(
-            listOf(SwitcherTarget.StartCoding, SwitcherTarget.Face(WorkFaceKind.Issue)),
-            switcherTargets(listOf(WorkFaceKind.Issue, WorkFaceKind.Run), WorkFaceKind.Run, listOf("a"), "a", true),
-        )
-    }
-
-    @Test
-    fun `hides, toggles or opens a menu by target count`() {
-        assertEquals(SwitcherMode.Hidden, switcherMode(emptyList()))
-        assertEquals(
-            SwitcherMode.Toggle(SwitcherTarget.Face(WorkFaceKind.Run)),
-            switcherMode(listOf(SwitcherTarget.Face(WorkFaceKind.Run))),
-        )
-        assertTrue(
-            switcherMode(
-                listOf(SwitcherTarget.Face(WorkFaceKind.Issue), SwitcherTarget.Face(WorkFaceKind.Changes)),
-            ) is SwitcherMode.Menu,
-        )
-    }
-
-    @Test
-    fun `badges the circle with the session tone off the run face`() {
-        assertEquals(
-            SwitcherBadge.Session(SessionDotTone.Running),
-            switcherBadge(WorkFaceKind.Issue, SessionDotTone.Running, true),
-        )
-        assertEquals(
-            SwitcherBadge.Session(SessionDotTone.NeedsInput),
-            switcherBadge(WorkFaceKind.Changes, SessionDotTone.NeedsInput, false),
-        )
-        assertNull(switcherBadge(WorkFaceKind.Issue, null, true))
-    }
-
-    @Test
-    fun `badges the circle with changes on the run face`() {
-        assertEquals(SwitcherBadge.Changes, switcherBadge(WorkFaceKind.Run, SessionDotTone.Running, true))
-        assertNull(switcherBadge(WorkFaceKind.Run, SessionDotTone.Running, false))
+    fun `picks the run bar's trailing circle, merge first`() {
+        assertEquals(RunBarTrailing.Merge, runBarTrailing(canMerge = true, offerStart = true))
+        assertEquals(RunBarTrailing.Start, runBarTrailing(canMerge = false, offerStart = true))
+        assertEquals(RunBarTrailing.None, runBarTrailing(canMerge = false, offerStart = false))
     }
 
     @Test

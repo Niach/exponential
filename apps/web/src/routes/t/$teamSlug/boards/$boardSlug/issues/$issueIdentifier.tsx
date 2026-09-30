@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from "react"
-import { totals } from "@exp/domain-contract/diff"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
@@ -9,11 +8,11 @@ import {
   parseSessionResultGroups,
   useIsMobile,
   type SessionDotTone,
+  type SessionResultGroup,
 } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
-import { useOpenComposer } from "@/hooks/use-open-composer"
-import { useIssueRuns } from "@/hooks/use-agents-data"
-import { useReviewFiles } from "@/hooks/use-review-files"
+import { useIssueRuns, type PastRunRow } from "@/hooks/use-agents-data"
+import { useReviewFiles, type ReviewFilesState } from "@/hooks/use-review-files"
 import { useSession } from "@/hooks/use-session"
 import {
   shouldConnectSessionDiff,
@@ -30,13 +29,14 @@ import {
   IssueResultsBody,
   IssueResultsFace,
 } from "@/components/issue-results-face"
-import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
+import { MobileFaceTabs, useFaceSwipe } from "@/components/mobile-face-tabs"
 import { selectIssueRuns } from "@/lib/past-runs"
 import {
   availableFaces,
   codingTarget,
   isSessionLive,
   issueResultsRun,
+  type WorkFaceKind,
 } from "@/lib/work-faces"
 import {
   ISSUE_FACE_LABEL,
@@ -193,19 +193,6 @@ function IssueDetailPage() {
   const { state: prFilesState } = useReviewFiles(issue ?? null, {
     enabled: isMobile && hasChanges && diffStats.fileCount === 0,
   })
-  const prFiles = prFilesState.kind === `files` ? prFilesState.files : null
-  /** The switcher's counts: the live diff's, else the PR files' — the one
-   *  list the Changes face draws, never a second reading. */
-  const changesStats = useMemo(
-    () =>
-      diffStats.fileCount > 0
-        ? diffStats
-        : prFiles && prFiles.length > 0
-          ? totals(prFiles)
-          : null,
-    [diffStats, prFiles]
-  )
-  const openComposer = useOpenComposer()
 
   // EXP-879/933: the results belong to a RUN — `issueResultsRun` picks it
   // (my target run when it has results, else the newest run on the issue by
@@ -311,88 +298,32 @@ function IssueDetailPage() {
   // EXP-893: the phone. Faces are screen state behind `replace` navigations,
   // so Back always leaves the issue. The Changes face: the run's live diff
   // (the session route's `?view=diff`) when there is one, else the issue's
-  // PR files right here. The bar's right circle is the switcher once there
-  // is anywhere to go; otherwise the view draws its Start coding circle.
+  // PR files right here. EXP-1150: the faces are TABS under the header
+  // (`MobileFaceTabs`) and the body swipes between them (`useFaceSwipe`);
+  // the bar's right circle is the view's own Start coding.
   if (isMobile) {
-    const faces = availableFaces({
-      hasIssue: true,
-      hasRun: Boolean(runTarget),
-      hasChanges,
-      hasResults,
-    })
-    const runLive = runTarget ? isSessionLive(runTarget, now) : false
-    // The synced row is all the issue face knows: live → the running dot
-    // (amber while it waits on a person); no live run → no dot.
-    const sessionTone: SessionDotTone | null = runLive
-      ? runTarget?.needsInput
-        ? `needs_input`
-        : `running`
-      : null
-    const showChanges = search.view === `diff` && hasChanges
-    const switcher = (
-      <MobileFaceSwitcher
-        faces={faces}
-        face={showChanges ? `changes` : showResults ? `results` : `issue`}
-        runs={issueRuns}
-        viewedRunId={runTarget?.id ?? null}
-        diffStats={changesStats}
-        hasChanges={hasChanges}
-        sessionTone={sessionTone}
-        onFace={(next) => {
-          if (next === `issue`) goFace()
-          else if (next === `run` && runTarget) goRun(runTarget.id)
-          else if (next === `changes`) {
-            if (diffStats.fileCount > 0 && runTarget) goRun(runTarget.id, `diff`)
-            else goFace(`diff`)
-          } else if (next === `results`) {
-            openResults()
-          }
-        }}
-        onOpenRun={(target) => goRun(target.id)}
-        onStart={() => openComposer({ issueIds: [issue.id] })}
-      />
-    )
-    const dot = sessionTone ? { tone: sessionTone } : null
-    if (showChanges) {
-      return (
-        <IssueChangesFace
-          issue={issue}
-          board={board}
-          teamSlug={teamSlug}
-          teamId={team.id}
-          readOnly={readOnly}
-          origin={search.from}
-          filesState={prFilesState}
-          switcher={switcher}
-          dot={dot}
-        />
-      )
-    }
-    if (showResults) {
-      return (
-        <IssueResultsFace
-          issue={issue}
-          board={board}
-          teamSlug={teamSlug}
-          teamId={team.id}
-          readOnly={readOnly}
-          origin={search.from}
-          groups={resultGroups}
-          switcher={switcher}
-          dot={dot}
-        />
-      )
-    }
     return (
-      <IssueDetailView
+      <MobileIssuePage
         issue={issue}
-        users={users}
         board={board}
+        team={team}
+        users={users}
         teamSlug={teamSlug}
-        teamId={team.id}
         readOnly={readOnly}
         origin={search.from}
-        mobileWork={{ switcher: faces.length > 1 ? switcher : undefined, dot }}
+        view={search.view}
+        runTarget={runTarget}
+        runLive={runTarget ? isSessionLive(runTarget, now) : false}
+        issueRuns={issueRuns}
+        hasChanges={hasChanges}
+        liveDiff={diffStats.fileCount > 0}
+        prFilesState={prFilesState}
+        hasResults={hasResults}
+        showResults={showResults}
+        resultGroups={resultGroups}
+        goFace={goFace}
+        goRun={goRun}
+        openResults={openResults}
       />
     )
   }
@@ -467,6 +398,141 @@ function IssueDetailPage() {
           ]}
         />
       }
+    />
+  )
+}
+
+/** EXP-893 / EXP-1150: the phone's Work screen over an ISSUE subject — the
+ *  face on show (issue, its PR files, or a teammate's results), the face
+ *  tabs every one of them wears under the header, and the swipe between
+ *  them. A child so the swipe hook sits past the page's early returns. */
+function MobileIssuePage({
+  issue,
+  board,
+  team,
+  users,
+  teamSlug,
+  readOnly,
+  origin,
+  view,
+  runTarget,
+  runLive,
+  issueRuns,
+  hasChanges,
+  liveDiff,
+  prFilesState,
+  hasResults,
+  showResults,
+  resultGroups,
+  goFace,
+  goRun,
+  openResults,
+}: {
+  issue: Issue
+  board: NonNullable<ReturnType<typeof useBoardViewData>[`board`]>
+  team: NonNullable<ReturnType<typeof useBoardViewData>[`team`]>
+  users: ReturnType<typeof useBoardViewData>[`users`]
+  teamSlug: string
+  readOnly: boolean
+  origin?: string
+  view?: `diff` | `results`
+  runTarget: CodingSession | null
+  runLive: boolean
+  issueRuns: readonly PastRunRow[]
+  hasChanges: boolean
+  /** The target run has a live diff: Changes opens on the run. */
+  liveDiff: boolean
+  prFilesState: ReviewFilesState
+  hasResults: boolean
+  showResults: boolean
+  resultGroups: readonly SessionResultGroup[]
+  goFace: (view?: `diff` | `results`) => void
+  goRun: (sessionId: string, view?: `diff` | `results`) => void
+  openResults: () => void
+}) {
+  const faces = availableFaces({
+    hasIssue: true,
+    hasRun: Boolean(runTarget),
+    hasChanges,
+    hasResults,
+  })
+  // The synced row is all the issue face knows: live → the running dot
+  // (amber while it waits on a person); no live run → no dot.
+  const sessionTone: SessionDotTone | null = runLive
+    ? runTarget?.needsInput
+      ? `needs_input`
+      : `running`
+    : null
+  const showChanges = view === `diff` && hasChanges
+  const face: WorkFaceKind = showChanges
+    ? `changes`
+    : showResults
+      ? `results`
+      : `issue`
+  const onFace = (next: WorkFaceKind) => {
+    if (next === `issue`) goFace()
+    else if (next === `run` && runTarget) goRun(runTarget.id)
+    else if (next === `changes`) {
+      if (liveDiff && runTarget) goRun(runTarget.id, `diff`)
+      else goFace(`diff`)
+    } else if (next === `results`) {
+      openResults()
+    }
+  }
+  const swipe = useFaceSwipe(faces, face, onFace)
+  const tabs = (
+    <MobileFaceTabs
+      faces={faces}
+      face={face}
+      runs={issueRuns}
+      viewedRunId={runTarget?.id ?? null}
+      onFace={onFace}
+      onOpenRun={(target) => goRun(target.id)}
+    />
+  )
+  const dot = sessionTone ? { tone: sessionTone } : null
+  if (showChanges) {
+    return (
+      <IssueChangesFace
+        issue={issue}
+        board={board}
+        teamSlug={teamSlug}
+        teamId={team.id}
+        readOnly={readOnly}
+        origin={origin}
+        filesState={prFilesState}
+        tabs={tabs}
+        swipe={swipe}
+        dot={dot}
+      />
+    )
+  }
+  if (showResults) {
+    return (
+      <IssueResultsFace
+        issue={issue}
+        board={board}
+        teamSlug={teamSlug}
+        teamId={team.id}
+        readOnly={readOnly}
+        origin={origin}
+        groups={resultGroups}
+        tabs={tabs}
+        swipe={swipe}
+        dot={dot}
+      />
+    )
+  }
+  return (
+    <IssueDetailView
+      issue={issue}
+      users={users}
+      board={board}
+      teamSlug={teamSlug}
+      teamId={team.id}
+      readOnly={readOnly}
+      origin={origin}
+      mobileWork={{ tabs, swipe, dot }}
     />
   )
 }

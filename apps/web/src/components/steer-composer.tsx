@@ -99,11 +99,6 @@ export interface SteerComposerProps {
   /** EXP-877: the footer's trailing slot — the caller mounts the context ring
    *  inside its own usage popover here (`ContextRing` in @exp/ui). */
   usageSlot?: ReactNode
-  /** EXP-931: the phone's FACE SWITCHER, beside the usage ring. While this
-   *  composer is expanded it covers the work bar, and with it the bar's
-   *  switcher circle — so the way to the linked Issue / Changes / Results
-   *  moves in here rather than disappearing. Absent on md+. */
-  switcherSlot?: ReactNode
   /** EXP-893: the phone expands this composer out of a capsule — focus the
    *  field on mount. */
   autoFocus?: boolean
@@ -132,7 +127,6 @@ export function SteerComposer({
   config,
   users,
   usageSlot,
-  switcherSlot,
   autoFocus = false,
   onEmptyBlur,
 }: SteerComposerProps) {
@@ -491,9 +485,6 @@ export function SteerComposer({
               />
             ))}
           {usageSlot}
-          {/* EXP-931: the face switcher, the ring's neighbour — the bar it
-              normally rides is under this composer. */}
-          {switcherSlot}
         </div>
       </div>
       {/* EXP-724: `/clear` throws the conversation away, and the

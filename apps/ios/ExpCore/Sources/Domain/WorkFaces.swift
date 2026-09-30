@@ -2,11 +2,13 @@ import Foundation
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
 // session) with up to four FACES held as screen state, never as navigation:
-// `issue`, `run`, `changes` and (EXP-879) `results`. The desktop's face toggle
-// (EXP-877) becomes a floating bottom-right circle that either switches
-// straight to the one other face or opens a menu above itself; Stop / Resume
-// sit in the nav bar's trailing slot only while the Run face shows, and the
-// merge bar only on Changes. These are the PURE rules every
+// `issue`, `run`, `changes` and (EXP-879) `results`. EXP-1150: the faces are
+// TABS — a segmented strip under the nav bar lists `availableFaces` with
+// `faceLabel` (tapping the selected `Runs` tab opens the run menu), and a
+// horizontal swipe on the face body moves to the neighbour (`swipeTarget`).
+// Stop / Resume sit in the nav bar's trailing slot only while the Run face
+// shows, the merge bar only on Changes, and the Run face's bar keeps ONE
+// trailing circle (`runBarTrailing`). These are the PURE rules every
 // phone client mirrors byte for byte: web `lib/work-faces.ts` (the spec),
 // Android `domain/WorkFaces.kt` — same names, same cases, same test names.
 
@@ -44,7 +46,7 @@ public enum WorkFaces {
     /// EXP-933: the inline `sessions_results` card's button that switches the
     /// Work screen to its Results face, byte-identical ×4.
     public static let openResultsLabel = "Open Results"
-    /// The switcher menu's extra row once the shown run ended for good.
+    /// The Start coding verb once the shown run ended for good.
     public static let startCodingLabel = "Start coding"
 
     /// The steer composer's placeholder, byte-identical ×4 (desktop
@@ -158,8 +160,7 @@ public enum WorkFaces {
         case none
     }
 
-    /// The nav bar's trailing verb on the Run face, and the bottom-right
-    /// circle's start glyph: Stop wins over everything; Resume needs an ended
+    /// The nav bar's trailing verb on the Run face: Stop wins over everything; Resume needs an ended
     /// own run a machine can take; Start only for an issue subject that can be
     /// coded on.
     public static func primaryAction(
@@ -171,67 +172,38 @@ public enum WorkFaces {
         return .none
     }
 
-    public enum SwitcherTarget: Equatable, Sendable, Hashable {
-        case face(WorkFaceKind)
-        case run(id: String)
-        case startCoding
+    /// EXP-1150: which way the finger went. `left` = the content followed the
+    /// finger leftwards, so the NEXT face slides in; `right` = the previous.
+    public enum SwipeDirection: String, Equatable, Sendable {
+        case left
+        case right
     }
 
-    /// What the switcher circle offers from the shown face: the OTHER faces in
-    /// order, the Run face expanded into one row per own run when there are
-    /// two or more (EXP-886), and `Start coding` first when the shown run
-    /// ended and cannot be resumed (desktop shows Start in that state; on the
-    /// phone the circle is the switcher, so the menu carries it).
-    public static func switcherTargets(
-        faces: [WorkFaceKind],
-        shown: WorkFaceKind,
-        runIds: [String],
-        shownRunId: String?,
-        offerStart: Bool
-    ) -> [SwitcherTarget] {
-        var targets: [SwitcherTarget] = []
-        if offerStart { targets.append(.startCoding) }
-        for face in faces {
-            if face == .run, runIds.count >= 2 {
-                for id in runIds {
-                    if shown == .run, id == shownRunId { continue }
-                    targets.append(.run(id: id))
-                }
-                continue
-            }
-            if face == shown { continue }
-            targets.append(.face(face))
-        }
-        return targets
+    /// The face a horizontal swipe on the body lands on: the neighbour in the
+    /// strip's order, nil at either end (or when the shown face is not in the
+    /// strip at all).
+    public static func swipeTarget(
+        faces: [WorkFaceKind], shown: WorkFaceKind, direction: SwipeDirection
+    ) -> WorkFaceKind? {
+        guard let index = faces.firstIndex(of: shown) else { return nil }
+        let next = direction == .left ? index + 1 : index - 1
+        guard faces.indices.contains(next) else { return nil }
+        return faces[next]
     }
 
-    public enum SwitcherMode: Equatable, Sendable {
-        case hidden
-        case toggle(SwitcherTarget)
-        case menu([SwitcherTarget])
+    public enum RunBarTrailing: String, Equatable, Sendable {
+        case merge
+        case start
+        case none
     }
 
-    /// No target = no circle; exactly one = a direct switch wearing the
-    /// destination's icon; two or more = the faces glyph and a menu above.
-    public static func switcherMode(_ targets: [SwitcherTarget]) -> SwitcherMode {
-        if targets.isEmpty { return .hidden }
-        if targets.count == 1 { return .toggle(targets[0]) }
-        return .menu(targets)
-    }
-
-    public enum SwitcherBadge: Equatable, Sendable {
-        case tone(SessionDotTone)
-        case changes
-    }
-
-    /// The circle's badge dot: off the Run face the shown session's state dot
-    /// (none without a session); on the Run face a green dot while changes
-    /// exist, so the reader knows a diff is waiting behind the switcher.
-    public static func switcherBadge(
-        shown: WorkFaceKind, sessionTone: SessionDotTone?, hasChanges: Bool
-    ) -> SwitcherBadge? {
-        if shown == .run { return hasChanges ? .changes : nil }
-        return sessionTone.map { .tone($0) }
+    /// The Run face's bar keeps ONE circle on its right: Merge PR while the run's
+    /// PR is open and mergeable from here, else Start coding once the shown run
+    /// ended for good, else nothing.
+    public static func runBarTrailing(canMerge: Bool, offerStart: Bool) -> RunBarTrailing {
+        if canMerge { return .merge }
+        if offerStart { return .start }
+        return .none
     }
 
     /// Where a face lands when it vanishes under the reader (the diff cleared,

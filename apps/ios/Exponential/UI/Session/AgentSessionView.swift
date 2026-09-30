@@ -14,13 +14,14 @@ import UniformTypeIdentifiers
 /// (EXP-249). Identical UX to the Android AgentSessionScreen.
 ///
 /// EXP-893: a FACE of the Work screen, never a screen of its own. The nav
-/// bar, its title dot, the Stop / Resume pill and the face switcher belong
-/// to `WorkScreen`; this view reports what they need through `RunChrome`
-/// and takes the screen's requests (`RunRequest`) and its switcher slot.
+/// bar, its title dot, the Stop / Resume pill and (EXP-1150) the face tabs
+/// belong to `WorkScreen`; this view reports what they need through
+/// `RunChrome` and takes the screen's requests (`RunRequest`) and its Start
+/// coding offer (`startReadiness`).
 /// `face` picks the transcript (`.run`) or the run's live diff
 /// (`.changes`, `SessionDiffList` + the Merge bar).
-/// The feed's scroll constants — outside the view because it is generic over
-/// its switcher slot (EXP-893) and a generic type cannot hold stored statics.
+/// The feed's scroll constants — outside the view (EXP-893: it used to be
+/// generic, and a generic type cannot hold stored statics).
 enum AgentSessionLayout {
     static let bottomAnchor = "feed-bottom"
     static let feedCoordSpace = "feed-scroll"
@@ -56,7 +57,7 @@ extension View {
     }
 }
 
-struct AgentSessionView<Switcher: View>: View {
+struct AgentSessionView: View {
     let accountId: String
     let session: CodingSessionEntity
     let face: WorkFaceKind
@@ -66,7 +67,11 @@ struct AgentSessionView<Switcher: View>: View {
     /// switch sends through it, and the screen (which outlives every face)
     /// owns the watch and swaps the successor in.
     let continuation: RunContinuation
-    @ViewBuilder let switcher: () -> Switcher
+    /// EXP-1150: non-nil = the screen offers Start coding (the shown run
+    /// ended for good, own, nothing to resume, an issue subject) — the Run
+    /// bar's trailing circle when no merge outranks it (`runBarTrailing`).
+    var startReadiness: CodingReadiness.Readiness? = nil
+    var onStartCoding: () -> Void = {}
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.pushRoute) private var pushRoute
@@ -124,8 +129,7 @@ struct AgentSessionView<Switcher: View>: View {
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
     /// EXP-895: the model's ONE memoised parse (`AgentSessionModel.parsedDiff`)
-    /// — the Changes face, the file sheet and the Work screen's totals all
-    /// read the same `Diff.Parsed`.
+    /// — the Changes face and the file sheet read the same `Diff.Parsed`.
     private var parsedDiff: Diff.Parsed { model?.parsedDiff ?? Diff.Parsed(files: []) }
     /// The phone's file list, off the Changes bar's leading slot, and the path
     /// it last picked.
@@ -357,7 +361,7 @@ struct AgentSessionView<Switcher: View>: View {
             .onChange(of: model?.latestDiff, initial: true) { _, diff in
                 diffChanged(diff)
             }
-            // EXP-893: what the Work screen draws its nav bar and switcher
+            // EXP-893: what the Work screen draws its nav bar and tabs
             // from. No scenePhase handler here: foreground revival (EXP-243)
             // is app-scoped since EXP-621.
             .preference(key: RunChrome.Key.self, value: runChrome)
@@ -455,7 +459,7 @@ struct AgentSessionView<Switcher: View>: View {
 
     /// EXP-931: once the agent picks the turn up, an expanded composer with
     /// nothing in it and nobody typing in it is just a lid over the work bar —
-    /// it stands down so the bar, and the face switcher on it, come back. A
+    /// it stands down so the bar comes back. A
     /// focused field, a draft, a pending image or an open menu all keep it
     /// open; focusing or typing expands it again.
     private func collapseIdleComposer(_ model: AgentSessionModel) {
@@ -481,9 +485,8 @@ struct AgentSessionView<Switcher: View>: View {
     }
 
     /// EXP-895: the worktree diff is parsed ONCE, on the model (`parsedDiff`,
-    /// memoised on the diff string) — the Changes face, the file sheet and
-    /// the Work screen's switcher totals read the same `Diff.Parsed`. Off the
-    /// edge, only the file selection has to follow a vanished diff.
+    /// memoised on the diff string) — the Changes face and the file sheet
+    /// read the same `Diff.Parsed`. Off the edge, only the file selection has to follow a vanished diff.
     private func diffChanged(_ diff: String?) {
         if diff == nil { selectedDiffPath = nil }
     }
@@ -499,7 +502,7 @@ struct AgentSessionView<Switcher: View>: View {
         }
     }
 
-    /// Everything the Work screen's nav bar, title dot and switcher read.
+    /// Everything the Work screen's nav bar, title dot and tabs read.
     private var runChrome: RunChrome {
         guard let model else { return RunChrome() }
         var chrome = RunChrome()
@@ -1533,14 +1536,16 @@ struct AgentSessionView<Switcher: View>: View {
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
         if bandRetired(model) {
-            // EXP-893: the switcher circle alone — the way back to the issue
-            // (and to the diff) never leaves the bar.
-            FloatingBottomBar {
-                EmptyView()
-            } center: {
-                EmptyView()
-            } trailing: {
-                switcher()
+            // EXP-1150: the trailing circle alone, or no bar — the faces are
+            // the screen's tab strip.
+            if runTrailing(model) != .none {
+                FloatingBottomBar {
+                    EmptyView()
+                } center: {
+                    EmptyView()
+                } trailing: {
+                    runTrailingCircle(model)
+                }
             }
         } else {
             // Steering is fully seamless (EXP-312) — no captions, no
@@ -1604,8 +1609,9 @@ struct AgentSessionView<Switcher: View>: View {
 
     /// EXP-893: the folded composer on the shared bar — the usage ring on the
     /// left (the Usage sheet), the capsule wearing the placeholder the open
-    /// field would, the face switcher on the right. The separate interrupt
-    /// circle is gone: Stop stays the expanded composer's own glyph.
+    /// field would, and (EXP-1150) ONE trailing circle — Merge PR, else Start
+    /// coding, else nothing (`WorkFaces.runBarTrailing`). The separate
+    /// interrupt circle is gone: Stop stays the expanded composer's own glyph.
     private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
         FloatingBottomBar {
             if hasUsage {
@@ -1619,7 +1625,48 @@ struct AgentSessionView<Switcher: View>: View {
             }
             .accessibilityIdentifier("agent-composer-collapsed")
         } trailing: {
-            switcher()
+            runTrailingCircle(model)
+        }
+    }
+
+    /// EXP-1150: which ONE circle trails the Run bar.
+    private func runTrailing(_ model: AgentSessionModel) -> WorkFaces.RunBarTrailing {
+        WorkFaces.runBarTrailing(canMerge: model.canMerge, offerStart: startReadiness != nil)
+    }
+
+    /// Merge PR runs the Changes face's own flow (`requestMerge`: the stack
+    /// dialog or the confirm); a merge refused on a real conflict turns it
+    /// into the Fix conflicts circle (EXP-706). Start is the Issue face's
+    /// circle.
+    @ViewBuilder
+    private func runTrailingCircle(_ model: AgentSessionModel) -> some View {
+        switch runTrailing(model) {
+        case .merge:
+            if canFixConflicts {
+                FloatingBarSolidCircle(accessibilityLabel: "Fix merge conflicts", action: openFixConflicts) {
+                    AppIcon(AppIcons.uiBranch, size: FloatingBarTokens.glyph, weight: .medium)
+                }
+                .accessibilityIdentifier("run-fix-conflicts")
+            } else {
+                FloatingBarSolidCircle(
+                    accessibilityLabel: "Merge PR",
+                    enabled: !merging,
+                    action: { requestMerge(model) }
+                ) {
+                    if merging {
+                        ProgressView().controlSize(.small).tint(.black.opacity(0.6))
+                    } else {
+                        AppIcon(AppIcons.prMerged, size: FloatingBarTokens.glyph, weight: .medium)
+                    }
+                }
+                .accessibilityIdentifier("run-merge-pr")
+            }
+        case .start:
+            if let startReadiness {
+                StartCodingCircle(readiness: startReadiness, onStart: onStartCoding)
+            }
+        case .none:
+            EmptyView()
         }
     }
 
@@ -1731,12 +1778,13 @@ struct AgentSessionView<Switcher: View>: View {
         (model.mergeIssue?.prUrl ?? model.session?.prUrl).flatMap { URL(string: $0) }
     }
 
-    /// GitHub · Merge / Fix conflicts · the switcher. Merge only while there
+    /// Files (else GitHub) · Merge / Fix conflicts, as a centred cluster with
+    /// nothing trailing (EXP-1150). Merge only while there
     /// IS an open PR on a session this screen still considers live
     /// (`model.canMerge`); a merge refused on a REAL conflict swaps the pill
     /// for the recovery run (EXP-706).
     private func changesFaceBar(_ model: AgentSessionModel) -> some View {
-        FloatingBottomBar {
+        FloatingBarCluster {
             // EXP-895: the leading slot is the file list. GitHub keeps the
             // slot only where there is no list to put there — an issue-less
             // run has no header action slot to move it to.
@@ -1760,7 +1808,7 @@ struct AgentSessionView<Switcher: View>: View {
                 }
             }
         } trailing: {
-            switcher()
+            EmptyView()
         }
     }
 
@@ -1974,11 +2022,7 @@ struct AgentSessionView<Switcher: View>: View {
                 onPickModel: { alias in sendModelSwitch(model, alias) },
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
-                onUsage: { showUsageSheet = true },
-                // EXP-931: the bar's circle is behind this card — the way to
-                // Issue / Changes / Results comes with it. Exactly ONE
-                // switcher is mounted: the bar's, or this one.
-                switcher: switcher
+                onUsage: { showUsageSheet = true }
             )
         } submit: {
             GlassComposerSubmitButton(

@@ -28,8 +28,7 @@ import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeTarget
-import com.exponential.app.domain.SwitcherMode
-import com.exponential.app.domain.SwitcherTarget
+import com.exponential.app.domain.RunBarTrailing
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.availableFaces
@@ -40,11 +39,9 @@ import com.exponential.app.domain.fallbackFace
 import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.issueResultsRun
 import com.exponential.app.domain.parseSessionResultGroups
+import com.exponential.app.domain.runBarTrailing
 import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.shouldAutoBack
-import com.exponential.app.domain.switcherBadge
-import com.exponential.app.domain.switcherMode
-import com.exponential.app.domain.switcherTargets
 import com.exponential.app.domain.CodingReadiness
 import com.exponential.app.ui.issue.ChangesLoadState
 import com.exponential.app.ui.issue.CodingReadinessSheet
@@ -67,13 +64,16 @@ import com.exponential.app.ui.steer.ActionRunState
 import kotlinx.coroutines.flow.MutableStateFlow
 
 // EXP-893: the phone WORK SCREEN — one screen per subject (an issue, or a
-// session) with up to three FACES held as screen state, never as navigation:
-// Issue, Run and Changes (`domain/WorkFaces.kt`, the ×3 rules). System Back
-// pops the whole screen. Opening a run from any list opens it on the Run
-// face; opening an issue lands on the Issue face with its run one switcher
-// tap away. The host owns the Scaffold, the top bar (title dot + verbs +
-// the issue menu), the kill / resume confirms, the ended edge
-// and the bar's trailing circle; each face renders inside the content slot.
+// session) with up to four FACES held as screen state, never as navigation:
+// Issue, Run, Changes and Results (`domain/WorkFaces.kt`, the ×4 rules).
+// System Back pops the whole screen. Opening a run from any list opens it on
+// the Run face; opening an issue lands on the Issue face. EXP-1150: the faces
+// are TABS — [WorkFaceFrame]'s segmented strip under the top bar, the same on
+// every face, plus a horizontal swipe on the body (`swipeTarget`); `Runs`
+// tapped again opens the run menu. The host owns the Scaffold, the top bar
+// (title dot + verbs + the issue menu), the kill / resume confirms, the ended
+// edge, the ONE session merge control (the Run face's circle via
+// `runBarTrailing`, the Changes face's pill) and each face's trailing circle.
 
 /** What a Work screen is about — the route decides, the screen resolves. */
 sealed interface WorkSubject {
@@ -146,9 +146,9 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
     val issueRuns by (issueVm?.issueRuns ?: remember { MutableStateFlow(emptyList()) })
         .collectAsStateWithLifecycle()
-    // EXP-974: the shown run's resume chain, newest first — the switcher's
-    // run rows for an ISSUE-LESS subject (a chat, action or batch run), so a
-    // resumed run and its successor share one toggle and its menu picks
+    // EXP-974: the shown run's resume chain, newest first — the `Runs` menu's
+    // rows for an ISSUE-LESS subject (a chat, action or batch run), so a
+    // resumed run and its successor share one tab and its menu picks
     // between them. An issue-bound subject keeps the issue's own runs, which
     // already include its resumes.
     val chainRuns by (sessionVm?.chainRuns ?: remember { MutableStateFlow(emptyList()) })
@@ -231,7 +231,7 @@ fun WorkScreen(
         remember(activity.feed) { activeQuestionIds(activity.feed) }.isNotEmpty()
     val latestDiff = activity.latestDiff
     // EXP-895: the raw `git diff` is parsed ONCE here — the Changes face draws
-    // the files, the switcher row shows their totals.
+    // the files.
     val parsedDiff = remember(latestDiff) { latestDiff?.let { Diff.parse(it) } }
 
     // EXP-773/849: a Resume or an account switch lands a NEW row — the
@@ -253,10 +253,7 @@ fun WorkScreen(
     val changesPrUrl = (issue?.prUrl ?: shownSession?.prUrl)?.takeIf { it.isNotBlank() }
     // EXP-932: source B — the issue's open PR files, read only when there is
     // no live diff to draw. It is resolved HERE, not inside the Changes face,
-    // because the switcher has to count the very files that face draws: it
-    // used to read the live diff alone, so its `+A −D` and the face's own
-    // summary could report different numbers for the same run (web's
-    // `changesFiles` / `changesStats`).
+    // so the screen reads ONE file list for the run (web's `changesFiles`).
     val changesVm: ChangesViewModel? = if (hasChanges && latestDiff == null && issueId != null) {
         hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(
             key = "changes:$issueId",
@@ -275,10 +272,6 @@ fun WorkScreen(
             load is ChangesLoadState.Loaded -> load.files.map { it.toDiffFile() }
             else -> emptyList()
         }
-    }
-    // The switcher's `+A −M`: both halves, off the same files, or nothing.
-    val diffStats = remember(changesFiles) {
-        changesFiles.takeIf { it.isNotEmpty() }?.let { Diff.totals(it) }
     }
     // EXP-879: the run's published screenshots, parsed off the synced blob.
     // Results is a SUB-FACE of Run — no shown run, no results — which the
@@ -330,71 +323,65 @@ fun WorkScreen(
         }
     }
 
-    // The switcher: the other faces, one row per own run with two or more,
-    // and Start coding once the shown run ended for good.
+    val dotTone = sessionDotTone(shownSession, issue?.prState, liveClock, awaitingInput)
+    // EXP-1150: the Run face's bar keeps ONE trailing circle
+    // (`runBarTrailing`): Merge PR while the shown run's PR is open and
+    // mergeable from here, else Start coding once the run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
-    val targets = switcherTargets(
-        faces = faces,
-        shown = face,
-        runIds = menuRuns.map { it.session.id },
-        shownRunId = shownSessionId,
-        offerStart = offerStart,
-    )
-    val mode = switcherMode(targets)
-    val dotTone = sessionDotTone(shownSession, issue?.prState, liveClock, awaitingInput)
-    val badge = switcherBadge(face, dotTone, hasChanges)
-    val pickTarget: (SwitcherTarget) -> Unit = { target ->
-        when (target) {
-            is SwitcherTarget.Face -> faceName = target.face.name
-            is SwitcherTarget.Run -> {
-                shownSessionId = target.id
-                pinnedByUser = true
-                faceName = WorkFaceKind.Run.name
-            }
-            SwitcherTarget.StartCoding -> startCoding()
-        }
+    val sessionStackChoice by (sessionVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
+        .collectAsStateWithLifecycle()
+    // The live run merges its own target (EXP-678/734) — ONE control, worn
+    // by the Run face as its circle and by the Changes face as its pill.
+    val sessionCanMerge = sessionVm != null && mergeTarget != null &&
+        !sessionEnded && phase !is AgentPhase.Ended
+    val sessionMerge: ChangesMergeControl? = if (sessionCanMerge) {
+        // EXP-706/734: a REAL conflict on an ISSUE target swaps the verb for
+        // the recovery run.
+        val fix = mergeTarget is MergeTarget.Issue &&
+            canOfferFixConflicts(mergeError, mergeIssue?.branch, steerEnabled = steerEnabled == true)
+        ChangesMergeControl(
+            label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
+            fixConflicts = fix,
+            loading = merging,
+            error = mergeError?.message,
+            confirmText = when (mergeTarget) {
+                is MergeTarget.Session ->
+                    "Merges this run's pull request and closes the coding session."
+                else ->
+                    "Merges the pull request, completes every linked issue, " +
+                        "and closes the coding session."
+            },
+            onConfirm = { sessionVm.merge() },
+            stackChoice = if (fix) null else sessionStackChoice,
+            onMergeStack = { top -> sessionVm.mergeStack(top) },
+            onFixConflicts = {
+                onOpenAgent(
+                    AgentComposerSeed(
+                        actionId = DomainContract.builtinFixConflictsId,
+                        prIssueId = mergeIssue?.id,
+                    ),
+                )
+            },
+        )
+    } else {
+        null
     }
-    val trailingSlot: @Composable () -> Unit = {
-        if (mode !is SwitcherMode.Hidden) {
-            FaceSwitcher(
-                mode = mode,
-                badge = badge,
-                badgeBusy = shownSession?.agentBusy == true,
-                runs = menuRuns,
-                shownRunId = shownSessionId,
-                diffStats = diffStats,
-                onPick = pickTarget,
-            )
-        } else if (startUi != null && shownSessionId == null) {
+    val runTrailing: (@Composable () -> Unit)? =
+        when (runBarTrailing(canMerge = sessionMerge != null, offerStart = offerStart && startUi != null)) {
+            RunBarTrailing.Merge -> sessionMerge?.let { merge -> { MergeRunCircle(merge) } }
+            RunBarTrailing.Start -> startUi?.let { ui -> { StartCircle(ui = ui, onClick = { startCoding() }) } }
+            RunBarTrailing.None -> null
+        }
+    // The Issue face's right circle: Start coding whenever the issue can be
+    // started — the only trailing candidate now the switcher is gone.
+    val issueTrailing: @Composable () -> Unit = {
+        if (startUi != null) {
             StartCircle(ui = startUi, onClick = { startCoding() })
         } else {
             Spacer(Modifier.size(0.dp))
         }
     }
-    // EXP-931: the SAME switcher, the composer's size — it moves INTO the
-    // expanded composer's control row (beside the usage ring) because the
-    // composer covers the bar the circle rides on. The composer mounts this
-    // only while it is expanded and drops the bar's own circle then, so
-    // exactly one of the two is ever on screen.
-    val composerSwitcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? =
-        if (mode is SwitcherMode.Hidden) {
-            null
-        } else {
-            { onMenuOpenChange ->
-                FaceSwitcher(
-                    mode = mode,
-                    badge = badge,
-                    badgeBusy = shownSession?.agentBusy == true,
-                    runs = menuRuns,
-                    shownRunId = shownSessionId,
-                    diffStats = diffStats,
-                    onPick = pickTarget,
-                    variant = FaceSwitcherVariant.Inline,
-                    onMenuOpenChange = onMenuOpenChange,
-                )
-            }
-        }
 
     // ── The ended edge (EXP-696) ───────────────────────────────────────────
     // An issue-bound subject stays on screen (the pill flips Stop → Resume,
@@ -506,130 +493,111 @@ fun WorkScreen(
                     },
                 )
             },
-        ) { padding ->
-            when (face) {
-                WorkFaceKind.Issue -> if (issueVm != null && commentVm != null) {
-                    IssueFace(
-                        viewModel = issueVm,
-                        commentViewModel = commentVm,
-                        controller = issueController,
-                        padding = padding,
-                        onBack = onBack,
-                        onOpenIssue = onOpenIssue,
-                        onOpenChanges = {
-                            if (hasChanges) faceName = WorkFaceKind.Changes.name else issueId?.let(onOpenChanges)
-                        },
-                        trailingBarSlot = trailingSlot,
-                        onAddSubIssue = onCreateSubIssue?.let { create ->
-                            issue?.let { parent -> { create(parent.boardId, parent.id) } }
-                        },
-                    )
-                }
-                WorkFaceKind.Run -> key(shownSessionId) {
-                    if (sessionVm != null) {
-                        RunFace(
-                            viewModel = sessionVm,
+        ) { scaffoldPadding ->
+            // EXP-1150: the face TABS, above the body on every face, and the
+            // body swipe to the neighbour.
+            WorkFaceFrame(
+                faces = faces,
+                face = face,
+                padding = scaffoldPadding,
+                onFace = { faceName = it.name },
+                runs = menuRuns,
+                shownRunId = shownSessionId,
+                onPickRun = { id ->
+                    shownSessionId = id
+                    pinnedByUser = true
+                    faceName = WorkFaceKind.Run.name
+                },
+            ) { padding ->
+                when (face) {
+                    WorkFaceKind.Issue -> if (issueVm != null && commentVm != null) {
+                        IssueFace(
+                            viewModel = issueVm,
+                            commentViewModel = commentVm,
+                            controller = issueController,
                             padding = padding,
+                            onBack = onBack,
                             onOpenIssue = onOpenIssue,
-                            trailingBarSlot = trailingSlot,
-                            composerSwitcherSlot = composerSwitcherSlot,
-                            onOpenResults = if (WorkFaceKind.Results in faces) {
-                                { faceName = WorkFaceKind.Results.name }
-                            } else {
-                                null
+                            onOpenChanges = {
+                                if (hasChanges) faceName = WorkFaceKind.Changes.name else issueId?.let(onOpenChanges)
+                            },
+                            trailingBarSlot = issueTrailing,
+                            onAddSubIssue = onCreateSubIssue?.let { create ->
+                                issue?.let { parent -> { create(parent.boardId, parent.id) } }
                             },
                         )
                     }
-                }
-                WorkFaceKind.Changes -> key(shownSessionId) {
-                    val changesMerging by (changesVm?.merging ?: remember { MutableStateFlow(false) })
-                        .collectAsStateWithLifecycle()
-                    val changesError by (changesVm?.actionError ?: remember { MutableStateFlow(null) })
-                        .collectAsStateWithLifecycle()
-                    val changesErrorFrom by (changesVm?.actionErrorFrom ?: remember { MutableStateFlow(null) })
-                        .collectAsStateWithLifecycle()
-                    val changesConflict by (changesVm?.actionErrorIsConflict ?: remember { MutableStateFlow(false) })
-                        .collectAsStateWithLifecycle()
-                    // EXP-1145: a stack member's Merge asks first, per merge source.
-                    val changesStackChoice by (changesVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
-                        .collectAsStateWithLifecycle()
-                    val sessionStackChoice by (sessionVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
-                        .collectAsStateWithLifecycle()
-                    // The live run merges its own target (EXP-678/734); a
-                    // PR-only face merges through the issue (EXP-156).
-                    val sessionCanMerge = sessionVm != null && mergeTarget != null &&
-                        !sessionEnded && phase !is AgentPhase.Ended
-                    val merge = when {
-                        sessionCanMerge -> {
-                            // EXP-706/734: a REAL conflict on an ISSUE target
-                            // swaps the verb for the recovery run.
-                            val fix = mergeTarget is MergeTarget.Issue &&
-                                canOfferFixConflicts(mergeError, mergeIssue?.branch, steerEnabled = steerEnabled == true)
-                            ChangesMergeControl(
-                                label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
-                                fixConflicts = fix,
-                                loading = merging,
-                                error = mergeError?.message,
-                                confirmText = when (mergeTarget) {
-                                    is MergeTarget.Session ->
-                                        "Merges this run's pull request and closes the coding session."
-                                    else ->
-                                        "Merges the pull request, completes every linked issue, " +
-                                            "and closes the coding session."
-                                },
-                                onConfirm = { sessionVm?.merge() },
-                                stackChoice = if (fix) null else sessionStackChoice,
-                                onMergeStack = { top -> sessionVm?.mergeStack(top) },
-                                onFixConflicts = {
-                                    onOpenAgent(
-                                        AgentComposerSeed(
-                                            actionId = DomainContract.builtinFixConflictsId,
-                                            prIssueId = mergeIssue?.id,
-                                        ),
-                                    )
+                    WorkFaceKind.Run -> key(shownSessionId) {
+                        if (sessionVm != null) {
+                            RunFace(
+                                viewModel = sessionVm,
+                                padding = padding,
+                                onOpenIssue = onOpenIssue,
+                                trailingBarSlot = runTrailing,
+                                onOpenResults = if (WorkFaceKind.Results in faces) {
+                                    { faceName = WorkFaceKind.Results.name }
+                                } else {
+                                    null
                                 },
                             )
                         }
-                        changesVm != null && prOpen && permissions?.isMember == true -> {
-                            val fix = changesConflict &&
-                                changesErrorFrom == ChangesViewModel.PrAction.Merge &&
-                                steerEnabled == true && !issue?.branch.isNullOrBlank()
-                            ChangesMergeControl(
-                                label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
-                                fixConflicts = fix,
-                                loading = changesMerging,
-                                error = changesError,
-                                confirmText = "Squash-merges PR #${issue?.prNumber ?: ""} via the GitHub App. " +
-                                    "Any live coding session for it closes.",
-                                onConfirm = { changesVm.mergePr() },
-                                stackChoice = if (fix) null else changesStackChoice,
-                                onMergeStack = { top -> changesVm.mergeStack(top) },
-                                onFixConflicts = {
-                                    onOpenAgent(
-                                        AgentComposerSeed(
-                                            actionId = DomainContract.builtinFixConflictsId,
-                                            prIssueId = issueId,
-                                        ),
-                                    )
-                                },
-                            )
-                        }
-                        else -> null
                     }
-                    ChangesFace(
+                    WorkFaceKind.Changes -> key(shownSessionId) {
+                        val changesMerging by (changesVm?.merging ?: remember { MutableStateFlow(false) })
+                            .collectAsStateWithLifecycle()
+                        val changesError by (changesVm?.actionError ?: remember { MutableStateFlow(null) })
+                            .collectAsStateWithLifecycle()
+                        val changesErrorFrom by (changesVm?.actionErrorFrom ?: remember { MutableStateFlow(null) })
+                            .collectAsStateWithLifecycle()
+                        val changesConflict by (changesVm?.actionErrorIsConflict ?: remember { MutableStateFlow(false) })
+                            .collectAsStateWithLifecycle()
+                        // EXP-1145: a stack member's Merge asks first, per merge source.
+                        val changesStackChoice by (changesVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
+                            .collectAsStateWithLifecycle()
+                        // The live run merges its own target (the host's ONE
+                        // [sessionMerge]); a PR-only face merges through the issue
+                        // (EXP-156).
+                        val merge = when {
+                            sessionMerge != null -> sessionMerge
+                            changesVm != null && prOpen && permissions?.isMember == true -> {
+                                val fix = changesConflict &&
+                                    changesErrorFrom == ChangesViewModel.PrAction.Merge &&
+                                    steerEnabled == true && !issue?.branch.isNullOrBlank()
+                                ChangesMergeControl(
+                                    label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
+                                    fixConflicts = fix,
+                                    loading = changesMerging,
+                                    error = changesError,
+                                    confirmText = "Squash-merges PR #${issue?.prNumber ?: ""} via the GitHub App. " +
+                                        "Any live coding session for it closes.",
+                                    onConfirm = { changesVm.mergePr() },
+                                    stackChoice = if (fix) null else changesStackChoice,
+                                    onMergeStack = { top -> changesVm.mergeStack(top) },
+                                    onFixConflicts = {
+                                        onOpenAgent(
+                                            AgentComposerSeed(
+                                                actionId = DomainContract.builtinFixConflictsId,
+                                                prIssueId = issueId,
+                                            ),
+                                        )
+                                    },
+                                )
+                            }
+                            else -> null
+                        }
+                        ChangesFace(
+                            padding = padding,
+                            // EXP-932: the files the host resolved.
+                            files = changesFiles,
+                            prLoad = prLoad,
+                            merge = merge,
+                        )
+                    }
+                    WorkFaceKind.Results -> ResultsFace(
                         padding = padding,
-                        // EXP-932: the files the switcher just counted.
-                        files = changesFiles,
-                        prLoad = prLoad,
-                        merge = merge,
-                        trailingBarSlot = trailingSlot,
+                        groups = resultGroups,
                     )
                 }
-                WorkFaceKind.Results -> ResultsFace(
-                    padding = padding,
-                    groups = resultGroups,
-                    trailingBarSlot = trailingSlot,
-                )
             }
         }
     }

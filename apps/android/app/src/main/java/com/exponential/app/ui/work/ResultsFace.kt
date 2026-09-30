@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,7 +58,6 @@ import com.exponential.app.domain.sessionResultTileHeightFitting
 import com.exponential.app.domain.sessionResultTileWidth
 import com.exponential.app.domain.tallImageStripRanges
 import com.exponential.app.ui.components.BottomBarInset
-import com.exponential.app.ui.components.FloatingBottomBar
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MarkdownView
@@ -75,7 +73,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 //
 // Results is a SUB-FACE of Run, like Changes: it owns neither the Stop/Resume
 // verb (the top bar's, on Run only) nor the merge capsule (the Changes bar's)
-// — its floating bar carries the face switcher and nothing else.
+// — so it has NO floating bar at all (EXP-1150: the faces are tabs now).
 
 /** The horizontal content padding the page reserves on each side. */
 private val HorizontalPadding = 16.dp
@@ -85,7 +83,6 @@ private val TileShape = RoundedCornerShape(10.dp)
 fun ResultsFace(
     padding: PaddingValues,
     groups: List<SessionResultGroup>,
-    trailingBarSlot: @Composable () -> Unit,
 ) {
     var preview by remember { mutableStateOf<SessionResultEntry?>(null) }
 
@@ -141,14 +138,6 @@ fun ResultsFace(
                     }
                 }
             }
-        }
-        Column(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Results owns no bar control of its own — no Stop/Resume (the
-            // top bar's, Run only), no merge capsule (the Changes bar's).
-            FloatingBottomBar(right = trailingBarSlot) { Spacer(Modifier.weight(1f)) }
         }
     }
 

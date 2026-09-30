@@ -2,7 +2,6 @@ import type { ReactNode } from "react"
 import type { Board, Issue } from "@/db/schema"
 import {
   MOBILE_WORK_BAR_CLEARANCE,
-  MobileWorkBar,
   SessionResultsView,
   type SessionDotTone,
   type SessionResultGroup,
@@ -10,6 +9,7 @@ import {
 import { cn } from "@/lib/utils"
 import { renderResultText } from "@/components/agent-session"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
+import type { FaceSwipeHandlers } from "@/components/mobile-face-tabs"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 
 // EXP-933: an ISSUE's Results face — the report (topic text + screenshots) of
@@ -35,7 +35,8 @@ export function IssueResultsBody({
   )
 }
 
-/** The phone face: the issue's header, the report, the bar's switcher. */
+/** The phone face: the issue's header with the face tabs under it, the
+ *  report, and NO bar — the report has nothing to act on (EXP-1150). */
 export function IssueResultsFace({
   issue,
   board,
@@ -44,7 +45,8 @@ export function IssueResultsFace({
   readOnly,
   origin,
   groups,
-  switcher,
+  tabs,
+  swipe,
   dot,
 }: {
   issue: Issue
@@ -54,12 +56,15 @@ export function IssueResultsFace({
   readOnly: boolean
   origin?: string
   groups: readonly SessionResultGroup[]
-  switcher: ReactNode
+  /** EXP-1150: the face strip (`MobileFaceTabs`) and the swipe handlers the
+   *  root spreads (`useFaceSwipe`). */
+  tabs: ReactNode
+  swipe?: FaceSwipeHandlers
   dot?: { tone: SessionDotTone; connecting?: boolean } | null
 }) {
   const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" {...swipe}>
       <IssueMobileHeader
         issue={issue}
         board={board}
@@ -70,6 +75,7 @@ export function IssueResultsFace({
         handlers={handlers}
         face="results"
         dot={dot}
+        tabs={tabs}
       />
       <div
         className={cn(
@@ -79,7 +85,6 @@ export function IssueResultsFace({
       >
         <IssueResultsBody groups={groups} />
       </div>
-      <MobileWorkBar trailing={switcher} />
       {handlers.duplicatePicker}
     </div>
   )

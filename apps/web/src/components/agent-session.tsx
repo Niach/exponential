@@ -19,11 +19,8 @@ import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
-import {
-  MobileFaceSwitcher,
-  type MobileFaceSwitcherProps,
-} from "@/components/mobile-face-switcher"
-import { MergeCapsule } from "@/components/issue-changes-face"
+import { MobileFaceTabs, useFaceSwipe } from "@/components/mobile-face-tabs"
+import { MergeCapsule, MergeCircle } from "@/components/issue-changes-face"
 import { ChangesView } from "@/components/changes-view"
 import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
@@ -32,6 +29,7 @@ import {
   DiffCounts,
   EditedFilesCard,
   FAB_CHROME_CLASS,
+  FabButton,
   GlassCard,
   useIsMobile,
   type SessionDotTone,
@@ -68,6 +66,9 @@ import {
   availableFaces,
   OPEN_RESULTS_LABEL,
   phaseDotTone,
+  runBarTrailing,
+  START_CODING_LABEL,
+  type WorkFaceKind,
 } from "@/lib/work-faces"
 import { publishReviewFiles } from "@/lib/review-files-slot"
 import { runHasEnded } from "@/lib/past-runs"
@@ -210,6 +211,8 @@ import { cn } from "@/lib/utils"
 // the shared registry (packages/icons/icons.json).
 const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const OpenResultsIcon = conceptIcon(`work-results`)
+/** EXP-1150: the Run face bar's Start coding circle. */
+const StartIcon = conceptIcon(`action-run`)
 const CodingCompactIcon = conceptIcon(`coding-compact`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingPlanIcon = conceptIcon(`coding-plan`)
@@ -413,6 +416,8 @@ export function AgentSessionView({
   renderMobileHeader?: (input: {
     dot: { tone: SessionDotTone; connecting: boolean }
     shownFace: `run` | `changes` | `results`
+    /** EXP-1150: the face strip the header carries under itself. */
+    tabs: ReactNode
   }) => ReactNode
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
@@ -950,12 +955,6 @@ export function AgentSessionView({
     (prFiles?.length ?? 0) > 0 ||
     mergeProps?.prState === `open`
 
-  /** EXP-932: the counts the CHANGES face is worth — `totals` over the very
-   *  files it draws, the one derivation the md+ toggle's `+N −M` already uses
-   *  (`@exp/domain-contract/diff`). The phone's switcher reads THIS, so the
-   *  two can never print different numbers for the same diff again. */
-  const changesStats = useMemo(() => totals(changesFiles), [changesFiles])
-
   // EXP-945: on md+ the Changes face's file TREE is the SIDEBAR's panel, the
   // same slot and the same `ReviewFilesNav` a review detail fills — a run's
   // context is the files it touched, and a floating tree inside the column was
@@ -1097,65 +1096,68 @@ export function AgentSessionView({
       ? `results`
       : `run`
 
-  /** EXP-893: the phone's face switcher — the bottom-right circle. Faces:
+  /** EXP-893 / EXP-1150: the phone's faces are TABS under the header —
    *  Issue when the run links one, Run (this IS the run), Changes once there
-   *  is a diff or an open PR. `Start coding` joins the menu once this run
-   *  ended and no machine can resume it. */
-  const switcherProps: MobileFaceSwitcherProps | null = isMobile
-    ? {
-        faces: availableFaces({
-          hasIssue: Boolean(onIssueFace),
-          hasRun: true,
-          hasChanges,
-          hasResults: resultGroups.length > 0,
-        }),
-        face: showDiffFace ? `changes` : showResultsFace ? `results` : `run`,
-        runs: issueRuns,
-        viewedRunId: session.id,
-        // EXP-932: the numbers the Changes face itself shows, never a second
-        // reading of a different set.
-        diffStats: changesFiles.length > 0 ? changesStats : null,
-        hasChanges,
-        sessionTone: dot.tone,
-        offerStart: Boolean(onStart) && sessionEnded && !canResumeAny,
-        onFace: (next) => {
-          if (next === `issue`) {
-            onIssueFace?.()
-            return
-          }
-          onFace(
-            next === `changes` ? `diff` : next === `results` ? `results` : `run`
-          )
-        },
-        onOpenRun,
-        onStart,
-      }
-    : null
-  const mobileSwitcher = switcherProps ? (
-    <MobileFaceSwitcher {...switcherProps} />
-  ) : null
-  /** EXP-931: the same switcher, the composer's size — it moves INTO the
-   *  expanded composer's control row (beside the usage ring) because the
-   *  composer covers the bar the circle rides on. Exactly one of the two is
-   *  mounted at a time. */
-  const composerSwitcher = switcherProps ? (
-    <MobileFaceSwitcher {...switcherProps} variant="inline" />
+   *  is a diff or an open PR, Results once it published — and the body
+   *  swipes between them. */
+  const phoneFaces = availableFaces({
+    hasIssue: Boolean(onIssueFace),
+    hasRun: true,
+    hasChanges,
+    hasResults: resultGroups.length > 0,
+  })
+  const onPhoneFace = (next: WorkFaceKind) => {
+    if (next === `issue`) {
+      onIssueFace?.()
+      return
+    }
+    onFace(next === `changes` ? `diff` : next === `results` ? `results` : `run`)
+  }
+  const swipe = useFaceSwipe(phoneFaces, shownFace, onPhoneFace)
+  const mobileTabs = isMobile ? (
+    <MobileFaceTabs
+      faces={phoneFaces}
+      face={shownFace}
+      runs={issueRuns}
+      viewedRunId={session.id}
+      onFace={onPhoneFace}
+      onOpenRun={onOpenRun}
+    />
   ) : null
 
+  /** EXP-1150: the Run face's bar keeps ONE circle on its right — Merge PR
+   *  while this run's PR is open (the Changes capsule's own control, as a
+   *  circle), else Start coding once the run ended for good, else nothing. */
+  const phoneTrailing = runBarTrailing({
+    canMerge: Boolean(canMerge && mergeProps),
+    offerStart: Boolean(onStart) && sessionEnded && !canResumeAny,
+  })
+  const phoneTrailingNode =
+    phoneTrailing === `merge` && mergeProps ? (
+      <MergeCircle {...mergeProps} steerEnabled={steerEnabled} />
+    ) : phoneTrailing === `start` ? (
+      <FabButton
+        emphasis="primary"
+        aria-label={START_CODING_LABEL}
+        title={START_CODING_LABEL}
+        data-testid="run-start-circle"
+        onClick={onStart}
+      >
+        <StartIcon className="size-5" />
+      </FabButton>
+    ) : undefined
+
   /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
-   *  composer capsule (expanding into the composer), the switcher. Run over:
-   *  the switcher alone. Changes: GitHub, Merge PR while mergeable, the
-   *  switcher. EXP-879 Results: the switcher ALONE — only the Run face owns
-   *  Stop / Resume, only Changes the merge bar. */
-  const mobileBar = !isMobile ? null : showResultsFace ? (
-    <MobileWorkBar trailing={mobileSwitcher} />
-  ) : showDiffFace ? (
+   *  composer capsule (expanding into the composer), the Merge / Start
+   *  circle. Run over: that circle alone, or no bar. Changes: the file
+   *  sheet and Merge PR while mergeable. EXP-879 Results: NO bar — only the
+   *  Run face owns Stop / Resume, only Changes the merge capsule. */
+  const mobileBar = !isMobile ? null : showResultsFace ? null : showDiffFace ? (
     <MobileWorkBar
       /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides
          the header's action slot (EXP-949: on this face alone, issue-bound or
-         not). EXP-916: the Reviews page's cluster — files · Merge PR ·
-         switcher. The face only stands with files, so the sheet is always
-         there. */
+         not). EXP-916: the Reviews page's cluster — files · Merge PR. The
+         face only stands with files, so the sheet is always there. */
       cluster
       leading={
         <ChangesFileSheet
@@ -1169,13 +1171,13 @@ export function AgentSessionView({
           <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
         ) : undefined
       }
-      trailing={mobileSwitcher}
     />
-  ) : (
+  ) : composerVisible || phoneTrailingNode ? (
     <MobileWorkBar
       /* EXP-916: the ring belongs to the composer band — while a card holds
-         the keyboard, or once the run is over, the bar is the switcher alone
-         (Android's `FloatingBottomBar(right = …)`, iOS's `bandRetired`). */
+         the keyboard, or once the run is over, the bar is the trailing circle
+         alone (Android's `FloatingBottomBar(right = …)`, iOS's
+         `bandRetired`). */
       leading={
         composerVisible && usageAvailable
           ? usageOverlay(
@@ -1216,22 +1218,20 @@ export function AgentSessionView({
               agent={session.agent}
               config={config}
               usageSlot={usageSlot}
-              switcherSlot={composerSwitcher}
               autoFocus
               onEmptyBlur={() => setComposerOpen(false)}
             />
           </div>
         ) : null
       }
-      /* EXP-931: exactly ONE switcher is mounted — the bar's circle, or the
-         one inside the expanded composer that replaces the bar. */
-      trailing={composerVisible && composerOpen ? undefined : mobileSwitcher}
+      /* The expanded composer covers the bar; its circle waits behind it. */
+      trailing={composerVisible && composerOpen ? undefined : phoneTrailingNode}
     />
-  )
+  ) : null
 
   return (
     <OpenResultsContext.Provider value={openResults}>
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" {...(isMobile ? swipe : {})}>
       {/* EXP-851/850 §10: on a phone the header IS `MobileDetailHeader` —
           byte-identical to the issue, review, support-thread and session-issue
           screens — with the Context pill as its one trailing control; the
@@ -1246,8 +1246,9 @@ export function AgentSessionView({
            same Stop / Resume on the right. No caption row, no plan chip:
            the strips under the transcript say what the run is doing. */
         renderMobileHeader ? (
-          renderMobileHeader({ dot, shownFace })
+          renderMobileHeader({ dot, shownFace, tabs: mobileTabs })
         ) : (
+          <>
           <MobileDetailHeader
             title={
               <>
@@ -1275,6 +1276,8 @@ export function AgentSessionView({
               </div>
             }
           />
+          {mobileTabs}
+          </>
         )
       ) : (
         /* EXP-877: the ONE work header — the same node the issue route

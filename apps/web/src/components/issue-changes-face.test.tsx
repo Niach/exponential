@@ -42,8 +42,17 @@ vi.mock(`@/hooks/use-issue-property-handlers`, () => ({
 // A stub header that only re-renders its ACTION slot — that slot is what
 // EXP-895 moved GitHub into, and it is all this test needs from the bar.
 vi.mock(`@/components/issue-mobile-header`, () => ({
-  IssueMobileHeader: ({ action }: { action?: React.ReactNode }) => (
-    <div data-testid="issue-mobile-header">{action}</div>
+  IssueMobileHeader: ({
+    action,
+    tabs,
+  }: {
+    action?: React.ReactNode
+    tabs?: React.ReactNode
+  }) => (
+    <>
+      <div data-testid="issue-mobile-header">{action}</div>
+      {tabs}
+    </>
   ),
   TitleStateDot: () => null,
 }))
@@ -83,7 +92,7 @@ function renderFace() {
       teamId="t1"
       readOnly={false}
       filesState={filesState.value}
-      switcher={<div data-testid="switcher" />}
+      tabs={<div data-testid="tabs" />}
     />
   )
 }
@@ -102,7 +111,7 @@ describe(`IssueChangesFace`, () => {
     // The bar's leading slot is the sheet, not GitHub any more.
     expect(screen.getByTestId(`changes-file-sheet-button`).textContent).toBe(`2`)
     expect(screen.queryByTestId(`changes-github-circle`)).toBeNull()
-    expect(screen.getByTestId(`switcher`)).toBeTruthy()
+    expect(screen.getByTestId(`tabs`)).toBeTruthy()
   })
 
   it(`draws the cards alone — the sheet owns the list — and OPEN (EXP-916)`, () => {
@@ -159,7 +168,7 @@ describe(`IssueChangesFace`, () => {
         teamId="t1"
         readOnly={false}
         filesState={filesState.value}
-        switcher={<div data-testid="switcher" />}
+        tabs={<div data-testid="tabs" />}
       />
     )
     expect(
@@ -176,7 +185,7 @@ describe(`IssueChangesFace`, () => {
         teamId="t1"
         readOnly={false}
         filesState={filesState.value}
-        switcher={<div data-testid="switcher" />}
+        tabs={<div data-testid="tabs" />}
       />
     )
     expect(

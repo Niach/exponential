@@ -12,9 +12,13 @@ import SwiftUI
 ///
 /// The nav bar is identical across faces, so it never jumps: back · the
 /// title dot + identifier (or the session title) · on the Run face only,
-/// Stop / Resume · for issue subjects, the `…` menu. The floating bottom bar
-/// is `[left circle] [centre capsule] [right circle]` per face, and the right
-/// circle is the face switcher on every face.
+/// Stop / Resume · for issue subjects, the `…` menu. EXP-1150: directly under
+/// it the face TABS (`WorkFaceTabs`, two or more faces) sit at the same place
+/// on every face — tapping the selected `Runs` tab opens the run menu — and a
+/// horizontal swipe on the face body moves to the neighbouring face
+/// (`WorkFaces.swipeTarget`). The floating bottom bar is per face: Issue
+/// `[Properties][+ Comment][Start]`, Run `[usage][composer][Merge | Start]`
+/// (`WorkFaces.runBarTrailing`), Changes `[files][Merge PR]`, Results none.
 struct WorkScreen: View {
     let subject: WorkSubject
 
@@ -25,7 +29,7 @@ struct WorkScreen: View {
     @Environment(\.openURL) private var openURL
     @State private var face: WorkFaceKind
     /// The run the Run and Changes faces show. Follows `WorkFaces.codingTarget`
-    /// until the reader picks one from the switcher.
+    /// until the reader picks one from the run menu.
     @State private var shownSessionId: String?
     @State private var userPickedRun = false
     /// EXP-933: the requested `initialFace` while it is not available YET
@@ -38,8 +42,10 @@ struct WorkScreen: View {
     /// switch to the Issue face, where the session view is unmounted.
     @State private var runChrome = RunChrome()
     @State private var runRequest: RunRequest?
-    @State private var switcherAnchor: CGRect = .zero
-    @State private var switcherOpen = false
+    /// EXP-1150: the run menu, anchored under the `Runs` tab — opened by
+    /// tapping that tab while it is already selected.
+    @State private var runsMenuAnchor: CGRect = .zero
+    @State private var runsMenuOpen = false
     @State private var menuAnchor: CGRect = .zero
     @State private var menuOpen = false
     /// EXP-603: `ShareLink` cannot live inside a `GlassMenu` (its rows are
@@ -68,7 +74,7 @@ struct WorkScreen: View {
     @State private var steerConfigLoaded = false
     @State private var markedRead = false
     /// EXP-1121: the "Ready to code?" inputs (repositories, GitHub, live
-    /// devices) — shared by the Start circle, the switcher row and the sheet.
+    /// devices) — shared by the Start circles and the sheet.
     @State private var readinessModel: CodingReadinessModel?
     @State private var showReadiness = false
     /// What the sheet asked for, run once it has dismissed (a push from
@@ -79,17 +85,11 @@ struct WorkScreen: View {
     /// face.
     @State private var prGraphModel: PrGraphModel?
     @State private var prGraphOpen = false
-    /// EXP-932: the counts the switcher's Changes row prints — `Diff.totals`
-    /// over the files the Changes face itself draws, re-derived on the diff
-    /// EDGE (never per frame), so the menu and the face can never disagree.
-    /// Source A: the shown run's live diff (`shownDiff`).
-    @State private var changesTotals: Diff.Totals?
-    /// EXP-952: source B — the issue's PR / pushed-branch files, read only
-    /// when there is no live diff to draw. The model lives HERE, not inside
-    /// the Changes face (Android's `WorkScreen` owns its `ChangesViewModel`
-    /// the same way), because the switcher has to count the very files that
-    /// face draws — and it has to count them BEFORE the face was ever opened.
-    /// Handed into `PrChangesFace`; the Reviews page keeps creating its own.
+    /// EXP-952: the issue's PR / pushed-branch files, read only when there is
+    /// no live diff to draw. The model lives HERE, not inside the Changes face
+    /// (Android's `WorkScreen` owns its `ChangesViewModel` the same way), so
+    /// the files load before the face was ever opened. Handed into
+    /// `PrChangesFace`; the Reviews page keeps creating its own.
     @State private var prChangesModel: ChangesViewModel?
     /// EXP-917: a refused stack merge from the overlay. The sheet is gone by
     /// the time the server answers, so the refusal is an error toast
@@ -227,6 +227,10 @@ struct WorkScreen: View {
         menuRuns.map(\.id)
     }
 
+    /// EXP-886: two or more runs — the Run tab reads `Runs` and reselecting
+    /// it opens the run menu.
+    private var multipleRuns: Bool { runIds.count >= 2 }
+
     /// The shown run is mine and its row still lives.
     private var ownLive: Bool {
         guard let shownSession else { return false }
@@ -268,30 +272,12 @@ struct WorkScreen: View {
         )
     }
 
-    /// The switcher offers Start coding once the shown run ended for good.
+    /// EXP-1150: the Run bar offers Start coding once the shown run — mine,
+    /// on an issue subject — ended for good (nothing to resume).
     private var offerStart: Bool {
-        (shownEnded && !ownEndedResumable && startVisible) || resultsOnlySwitcher
-    }
-
-    /// EXP-933: no run of mine, but the issue has a teammate's Results — the
-    /// Issue face's circle is the switcher then (Results + Start coding in
-    /// its menu), not the bare Start circle that would hide the report.
-    private var resultsOnlySwitcher: Bool {
-        !hasRun && hasResults && startVisible
-    }
-
-    private var switcherTargets: [WorkFaces.SwitcherTarget] {
-        WorkFaces.switcherTargets(
-            faces: availableFaces,
-            shown: face,
-            runIds: runIds,
-            shownRunId: shownSessionId,
-            offerStart: offerStart
-        )
-    }
-
-    private var switcherMode: WorkFaces.SwitcherMode {
-        WorkFaces.switcherMode(switcherTargets)
+        guard issueId != nil, let shownSession else { return false }
+        return shownEnded && !ownEndedResumable && startVisible
+            && CodingSessionOwnership.isOwn(shownSession, userId: deps.auth.userId)
     }
 
     /// The title dot's tone: none without a LIVE run; on the Run face the
@@ -317,30 +303,12 @@ struct WorkScreen: View {
         face != .issue ? runChrome.busy : (shownSession?.agentBusy ?? false)
     }
 
-    private var switcherBadge: WorkFaces.SwitcherBadge? {
-        WorkFaces.switcherBadge(shown: face, sessionTone: dotTone, hasChanges: hasChanges)
-    }
-
     /// EXP-952: whether the issue's PR files are the Changes face's source —
     /// an issue with changes and NO live diff on the shown run (Android's
     /// `hasChanges && latestDiff == null && issueId != null`). The key the
     /// screen-owned `ChangesViewModel` lives by.
     private var wantsPrChangesModel: Bool {
         issueId != nil && issueHasChanges && shownDiff == nil
-    }
-
-    /// EXP-952: the PR files' totals, off the screen-owned model's loaded
-    /// files — the same list `PrChangesFace` draws. nil while the fetch is
-    /// out, failed, or when the live diff is the source.
-    private var prChangesTotals: Diff.Totals? {
-        guard let model = prChangesModel, case let .loaded(files) = model.load else { return nil }
-        return Diff.totals(files)
-    }
-
-    /// The switcher's `+A −D`: the live diff's totals when there is a live
-    /// diff (source A, on the diff edge), else the PR files' (source B).
-    private var switcherTotals: Diff.Totals? {
-        changesTotals ?? prChangesTotals
     }
 
     /// The identifier for an issue subject, the session's own title for an
@@ -419,10 +387,24 @@ struct WorkScreen: View {
         withOverlays(withLifecycle(withChrome(screenContent)))
     }
 
+    /// EXP-1150: the tab strip OUTSIDE every face, so it never jumps, and
+    /// the swipe on the face body under it.
     private var screenContent: some View {
         ZStack {
             AppBackground()
-            faceBody
+            VStack(spacing: 0) {
+                WorkFaceTabs(
+                    faces: availableFaces,
+                    shown: face,
+                    multipleRuns: multipleRuns,
+                    runsAnchor: $runsMenuAnchor,
+                    onSelect: switchFace,
+                    onReselectRuns: toggleRunsMenu
+                )
+                faceBody
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .workFaceSwipe(faces: availableFaces, shown: face, onSwitch: switchFace)
+            }
         }
     }
 
@@ -455,8 +437,7 @@ struct WorkScreen: View {
                 issue: issue,
                 barTrailing: issueBarTrailing,
                 onStartCoding: startCodingTapped,
-                onOpenChanges: { switchFace(.changes) },
-                switcher: { switcherView }
+                onOpenChanges: { switchFace(.changes) }
             )
         } else if let vm = issueVM, vm.loadTimedOut {
             unavailableState(vm: vm)
@@ -467,25 +448,23 @@ struct WorkScreen: View {
 
     /// The issue's PR files — the Changes face when the run has no live diff
     /// (`faceBody` routes a live diff to the session view). EXP-952: drawn
-    /// off the screen's own model, the one the switcher counts.
+    /// off the screen's own model.
     @ViewBuilder
     private var changesFace: some View {
         if let issueId, issueHasChanges {
-            PrChangesFace(issueId: issueId, reviewMode: false, model: prChangesModel) {
-                switcherView
-            }
+            PrChangesFace(issueId: issueId, reviewMode: false, model: prChangesModel)
         } else {
             ProgressView().tint(.white)
         }
     }
 
     /// EXP-879: the shown run's published screenshots — one scrolling page,
-    /// a band per topic, and the face switcher as its whole bottom bar (no
-    /// Stop / Resume, no merge: those belong to Run and Changes).
+    /// a band per topic, no bottom bar (EXP-1150; no Stop / Resume, no merge:
+    /// those belong to Run and Changes).
     @ViewBuilder
     private var resultsFace: some View {
         if hasResults {
-            SessionResultsFace(groups: sessionResultGroups) { switcherView }
+            SessionResultsFace(groups: sessionResultGroups)
         } else {
             ProgressView().tint(.white)
         }
@@ -498,23 +477,13 @@ struct WorkScreen: View {
             face: face,
             request: $runRequest,
             continuation: continuation,
-            switcher: { switcherView }
+            startReadiness: offerStart ? readiness : nil,
+            onStartCoding: startCodingTapped
         )
         .id(session.id)
         // EXP-933: the inline `sessions_results` card opens THIS screen's
         // Results face.
         .environment(\.openResultsFace, { switchFace(.results) })
-    }
-
-    private var switcherView: some View {
-        WorkFaceSwitcher(
-            mode: switcherMode,
-            badge: switcherBadge,
-            badgePulsing: dotPulsing,
-            anchor: $switcherAnchor,
-            menuOpen: $switcherOpen,
-            onSelect: select
-        )
     }
 
     // Shown once the bounded load clock gives up (EXP-264): the issue is
@@ -634,9 +603,9 @@ struct WorkScreen: View {
                 issueMenuItems
             }
             .glassMenuOverlay(
-                isPresented: $switcherOpen, anchor: switcherAnchor, presentation: .inline
+                isPresented: $runsMenuOpen, anchor: runsMenuAnchor, presentation: .inline
             ) {
-                switcherMenuItems
+                runsMenuItems
             }
             // Each presentation lives on its OWN node (EXP-240).
             .background {
@@ -768,46 +737,12 @@ struct WorkScreen: View {
         }
     }
 
-    /// The switcher menu: Start coding · Issue · Run (or one row per own run
-    /// with two or more, EXP-886's byline, a check on the shown one) ·
-    /// Changes with its `+A -D` when it is a live diff.
+    /// EXP-1150: the run menu under the `Runs` tab — one row per run
+    /// (EXP-886's byline, a check on the shown one).
     @ViewBuilder
-    private var switcherMenuItems: some View {
-        ForEach(switcherTargets, id: \.self) { target in
-            switcherMenuRow(target)
-        }
-    }
-
-    @ViewBuilder
-    private func switcherMenuRow(_ target: WorkFaces.SwitcherTarget) -> some View {
-        switch target {
-        case .startCoding:
-            GlassMenuItem(WorkFaces.startCodingLabel, icon: AppIcons.actionRun) {
-                select(target)
-            }
-        case .face(.changes):
-            GlassMenuItem(WorkFaces.changesFaceLabel, icon: AppIcons.codingDiff) {
-                select(target)
-            }
-            .overlay(alignment: .trailing) { diffCounts }
-        case let .face(face):
-            GlassMenuItem(WorkFaces.faceLabel(face), icon: WorkFaceSwitcher.icon(target)) {
-                select(target)
-            }
-        case let .run(id):
+    private var runsMenuItems: some View {
+        ForEach(runIds, id: \.self) { id in
             runMenuRow(id: id)
-        }
-    }
-
-    /// `+A −D` beside the Changes row — BOTH halves, off the very files the
-    /// Changes face draws (`switcherTotals`: the live diff's, else the PR
-    /// files').
-    @ViewBuilder
-    private var diffCounts: some View {
-        if let totals = switcherTotals, totals.files > 0 {
-            DiffCountsLabel(additions: totals.additions, deletions: totals.deletions)
-                .padding(.trailing, GlassMenuTokens.itemHPadding)
-                .allowsHitTesting(false)
         }
     }
 
@@ -829,7 +764,7 @@ struct WorkScreen: View {
                 ),
                 icon: onShow ? AppIcons.uiCheck : (live ? AppIcons.codingRunning : nil)
             ) {
-                select(.run(id: id))
+                pickRun(id)
             }
         }
     }
@@ -875,12 +810,6 @@ struct WorkScreen: View {
             .onChange(of: subjectModel?.runsResolved) { _, _ in
                 facesChanged(availableFaces)
             }
-            // EXP-932: the switcher's `+N −M`, off the diff edge — totalled
-            // from the model's ONE memoised parse (`parsedDiff`), the same
-            // files the Changes face draws; nothing is parsed a second time.
-            .onChange(of: shownDiff, initial: true) { _, diff in
-                changesTotals = diff == nil ? nil : shownModel.map { Diff.totals($0.parsedDiff.files) }
-            }
             // EXP-952: the PR-files model follows its key — created and
             // started once the issue has changes and no live diff outranks
             // them, stopped and dropped once a live diff takes over (the
@@ -893,6 +822,7 @@ struct WorkScreen: View {
             // continuation swapping in).
             .onChange(of: face) { _, next in
                 menuOpen = false
+                runsMenuOpen = false
                 onFaceChange?(next)
             }
             // EXP-893: the session view's report, held across the Issue face
@@ -1108,17 +1038,17 @@ struct WorkScreen: View {
         face = next
     }
 
-    private func select(_ target: WorkFaces.SwitcherTarget) {
-        switch target {
-        case let .face(next):
-            switchFace(next)
-        case let .run(id):
-            userPickedRun = true
-            shownSessionId = id
-            switchFace(.run)
-        case .startCoding:
-            startCodingTapped()
-        }
+    /// A row of the run menu: show that run on the Run face.
+    private func pickRun(_ id: String) {
+        userPickedRun = true
+        shownSessionId = id
+        switchFace(.run)
+    }
+
+    private func toggleRunsMenu() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { runsMenuOpen.toggle() }
     }
 
     /// A resumed / switched run's continuation: shown in place, pinned.
@@ -1128,18 +1058,15 @@ struct WorkScreen: View {
         face = .run
     }
 
-    /// The Issue face's trailing circle: the switcher once a run of mine
-    /// exists, else the Start circle behind its gates (EXP-240).
+    /// The Issue face's trailing circle: the Start circle behind its gates
+    /// (EXP-240) whenever the issue can be started — EXP-1150: the faces are
+    /// the tab strip, so nothing else competes for the slot.
     private var issueBarTrailing: IssueBarTrailing {
-        if hasRun || hasResults {
-            if case .hidden = switcherMode { return .hidden }
-            return .switcher
-        }
         guard let readiness, readiness.visible else { return .hidden }
         return .start(readiness)
     }
 
-    /// EXP-1121: every Start coding tap — the bar circle, the switcher row.
+    /// EXP-1121: every Start coding tap — the Issue and Run bars' circles.
     /// Ready starts (the composer); still loading does nothing; anything
     /// missing opens "Ready to code?".
     private func startCodingTapped() {

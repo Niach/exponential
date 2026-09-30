@@ -33,10 +33,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 // EXP-893: the ONE floating bottom bar of the phone Work screen —
 // `[left circle] [centre capsule] [right circle]` on the 52dp glass rung the
 // issue bar and the tab bar already draw (near-opaque pill fill + hairline).
-// Every face fills the three slots differently (Issue: properties · comment ·
-// switcher; Run: usage ring · steer · switcher; Changes: GitHub · merge ·
-// switcher), so the chrome is shared and only the slots move. A missing slot
-// simply leaves its space empty, so the capsule never jumps between faces.
+// Every face fills the slots differently (EXP-1150, the faces are tabs now:
+// Issue: properties · comment · start; Run: usage ring · steer · merge or
+// start; Changes: files · merge; Results: no bar), so the chrome is shared
+// and only the slots move. A missing slot simply leaves its space empty.
 //
 // EXP-916: the CHANGES bars (the Reviews page and the Work screen's Changes
 // face) are a [FloatingBarCluster] instead — nothing stretches, the circles
@@ -149,8 +149,47 @@ fun BarSolidPill(
 }
 
 /**
+ * EXP-1150: the [BarSolidPill]'s paint on a 52dp CIRCLE — the Run face's
+ * trailing Merge PR, the one solid thing on that bar. [contentDescription]
+ * names the verb the bare glyph carries; a [loading] circle spins in place of
+ * its glyph and drops the tap.
+ */
+@Composable
+fun BarSolidCircle(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+) {
+    Box(
+        modifier = modifier
+            .size(FloatingBarRung)
+            .clip(CircleShape)
+            .background(Color.White)
+            .clickable(enabled = !loading, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = Color.Black,
+            )
+        } else {
+            Icon(
+                icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(22.dp),
+                tint = Color.Black,
+            )
+        }
+    }
+}
+
+/**
  * One 52dp glass circle of the bar. Public since EXP-893 (it lived in the
- * issue bar): the Work screen's switcher, usage ring and GitHub circles are
+ * issue bar): the Work screen's usage ring, files and Start circles are
  * all this. [enabled] drops the tap but keeps the disc — a dimmed glyph is the
  * caller's job, so "Start coding with no desktop" can still explain itself.
  */

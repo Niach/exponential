@@ -578,8 +578,7 @@ private fun ChangesBottomBar(
             ChangesRefusalNotice(message = actionError, modifier = Modifier.padding(horizontal = 16.dp))
         }
         // EXP-916: the shared cluster — files · Merge PR · reject — the same
-        // bar the Work screen's Changes face draws with the switcher in the
-        // reject's place.
+        // bar the Work screen's Changes face draws, minus the reject.
         FloatingBarCluster(
             left = if (fileCount > 0) {
                 {

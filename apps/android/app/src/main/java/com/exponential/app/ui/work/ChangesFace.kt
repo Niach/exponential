@@ -35,6 +35,7 @@ import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PrStack
 import com.exponential.app.ui.components.BarCircle
+import com.exponential.app.ui.components.BarSolidCircle
 import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.FloatingBarCluster
@@ -51,13 +52,17 @@ import kotlinx.coroutines.launch
 
 // EXP-893/EXP-895: the Work screen's CHANGES FACE — a full page of the ONE diff
 // view: the summary row (`N files  +A −D`) over one [DiffFileCard] per file,
-// and the floating bar `[file sheet][merge capsule][switcher]`. Two sources,
+// and the floating bar `[file sheet][merge pill]` (EXP-1150: no trailing
+// circle — the faces are tabs, the switcher is gone). Two sources,
 // one look: source A is the shown session's LIVE worktree diff (`latest_diff`,
 // already parsed by the host), source B is the issue's open PR's files off
 // `ChangesViewModel`. GitHub is NOT on this bar — it sits in the header's
 // action slot, so the leading circle can open the file list (EXP-895).
 
-/** What the bar's centre capsule merges — nothing, the PR, or the recovery run. */
+/** What the bar's centre capsule merges — nothing, the PR, or the recovery run.
+ *  EXP-1150: the host builds ONE per merge source and hands it to both the
+ *  Changes face (the pill) and the Run face (the [MergeRunCircle]), so the
+ *  confirm flow is never duplicated. */
 data class ChangesMergeControl(
     val label: String,
     val fixConflicts: Boolean,
@@ -80,14 +85,13 @@ fun ChangesFace(
     /**
      * EXP-932: the ONE list both sources land in — the shown session's live
      * diff, else the issue's PR files parsed into the shared model. The HOST
-     * resolves it, because the face switcher's `+A −M` has to count exactly
-     * these files; two derivations meant two different numbers for one run.
+     * resolves it, so every count of the run's changes reads exactly these
+     * files; two derivations meant two different numbers for one run.
      */
     files: List<Diff.File>,
     /** Source B's load state — what captions an empty [files]. */
     prLoad: ChangesLoadState?,
     merge: ChangesMergeControl?,
-    trailingBarSlot: @Composable () -> Unit,
 ) {
     var mergeConfirmOpen by remember { mutableStateOf(false) }
     var sheetOpen by remember { mutableStateOf(false) }
@@ -142,8 +146,8 @@ fun ChangesFace(
             // the MESSAGE only; the recovery run takes the capsule's place.
             merge?.error?.let { ChangesRefusalNotice(message = it, modifier = Modifier.padding(horizontal = 16.dp)) }
             // EXP-916: the Reviews page's bar — a centred cluster, the white
-            // Merge pill hugging its label between the files circle and the
-            // switcher. One shape for Merge on every phone Changes surface.
+            // Merge pill hugging its label beside the files circle. One shape
+            // for Merge on every phone Changes surface.
             FloatingBarCluster(
                 left = if (files.isNotEmpty()) {
                     { FileListCircle(count = files.size, onClick = { sheetOpen = true }) }
@@ -161,7 +165,6 @@ fun ChangesFace(
                         )
                     }
                 },
-                right = trailingBarSlot,
             )
         }
     }
@@ -181,38 +184,68 @@ fun ChangesFace(
         )
     }
 
-    // EXP-498: merging always closes the session too, so the merge is
-    // confirm-gated — same copy as Agents and Reviews.
-    val stackChoice = merge?.stackChoice
-    if (mergeConfirmOpen && merge != null && stackChoice != null) {
-        // EXP-1145: a stack member asks which merge it means.
+    if (mergeConfirmOpen && merge != null) {
+        MergeConfirmDialog(merge = merge, onDismiss = { mergeConfirmOpen = false })
+    }
+}
+
+/**
+ * EXP-1150: the Run face's trailing Merge PR — the [ChangesMergeControl] the
+ * Changes face's pill wears, as a solid circle, running the SAME confirm. With
+ * a real conflict it becomes the Fix-conflicts circle (the branch glyph) that
+ * opens the recovery run.
+ */
+@Composable
+fun MergeRunCircle(merge: ChangesMergeControl) {
+    var mergeConfirmOpen by remember { mutableStateOf(false) }
+    BarSolidCircle(
+        icon = if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+        contentDescription = if (merge.fixConflicts) merge.label else DomainContract.diffUiMergePr,
+        loading = merge.loading,
+        onClick = { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true },
+        modifier = Modifier.testTag("pr-merge-run"),
+    )
+    if (mergeConfirmOpen) {
+        MergeConfirmDialog(merge = merge, onDismiss = { mergeConfirmOpen = false })
+    }
+}
+
+/**
+ * EXP-498: merging always closes the session too, so the merge is
+ * confirm-gated — same copy as Agents and Reviews. EXP-1145: a stack member
+ * asks which merge it means.
+ */
+@Composable
+private fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit) {
+    val stackChoice = merge.stackChoice
+    if (stackChoice != null) {
         StackMergeDialog(
             choice = stackChoice,
             onMergeStack = {
-                mergeConfirmOpen = false
+                onDismiss()
                 merge.onMergeStack(stackChoice.topIssueId)
             },
             onMergeThis = {
-                mergeConfirmOpen = false
+                onDismiss()
                 merge.onConfirm()
             },
-            onDismiss = { mergeConfirmOpen = false },
+            onDismiss = onDismiss,
         )
-    } else if (mergeConfirmOpen && merge != null) {
+    } else {
         AlertDialog(
-            onDismissRequest = { mergeConfirmOpen = false },
+            onDismissRequest = onDismiss,
             title = { Text("Merge pull request?") },
             text = { Text(merge.confirmText) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        mergeConfirmOpen = false
+                        onDismiss()
                         merge.onConfirm()
                     },
                 ) { Text("Merge") }
             },
             dismissButton = {
-                TextButton(onClick = { mergeConfirmOpen = false }) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
             },
         )
     }

@@ -235,6 +235,41 @@ public struct FloatingBarSolidPill<Content: View>: View {
     }
 }
 
+/// EXP-1150: the solid pill's CIRCLE twin — the Run face's trailing Merge PR
+/// (or Fix conflicts): a 52pt solid white disc with a dark glyph, painted
+/// exactly like `FloatingBarSolidPill`, no hairline.
+public struct FloatingBarSolidCircle<Content: View>: View {
+    let accessibilityLabel: String
+    let enabled: Bool
+    let action: () -> Void
+    let content: Content
+
+    public init(
+        accessibilityLabel: String,
+        enabled: Bool = true,
+        action: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.accessibilityLabel = accessibilityLabel
+        self.enabled = enabled
+        self.action = action
+        self.content = content()
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            content
+                .foregroundStyle(.black.opacity(0.9))
+                .frame(width: FloatingBarTokens.slot, height: FloatingBarTokens.slot)
+                .background(Circle().fill(.white))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
 // MARK: - The bar
 
 /// `[leading] [centre] [trailing]` on one centre line. Any slot may be empty:
@@ -273,7 +308,7 @@ public struct FloatingBottomBar<Leading: View, Center: View, Trailing: View>: Vi
 /// EXP-916: the CHANGES bar — `[leading] [centre] [trailing]` as a CENTRED
 /// cluster whose slots hug their content, 12pt apart (Android's
 /// `FloatingBarCluster`): files · Merge PR · reject on the Reviews page,
-/// files · Merge PR · switcher on the Work screen's Changes face. Nothing
+/// files · Merge PR on the Work screen's Changes face (EXP-1150). Nothing
 /// stretches: the white Merge pill is as wide as its label, and a missing
 /// slot leaves no gap.
 public struct FloatingBarCluster<Leading: View, Center: View, Trailing: View>: View {

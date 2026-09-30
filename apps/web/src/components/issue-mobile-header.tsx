@@ -18,7 +18,8 @@ import type { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handle
 // mono identifier centred, then the face's own action (Stop / Resume on the
 // Run face) and the `…` (Share · Move to board · Unmark duplicate · Delete).
 // Lifted out of `issue-detail-view.tsx` so the session route and the changes
-// face render the very same bar.
+// face render the very same bar. EXP-1150: the face TABS ride directly under
+// it (`tabs`, `MobileFaceTabs`), in the same slot on every face.
 
 /** The small state dot that leads a title: a session's tone, pulsing while
  *  it connects. */
@@ -54,6 +55,7 @@ export function IssueMobileHeader({
   graphBadge,
   dot,
   face = `issue`,
+  tabs,
 }: {
   issue: Issue
   board: Board
@@ -79,6 +81,9 @@ export function IssueMobileHeader({
   graphBadge?: ReactNode
   /** The shown session's state; absent = no dot (no live run). */
   dot?: { tone: SessionDotTone; connecting?: boolean } | null
+  /** EXP-1150: the face strip under the bar (`MobileFaceTabs`) — absent with
+   *  a single face. */
+  tabs?: ReactNode
 }) {
   const navigate = useNavigate()
 
@@ -106,6 +111,7 @@ export function IssueMobileHeader({
   }
 
   return (
+    <>
     <MobileDetailHeader
       title={
         <>
@@ -146,5 +152,7 @@ export function IssueMobileHeader({
         </div>
       }
     />
+    {tabs}
+    </>
   )
 }

@@ -15,19 +15,18 @@ import SwiftUI
 /// - Reviews (`reviewMode`): file sheet · Merge / Fix conflicts · close-PR
 ///   circle, plus the close-without-merge dialog (Close exists nowhere else
 ///   on iOS).
-/// - The Work screen: file sheet · Merge / Fix conflicts · the face switcher.
+/// - The Work screen: file sheet · Merge / Fix conflicts, nothing trailing
+///   (EXP-1150: the faces are the screen's tab strip).
 ///
 /// EXP-952: the Work screen hands its OWN `ChangesViewModel` in (`model`),
-/// so its switcher counts the very files this face draws — before the face
-/// was ever opened, and never a different list. nil = this face creates and
-/// drives its own, which is what the Reviews page does.
-struct PrChangesFace<Trailing: View>: View {
+/// so the files are loaded before the face was ever opened. nil = this face
+/// creates and drives its own, which is what the Reviews page does.
+struct PrChangesFace: View {
     let issueId: String
     let reviewMode: Bool
     /// EXP-952: an injected model the HOST owns (its lifecycle is the host's:
     /// this face never starts or stops it). nil = own one, created on appear.
     var model: ChangesViewModel? = nil
-    @ViewBuilder let trailing: () -> Trailing
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -257,10 +256,11 @@ struct PrChangesFace<Trailing: View>: View {
         vm.issue?.prUrl.flatMap { URL(string: $0) }
     }
 
-    /// Reviews shows the bar only with something to act on (the pushed-branch
-    /// tier has none); the Work screen always carries the switcher.
+    /// The bar shows only with something to act on (the pushed-branch tier
+    /// has none) — EXP-1150: on the Work screen too, now that no switcher
+    /// rides it.
     private func barVisible(_ vm: ChangesViewModel) -> Bool {
-        !reviewMode || canReview(vm) || loadedFiles(vm)?.isEmpty == false
+        canReview(vm) || loadedFiles(vm)?.isEmpty == false
     }
 
     /// Review actions (EXP-248) on the shared floating bar. A failed
@@ -282,8 +282,8 @@ struct PrChangesFace<Trailing: View>: View {
                         .padding(.horizontal, 16)
                 }
                 // EXP-916: the centred cluster ×3 — files · Merge PR ·
-                // reject on the Reviews page, files · Merge PR · switcher on
-                // the Work screen's Changes face. One bar for both.
+                // reject on the Reviews page, files · Merge PR on the Work
+                // screen's Changes face. One bar for both.
                 FloatingBarCluster {
                     barLeading(vm)
                 } center: {
@@ -302,7 +302,7 @@ struct PrChangesFace<Trailing: View>: View {
     /// EXP-895: the bar's LEADING slot is the phone's file list, on every
     /// Changes surface — GitHub moved up into the nav bar's action slot, where
     /// a phone header has room for it. The locked layout is
-    /// `[file sheet][merge capsule][switcher]`.
+    /// `[file sheet][merge capsule]`.
     @ViewBuilder
     private func barLeading(_ vm: ChangesViewModel) -> some View {
         if let files = loadedFiles(vm), !files.isEmpty {
@@ -341,17 +341,12 @@ struct PrChangesFace<Trailing: View>: View {
         }
     }
 
-    /// The Work screen's face switcher; on the Reviews page (which has no
-    /// switcher) the close-without-merge circle, the one control that exists
-    /// nowhere else on iOS.
+    /// On the Reviews page the close-without-merge circle, the one control
+    /// that exists nowhere else on iOS; nothing on the Work screen (EXP-1150).
     @ViewBuilder
     private func barTrailing(_ vm: ChangesViewModel) -> some View {
-        if reviewMode {
-            if canReview(vm) {
-                closeCircle(vm)
-            }
-        } else {
-            trailing()
+        if reviewMode, canReview(vm) {
+            closeCircle(vm)
         }
     }
 

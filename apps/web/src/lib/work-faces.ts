@@ -5,11 +5,14 @@ import { hasSessionResults, type SessionDotTone } from "@exp/ui"
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
 // session) with up to four FACES held as screen state, never as navigation:
-// `issue`, `run`, `changes` and `results`. The desktop's face toggle (EXP-877)
-// becomes a floating bottom-right circle that either switches straight to the
-// one other face or opens a menu above itself; Stop / Resume sit in the nav
-// bar's trailing slot only while the Run face shows. These are the PURE rules
-// every phone client mirrors byte for byte: iOS
+// `issue`, `run`, `changes` and `results`. EXP-1150: the faces are TABS — a
+// segmented strip under the header (the ONE segmented control every list
+// strip wears) names every available face in its fixed order, and a
+// horizontal swipe on the face's body moves to the neighbour. The bottom bar
+// keeps only the face's OWN controls: Stop / Resume sit in the nav bar's
+// trailing slot while the Run face shows, and the Run face's bar carries the
+// Merge circle while its PR is open (`runBarTrailing`). These are the PURE
+// rules every phone client mirrors byte for byte: iOS
 // `ExpCore/Domain/WorkFaces.swift`, Android `domain/WorkFaces.kt` — same
 // names, same cases, same test names.
 
@@ -28,7 +31,8 @@ export const RESULTS_FACE_LABEL = `Results`
 /** EXP-933: the transcript card under a settled `sessions_results` call that
  *  switches the run to its Results face. */
 export const OPEN_RESULTS_LABEL = `Open Results`
-/** The switcher menu's extra row once the shown run ended for good. */
+/** The Start circle's label — the Run face's bar once the shown run ended
+ *  for good, the Issue face's bar while nothing runs. */
 export const START_CODING_LABEL = `Start coding`
 
 /** The steer composer's placeholder, byte-identical ×4 (desktop
@@ -180,64 +184,37 @@ export function primaryAction(input: {
   return `none`
 }
 
-export type SwitcherTarget =
-  | { kind: `face`; face: WorkFaceKind }
-  | { kind: `run`; id: string }
-  | { kind: `startCoding` }
+/** EXP-1150: which way the finger went. `left` = the content followed the
+ *  finger leftwards, so the NEXT face slides in; `right` = the previous. */
+export type SwipeDirection = `left` | `right`
 
-/** What the switcher circle offers from the shown face: the OTHER faces in
- *  order, the Run face expanded into one row per own run when there are two
- *  or more (EXP-886), and `Start coding` first when the shown run ended and
- *  cannot be resumed (desktop shows Start in that state; on the phone the
- *  circle is the switcher, so the menu carries it). */
-export function switcherTargets(
+/** The face a horizontal swipe on the body lands on: the neighbour in the
+ *  strip's order, `null` at either end (or when the shown face is not in the
+ *  strip at all — nothing to swipe from). */
+export function swipeTarget(
   faces: readonly WorkFaceKind[],
   shown: WorkFaceKind,
-  runIds: readonly string[],
-  shownRunId: string | null,
+  direction: SwipeDirection
+): WorkFaceKind | null {
+  const index = faces.indexOf(shown)
+  if (index < 0) return null
+  const next = direction === `left` ? index + 1 : index - 1
+  return faces[next] ?? null
+}
+
+export type RunBarTrailing = `merge` | `start` | `none`
+
+/** The Run face's bar keeps ONE circle on its right, now that the switcher
+ *  is a strip: Merge PR while the run's PR is open and mergeable from here
+ *  (EXP-1150: the same confirm the Changes face's capsule runs), else Start
+ *  coding once the shown run ended for good, else nothing. */
+export function runBarTrailing(input: {
+  canMerge: boolean
   offerStart: boolean
-): SwitcherTarget[] {
-  const targets: SwitcherTarget[] = []
-  if (offerStart) targets.push({ kind: `startCoding` })
-  for (const face of faces) {
-    if (face === `run` && runIds.length >= 2) {
-      for (const id of runIds) {
-        if (shown === `run` && id === shownRunId) continue
-        targets.push({ kind: `run`, id })
-      }
-      continue
-    }
-    if (face === shown) continue
-    targets.push({ kind: `face`, face })
-  }
-  return targets
-}
-
-export type SwitcherMode =
-  | { kind: `hidden` }
-  | { kind: `toggle`; target: SwitcherTarget }
-  | { kind: `menu`; targets: SwitcherTarget[] }
-
-/** No target = no circle; exactly one = a direct switch wearing the
- *  destination's icon; two or more = the faces glyph and a menu above. */
-export function switcherMode(targets: readonly SwitcherTarget[]): SwitcherMode {
-  if (targets.length === 0) return { kind: `hidden` }
-  if (targets.length === 1) return { kind: `toggle`, target: targets[0] }
-  return { kind: `menu`, targets: [...targets] }
-}
-
-export type SwitcherBadge = SessionDotTone | `changes` | null
-
-/** The circle's badge dot: off the Run face the shown session's state dot
- *  (none without a session); on the Run face a green dot while changes exist,
- *  so the reader knows a diff is waiting behind the switcher. */
-export function switcherBadge(
-  shown: WorkFaceKind,
-  sessionTone: SessionDotTone | null,
-  hasChanges: boolean
-): SwitcherBadge {
-  if (shown === `run`) return hasChanges ? `changes` : null
-  return sessionTone
+}): RunBarTrailing {
+  if (input.canMerge) return `merge`
+  if (input.offerStart) return `start`
+  return `none`
 }
 
 /** Where a face lands when it vanishes under the reader (the diff cleared,

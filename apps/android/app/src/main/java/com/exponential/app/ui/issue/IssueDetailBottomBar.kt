@@ -89,8 +89,8 @@ import kotlinx.coroutines.flow.collectLatest
 // What the Work screen's start circle renders (EXP-240/EXP-893, EXP-1121):
 // derived from the "Ready to code?" model. Null hides the circle (steer off /
 // non-member, `readiness.visible == false`) — the host owns the mapping. A LIVE
-// run is not a state of this control: with one, the circle is the face
-// switcher and the run is a face of the same screen.
+// run is not a state of this control: the run is a face of the same screen,
+// one tab away (EXP-1150).
 sealed interface StartButtonUi {
     /** Every step met: the white play glyph, a tap opens the composer. */
     data object Ready : StartButtonUi
@@ -240,7 +240,7 @@ fun IssueDetailBottomBar(
     onExpandedChange: (Boolean) -> Unit,
     showProperties: Boolean,
     onOpenProperties: () -> Unit,
-    /** EXP-893: the right circle — the host's face switcher or Start. */
+    /** EXP-893: the right circle — the host's Start (EXP-1150), else empty. */
     trailing: @Composable () -> Unit,
     draft: String,
     onDraftChange: (String) -> Unit,

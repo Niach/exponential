@@ -7,10 +7,9 @@ import {
   fallbackFace,
   phaseDotTone,
   primaryAction,
+  runBarTrailing,
   sessionModel,
-  switcherBadge,
-  switcherMode,
-  switcherTargets,
+  swipeTarget,
   PLAN_MODE_LABEL,
   STEER_COMPOSER_PLACEHOLDER,
 } from "./work-faces"
@@ -152,63 +151,27 @@ describe(`work faces`, () => {
     ).toBe(`none`)
   })
 
-  it(`offers the other faces as switcher targets`, () => {
-    expect(
-      switcherTargets([`issue`, `run`, `changes`], `run`, [`a`], `a`, false)
-    ).toEqual([
-      { kind: `face`, face: `issue` },
-      { kind: `face`, face: `changes` },
-    ])
-    expect(switcherTargets([`issue`], `issue`, [], null, false)).toEqual([])
+  // EXP-1150: the faces are tabs — a swipe walks the strip.
+  it(`swipes to the neighbouring face`, () => {
+    const faces = [`issue`, `run`, `changes`, `results`] as const
+    expect(swipeTarget(faces, `issue`, `left`)).toBe(`run`)
+    expect(swipeTarget(faces, `run`, `left`)).toBe(`changes`)
+    expect(swipeTarget(faces, `changes`, `right`)).toBe(`run`)
+    expect(swipeTarget(faces, `run`, `right`)).toBe(`issue`)
+    // Nothing past either end.
+    expect(swipeTarget(faces, `issue`, `right`)).toBeNull()
+    expect(swipeTarget(faces, `results`, `left`)).toBeNull()
+    // A gap in the strip is skipped: the neighbour is the next AVAILABLE face.
+    expect(swipeTarget([`issue`, `results`], `issue`, `left`)).toBe(`results`)
+    // A face that is not in the strip swipes nowhere.
+    expect(swipeTarget([`issue`], `run`, `left`)).toBeNull()
+    expect(swipeTarget([], `issue`, `left`)).toBeNull()
   })
 
-  it(`expands the run face into one row per run with two or more`, () => {
-    expect(
-      switcherTargets([`issue`, `run`], `issue`, [`a`, `b`], `a`, false)
-    ).toEqual([
-      { kind: `run`, id: `a` },
-      { kind: `run`, id: `b` },
-    ])
-    // On the Run face the shown run is not a target.
-    expect(
-      switcherTargets([`issue`, `run`, `changes`], `run`, [`a`, `b`], `a`, false)
-    ).toEqual([
-      { kind: `face`, face: `issue` },
-      { kind: `run`, id: `b` },
-      { kind: `face`, face: `changes` },
-    ])
-  })
-
-  it(`prepends start coding when the shown run ended for good`, () => {
-    expect(switcherTargets([`issue`, `run`], `run`, [`a`], `a`, true)).toEqual([
-      { kind: `startCoding` },
-      { kind: `face`, face: `issue` },
-    ])
-  })
-
-  it(`hides, toggles or opens a menu by target count`, () => {
-    expect(switcherMode([])).toEqual({ kind: `hidden` })
-    expect(switcherMode([{ kind: `face`, face: `run` }])).toEqual({
-      kind: `toggle`,
-      target: { kind: `face`, face: `run` },
-    })
-    expect(
-      switcherMode([
-        { kind: `face`, face: `issue` },
-        { kind: `face`, face: `changes` },
-      ]).kind
-    ).toBe(`menu`)
-  })
-
-  it(`badges the circle with the session tone off the run face`, () => {
-    expect(switcherBadge(`issue`, `running`, true)).toBe(`running`)
-    expect(switcherBadge(`changes`, `needs_input`, false)).toBe(`needs_input`)
-    expect(switcherBadge(`issue`, null, true)).toBeNull()
-  })
-
-  it(`badges the circle with changes on the run face`, () => {
-    expect(switcherBadge(`run`, `running`, true)).toBe(`changes`)
-    expect(switcherBadge(`run`, `running`, false)).toBeNull()
+  it(`picks the run bar's trailing circle, merge first`, () => {
+    expect(runBarTrailing({ canMerge: true, offerStart: true })).toBe(`merge`)
+    expect(runBarTrailing({ canMerge: false, offerStart: true })).toBe(`start`)
+    expect(runBarTrailing({ canMerge: false, offerStart: false })).toBe(`none`)
   })
 
   it(`falls back changes to run to issue`, () => {

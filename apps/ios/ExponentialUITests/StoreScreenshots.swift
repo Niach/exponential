@@ -104,27 +104,24 @@ final class StoreScreenshots: XCTestCase {
             print("EXP-DEBUG hierarchy after failed detail open:\n\(app.debugDescription)")
         }
         XCTAssertTrue(detailOpened, "Issue detail did not open")
-        // EXP-893: the reader's OWN live run makes the bottom-bar circle the
-        // face switcher — that is what makes this shot say "an agent is
-        // coding on this right now" rather than "live steering is unavailable
-        // on this instance". Wait for the switcher, never a caption.
-        let switcher = app.descendants(matching: .any)
-            .matching(identifier: "work-face-switcher").firstMatch
+        // EXP-893/1150: the reader's OWN live run grows the Work screen's Run
+        // TAB — that is what makes this shot say "an agent is coding on this
+        // right now" rather than "live steering is unavailable on this
+        // instance". Wait for the tab, never a caption.
+        let runTab = app.descendants(matching: .any)
+            .matching(identifier: "work-face-run").firstMatch
         XCTAssertTrue(
-            switcher.waitForExistence(timeout: 30),
+            runTab.waitForExistence(timeout: 30),
             "No live session on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
         )
         snapshot("02_issue-detail", settle: 2, popRects: app)
 
         // ── 04: live steering ───────────────────────────────────────────────
-        // The switcher flips the SAME screen to its Run face (EXP-893): a
-        // direct switch with one other face, else a menu whose "Run" row is
-        // the switch. Wait for the FEED, not just the face: it renders
-        // "Connecting…" / "Waiting for activity…" placeholders until the
-        // first relay frame lands.
-        switcher.tap()
-        let runRow = app.buttons["Run"].firstMatch
-        if runRow.waitForExistence(timeout: 2) { runRow.tap() }
+        // The Run tab flips the SAME screen to its Run face (EXP-1150). Wait
+        // for the FEED, not just the face: it renders "Connecting…" /
+        // "Waiting for activity…" placeholders until the first relay frame
+        // lands.
+        runTab.tap()
         let agentFeed = app.descendants(matching: .any)
             .matching(identifier: "agent-feed").firstMatch
         XCTAssertTrue(

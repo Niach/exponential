@@ -43,7 +43,7 @@ import com.exponential.app.ui.theme.glassRow
 // says its state. The Start-coding launcher lives in the bottom bar (EXP-240),
 // so nothing here starts anything; the row renders only with a PR or branch.
 // The dot glyphs at the bottom are shared by every session list and the
-// Work screen's switcher badge.
+// Work screen's top-bar dot.
 
 internal val LiveGreen = Color(0xFF34D399)
 

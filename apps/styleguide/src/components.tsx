@@ -318,7 +318,6 @@ const IssueRefGlyph = conceptIcon(`editor-issue-ref`)
 const EmojiGlyph = conceptIcon(`editor-emoji`)
 const PropertiesGlyph = conceptIcon(`ui-properties`)
 const CommentGlyph = conceptIcon(`notification-issue-comment`)
-const WorkFacesGlyph = conceptIcon(`work-faces`)
 const DraftsGlyph = conceptIcon(`nav-drafts`)
 const PinGlyph = conceptIcon(`ui-pin`)
 const ToolGlyph = conceptIcon(`coding-tool`)
@@ -3671,7 +3670,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-bar`,
     title: `Work bar`,
     kind: `Surfaces`,
-    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · switcher) and the changes (files · Merge · switcher). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED, because the switcher owns lookups that must not re-run on every expand. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
+    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Merge circle while its PR is open, else Start once the run ended for good) and the changes (files · Merge PR); the results face has none. EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs under the header (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`) and the body swipes between them; the bar keeps only the face's own controls. EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
     status: {
       web: ok(
         `MobileWorkBar / MobileWorkCapsule`,
@@ -3699,15 +3698,15 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           <CommentGlyph className="size-5 shrink-0" />
           <span className="min-w-0 truncate">Comment</span>
         </MobileWorkCapsule>
-        <FabButton aria-label="Switch face">
-          <WorkFacesGlyph className="size-5" />
+        <FabButton emphasis="primary" aria-label="Start coding">
+          <PlayGlyph className="size-5" />
         </FabButton>
       </div>
     ),
     leftovers: [
       {
         file: `apps/web/src/components/issue-changes-face.tsx`,
-        note: `the Merge capsule wears MOBILE_WORK_CAPSULE_CLASS on a SessionMergePill instead of MobileWorkCapsule`,
+        note: `the Merge capsule and the Run face's Merge circle are a SessionMergePill in the bar's classes, not the bar's own nodes`,
       },
     ],
   },

@@ -6,6 +6,7 @@ import {
   type SessionDotTone,
   MOBILE_WORK_BAR_CLEARANCE,
   MOBILE_WORK_CAPSULE_CLASS,
+  MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
   ChangesFileSheet,
   PrGithubButton,
@@ -15,6 +16,7 @@ import type { ReviewFilesState } from "@/hooks/use-review-files"
 import { useSteerConfig } from "@/components/agent-session"
 import { ChangesView } from "@/components/changes-view"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
+import type { FaceSwipeHandlers } from "@/components/mobile-face-tabs"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionMergePill } from "@/components/session-merge-button"
@@ -29,7 +31,8 @@ import { useWorkflowOwnsMerge } from "@/hooks/use-reviews-data"
 // Issue face, the diff in the column, and the bar: the file SHEET on the left
 // (EXP-895 — GitHub moved up into the header's action slot, where a phone
 // header has room for it), the Merge PR capsule in the centre while the PR is
-// open, the face switcher on the right. A run's live diff draws the same face
+// open. EXP-1150: no switcher circle — the face TABS sit under the header
+// and the body swipes between faces. A run's live diff draws the same face
 // inside the session view.
 
 const UiLoadingIcon = conceptIcon(`ui-loading`)
@@ -63,6 +66,30 @@ export function MergeCapsule(props: {
   )
 }
 
+/** EXP-1150: the RUN face's Merge — the very same control as a 52px circle
+ *  in the bar's trailing slot, icon-only (the glyph says merge, the confirm
+ *  dialog says the rest). `runBarTrailing` decides when it shows. */
+export function MergeCircle(props: {
+  issueId?: string
+  sessionId?: string
+  prState: string | null
+  prNumber: number | null
+  branch: string | null
+  updatedAt: string | Date | null
+  steerEnabled: boolean
+}) {
+  return (
+    <SessionMergePill
+      {...props}
+      className={cn(
+        MOBILE_WORK_CIRCLE_CLASS,
+        `w-[52px] justify-center rounded-full p-0 [&_svg]:size-5`,
+        PILL_PRIMARY_PAINT
+      )}
+    />
+  )
+}
+
 export function IssueChangesFace({
   issue,
   board,
@@ -71,7 +98,8 @@ export function IssueChangesFace({
   readOnly,
   origin,
   filesState: state,
-  switcher,
+  tabs,
+  swipe,
   dot,
 }: {
   issue: Issue
@@ -83,8 +111,10 @@ export function IssueChangesFace({
   /** EXP-952: the issue's PR / branch files, fetched by the route
    *  (`useReviewFiles`) — the switcher's `+N −M` reads the same list. */
   filesState: ReviewFilesState
-  /** The face switcher circle. */
-  switcher: ReactNode
+  /** EXP-1150: the face strip (`MobileFaceTabs`) and the swipe handlers the
+   *  root spreads (`useFaceSwipe`). */
+  tabs: ReactNode
+  swipe?: FaceSwipeHandlers
   dot?: { tone: SessionDotTone; connecting?: boolean } | null
 }) {
   const [selected, setSelected] = useState<string | null>(null)
@@ -99,7 +129,11 @@ export function IssueChangesFace({
   const files = state.kind === `files` ? state.files : []
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="issue-changes-face">
+    <div
+      className="flex h-full min-h-0 flex-col"
+      data-testid="issue-changes-face"
+      {...swipe}
+    >
       <IssueMobileHeader
         issue={issue}
         board={board}
@@ -124,6 +158,7 @@ export function IssueChangesFace({
           />
         }
         dot={dot}
+        tabs={tabs}
       />
       <div
         className={cn(
@@ -160,7 +195,7 @@ export function IssueChangesFace({
         )}
       </div>
       <MobileWorkBar
-        /* EXP-916: the Reviews page's cluster — files · Merge PR · switcher. */
+        /* EXP-916: the Reviews page's cluster — files · Merge PR. */
         cluster
         leading={
           files.length > 0 ? (
@@ -183,7 +218,6 @@ export function IssueChangesFace({
             />
           ) : undefined
         }
-        trailing={switcher}
       />
       {handlers.duplicatePicker}
     </div>
