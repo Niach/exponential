@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-30-phone-face-pager`,
+    date: `2026-09-30`,
+    title: `Phone tabs follow your finger`,
+    summary: `Issue, Run, Changes and Results on the phone drag like native tabs on web, iOS and Android, and the Changes tab shows the diff counts.`,
+    body: `- **Dragging**: the Issue, Run, Changes and Results faces of the phone's Work screen move with your finger and settle on the neighbour, as a native pager on iOS and Android and as a slide on web. Tapping a tab animates the same way. Before, the face switched only after the swipe ended.
+- **Changes counts**: the Changes tab reads the diff's added and removed line counts, as the desktop app does, once the run's diff or the pull request's files are known.
+- **Styleguide**: the face strip has its own entry, Work face tabs, so every client draws the same control.`,
+  },
+  {
     id: `2026-09-30-api-errors`,
     date: `2026-09-30`,
     title: `API errors are not rate limits`,
