@@ -261,10 +261,19 @@ fn lock_sessions(sessions: &Sessions) -> std::sync::MutexGuard<'_, Vec<LiveSessi
 /// Local one-session-per-issue dedup — only STILL-RUNNING sessions count
 /// (a finished entry awaiting the reaper tick must not block a restart).
 fn issue_is_coding_here(sessions: &Sessions, issue_id: &str) -> bool {
-    lock_sessions(sessions).iter().any(|live| {
-        covers_issue(live.issue_id.as_deref(), &live.batch_issue_ids, issue_id)
-            && !live.session.is_done()
-    })
+    issue_run_here(sessions, issue_id).is_some()
+}
+
+/// [`issue_is_coding_here`], naming the live run that holds the issue
+/// (FEED-63: the refusal reported back to the requester names it).
+fn issue_run_here(sessions: &Sessions, issue_id: &str) -> Option<String> {
+    lock_sessions(sessions)
+        .iter()
+        .find(|live| {
+            covers_issue(live.issue_id.as_deref(), &live.batch_issue_ids, issue_id)
+                && !live.session.is_done()
+        })
+        .map(|live| live.session.session_id.clone())
 }
 
 /// FEED-47/57: a run holds an issue when it IS the issue's run or a batch
@@ -578,7 +587,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // first is still preparing (see [`StartReservations`]).
             Ok(start) => match reservations.claim(reservation_keys(&start.subject)) {
                 Err(clash) => {
-                    // EXP-758: the sender hears NOTHING about this. A start
+                    // EXP-758: before FEED-63 the sender heard NOTHING. A start
                     // frame has no reply on the control socket (there is no
                     // ack/refusal variant in `steer::frames::ClientFrame`, by
                     // design: "the remote client observes success purely via
@@ -587,12 +596,20 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     // heartbeat carries no message field and
                     // `devices.completeCommand` only answers PULLED commands,
                     // which starts are not. So a double-click on Start looks
-                    // like a start that vanished. Logged at WARN until the
-                    // relay grows a refusal frame; the drop is deliberate
-                    // (REV-9's dedup), it is only the silence that is not.
+                    // like a start that vanished. The drop is deliberate
+                    // (REV-9's dedup); FEED-63 ends the silence below.
                     log::warn!(
-                        "remote start dropped: a start holding {clash} is already in flight on this device; the sender was not told"
+                        "remote start dropped: a start holding {clash} is already in flight on this device"
                     );
+                    // FEED-63: the sender hears it now, through the server,
+                    // when the frame named its start. Off the 1Hz loop: the
+                    // report is an HTTP round trip.
+                    if let Some(start_id) = start.start_id.clone() {
+                        let ctx = Arc::clone(&ctx);
+                        std::thread::spawn(move || {
+                            report_start_failure(&ctx, Some(&start_id), START_DUPLICATE_REASON);
+                        });
+                    }
                 }
                 Ok(reservation) => {
                     let ctx = Arc::clone(&ctx);
@@ -1738,9 +1755,9 @@ fn handle_remote_start(
         started_reason: start.started_reason.clone(),
     };
 
-    // Errors and refusals are logged, never acked — the remote client
-    // observes success purely via the synced `coding_sessions` row
-    // appearing (desktop parity).
+    // Success is observed purely via the synced `coding_sessions` row
+    // appearing (desktop parity). FEED-63: errors and refusals are logged
+    // AND, when the frame named its `startId`, reported back to the server.
     let outcome = match start.subject.clone() {
         RemoteStartSubject::Issue(issue_id) => remote_issue_start(
             ctx, runtime, sessions, personal_key, options, origin, issue_id,
@@ -1772,8 +1789,54 @@ fn handle_remote_start(
             NodeHold { store, device_id },
         ),
     };
-    if let Err(err) = outcome {
-        log::warn!("remote start failed: {err:#}");
+    match outcome {
+        Ok(()) => {}
+        // FEED-63: a deliberate refusal (the one-session-per-issue guard, a
+        // disabled launch) stays a warn, as before, and now reaches the
+        // requester too.
+        Err(err) if err.is::<StartRefused>() => {
+            log::warn!("remote start refused ({:?}): {err}", start.subject);
+            report_start_failure(ctx, start.start_id.as_deref(), &err.to_string());
+        }
+        Err(err) => {
+            log::warn!("remote start failed: {err:#}");
+            report_start_failure(ctx, start.start_id.as_deref(), &format!("{err:#}"));
+        }
+    }
+}
+
+/// FEED-63: the reason a duplicate `start_session` frame is dropped with.
+const START_DUPLICATE_REASON: &str =
+    "duplicate start dropped: a start for the same subject is already in flight on this device";
+
+/// FEED-63: a remote start this machine did not honour, as a typed error so
+/// [`handle_remote_start`] can tell a deliberate refusal (reported with its
+/// reason, logged at warn like before) from a failure. The `Display` is the
+/// reason the requester reads.
+#[derive(Debug)]
+struct StartRefused(String);
+
+impl std::fmt::Display for StartRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for StartRefused {}
+
+/// FEED-63: tell the server why the start `start_id` names did not happen
+/// (`steer.reportStartFailure`), so the requester reads the reason instead
+/// of a bare timeout. Best-effort: a frame without a start id (a pre-FEED-63
+/// server) reports nothing, and a transport failure is only logged.
+fn report_start_failure(ctx: &Ctx, start_id: Option<&str>, reason: &str) {
+    let Some(start_id) = start_id else {
+        return;
+    };
+    match api::steer::report_start_failure(&ctx.trpc, start_id, reason) {
+        Ok(recorded) => {
+            log::info!("remote start {start_id}: failure reported (recorded={recorded})")
+        }
+        Err(err) => log::warn!("remote start {start_id}: failure report failed: {err}"),
     }
 }
 
@@ -1798,16 +1861,17 @@ fn issue_start_blocker_except(
     issue_id: &str,
     except: Option<&str>,
 ) -> Option<String> {
-    if issue_is_coding_here(sessions, issue_id) {
+    if let Some(session_id) = issue_run_here(sessions, issue_id) {
         return Some(format!(
-            "remote start for {issue_id} ignored — already coding this issue"
+            "a live run already holds this issue on this device: {session_id}"
         ));
     }
     if let Ok(Some(live)) = api::coding_sessions::live_for_issue(&ctx.trpc, issue_id) {
         if except != Some(live.id.as_str()) {
             return Some(format!(
-                "remote start for {issue_id} ignored — live session on {} (one session per issue)",
-                live.device_label.as_deref().unwrap_or("another device")
+                "a live run already holds this issue on {}: {} (one session per issue)",
+                live.device_label.as_deref().unwrap_or("another device"),
+                live.id
             ));
         }
     }
@@ -1873,8 +1937,9 @@ fn remote_issue_start(
     hold: NodeHold<'_>,
 ) -> anyhow::Result<()> {
     if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
-        log::warn!("{reason}");
-        return Ok(());
+        // FEED-63: still a refusal, not a failure; typed so the caller
+        // reports the reason to the requester.
+        return Err(StartRefused(reason).into());
     }
     let fetched = api::issues::issues_get(&ctx.trpc, &issue_id).context("resolve the issue")?;
     let issue = fetched.issue;
@@ -2336,9 +2401,9 @@ fn spawn_prepared_covering(
 ) -> anyhow::Result<()> {
     let prepared = match prepared {
         Prepared::Ready(prepared) => prepared,
+        // FEED-63: typed, so a remote start reports the refusal back.
         Prepared::Disabled(reason) => {
-            log::warn!("remote start refused: {}", reason.message());
-            return Ok(());
+            return Err(StartRefused(format!("refused: {}", reason.message())).into());
         }
     };
     let env = LaunchEnv {

@@ -1803,6 +1803,13 @@ pub enum ServerFrame {
         workflow_node_id: Option<String>,
         #[serde(default)]
         workflow_role: Option<String>,
+        /// FEED-63: the server's id for THIS start attempt. A machine that
+        /// cannot honour the frame reports the reason back with
+        /// `steer.reportStartFailure({startId, reason})` so the requester
+        /// sees why instead of a bare timeout. Absent on every pre-FEED-63
+        /// sender (then a failure stays log-only, as before).
+        #[serde(default)]
+        start_id: Option<String>,
     },
     /// EXP-773: a viewer asked for the transcript of a session that is no
     /// longer live, and the relay routed the ask to THIS device (the ticket
@@ -3218,6 +3225,7 @@ mod tests {
                 workflow_id: None,
                 workflow_node_id: None,
                 workflow_role: None,
+                start_id: None,
             }
         );
     }
@@ -3335,6 +3343,25 @@ mod tests {
         );
     }
 
+    /// FEED-63: the start attempt id, camelCase on the wire; absent on
+    /// every pre-FEED-63 sender.
+    #[test]
+    fn start_session_deserializes_start_id() {
+        match ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9","startId":"start-1"}"#)
+            .unwrap()
+        {
+            ServerFrame::StartSession { start_id, issue_id, .. } => {
+                assert_eq!(start_id.as_deref(), Some("start-1"));
+                assert_eq!(issue_id.as_deref(), Some("issue-9"));
+            }
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+        match ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#).unwrap() {
+            ServerFrame::StartSession { start_id, .. } => assert_eq!(start_id, None),
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+    }
+
     #[test]
     fn start_session_deserializes_the_workflow_membership() {
         // EXP-1082: the three optional camelCase keys a workflow run carries.
@@ -3391,6 +3418,7 @@ mod tests {
                 workflow_id: None,
                 workflow_node_id: None,
                 workflow_role: None,
+                start_id: None,
             }
         );
     }
@@ -3430,6 +3458,7 @@ mod tests {
                 workflow_id: None,
                 workflow_node_id: None,
                 workflow_role: None,
+                start_id: None,
             }
         );
         // Absent (every person-started frame, and every pre-EXP-679 sender)
@@ -3508,6 +3537,7 @@ mod tests {
                 workflow_id: None,
                 workflow_node_id: None,
                 workflow_role: None,
+                start_id: None,
             }
         );
     }
@@ -3549,6 +3579,7 @@ mod tests {
                 workflow_id: None,
                 workflow_node_id: None,
                 workflow_role: None,
+                start_id: None,
             }
         );
     }
@@ -3591,6 +3622,7 @@ mod tests {
                 workflow_id: None,
                 workflow_node_id: None,
                 workflow_role: None,
+                start_id: None,
             }
         );
     }
@@ -3647,6 +3679,7 @@ mod tests {
                 workflow_id: None,
                 workflow_node_id: None,
                 workflow_role: None,
+                start_id: None,
             }
         );
     }
@@ -3689,6 +3722,7 @@ mod tests {
                 workflow_id: None,
                 workflow_node_id: None,
                 workflow_role: None,
+                start_id: None,
             }
         );
     }

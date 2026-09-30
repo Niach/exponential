@@ -192,6 +192,12 @@ pub struct RemoteStart {
     /// planner run, `WorkflowMembership::from_wire`). Never on a resume,
     /// which inherits server-side.
     pub workflow: Option<coding::workflows::WorkflowMembership>,
+    /// FEED-63: the frame's `startId`, the server's id for this start
+    /// attempt. When set, a machine that refuses or fails the start reports
+    /// the reason with `steer.reportStartFailure`. Set after
+    /// [`remote_start_from_frame`] like `workflow`; `None` on pre-FEED-63
+    /// frames.
+    pub start_id: Option<String>,
 }
 
 /// EXP-897 — the launcher's view of an inbound [`StartStack`]: the same plan
@@ -274,6 +280,7 @@ pub(crate) fn remote_start_from_frame(
             stack: None,
             subagent_model: None,
             workflow: None,
+            start_id: None,
         });
     }
     let subject = match (issue_id, issue_ids, action_id) {
@@ -310,6 +317,7 @@ pub(crate) fn remote_start_from_frame(
         stack,
         subagent_model,
         workflow: None,
+        start_id: None,
     })
 }
 
@@ -701,6 +709,7 @@ async fn connect_and_listen(
                             workflow_id,
                             workflow_node_id,
                             workflow_role,
+                            start_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
@@ -714,6 +723,7 @@ async fn connect_and_listen(
                                     workflow_node_id.as_deref(),
                                     workflow_role.as_deref(),
                                 );
+                                start.start_id = start_id;
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
                                 on_start_session(start);
                             }
@@ -1013,6 +1023,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
 
@@ -1061,6 +1072,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
     }
@@ -1118,6 +1130,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
     }
@@ -1280,6 +1293,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
     }
@@ -1515,6 +1529,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
         // Repo-less action: repo simply absent.
@@ -1619,6 +1634,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
     }

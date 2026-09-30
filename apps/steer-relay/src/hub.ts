@@ -949,6 +949,9 @@ export class Hub {
               ? { workflowNodeId: options.workflowNodeId }
               : {}),
             ...(options.workflowRole ? { workflowRole: options.workflowRole } : {}),
+            // FEED-63: the start id rides a resume too (a failed resume is
+            // reported under it like any other start).
+            ...(options.startId ? { startId: options.startId } : {}),
           }
         : `issueId` in subject
           ? { t: `start_session`, issueId: subject.issueId, ...options }

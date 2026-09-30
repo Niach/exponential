@@ -343,6 +343,7 @@ import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import type { McpUser } from "@/lib/mcp/server"
 import { contract } from "@exp/domain-contract"
+import { mintStartId, recordStartFailure } from "@/lib/start-failures"
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -3276,10 +3277,18 @@ describe(`exponential_sessions_message`, () => {
     expect(result.content[0].text).toContain(`your own session`)
   })
 
+  // FEED-60: the device ticker flips agent_busy once the injected text
+  // starts a turn; here it is already set when the poll first reads.
+  const deliverAndStartTurn = () =>
+    vi.mocked(relayPostInput).mockImplementation(async () => {
+      dbRows.current = [targetRow({ agentBusy: true })]
+      return { delivered: true }
+    })
+
   it(`injects with the starter prefix for a header-less caller`, async () => {
     dbRows.current = [targetRow()]
     vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
-    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+    deliverAndStartTurn()
 
     const result = await collectTools(USER, null).get(
       `exponential_sessions_message`
@@ -3294,13 +3303,79 @@ describe(`exponential_sessions_message`, () => {
       ok: true,
       id: TARGET,
       delivered: true,
+      consumed: true,
     })
+  })
+
+  it(`answers queued when the agent is already mid-turn`, async () => {
+    dbRows.current = [targetRow({ agentBusy: true })]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+
+    const result = await collectTools(USER, null).get(
+      `exponential_sessions_message`
+    )!({ id: TARGET, message: `hi` })
+
+    expect(parseOk(result)).toEqual({
+      ok: true,
+      id: TARGET,
+      delivered: true,
+      queued: true,
+      note: `The agent is mid-turn; the message lands when it reads it (claude replays it into the running turn).`,
+    })
+  })
+
+  it(`answers consumed once the turn starts within the wait`, async () => {
+    dbRows.current = [targetRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+    vi.useFakeTimers()
+    try {
+      const pending = collectTools(USER, null).get(
+        `exponential_sessions_message`
+      )!({ id: TARGET, message: `hi` })
+      await vi.advanceTimersByTimeAsync(2_000)
+      dbRows.current = [targetRow({ agentBusy: true })]
+      await vi.advanceTimersByTimeAsync(1_000)
+      const result = await pending
+      expect(parseOk(result)).toEqual({
+        ok: true,
+        id: TARGET,
+        delivered: true,
+        consumed: true,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`answers consumed false when no turn starts within 6s`, async () => {
+    dbRows.current = [targetRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+    vi.useFakeTimers()
+    try {
+      const pending = collectTools(USER, null).get(
+        `exponential_sessions_message`
+      )!({ id: TARGET, message: `hi` })
+      await vi.advanceTimersByTimeAsync(7_000)
+      const result = await pending
+      expect(parseOk(result)).toEqual({
+        ok: true,
+        id: TARGET,
+        delivered: true,
+        consumed: false,
+        note: `The run's agent did not start a turn within 6s: the text reached its device but nothing is reading it. Kill the run (exponential_sessions_kill) and start it again with resumeSessionId (the resumed run continues the transcript), then message the new run.`,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it(`uses the parent-answer prefix when answering its own child`, async () => {
     dbRows.current = [targetRow({ parentSessionId: SESSION })]
     vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
-    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+    deliverAndStartTurn()
 
     await collectTools(USER, SESSION).get(`exponential_sessions_message`)!({
       id: TARGET,
@@ -4208,7 +4283,8 @@ describe(`exponential_sessions_list`, () => {
     for (const column of SERVER_ONLY_SESSION_COLUMNS) {
       expect(projection).not.toContain(column)
     }
-    for (const column of [`id`, `issueId`, `issueIdentifier`, `endedBy`, `branch`, `deviceId`, `prUrl`, `prNumber`, `prState`]) {
+    // FEED-63: agentBusy/agentCaption = the working signal beside status.
+    for (const column of [`id`, `issueId`, `issueIdentifier`, `endedBy`, `branch`, `deviceId`, `prUrl`, `prNumber`, `prState`, `agentBusy`, `agentCaption`]) {
       expect(projection).toContain(column)
     }
 
@@ -4336,6 +4412,19 @@ describe(`exponential_sessions_get`, () => {
     const result = await tool(`exponential_sessions_get`)({ id: RUN })
     expect(parseOk(result)).toMatchObject({ id: RUN, endedBy: `agent` })
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
+  })
+
+  // FEED-63: in_review says "PR open"; agentBusy says "working now".
+  it(`carries agentBusy beside the PR state`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `in_review`, agentBusy: true },
+    ]
+    const result = await tool(`exponential_sessions_get`)({ id: RUN })
+    expect(parseOk(result)).toMatchObject({ status: `in_review`, agentBusy: true })
+    const selectCalls = db.select.mock.calls as unknown as Array<
+      [Record<string, unknown>]
+    >
+    expect(Object.keys(selectCalls[0]![0])).toContain(`agentBusy`)
   })
 
   it(`skips the membership lookup for the caller's own run`, async () => {
@@ -4471,6 +4560,57 @@ describe(`exponential_sessions_kill`, () => {
     })
     expect(parseOk(result)).toEqual({ ok: true, id: UUID, status: `ended`, endedAt: null })
     expect(caller.steer.killSession).toHaveBeenCalledWith({ sessionId: UUID })
+  })
+
+  // FEED-63: the device's last worktree report says the kill leaves work
+  // behind; the answer names it (best-effort, never failing the kill).
+  it(`notes uncommitted work the run's worktree reported`, async () => {
+    const reportedAt = new Date(`2026-09-30T10:00:00Z`)
+    caller.steer.killSession.mockResolvedValue({
+      session: {
+        id: UUID,
+        status: `ended`,
+        endedAt: null,
+        userId: `user-1`,
+        hostUserId: null,
+        deviceId: `mac-1`,
+        branch: `exp/EXP-1`,
+      },
+    })
+    dbRows.current = [{ dirty: `tracked`, reportedAt }]
+    const result = await collectTools(USER, RUN).get(`exponential_sessions_kill`)!({
+      id: UUID,
+    })
+    expect(parseOk(result)).toMatchObject({
+      note: `The run's worktree on its device reported uncommitted changes (tracked, as of 2026-09-30T10:00:00.000Z); the device saves them as a WIP commit on exp/EXP-1 when it tears the run down.`,
+    })
+    const { params } = renderWhere()
+    expect(params).toContain(`mac-1`)
+    expect(params).toContain(`exp/EXP-1`)
+    expect(params).toContain(`user-1`)
+  })
+
+  it(`adds no note for a clean worktree or no report`, async () => {
+    caller.steer.killSession.mockResolvedValue({
+      session: {
+        id: UUID,
+        status: `ended`,
+        endedAt: null,
+        userId: `user-1`,
+        deviceId: `mac-1`,
+        branch: `exp/EXP-1`,
+      },
+    })
+    dbRows.current = [{ dirty: `clean`, reportedAt: new Date() }]
+    const clean = await collectTools(USER, RUN).get(`exponential_sessions_kill`)!({
+      id: UUID,
+    })
+    expect(parseOk(clean)).not.toHaveProperty(`note`)
+    dbRows.current = []
+    const none = await collectTools(USER, RUN).get(`exponential_sessions_kill`)!({
+      id: UUID,
+    })
+    expect(parseOk(none)).not.toHaveProperty(`note`)
   })
 
   // EXP-700: a killed child never sends its own close-out, so the kill is
@@ -4951,6 +5091,35 @@ describe(`exponential_sessions_start`, () => {
       vi.useRealTimers()
     }
     expect(caller.steer.startSession).toHaveBeenCalledTimes(1)
+  })
+
+  // FEED-63: the device reported why it could not launch: named at once,
+  // never the generic timeout.
+  it(`names the device's reported start failure`, async () => {
+    const startId = mintStartId(`user-1`)
+    caller.steer.startSession.mockResolvedValue({ ok: true, startId })
+    dbRows.current = []
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_start`)({
+        deviceId: `mac-1`,
+        issueId: UUID,
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      recordStartFailure({
+        startId,
+        userId: `user-1`,
+        reason: `git checkout refused: uncommitted changes`,
+      })
+      await vi.advanceTimersByTimeAsync(600)
+      const result = await pending
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toBe(
+        `Device mac-1 could not start the run: git checkout refused: uncommitted changes`
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // FEED-57: a builtin chat/action row (issue-less, action-less, named) the

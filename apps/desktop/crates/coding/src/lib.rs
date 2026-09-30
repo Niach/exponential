@@ -78,6 +78,7 @@ pub mod run_cleanup;
 pub mod run_registry;
 pub mod scratch;
 pub mod scm;
+pub mod wip_save;
 pub mod session_retention;
 pub mod settings;
 pub mod skill;
@@ -154,6 +155,7 @@ pub use launcher::{
     WorktreeProvider, WORKFLOW_STARTED_REASON,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
+pub use wip_save::{save_wip_commit, WipSave};
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };

@@ -325,6 +325,9 @@ export async function relayPostStart(
   body: {
     userId: string
     deviceId: string
+    // FEED-63: names this start; the device echoes it to
+    // steer.reportStartFailure when it cannot launch the run.
+    startId?: string
     startedBy?: string
     startedReason?: `agent`
     // EXP-1082 §1: the run's workflow membership, forwarded verbatim by the
