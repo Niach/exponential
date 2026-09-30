@@ -139,13 +139,13 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
 
                 logger.info("Cloud OAuth callback: \(callbackURL.absoluteString)")
 
-                let params = LoginViewModel.callbackParams(callbackURL)
+                let callback = OAuthReturn.parse(callbackURL)
 
                 // Failure handoff (REV2-53): every failing branch of the web
                 // hop deep-links back with `error=<reason>` so the auth sheet
                 // completes here instead of stranding the user on an https
                 // page they can only dismiss.
-                if let reason = params["error"] {
+                if case let .error(reason) = callback {
                     logger.info("Cloud OAuth callback error: \(reason)")
                     self.pendingPkce = nil
                     self.error = LoginViewModel.oauthErrorMessage(reason)
@@ -155,7 +155,7 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
 
                 // PKCE code (REV-13): redeem via /api/mobile-oauth-exchange
                 // with the in-memory verifier — never a raw token on the wire.
-                if let code = params["code"] {
+                if case let .code(code) = callback {
                     guard let pkce = self.pendingPkce else {
                         self.error = "Couldn't verify your sign-in. Please try again."
                         self.webAuthSession = nil

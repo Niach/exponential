@@ -22,6 +22,10 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   AUTHENTICATION_FAILED: `Passkey check failed. Try again.`,
   CHALLENGE_NOT_FOUND: `That passkey attempt expired. Try again.`,
   AUTH_CANCELLED: `Passkey sign-in was cancelled.`,
+  // EXP-1126 sign-in methods: Better Auth's fresh-session gate (passkey
+  // registration) and our own last-way-in rule (lib/auth/sign-in-methods.ts).
+  SESSION_NOT_FRESH: `Sign in again to do this (your current session is older than a day).`,
+  LAST_SIGN_IN_METHOD: `This is your only way to sign in. Add another method before removing it.`,
 }
 
 export function authErrorMessage(

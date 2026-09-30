@@ -62,6 +62,13 @@ data class SessionInfo(
     val onboardingCompletedAt: String? = null,
 )
 
+// EXP-1126: Better Auth email-otp's change-email pair.
+@Serializable
+data class RequestEmailChangeBody(val newEmail: String)
+
+@Serializable
+data class ChangeEmailBody(val newEmail: String, val otp: String)
+
 @Serializable
 data class OauthExchangeRequest(
     val code: String,
@@ -311,6 +318,41 @@ class AuthApi @Inject constructor(
                 // Best-effort: offline/unreachable servers must not block sign-out.
             }
         }
+    }
+
+    /**
+     * EXP-1126 step 1 of an email change: mail a code to [newEmail]. Signed-in
+     * (bearer) + same-origin Origin — Better Auth 403s POSTs without it.
+     */
+    suspend fun requestEmailChange(baseUrl: String, token: String, newEmail: String): Result<Unit> =
+        emailChangeCall(baseUrl, token, "request-email-change", RequestEmailChangeBody(newEmail))
+
+    /** EXP-1126 step 2: redeem the code; the account's email swaps on success. */
+    suspend fun changeEmail(baseUrl: String, token: String, newEmail: String, otp: String): Result<Unit> =
+        emailChangeCall(baseUrl, token, "change-email", ChangeEmailBody(newEmail, otp))
+
+    private suspend inline fun <reified B : Any> emailChangeCall(
+        baseUrl: String,
+        token: String,
+        endpoint: String,
+        body: B,
+    ): Result<Unit> = try {
+        val response = client.post("${baseUrl.trimEnd('/')}/api/auth/email-otp/$endpoint") {
+            contentType(ContentType.Application.Json)
+            header("Origin", baseUrl.trimEnd('/'))
+            header("Authorization", "Bearer $token")
+            setBody(body)
+        }
+        if (response.status.isSuccess()) {
+            Result.success(Unit)
+        } else {
+            val text = response.bodyAsText()
+            Result.failure(
+                IllegalStateException(AuthWire.otpErrorMessage(authErrorCode(text), authErrorMessage(text))),
+            )
+        }
+    } catch (e: Exception) {
+        Result.failure(IllegalStateException(trpcErrorMessage(e, "Network error")))
     }
 
     /**

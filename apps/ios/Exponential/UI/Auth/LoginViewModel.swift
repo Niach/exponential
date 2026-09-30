@@ -545,27 +545,6 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
 
     // MARK: - Private
 
-    /// Callback params from the fragment (primary — ASWebAuthenticationSession
-    /// keeps the whole URL) merged with the query (EXP-21 fallback form; the
-    /// server doubles the payload into both). Fragment wins on key collision.
-    static func callbackParams(_ url: URL) -> [String: String] {
-        var params = [String: String]()
-        if let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems {
-            for item in items where item.value?.isEmpty == false {
-                params[item.name] = item.value
-            }
-        }
-        if let fragment = url.fragment {
-            for pair in fragment.split(separator: "&") {
-                let parts = pair.split(separator: "=", maxSplits: 1)
-                if parts.count == 2 {
-                    params[String(parts[0])] = String(parts[1])
-                }
-            }
-        }
-        return params
-    }
-
     /// Human copy for the `error` reason the server deep-links back on a failed
     /// OAuth hop (REV2-53 — `exponential://oauth-return?error=…`). Mirrors the
     /// web's `oauthErrorMessage`; unknown reasons get the generic line.
@@ -613,13 +592,15 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
 
                 logger.info("OAuth callback: \(callbackURL.absoluteString)")
 
-                let params = Self.callbackParams(callbackURL)
+                // One parser for every oauth-return shape (EXP-1126:
+                // `OAuthReturn`, fragment over query, error > linked > code).
+                let callback = OAuthReturn.parse(callbackURL)
 
                 // Failure handoff (REV2-53): every failing branch of the web
                 // hop deep-links back with `error=<reason>` so the auth sheet
                 // completes here instead of stranding the user on an https
                 // page they can only dismiss.
-                if let reason = params["error"] {
+                if case let .error(reason) = callback {
                     logger.info("OAuth callback error: \(reason)")
                     self.pendingPkce = nil
                     self.error = Self.oauthErrorMessage(reason)
@@ -629,7 +610,7 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
 
                 // PKCE code (REV-13): redeem via /api/mobile-oauth-exchange
                 // with the in-memory verifier — never a raw token on the wire.
-                if let code = params["code"] {
+                if case let .code(code) = callback {
                     guard let pkce = self.pendingPkce else {
                         self.error = "Couldn't verify your sign-in. Please try again."
                         self.webAuthSession = nil

@@ -346,6 +346,51 @@ public final class AuthApi: Sendable {
         }
     }
 
+    // MARK: - Email change (EXP-1126)
+
+    /// Step 1 of changing the primary email: Better Auth's email-otp plugin
+    /// mails a 6-digit code to the NEW address. The signed-in session is the
+    /// ownership proof of the old one. Takes the SCREEN's account credentials
+    /// explicitly (settings can show a non-active account).
+    public func requestEmailChange(instanceUrl: String, token: String, newEmail: String) async -> SendCodeResult {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/email-otp/request-email-change") else {
+            return .failure(message: "Invalid instance URL")
+        }
+        return await emailChangePost(url: url, token: token, body: ["newEmail": newEmail])
+    }
+
+    /// Step 2: the mailed code swaps the address (and marks it verified).
+    /// The caller re-reads the session afterwards and persists the new email.
+    public func changeEmail(instanceUrl: String, token: String, newEmail: String, otp: String) async -> SendCodeResult {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/email-otp/change-email") else {
+            return .failure(message: "Invalid instance URL")
+        }
+        return await emailChangePost(url: url, token: token, body: ["newEmail": newEmail, "otp": otp])
+    }
+
+    /// Bearer + Origin POST (the `post(_:body:bearerToken:)` variant — Better
+    /// Auth's CSRF check 403s an Origin-less POST); errors share the login
+    /// code copy (`EmailCodeCopy`), else the server's own message.
+    private func emailChangePost(url: URL, token: String, body: [String: String]) async -> SendCodeResult {
+        do {
+            let data = try JSONEncoder().encode(body)
+            let (responseData, response) = try await httpClient.post(url, body: data, bearerToken: token)
+            guard (200...299).contains(response.statusCode) else {
+                if response.statusCode == 429 {
+                    return .failure(message: "Too many requests. Wait a minute and try again.")
+                }
+                return .failure(message: EmailCodeCopy.message(
+                    code: Self.authErrorCode(from: responseData),
+                    serverMessage: Self.authErrorMessage(from: responseData)
+                        ?? "Couldn't change the email (HTTP \(response.statusCode))"
+                ))
+            }
+            return .success
+        } catch {
+            return .failure(message: error.userFacingMessage)
+        }
+    }
+
     /// `POST /api/auth/sign-out` — best-effort server-side session revocation
     /// (desktop `login.rs` parity). Without it a leaked bearer token would
     /// survive local sign-out for the full 60-day sliding session expiry.
@@ -547,6 +592,26 @@ public final class AuthApi: Sendable {
     /// cannot run (a self-hosted instance the app has no association with).
     public func browserLoginStartUrl(instanceUrl: String, codeChallenge: String) -> URL? {
         URL(string: "\(instanceUrl)/api/mobile-oauth-start?provider=browser&code_challenge=\(codeChallenge)")
+    }
+
+    /// The LINK-mode handoff (EXP-1126): a signed-in account attaches a
+    /// Google/Apple/OIDC login in the browser. The single-use `ticket`
+    /// (`users.mintSignInLinkTicket`) names the account; PKCE still rides
+    /// because the route requires it, though link mode returns no code — the
+    /// callback is `exponential://oauth-return?linked=<providerId>`.
+    public static func linkStartUrl(
+        instanceUrl: String, ticket: String, provider: String, codeChallenge: String
+    ) -> URL? {
+        var components = URLComponents(string: "\(instanceUrl)/api/mobile-oauth-start")
+        let providerItem: URLQueryItem = (provider == "google" || provider == "apple")
+            ? URLQueryItem(name: "provider", value: provider)
+            : URLQueryItem(name: "providerId", value: provider)
+        components?.queryItems = [
+            URLQueryItem(name: "link", value: ticket),
+            providerItem,
+            URLQueryItem(name: "code_challenge", value: codeChallenge),
+        ]
+        return components?.url
     }
 
     /// Redeem an oauth-return PKCE code for the session token (REV-13):

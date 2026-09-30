@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { authClient } from "@/lib/auth/client"
+import { trpc } from "@/lib/trpc-client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import {
   Button,
@@ -54,10 +55,15 @@ const NOT_FRESH_CODE = `SESSION_NOT_FRESH`
 // "Login with passkey". A passkey is bound to this instance's hostname, so
 // one registered here works on every client that talks to the same host
 // (web, desktop via the browser handoff, iOS and Android natively).
+// EXP-1126: lives under Settings › Account, right below Sign-in methods
+// (moved back from Security, which keeps the API keys).
 export function PasskeysSection({
   passkeyEnabled,
+  onChanged,
 }: {
   passkeyEnabled: boolean
+  // EXP-1126: the Sign-in methods band above counts passkeys as ways in.
+  onChanged?: () => void
 }) {
   const [rows, setRows] = useState<PasskeyRow[] | null>(null)
   const [loadError, setLoadError] = useState(``)
@@ -67,6 +73,7 @@ export function PasskeysSection({
   const [addError, setAddError] = useState(``)
   const [removeTarget, setRemoveTarget] = useState<PasskeyRow | null>(null)
   const [removing, setRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState(``)
 
   const refresh = async () => {
     try {
@@ -118,6 +125,7 @@ export function PasskeysSection({
       }
       closeAdd()
       await refresh()
+      onChanged?.()
     } catch {
       setAddError(`Couldn't add the passkey.`)
     } finally {
@@ -125,19 +133,22 @@ export function PasskeysSection({
     }
   }
 
+  // EXP-1126: removal goes through tRPC so the last-way-in rule
+  // (lib/auth/sign-in-methods.ts) answers with its message instead of a
+  // silent console error.
   const handleRemove = async () => {
     if (!removeTarget || removing) return
     setRemoving(true)
+    setRemoveError(``)
     try {
-      const { error } = await authClient.passkey.deletePasskey({
-        id: removeTarget.id,
-      })
-      if (error) {
-        console.error(`[passkeys] delete failed:`, error)
-        return
-      }
+      await trpc.users.deletePasskey.mutate({ id: removeTarget.id })
       setRows((prev) => (prev ?? []).filter((row) => row.id !== removeTarget.id))
       setRemoveTarget(null)
+      onChanged?.()
+    } catch (err) {
+      setRemoveError(
+        err instanceof Error ? err.message : `Couldn't remove the passkey.`
+      )
     } finally {
       setRemoving(false)
     }
@@ -249,6 +260,9 @@ export function PasskeysSection({
               copy on your device stays until you delete it there.`}
             </DialogDescription>
           </DialogHeader>
+          {removeError && (
+            <p className="px-6 text-sm text-destructive">{removeError}</p>
+          )}
           <DialogFooter>
             <DialogCancel variant="outline" onClick={() => setRemoveTarget(null)} />
             <Button

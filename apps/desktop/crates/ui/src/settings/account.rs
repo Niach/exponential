@@ -8,15 +8,19 @@
 //! the desktop. EXP-311: the rail's account button shows only the avatar +
 //! first name, so the full name + email live HERE. EXP-369 adds the account's
 //! timezone row — the clock the daily digest's send hour is read in.
+//! EXP-1126 adds the Sign-in methods + Passkeys bands between the two
+//! ([`super::sign_in_methods`]).
 
 use gpui::{
-    div, px, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
-    Window,
+    div, px, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{button::Button, v_flex, ActiveTheme as _};
 
+use super::sign_in_methods::SignInMethodsSection;
 use super::spawn_trpc;
 use crate::controls::WebControl as _;
+use crate::navigation::Navigation;
 use crate::queries;
 
 /// The account's stored IANA timezone (`users.timezone` — a server-only
@@ -36,11 +40,13 @@ pub struct AccountPane {
     /// The account the timezone belongs to — a re-login must not show the
     /// previous account's value (same guard as the prefs pane).
     account_id: Option<String>,
+    /// EXP-1126: Sign-in methods + Passkeys (server-only, tRPC).
+    sign_in_methods: Entity<SignInMethodsSection>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AccountPane {
-    pub fn new(_window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(nav: Entity<Navigation>, _window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let users = sync::Store::global(cx).collections().users.clone();
         let avatar_cache = crate::user_avatar::AvatarCache::global(cx);
         let subscriptions = vec![
@@ -49,10 +55,12 @@ impl AccountPane {
             cx.observe(&users, |_, _, cx| cx.notify()),
             cx.observe(&avatar_cache, |_, _, cx| cx.notify()),
         ];
+        let sign_in_methods = cx.new(|cx| SignInMethodsSection::new(nav, cx));
         Self {
             timezone: Timezone::Idle,
             timezone_generation: 0,
             account_id: None,
+            sign_in_methods,
             _subscriptions: subscriptions,
         }
     }
@@ -64,6 +72,8 @@ impl AccountPane {
         if matches!(self.timezone, Timezone::Ready(_) | Timezone::Error) {
             self.timezone = Timezone::Idle;
         }
+        self.sign_in_methods
+            .update(cx, |section, cx| section.mark_stale(cx));
         cx.notify();
     }
 
@@ -245,6 +255,7 @@ impl Render for AccountPane {
         v_flex()
             .gap_6()
             .child(self.render_identity(cx))
+            .child(self.sign_in_methods.clone())
             .child(self.render_timezone(cx))
     }
 }

@@ -20,6 +20,17 @@ export function oauthReturnCodeDeepLink(code: string): string {
   return `${DEEP_LINK_SCHEME}://oauth-return?code=${enc}#code=${enc}`
 }
 
+// `exponential://oauth-return?linked=<providerId>#linked=<providerId>` — the
+// LINK-mode success of the same handoff (EXP-1126): a signed-in native asked
+// the browser to attach a Google/Apple/OIDC login to its account. No
+// credential rides it (Better Auth's link callback creates no browser
+// session); the app only refetches its sign-in methods. Same query-AND-
+// fragment doubling as the code form, for the same reason.
+export function oauthReturnLinkedDeepLink(providerId: string): string {
+  const enc = encodeURIComponent(normalizeOauthErrorReason(providerId))
+  return `${DEEP_LINK_SCHEME}://oauth-return?linked=${enc}#linked=${enc}`
+}
+
 // `exponential://github-connected` — fired after the GitHub App install /
 // OAuth-claim flow to hand the user back to the native app. An optional
 // `?error=<code>` marks a flow that ended on an error card (EXP-365) so newer
@@ -83,5 +94,26 @@ export function oauthErrorMessage(reason: unknown): string {
       return `An account with this email already exists but couldn't be linked to that sign-in. Sign in with a sign-in code or your password instead, then add the provider under Account.`
     default:
       return `Couldn't complete sign-in. Please try again.`
+  }
+}
+
+// EXP-1126: the failure copy of the LINK-mode handoff (a signed-in account
+// attaching a provider), shown on the web Account page after a bounced link
+// and translated byte-for-byte by the natives for the same slugs.
+export function oauthLinkErrorMessage(reason: unknown): string {
+  switch (normalizeOauthErrorReason(reason)) {
+    case `access_denied`:
+      return `Linking was cancelled.`
+    case `link_ticket_invalid`:
+    case `state_missing`:
+    case `state_invalid`:
+    case `state_mismatch`:
+    case `state_not_found`:
+    case `please_restart_the_process`:
+      return `That link request expired. Please try again.`
+    case `account_already_linked_to_different_user`:
+      return `That account is already linked to a different user.`
+    default:
+      return `Couldn't link that account. Please try again.`
   }
 }

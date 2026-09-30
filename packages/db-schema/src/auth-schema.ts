@@ -65,6 +65,13 @@ export const users = pgTable(
     // shape allowlist pins 6 columns); clients learn "invited, not joined"
     // from the pending invite's synced `placeholder_user_id`.
     placeholderAt: timestamp(`placeholder_at`, { withTimezone: true }),
+    // EXP-1126: stamped the moment the primary email is CHANGED (Better Auth
+    // `user.update.before`, the OTP change-email flow). INITIAL_ADMIN_EMAILS
+    // matches on email, so promotion (boot pass + verification hook) skips
+    // stamped rows: a change may never grant admin; the flag is only ever
+    // added for the address an account registered with. SERVER-ONLY (the
+    // users shape allowlist pins 6 columns).
+    emailChangedAt: timestamp(`email_changed_at`, { withTimezone: true }),
     // Trigger-maintained membership mirror (REV-37, sync_user_team_ids in the
     // custom trigger file): the user's team ids, sorted for determinism. It
     // exists so the users shape's where clause can be

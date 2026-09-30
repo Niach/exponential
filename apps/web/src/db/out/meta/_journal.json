@@ -1079,6 +1079,13 @@
       "when": 1790726172450,
       "tag": "0153_coding_session_mcp_server_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1790729404589,
+      "tag": "0154_users_email_changed_at",
+      "breakpoints": true
     }
   ]
 }

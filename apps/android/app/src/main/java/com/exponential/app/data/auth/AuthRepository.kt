@@ -59,6 +59,8 @@ class AuthRepository @Inject constructor(
 
     /** Begin an OAuth attempt: mint + hold a verifier, return its S256 challenge. */
     fun beginOauthAttempt(): String {
+        // A login start replaces any pending link attempt (last-start-wins).
+        pendingLink = null
         val verifier = OauthPkce.generateVerifier()
         pendingOauthVerifier = verifier
         return OauthPkce.challengeS256(verifier)
@@ -69,6 +71,60 @@ class AuthRepository @Inject constructor(
         val verifier = pendingOauthVerifier
         pendingOauthVerifier = null
         return verifier
+    }
+
+    /** EXP-1126: an in-flight sign-in-method LINK (the handoff's link mode). */
+    data class PendingLink(val accountId: String, val providerId: String)
+
+    /**
+     * The outcome of the last link attempt. [seq] bumps on every finish so two
+     * identical outcomes in a row still emit; the initial value (seq 0) is not
+     * an outcome — collectors drop it.
+     */
+    data class LinkResult(
+        val seq: Int = 0,
+        val accountId: String? = null,
+        val providerId: String? = null,
+        val error: String? = null,
+    )
+
+    // In-memory only, like the verifier: a link return after process death has
+    // nothing to finish, and its `linked=` deep link never touches a token.
+    private var pendingLink: PendingLink? = null
+
+    private val _linkResult = MutableStateFlow(LinkResult())
+    val linkResult: StateFlow<LinkResult> = _linkResult.asStateFlow()
+
+    /**
+     * Begin a LINK attempt: mint + hold a verifier (the start route requires a
+     * PKCE challenge even in link mode) and remember which account asked.
+     * Last-start-wins with login attempts too — one Custom Tab at a time.
+     */
+    fun beginLinkAttempt(accountId: String, providerId: String): String {
+        val challenge = beginOauthAttempt()
+        pendingLink = PendingLink(accountId, providerId)
+        return challenge
+    }
+
+    fun hasPendingLink(): Boolean = pendingLink != null
+
+    /** End the pending link attempt with a linked [providerId] or an [error]. */
+    fun finishLink(providerId: String?, error: String?) {
+        val pending = pendingLink
+        pendingOauthVerifier = null
+        pendingLink = null
+        _linkResult.value = LinkResult(
+            seq = _linkResult.value.seq + 1,
+            accountId = pending?.accountId,
+            providerId = providerId ?: pending?.providerId,
+            error = error,
+        )
+    }
+
+    /** EXP-1126: persist a changed email (and name) after a session re-read. */
+    fun updateIdentity(accountId: String, email: String?, name: String?) {
+        accountStore.setIdentity(accountId, email, name)
+        republish()
     }
 
     fun setInstanceUrl(url: String) {

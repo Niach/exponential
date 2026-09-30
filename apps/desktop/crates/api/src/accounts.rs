@@ -291,6 +291,25 @@ impl AuthStore {
         }
     }
 
+    /// EXP-1126: adopt the account's new email (and name) after a change —
+    /// the identity header and the rail read accounts.json, and warm starts
+    /// never re-fetch the session. Persists only; NO [`AuthEvent`] (a
+    /// `SignedIn` would make the shell reconcile sync for nothing — the
+    /// account, its id and its token are unchanged). `name: None` keeps the
+    /// known name.
+    pub fn update_identity(&self, account_id: &str, email: &str, name: Option<&str>) {
+        let mut state = self.state.write().unwrap();
+        if let Some(account) = state.accounts.iter_mut().find(|a| a.id == account_id) {
+            let name = name.map(str::to_string).or_else(|| account.name.clone());
+            if account.email == email && account.name == name {
+                return;
+            }
+            account.email = email.to_string();
+            account.name = name;
+            self.persist_locked(&state);
+        }
+    }
+
     /// User-initiated sign-out (§5.10): drop the session token (memory +
     /// secret store), keep the account metadata AND its on-disk sync DB for
     /// offline resume, emit [`AuthEvent::SignedOut`]. Server-side revocation
@@ -482,6 +501,36 @@ mod tests {
                 account_id: account.id.clone()
             }
         );
+    }
+
+    #[test]
+    fn update_identity_persists_without_an_event() {
+        let dir = TempDir::new("identity");
+        let store = test_store(&dir);
+        let account = store
+            .sign_in("app.exponential.at", "tok-A", &user())
+            .unwrap();
+        let events = store.events();
+        // Drain the sign-in event.
+        events.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        store.update_identity(&account.id, "new@example.com", None);
+        let updated = store.account(&account.id).unwrap();
+        assert_eq!(updated.email, "new@example.com");
+        assert_eq!(updated.name.as_deref(), Some("Danny"));
+        assert_eq!(updated.id, account.id);
+        assert!(events.try_recv().is_err(), "update_identity must not emit");
+
+        // Persisted: a restart reads the new address.
+        drop(store);
+        let reloaded = test_store(&dir);
+        let reread = reloaded.account(&account.id).unwrap();
+        assert_eq!(reread.email, "new@example.com");
+        assert_eq!(reloaded.token(&account.id).as_deref(), Some("tok-A"));
+
+        // Unknown ids are a no-op.
+        reloaded.update_identity("nobody", "x@example.com", Some("X"));
+        assert_eq!(reloaded.accounts().len(), 1);
     }
 
     #[test]

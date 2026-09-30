@@ -183,6 +183,135 @@ pub fn users_set_timezone(
     Ok(())
 }
 
+// ---- EXP-1126: account sign-in methods ----
+//
+// `users.signInMethods` is ONE payload for every client
+// (apps/web/src/lib/auth/sign-in-methods.ts): the primary email + whether
+// codes go out, the linkable providers in render order (Apple, Google, the
+// OIDC providers, then a `credential` "Password" row only while one is set,
+// plus linked-but-unconfigured rows with `available: false`), the passkeys,
+// and `waysIn` — how many logins the account holds right now. Removals go
+// through tRPC so the server's last-way-in rule answers
+// (`PRECONDITION_FAILED`, [`LAST_SIGN_IN_METHOD_MESSAGE`]).
+
+/// The server's refusal when a removal would leave no way in — byte-equal to
+/// `LAST_SIGN_IN_METHOD_MESSAGE` (apps/web/src/lib/auth/sign-in-methods.ts).
+pub const LAST_SIGN_IN_METHOD_MESSAGE: &str =
+    "This is your only way to sign in. Add another method before removing it.";
+
+/// `users.signInMethods` output.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInMethods {
+    pub email: String,
+    #[serde(default)]
+    pub email_verified: bool,
+    #[serde(default)]
+    pub email_otp_enabled: bool,
+    #[serde(default)]
+    pub password_enabled: bool,
+    #[serde(default)]
+    pub passkey_enabled: bool,
+    #[serde(default)]
+    pub providers: Vec<SignInProvider>,
+    #[serde(default)]
+    pub passkeys: Vec<SignInPasskey>,
+    #[serde(default)]
+    pub ways_in: u32,
+}
+
+/// One provider row. `id` is the Better Auth provider id (`google`, `apple`,
+/// an OIDC id, or `credential` for the password); `kind` is
+/// `apple|google|oidc|password` (kept a string so a newer kind never fails
+/// the decode).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInProvider {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    /// The instance still offers this login (a linked-but-unconfigured
+    /// provider stays listed so it can be unlinked, never re-linked).
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub linked: bool,
+    #[serde(default)]
+    pub linked_at: Option<String>,
+}
+
+/// One passkey row.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInPasskey {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub backed_up: bool,
+}
+
+/// `users.mintSignInLinkTicket` output — the short-lived ticket the browser
+/// handoff's LINK mode redeems (`/api/mobile-oauth-start?link=…`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInLinkTicket {
+    pub ticket: String,
+    #[serde(default)]
+    pub expires_in_seconds: u64,
+}
+
+#[derive(Deserialize)]
+struct OkAck {
+    #[allow(dead_code)]
+    #[serde(default)]
+    ok: bool,
+}
+
+/// `users.signInMethods` — query (GET).
+pub fn sign_in_methods(trpc: &TrpcClient) -> Result<SignInMethods, ApiError> {
+    trpc.query("users.signInMethods")
+}
+
+/// `users.unlinkSignInMethod({providerId})` — mutation. Refused with
+/// `PRECONDITION_FAILED` ([`LAST_SIGN_IN_METHOD_MESSAGE`]) for the last way in.
+pub fn unlink_sign_in_method(trpc: &TrpcClient, provider_id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        provider_id: &'a str,
+    }
+    let _: OkAck = trpc.mutation("users.unlinkSignInMethod", &Input { provider_id })?;
+    Ok(())
+}
+
+/// `users.deletePasskey({id})` — mutation, same last-way-in refusal.
+pub fn delete_passkey(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    let _: OkAck = trpc.mutation("users.deletePasskey", &RevokeInput { id })?;
+    Ok(())
+}
+
+/// `users.mintSignInLinkTicket({provider})` — mutation. `provider` is
+/// `google`, `apple` or an OIDC provider id.
+pub fn mint_sign_in_link_ticket(
+    trpc: &TrpcClient,
+    provider: &str,
+) -> Result<SignInLinkTicket, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        provider: &'a str,
+    }
+    trpc.mutation("users.mintSignInLinkTicket", &Input { provider })
+}
+
+/// Whether a provider row may be unlinked right now — the web section's rule
+/// (`provider.linked && waysIn > 1`); the server re-checks either way.
+pub fn can_unlink(methods: &SignInMethods, provider: &SignInProvider) -> bool {
+    provider.linked && methods.ways_in > 1
+}
+
 /// The key's server-side display name for this device (§7.2:
 /// `Device: <hostname>`).
 pub fn device_key_name() -> String {
@@ -523,6 +652,112 @@ mod tests {
         assert!(
             request.ends_with(r#"{"timezone":"America/New_York","onlyIfUnset":true}"#)
         );
+    }
+
+    const SIGN_IN_METHODS_BODY: &str = r#"{"result":{"data":{
+        "email":"ada@example.com","emailVerified":true,"emailOtpEnabled":true,
+        "passwordEnabled":true,"passkeyEnabled":true,
+        "providers":[
+          {"id":"apple","name":"Apple","kind":"apple","available":true,"linked":false,"linkedAt":null},
+          {"id":"google","name":"Google","kind":"google","available":true,"linked":true,"linkedAt":"2026-09-01T10:00:00.000Z"},
+          {"id":"okta","name":"Okta","kind":"oidc","available":false,"linked":true,"linkedAt":null},
+          {"id":"credential","name":"Password","kind":"password","available":true,"linked":true,"linkedAt":"2026-01-02T00:00:00.000Z"}],
+        "passkeys":[{"id":"pk-1","name":null,"createdAt":"2026-09-02T00:00:00.000Z","backedUp":true}],
+        "waysIn":4}}}"#;
+
+    #[test]
+    fn sign_in_methods_decodes_and_uses_get() {
+        let (base, captured) = one_shot_server(200, SIGN_IN_METHODS_BODY);
+        let methods = sign_in_methods(&client(&base)).unwrap();
+        assert_eq!(methods.email, "ada@example.com");
+        assert!(methods.email_otp_enabled);
+        assert_eq!(methods.ways_in, 4);
+        assert_eq!(methods.providers.len(), 4);
+        assert_eq!(methods.providers[1].kind, "google");
+        assert_eq!(
+            methods.providers[1].linked_at.as_deref(),
+            Some("2026-09-01T10:00:00.000Z")
+        );
+        assert!(!methods.providers[2].available);
+        assert_eq!(methods.providers[3].id, "credential");
+        assert_eq!(methods.passkeys.len(), 1);
+        assert_eq!(methods.passkeys[0].name, None);
+        assert!(methods.passkeys[0].backed_up);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/users.signInMethods HTTP/1.1"));
+    }
+
+    #[test]
+    fn sign_in_methods_tolerates_missing_lists() {
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"email":"a@b.c","waysIn":1}}}"#,
+        );
+        let methods = sign_in_methods(&client(&base)).unwrap();
+        assert!(methods.providers.is_empty());
+        assert!(methods.passkeys.is_empty());
+    }
+
+    #[test]
+    fn unlink_sends_the_provider_id() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        unlink_sign_in_method(&client(&base), "google").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/users.unlinkSignInMethod HTTP/1.1"));
+        assert!(request.ends_with(r#"{"providerId":"google"}"#));
+    }
+
+    #[test]
+    fn unlink_refusal_carries_the_server_message() {
+        let (base, _captured) = one_shot_server(
+            412,
+            r#"{"error":{"message":"This is your only way to sign in. Add another method before removing it.","code":-32600,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+        );
+        let err = unlink_sign_in_method(&client(&base), "google").unwrap_err();
+        assert_eq!(err.user_message(), LAST_SIGN_IN_METHOD_MESSAGE);
+    }
+
+    #[test]
+    fn delete_passkey_sends_the_id() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        delete_passkey(&client(&base), "pk-1").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/users.deletePasskey HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"pk-1"}"#));
+    }
+
+    #[test]
+    fn mint_link_ticket_sends_the_provider_and_decodes() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"ticket":"tkt.abc","expiresInSeconds":120}}}"#,
+        );
+        let ticket = mint_sign_in_link_ticket(&client(&base), "apple").unwrap();
+        assert_eq!(ticket.ticket, "tkt.abc");
+        assert_eq!(ticket.expires_in_seconds, 120);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/users.mintSignInLinkTicket HTTP/1.1"));
+        assert!(request.ends_with(r#"{"provider":"apple"}"#));
+    }
+
+    #[test]
+    fn can_unlink_needs_a_linked_row_and_another_way_in() {
+        let provider = |linked: bool| SignInProvider {
+            id: "google".to_string(),
+            name: "Google".to_string(),
+            kind: "google".to_string(),
+            available: true,
+            linked,
+            linked_at: None,
+        };
+        let methods = |ways_in: u32| SignInMethods {
+            ways_in,
+            ..SignInMethods::default()
+        };
+        assert!(can_unlink(&methods(2), &provider(true)));
+        assert!(!can_unlink(&methods(1), &provider(true)));
+        assert!(!can_unlink(&methods(0), &provider(true)));
+        assert!(!can_unlink(&methods(3), &provider(false)));
     }
 
     #[test]

@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-30-sign-in-methods`,
+    date: `2026-09-30`,
+    title: `Sign-in methods and a changeable email`,
+    summary: `Settings › Account lists every way into your account: change your email with a code, link or unlink Google, Apple and OIDC logins, and manage passkeys, on web, desktop, iOS and Android.`,
+    body: `- **One primary email**: it starts as the address you registered with (the Google or Apple address for those sign-ups) and Change under Settings › Account swaps it for any other after a code sent to the new address. Sign-in codes, notifications and new mentions use it from then on; earlier @mentions keep the address they were written with.
+- **Sign-in methods**: Google, Apple and every OIDC provider your instance offers appear with Link or Unlink, a password row shows while one is set, and passkeys sit right below (moved back from Security, which keeps the API keys). Every method is optional, but the last way in can never be removed.
+- **Natives**: the same list on the desktop app, iPhone and Android. Linking runs through the browser as sign-in does and returns to the app; passkeys are still added from the web.
+- **Admins**: an email change never grants admin. INITIAL_ADMIN_EMAILS keeps promoting only the address an account registered and verified with.`,
+  },
+  {
     id: `2026-09-29-stack-merge-asks`,
     date: `2026-09-29`,
     title: `Merging a stacked pull request asks first`,

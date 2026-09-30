@@ -52,8 +52,29 @@ object AuthWire {
         "INVALID_OTP" -> "That code is not right. Check the email and try again."
         "OTP_EXPIRED" -> "That code expired. Request a new one."
         "TOO_MANY_ATTEMPTS" -> "Too many attempts. Request a new code."
+        // EXP-1126: the email-change request's address validation.
+        "INVALID_EMAIL" -> "Enter a valid email address."
         else -> message?.takeIf { it.isNotBlank() } ?: "Couldn't verify that code. Please try again."
     }
+
+    /**
+     * EXP-1126: the Custom Tab URL of the browser handoff's LINK mode. The
+     * minted [ticket] names the signed-in session; Google/Apple ride
+     * `provider=`, every other id is an OIDC `providerId=`. The route still
+     * demands a PKCE challenge even though link mode answers with
+     * `oauth-return?linked=<id>` and never a code.
+     */
+    fun linkStartUrl(baseUrl: String, ticket: String, providerId: String, codeChallenge: String): String {
+        val providerParam = if (providerId == "google" || providerId == "apple") {
+            "provider=${encode(providerId)}"
+        } else {
+            "providerId=${encode(providerId)}"
+        }
+        return "${baseUrl.trimEnd('/')}/api/mobile-oauth-start?link=${encode(ticket)}&$providerParam" +
+            "&code_challenge=${encode(codeChallenge)}"
+    }
+
+    private fun encode(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 
     /** Login-screen copy for a failed send-verification-otp. */
     fun sendCodeErrorMessage(status: Int, message: String?): String = when {

@@ -197,6 +197,20 @@ public final class AccountStore: @unchecked Sendable {
         persistLocked()
     }
 
+    /// EXP-1126: refresh one account's displayed identity after an in-app
+    /// email change (the session re-read already happened). Touches only the
+    /// email/name — never the token, userId or onboarding flags, so the
+    /// per-user id (and the DB file keyed on it) stays put. A nil `name`
+    /// keeps the stored one.
+    public func updateIdentity(id: String, email: String, name: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let idx = cached.firstIndex(where: { $0.id == id }) else { return }
+        cached[idx].userEmail = email
+        if let name { cached[idx].userName = name }
+        persistLocked()
+    }
+
     /// Drops one account's token, keeping the RECORD (instance URL, email,
     /// userId, onboarding flag). Used by the dead-session sign-out, where the
     /// server has already invalidated the credential: the row is what lets

@@ -57,6 +57,11 @@ struct ServerDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     identitySection
+                    // EXP-1126: how this account signs in — only while it
+                    // holds a session (every call is bearer-authenticated).
+                    if account?.token != nil {
+                        SignInMethodsSection(accountId: accountId)
+                    }
                     actionsSection
                 }
                 .padding(.horizontal, 16)

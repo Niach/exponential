@@ -47,6 +47,8 @@ public struct PersonalApiKey: Decodable, Sendable, Identifiable {
 private struct NameInput: Encodable { let name: String? }
 private struct KeyIdInput: Encodable { let id: String }
 private struct ConfirmInput: Encodable { let confirm: Bool }
+private struct ProviderIdInput: Encodable { let providerId: String }
+private struct ProviderInput: Encodable { let provider: String }
 private struct SetTimezoneInput: Encodable {
     let timezone: String
     let onlyIfUnset: Bool
@@ -102,6 +104,45 @@ public final class UsersApi: Sendable {
             accountId: accountId,
             path: "users.setTimezone",
             input: SetTimezoneInput(timezone: timezone, onlyIfUnset: onlyIfUnset)
+        )
+    }
+
+    // MARK: - Sign-in methods (EXP-1126)
+
+    /// The account's sign-in methods: the email-code row's facts, every
+    /// linkable provider (+ the password while one is set), the passkeys, and
+    /// the server-counted `waysIn` every removal is checked against.
+    public func signInMethods(accountId: String) async throws -> SignInMethods {
+        try await trpc.query(accountId: accountId, path: "users.signInMethods")
+    }
+
+    /// Unlink one provider (`credential` = remove the password). The server
+    /// refuses the last way in with `PRECONDITION_FAILED`.
+    public func unlinkSignInMethod(accountId: String, providerId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "users.unlinkSignInMethod",
+            input: ProviderIdInput(providerId: providerId)
+        )
+    }
+
+    /// Remove one passkey (same last-way-in refusal). Natives never register
+    /// passkeys — that ceremony is web-only.
+    public func deletePasskey(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "users.deletePasskey",
+            input: KeyIdInput(id: id)
+        )
+    }
+
+    /// Mint the single-use ticket the link-mode browser handoff carries
+    /// (`google` | `apple` | an OIDC id).
+    public func mintSignInLinkTicket(accountId: String, provider: String) async throws -> SignInLinkTicket {
+        try await trpc.mutation(
+            accountId: accountId,
+            path: "users.mintSignInLinkTicket",
+            input: ProviderInput(provider: provider)
         )
     }
 
