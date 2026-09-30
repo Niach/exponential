@@ -92,9 +92,10 @@ struct WorkScreen: View {
     /// Handed into `PrChangesFace`; the Reviews page keeps creating its own.
     @State private var prChangesModel: ChangesViewModel?
     /// EXP-917: a refused stack merge from the overlay. The sheet is gone by
-    /// the time the server answers, so the refusal is an alert — it used to be
-    /// swallowed (`try?`), the one merge on this screen that reported nothing.
-    @State private var stackMergeFailure: MergeFailure?
+    /// the time the server answers, so the refusal is an error toast
+    /// (EXP-1031) — it used to be swallowed (`try?`), the one merge on this
+    /// screen that reported nothing.
+    @Environment(\.toaster) private var toaster
 
     /// The workflow page's hook: the face this screen switches to, so a
     /// step to the next node keeps it (EXP-1086).
@@ -731,17 +732,6 @@ struct WorkScreen: View {
             } message: {
                 Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
             }
-            .alert(
-                "Couldn't merge the stack",
-                isPresented: Binding(
-                    get: { stackMergeFailure != nil },
-                    set: { if !$0 { stackMergeFailure = nil } }
-                )
-            ) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(stackMergeFailure?.message ?? "")
-            }
     }
 
     /// EXP-327: one `…` — Share, Move to board, Unmark duplicate, Delete.
@@ -943,19 +933,23 @@ struct WorkScreen: View {
     /// unmerged member below it.
     ///
     /// EXP-917: a refusal is reported (the Reviews list captions its row; here
-    /// the overlay has already closed, so an alert carries it). A stack
+    /// the overlay has already closed, so a toast carries it). A stack
     /// refusal offers no Fix conflicts — the recovery run takes ONE pull
     /// request — the same rule as every other client's stack merge.
     private func mergeStack(issueId: String) {
         let accountId = accountId
         let issuesApi = deps.issuesApi
+        let toaster = toaster
         Task {
             do {
                 try await issuesApi.mergePr(
                     accountId: accountId, issueId: issueId, mergeStack: true
                 )
             } catch {
-                stackMergeFailure = MergeFailure(error: error)
+                toaster.error(
+                    "Couldn't merge the stack",
+                    description: MergeFailure(error: error).message
+                )
             }
         }
     }

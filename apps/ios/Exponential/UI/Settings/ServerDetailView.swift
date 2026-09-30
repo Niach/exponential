@@ -15,7 +15,7 @@ struct ServerDetailView: View {
     @State private var showRemoveConfirm = false
     @State private var showDeleteAccountConfirm = false
     @State private var deletingAccount = false
-    @State private var deleteAccountError: String?
+    @Environment(\.toaster) private var toaster
     // EXP-311: the signed-in user's synced row — carries the profile image
     // the account store doesn't. Nil until the users shape has landed.
     @State private var user: UserEntity?
@@ -114,17 +114,6 @@ struct ServerDetailView: View {
         } message: {
             Text("This permanently deletes your account on \(account?.displayName ?? "this server"), including your personal teams, issues, and comments. This cannot be undone.")
         }
-        .alert(
-            "Couldn't delete account",
-            isPresented: Binding(
-                get: { deleteAccountError != nil },
-                set: { if !$0 { deleteAccountError = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) { deleteAccountError = nil }
-        } message: {
-            Text(deleteAccountError ?? "")
-        }
     }
 
     /// Server-side deletion first; only on success tear down the local
@@ -136,7 +125,7 @@ struct ServerDetailView: View {
         do {
             try await deps.usersApi.deleteAccount(accountId: account.id)
         } catch {
-            deleteAccountError = error.trpcUserMessage
+            toaster.error("Couldn't delete account", description: error.trpcUserMessage)
             return
         }
         // No push-token unregister here: deleting the user server-side

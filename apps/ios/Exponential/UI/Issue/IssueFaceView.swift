@@ -87,6 +87,7 @@ struct IssueFaceView<Switcher: View>: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
     @State private var activeSheet: IssueDetailSheet?
     /// A property picker opened straight from the chip box (no Properties
     /// sheet under it). Its own node, so it never collides with `activeSheet`.
@@ -295,13 +296,6 @@ struct IssueFaceView<Switcher: View>: View {
                 // synced attachment rows, not from the markdown.
                 IssueFilesSection(viewModel: vm)
 
-                // Error
-                if let error = vm.error {
-                    Text(error)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                }
-
                 // Activity timeline (comments + events)
                 CommentThreadView(
                     issue: issue,
@@ -371,6 +365,13 @@ struct IssueFaceView<Switcher: View>: View {
         // EXP-496: the submission metadata card's one-shot fetch.
         .task(id: "widget-submission-\(issue.id)") {
             await vm.loadWidgetSubmission()
+        }
+        // EXP-1031: a failed save/action is the shared error toast; the
+        // view model's `error` is a one-shot hand-off, cleared once shown.
+        .onChange(of: vm.error) { _, message in
+            guard let message else { return }
+            toaster.error(message)
+            vm.error = nil
         }
         .sheet(item: $activeSheet, onDismiss: { promoteMoveTarget(to: .screen) }) { sheet in
             sheetContent(sheet)

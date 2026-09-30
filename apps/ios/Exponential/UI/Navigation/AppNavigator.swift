@@ -81,6 +81,13 @@ struct AppNavigator: View {
     // sheet. Lives at the root (not MainNavigator) so the fallback also works
     // while signed out / mid-onboarding.
     @State private var externalUrl: ExternalUrl?
+    /// EXP-1031: the app's ONE toast stack, mounted here so signed-out,
+    /// onboarding and main screens all reach it. The shared instance is also
+    /// the environment default, so nothing can toast into a void.
+    private let toaster = Toaster.shared
+    /// The clearance MainNavigator reports while its tab bar slot is up
+    /// (`ToastBottomInsetKey`); 0 everywhere else.
+    @State private var toastBottomInset: CGFloat = 0
 
     private struct ExternalUrl: Identifiable {
         let url: URL
@@ -146,6 +153,11 @@ struct AppNavigator: View {
                 .ignoresSafeArea()
         }
         .transaction { $0.animation = nil }
+        .onPreferenceChange(ToastBottomInsetKey.self) { inset in
+            MainActor.assumeIsolated { toastBottomInset = inset }
+        }
+        .environment(\.toaster, toaster)
+        .toastHost(toaster, bottomInset: toastBottomInset)
     }
 
     /// The active account when ITS server has rejected this build (EXP-104).
@@ -508,6 +520,12 @@ struct MainNavigator: View {
             }
         }
         .animation(motion.standard, value: tabBarChrome.suppressed)
+        // EXP-1031: toasts clear the tab bar's slot while it exists — the bar
+        // itself or the selection bar that took its place (`suppressed`).
+        .preference(
+            key: ToastBottomInsetKey.self,
+            value: showsTabBar ? ToastHostMetrics.tabBarClearance : 0
+        )
         // The Support tab exists only while the flag is on — if it flips off
         // (team switch, feature disabled) while the Support surface is up,
         // land back on Issues instead of stranding a tab-less screen.

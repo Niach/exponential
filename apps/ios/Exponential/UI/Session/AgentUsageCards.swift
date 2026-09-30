@@ -203,8 +203,8 @@ struct AgentUsageSheet: View {
     /// the machine may take it.
     var onOpen: (() -> Void)? = nil
 
-    /// EXP-1051: the transient sentence a refused switch tap prints.
-    @State private var notice: String?
+    /// EXP-1051/EXP-1031: a refused switch tap prints its reason as a toast.
+    @Environment(\.toaster) private var toaster
 
     /// The other logins — never the one the header names.
     private var otherAccounts: [SessionAccountOption] {
@@ -244,9 +244,6 @@ struct AgentUsageSheet: View {
             .padding(.top, 4)
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
-            // EXP-1051: a refused switch says why HERE, on the tap, instead of
-            // printing under every row for the whole life of the sheet.
-            .noticeToast($notice)
         }
         .onAppear { onOpen?() }
     }
@@ -353,7 +350,7 @@ struct AgentUsageSheet: View {
                         refusal: switchRefusal?(option),
                         switching: switching,
                         onSwitch: { onSwitch?(option) },
-                        onRefused: { notice = $0 }
+                        onRefused: { toaster.error($0) }
                     )
                 }
             }

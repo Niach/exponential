@@ -11,7 +11,7 @@ struct TeamLabelsSection: View {
     @State private var showCreate = false
     @State private var editingLabel: LabelEntity?
     @State private var deleteTarget: LabelEntity?
-    @State private var actionError: String?
+    @Environment(\.toaster) private var toaster
 
     var body: some View {
         // EXP-818: a filled group band over flat rows — the labels read as a
@@ -59,12 +59,6 @@ struct TeamLabelsSection: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .flatRow()
-            }
-
-            if let actionError {
-                Text(actionError)
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
             }
         }
         .sheet(isPresented: $showCreate) {
@@ -121,9 +115,8 @@ struct TeamLabelsSection: View {
     private func run(_ op: () async throws -> Void) async {
         do {
             try await op()
-            actionError = nil
         } catch {
-            actionError = error.trpcUserMessage
+            toaster.error(error.trpcUserMessage)
         }
     }
 }
