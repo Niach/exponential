@@ -162,6 +162,9 @@ matters.
 
 ## 6. Notes for phase 2 and 3
 
+`packages/mcp-app/` holds a runnable draft of the phase-3 view (`board.html`)
+with a fake host (`harness.html`) and the server wiring in its README.
+
 - Composer mentions: tool `_meta["openai/extensions"]["mentions/search"] = {}`
   and `_meta.ui.visibility = ["app"]`; input `{query}`; output
   `structuredContent.items = [{type: "resource_link", uri, name}]`. Resolve

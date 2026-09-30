@@ -1,0 +1,128 @@
+<!doctype html>
+<!--
+  A stand-in HOST for board.html: plays ChatGPT/Claude for local development.
+  Loads the View in a sandboxed iframe, answers ui/initialize with a dark
+  theme, streams tool-input + tool-result with sample data, answers
+  tools/call from canned data, and logs everything the View sends up.
+
+    cd packages/mcp-app && python3 -m http.server 8765
+    open http://localhost:8765/harness.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MCP App harness · Exponential board</title>
+<style>
+  body { margin: 0; background: #0c0c0e; color: #e4e4e7; font: 14px/1.4 ui-sans-serif, system-ui; display: grid; grid-template-columns: 1fr 320px; height: 100vh; }
+  main { padding: 24px; overflow: auto; }
+  .chat { max-width: 640px; margin: 0 auto; }
+  .bubble { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 10px 14px; margin-bottom: 14px; color: #a1a1aa; }
+  .bubble.user { background: #27272a; color: #fafafa; margin-left: 80px; }
+  iframe { width: 100%; border: 0; display: block; height: 200px; }
+  aside { border-left: 1px solid #27272a; padding: 12px; font: 12px/1.5 ui-monospace, monospace; overflow: auto; color: #a1a1aa; }
+  aside div { border-bottom: 1px solid #1f1f22; padding: 4px 0; word-break: break-all; }
+  aside b { color: #fafafa; }
+</style>
+</head>
+<body>
+<main>
+  <div class="chat">
+    <div class="bubble user">What's open on the Demo board?</div>
+    <div class="bubble">Here is the Demo board. Click an issue for details.</div>
+    <iframe id="view" sandbox="allow-scripts" title="Exponential board"></iframe>
+  </div>
+</main>
+<aside id="log"><div><b>host log</b></div></aside>
+
+<script>
+const SAMPLE = {
+  board: { name: `Demo`, identifier: `DEMO`, color: `#6366f1`, url: `https://app.exponential.at/t/acme/boards/demo` },
+  issues: [
+    { identifier: `DEMO-12`, title: `Login button unresponsive on Safari`, status: { id: `s3`, name: `In progress`, category: `started`, color: `#f59e0b` }, priority: `high`, assignee: { name: `Mara Lind`, color: `#0ea5e9` }, labels: [{ name: `bug`, color: `#ef4444` }], pr: { state: `open` }, url: `https://app.exponential.at/t/acme/boards/demo/issues/DEMO-12` },
+    { identifier: `DEMO-9`, title: `Composer loses draft when switching boards`, status: { id: `s3`, name: `In progress`, category: `started`, color: `#f59e0b` }, priority: `medium`, assignee: { name: `Jonas Berg`, color: `#8b5cf6` }, labels: [{ name: `web`, color: `#3b82f6` }] },
+    { identifier: `DEMO-3`, title: `Notifications digest arrives twice on Mondays`, status: { id: `s2`, name: `Todo`, category: `unstarted`, color: `#a1a1aa` }, priority: `urgent`, labels: [{ name: `bug`, color: `#ef4444` }, { name: `email`, color: `#10b981` }], url: `https://app.exponential.at/t/acme/boards/demo/issues/DEMO-3` },
+    { identifier: `DEMO-7`, title: `Add keyboard shortcut for "assign to me"`, status: { id: `s2`, name: `Todo`, category: `unstarted`, color: `#a1a1aa` }, priority: `low`, labels: [{ name: `ux`, color: `#f472b6` }] },
+    { identifier: `DEMO-14`, title: `Board archive card shows stale count`, status: { id: `s2`, name: `Todo`, category: `unstarted`, color: `#a1a1aa` }, priority: `none` },
+    { identifier: `DEMO-5`, title: `Investigate slow initial sync on Android`, status: { id: `s1`, name: `Backlog`, category: `backlog`, color: `#52525b` }, priority: `medium`, assignee: { name: `Ana Ruiz`, color: `#22c55e` }, labels: [{ name: `android`, color: `#84cc16` }] },
+    { identifier: `DEMO-16`, title: `Widget: dark theme swatch contrast`, status: { id: `s1`, name: `Backlog`, category: `backlog`, color: `#52525b` }, priority: `low` },
+    { identifier: `DEMO-2`, title: `Onboarding wizard: skip repo step`, status: { id: `s4`, name: `In review`, category: `started`, color: `#6366f1` }, priority: `medium`, assignee: { name: `Mara Lind`, color: `#0ea5e9` }, pr: { state: `open` } },
+  ],
+}
+const DETAIL = {
+  "DEMO-3": { title: `Notifications digest arrives twice on Mondays`, status: { name: `Todo` }, description: `Users with the daily digest at 08:00 local time get two emails on Mondays.\n\nSteps:\n1. Set the digest hour to 08:00 in Settings → Notifications.\n2. Leave unread notifications over the weekend.\n3. On Monday two digests arrive four minutes apart.\n\nExpected: one digest.`, commentCount: 2, assignee: null },
+}
+
+const log = (label, data) => {
+  const el = document.createElement(`div`)
+  el.innerHTML = `<b>${label}</b> ${data === undefined ? `` : JSON.stringify(data)}`
+  document.getElementById(`log`).appendChild(el)
+}
+
+const frame = document.getElementById(`view`)
+const send = (msg) => frame.contentWindow.postMessage(msg, `*`)
+
+window.addEventListener(`message`, (event) => {
+  const msg = event.data
+  if (!msg || msg.jsonrpc !== `2.0` || !msg.method) return
+  const reply = (result) => send({ jsonrpc: `2.0`, id: msg.id, result })
+  switch (msg.method) {
+    case `ui/initialize`:
+      log(`ui/initialize`, msg.params.appCapabilities)
+      reply({
+        protocolVersion: `2025-11-25`,
+        hostInfo: { name: `harness`, version: `0.0.0` },
+        hostCapabilities: { openLinks: {}, serverTools: {}, message: {}, updateModelContext: {} },
+        hostContext: {
+          theme: `dark`,
+          displayMode: `inline`,
+          availableDisplayModes: [`inline`, `fullscreen`],
+          containerDimensions: { maxHeight: 640 },
+          locale: `en-US`,
+          platform: `web`,
+          toolInfo: { tool: { name: `exponential_board_view`, inputSchema: { type: `object` } } },
+          styles: { variables: {
+            "--color-background-primary": `#111113`,
+            "--color-background-secondary": `#18181b`,
+            "--color-background-tertiary": `#27272a`,
+            "--color-text-primary": `#fafafa`,
+            "--color-text-secondary": `#a1a1aa`,
+            "--color-text-tertiary": `#71717a`,
+            "--color-border-primary": `#27272a`,
+            "--font-sans": `ui-sans-serif, system-ui, sans-serif`,
+            "--border-radius-md": `10px`,
+          } },
+        },
+      })
+      break
+    case `ui/notifications/initialized`:
+      log(`initialized → tool-input + tool-result`)
+      send({ jsonrpc: `2.0`, method: `ui/notifications/tool-input`, params: { arguments: { boardId: `demo` } } })
+      setTimeout(() => send({ jsonrpc: `2.0`, method: `ui/notifications/tool-result`, params: {
+        content: [{ type: `text`, text: `Demo: 8 open issues (2 in progress, 3 todo, 2 backlog, 1 in review).` }],
+        structuredContent: SAMPLE,
+      } }), 150)
+      break
+    case `ui/notifications/size-changed`:
+      frame.style.height = `${Math.min(msg.params.height + 4, 640)}px`
+      break
+    case `tools/call`:
+      log(`tools/call`, { name: msg.params.name, arguments: msg.params.arguments })
+      if (msg.params.name === `exponential_board_view`) reply({ content: [], structuredContent: SAMPLE })
+      else if (msg.params.name === `exponential_issues_get`) {
+        const d = DETAIL[msg.params.arguments.id] ?? { title: SAMPLE.issues.find((i) => i.identifier === msg.params.arguments.id)?.title, description: `(no sample description)`, commentCount: 0 }
+        setTimeout(() => reply({ content: [{ type: `text`, text: JSON.stringify(d) }], structuredContent: d }), 200)
+      } else reply({ content: [{ type: `text`, text: `unknown tool` }], isError: true })
+      break
+    case `ui/open-link`: log(`ui/open-link`, msg.params); reply({}); break
+    case `ui/message`: log(`ui/message`, msg.params.content.text); reply({}); break
+    case `ui/update-model-context`: log(`ui/update-model-context`, msg.params.content?.[0]?.text); reply({}); break
+    default: log(msg.method, msg.params)
+  }
+})
+
+// A real host injects the resource's HTML as srcdoc (or through the
+// sandbox proxy); fetching the file does the same for local dev.
+fetch(`board.html`).then((r) => r.text()).then((html) => { frame.srcdoc = html })
+</script>
+</body>
+</html>

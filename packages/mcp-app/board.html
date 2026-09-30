@@ -1,0 +1,324 @@
+<!doctype html>
+<!--
+  EXP-1153 draft: the "board view" MCP App (SEP-1865, MCP Apps).
+
+  This file IS the `ui://exponential/board` resource: one self-contained HTML
+  document the host renders in a sandboxed iframe next to the conversation.
+  It never touches Exponential directly — no cookies, no API key, no Electric.
+  Everything it knows arrives from the host over postMessage JSON-RPC:
+
+    View → Host   ui/initialize, ui/notifications/initialized,
+                  tools/call (proxied to our MCP server as the user),
+                  ui/open-link, ui/message, ui/update-model-context,
+                  ui/notifications/size-changed
+    Host → View   ui/notifications/tool-input, ui/notifications/tool-result,
+                  ui/notifications/host-context-changed, ui/resource-teardown
+
+  Data shape it renders = the `structuredContent` of the tool that links to
+  it (see README.md, "Server wiring"). No SDK on purpose: the protocol is
+  small, and a dependency-free draft is easier to read than a bundle.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exponential board</title>
+<style>
+  /* Host theme first (HostContext.styles.variables), our zinc dark as the
+     fallback so the draft also renders in a bare browser tab. */
+  :root {
+    --bg: var(--color-background-primary, #09090b);
+    --bg-2: var(--color-background-secondary, #18181b);
+    --bg-3: var(--color-background-tertiary, #27272a);
+    --fg: var(--color-text-primary, #fafafa);
+    --fg-2: var(--color-text-secondary, #a1a1aa);
+    --fg-3: var(--color-text-tertiary, #71717a);
+    --line: var(--color-border-primary, #27272a);
+    --ring: var(--color-ring-primary, #6366f1);
+    --danger: var(--color-text-danger, #f87171);
+    --warning: var(--color-text-warning, #fbbf24);
+    --font: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+    --mono: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+    --r-sm: var(--border-radius-sm, 4px);
+    --r-md: var(--border-radius-md, 8px);
+    --r-full: var(--border-radius-full, 999px);
+    --text-sm: var(--font-text-sm-size, 13px);
+    --text-md: var(--font-text-md-size, 14px);
+    --text-xs: var(--font-text-xs-size, 12px);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--fg); font: var(--text-md)/1.45 var(--font); }
+  body { padding: 2px; }
+  .card { background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  header .glyph { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: #fff; }
+  header h1 { margin: 0; font-size: var(--text-md); font-weight: 600; }
+  header .count { color: var(--fg-3); font-size: var(--text-sm); }
+  header .spacer { flex: 1; }
+  button { font: inherit; color: var(--fg-2); background: transparent; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 4px 9px; cursor: pointer; }
+  button:hover { color: var(--fg); background: var(--bg-2); }
+  button.primary { color: var(--fg); background: var(--bg-3); }
+  .filters { display: flex; gap: 6px; padding: 8px 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--fg-2); border: 1px solid var(--line); border-radius: var(--r-full); padding: 2px 9px; cursor: pointer; }
+  .chip[aria-pressed="true"] { color: var(--fg); background: var(--bg-2); border-color: var(--fg-3); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .group { border-bottom: 1px solid var(--line); }
+  .group:last-child { border-bottom: 0; }
+  .band { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg-2); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-2); }
+  .band .n { font-weight: 400; color: var(--fg-3); }
+  .row { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 10px; padding: 7px 12px; border-top: 1px solid var(--line); cursor: pointer; }
+  .row:first-of-type { border-top: 0; }
+  .row:hover, .row[aria-selected="true"] { background: var(--bg-2); }
+  .ident { font-family: var(--mono); font-size: var(--text-xs); color: var(--fg-3); }
+  .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { display: flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--fg-3); }
+  .prio { font-family: var(--mono); font-size: 10px; padding: 1px 5px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+  .prio.urgent { color: var(--danger); border-color: var(--danger); }
+  .prio.high { color: var(--warning); border-color: var(--warning); }
+  .label { display: inline-flex; align-items: center; gap: 4px; }
+  .avatar { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; font-weight: 600; color: #fff; }
+  .pr { font-size: 10px; padding: 1px 5px; border-radius: var(--r-sm); background: var(--bg-3); color: var(--fg-2); }
+  .detail { border-top: 1px solid var(--line); padding: 12px; display: none; }
+  .detail[data-open="true"] { display: block; }
+  .detail h2 { margin: 0 0 4px; font-size: var(--text-md); font-weight: 600; }
+  .detail .sub { color: var(--fg-3); font-size: var(--text-xs); margin-bottom: 8px; }
+  .detail p { margin: 0 0 10px; color: var(--fg-2); white-space: pre-wrap; font-size: var(--text-sm); }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .empty { padding: 28px 12px; text-align: center; color: var(--fg-3); }
+  .error { padding: 12px; color: var(--danger); font-size: var(--text-sm); }
+</style>
+</head>
+<body>
+<div class="card" id="root"><div class="empty">Waiting for the board…</div></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// A 40-line MCP Apps bridge. The host is our MCP "server" for this window.
+// ---------------------------------------------------------------------------
+const bridge = (() => {
+  let nextId = 1
+  const pending = new Map()
+  const handlers = new Map()
+  window.addEventListener(`message`, (event) => {
+    const msg = event.data
+    if (!msg || msg.jsonrpc !== `2.0`) return
+    if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
+      const p = pending.get(msg.id)
+      if (!p) return
+      pending.delete(msg.id)
+      msg.error ? p.reject(new Error(msg.error.message ?? `error`)) : p.resolve(msg.result)
+      return
+    }
+    if (msg.method) {
+      const h = handlers.get(msg.method)
+      if (!h) return
+      const out = h(msg.params ?? {})
+      // A request (has an id) wants an answer, e.g. ui/resource-teardown.
+      if (msg.id !== undefined) {
+        Promise.resolve(out).then((result) =>
+          window.parent.postMessage({ jsonrpc: `2.0`, id: msg.id, result: result ?? {} }, `*`)
+        )
+      }
+    }
+  })
+  return {
+    request(method, params) {
+      const id = nextId++
+      window.parent.postMessage({ jsonrpc: `2.0`, id, method, params }, `*`)
+      return new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
+    },
+    notify(method, params) {
+      window.parent.postMessage({ jsonrpc: `2.0`, method, params: params ?? {} }, `*`)
+    },
+    on(method, handler) { handlers.set(method, handler) },
+  }
+})()
+
+// ---------------------------------------------------------------------------
+// State: what the linking tool was called with, and what it returned.
+// ---------------------------------------------------------------------------
+const state = {
+  args: {},          // ui/notifications/tool-input
+  data: null,        // structuredContent of ui/notifications/tool-result
+  filter: null,      // status category chip, null = all
+  selected: null,    // issue identifier open in the detail panel
+  detail: null,      // exponential_issues_get result for `selected`
+  toolName: `exponential_board_view`,
+}
+
+const CATEGORY_ORDER = [`started`, `unstarted`, `backlog`, `completed`, `cancelled`, `duplicate`]
+
+function applyHostContext(ctx) {
+  if (!ctx) return
+  const vars = ctx.styles?.variables ?? {}
+  for (const [k, v] of Object.entries(vars)) {
+    if (v !== undefined) document.documentElement.style.setProperty(k, v)
+  }
+  if (ctx.styles?.css?.fonts) {
+    const el = document.createElement(`style`)
+    el.textContent = ctx.styles.css.fonts
+    document.head.appendChild(el)
+  }
+  if (ctx.theme) document.documentElement.dataset.theme = ctx.theme
+  if (ctx.toolInfo?.tool?.name) state.toolName = ctx.toolInfo.tool.name
+}
+
+// ---------------------------------------------------------------------------
+// Rendering. Plain DOM; the production version renders @exp/ui islands with
+// the host variables mapped onto its tokens.
+// ---------------------------------------------------------------------------
+const root = document.getElementById(`root`)
+const esc = (s) => String(s ?? ``).replace(/[&<>"]/g, (c) => ({ "&": `&amp;`, "<": `&lt;`, ">": `&gt;`, '"': `&quot;` }[c]))
+const initials = (name) => (name ?? `?`).split(/\s+/).map((w) => w[0]).join(``).slice(0, 2).toUpperCase()
+
+function render() {
+  const d = state.data
+  if (!d) return
+  const issues = d.issues.filter((i) => !state.filter || i.status.category === state.filter)
+  const groups = new Map()
+  for (const issue of issues) {
+    const key = issue.status.id
+    if (!groups.has(key)) groups.set(key, { status: issue.status, issues: [] })
+    groups.get(key).issues.push(issue)
+  }
+  const ordered = [...groups.values()].sort(
+    (a, b) => CATEGORY_ORDER.indexOf(a.status.category) - CATEGORY_ORDER.indexOf(b.status.category)
+  )
+  const categories = [...new Set(d.issues.map((i) => i.status.category))]
+    .sort((a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b))
+
+  root.innerHTML = `
+    <header>
+      <span class="glyph" style="background:${esc(d.board.color ?? `#6366f1`)}">${esc(d.board.identifier?.slice(0, 2) ?? `B`)}</span>
+      <h1>${esc(d.board.name)}</h1>
+      <span class="count">${d.issues.length} open</span>
+      <span class="spacer"></span>
+      <button data-act="refresh" title="Re-run the board tool">Refresh</button>
+      ${d.board.url ? `<button data-act="open" data-url="${esc(d.board.url)}">Open in Exponential</button>` : ``}
+    </header>
+    <div class="filters">
+      <span class="chip" role="button" data-cat="" aria-pressed="${state.filter === null}">All</span>
+      ${categories.map((c) => `<span class="chip" role="button" data-cat="${esc(c)}" aria-pressed="${state.filter === c}">${esc(c.replace(`_`, ` `))}</span>`).join(``)}
+    </div>
+    ${ordered.length === 0 ? `<div class="empty">Nothing here.</div>` : ``}
+    ${ordered.map((g) => `
+      <section class="group">
+        <div class="band"><span class="dot" style="background:${esc(g.status.color)}"></span>${esc(g.status.name)} <span class="n">${g.issues.length}</span></div>
+        ${g.issues.map((i) => `
+          <div class="row" role="button" data-ident="${esc(i.identifier)}" aria-selected="${state.selected === i.identifier}">
+            <span class="ident">${esc(i.identifier)}</span>
+            <span class="title">${esc(i.title)}</span>
+            <span class="meta">
+              ${i.pr ? `<span class="pr">PR ${esc(i.pr.state)}</span>` : ``}
+              ${(i.labels ?? []).slice(0, 2).map((l) => `<span class="label"><span class="dot" style="background:${esc(l.color)}"></span>${esc(l.name)}</span>`).join(``)}
+              ${i.priority && i.priority !== `none` ? `<span class="prio ${esc(i.priority)}">${esc(i.priority)}</span>` : ``}
+              ${i.assignee ? `<span class="avatar" style="background:${esc(i.assignee.color ?? `#52525b`)}" title="${esc(i.assignee.name)}">${esc(initials(i.assignee.name))}</span>` : ``}
+            </span>
+          </div>`).join(``)}
+      </section>`).join(``)}
+    <div class="detail" data-open="${Boolean(state.selected)}" id="detail">${renderDetail()}</div>
+  `
+  reportSize()
+}
+
+function renderDetail() {
+  if (!state.selected) return ``
+  const issue = state.data.issues.find((i) => i.identifier === state.selected)
+  const full = state.detail
+  return `
+    <h2>${esc(issue?.identifier)} · ${esc(full?.title ?? issue?.title)}</h2>
+    <div class="sub">${esc(full?.status?.name ?? issue?.status.name)}${full?.assignee ? ` · ${esc(full.assignee.name)}` : ``}${full?.commentCount != null ? ` · ${full.commentCount} comments` : ``}</div>
+    <p>${full ? esc(full.description || `No description.`) : `Loading…`}</p>
+    <div class="actions">
+      ${issue?.url ? `<button class="primary" data-act="open" data-url="${esc(issue.url)}">Open</button>` : ``}
+      <button data-act="ask" data-ident="${esc(issue?.identifier)}">Summarize in chat</button>
+      <button data-act="close">Close</button>
+    </div>`
+}
+
+root.addEventListener(`click`, async (e) => {
+  const el = e.target.closest(`[data-act], [data-cat], [data-ident]`)
+  if (!el) return
+  if (el.dataset.act === `refresh`) return refresh()
+  if (el.dataset.act === `open`) return bridge.request(`ui/open-link`, { url: el.dataset.url })
+  if (el.dataset.act === `close`) { state.selected = null; state.detail = null; return render() }
+  if (el.dataset.act === `ask`) {
+    // A follow-up typed as the user: the model answers with the tools.
+    return bridge.request(`ui/message`, { role: `user`, content: { type: `text`, text: `Summarize ${el.dataset.ident} and its comments.` } })
+  }
+  if (el.dataset.cat !== undefined) { state.filter = el.dataset.cat || null; return render() }
+  if (el.dataset.ident) return select(el.dataset.ident)
+})
+
+async function select(ident) {
+  state.selected = ident
+  state.detail = null
+  render()
+  try {
+    // Proxied through the host to our MCP server, scoped by the user's grant.
+    const result = await bridge.request(`tools/call`, { name: `exponential_issues_get`, arguments: { id: ident } })
+    state.detail = result.structuredContent ?? parseJsonText(result)
+  } catch (err) {
+    state.detail = { title: state.data.issues.find((i) => i.identifier === ident)?.title, description: `Could not load: ${err.message}` }
+  }
+  render()
+  // Tell the model what the user is looking at, so "this issue" resolves.
+  bridge.request(`ui/update-model-context`, {
+    content: [{ type: `text`, text: `The user opened ${ident} in the Exponential board view.` }],
+  }).catch(() => {})
+}
+
+async function refresh() {
+  try {
+    const result = await bridge.request(`tools/call`, { name: state.toolName, arguments: state.args })
+    applyToolResult(result)
+  } catch (err) {
+    root.innerHTML = `<div class="error">Refresh failed: ${esc(err.message)}</div>`
+  }
+}
+
+function parseJsonText(result) {
+  const text = result?.content?.find((c) => c.type === `text`)?.text
+  try { return text ? JSON.parse(text) : null } catch { return null }
+}
+
+function applyToolResult(result) {
+  if (result?.isError) {
+    root.innerHTML = `<div class="error">${esc(result.content?.[0]?.text ?? `The tool failed.`)}</div>`
+    return reportSize()
+  }
+  state.data = result.structuredContent ?? parseJsonText(result)
+  if (!state.data?.issues) {
+    root.innerHTML = `<div class="error">Unexpected result shape.</div>`
+    return reportSize()
+  }
+  render()
+}
+
+function reportSize() {
+  const rect = document.body.getBoundingClientRect()
+  bridge.notify(`ui/notifications/size-changed`, { width: Math.ceil(rect.width), height: Math.ceil(rect.height) })
+}
+new ResizeObserver(reportSize).observe(document.body)
+
+// ---------------------------------------------------------------------------
+// Lifecycle.
+// ---------------------------------------------------------------------------
+bridge.on(`ui/notifications/tool-input`, (p) => { state.args = p.arguments ?? {} })
+bridge.on(`ui/notifications/tool-result`, applyToolResult)
+bridge.on(`ui/notifications/tool-cancelled`, (p) => { root.innerHTML = `<div class="empty">Cancelled${p.reason ? `: ${esc(p.reason)}` : ``}.</div>` })
+bridge.on(`ui/notifications/host-context-changed`, applyHostContext)
+bridge.on(`ui/resource-teardown`, () => ({}))
+
+;(async () => {
+  const init = await bridge.request(`ui/initialize`, {
+    protocolVersion: `2025-11-25`,
+    appInfo: { name: `exponential-board`, version: `0.1.0` },
+    appCapabilities: { availableDisplayModes: [`inline`, `fullscreen`] },
+  })
+  applyHostContext(init?.hostContext)
+  bridge.notify(`ui/notifications/initialized`)
+})()
+</script>
+</body>
+</html>
