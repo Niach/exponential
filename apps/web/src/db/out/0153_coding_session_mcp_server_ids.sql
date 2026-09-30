@@ -1,0 +1,1 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "mcp_server_ids" jsonb;

@@ -220,7 +220,9 @@ impl ApiKeysPane {
                 let result = cx
                     .background_executor()
                     .spawn(async move {
-                        api::users::mint_personal_api_key(&trpc, Some(&name))
+                        // A key the person mints for themselves — never the
+                        // agent's kind (EXP-1140).
+                        api::users::mint_personal_api_key(&trpc, Some(&name), None)
                     })
                     .await;
                 let _ = pane.update(cx, |this, cx| {

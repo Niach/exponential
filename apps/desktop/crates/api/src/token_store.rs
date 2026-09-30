@@ -38,6 +38,11 @@ pub enum SecretKind {
     /// stored alongside so Regenerate can revoke the *previous* row by id —
     /// §7.2 mint-new-then-revoke-old).
     PersonalApiKeyId,
+    /// EXP-1140: what the stored personal key was minted AS on the server
+    /// (`users::AGENT_KEY_PURPOSE` once tagged). Absent = a key minted before
+    /// the tag existed, which `ensure_personal_key` regenerates once so the
+    /// server can tell the agent's key from the person's.
+    PersonalApiKeyPurpose,
 }
 
 impl SecretKind {
@@ -48,6 +53,7 @@ impl SecretKind {
             SecretKind::SessionToken => PathBuf::from("token"),
             SecretKind::PersonalApiKey => PathBuf::from("personal-key"),
             SecretKind::PersonalApiKeyId => PathBuf::from("personal-key-id"),
+            SecretKind::PersonalApiKeyPurpose => PathBuf::from("personal-key-purpose"),
         }
     }
 }

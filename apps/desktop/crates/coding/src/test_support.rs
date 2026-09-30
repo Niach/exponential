@@ -283,6 +283,12 @@ pub(crate) fn make_deps(
     store
         .set("acct", SecretKind::PersonalApiKey, "expu_seeded")
         .unwrap();
+    // EXP-1140: seeded as an already-tagged AGENT key, else every launch
+    // would first spend a mint + revoke retagging it (see
+    // `users::ensure_personal_key`) and shift the canned request sequence.
+    store
+        .set("acct", SecretKind::PersonalApiKeyPurpose, api::users::AGENT_KEY_PURPOSE)
+        .unwrap();
     CodingDeps {
         trpc: Arc::new(TrpcClient::new(base, Arc::new(StaticToken("tok".into())))),
         token_store: Arc::new(store),

@@ -1540,8 +1540,14 @@ fn with_claude_mcp_timeout(spawn: SpawnSpec, inherited: Option<std::ffi::OsStrin
 /// resolve call altogether is skipped with a logged warning and the run
 /// starts without those tools. An empty pick resolves to nothing without
 /// touching the network (every pick-less launch and every agent shell).
-fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String]) -> ResolvedMcp {
-    let resolved = crate::mcp_servers::resolve(&deps.trpc, ids);
+///
+/// EXP-1140: resolved FOR `session_id` — the row `codingSessions.start` just
+/// created with this same pick on it. The server hands out only that row's
+/// persisted ids, to its owner or host, so this runs AFTER the row exists
+/// (a Disabled launch never fetches a credential) and never for the agent's
+/// own key.
+fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String], session_id: &str) -> ResolvedMcp {
+    let resolved = crate::mcp_servers::resolve(&deps.trpc, ids, session_id);
     for warning in &resolved.warnings {
         log::warn!("{warning}");
     }
@@ -1669,9 +1675,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
-    // EXP-792: the team MCP server pick (unconnected ones are skipped).
-    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids);
-
     // Step 1 — resolve the repository (the coding-first gate).
     let (repository_id, full_name) = match req {
         PrepareRequest::Issue(issue_req) => {
@@ -1920,6 +1923,9 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             agent.wire_id(),
             Some(agent_account.as_str()),
             &attachment_ids,
+            // EXP-1140: the pick, persisted so the resolve below is bound
+            // to exactly these servers.
+            &options.mcp_server_ids,
             // EXP-1082: a workflow run's membership, stamped on the row.
             workflow_start(issue_req.options.workflow.as_ref()),
         ),
@@ -1940,7 +1946,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 .iter()
                 .map(|issue| issue.issue_id.clone())
                 .collect::<Vec<_>>(),
-
+            &options.mcp_server_ids,
             workflow_start(batch_req.options.workflow.as_ref()),
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -1970,6 +1976,9 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             false,
         ),
     )?;
+    // EXP-792/1140: the team MCP server pick, resolved FOR the row just
+    // created (unconnected or unpicked ones are skipped, never a blocker).
+    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
 
     // Step 6.5 (EXP-194) — the LAUNCHER parks backlog issues in
     // `in_progress`. Under plan mode the agent's MCP status call would only
@@ -2450,9 +2459,6 @@ fn prepare_action(
     if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
-    // EXP-792: the team MCP server pick (unconnected ones are skipped).
-    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids);
-
     // §7.2 — the personal key (the MCP credential), raced like a session's.
     let key_handle = {
         let trpc = Arc::clone(&deps.trpc);
@@ -2882,6 +2888,7 @@ fn prepare_action(
             agent_account: Some(agent_account.as_str()),
             attribution: attribution(&req.origin, deps),
             attachment_ids: &attachment_ids,
+            mcp_server_ids: &options.mcp_server_ids,
             // EXP-1082: a reviewer run names its workflow node.
             workflow: workflow_start(req.options.workflow.as_ref()),
         },
@@ -2908,6 +2915,9 @@ fn prepare_action(
             false,
         ),
     )?;
+    // EXP-792/1140: the team MCP server pick, resolved FOR the row just
+    // created (unconnected or unpicked ones are skipped, never a blocker).
+    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
 
     // EXP-210: stamp THIS agent into the run worktree's recorded-agent
     // marker, exactly like the issue path — a later resume reads it to
@@ -3374,10 +3384,6 @@ fn prepare_resume_run(
     if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
-    // EXP-792: the recorded team MCP server pick, re-resolved NOW (fresh
-    // tokens; unconnected ones are skipped).
-    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids);
-
     // Step 1 — the workspace. A repo-backed run whose worktree the run
     // cleanup or the prune reclaimed (its PR landed — the ordinary way a chat
     // run ends) is re-created in step 2 on its recorded branch, cut fresh from
@@ -3677,6 +3683,8 @@ fn prepare_resume_run(
             agent.wire_id(),
             Some(agent_account.as_str()),
             &attachment_ids,
+            // EXP-1140: the RECORDED pick rides onto the continuation row.
+            &options.mcp_server_ids,
             // A resume inherits its membership server-side (EXP-906).
             coding_sessions::WorkflowStart::default(),
         ),
@@ -3697,7 +3705,7 @@ fn prepare_resume_run(
                 .iter()
                 .map(|issue| issue.issue_id.clone())
                 .collect::<Vec<_>>(),
-
+            &options.mcp_server_ids,
             coding_sessions::WorkflowStart::default(),
         ),
         _ => coding_sessions::start_action(
@@ -3716,6 +3724,7 @@ fn prepare_resume_run(
                 agent_account: Some(agent_account.as_str()),
                 attribution: attribution(&req.origin, deps),
                 attachment_ids: &attachment_ids,
+                mcp_server_ids: &options.mcp_server_ids,
                 workflow: coding_sessions::WorkflowStart::default(),
             },
         ),
@@ -3741,6 +3750,10 @@ fn prepare_resume_run(
         ),
     )?;
     let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent.id());
+    // EXP-792/1140: the RECORDED team MCP server pick, re-resolved now
+    // (fresh tokens) FOR the continuation row it was just persisted on;
+    // unconnected or unpicked ones are skipped, never a blocker.
+    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
 
     // Step 6 — the spawn spec, mirroring the fresh action path.
     if agent == CodingAgent::Codex {
@@ -8320,15 +8333,21 @@ mod tests {
                 seen: Default::default(),
             }),
         );
-        let resolved = resolve_mcp_servers(&deps, &["srv-9".to_string()]);
+        let resolved = resolve_mcp_servers(&deps, &["srv-9".to_string()], "sess-1");
         assert!(resolved.servers.is_empty() && resolved.env.is_empty());
         assert_eq!(resolved.warnings.len(), 1, "{:?}", resolved.warnings);
         let requests = captured.lock().unwrap();
         assert!(requests[0].contains("mcpServers.resolveForLaunch"));
         assert!(requests[0].contains(r#"{"serverIds":["srv-9"]}"#));
+        // EXP-1140: the call names the run it resolves for.
+        assert!(
+            requests[0].to_ascii_lowercase().contains("x-exp-session-id: sess-1"),
+            "{}",
+            requests[0]
+        );
         // An empty pick makes no call at all.
         drop(requests);
-        assert_eq!(resolve_mcp_servers(&deps, &[]), ResolvedMcp::default());
+        assert_eq!(resolve_mcp_servers(&deps, &[], "sess-1"), ResolvedMcp::default());
         assert_eq!(captured.lock().unwrap().len(), 1);
     }
 
@@ -8337,20 +8356,25 @@ mod tests {
     /// (the desktop as a toast, the CLI as a log line). A pick the member
     /// has not connected lands as `skipped` and the run still prepares,
     /// with no team servers and that one note.
+    ///
+    /// EXP-1140: the order is load-bearing — the pick rides
+    /// `codingSessions.start` onto the row FIRST, and the resolve names that
+    /// row (`X-Exp-Session-Id`), because the server resolves only a live
+    /// row's own persisted pick.
     #[cfg(unix)]
     #[test]
     fn a_skipped_mcp_pick_rides_the_prepared_launch() {
         let dir = temp_dir("mcp-degraded-prepared");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
+        let (base, captured) = canned_server_recording(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
             (
                 200,
                 r#"{"result":{"data":{"servers":[],"skipped":[{"id":"srv-9","name":"Linear","reason":"not connected"}],"warnings":[]}}}"#.to_string(),
             ),
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
         ]);
         let mut deps = make_deps(
             &base,
@@ -8377,18 +8401,50 @@ mod tests {
         );
         assert!(prepared.acp.servers.is_empty());
         assert!(prepared.acp.mcp_secrets.is_empty());
+
+        let requests = captured.lock().unwrap();
+        let start = requests
+            .iter()
+            .position(|request| request.contains("codingSessions.start"))
+            .expect("the row was created");
+        let resolve = requests
+            .iter()
+            .position(|request| request.contains("mcpServers.resolveForLaunch"))
+            .expect("the pick was resolved");
+        assert!(start < resolve, "row first, then the resolve: {requests:?}");
+        assert!(
+            requests[start].contains(r#""mcpServerIds":["srv-9"]"#),
+            "{}",
+            requests[start]
+        );
+        assert!(requests[resolve].contains(r#"{"serverIds":["srv-9"]}"#));
+        // START_OK's row id, as the run the credentials are for.
+        assert!(
+            requests[resolve].to_ascii_lowercase().contains("x-exp-session-id: sess-1"),
+            "{}",
+            requests[resolve]
+        );
     }
 
-    /// EXP-792: a resume re-resolves the RECORDED pick (fresh tokens): the
-    /// recorded ids reach `resolveForLaunch` before anything else happens.
+    /// EXP-792: a resume re-resolves the RECORDED pick (fresh tokens).
+    /// EXP-1140: the recorded ids ride onto the CONTINUATION row first, and
+    /// the resolve names that new row, never the ended predecessor.
+    #[cfg(unix)]
     #[test]
     fn a_resume_re_resolves_the_recorded_mcp_pick() {
         let dir = temp_dir("mcp-resume");
-        let (base, captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"servers":[],"skipped":[],"warnings":[]}}}"#.to_string(),
-        )]);
-        let deps = make_deps(
+        let (base, captured) = canned_server_recording(vec![
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
+                    .to_string(),
+            ),
+            (
+                200,
+                r#"{"result":{"data":{"servers":[],"skipped":[],"warnings":[]}}}"#.to_string(),
+            ),
+        ]);
+        let mut deps = make_deps(
             &base,
             &dir.0,
             Arc::new(FakeWorktrees {
@@ -8396,17 +8452,29 @@ mod tests {
                 seen: Default::default(),
             }),
         );
+        // Past the doctor + ACP gates, so the resume reaches its row.
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         let mut record = resume_record(&dir.0, "sess-old");
         record.set_mcp_server_ids(&["srv-9".to_string()]);
         assert_eq!(record.mcp_server_ids(), vec!["srv-9".to_string()]);
-        // The rest of the resume may succeed or fail against the one-shot
-        // server; only the resolve call is under test here.
+        // The rest of the resume may succeed or fail against the canned
+        // server; only the row + resolve pair is under test here.
         let _ = prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps);
         let requests = captured.lock().unwrap();
+        let start = requests
+            .iter()
+            .find(|request| request.contains("codingSessions.start"))
+            .expect("the continuation row was created");
+        assert!(start.contains(r#""mcpServerIds":["srv-9"]"#), "{start}");
+        assert!(start.contains(r#""resumedFromId":"sess-old""#), "{start}");
         let resolve = requests
             .iter()
             .find(|request| request.contains("mcpServers.resolveForLaunch"))
             .expect("the resume re-resolved its pick");
         assert!(resolve.contains(r#"{"serverIds":["srv-9"]}"#), "{resolve}");
+        assert!(
+            resolve.to_ascii_lowercase().contains("x-exp-session-id: sess-new"),
+            "{resolve}"
+        );
     }
 }

@@ -431,9 +431,11 @@ pub struct LaunchOptions {
     /// model aliases; blank = the CLI's own default. Claude-only.
     pub subagent_model: String,
     /// EXP-792: the team MCP servers (`mcp_servers` row ids) this run
-    /// connects to beside `exponential`. Empty = none. The launcher resolves
-    /// them against the device's secret store and REFUSES the launch with a
-    /// named blocker when one has no credential here.
+    /// connects to beside `exponential`. Empty = none. EXP-1140: the pick is
+    /// persisted on the run's row by `codingSessions.start`, then resolved
+    /// server-side FOR that row (`mcpServers.resolveForLaunch`, the member's
+    /// own credentials); an unconnected or unpicked one is skipped with a
+    /// warning, never a launch blocker.
     pub mcp_server_ids: Vec<String>,
     /// EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE to run on — `None` or
     /// `system` = the ambient login; else a device-local profile id under

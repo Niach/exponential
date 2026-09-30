@@ -1003,6 +1003,15 @@ export const codingSessions = pgTable(
     // themselves off the issues sharing the branch `pr_open` stamped
     // (EXP-545). Capped at 30 entries, the batch cap every start form holds.
     batchIssueIds: jsonb(`batch_issue_ids`).$type<string[]>(),
+    // EXP-1140: the team MCP servers this run PICKED (`mcp_servers` ids of
+    // the run's team, in pick order), written once by `codingSessions.start`
+    // from the launching device. The ONLY thing `mcpServers.resolveForLaunch`
+    // will hand credentials for: the launcher names its row through
+    // `X-Exp-Session-Id` and gets values for these ids alone, so a leaked or
+    // prompt-injected `expu_` key can reach at most what its own live run
+    // already holds. NULL = no pick. SERVER-ONLY (never in the shape
+    // allowlist): no client needs it, and it must never widen.
+    mcpServerIds: jsonb(`mcp_server_ids`).$type<string[]>(),
     // EXP-701: the device's pickup ack. The launching device creates this row
     // right before it spawns the agent, then its FIRST liveness heartbeat —
     // fired immediately after the spawn — stamps this (the server coalesces it
@@ -2236,7 +2245,10 @@ export const mcpServers = pgTable(
 // `issuer` + `client_id` = the client the tokens belong to (the refresh
 // needs it), `error` = the last refresh failure. Server-only, never synced,
 // never returned: `mcpServers.resolveForLaunch` hands the caller's OWN
-// values to their launcher.
+// values to their launcher, and only for the servers its live run picked
+// (`coding_sessions.mcp_server_ids`, EXP-1140). On a shared device the
+// caller is the device OWNER, so a teammate's run there spends the owner's
+// credentials, like its `expu_` key and GitHub token.
 export const mcpCredentials = pgTable(
   `mcp_credentials`,
   {

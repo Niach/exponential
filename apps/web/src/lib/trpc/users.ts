@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth"
 import { getReadableUserIdsInTeams } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
+import { API_KEY_KINDS } from "@/lib/auth/api-key-kind"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import { relayKillSessionsBestEffort } from "@/lib/coding-session-kill"
 import {
@@ -46,8 +47,19 @@ export const usersRouter = router({
   // this user. The raw key is returned exactly once at mint time (only a hash
   // is stored); revoke by deleting the row.
 
+  // EXP-1140: `purpose: 'agent'` tags the hidden key the launcher mints for
+  // the AGENT it spawns (lib/auth/api-key-kind.ts). Such a key is refused
+  // where a person's key is not (`mcpServers.resolveForLaunch`). A key the
+  // person mints in Settings stays `personal`.
   mintPersonalApiKey: authedProcedure
-    .input(z.object({ name: z.string().min(1).max(180).optional() }).optional())
+    .input(
+      z
+        .object({
+          name: z.string().min(1).max(180).optional(),
+          purpose: z.enum(API_KEY_KINDS).optional(),
+        })
+        .optional()
+    )
     .mutation(async ({ ctx, input }) => {
       const created = await auth.api.createApiKey({
         body: {
@@ -55,7 +67,7 @@ export const usersRouter = router({
           userId: ctx.session.user.id,
           expiresIn: null,
           rateLimitEnabled: false,
-          metadata: { kind: `personal` },
+          metadata: { kind: input?.purpose ?? `personal` },
         },
       })
       // `key` is the RAW credential — returned exactly once (only a hash is

@@ -159,6 +159,11 @@ struct StartInput<'a> {
     /// image-less start's wire is byte-identical.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     attachment_ids: &'a [String],
+    /// EXP-1140: the team MCP servers this run picked — persisted on the row
+    /// as the ONLY ids `mcpServers.resolveForLaunch` will resolve for it.
+    /// Skipped when empty so a pick-less start's wire is byte-identical.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    mcp_server_ids: &'a [String],
     /// EXP-1082 — [`WorkflowStart`], flattened.
     #[serde(flatten)]
     workflow: WorkflowStart<'a>,
@@ -198,6 +203,9 @@ struct StartBatchInput<'a> {
     /// sees the same wire it always did.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     batch_issue_ids: &'a [String],
+    /// EXP-1140 — same as [`StartInput::mcp_server_ids`], on the batch branch.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    mcp_server_ids: &'a [String],
     /// EXP-1082 — [`WorkflowStart`], flattened.
     #[serde(flatten)]
     workflow: WorkflowStart<'a>,
@@ -246,6 +254,9 @@ struct StartActionInput<'a> {
     /// EXP-825 — same as [`StartInput::attachment_ids`], on the action branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     attachment_ids: &'a [String],
+    /// EXP-1140 — same as [`StartInput::mcp_server_ids`], on the action branch.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    mcp_server_ids: &'a [String],
     /// EXP-1082 — [`WorkflowStart`], flattened.
     #[serde(flatten)]
     workflow: WorkflowStart<'a>,
@@ -426,6 +437,9 @@ pub fn live_for_issue(
 /// EXP-909: `agent_account` names the LOGIN the run spends (`system` = the
 /// ambient one) — the one fact no client could derive, and without which the
 /// usage overlay shows some other account's numbers.
+/// EXP-1140: `mcp_server_ids` = the run's team MCP server pick, persisted on
+/// the row so `mcpServers.resolveForLaunch` resolves exactly that (empty =
+/// key omitted).
 #[allow(clippy::too_many_arguments)]
 pub fn start(
     trpc: &TrpcClient,
@@ -437,6 +451,7 @@ pub fn start(
     agent: Option<&str>,
     agent_account: Option<&str>,
     attachment_ids: &[String],
+    mcp_server_ids: &[String],
     workflow: WorkflowStart<'_>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
@@ -451,6 +466,7 @@ pub fn start(
             agent,
             agent_account,
             attachment_ids,
+            mcp_server_ids,
             workflow,
         },
     )?;
@@ -473,6 +489,7 @@ pub fn start_batch(
     agent_account: Option<&str>,
     attachment_ids: &[String],
     batch_issue_ids: &[String],
+    mcp_server_ids: &[String],
     workflow: WorkflowStart<'_>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
@@ -488,6 +505,7 @@ pub fn start_batch(
             agent_account,
             attachment_ids,
             batch_issue_ids,
+            mcp_server_ids,
             workflow,
         },
     )?;
@@ -526,6 +544,8 @@ pub struct ActionStart<'a> {
     /// EXP-825: the composer prompt's pre-session image uploads; empty =
     /// key omitted.
     pub attachment_ids: &'a [String],
+    /// EXP-1140: the run's team MCP server pick; empty = key omitted.
+    pub mcp_server_ids: &'a [String],
     /// EXP-1082: the workflow membership of a review run; default = none.
     pub workflow: WorkflowStart<'a>,
 }
@@ -549,6 +569,7 @@ pub fn start_action(
             agent: start.agent,
             agent_account: start.agent_account,
             attachment_ids: start.attachment_ids,
+            mcp_server_ids: start.mcp_server_ids,
             workflow: start.workflow,
         },
     )?;
@@ -906,7 +927,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], WorkflowStart::default()).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -972,7 +993,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], WorkflowStart::default()).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -985,7 +1006,7 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[], &[], WorkflowStart::default()).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
@@ -1009,6 +1030,7 @@ mod tests {
             None,
             Some("claude"),
             Some("prof-9"),
+            &[],
             &[],
             WorkflowStart::default(),
         )
@@ -1034,6 +1056,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
             &[],
             WorkflowStart {
                 workflow_id: Some("wf-1"),
@@ -1129,6 +1152,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
             WorkflowStart::default(),
         )
         .unwrap();
@@ -1157,6 +1181,7 @@ mod tests {
             None,
             &[],
             &[],
+            &[],
             WorkflowStart::default(),
         )
         .unwrap();
@@ -1175,7 +1200,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], WorkflowStart::default()).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
@@ -1193,7 +1218,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], WorkflowStart::default()).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
@@ -1250,6 +1275,7 @@ mod tests {
             None,
             &[],
             &ids,
+            &[],
             WorkflowStart::default(),
         )
         .unwrap();
@@ -1288,7 +1314,7 @@ mod tests {
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], WorkflowStart::default()) {
+        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], &[], WorkflowStart::default()) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));
@@ -1435,6 +1461,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
             WorkflowStart::default(),
         )
         .unwrap();
@@ -1462,6 +1489,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
             &[],
             &[],
             WorkflowStart::default(),
@@ -1637,6 +1665,7 @@ mod tests {
             Some("codex"),
             None,
             &[],
+            &[],
             WorkflowStart::default(),
         )
         .unwrap();
@@ -1657,6 +1686,7 @@ mod tests {
             None,
             Some("codex"),
             None,
+            &[],
             &[],
             &[],
             WorkflowStart::default(),
@@ -1699,6 +1729,7 @@ mod tests {
             None,
             None,
             &ids,
+            &[],
             WorkflowStart::default(),
         )
         .unwrap();
@@ -1722,6 +1753,7 @@ mod tests {
             None,
             None,
             &ids,
+            &[],
             &[],
             WorkflowStart::default(),
         )

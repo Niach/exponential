@@ -80,6 +80,11 @@ struct ListKeysResponse {
 struct MintInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<&'a str>,
+    /// EXP-1140: `agent` tags the hidden key the launcher mints for the
+    /// agent it spawns (the server stores it as the key's `kind`); absent =
+    /// a person's own key, so an older server sees the wire it always did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    purpose: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -87,12 +92,20 @@ struct RevokeInput<'a> {
     id: &'a str,
 }
 
-/// `users.mintPersonalApiKey` — mutation.
+/// EXP-1140: the `purpose` the launcher mints its hidden agent key with. The
+/// server refuses such a key where a person's key passes
+/// (`mcpServers.resolveForLaunch`): a prompt-injected agent holds it, so it
+/// must never be able to read the member's MCP credentials back.
+pub const AGENT_KEY_PURPOSE: &str = "agent";
+
+/// `users.mintPersonalApiKey` — mutation. `purpose` = `None` for a key the
+/// person mints for themselves, [`AGENT_KEY_PURPOSE`] for the launcher's.
 pub fn mint_personal_api_key(
     trpc: &TrpcClient,
     name: Option<&str>,
+    purpose: Option<&str>,
 ) -> Result<MintedPersonalKey, ApiError> {
-    trpc.mutation("users.mintPersonalApiKey", &MintInput { name })
+    trpc.mutation("users.mintPersonalApiKey", &MintInput { name, purpose })
 }
 
 /// `users.listPersonalApiKeys` — query (GET; POST would 405).
@@ -223,12 +236,36 @@ pub fn ensure_personal_key(
         SecretKind::PersonalApiKey,
         PERSONAL_KEY_READ_TIMEOUT,
     ) {
-        return Ok(key);
+        let purpose = store.get_bounded(
+            account_id,
+            SecretKind::PersonalApiKeyPurpose,
+            PERSONAL_KEY_READ_TIMEOUT,
+        );
+        if purpose.as_deref() == Some(AGENT_KEY_PURPOSE) {
+            return Ok(key);
+        }
+        // EXP-1140: a key minted before the agent tag passes the server's
+        // kind gate like a person's — retag it ONCE by regenerating
+        // (mint-new-then-revoke-old, so a crash mid-way never strands the
+        // device). Offline or refused, the old key keeps working and the
+        // retag is retried on the next need.
+        return match regenerate_personal_key(trpc, store, account_id, None) {
+            Ok(minted) => Ok(minted.key),
+            Err(err) => {
+                log::warn!(
+                    "[personal-key] could not retag the agent key ({}); keeping the untagged one for now",
+                    err.user_message()
+                );
+                Ok(key)
+            }
+        };
     }
-    let minted = mint_personal_api_key(trpc, Some(&device_key_name()))?;
+    let minted = mint_personal_api_key(trpc, Some(&device_key_name()), Some(AGENT_KEY_PURPOSE))?;
     store.set(account_id, SecretKind::PersonalApiKey, &minted.key)?;
-    // Best-effort: remember the row id so Regenerate can revoke precisely.
+    // Best-effort: remember the row id so Regenerate can revoke precisely,
+    // and the purpose so the retag above never repeats.
     let _ = store.set(account_id, SecretKind::PersonalApiKeyId, &minted.id);
+    let _ = store.set(account_id, SecretKind::PersonalApiKeyPurpose, AGENT_KEY_PURPOSE);
     Ok(minted.key)
 }
 
@@ -252,11 +289,12 @@ pub fn regenerate_personal_key(
         )
     });
 
-    // 1. Mint the fresh key.
-    let minted = mint_personal_api_key(trpc, Some(&device_key_name()))?;
+    // 1. Mint the fresh key (EXP-1140: always as the agent's).
+    let minted = mint_personal_api_key(trpc, Some(&device_key_name()), Some(AGENT_KEY_PURPOSE))?;
     // 2. Store it — the point of no return for the OLD key.
     store.set(account_id, SecretKind::PersonalApiKey, &minted.key)?;
     let _ = store.set(account_id, SecretKind::PersonalApiKeyId, &minted.id);
+    let _ = store.set(account_id, SecretKind::PersonalApiKeyPurpose, AGENT_KEY_PURPOSE);
     // 3. Only now revoke the previous row.
     if let Some(old) = old_id {
         if old != minted.id {
@@ -307,7 +345,7 @@ mod tests {
     #[test]
     fn mint_decodes_camel_case_envelope() {
         let (base, captured) = one_shot_server(200, MINT_BODY);
-        let minted = mint_personal_api_key(&client(&base), Some("Device: testbox")).unwrap();
+        let minted = mint_personal_api_key(&client(&base), Some("Device: testbox"), None).unwrap();
         assert_eq!(minted.key, "expu_rawsecret123");
         assert_eq!(minted.id, "key-1");
         assert_eq!(minted.start.as_deref(), Some("expu_ra"));
@@ -354,6 +392,9 @@ mod tests {
         store
             .set("acct", SecretKind::PersonalApiKey, "expu_existing")
             .unwrap();
+        store
+            .set("acct", SecretKind::PersonalApiKeyPurpose, AGENT_KEY_PURPOSE)
+            .unwrap();
         // Unroutable base: any network call would error — proving the hit
         // path never touches the server.
         let trpc = client("http://127.0.0.1:1");
@@ -377,9 +418,57 @@ mod tests {
             store.get("acct", SecretKind::PersonalApiKeyId).as_deref(),
             Some("key-1")
         );
+        // EXP-1140: minted AS the agent's key, and remembered as such.
+        assert_eq!(
+            store.get("acct", SecretKind::PersonalApiKeyPurpose).as_deref(),
+            Some(AGENT_KEY_PURPOSE)
+        );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         // The silent mint names the key after the device (§7.2).
         assert!(request.contains(r#"{"name":"Device: "#));
+        assert!(request.contains(r#""purpose":"agent"}"#), "{request}");
+    }
+
+    /// EXP-1140: a key minted before the agent tag would pass the server's
+    /// kind gate like a person's. The first need after the update retags it
+    /// by regenerating — new key stored, old row revoked — exactly once.
+    #[test]
+    fn ensure_personal_key_retags_a_legacy_key_once() {
+        let dir = TempDir::new("ensure-retag");
+        let store = TokenStore::file_only(dir.0.clone());
+        store
+            .set("acct", SecretKind::PersonalApiKey, "expu_legacy")
+            .unwrap();
+        store
+            .set("acct", SecretKind::PersonalApiKeyId, "key-0")
+            .unwrap();
+        // One-shot: serves the mint; the follow-up revoke is best-effort.
+        let (base, captured) = one_shot_server(200, MINT_BODY);
+        let key = ensure_personal_key(&client(&base), &store, "acct").unwrap();
+        assert_eq!(key, "expu_rawsecret123");
+        assert_eq!(
+            store.get("acct", SecretKind::PersonalApiKeyPurpose).as_deref(),
+            Some(AGENT_KEY_PURPOSE)
+        );
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""purpose":"agent"}"#), "{request}");
+        // Tagged now: the next need is a plain store hit (unroutable base).
+        let again = ensure_personal_key(&client("http://127.0.0.1:1"), &store, "acct").unwrap();
+        assert_eq!(again, "expu_rawsecret123");
+    }
+
+    /// The retag never strands an offline device: the legacy key keeps
+    /// working and the retag is retried on the next need.
+    #[test]
+    fn ensure_personal_key_keeps_a_legacy_key_when_the_retag_fails() {
+        let dir = TempDir::new("ensure-retag-offline");
+        let store = TokenStore::file_only(dir.0.clone());
+        store
+            .set("acct", SecretKind::PersonalApiKey, "expu_legacy")
+            .unwrap();
+        let key = ensure_personal_key(&client("http://127.0.0.1:1"), &store, "acct").unwrap();
+        assert_eq!(key, "expu_legacy");
+        assert_eq!(store.get("acct", SecretKind::PersonalApiKeyPurpose), None);
     }
 
     #[test]

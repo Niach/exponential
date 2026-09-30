@@ -22,6 +22,7 @@ import {
   codingSessions,
   devices,
   issues,
+  mcpServers,
   sessionAttachments,
   teams,
   users,
@@ -518,6 +519,31 @@ async function resolveBatchIssueIds(
 }
 
 /**
+ * EXP-1140: the run's MCP server pick, confined to the row's own team and
+ * de-duplicated in the order it was sent. Lenient like `resolveBatchIssueIds`:
+ * a foreign or vanished id is dropped, never a refused start (the steer
+ * frame already refused foreign ids for remote starts; local desktop starts
+ * and resumes come straight here). Nothing survives → NULL, and
+ * `resolveForLaunch` then hands the run nothing. No query when nothing was
+ * sent.
+ */
+async function resolveMcpServerIds(
+  db: Context[`db`],
+  teamId: string,
+  mcpServerIds: string[] | undefined
+): Promise<string[] | null> {
+  const wanted = [...new Set(mcpServerIds ?? [])]
+  if (wanted.length === 0) return null
+  const rows = await db
+    .select({ id: mcpServers.id })
+    .from(mcpServers)
+    .where(and(inArray(mcpServers.id, wanted), eq(mcpServers.teamId, teamId)))
+  const allowed = new Set(rows.map((row) => row.id))
+  const kept = wanted.filter((id) => allowed.has(id))
+  return kept.length > 0 ? kept : null
+}
+
+/**
  * EXP-825: bind the start's pending images (`session_attachments` rows the
  * requester uploaded to the team store before this row existed) to the run.
  * Lenient on purpose: the row insert is the device's launch handshake and
@@ -847,6 +873,13 @@ export const codingSessionsRouter = router({
           // never fail a start. Optional because every OTHER subject omits
           // it, not for older clients: NULL simply means "not a batch".
           batchIssueIds: z.array(z.string().uuid()).max(30).optional(),
+          // EXP-1140: the team MCP servers the run picked, in pick order —
+          // the ONLY ids `mcpServers.resolveForLaunch` will hand this run's
+          // credentials for (server-only `mcp_server_ids`). Every subject
+          // may carry it; ids outside the row's team are dropped, never
+          // refused, so one vanished server can never fail a start. Absent =
+          // no pick (NULL).
+          mcpServerIds: z.array(z.string().uuid()).max(16).optional(),
           // Label fallback for a start that outran `devices.register` — see
           // resolveSessionDevice. Never used when the registry has a row.
           deviceLabel: z.string().max(255).optional(),
@@ -987,6 +1020,11 @@ export const codingSessionsRouter = router({
           input
         )
         const tree = await membership(input.teamId!, [])
+        const mcpServerIds = await resolveMcpServerIds(
+          ctx.db,
+          input.teamId!,
+          input.mcpServerIds
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -1005,6 +1043,7 @@ export const codingSessionsRouter = router({
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
             branch: input.branch ?? null,
+            mcpServerIds,
             resumedFromId,
             status: `running`,
           })
@@ -1049,6 +1088,11 @@ export const codingSessionsRouter = router({
           input
         )
         const tree = await membership(action.teamId, [])
+        const mcpServerIds = await resolveMcpServerIds(
+          ctx.db,
+          action.teamId,
+          input.mcpServerIds
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -1067,6 +1111,7 @@ export const codingSessionsRouter = router({
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
             branch: input.branch ?? null,
+            mcpServerIds,
             resumedFromId,
             status: `running`,
           })
@@ -1094,6 +1139,11 @@ export const codingSessionsRouter = router({
           input
         )
         const tree = await membership(issueCtx.teamId, [input.issueId])
+        const mcpServerIds = await resolveMcpServerIds(
+          ctx.db,
+          issueCtx.teamId,
+          input.mcpServerIds
+        )
 
         const [session] = await ctx.db
           .insert(codingSessions)
@@ -1111,6 +1161,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
+            mcpServerIds,
             resumedFromId,
             status: `running`,
           })
@@ -1145,6 +1196,11 @@ export const codingSessionsRouter = router({
         input.batchIssueIds
       )
       const tree = await membership(input.teamId!, batchIssueIds ?? [])
+      const mcpServerIds = await resolveMcpServerIds(
+        ctx.db,
+        input.teamId!,
+        input.mcpServerIds
+      )
 
       const [session] = await ctx.db
         .insert(codingSessions)
@@ -1163,6 +1219,7 @@ export const codingSessionsRouter = router({
           agentAccount: input.agentAccount ?? null,
           branch: input.branch ?? null,
           batchIssueIds,
+          mcpServerIds,
           resumedFromId,
           status: `running`,
         })

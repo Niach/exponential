@@ -121,13 +121,16 @@ pub fn env_suffix(name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Resolve `ids` (the launch's `mcp_server_ids`) through
-/// `mcpServers.resolveForLaunch`. An empty pick resolves to nothing without
-/// touching the network; a failed call degrades to a warning and no servers.
-pub fn resolve(trpc: &TrpcClient, ids: &[String]) -> ResolvedMcp {
+/// `mcpServers.resolveForLaunch` FOR the run `session_id` (EXP-1140: the
+/// server hands out only that row's own persisted pick, so the row exists
+/// first and the pick rode `codingSessions.start`). An empty pick resolves to
+/// nothing without touching the network; a failed call degrades to a warning
+/// and no servers.
+pub fn resolve(trpc: &TrpcClient, ids: &[String], session_id: &str) -> ResolvedMcp {
     if ids.is_empty() {
         return ResolvedMcp::default();
     }
-    match resolve_for_launch(trpc, ids) {
+    match resolve_for_launch(trpc, ids, session_id) {
         Ok(resolution) => resolve_with(&resolution, ids),
         Err(error) => ResolvedMcp {
             warnings: vec![format!(
@@ -333,7 +336,7 @@ mod tests {
     fn empty_pick_resolves_to_nothing_without_a_fetch() {
         // An unreachable base proves nothing is fetched (a fetch would warn).
         let trpc = TrpcClient::new("http://127.0.0.1:1", Arc::new(StaticToken("t".into())));
-        assert_eq!(resolve(&trpc, &[]), ResolvedMcp::default());
+        assert_eq!(resolve(&trpc, &[], "sess-1"), ResolvedMcp::default());
     }
 
     #[test]
@@ -457,15 +460,21 @@ mod tests {
         .to_string();
         let (base, captured) = canned_server_recording(vec![(200, body)]);
         let trpc = TrpcClient::new(&base, Arc::new(StaticToken("t".into())));
-        let resolved = resolve(&trpc, &["s".to_string()]);
+        let resolved = resolve(&trpc, &["s".to_string()], "sess-1");
         assert_eq!(resolved.servers[0].name, "docs");
         assert!(resolved.env.is_empty() && resolved.warnings.is_empty());
         let requests = captured.lock().unwrap();
         assert!(requests[0].contains("POST /api/trpc/mcpServers.resolveForLaunch"));
         assert!(requests[0].contains(r#"{"serverIds":["s"]}"#));
+        // EXP-1140: the run it is for rides as the session header.
+        assert!(
+            requests[0].to_ascii_lowercase().contains("x-exp-session-id: sess-1"),
+            "{}",
+            requests[0]
+        );
 
         let dead = TrpcClient::new("http://127.0.0.1:1", Arc::new(StaticToken("t".into())));
-        let degraded = resolve(&dead, &["s".to_string()]);
+        let degraded = resolve(&dead, &["s".to_string()], "sess-1");
         assert!(degraded.servers.is_empty() && degraded.env.is_empty());
         assert_eq!(degraded.warnings.len(), 1);
         assert!(degraded.warnings[0].starts_with("Could not load your MCP server credentials"));
