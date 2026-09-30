@@ -183,9 +183,8 @@ pub const ACCOUNT_SIGN_OUT_CAP: &str = "account-sign-out";
 /// `plan-workflow` says the same about the workflow PLANNER builtin: an
 /// older build has no planner kind and would fall through to the
 /// Create-action prompt and author an action instead, so the server refuses
-/// a planner start to a device without it. FEED-50's `tidy-up` does the
-/// same for the Tidy up builtin (an older build would author an action).
-pub const ACTION_CAPS: [&str; 10] = [
+/// a planner start to a device without it.
+pub const ACTION_CAPS: [&str; 9] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
@@ -195,11 +194,7 @@ pub const ACTION_CAPS: [&str; 10] = [
     START_PROMPT_CAP,
     PLAN_WORKFLOW_CAP,
     WORKFLOWS_CAP,
-    TIDY_UP_CAP,
 ];
-
-/// FEED-50's Tidy up cap, by name (see [`ACTION_CAPS`]).
-pub const TIDY_UP_CAP: &str = api::actions::TIDY_UP_CAP;
 
 /// EXP-981's planner cap, by name (see [`ACTION_CAPS`]).
 pub const PLAN_WORKFLOW_CAP: &str = api::actions::PLAN_WORKFLOW_CAP;
@@ -1933,18 +1928,6 @@ mod tests {
         assert!(!DEVICE_CAPS.contains(&PLAN_WORKFLOW_CAP));
         assert!(device_caps(&advert(&["claude"])).contains(&"plan-workflow".to_string()));
         assert!(!device_caps(&advert(&[])).contains(&"plan-workflow".to_string()));
-        assert!(device_caps(&advert(&["claude"])).len() <= 24);
-    }
-
-    /// FEED-50: the server gates a Tidy up start on `tidy-up` — an ACTION
-    /// cap (it needs a runnable agent), inside the 24-cap ceiling.
-    #[test]
-    fn action_caps_advertise_tidy_up() {
-        assert_eq!(TIDY_UP_CAP, "tidy-up");
-        assert!(ACTION_CAPS.contains(&TIDY_UP_CAP));
-        assert!(!DEVICE_CAPS.contains(&TIDY_UP_CAP));
-        assert!(device_caps(&advert(&["claude"])).contains(&"tidy-up".to_string()));
-        assert!(!device_caps(&advert(&[])).contains(&"tidy-up".to_string()));
         assert!(device_caps(&advert(&["claude"])).len() <= 24);
     }
 

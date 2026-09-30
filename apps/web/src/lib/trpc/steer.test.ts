@@ -1117,7 +1117,7 @@ describe(`steer.startSession — builtin tidy-up (FEED-50)`, () => {
 
   it(`routes a repo-less tidy-up with its board pick and no prompt`, async () => {
     h.dbQueue.push([{ teamId: BUILTIN_TEAM_ID, name: `Web` }]) // board resolver
-    queueOwnDevice({ caps: [`tidy-up`] })
+    queueOwnDevice({ caps: [`actions`, `start-prompt`] })
     await caller.startSession({
       actionId: TIDY_UP,
       teamId: BUILTIN_TEAM_ID,
@@ -1139,20 +1139,6 @@ describe(`steer.startSession — builtin tidy-up (FEED-50)`, () => {
         display: `Web`,
       },
     ])
-  })
-
-  it(`refuses a device without the tidy-up cap`, async () => {
-    queueOwnDevice({ caps: [`actions`, `start-prompt`] })
-    const error = await rejectionOf(
-      caller.startSession({
-        actionId: TIDY_UP,
-        teamId: BUILTIN_TEAM_ID,
-        deviceId: `dev-1`,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`cannot tidy up`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })
 

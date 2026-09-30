@@ -57,10 +57,6 @@ pub const PLAN_WORKFLOW_CAP: &str = "plan-workflow";
 /// automation may target ([`is_automatable_builtin_id`]).
 pub const BUILTIN_TIDY_UP_ID: &str = domain::contract::BUILTIN_TIDY_UP_ID;
 
-/// FEED-50: the device capability a tidy-up start needs — an older build
-/// would fall through to the Create-action prompt.
-pub const TIDY_UP_CAP: &str = "tidy-up";
-
 /// FEED-50: whether an automation may target this builtin (every input
 /// optional, no free text required). Create action needs its prompt, Fix
 /// conflicts a `pr`; Tidy up is the only one. Web `isAutomatableBuiltinId`.
@@ -986,7 +982,6 @@ mod tests {
         assert_eq!(builtin.sort_order, 1e9 + 4.0);
         assert_eq!(builtin_action_name(BUILTIN_TIDY_UP_ID), Some("Tidy up"));
         assert!(is_builtin_action_id(BUILTIN_TIDY_UP_ID));
-        assert_eq!(TIDY_UP_CAP, "tidy-up");
         // The ONLY automatable builtin.
         assert!(is_automatable_builtin_id(BUILTIN_TIDY_UP_ID));
         for id in [

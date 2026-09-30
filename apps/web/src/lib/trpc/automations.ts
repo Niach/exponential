@@ -20,7 +20,6 @@ import {
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   BUILTIN_TIDY_UP_ID,
-  TIDY_UP_CAP,
   builtinTidyUpAction,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
@@ -140,20 +139,6 @@ async function loadTargetAction(actionId: string, teamId: string) {
   if (!action) throw bad(`Action not found`)
   if (action.teamId !== teamId) throw bad(`Action must belong to the team`)
   return action
-}
-
-/** A tidy-up automation's runner must also ship the tidy-up prompt: an older
- * build would fall through to the Create-action prompt. */
-async function assertTidyUpCapable(
-  deviceId: string,
-  teamId: string,
-  callerUserId: string
-): Promise<void> {
-  await assertDeviceUsable(deviceId, teamId, callerUserId, null, {
-    noun: `Automation`,
-    cap: TIDY_UP_CAP,
-    capMessage: `That machine runs an older Exponential app that cannot tidy up. Update it first.`,
-  })
 }
 
 const automationActionIdSchema = z.string().uuid().or(z.literal(BUILTIN_TIDY_UP_ID))
@@ -304,9 +289,6 @@ export const automationsRouter = router({
         ctx.session.user.id,
         input.agent
       )
-      if (input.actionId === BUILTIN_TIDY_UP_ID) {
-        await assertTidyUpCapable(input.deviceId, input.teamId, ctx.session.user.id)
-      }
       await assertFiltersInTeam(input.trigger, input.teamId)
 
       return await ctx.db.transaction(async (tx) => {
@@ -393,12 +375,6 @@ export const automationsRouter = router({
           ctx.session.user.id,
           next.agent
         )
-      }
-      if (
-        next.actionId === BUILTIN_TIDY_UP_ID &&
-        (next.deviceId !== existing.deviceId || next.actionId !== existing.actionId)
-      ) {
-        await assertTidyUpCapable(next.deviceId, existing.teamId, ctx.session.user.id)
       }
       if (input.trigger) await assertFiltersInTeam(input.trigger, existing.teamId)
 

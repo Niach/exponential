@@ -82,10 +82,6 @@ export const BUILTIN_TIDY_UP_ID = contract.builtinAction.tidyUpId
 
 export const BUILTIN_TIDY_UP_NAME = `Tidy up`
 
-/** The device capability a tidy-up start needs (an older build would fall
- * through to the Create-action prompt). */
-export const TIDY_UP_CAP = `tidy-up`
-
 /** The builtins an automation may target: every input optional, no free
  * text required. Create action needs its prompt, Fix conflicts a `pr`. */
 export const AUTOMATABLE_BUILTIN_IDS: readonly string[] = [BUILTIN_TIDY_UP_ID]

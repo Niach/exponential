@@ -62,7 +62,6 @@ import {
   PLAN_WORKFLOW_CAP,
   builtinPlanWorkflowAction,
   BUILTIN_TIDY_UP_ID,
-  TIDY_UP_CAP,
   builtinTidyUpAction,
   planWorkflowPrompt,
   BUILTIN_CREATE_ACTION_ID,
@@ -1346,16 +1345,6 @@ export const steerRouter = router({
         }
         requireUsageHeadroom(device, actionAgent, input.account, input.model)
         requireStartPromptCap(device, prompt)
-        // FEED-50: likewise an older build has no Tidy-up kind.
-        if (
-          input.actionId === BUILTIN_TIDY_UP_ID &&
-          !device.caps.includes(TIDY_UP_CAP)
-        ) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That machine runs an older Exponential app that cannot tidy up. Update it first.`,
-          })
-        }
         // An older build has no Plan-workflow kind: it would fall through to
         // the Create-action prompt and author an ACTION instead.
         if (
