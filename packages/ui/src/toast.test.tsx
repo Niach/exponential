@@ -1,12 +1,15 @@
 import { act, render, waitFor } from "@testing-library/react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { toast as sonnerToast } from "sonner"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/toast-stack.json"
 
 import { conceptIcon } from "./icons.generated"
 import {
   TOASTER_PROPS,
+  TOASTER_TOUCH_PROPS,
+  TOAST_PLACEMENT,
+  TOAST_TOUCH_QUERY,
   TOAST_ACTION_CLASS,
   TOAST_CLASS,
   TOAST_CLOSE_CLASS,
@@ -30,13 +33,32 @@ describe(`Toaster (EXP-1031 toast-stack contract)`, () => {
     expect(TOASTER_PROPS.visibleToasts).toBe(constants.visible)
     expect(TOASTER_PROPS.duration).toBe(constants.durationMs)
     expect(TOASTER_PROPS.offset).toBe(constants.viewportOffset)
-    expect(TOASTER_PROPS.mobileOffset).toBe(constants.mobileViewportOffset)
+    expect(TOASTER_PROPS.mobileOffset).toEqual({
+      top: `calc(env(safe-area-inset-top, 0px) + ${constants.mobileViewportOffset}px)`,
+      right: constants.mobileViewportOffset,
+      bottom: constants.mobileViewportOffset,
+      left: constants.mobileViewportOffset,
+    })
     expect(TOASTER_PROPS.position).toBe(`bottom-right`)
     expect(TOASTER_PROPS.theme).toBe(`dark`)
     expect(TOASTER_PROPS.closeButton).toBe(true)
     expect(TOASTER_PROPS.toastOptions.unstyled).toBe(true)
     expect(TOASTER_PROPS.toastOptions.classNames.toast).toBe(TOAST_CLASS)
     expect(TOAST_KINDS).toEqual(constants.kinds)
+  })
+
+  it(`places bottom-right on a pointer, top-centre on touch up to touchMaxWidth`, () => {
+    expect(constants.placement).toEqual({ pointer: `bottom-right`, touch: `top-center` })
+    expect(constants.touchMaxWidth).toBe(600)
+    expect(TOAST_PLACEMENT).toEqual(constants.placement)
+    expect(TOAST_TOUCH_QUERY).toBe(`(max-width: 600px)`)
+    expect(TOASTER_PROPS.position).toBe(constants.placement.pointer)
+    expect(TOASTER_TOUCH_PROPS.position).toBe(constants.placement.touch)
+    // A top stack dismisses up or sideways.
+    expect(TOASTER_TOUCH_PROPS.swipeDirections).toEqual([`top`, `left`, `right`])
+    const { position: _p, swipeDirections: _s, ...touchRest } = TOASTER_TOUCH_PROPS
+    const { position: _q, ...pointerRest } = TOASTER_PROPS
+    expect(touchRest).toEqual(pointerRest)
   })
 
   it(`the card is the glass card at radius lg, fixture-wide, with no shadow`, () => {
@@ -107,6 +129,51 @@ describe(`Toaster (EXP-1031 toast-stack contract)`, () => {
   })
 })
 
+describe(`Toaster placement (matchMedia)`, () => {
+  const original = window.matchMedia
+  afterEach(() => {
+    act(() => {
+      toast.dismiss()
+    })
+    window.matchMedia = original
+  })
+
+  function mockMatchMedia(touch: boolean) {
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query === TOAST_TOUCH_QUERY ? touch : false,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    })) as never
+  }
+
+  for (const [touch, y, x] of [
+    [false, `bottom`, `right`],
+    [true, `top`, `center`],
+  ] as const) {
+    it(`renders ${y}-${x} when the touch query ${touch ? `matches` : `does not match`}`, async () => {
+      mockMatchMedia(touch)
+      const { unmount } = render(<Toaster />)
+      act(() => {
+        toast(`Placed`)
+      })
+      const list = await waitFor(() => {
+        const el = document.querySelector(`[data-sonner-toaster]`)
+        expect(el).not.toBeNull()
+        return el as HTMLElement
+      })
+      expect(list.dataset.yPosition).toBe(y)
+      expect(list.dataset.xPosition).toBe(x)
+      expect(window.matchMedia).toHaveBeenCalledWith(TOAST_TOUCH_QUERY)
+      unmount()
+    })
+  }
+})
+
 describe(`ToastSpecimen`, () => {
   const html = (el: React.ReactElement) => {
     const host = document.createElement(`div`)
@@ -125,14 +192,27 @@ describe(`ToastSpecimen`, () => {
     expect(host.textContent).toContain(`Upgrade`)
   })
 
-  // Bottom-anchored like every live placement: h = 60, peek 14, gap 14.
+  // h = 60, peek 14, gap 14. Pointer stacks are bottom-anchored; the touch
+  // stack is top-anchored = the fixture's "three equal toasts collapsed from
+  // the top" case (offsets 28/14/0 oldest first, height 88).
   const h = 60
+  const fromTop = fixture.geometry.find((g) => g.name.startsWith(`three equal toasts collapsed from the top`))!
   const expected = {
-    collapsed: { height: h + 28, offsets: [0, 14, 28], scales: [0.9, 0.95, 1] },
-    expanded: { height: 3 * h + 28, offsets: [0, h + 14, 2 * h + 28], scales: [1, 1, 1] },
+    collapsed: { height: h + 28, offsets: [0, 14, 28], scales: [0.9, 0.95, 1], origin: `bottom center` },
+    expanded: { height: 3 * h + 28, offsets: [0, h + 14, 2 * h + 28], scales: [1, 1, 1], origin: `bottom center` },
+    "collapsed-touch": {
+      height: fromTop.height,
+      offsets: fromTop.items.map((i) => i.offset),
+      scales: fromTop.items.map((i) => i.scale),
+      origin: `top center`,
+    },
   }
-  for (const stack of [`collapsed`, `expanded`] as const) {
-    it(`the ${stack} stack is bottom-anchored by the fixture's numbers`, () => {
+  it(`the touch stack reads the fixture's top-anchored case`, () => {
+    expect(expected[`collapsed-touch`].offsets).toEqual([28, 14, 0])
+    expect(expected[`collapsed-touch`].height).toBe(h + 28)
+  })
+  for (const stack of [`collapsed`, `expanded`, `collapsed-touch`] as const) {
+    it(`the ${stack} stack is placed by the fixture's numbers`, () => {
       const want = expected[stack]
       expect(constants.peek).toBe(14)
       expect(constants.gap).toBe(14)
@@ -146,7 +226,7 @@ describe(`ToastSpecimen`, () => {
         expect(card.style.top).toBe(`${want.offsets[i]}px`)
         expect(card.style.height).toBe(`${h}px`)
         expect(card.style.transform).toBe(`scale(${want.scales[i]})`)
-        expect(card.style.transformOrigin).toBe(`bottom center`)
+        expect(card.style.transformOrigin).toBe(want.origin)
       })
       // The newest (front) card is last and on top.
       expect(Number(cards[2]!.style.zIndex)).toBeGreaterThan(Number(cards[0]!.style.zIndex))
