@@ -2,121 +2,117 @@ import { useMemo, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
-  CHIP_GLYPH_CLASS,
-  ChipBox,
+  Button,
   conceptIcon,
-  IssueChipStack,
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
-  Pill,
-  TREE_BASE,
-  TREE_INDENT,
-  TreeGuides,
-  treeGuides,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
   useIsMobile,
 } from "@exp/ui"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import {
   boardCollection,
-  codingSessionCollection,
   issueCollection,
   issueRelationCollection,
 } from "@/lib/collections"
 import {
   badgeChip,
   badgeShape,
+  type BadgeShape,
+  batchPartners,
   overlaySections,
+  PR_GRAPH_OVERLAY_COPY,
   prGraph,
+  RELATED_WORK_TITLE,
+  stackOthers,
   type OverlaySection,
-  type PrGraphFace,
+  type PrGraphEntry,
 } from "@/lib/pr-graph"
-import { RELATIONS_VIEW_COPY } from "@/lib/issue-relations-view"
-import { blockGraph, type GraphRelation } from "@/lib/issue-graph"
-import { IssueGraphView } from "@/components/issue-graph"
+import {
+  RELATIONS_BAND_CAP,
+  RELATIONS_VIEW_COPY,
+  relationRowIsOpen,
+  relationsShowMore,
+} from "@/lib/issue-relations-view"
 import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
-import { MERGE_STACK_LABEL } from "@/lib/pr-stack"
-import { sessionDisplayState } from "@/lib/coding-session-display"
-import { sessionIdentity } from "@/lib/session-identity"
-import { rowPrState } from "@/hooks/use-agents-data"
-import { useOpenSession } from "@/hooks/use-open-session"
-import { IssueChip } from "@/components/issue-chip"
+import { useTeamUsers } from "@/hooks/use-team-data"
 import { PrStateBadge } from "@/components/issue-coding-rows"
-import { RunningIndicator } from "@/components/agent-session-row"
+import {
+  RelationBandFrame,
+  RelationIssueRow,
+  type RelationIssueRowLinkProps,
+} from "@/components/issue-relations-card"
 import { cn } from "@/lib/utils"
 
-// EXP-965: the PR stack's rows sit in a `gap-1.5` column — 0.375rem, which is
-// ~7px at the app's md+ root. The connector bridges that space upwards, and
-// rounding UP simply overdraws a hairline into the row above, which is
-// invisible; rounding down would leave a visible break.
-const STACK_ROW_GAP = 7
-
-// EXP-897 Part 4: the ONE stack/batch badge. A piece of work can be related to
-// other work three ways — a PR STACK (`pr_base_branch`), a BATCH (issues
-// sharing one `pr_url`), a session TREE (`parent_session_id`) — and until now
-// each of those was visible on a different screen, if at all.
+// EXP-897 Part 4: the ONE "Related work" badge. A piece of work can be related
+// to other work three ways — open BLOCKERS (`blocks` rows), a BATCH (issues
+// sharing one `pr_url`), a PR STACK (`pr_base_branch`).
 //
-// EXP-1058: in the work header (the Issue, Run and Changes faces share
-// `WorkHeader`, EXP-877) it is the STACKED issue chip (`IssueChipStack`): the
-// representative issue in front, `+N` for the rest (`badgeChip`); in the
-// Reviews queue, the glyph on a batch row. EXP-1097: the chip is the SAME on
-// every face (`badgeShape` is face-independent — a stack/batch, a run family,
-// else open blockers), phones draw it compact (glyph · identifier · `+N`, no
-// title). Hover on ≥md, tap everywhere: the SAME overlay opens, the face's
-// own section first (`overlaySections`). Same rows, same copy, on all four
-// clients (`pr_graph.rs`, `PrGraphBadge.swift`, `PrGraphBadge.kt`).
+// SLOP-16: in the work header (the Issue, Run and Changes faces share
+// `WorkHeader`, EXP-877) it is a quiet ICON BUTTON — the glyph names the shape
+// (`badgeShape`: stack, batch, open blockers; face-independent), a muted `+N`
+// counts the rest (`badgeChip`); in the Reviews queue, the glyph on a batch
+// row.
 //
-// SLOP-15: the stack's ghosts are faint outlines now (`IssueChipStack`), the
-// phone's compact chip IS the chip's small mode (`IssueChip size="sm"`), and
-// the overlay draws that same small chip everywhere it names an issue — the
-// blocked-by graph in compact boxes, the batch partners, a batch entry's
-// issues — so the hover tree stays a glance, not a list of titles.
+// SLOP-16 r5: click opens THE "Related work" view — the standard `Dialog`
+// (its bottom-sheet arm on phones) whose body is EXACTLY the relations card's
+// foldable bands (`RelationBandFrame`, 3 rows then "Show N more") over its
+// rows: Blocked by · Same pull request · Pull request stack. Nothing else —
+// no graph, no runs, no Merge stack (the Changes face's Merge pill asks).
+// Same bands, same copy (`PR_GRAPH_OVERLAY_COPY`) on all four clients
+// (`pr_graph.rs`, `PrGraphBadge.swift`, `PrGraphBadge.kt`).
 //
 // Everything it draws is already synced — `lib/pr-graph.ts` is the pure model.
 
-const NO_RELATIONS: readonly GraphRelation[] = []
-
 const StackIcon = conceptIcon(`pr-stack`)
 const BatchIcon = conceptIcon(`pr-batch`)
-// EXP-1079: the Run face of a run with a family but no PR relation wears the
-// session tree's own concept (the desktop's `BadgeGlyph::Runs`).
-const TreeIcon = conceptIcon(`session-tree`)
+const BlockedIcon = conceptIcon(`relation-blocked-by`)
+const PrOpenIcon = conceptIcon(`pr-open`)
+const PrMergedIcon = conceptIcon(`pr-merged`)
 
-export type { PrGraphFace } from "@/lib/pr-graph"
+/** SLOP-16: the header button's glyph per badge shape. */
+const BADGE_GLYPH: Record<NonNullable<BadgeShape>, typeof StackIcon> = {
+  stack: StackIcon,
+  [`stack+batch`]: StackIcon,
+  batch: BatchIcon,
+  blocked: BlockedIcon,
+}
 
-/** Byte-identical with the desktop tooltip (`pr_graph::badge_tooltip`). */
-export const RUNS_BADGE_NAME = `The runs around this one`
+/** SLOP-16 r5: each band's side icon, as the relations card's bands. */
+const BAND_ICON: Record<OverlaySection, typeof StackIcon> = {
+  blocked: BlockedIcon,
+  batch: BatchIcon,
+  stack: StackIcon,
+}
+
 /** EXP-1097: the `blocked` shape's name — the relations band's own title. */
 export const BLOCKED_BADGE_NAME = RELATIONS_VIEW_COPY.blockedBy
 
 export function PrGraphBadge({
   teamId,
   teamSlug,
-  face,
   issue = null,
   session = null,
   variant = `chip`,
   fallback = null,
-  onMergeStack,
   className,
 }: {
   teamId: string
   teamSlug: string
-  face: PrGraphFace
   issue?: Issue | null
   session?: CodingSession | null
-  /** `chip` = the work header's stacked issue chip; `glyph` = a list row's
-   *  lead icon (the Reviews queue's batch rows). */
+  /** `chip` = the work header's icon button (glyph + `+N`); `glyph` = a list
+   *  row's lead icon (the Reviews queue's batch rows). */
   variant?: `chip` | `glyph`
   /** EXP-916: what to draw when the graph has NO badge (a batch row whose
    *  siblings have not synced yet). A `glyph` badge sits in a fixed lead cell
    *  of a grid row, and returning nothing shifted the whole row one column. */
   fallback?: ReactNode
-  /** The Changes face's bottom entry offers it; absent = no control. */
-  onMergeStack?: (topIssueId: string) => void
   className?: string
 }) {
-  const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
 
   // EXP-980: an issue row carries no `team_id` on the client (the issues shape
@@ -133,17 +129,8 @@ export function PrGraphBadge({
         : undefined,
     [boardIds.join(`,`)]
   )
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ s: codingSessionCollection })
-        .where(({ s }) => eq(s.teamId, teamId)),
-    [teamId]
-  )
-  // EXP-980: the team's `blocks` rows — the blocked-by section is the
-  // transitive mini-graph now, so the direct rows alone no longer do.
-  // EXP-1097: fetched for a run subject too — its issue's open blockers earn
-  // the chip on every face now.
+  // The team's `blocks` rows — the subject's direct open blockers. EXP-1097:
+  // fetched for a run subject too — its issue's open blockers earn the badge.
   const subjectIssueId = issue?.id ?? session?.issueId ?? null
   const { data: relationRows } = useLiveQuery(
     (query) =>
@@ -169,39 +156,35 @@ export function PrGraphBadge({
   )
 
   const issues = useMemo(() => (issueRows ?? []) as Issue[], [issueRows])
-  const sessions = useMemo(
-    () => (sessionRows ?? []) as CodingSession[],
-    [sessionRows]
-  )
   const relations = useMemo(
-    () => (relationRows ?? []) as GraphRelation[],
+    () =>
+      (relationRows ?? []) as {
+        type: string
+        issueId: string
+        relatedIssueId: string
+      }[],
     [relationRows]
   )
   const graph = useMemo(
-    () => prGraph({ issue, session, issues, sessions, relations }),
-    [issue, session, issues, sessions, relations]
+    () => prGraph({ issue, session, issues, relations }),
+    [issue, session, issues, relations]
   )
 
   const kind = badgeShape(graph)
   const chipSpec = badgeChip(graph)
   if (!kind || !chipSpec) return fallback
   const name =
-    kind === `runs`
-      ? RUNS_BADGE_NAME
-      : kind === `blocked`
-        ? BLOCKED_BADGE_NAME
-        : kind === `stack+batch`
+    kind === `blocked`
+      ? BLOCKED_BADGE_NAME
+      : kind === `stack+batch`
         ? `Stack and batch`
         : kind === `stack`
           ? `Pull request stack`
           : `Batch pull request`
-  // The runs-only shape of an issue-less run: the front chip names the run.
-  const runIdentity = chipSpec.issue
-    ? null
-    : session
-      ? sessionIdentity({ session, issue: undefined, batchIssues: issues })
-      : null
-
+  // SLOP-16: the header trigger is a quiet ICON BUTTON, not a chip — a chip
+  // restated the title right beside it. The glyph names the SHAPE, `+N` the
+  // rest of it; the name rides the tooltip.
+  const Glyph = variant === `glyph` ? BatchIcon : BADGE_GLYPH[kind]
   const trigger =
     variant === `glyph` ? (
       <button
@@ -216,327 +199,208 @@ export function PrGraphBadge({
         // The Radix trigger owns the toggle (it wraps this node); this
         // handler only keeps the click off the list row underneath.
         onClick={(event) => event.stopPropagation()}
-        onMouseEnter={() => {
-          if (!isMobile) setOpen(true)
-        }}
       >
-        <BatchIcon className="size-4" />
+        <Glyph className="size-4" />
       </button>
     ) : (
-      // One trigger: the front chip is inert, the whole stack opens the
-      // overlay (a chip that jumped to the issue would hide what it stands for).
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-sm"
         aria-label={name}
         title={name}
         data-testid="pr-graph-badge"
+        data-shape={kind}
         className={cn(
-          `inline-flex min-w-0 max-w-[18rem] shrink-0 cursor-pointer items-center rounded-md p-1.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+          `shrink-0 text-muted-foreground hover:text-foreground`,
+          chipSpec.count > 0 && `w-auto gap-1 px-2`,
           className
         )}
         onClick={(event) => event.stopPropagation()}
-        onMouseEnter={() => {
-          if (!isMobile) setOpen(true)
-        }}
       >
-        <IssueChipStack count={chipSpec.count} testId="pr-graph-chip">
-          {chipSpec.issue ? (
-            // EXP-1097: the phone header's COMPACT chip — glyph + identifier,
-            // no title (SLOP-15: the chip's own small mode); the `+N` still
-            // rides beside the stack.
-            <IssueChip
-              issue={chipSpec.issue}
-              size={isMobile ? `sm` : `md`}
-              preview={false}
-              testId={isMobile ? `pr-graph-chip-compact` : undefined}
-            />
-          ) : (
-            <ChipBox
-              slot="issue-chip"
-              openLabel={name}
-              body={
-                <>
-                  <TreeIcon className={cn(CHIP_GLYPH_CLASS, `text-muted-foreground`)} />
-                  {runIdentity?.identifier && (
-                    <span className="shrink-0 font-mono text-muted-foreground">
-                      {runIdentity.identifier}
-                    </span>
-                  )}
-                  <span className="min-w-0 truncate text-[0.8125rem] font-medium text-foreground">
-                    {runIdentity?.subject ?? name}
-                  </span>
-                </>
-              }
-            />
-          )}
-        </IssueChipStack>
-      </button>
+        <Glyph className="size-4" data-testid="pr-graph-badge-glyph" />
+        {chipSpec.count > 0 && (
+          <span
+            className="font-mono text-xs text-muted-foreground"
+            data-testid="pr-graph-badge-count"
+          >
+            +{chipSpec.count}
+          </span>
+        )}
+      </Button>
     )
 
+  // SLOP-16 r3: ONE surface at every size — the standard dialog, which drops
+  // to its bottom-sheet arm (16px gutter) on a phone by itself.
   return (
-    <MobilePopover open={open} onOpenChange={setOpen}>
-      <MobilePopoverTrigger asChild>{trigger}</MobilePopoverTrigger>
-      <MobilePopoverContent
-        align="end"
-        mobileTitle={name}
-        className="w-80 p-3"
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent
         data-testid="pr-graph-overlay"
-        onMouseLeave={() => {
-          if (!isMobile) setOpen(false)
-        }}
+        aria-describedby={undefined}
+        // A portal still bubbles React events to the row that hosts the
+        // trigger (the Reviews queue): keep clicks inside the dialog there.
+        onClick={(event) => event.stopPropagation()}
       >
-        <PrGraphOverlay
-          face={face}
-          graph={graph}
-          issues={issues}
-          relations={relations}
-          boardSlugById={boardSlugById}
-          subjectIssue={issue}
-          teamSlug={teamSlug}
-          onMergeStack={onMergeStack}
-          onClose={() => setOpen(false)}
-        />
-      </MobilePopoverContent>
-    </MobilePopover>
+        <DialogHeader>
+          <DialogTitle>{RELATED_WORK_TITLE}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <PrGraphOverlay
+            graph={graph}
+            boardSlugById={boardSlugById}
+            teamId={teamId}
+            teamSlug={teamSlug}
+            onClose={() => setOpen(false)}
+          />
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-function Section({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-/** The overlay body — the same row primitives on every face, so the three
- *  read as one thing. Exported for the component test. */
+/** THE "Related work" body — the relations card's foldable bands over its
+ *  rows, in `overlaySections` order. Exported for the component test. */
 export function PrGraphOverlay({
-  face,
   graph,
-  issues,
-  relations = NO_RELATIONS,
   boardSlugById,
-  subjectIssue,
+  teamId,
   teamSlug,
-  onMergeStack,
   onClose,
 }: {
-  face: PrGraphFace
   graph: ReturnType<typeof prGraph<Issue, CodingSession>>
-  /** The team's synced issues — a tree row's own issue, for its identity. */
-  issues: readonly Issue[]
-  /** EXP-980: the team's synced `blocks` rows, for the Issue face's graph. */
-  relations?: readonly GraphRelation[]
-  /** EXP-930: board slug per board id — what turns a chip into a real link.
-   *  Absent (or missing the issue's board) = an inert chip, as before. */
+  /** EXP-930: board slug per board id — what turns an issue into a link.
+   *  Absent (or missing the issue's board) = an inert row. */
   boardSlugById?: ReadonlyMap<string, string>
-  subjectIssue: Issue | null
+  /** The team — the issue rows' assignees. */
+  teamId?: string
   teamSlug: string
-  onMergeStack?: (topIssueId: string) => void
   onClose: () => void
 }) {
-  const openSession = useOpenSession()
+  const phone = useIsMobile()
+  const { userMap } = useTeamUsers(teamId)
+  // Every band opens unfolded; the header folds it, as on the relations card.
+  const [folded, setFolded] = useState<OverlaySection[]>([])
+  const [showAll, setShowAll] = useState<OverlaySection[]>([])
+  const flip = (list: OverlaySection[], key: OverlaySection) =>
+    list.includes(key) ? list.filter((row) => row !== key) : [...list, key]
 
-  // EXP-930: EVERY issue the overlay lists opens — a batch's "3 issues" that
-  // only prints three names is the bug this fixes. A real `<Link>`, so
-  // ⌘-click and middle-click work like anywhere else.
-  // SLOP-15: every chip in the overlay is the SMALL one — glyph · identifier;
-  // its hover preview and its tooltip carry the title. A graph NODE fills its
-  // box (the ring is the box's), a chip in a wrapped row keeps its own width.
-  const chip = (row: Issue, fill = false) => {
+  // EXP-930: EVERY issue the view lists opens — a real `<Link>`, so ⌘-click
+  // and middle-click work like anywhere else; the dialog closes behind it.
+  const issueLink = (row: Issue) => {
     const boardSlug = boardSlugById?.get(row.boardId)
+    if (!boardSlug) return undefined
+    return ({ className, children }: RelationIssueRowLinkProps) => (
+      <Link
+        to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+        params={{ teamSlug, boardSlug, issueIdentifier: row.identifier }}
+        onClick={onClose}
+        className={className}
+      >
+        {children}
+      </Link>
+    )
+  }
+
+  /** The relations card's row, verbatim. */
+  const issueRow = (row: Issue) => (
+    <RelationIssueRow
+      key={row.id}
+      issue={row}
+      open={relationRowIsOpen(row.status)}
+      assignee={row.assigneeId ? userMap.get(row.assigneeId) : undefined}
+      phone={phone}
+      link={issueLink(row)}
+    />
+  )
+
+  /** A pull request as the relations card's row: PR glyph · `#n` · the
+   *  representative issue's title · its state pill; opens its review page. */
+  const prRow = (entry: PrGraphEntry<Issue>) => {
+    const row = entry.issue
+    const glyphClass = phone ? `size-4 shrink-0` : `size-3.5 shrink-0`
+    const glyph =
+      row.prState === `merged` ? (
+        <PrMergedIcon className={cn(glyphClass, `text-purple-400`)} />
+      ) : (
+        <PrOpenIcon
+          className={cn(
+            glyphClass,
+            row.prState === `open` ? `text-emerald-500` : `text-muted-foreground`
+          )}
+        />
+      )
     return (
-      <IssueChip
-        key={row.id}
+      <RelationIssueRow
+        key={entry.key}
         issue={row}
-        size="sm"
-        className={fill ? `w-full` : undefined}
-        link={
-          boardSlug
-            ? (props) => (
-                <Link
-                  to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-                  params={{
-                    teamSlug,
-                    boardSlug,
-                    issueIdentifier: row.identifier,
-                  }}
-                  onClick={onClose}
-                  {...props}
-                />
-              )
-            : undefined
+        open={row.prState !== `merged` && row.prState !== `closed`}
+        phone={phone}
+        glyph={glyph}
+        code={row.prNumber ? `#${row.prNumber}` : row.identifier}
+        noAssignee
+        link={({ className, children }) => (
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: row.identifier }}
+            onClick={onClose}
+            className={className}
+          >
+            {children}
+          </Link>
+        )}
+        trailing={
+          <span className="flex shrink-0 items-center">
+            <PrStateBadge state={row.prState} />
+          </span>
         }
       />
     )
   }
 
-  // EXP-1097: every relation the subject HAS gets its section on every face;
-  // the face only decides which one LEADS (`overlaySections`).
-  const sections = overlaySections(graph, face)
-
-  const blockedSection = subjectIssue ? (
-    // EXP-980: the transitive chain as THE mini-graph, not the direct
-    // blockers as loose chips.
-    <Section key="blocked" label="Blocked by">
-      <IssueGraphView
-        graph={blockGraph([subjectIssue.id], relations, issues)}
-        issueById={new Map(issues.map((row) => [row.id, row]))}
-        renderNode={(row) => chip(row, true)}
-        density="compact"
-      />
-    </Section>
-  ) : null
-
-  // On the Issue face the subject is the reader's own issue, so the batch
-  // lists its PARTNERS; on a run the covered set IS the run's subject.
-  // EXP-930: the pill on a BATCH run says `3 issues`, so its first section
-  // is those three issues.
-  const inBatch = (graph.batch?.issues ?? []).filter(
-    (row) => face !== `issue` || row.id !== subjectIssue?.id
-  )
-  const batchSection =
-    inBatch.length > 0 ? (
-      <Section key="batch" label={face === `issue` ? `In batch with` : `Issues`}>
-        <div
-          className="flex flex-wrap gap-1.5"
-          data-testid="pr-graph-batch-partners"
-        >
-          {inBatch.map((row) => chip(row))}
-        </div>
-      </Section>
-    ) : null
-
-  const guides = treeGuides(graph.tree.map((row) => row.depth))
-  const runsSection = (
-    <Section key="runs" label="Runs">
-      <div className="flex flex-col">
-        {graph.tree.map(({ session, depth }, index) => {
-          const issue = session.issueId
-            ? issues.find((row) => row.id === session.issueId)
-            : undefined
-          // EXP-876: `issues` carries the overlay's whole synced set, so a
-          // batch run in the tree names itself instead of reading "Batch run".
-          const identity = sessionIdentity({ session, issue, batchIssues: issues })
-          return (
-            <button
-              key={session.id}
-              type="button"
-              className="relative flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-glass-active"
-              style={{ paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }}
-              onClick={() => {
-                onClose()
-                openSession(session)
-              }}
-            >
-              {/* EXP-965: the connector, off the visible depths. */}
-              <TreeGuides guide={guides[index]} />
-              <RunningIndicator
-                state={sessionDisplayState(session, rowPrState(session, issue))}
-              />
-              {identity.identifier && (
-                <span className="shrink-0 font-mono text-muted-foreground">
-                  {identity.identifier}
-                </span>
-              )}
-              <span className="min-w-0 truncate">{identity.subject}</span>
-            </button>
-          )
-        })}
-      </div>
-    </Section>
-  )
-
-  // The pull requests: the stack BOTTOM-UP, a batch entry folding its issues
-  // underneath, and `Merge stack` under it on the Changes face.
-  const bottom = graph.stack[0]
-  const top = graph.stack[graph.stack.length - 1]
-  const prRows =
-    graph.stack.length > 0
-      ? graph.stack
-      : graph.entry
-        ? [{ entry: graph.entry, depth: 0 }]
-        : []
-  // EXP-965: the stack nests from the container's own edge, so the gutters
-  // start at 0 rather than at a list row's 12px padding — and it is the ONE
-  // guide site whose rows are SPACED (`gap-1.5`), so every line bridges that
-  // gap upwards (`STACK_ROW_GAP`).
-  const prGuides = treeGuides(prRows.map((row) => row.depth))
-  const stackSection = (
-    <div key="stack" className="flex flex-col gap-3">
-      <Section label="Pull requests">
-        <div className="flex flex-col gap-1.5">
-          {prRows.map(({ entry, depth }, index) => (
-            <div
-              key={entry.key}
-              className="relative flex flex-col gap-1"
-              style={{ paddingLeft: `${depth * TREE_INDENT}px` }}
-            >
-              <TreeGuides guide={prGuides[index]} base={0} gap={STACK_ROW_GAP} />
-              <Link
-                to="/t/$teamSlug/reviews/$issueIdentifier"
-                params={{
-                  teamSlug,
-                  issueIdentifier: entry.issue.identifier,
-                }}
-                onClick={onClose}
-                className="flex min-w-0 items-center gap-2 text-xs hover:underline"
-              >
-                {entry.issues.length > 1 && (
-                  <BatchIcon className="size-3 shrink-0 text-muted-foreground" />
-                )}
-                <span className="shrink-0 font-mono">
-                  {entry.issue.prNumber != null
-                    ? `#${entry.issue.prNumber}`
-                    : entry.issue.identifier}
-                </span>
-                <PrStateBadge state={entry.issue.prState} />
-              </Link>
-              {/* A batch entry's issues fold under it — unless the batch
-                  section already lists them right here. */}
-              {entry.issues.length > 1 && !sections.includes(`batch`) && (
-                <div className="flex flex-wrap gap-1.5 pl-5">
-                  {entry.issues.map((row) => chip(row))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </Section>
-      {onMergeStack && bottom && top && graph.stack.length > 1 && (
-        <Pill
-          mode="action"
-          data-testid="pr-graph-merge-stack"
-          onClick={() => {
-            onClose()
-            onMergeStack(top.entry.issue.id)
-          }}
-        >
-          <StackIcon className="size-3" />
-          {MERGE_STACK_LABEL}
-        </Pill>
-      )}
-    </div>
-  )
-
-  const byKind: Record<OverlaySection, ReactNode> = {
-    blocked: blockedSection,
-    batch: batchSection,
-    runs: runsSection,
-    stack: stackSection,
+  const rowsOf: Record<OverlaySection, ReactNode[]> = {
+    blocked: graph.blockedBy.map(issueRow),
+    batch: batchPartners(graph).map(issueRow),
+    stack: stackOthers(graph).map(prRow),
   }
-  const drawn = sections.map((section) => byKind[section]).filter(Boolean)
+  const titleOf: Record<OverlaySection, string> = {
+    blocked: PR_GRAPH_OVERLAY_COPY.blocked,
+    batch: PR_GRAPH_OVERLAY_COPY.batch,
+    stack: PR_GRAPH_OVERLAY_COPY.stack,
+  }
+  const sections = overlaySections(graph)
 
   return (
-    <div className="flex flex-col gap-3">
-      {drawn}
-      {drawn.length === 0 && (
-        <div className="text-xs text-muted-foreground">
-          Nothing else is linked to this issue.
+    <div className="flex flex-col gap-1.5">
+      {sections.map((section) => {
+        const all = rowsOf[section]
+        const everything = showAll.includes(section)
+        const overflow = all.length > RELATIONS_BAND_CAP
+        const tail = !overflow
+          ? null
+          : everything
+            ? RELATIONS_VIEW_COPY.showLess
+            : relationsShowMore(all.length - RELATIONS_BAND_CAP)
+        return (
+          <RelationBandFrame
+            key={section}
+            testId={`pr-graph-band-${section}`}
+            icon={BAND_ICON[section]}
+            title={titleOf[section]}
+            count={all.length}
+            expanded={!folded.includes(section)}
+            onToggle={() => setFolded((list) => flip(list, section))}
+            tail={tail}
+            onTail={() => setShowAll((list) => flip(list, section))}
+            phone={phone}
+          >
+            {everything || !overflow ? all : all.slice(0, RELATIONS_BAND_CAP)}
+          </RelationBandFrame>
+        )
+      })}
+      {sections.length === 0 && (
+        <div className="text-sm text-muted-foreground">
+          {PR_GRAPH_OVERLAY_COPY.empty}
         </div>
       )}
     </div>

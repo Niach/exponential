@@ -170,14 +170,12 @@ public enum PrGraph {
         return nil
     }
 
-    /// EXP-1079/EXP-1097: what the header chip DRAWS, the SAME on every face —
-    /// Issue, Run and Changes alike. First match wins:
+    /// EXP-1079/EXP-1097, SLOP-16 r5: what the header chip DRAWS, the SAME on
+    /// every face — Issue, Run and Changes alike. First match wins:
     ///
     /// 1. a PR relation (`badgeKind`: stack, batch, stack+batch);
-    /// 2. `runs` — the session tree has a FAMILY (the tree carries the
-    ///    subject itself, so "a family" is more than one row);
-    /// 3. `blocked` — the subject issue has OPEN blockers (`graph.blockers`);
-    /// 4. nil = no chip.
+    /// 2. `blocked` — the subject issue has OPEN blockers (`graph.blockers`);
+    /// 3. nil = no chip. A run family alone earns NO badge.
     ///
     /// Byte-identical ×4: web `badgeShape` (`pr-graph.ts`), desktop
     /// `pr_graph::badge_shape`, Android `PrGraph.badgeShape`.
@@ -185,7 +183,6 @@ public enum PrGraph {
         case stack
         case batch
         case stackAndBatch
-        case runs
         case blocked
     }
 
@@ -196,19 +193,15 @@ public enum PrGraph {
         case .stackAndBatch: return .stackAndBatch
         case nil: break
         }
-        if graph.tree.count > 1 { return .runs }
         if !graph.blockers.isEmpty { return .blocked }
         return nil
     }
 
-    /// EXP-1058: what the header's STACKED issue chip draws — the front chip's
-    /// issue and how many ride behind it (`+N`).
+    /// EXP-1058: what the header's badge counts — the front issue and how
+    /// many ride behind it (`+N`).
     ///
     /// - stack / batch: `issue` = the subject PR's representative row, `count`
     ///   = every OTHER issue on the stack (all its entries) or batch;
-    /// - `runs`: `issue` = that representative (nil for a run with no issue,
-    ///   where the front chip names the run instead), `count` = every other
-    ///   run of the tree;
     /// - `blocked` (EXP-1097): `issue` = the FIRST open blocker, `count` = the
     ///   other open blockers.
     public struct BadgeChip: Equatable {
@@ -220,17 +213,15 @@ public enum PrGraph {
         }
     }
 
-    /// The chip, nil exactly when `badgeShape` is nil. Face-INDEPENDENT
-    /// (EXP-1097): the face only picks the overlay's lead section
-    /// (`overlaySections`). Mirrors web `badgeChip` (`pr-graph.ts`), desktop
-    /// `pr_graph::badge_chip`, Android `PrGraph.badgeChip`.
+    /// The chip, nil exactly when `badgeShape` is nil. Mirrors web
+    /// `badgeChip` (`pr-graph.ts`), desktop `pr_graph::badge_chip`, Android
+    /// `PrGraph.badgeChip`.
     public static func badgeChip(_ graph: Graph) -> BadgeChip? {
         guard let shape = badgeShape(graph) else { return nil }
         if shape == .blocked {
             return BadgeChip(issue: graph.blockers.first, count: graph.blockers.count - 1)
         }
         let issue = graph.entry?.representative
-        if shape == .runs { return BadgeChip(issue: issue, count: graph.tree.count - 1) }
         if graph.stack.count >= 2 {
             let total = graph.stack.reduce(0) { $0 + $1.entry.issues.count }
             return BadgeChip(issue: issue, count: total - 1)
@@ -238,33 +229,42 @@ public enum PrGraph {
         return BadgeChip(issue: issue, count: (graph.batch?.issues.count ?? 1) - 1)
     }
 
-    /// One section of the chip's overlay.
+    /// One band of the "Related work" sheet.
     public enum OverlaySection: String, Equatable, Sendable {
-        case blocked, batch, runs, stack
+        case blocked, batch, stack
     }
 
-    /// EXP-1097: the overlay's sections — every relation the subject HAS, the
-    /// face's own section first (Issue: Blocked by; Run: the run's issues and
-    /// its tree; Changes: the pull requests). A section with nothing to list
-    /// is left out, save the face's own lead on Run (its tree, even of one
-    /// run) and on Changes (its pull request, even a lone one). Results = the
-    /// run's face. Mirrors web `overlaySections`.
-    public static func overlaySections(_ graph: Graph, face: WorkFaceKind) -> [OverlaySection] {
-        let runFace = face == .run || face == .results
-        let order: [OverlaySection]
-        switch face {
-        case .issue: order = [.blocked, .batch, .stack, .runs]
-        case .run, .results: order = [.batch, .runs, .stack, .blocked]
-        case .changes: order = [.stack, .batch, .runs, .blocked]
+    /// SLOP-16 r5: the "Related work" view's copy, byte-identical ×4 (web
+    /// `RELATED_WORK_TITLE` + `OVERLAY_COPY`, desktop, Android). ONE title,
+    /// one relations-card band per section, ONE empty note.
+    public enum OverlayCopy {
+        public static let relatedWorkTitle = "Related work"
+        public static let blocked = IssueRelationsView.Copy.blockedBy
+        /// The subject's batch PARTNERS (everything on its PR but itself).
+        public static let batch = "Same pull request"
+        /// The OTHER pull requests of the subject's stack, bottom-up.
+        public static let stack = "Pull request stack"
+        public static let empty = "Nothing else is linked to this issue."
+    }
+
+    /// A section's band title.
+    public static func overlayBandTitle(_ section: OverlaySection) -> String {
+        switch section {
+        case .blocked: OverlayCopy.blocked
+        case .batch: OverlayCopy.batch
+        case .stack: OverlayCopy.stack
         }
-        return order.filter { section in
-            switch section {
-            case .blocked: !graph.blockers.isEmpty
-            case .batch: graph.batch != nil
-            case .runs: graph.tree.count > 1 || (runFace && !graph.tree.isEmpty)
-            case .stack: graph.stack.count >= 2 || (face == .changes && graph.entry != nil)
-            }
-        }
+    }
+
+    /// SLOP-16 r5: the sheet's bands, ONE fixed order on every face — Blocked
+    /// by, Same pull request, Pull request stack — each only when the subject
+    /// has that relation. Mirrors web `overlaySections`.
+    public static func overlaySections(_ graph: Graph) -> [OverlaySection] {
+        var sections: [OverlaySection] = []
+        if !graph.blockers.isEmpty { sections.append(.blocked) }
+        if graph.batch != nil { sections.append(.batch) }
+        if graph.stack.count >= 2 { sections.append(.stack) }
+        return sections
     }
 
     // MARK: - Pieces

@@ -131,23 +131,21 @@ class PrGraphTest {
         // A plain batch: the others of the batch.
         val batch = graph(one, listOf(one, two.copy(prBaseBranch = null)))
         assertEquals(1, PrGraph.badgeChip(batch)?.count)
-        // A run family with no issue: no front issue, the other runs behind.
+        // SLOP-16 r5: a run family alone earns no chip.
         val sessions = listOf(session("child", parent = "root"), session("root"))
         val family = graph(null, emptyList(), session = sessions[0], sessions = sessions)
-        assertEquals(PrGraph.BadgeChip(null, 1), PrGraph.badgeChip(family))
+        assertNull(PrGraph.badgeChip(family))
         // No badge = no chip.
         val lone = issue("lone")
         assertNull(PrGraph.badgeChip(graph(lone, listOf(lone))))
     }
 
-    // EXP-1079 / EXP-1097: a run with a family earns the chip — on EVERY face
-    // now, the shape no longer reads the face — and a PR relation always wins
-    // over it.
+    // SLOP-16 r5: a run family alone earns NO badge; a PR relation still does.
     @Test
-    fun `shapes a runs badge for a run with a family, on every face`() {
+    fun `a run family alone earns no badge`() {
         val sessions = listOf(session("child", parent = "root"), session("root"))
         val family = graph(null, emptyList(), session = sessions[0], sessions = sessions)
-        assertEquals(PrGraph.BadgeShape.RUNS, PrGraph.badgeShape(family))
+        assertNull(PrGraph.badgeShape(family))
         val alone = session("alone")
         assertNull(PrGraph.badgeShape(graph(null, emptyList(), session = alone, sessions = listOf(alone))))
         val url = "https://github.com/acme/app/pull/9"
@@ -157,8 +155,8 @@ class PrGraphTest {
         assertEquals(PrGraph.BadgeShape.BATCH, PrGraph.badgeShape(batched))
     }
 
-    // EXP-1097: open blockers alone earn the chip, behind the PR relations and
-    // the run family; the front chip is the first open blocker.
+    // EXP-1097: open blockers alone earn the chip, behind the PR relations;
+    // the front chip is the first open blocker.
     @Test
     fun `shapes a blocked badge for an issue with open blockers`() {
         val me = issue("me")
@@ -172,10 +170,10 @@ class PrGraphTest {
         assertEquals(1, PrGraph.badgeChip(blocked)?.count)
         // Only closed blockers: no chip.
         assertNull(PrGraph.badgeShape(graph(me, listOf(me, closed), relations = relations)))
-        // A run family wins over the blockers.
+        // SLOP-16 r5: a run family no longer wins over the blockers.
         val runs = listOf(session("r1", issueId = "me"), session("r2", parent = "r1"))
         assertEquals(
-            PrGraph.BadgeShape.RUNS,
+            PrGraph.BadgeShape.BLOCKED,
             PrGraph.badgeShape(
                 graph(me, listOf(me, b1), session = runs[0], sessions = runs, relations = relations),
             ),
@@ -198,9 +196,10 @@ class PrGraphTest {
         )
     }
 
-    // EXP-1097: the face only decides which overlay section LEADS.
+    // SLOP-16 r5: the relations card's bands in ONE fixed order, each only
+    // when it has rows; runs are never a section.
     @Test
-    fun `orders the overlay's sections by face`() {
+    fun `lists the overlay's bands in one order`() {
         val url = "https://github.com/acme/app/pull/9"
         val me = issue("me", prUrl = url)
         val partner = issue("partner", prUrl = url)
@@ -213,14 +212,38 @@ class PrGraphTest {
             sessions = runs,
             relations = listOf(blocks("blocker", "me")),
         )
-        assertEquals(listOf(OverlaySection.BLOCKED, OverlaySection.BATCH, OverlaySection.RUNS), PrGraph.overlaySections(built, WorkFaceKind.Issue))
-        assertEquals(listOf(OverlaySection.BATCH, OverlaySection.RUNS, OverlaySection.BLOCKED), PrGraph.overlaySections(built, WorkFaceKind.Run))
-        assertEquals(
-            listOf(OverlaySection.STACK, OverlaySection.BATCH, OverlaySection.RUNS, OverlaySection.BLOCKED),
-            PrGraph.overlaySections(built, WorkFaceKind.Changes),
-        )
+        assertEquals(listOf(OverlaySection.BLOCKED, OverlaySection.BATCH), PrGraph.overlaySections(built))
+        assertEquals(listOf("partner"), PrGraph.batchPartners(built).map { it.id })
         val lone = issue("lone")
-        assertEquals(emptyList<PrGraph.OverlaySection>(), PrGraph.overlaySections(graph(lone, listOf(lone)), WorkFaceKind.Issue))
+        assertEquals(emptyList<OverlaySection>(), PrGraph.overlaySections(graph(lone, listOf(lone))))
+        // A run family alone lists nothing.
+        val family = graph(null, emptyList(), session = runs[1], sessions = runs)
+        assertEquals(emptyList<OverlaySection>(), PrGraph.overlaySections(family))
+    }
+
+    // SLOP-16 r5: the stack band = the OTHER pull requests, bottom-up.
+    @Test
+    fun `lists the other stack members bottom-up without the subject`() {
+        val bottom = issue("a", branch = "exp/A")
+        val middle = issue("b", branch = "exp/B", base = "exp/A")
+        val top = issue("c", branch = "exp/C", base = "exp/B")
+        val built = graph(middle, listOf(bottom, middle, top))
+        assertEquals(listOf("a", "c"), PrGraph.otherStackEntries(built).map { it.entry.representative.id })
+        assertEquals(listOf(OverlaySection.STACK), PrGraph.overlaySections(built))
+        val lone = issue("lone", branch = "exp/L")
+        assertTrue(PrGraph.otherStackEntries(graph(lone, listOf(lone))).isEmpty())
+    }
+
+    // SLOP-16 r5: a bare batch run has no subject issue — every covered issue
+    // is a partner.
+    @Test
+    fun `a bare batch run lists its whole batch`() {
+        val url = "https://github.com/acme/app/pull/9"
+        val one = issue("one", prUrl = url)
+        val two = issue("two", prUrl = url)
+        val run = session("run", batchIssueIds = "[\"one\",\"two\"]").copy(prUrl = url)
+        val built = graph(null, listOf(one, two), session = run, sessions = listOf(run))
+        assertEquals(listOf("one", "two"), PrGraph.batchPartners(built).map { it.id })
     }
 
     @Test
@@ -351,5 +374,16 @@ class PrGraphTest {
         )
         assertEquals(listOf("root", "child", "grand"), built.tree.map { it.session.id })
         assertEquals(listOf(0, 1, 2), built.tree.map { it.depth })
+    }
+
+    // SLOP-16 r5: THE "Related work" sheet's words, byte-identical ×4 (web
+    // `PR_GRAPH_OVERLAY_COPY`, iOS `PrGraphBadge.swift`, desktop `pr_graph.rs`).
+    @Test
+    fun `pins the related work view's copy`() {
+        assertEquals("Related work", PrGraph.OverlayCopy.RELATED_WORK_TITLE)
+        assertEquals("Blocked by", PrGraph.OverlayCopy.BLOCKED)
+        assertEquals("Same pull request", PrGraph.OverlayCopy.BATCH)
+        assertEquals("Pull request stack", PrGraph.OverlayCopy.STACK)
+        assertEquals("Nothing else is linked to this issue.", PrGraph.OverlayCopy.EMPTY)
     }
 }

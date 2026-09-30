@@ -35,14 +35,21 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-1057: THE blocks mini-graph, drawn as the SAME grid the web and the
- * desktop draw (`@exp/ui` `WaveGraph`, desktop `issue_graph`): columns =
- * waves, rows = lanes, one issue-chip box per node, cubic edges behind them —
+ * desktop draw (`@exp/ui` `WaveGraph`, desktop `issue_graph`), VERTICAL
+ * (SLOP-16): rows = waves (top = the first blockers, bottom = the blocked
+ * subject), columns = lanes, one issue-chip box per node, cubic edges from a
+ * blocker's bottom-middle to the blocked box's top-middle behind them —
  * grey, red on a blocking cycle. Subjects wear the primary ring, cycle members
  * the error one. Every number is [IssueGraph.Geometry] (locked by
  * `domain-contract/fixtures/issue-graph-geometry.json`); the grid carries its
- * own inset so no ring is ever clipped, and it scrolls both ways past
- * min(grid, available width) × min(grid, maxViewHeight). The two shared notes
+ * own inset so no ring is ever clipped; the viewport is min(grid, available
+ * width) × min(grid, maxViewHeight) and scrolls only along an axis the grid
+ * overflows (a chain scrolls down, never sideways). The two shared notes
  * sit underneath.
+ *
+ * SLOP-16: [density] COMPACT (web `density="compact"`) draws every node as
+ * the SMALL chip in [IssueGraph.Geometry.COMPACT_NODE_WIDTH] boxes — the
+ * title stays on the chip's long-press tooltip and content description.
  */
 @Composable
 fun IssueGraphPopover(
@@ -50,9 +57,12 @@ fun IssueGraphPopover(
     issuesById: Map<String, IssueEntity>,
     onOpenIssue: (String) -> Unit,
     modifier: Modifier = Modifier,
+    density: IssueGraph.Geometry.Density = IssueGraph.Geometry.Density.FULL,
 ) {
     if (graph.isEmpty) return
-    val size = remember(graph) { IssueGraph.Geometry.size(graph) }
+    val nodeWidth = density.nodeWidth
+    val chipSize = if (density == IssueGraph.Geometry.Density.COMPACT) IssueChipSize.Sm else IssueChipSize.Md
+    val size = remember(graph, density) { IssueGraph.Geometry.size(graph, nodeWidth) }
     val nodesById = remember(graph) { graph.nodes.associateBy { it.id } }
     // A node sits on a cycle when any red edge touches it.
     val onCycle = remember(graph) {
@@ -72,21 +82,23 @@ fun IssueGraphPopover(
             val gridHeight = size.height.dp
             val viewWidth = if (constraints.hasBoundedWidth) minOf(gridWidth, maxWidth) else gridWidth
             val viewHeight = minOf(gridHeight, size.viewHeight.dp)
+            val scrollsSideways = gridWidth > viewWidth
+            val scrollsDown = gridHeight > viewHeight
             Box(
                 modifier = Modifier
                     .size(viewWidth, viewHeight)
-                    .horizontalScroll(rememberScrollState())
-                    .verticalScroll(rememberScrollState()),
+                    .then(if (scrollsSideways) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
+                    .then(if (scrollsDown) Modifier.verticalScroll(rememberScrollState()) else Modifier),
             ) {
                 Box(modifier = Modifier.size(gridWidth, gridHeight)) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        val px = density
+                        val px = this.density
                         val stroke = Stroke(width = IssueGraph.Geometry.EDGE_STROKE * px)
                         for (edge in graph.edges) {
                             val from = nodesById[edge.from] ?: continue
                             val to = nodesById[edge.to] ?: continue
                             if (issuesById[edge.from] == null || issuesById[edge.to] == null) continue
-                            val curve = IssueGraph.Geometry.edge(from, to)
+                            val curve = IssueGraph.Geometry.edge(from, to, nodeWidth)
                             val path = Path().apply {
                                 moveTo(curve.start.x * px, curve.start.y * px)
                                 cubicTo(
@@ -105,7 +117,7 @@ fun IssueGraphPopover(
                     for (node in graph.nodes) {
                         // A node whose issue has not synced draws nothing.
                         val issue = issuesById[node.id] ?: continue
-                        val origin = IssueGraph.Geometry.origin(node.wave, node.lane)
+                        val origin = IssueGraph.Geometry.origin(node.wave, node.lane, nodeWidth)
                         val ring: Color? = when {
                             node.id in onCycle -> cycleColor
                             node.subject -> primary
@@ -115,7 +127,7 @@ fun IssueGraphPopover(
                             modifier = Modifier
                                 .offset(origin.x.dp, origin.y.dp)
                                 .size(
-                                    IssueGraph.Geometry.NODE_WIDTH.dp,
+                                    nodeWidth.dp,
                                     IssueGraph.Geometry.NODE_HEIGHT.dp,
                                 )
                                 .testTag("issue-graph-node-${issue.identifier}")
@@ -138,6 +150,7 @@ fun IssueGraphPopover(
                                 title = issue.title,
                                 status = null,
                                 modifier = Modifier.fillMaxSize(),
+                                size = chipSize,
                                 leading = {
                                     StatusIcon(
                                         IssueStatus.fromWire(issue.status),

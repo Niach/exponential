@@ -18,9 +18,12 @@
 //! surfaces draw the same picture with the same edges and the same red.
 //!
 //! EXP-1057: the boxes' pixels are [`domain::issue_graph::geometry`] — the ONE
-//! look locked ×4 by `fixtures/issue-graph-geometry.json` (176×28 boxes, 40/8
-//! gaps, a 4px inset all round so rings never clip, 1.25px edges, and a
-//! backward cycle edge that bows by `max(gap / 2, |dx| / 2)`).
+//! look locked ×4 by `fixtures/issue-graph-geometry.json` (176×28 boxes, a
+//! 4px inset all round so rings never clip, 1.25px edges). SLOP-16 r4: the
+//! graph is VERTICAL: waves are ROWS 24px apart (top = the first blockers,
+//! bottom = the blocked subject), lanes COLUMNS 12px apart, an edge runs
+//! bottom-middle → top-middle and a backward cycle edge bows by
+//! `max(gap / 2, |dy| / 2)`; a chain never scrolls sideways.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -39,26 +42,27 @@ use domain::workflow_view::WorkflowEdgeStyle;
 
 use crate::issue_chip::issue_chip;
 
-/// The graph's default viewport width — past it the grid scrolls rather than
-/// growing the popover off the screen. Hosts with a narrower box (the work
-/// header's overlay, the dialog) pass their own.
+/// The graph's default viewport width cap — past it the (rare) wide grid
+/// scrolls rather than growing the popover off the screen. The viewport
+/// sizes to the grid below it (a vertical chain is narrow). Hosts with a
+/// narrower box pass their own.
 pub(crate) const VIEW_W: f32 = geometry::MAX_VIEW_WIDTH;
 
 /// What a node tap does — open that issue, in whatever way the host surface
 /// navigates (a popover navigates in place, a dialog closes first).
 pub(crate) type OnPickIssue = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-/// How one host's grid is measured: the cell, the gaps between cells, the
-/// viewport it scrolls inside, and where an edge LEAVES and ENTERS a cell
-/// (offsets from the cell's top-left). Boxes anchor on their side middles;
-/// the workflow graph's circles anchor on the circle, not on the label
-/// underneath it. `inset` pads the grid on every side (EXP-1057: room for
-/// the rings); `stroke` is the edge width.
+/// How the grid is measured: the cell, the gaps between cells, the viewport
+/// it scrolls inside, and where an edge LEAVES and ENTERS a cell (offsets
+/// from the cell's top-left). SLOP-16 r4: VERTICAL — waves are rows
+/// (`wave_gap` apart), lanes columns (`lane_gap` apart); boxes anchor on
+/// their bottom-middle (out) and top-middle (in). `inset` pads the grid on
+/// every side (EXP-1057: room for the rings); `stroke` is the edge width.
 #[derive(Clone, Copy)]
 pub(crate) struct GridGeometry {
     pub(crate) node_w: f32,
     pub(crate) node_h: f32,
-    pub(crate) col_gap: f32,
+    pub(crate) wave_gap: f32,
     pub(crate) lane_gap: f32,
     pub(crate) view_w: f32,
     pub(crate) view_h: f32,
@@ -69,30 +73,35 @@ pub(crate) struct GridGeometry {
 }
 
 impl GridGeometry {
-    /// The blocks mini-graph: one-line boxes, edges side to side — the
-    /// contract geometry, the viewport capped at `view_w`.
-    pub(crate) fn boxes(view_w: f32) -> Self {
+    /// The blocks mini-graph: one-line boxes, edges top to bottom — the
+    /// contract geometry, the viewport capped at `view_w`. SLOP-16: a
+    /// `Compact` graph (the hover ones) draws the small chip in
+    /// `COMPACT_NODE_WIDTH` boxes.
+    pub(crate) fn boxes(view_w: f32, density: geometry::Density) -> Self {
         use geometry::*;
+        let node_w = density.node_width();
         Self {
-            node_w: NODE_WIDTH,
+            node_w,
             node_h: NODE_HEIGHT,
-            col_gap: WAVE_GAP,
+            wave_gap: WAVE_GAP,
             lane_gap: LANE_GAP,
             view_w: view_w.min(MAX_VIEW_WIDTH),
             view_h: MAX_VIEW_HEIGHT,
-            edge_out: (NODE_WIDTH, NODE_HEIGHT / 2.),
-            edge_in: (0., NODE_HEIGHT / 2.),
+            edge_out: (node_w / 2., NODE_HEIGHT),
+            edge_in: (node_w / 2., 0.),
             inset: INSET,
             stroke: EDGE_STROKE,
         }
     }
 
-    fn x(&self, wave: usize) -> f32 {
-        self.inset + wave as f32 * (self.node_w + self.col_gap)
+    /// A lane's column.
+    fn x(&self, lane: usize) -> f32 {
+        self.inset + lane as f32 * (self.node_w + self.lane_gap)
     }
 
-    fn y(&self, lane: usize) -> f32 {
-        self.inset + lane as f32 * (self.node_h + self.lane_gap)
+    /// A wave's row.
+    fn y(&self, wave: usize) -> f32 {
+        self.inset + wave as f32 * (self.node_h + self.wave_gap)
     }
 }
 
@@ -100,9 +109,9 @@ impl GridGeometry {
 /// calls its nodes (an ISSUE id here, a `workflow_nodes` row id there).
 pub(crate) struct GridNode {
     pub(crate) key: String,
-    /// The column (the rule's / the server's `wave`).
+    /// The row (the rule's `wave`; top = the first blockers).
     pub(crate) wave: usize,
-    /// The row inside the column.
+    /// The column inside the row.
     pub(crate) lane: usize,
 }
 
@@ -216,10 +225,10 @@ pub(crate) fn grid_view(
 
     let waves = nodes.iter().map(|node| node.wave).max().unwrap_or(0);
     let lanes = nodes.iter().map(|node| node.lane).max().unwrap_or(0);
-    let width = geometry.x(waves) + geometry.node_w + geometry.inset;
-    let height = geometry.y(lanes) + geometry.node_h + geometry.inset;
+    let width = geometry.x(lanes) + geometry.node_w + geometry.inset;
+    let height = geometry.y(waves) + geometry.node_h + geometry.inset;
     let line = geometry.stroke;
-    let col_gap = geometry.col_gap;
+    let wave_gap = geometry.wave_gap;
 
     // Where each node sits, so the edges can be painted in one pass.
     let places: HashMap<&str, (usize, usize)> = nodes
@@ -239,12 +248,12 @@ pub(crate) fn grid_view(
                 on_cycle.insert(edge.to.as_str(), true);
             }
             Some((
-                geometry.x(from.0) + geometry.edge_out.0,
-                geometry.y(from.1) + geometry.edge_out.1,
-                geometry.x(to.0) + geometry.edge_in.0,
-                geometry.y(to.1) + geometry.edge_in.1,
-                geometry.x(from.0) + geometry.node_w,
-                geometry.x(to.0),
+                geometry.x(from.1) + geometry.edge_out.0,
+                geometry.y(from.0) + geometry.edge_out.1,
+                geometry.x(to.1) + geometry.edge_in.0,
+                geometry.y(to.0) + geometry.edge_in.1,
+                geometry.y(from.0) + geometry.node_h,
+                geometry.y(to.0),
                 edge.style,
             ))
         })
@@ -269,20 +278,20 @@ pub(crate) fn grid_view(
                     };
                     let at = |x: f32, y: f32| point(origin.x + px(x), origin.y + px(y));
                     let (start, end) = (at(x1, y1), at(x2, y2));
-                    // The curve lives in the GAP between two cells: a level
-                    // stub runs from the anchor to its cell's edge first, so
-                    // an edge never cuts through a label beside (or under)
-                    // its anchor. It leaves and arrives HORIZONTALLY, both
-                    // control points on the gap's middle, so a fan of edges
-                    // gathers into one bus instead of hooking at one end. A
+                    // The curve lives in the GAP between two rows: a
+                    // vertical stub runs from the anchor to its cell's edge
+                    // first (zero-length for the boxes, which anchor ON the
+                    // edge). It leaves and arrives VERTICALLY, both control
+                    // points on the gap's middle, so a fan of edges gathers
+                    // into one bus instead of hooking at one end. A
                     // backwards (cycle) edge has no gap: it curves anchor to
                     // anchor, bowing out by the contract's bend (EXP-1057).
                     let forward = gap_end > gap_start;
-                    let (c1, c2) = if forward { (gap_start, gap_end) } else { (x1, x2) };
-                    let (curve_from, curve_to) = (at(c1, y1), at(c2, y2));
-                    let bend = domain::issue_graph::geometry::bend(c1, c2, col_gap);
-                    let controls = (at(c1 + bend, y1), at(c2 - bend, y2));
-                    let curved = !forward || (y1 - y2).abs() >= 0.5;
+                    let (c1, c2) = if forward { (gap_start, gap_end) } else { (y1, y2) };
+                    let (curve_from, curve_to) = (at(x1, c1), at(x2, c2));
+                    let bend = domain::issue_graph::geometry::bend(c1, c2, wave_gap);
+                    let controls = (at(x1, c1 + bend), at(x2, c2 - bend));
+                    let curved = !forward || (x1 - x2).abs() >= 0.5;
                     if style == WorkflowEdgeStyle::Speculative {
                         // gpui's PathBuilder dashes per path, so the dashes
                         // are painted as short segments along the same route.
@@ -324,8 +333,8 @@ pub(crate) fn grid_view(
         grid = grid.child(
             div()
                 .absolute()
-                .left(px(geometry.x(node.wave)))
-                .top(px(geometry.y(node.lane)))
+                .left(px(geometry.x(node.lane)))
+                .top(px(geometry.y(node.wave)))
                 .w(px(geometry.node_w))
                 .h(px(geometry.node_h))
                 .child(render_node(node, cycled, cx)),
@@ -451,7 +460,13 @@ pub(crate) fn graph_in_dialog(
     view_width: f32,
     cx: &App,
 ) -> gpui::AnyElement {
-    let on_pick: OnPickIssue = Rc::new(|issue_id: &str, window, cx| {
+    graph_view(graph, view_width, geometry::Density::Full, dialog_pick(), cx)
+}
+
+/// A node tap inside a dialog window: close it, then open the issue in the
+/// opener.
+fn dialog_pick() -> OnPickIssue {
+    Rc::new(|issue_id: &str, window, cx| {
         let issue_id = issue_id.to_string();
         crate::native_dialog::close_then(window, cx, move |window, cx| {
             crate::navigation::navigate(
@@ -460,8 +475,7 @@ pub(crate) fn graph_in_dialog(
                 crate::navigation::Screen::IssueDetail { issue_id },
             );
         });
-    });
-    graph_view(graph, view_width, on_pick, cx)
+    })
 }
 
 /// The grid plus its notes, for the EXP-980 `blocks` graph. Empty (no nodes)
@@ -471,6 +485,18 @@ pub(crate) fn graph_in_dialog(
 pub(crate) fn graph_view(
     graph: &IssueGraph,
     view_width: f32,
+    density: geometry::Density,
+    on_pick: OnPickIssue,
+    cx: &App,
+) -> gpui::AnyElement {
+    graph_grid(graph, GridGeometry::boxes(view_width, density), density, on_pick, cx)
+}
+
+/// [`graph_view`] over an explicit grid geometry.
+fn graph_grid(
+    graph: &IssueGraph,
+    grid: GridGeometry,
+    density: geometry::Density,
     on_pick: OnPickIssue,
     cx: &App,
 ) -> gpui::AnyElement {
@@ -521,16 +547,19 @@ pub(crate) fn graph_view(
         } else {
             None
         };
-        node_chip(&node.key, outline, on_pick.clone(), cx)
+        let compact = density == geometry::Density::Compact;
+        node_chip(&node.key, outline, compact, on_pick.clone(), cx)
     };
-    grid_view(&nodes, &edges, GridGeometry::boxes(view_width), &notes, &render, cx)
+    grid_view(&nodes, &edges, grid, &notes, &render, cx)
 }
 
 /// One node: the shared issue chip (status glyph + identifier + as much title
-/// as the box holds), inside the ring its role earns.
+/// as the box holds), inside the ring its role earns. SLOP-16: `compact` =
+/// the small chip (glyph · identifier, the title in its tooltip).
 fn node_chip(
     issue_id: &str,
     outline: Option<Hsla>,
+    compact: bool,
     on_pick: OnPickIssue,
     cx: &App,
 ) -> gpui::AnyElement {
@@ -552,6 +581,9 @@ fn node_chip(
     )
     .flexible()
     .on_click(move |_: &ClickEvent, window, cx| on_pick(&target, window, cx));
+    if compact {
+        chip = chip.small();
+    }
     if let Some(status) = crate::issue_chip::synced_issue_status(issue_id, cx) {
         chip = chip.status(status);
     }
@@ -568,7 +600,12 @@ fn node_chip(
 }
 
 /// The popover body: the graph, navigating in the window it is drawn in.
-pub(crate) fn graph_overlay(graph: &IssueGraph, view_width: f32, cx: &App) -> gpui::AnyElement {
+pub(crate) fn graph_overlay(
+    graph: &IssueGraph,
+    view_width: f32,
+    density: geometry::Density,
+    cx: &App,
+) -> gpui::AnyElement {
     let on_pick: OnPickIssue = Rc::new(|issue_id: &str, window, cx| {
         crate::navigation::navigate(
             window,
@@ -580,7 +617,7 @@ pub(crate) fn graph_overlay(graph: &IssueGraph, view_width: f32, cx: &App) -> gp
     });
     h_flex()
         .min_w_0()
-        .child(graph_view(graph, view_width, on_pick, cx))
+        .child(graph_view(graph, view_width, density, on_pick, cx))
         .into_any_element()
 }
 
@@ -588,24 +625,51 @@ pub(crate) fn graph_overlay(graph: &IssueGraph, view_width: f32, cx: &App) -> gp
 mod tests {
     use super::*;
 
+    /// SLOP-16 — both densities measure the grid by the contract's
+    /// `*_with` rules at their own node width.
+    #[test]
+    fn both_densities_follow_the_contract_geometry() {
+        use geometry::Density;
+        for density in [Density::Full, Density::Compact] {
+            let node_width = density.node_width();
+            let grid = GridGeometry::boxes(520., density);
+            assert_eq!(grid.node_w, node_width);
+            // Vertical: a lane is a column, a wave a row.
+            assert_eq!(grid.x(1), geometry::origin_with(node_width, 0, 1).0);
+            assert_eq!(grid.y(1), geometry::origin_with(node_width, 1, 0).1);
+            assert_eq!(grid.edge_out, (node_width / 2., geometry::NODE_HEIGHT));
+            assert_eq!(grid.edge_in, (node_width / 2., 0.));
+            let edge = geometry::edge_with(node_width, (0, 0), (1, 1));
+            assert_eq!(edge.0, (grid.x(0) + grid.edge_out.0, grid.y(0) + grid.edge_out.1));
+            assert_eq!(edge.3, (grid.x(1) + grid.edge_in.0, grid.y(1) + grid.edge_in.1));
+            // Both control points sit on the gap's middle, straight below /
+            // above their anchors.
+            let middle = grid.y(0) + geometry::NODE_HEIGHT + geometry::WAVE_GAP / 2.;
+            assert_eq!(edge.1, (edge.0 .0, middle));
+            assert_eq!(edge.2, (edge.3 .0, middle));
+        }
+        assert_eq!(GridGeometry::boxes(520., Density::Compact).node_w, 112.);
+    }
+
     /// EXP-983 — a speculative edge is DASHED: gpui paints paths, not
     /// patterns, so the line becomes a run of short segments that still
     /// starts where the edge starts and ends where it ends.
     #[test]
     fn a_dashed_edge_is_a_run_of_segments_along_the_line() {
         let start = point(px(0.), px(0.));
-        let end = point(px(40.), px(0.));
+        // Edges run top to bottom (SLOP-16 r4: the graph is vertical).
+        let end = point(px(0.), px(40.));
         let straight = dashes(start, end, None);
         assert!(straight.len() > 2, "40px of line is several dashes");
         assert_eq!(straight[0].0, start, "the first dash starts on the edge");
         let last = straight.last().expect("dashes");
         assert!(
-            f32::from(last.1.x) <= 40.,
+            f32::from(last.1.y) <= 40.,
             "no dash runs past the end: {:?}",
             last.1
         );
         for (from, to) in &straight {
-            let length = f32::from(to.x) - f32::from(from.x);
+            let length = f32::from(to.y) - f32::from(from.y);
             assert!(length > 0. && length <= DASH + 0.01, "dash of {length}px");
         }
 
@@ -614,7 +678,7 @@ mod tests {
         let curved = dashes(
             start,
             point(px(40.), px(40.)),
-            Some((point(px(20.), px(0.)), point(px(20.), px(40.)))),
+            Some((point(px(0.), px(20.)), point(px(40.), px(20.)))),
         );
         assert!(curved.len() > 2);
         assert!(

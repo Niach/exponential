@@ -11,9 +11,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -59,13 +64,21 @@ import com.exponential.app.ui.markdown.chipTitle
  * ellipsized. [onClick] opens the issue. [onRemove] adds the composer's ✕
  * INSIDE the chip, after the title — the removable variant is a composer's
  * alone; nothing else may hand a badge a control.
+ *
+ * SLOP-15 small mode ([IssueChipSize.Sm], the web's `IssueChip size="sm"`):
+ * the box, glyph and identifier only — the title moves into a long-press
+ * tooltip (the long-press preview) and the chip's content description, so a
+ * dense surface (the PR-graph badge, its overlay, the compact graph) still
+ * names every issue in full.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueChip(
     identifier: String,
     title: String?,
     status: ResolvedIssueStatus?,
     modifier: Modifier = Modifier,
+    size: IssueChipSize = IssueChipSize.Md,
     onClick: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
     /** Names the ✕ for TalkBack; defaults to the removal it performs. */
@@ -81,8 +94,11 @@ fun IssueChip(
 ) {
     // Web parity through the markdown renderer's own cap: a chip is a badge,
     // not a place to read a sentence.
-    val chipText = title?.takeIf { it.isNotBlank() }?.let { remember(it) { chipTitle(it) } }
-    ChipShell(modifier = modifier, onClick = onClick) {
+    val small = size == IssueChipSize.Sm
+    val fullTitle = title?.takeIf { it.isNotBlank() }
+    val chipText = if (small) null else fullTitle?.let { remember(it) { chipTitle(it) } }
+    val shell: @Composable (Modifier) -> Unit = { shellModifier ->
+    ChipShell(modifier = shellModifier, onClick = onClick) {
         // A chip whose issue has not synced (another team's, a trashed board)
         // still names it: the glyph is the one part that can be missing.
         if (leading != null) {
@@ -124,14 +140,34 @@ fun IssueChip(
             )
         }
     }
+    }
+    if (small && fullTitle != null) {
+        val label = if (identifier.isNotBlank()) "$identifier · $fullTitle" else fullTitle
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+            tooltip = { PlainTooltip { Text(label) } },
+            state = rememberTooltipState(),
+        ) {
+            shell(modifier.semantics { contentDescription = label })
+        }
+    } else {
+        shell(modifier)
+    }
 }
+
+/** SLOP-15: the web's `IssueChip size` — [Md] is the whole chip, [Sm] drops the title. */
+enum class IssueChipSize { Md, Sm }
 
 /**
  * EXP-1014: ONE chip that stands for SEVERAL issues — a workflow's compound
  * node (a parent and its sub-issues, run as one batch on one branch). The
  * front chip is the ordinary [IssueChip]; behind it, offset towards the top
- * right in [IssueChipDefaults.StackStep] steps, [ghosts] empty chip outlines
- * say there is more than one issue in there.
+ * right in [IssueChipDefaults.StackStep] steps, ALWAYS
+ * [IssueChipDefaults.StackGhosts] empty chip outlines say there is more than
+ * one issue in there, whatever the count.
+ *
+ * SLOP-15/16: the web's `.issue-chip-ghost` — 2dp steps, outline only (no
+ * fill), the far ghost at half strength ([IssueChipDefaults.StackFarGhostAlpha]).
  *
  * The ghosts are drawn INSIDE the composable's own bounds (the reserved inset
  * is real padding), so nothing is ever clipped by a scroller or a row that
@@ -140,9 +176,9 @@ fun IssueChip(
 @Composable
 fun IssueChipStack(
     modifier: Modifier = Modifier,
-    ghosts: Int = 2,
     chip: @Composable () -> Unit,
 ) {
+    val ghosts = IssueChipDefaults.StackGhosts
     val outline = MdStyle.IssueRefBorder
     val radius = MdStyle.chipCornerRadius
     val step = IssueChipDefaults.StackStep
@@ -161,6 +197,7 @@ fun IssueChipStack(
                         size = size,
                         cornerRadius = corner,
                         style = Stroke(IssueChipDefaults.BorderWidth.toPx()),
+                        alpha = if (depth == ghosts) IssueChipDefaults.StackFarGhostAlpha else 1f,
                     )
                 }
             },
@@ -240,7 +277,13 @@ object IssueChipDefaults {
     val Spacing: Dp = 4.dp
 
     /** [IssueChipStack]'s offset per ghost chip behind the front one. */
-    val StackStep: Dp = 3.dp
+    val StackStep: Dp = 2.dp
+
+    /** [IssueChipStack]'s ghost count — always two, like the web's `STACK_OFFSETS`. */
+    const val StackGhosts = 2
+
+    /** The far ghost's alpha (web `.issue-chip-ghost[data-depth="2"]`). */
+    const val StackFarGhostAlpha = 0.5f
 
     /** The ✕: a 20dp hit area around a 10dp glyph (the composer's rung). */
     val RemoveHitArea: Dp = 20.dp

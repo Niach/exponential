@@ -16,9 +16,6 @@ import {
   ListRow,
   GlassSectionHeader,
   BoardGlyph,
-  TREE_BASE,
-  TREE_INDENT,
-  TreeGuides,
   treeGuides,
 } from "@exp/ui"
 import { useSteerConfig } from "@/components/agent-session"
@@ -32,11 +29,11 @@ import {
   type WorkflowReviewEntry,
 } from "@/hooks/use-reviews-data"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
+import { PrStackRow } from "@/components/pr-stack-row"
 import {
   mergeStackBody,
   MERGE_STACK_LABEL,
   MERGE_STACK_TITLE,
-  stackedOnCaption,
 } from "@/lib/pr-stack"
 import {
   MERGE_LABEL,
@@ -49,7 +46,6 @@ import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
-import { issueMenuProps } from "@/components/issue-context-menu/attr"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes
@@ -465,31 +461,25 @@ function ReviewsPage() {
                       }
                     }
                     return (
-                      <ListRow
+                      <PrStackRow
                         key={entry.key}
-                        interactive
-                        className="group/row relative grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
-                        // EXP-897: 14px per stacked level, the ×4 indent.
-                        style={{
-                          paddingLeft: `${TREE_BASE + row.depth * TREE_INDENT}px`,
-                        }}
-                        onClick={() => openReview(issue.identifier)}
-                        data-testid={`review-row-${issue.identifier}`}
-                        {...issueMenuProps(issue.id)}
-                      >
-                        <TreeGuides guide={guides[rowIndex]} />
-                        {/* A batch PR wears the batch glyph; the overlay on it
+                        issue={issue}
+                        issues={entry.issues}
+                        depth={row.depth}
+                        guide={guides[rowIndex]}
+                        stackedOn={row.stackedOn}
+                        onOpen={() => openReview(issue.identifier)}
+                        /* A batch PR wears the batch glyph; the overlay on it
                             lists the issues it closes (EXP-897 Part 4).
                             EXP-916: the lead cell is ALWAYS drawn — a badge
                             that renders nothing (its siblings have not synced)
                             used to drop the grid's first column and shift the
-                            whole row. */}
-                        <span className="flex size-4 shrink-0 items-center justify-center">
-                          {isBatch ? (
+                            whole row. */
+                        lead={
+                          isBatch ? (
                             <PrGraphBadge
                               teamId={team.id}
                               teamSlug={teamSlug}
-                              face="changes"
                               issue={issue}
                               variant="glyph"
                               fallback={
@@ -498,47 +488,9 @@ function ReviewsPage() {
                             />
                           ) : (
                             <PrOpenIcon className="h-4 w-4 text-emerald-500" />
-                          )}
-                        </span>
-                        <span className="truncate font-mono text-xs text-muted-foreground">
-                          {isBatch && issue.prNumber
-                            ? `#${issue.prNumber}`
-                            : issue.identifier}
-                        </span>
-                        {/* EXP-698: pr-3 IS the gap to the trailing Merge
-                            control — on a phone the two used to sit 8px
-                            apart, which read as one blob. */}
-                        <div className="min-w-0 pr-3">
-                          <div className="truncate text-sm">
-                            {isBatch ? (
-                              <>
-                                {`${entry.issues.length} issues`}
-                                <span className="ml-2 font-mono text-xs text-muted-foreground">
-                                  {entry.issues
-                                    .map((linked) => linked.identifier)
-                                    .join(`, `)}
-                                </span>
-                              </>
-                            ) : (
-                              issue.title
-                            )}
-                          </div>
-                          {/* EXP-897: the caption line carries the branch and
-                              an upper row's foundation. */}
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            {issue.branch && (
-                              <span className="truncate font-mono text-xs text-muted-foreground">
-                                {issue.branch}
-                              </span>
-                            )}
-                            {row.stackedOn && (
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {stackedOnCaption(row.stackedOn)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {/* EXP-706: the recovery run takes the merge control's
+                          )
+                        }
+                        /* EXP-706: the recovery run takes the merge control's
                             OWN slot on a real conflict — one trailing action
                             per row, never two.
                             EXP-698: the row's Merge and the review detail's
@@ -548,8 +500,9 @@ function ReviewsPage() {
                             says: Merge, Merge stack (the bottom row), or
                             nothing (an upper member, a workflow node PR). Any
                             reason the rule returns is the row's muted caption,
-                            the same on every client. */}
-                        {canFixConflicts ? (
+                            the same on every client. */
+                        trailing={
+                          canFixConflicts ? (
                           <Pill
                             size="md"
                             mode="action"
@@ -604,15 +557,17 @@ function ReviewsPage() {
                               </>
                             )}
                           </Pill>
-                        )}
-                        {/* The refusal captions its own row (EXP-323) —
+                        )
+                        }
+                        /* The refusal captions its own row (EXP-323) —
                             spanning the grid so the full GitHub message stays
                             readable. Message only since EXP-706, except while
                             the recovery run holds the trailing slot: Merge
                             then rides the caption as a quiet secondary so the
                             swap is never a dead end (the conflict may have
-                            been resolved outside the recovery run). */}
-                        {mergeError && (
+                            been resolved outside the recovery run). */
+                        footer={
+                          mergeError && (
                           <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
                             <span className="text-destructive text-xs">
                               {mergeError.message}
@@ -631,8 +586,9 @@ function ReviewsPage() {
                               </Pill>
                             )}
                           </div>
-                        )}
-                      </ListRow>
+                        )
+                        }
+                      />
                     )
                   })
                   })()}

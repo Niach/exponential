@@ -68,12 +68,6 @@ pub struct IssueHeader {
     /// session screen before it builds the tray; the issue detail leaves it
     /// false.
     merge_suppressed: bool,
-    /// EXP-897: which FACE this header is drawn on — it decides the stack /
-    /// batch badge's overlay sections. The issue detail leaves the default;
-    /// a session screen sets [`Self::set_badge_context`].
-    badge_face: crate::pr_graph::BadgeFace,
-    /// The run the badge's session tree is about (the session screen's run).
-    badge_session: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -138,8 +132,6 @@ impl IssueHeader {
             due_calendar,
             start_coding,
             merge_suppressed: false,
-            badge_face: crate::pr_graph::BadgeFace::Issue,
-            badge_session: None,
             _subscriptions: subscriptions,
         }
     }
@@ -148,19 +140,6 @@ impl IssueHeader {
     /// control (the run's Changes bar).
     pub(crate) fn set_merge_suppressed(&mut self, suppressed: bool) {
         self.merge_suppressed = suppressed;
-    }
-
-    /// EXP-897: which face the shared header is being drawn on, and the run
-    /// it is about — the stack/batch badge's overlay shows that face's
-    /// sections. The issue detail never calls this (the Issue face is the
-    /// default).
-    pub(crate) fn set_badge_context(
-        &mut self,
-        face: crate::pr_graph::BadgeFace,
-        session_id: Option<String>,
-    ) {
-        self.badge_face = face;
-        self.badge_session = session_id;
     }
 
     /// Point the header at another issue.
@@ -825,22 +804,12 @@ impl IssueHeader {
         cluster
     }
 
-    /// EXP-897 §4 — the stack / batch badge: a header-rung pill (EXP-1079)
-    /// carrying the `pr-stack` / `pr-batch` / `session-tree` concepts and
-    /// `2 of 3`, whose popover lists this face's sections (blockers + batch
-    /// on the Issue face, the run tree on the Run face, the PR stack on
-    /// Changes). Absent when there is nothing around this issue at all.
+    /// EXP-897 §4 / SLOP-16 — the related-work badge: an icon button
+    /// (`pr-stack` / `pr-batch` / `relation-blocked-by`, `+N`) opening the
+    /// "Related work" dialog, the same on every face. Absent when there is
+    /// nothing around this issue at all.
     fn pr_graph_badge(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        let session = self.badge_session.as_deref().and_then(|session_id| {
-            sync::Store::try_global(cx)?
-                .collections()
-                .coding_sessions
-                .read(cx)
-                .get(session_id)
-                .cloned()
-        });
-        let spec =
-            crate::pr_graph::issue_spec(issue, session.as_ref(), self.badge_face, cx);
+        let spec = crate::pr_graph::issue_spec(issue, cx);
         crate::pr_graph::badge("issue-pr-graph", spec, cx)
     }
 

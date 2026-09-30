@@ -13,7 +13,12 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
+import com.exponential.app.data.db.IssueStatusEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.CHAT_RUN_NAME
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
@@ -35,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -450,6 +456,18 @@ class ReviewsViewModel @Inject constructor(
     // Scaffold snackbar landed behind the floating bottom nav pill, which is
     // drawn over the whole NavHost, so the reason a merge failed was
     // unreadable). Cleared by the next attempt on that row.
+    /** SLOP-16 r3: every synced status, resolved — the batch sheet's relation
+     *  rows resolve their glyph by `status_id` against it. */
+    val issueStatuses: StateFlow<List<ResolvedIssueStatus>> =
+        dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() }
+            .map { IssueStatusResolver.teamStatuses(it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** SLOP-16 r3: the batch sheet's assignee avatars. */
+    val users: StateFlow<List<UserEntity>> =
+        dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val _mergeErrors = MutableStateFlow<Map<String, MergeFailure>>(emptyMap())
     val mergeErrors: StateFlow<Map<String, MergeFailure>> = _mergeErrors
 

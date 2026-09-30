@@ -229,24 +229,7 @@ impl ReviewsView {
         let merge_reason = domain::reviews_merge::reviews_merge_disabled_reason(&merge_input);
         let merges_stack = merge_action == domain::reviews_merge::ReviewMergeAction::MergeStack;
         let collapsed = self.collapsed.contains(&issue.id);
-        let identifier_text = if is_batch {
-            match issue.pr_number {
-                Some(number) => format!("#{number}"),
-                None => issue.identifier.clone(),
-            }
-        } else {
-            issue.identifier.clone()
-        };
-        let title_text = if is_batch {
-            entry
-                .issues
-                .iter()
-                .map(|i| i.identifier.clone())
-                .collect::<Vec<_>>()
-                .join(", ")
-        } else {
-            issue.title.clone()
-        };
+        let (identifier_text, title_text) = pr_row_texts(&entry.issues);
         // EXP-897: a batch PR wears the `pr-batch` CONCEPT with its issues in
         // the shared overlay, never a bare count.
         let batch_glyph = is_batch.then(|| {
@@ -262,16 +245,7 @@ impl ReviewsView {
             .as_deref()
             .map(domain::pr_stack::on_top_of);
 
-        let theme = cx.theme();
-        let fg = theme.foreground;
-        let muted = theme.muted_foreground;
-        let danger = theme.danger;
-        // EXP-277/642: rows use the glass list fills (EXP-269 list_* tokens);
-        // hover is the web `GlassRow`'s `hover:bg-glass-active/50`.
-        let row_active = theme.list_active;
-        let row_hover = row_active.opacity(0.5);
-        // Open-PR green (the token the status/priority accents use).
-        let pr_green = theme::tokens::GREEN.to_hsla();
+        let muted = cx.theme().muted_foreground;
 
         let selected = matches!(
             resolved_screen(&self.nav, cx),
@@ -425,157 +399,73 @@ impl ReviewsView {
         };
 
         let nav_id = issue.id.clone();
-        // EXP-642: one glass row CARD per PR (web parity) — selected wears the
-        // active fill, hover half of it.
-        crate::surface::flat_row()
-            .id(SharedString::from(format!("review-{}", issue.id)))
-            .flex()
-            .flex_row()
-            // EXP-698: the trailing Merge cluster is CENTRED against the whole
-            // card, not pinned to its first line — a two-line row (branch
-            // sub-line, error caption) otherwise reads with the pill floating
-            // at the top edge. The text column stacks; the action sits beside
-            // it in its own vertically centered slot.
-            .items_center()
-            .w_full()
-            .min_w_0()
-            .relative()
-            .px_3()
-            .py_2p5()
-            // EXP-897: 14px per stack level — the sessions lists' indent.
-            // EXP-965: and the connector that indent's gutter carries.
-            .pl(gpui::px(12. + crate::tree_guides::LEVEL_PITCH * entry.depth as f32))
-            .gap_2()
-            // EXP-965: the stack's rows stack FLUSH inside their board block
-            // (the `v_flex` carries no gap), so there is nothing to bridge.
-            .children(crate::tree_guides::guide_layer(guides, 12., 0.))
-            .when(selected, |this| this.bg(row_active))
-            .hover(move |this| this.bg(row_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |_, _, window, cx| {
-                // Any click outside the armed button disarms the confirm.
-                MergeState::disarm(cx);
-                // The PR diff (EXP-181): a review click is about the CODE —
-                // the diff screen renders it, and its header links back to the
-                // issue detail for the body.
-                // EXP-870: explicitly beside the Reviews queue it came from.
-                let screen = crate::navigation::Screen::PrDiff {
-                    issue_id: nav_id.clone(),
-                };
-                match crate::navigation::Screen::Reviews.list_origin() {
-                    Some(origin) => {
-                        crate::navigation::navigate_from(window, cx, screen, origin)
-                    }
-                    None => crate::navigation::navigate(window, cx, screen),
-                }
-            }))
-            // EXP-897: the fold chevron every parent row carries (×4).
-            .when(has_children, |this| {
-                let fold_id = issue.id.clone();
-                this.child(
-                    div()
-                        .id(SharedString::from(format!("review-fold-{}", issue.id)))
-                        .flex_shrink_0()
-                        .cursor_pointer()
-                        .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new(if collapsed {
-                                domain::pr_stack::EXPAND_CHILD_RUNS
-                            } else {
-                                domain::pr_stack::COLLAPSE_CHILD_RUNS
-                            })
-                            .build(window, cx)
-                        })
-                        .child(
-                            Icon::new(if collapsed {
-                                registry::UI_CHEVRON_RIGHT
-                            } else {
-                                registry::UI_CHEVRON_DOWN
-                            })
-                            .xsmall()
-                            .text_color(muted),
-                        )
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            // The row itself opens the diff — folding must not.
-                            cx.stop_propagation();
-                            if !this.collapsed.insert(fold_id.clone()) {
-                                this.collapsed.remove(&fold_id);
-                            }
-                            cx.notify();
-                        })),
+        // EXP-897: the fold chevron every parent row carries (×4).
+        let fold = has_children.then(|| {
+            let fold_id = issue.id.clone();
+            div()
+                .id(SharedString::from(format!("review-fold-{}", issue.id)))
+                .flex_shrink_0()
+                .cursor_pointer()
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(if collapsed {
+                        domain::pr_stack::EXPAND_CHILD_RUNS
+                    } else {
+                        domain::pr_stack::COLLAPSE_CHILD_RUNS
+                    })
+                    .build(window, cx)
+                })
+                .child(
+                    Icon::new(if collapsed {
+                        registry::UI_CHEVRON_RIGHT
+                    } else {
+                        registry::UI_CHEVRON_DOWN
+                    })
+                    .xsmall()
+                    .text_color(muted),
                 )
-            })
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_0p5()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .items_center()
-                            .gap_1p5()
-                            .child(
-                                Icon::from(ExpIcon::GitPullRequest)
-                                    .xsmall()
-                                    .flex_shrink_0()
-                                    .text_color(pr_green),
-                            )
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .font_family(theme::terminal::FONT_FAMILY)
-                                    .child(SharedString::from(identifier_text)),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_xs()
-                                    .truncate()
-                                    .text_color(fg)
-                                    .child(SharedString::from(title_text)),
-                            )
-                            .children(batch_glyph),
-                    )
-                    .when_some(stacked_on, |this, caption| {
-                        this.child(
-                            div()
-                                .pl_5()
-                                .text_xs()
-                                .truncate()
-                                .text_color(muted)
-                                .child(SharedString::from(caption)),
-                        )
-                    })
-                    .when_some(sub, |this, branch| {
-                        this.child(
-                            div()
-                                .pl_5()
-                                .text_xs()
-                                .truncate()
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .text_color(muted)
-                                .child(SharedString::from(branch)),
-                        )
-                    })
-                    .when_some(error, |this, message| {
-                        // EXP-706: message only — the recovery button moved
-                        // into the Merge slot beside the column.
-                        this.child(
-                            div()
-                                .pl_5()
-                                .text_xs()
-                                .truncate()
-                                .text_color(danger)
-                                .child(SharedString::from(message)),
-                        )
-                    }),
-            )
-            .child(trailing)
-            .into_any_element()
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    // The row itself opens the diff — folding must not.
+                    cx.stop_propagation();
+                    if !this.collapsed.insert(fold_id.clone()) {
+                        this.collapsed.remove(&fold_id);
+                    }
+                    cx.notify();
+                }))
+                .into_any_element()
+        });
+        let on_click: crate::run_rows::RunRowAction = Box::new(cx.listener(move |_, _, window, cx| {
+            // Any click outside the armed button disarms the confirm.
+            MergeState::disarm(cx);
+            // The PR diff (EXP-181): a review click is about the CODE —
+            // the diff screen renders it, and its header links back to the
+            // issue detail for the body.
+            // EXP-870: explicitly beside the Reviews queue it came from.
+            let screen = crate::navigation::Screen::PrDiff {
+                issue_id: nav_id.clone(),
+            };
+            match crate::navigation::Screen::Reviews.list_origin() {
+                Some(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
+                None => crate::navigation::navigate(window, cx, screen),
+            }
+        }));
+        pr_row(
+            PrRowSpec {
+                id: SharedString::from(format!("review-{}", issue.id)),
+                identifier: identifier_text,
+                title: title_text,
+                pr_state: None,
+                guides: guides.clone(),
+                selected,
+                fold,
+                batch_glyph,
+                stacked_on,
+                sub,
+                error,
+                trailing,
+                on_click,
+            },
+            cx,
+        )
     }
 
     /// EXP-734 — one "Agent runs" row: an action or chat run holding a pull
@@ -721,7 +611,7 @@ impl ReviewsView {
                                 .text_xs()
                                 .truncate()
                                 .text_color(danger)
-                                .child(SharedString::from(message)),
+                                .child(message),
                         )
                     }),
             )
@@ -956,7 +846,7 @@ impl ReviewsView {
                                 .text_xs()
                                 .truncate()
                                 .text_color(danger)
-                                .child(SharedString::from(message)),
+                                .child(message),
                         )
                     }),
             )
@@ -1117,7 +1007,7 @@ impl ReviewsView {
                                 .text_xs()
                                 .truncate()
                                 .text_color(danger)
-                                .child(SharedString::from(message)),
+                                .child(message),
                         )
                     }),
             )
@@ -1443,4 +1333,180 @@ impl Render for ReviewsView {
             REVIEWS_COLUMN_W,
         )
     }
+}
+
+// ---------------------------------------------------------------------------
+// The PR row (SLOP-16 round 3: shared with the work header's "Related work")
+// ---------------------------------------------------------------------------
+
+/// A PR entry's identifier + title (EXP-131): a single-issue entry shows the
+/// issue identifier + title; a BATCH (N issues on ONE PR) shows `#<number>`
+/// (the only identifier it has — its identifier without one) and the linked
+/// identifiers in place of the title. `issues[0]` = the representative.
+pub(crate) fn pr_row_texts(issues: &[domain::rows::Issue]) -> (String, String) {
+    let Some(issue) = issues.first() else {
+        return (String::new(), String::new());
+    };
+    if issues.len() > 1 {
+        let identifier = match issue.pr_number {
+            Some(number) => format!("#{number}"),
+            None => issue.identifier.clone(),
+        };
+        let title = issues
+            .iter()
+            .map(|i| i.identifier.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        (identifier, title)
+    } else {
+        (issue.identifier.clone(), issue.title.clone())
+    }
+}
+
+/// Everything one [`pr_row`] draws.
+pub(crate) struct PrRowSpec {
+    pub(crate) id: SharedString,
+    /// The mono identifier ([`pr_row_texts`]).
+    pub(crate) identifier: String,
+    pub(crate) title: String,
+    /// The PR's state; `None` = open (the Reviews queue only lists open PRs).
+    /// A merged or closed PR wears its own glyph, muted.
+    pub(crate) pr_state: Option<String>,
+    /// EXP-965: the row's place in its stack (depth = the indent).
+    pub(crate) guides: domain::tree_guides::Guides,
+    /// The active fill (the PR on screen / the member the view is about).
+    pub(crate) selected: bool,
+    /// The fold chevron a parent row carries.
+    pub(crate) fold: Option<gpui::AnyElement>,
+    /// The batch glyph after the title.
+    pub(crate) batch_glyph: Option<gpui::AnyElement>,
+    /// The `on top of #EXP-11` caption.
+    pub(crate) stacked_on: Option<String>,
+    /// The branch sub-line.
+    pub(crate) sub: Option<String>,
+    /// A failed merge's caption.
+    pub(crate) error: Option<SharedString>,
+    /// The trailing action slot, centred against the whole row.
+    pub(crate) trailing: gpui::AnyElement,
+    pub(crate) on_click: crate::run_rows::RunRowAction,
+}
+
+/// The base left padding of a [`pr_row`] (`px_3`).
+const PR_ROW_PAD: f32 = 12.;
+
+/// THE pull request row — the Reviews queue's: PR glyph · mono identifier ·
+/// title · batch glyph, the sub-lines under it, the trailing slot centred.
+pub(crate) fn pr_row(spec: PrRowSpec, cx: &gpui::App) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let fg = theme.foreground;
+    let muted = theme.muted_foreground;
+    let danger = theme.danger;
+    // EXP-277/642: rows use the glass list fills (EXP-269 list_* tokens);
+    // hover is the web `GlassRow`'s `hover:bg-glass-active/50`.
+    let row_active = theme.list_active;
+    let row_hover = row_active.opacity(0.5);
+    // Open-PR green (the token the status/priority accents use).
+    let (glyph, tint) = match spec.pr_state.as_deref() {
+        Some("merged") => (registry::PR_MERGED, muted),
+        Some("closed") => (registry::PR_CLOSED, muted),
+        _ => (ExpIcon::GitPullRequest, theme::tokens::GREEN.to_hsla()),
+    };
+    let depth = spec.guides.depth();
+    let on_click = spec.on_click;
+    // EXP-642: one glass row CARD per PR (web parity) — selected wears the
+    // active fill, hover half of it.
+    crate::surface::flat_row()
+        .id(spec.id)
+        .flex()
+        .flex_row()
+        // EXP-698: the trailing Merge cluster is CENTRED against the whole
+        // card, not pinned to its first line — a two-line row (branch
+        // sub-line, error caption) otherwise reads with the pill floating
+        // at the top edge. The text column stacks; the action sits beside
+        // it in its own vertically centered slot.
+        .items_center()
+        .w_full()
+        .min_w_0()
+        .relative()
+        .px_3()
+        .py_2p5()
+        // EXP-897: 14px per stack level — the sessions lists' indent.
+        // EXP-965: and the connector that indent's gutter carries.
+        .pl(gpui::px(PR_ROW_PAD + crate::tree_guides::LEVEL_PITCH * depth as f32))
+        .gap_2()
+        // EXP-965: the stack's rows stack FLUSH inside their block (the
+        // `v_flex` carries no gap), so there is nothing to bridge.
+        .children(crate::tree_guides::guide_layer(&spec.guides, PR_ROW_PAD, 0.))
+        .when(spec.selected, |this| this.bg(row_active))
+        .hover(move |this| this.bg(row_hover))
+        .cursor_pointer()
+        .on_click(move |event, window, cx| on_click(event, window, cx))
+        .children(spec.fold)
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_0p5()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_1p5()
+                        .child(Icon::from(glyph).xsmall().flex_shrink_0().text_color(tint))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(muted)
+                                .font_family(theme::terminal::FONT_FAMILY)
+                                .child(SharedString::from(spec.identifier)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_xs()
+                                .truncate()
+                                .text_color(fg)
+                                .child(SharedString::from(spec.title)),
+                        )
+                        .children(spec.batch_glyph),
+                )
+                .when_some(spec.stacked_on, |this, caption| {
+                    this.child(
+                        div()
+                            .pl_5()
+                            .text_xs()
+                            .truncate()
+                            .text_color(muted)
+                            .child(SharedString::from(caption)),
+                    )
+                })
+                .when_some(spec.sub, |this, branch| {
+                    this.child(
+                        div()
+                            .pl_5()
+                            .text_xs()
+                            .truncate()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(muted)
+                            .child(SharedString::from(branch)),
+                    )
+                })
+                .when_some(spec.error, |this, message| {
+                    // EXP-706: message only — the recovery button moved
+                    // into the Merge slot beside the column.
+                    this.child(
+                        div()
+                            .pl_5()
+                            .text_xs()
+                            .truncate()
+                            .text_color(danger)
+                            .child(message),
+                    )
+                }),
+        )
+        .child(spec.trailing)
+        .into_any_element()
 }

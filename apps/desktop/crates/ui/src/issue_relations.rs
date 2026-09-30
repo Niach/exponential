@@ -29,6 +29,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, ClickEvent, ElementId, InteractiveElement as _, IntoElement,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled, Window,
@@ -424,7 +425,7 @@ fn render_sub_issues(
 }
 
 /// The glyph of one band — the relation pick's concept for that side.
-fn band_icon(key: RelationBandKey) -> ExpIcon {
+pub(crate) fn band_icon(key: RelationBandKey) -> ExpIcon {
     let (kind, inverse) = match key {
         RelationBandKey::BlockedBy => ("blocks", true),
         RelationBandKey::Blocking => ("blocks", false),
@@ -447,16 +448,100 @@ fn band_slug(key: RelationBandKey) -> &'static str {
 }
 
 fn render_band(issue: &Issue, read: &Read, band: &RelationsViewBand, cx: &mut App) -> AnyElement {
-    let foreground = cx.theme().foreground;
-    let muted = cx.theme().muted_foreground;
     let key = band.key;
     let slug = band_slug(key);
+    let side = Side::Band(key);
+    let rows: Vec<AnyElement> = band
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let relation_id = read.relation_id(side, &row.id);
+            render_row(slug, row, relation_id, cx)
+        })
+        .collect();
+    let fold_issue = issue.id.clone();
+    let more_issue = issue.id.clone();
+    fold_band(
+        FoldBand {
+            id: SharedString::from(format!("relations-band-{slug}")),
+            icon: band_icon(key),
+            title: SharedString::from(band.title.clone()),
+            count: band.count,
+            expanded: band.expanded,
+            rows,
+            footer: band.more.clone().or_else(|| band.less.clone()),
+            on_toggle: Box::new(move |_, window, cx| flip_fold(&fold_issue, key, false, window, cx)),
+            on_footer: Box::new(move |_, window, cx| flip_fold(&more_issue, key, true, window, cx)),
+        },
+        cx,
+    )
+}
+
+/// A click handler of a [`FoldBand`].
+pub(crate) type BandClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
+/// SLOP-16 round 5 — everything one FOLDABLE relations band draws. The
+/// relations card draws it, and so does the work header's "Related work"
+/// dialog (`pr_graph`).
+pub(crate) struct FoldBand {
+    pub(crate) id: SharedString,
+    /// The band's glyph after the chevron.
+    pub(crate) icon: ExpIcon,
+    pub(crate) title: SharedString,
+    /// Every row the band holds (shown or not).
+    pub(crate) count: usize,
+    pub(crate) expanded: bool,
+    /// The rows to draw (already capped — [`band_window`]).
+    pub(crate) rows: Vec<AnyElement>,
+    /// "Show N more" / "Show less" under the rows.
+    pub(crate) footer: Option<String>,
+    /// A click on the band folds/unfolds it.
+    pub(crate) on_toggle: BandClick,
+    /// A click on the footer shows all / shows less.
+    pub(crate) on_footer: BandClick,
+}
+
+/// SLOP-16 round 5 — the relations card's band cap, for a band built outside
+/// [`issue_relations_view`]: how many of `total` rows show, and the footer
+/// ("Show N more" / "Show less") — byte-for-byte the model's rule.
+pub(crate) fn band_window(total: usize, expanded: bool, show_all: bool) -> (usize, Option<String>) {
+    use domain::relations_view::{relations_show_more, RELATIONS_BAND_CAP};
+    let overflow = total > RELATIONS_BAND_CAP;
+    if !expanded {
+        return (0, None);
+    }
+    match (overflow, show_all) {
+        (false, _) => (total, None),
+        (true, false) => (
+            RELATIONS_BAND_CAP,
+            Some(relations_show_more(total - RELATIONS_BAND_CAP)),
+        ),
+        (true, true) => (total, Some(copy::SHOW_LESS.to_string())),
+    }
+}
+
+/// SLOP-16 round 5 — THE foldable relations band: chevron · glyph · title ·
+/// count over its flat rows, "Show N more" / "Show less" under them.
+pub(crate) fn fold_band(band: FoldBand, cx: &App) -> AnyElement {
+    let foreground = cx.theme().foreground;
+    let muted = cx.theme().muted_foreground;
+    let FoldBand {
+        id,
+        icon,
+        title,
+        count,
+        expanded,
+        rows,
+        footer,
+        on_toggle,
+        on_footer,
+    } = band;
     let leading = h_flex()
         .flex_shrink_0()
         .items_center()
         .gap_1p5()
         .child(
-            Icon::new(if band.expanded {
+            Icon::new(if expanded {
                 registry::UI_CHEVRON_DOWN
             } else {
                 registry::UI_CHEVRON_RIGHT
@@ -464,30 +549,23 @@ fn render_band(issue: &Issue, read: &Read, band: &RelationsViewBand, cx: &mut Ap
             .xsmall()
             .text_color(foreground.opacity(0.7)),
         )
-        .child(Icon::new(band_icon(key)).xsmall().text_color(muted))
+        .child(Icon::new(icon).xsmall().text_color(muted))
         .into_any_element();
     let count = div()
         .flex_shrink_0()
         .text_xs()
         .text_color(foreground.opacity(0.5))
-        .child(SharedString::from(band.count.to_string()))
+        .child(SharedString::from(count.to_string()))
         .into_any_element();
-    let fold_issue = issue.id.clone();
-    let header = crate::surface::glass_section_band(Some(leading), band.title.clone(), Some(count), cx)
-        .id(SharedString::from(format!("relations-band-{slug}")))
+    let header = crate::surface::glass_section_band(Some(leading), title, Some(count), cx)
+        .id(id.clone())
         .cursor_pointer()
-        .on_click(move |_, window, cx| flip_fold(&fold_issue, key, false, window, cx));
-    let mut column = v_flex().w_full().min_w_0().child(header);
-    let side = Side::Band(key);
-    for row in &band.rows {
-        let relation_id = read.relation_id(side, &row.id);
-        column = column.children(render_row(slug, row, relation_id, cx));
-    }
-    if let Some(label) = band.more.clone().or_else(|| band.less.clone()) {
-        let more_issue = issue.id.clone();
+        .on_click(move |event, window, cx| on_toggle(event, window, cx));
+    let mut column = v_flex().w_full().min_w_0().child(header).children(rows);
+    if let Some(label) = footer {
         column = column.child(
             crate::surface::flat_row()
-                .id(SharedString::from(format!("relations-band-{slug}-more")))
+                .id(SharedString::from(format!("{id}-more")))
                 .flex()
                 .w_full()
                 .items_center()
@@ -498,7 +576,7 @@ fn render_band(issue: &Issue, read: &Read, band: &RelationsViewBand, cx: &mut Ap
                 .text_xs()
                 .text_color(muted)
                 .child(SharedString::from(label))
-                .on_click(move |_, window, cx| flip_fold(&more_issue, key, true, window, cx)),
+                .on_click(move |event, window, cx| on_footer(event, window, cx)),
         );
     }
     column.into_any_element()
@@ -518,9 +596,58 @@ fn render_row(
         .read(cx)
         .get(&row.id)
         .cloned()?;
-    let status = queries::resolve_issue_status(cx, &other);
+    let remove = relation_id
+        .map(|relation_id| remove_button(&format!("{slug}-{}", other.id), relation_id));
+    Some(issue_row(
+        &format!("relation-row-{slug}-{}", other.id),
+        &other,
+        IssueRowOpts {
+            title: Some(SharedString::from(row.title.clone())),
+            open: row.open,
+            remove,
+            guides: None,
+            in_dialog: false,
+        },
+        cx,
+    ))
+}
+
+/// SLOP-16 round 3 — how one [`issue_row`] sits in its list.
+pub(crate) struct IssueRowOpts {
+    /// The title text; `None` = the issue's own title.
+    pub(crate) title: Option<SharedString>,
+    /// A closed issue's title is dimmed.
+    pub(crate) open: bool,
+    /// The relations card's hover-revealed ✕.
+    pub(crate) remove: Option<AnyElement>,
+    /// EXP-965: a NESTED row's place in its tree (a batch PR's folded
+    /// issues); `None` = a flat top-level row.
+    pub(crate) guides: Option<domain::tree_guides::Guides>,
+    /// Drawn in a dialog window: a click closes it and opens the issue in the
+    /// opener.
+    pub(crate) in_dialog: bool,
+}
+
+/// The base left padding of an [`issue_row`] (`px_3`); a nested row's
+/// connector gutter is measured off it.
+const ISSUE_ROW_PAD: f32 = 12.;
+
+/// SLOP-16 round 3 — THE issue row: status glyph · mono identifier · title
+/// · (hover ✕) · assignee, a flat `px_3 py_1` row. Opens the issue; hovering
+/// shows the shared issue preview card. The relations card draws it, and so
+/// does the work header's "Related work" dialog (`pr_graph`).
+pub(crate) fn issue_row(key: &str, other: &Issue, opts: IssueRowOpts, cx: &mut App) -> AnyElement {
+    let IssueRowOpts {
+        title: title_text,
+        open,
+        remove,
+        guides,
+        in_dialog,
+    } = opts;
+    let status = queries::resolve_issue_status(cx, other);
     let assignee = other.assignee_id.as_deref().map(|user_id| {
-        let user = Store::global(cx).collections().users.read(cx).get(user_id).cloned();
+        let user = Store::try_global(cx)
+            .and_then(|store| store.collections().users.read(cx).get(user_id).cloned());
         crate::user_avatar::user_avatar(
             user_id,
             &crate::comments::user_label(user_id, user.as_ref()),
@@ -535,77 +662,85 @@ fn render_row(
         .min_w_0()
         .text_sm()
         .truncate()
-        .child(SharedString::from(row.title.clone()));
+        .child(title_text.unwrap_or_else(|| SharedString::from(other.title.clone())));
     // A closed issue's title is dimmed (web `text-foreground/60`).
-    if !row.open {
+    if !open {
         title = title.text_color(cx.theme().foreground.opacity(0.6));
     }
     // EXP-760: the row opens the shared issue hover preview — the same card
     // the `#IDENT` pills in prose show. The row's painted rectangle is the
     // anchor, captured at prepaint (the `Popup` recipe) because a hover
     // listener is handed the pointer, not the element.
-    let row_key = format!("relation-row-{slug}-{}", other.id);
+    let row_key = key.to_string();
     let preview_key = row_key.clone();
     let preview_issue = other.id.clone();
     let anchor: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>> =
         Rc::new(std::cell::Cell::new(gpui::Bounds::default()));
     let anchor_write = anchor.clone();
-    Some(
-        crate::surface::flat_row()
-            .id(ElementId::from(SharedString::from(row_key)))
-            .on_prepaint(move |bounds, _window, _cx| anchor_write.set(bounds))
-            .on_hover(move |hovered, window, cx| {
-                let host = crate::issue_preview::host_for_window(window, cx);
-                if *hovered {
-                    let issue_id = preview_issue.clone();
-                    let bounds = anchor.get();
-                    host.update(cx, |host, cx| {
-                        host.request(preview_key.clone(), issue_id, bounds, cx)
-                    });
-                } else {
-                    host.update(cx, |host, cx| host.release(preview_key.clone(), cx));
-                }
-            })
-            .group(ROW_GROUP)
-            .flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_1()
-            .cursor_pointer()
-            .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-            .on_click(move |_, window, cx| {
-                navigate(
-                    window,
-                    cx,
-                    Screen::IssueDetail {
-                        issue_id: issue_id.clone(),
-                    },
-                );
-            })
-            .child(
-                crate::icons::resolved_status_icon(&status, cx)
-                    .small()
-                    .flex_shrink_0(),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(row.identifier.clone())),
-            )
-            .child(title)
-            .children(
-                relation_id
-                    .map(|relation_id| remove_button(&format!("{slug}-{}", other.id), relation_id)),
-            )
-            .children(assignee)
-            .into_any_element(),
-    )
+    let depth = guides.as_ref().map_or(0, |guides| guides.depth());
+    crate::surface::flat_row()
+        .id(ElementId::from(SharedString::from(row_key)))
+        .on_prepaint(move |bounds, _window, _cx| anchor_write.set(bounds))
+        .on_hover(move |hovered, window, cx| {
+            let host = crate::issue_preview::host_for_window(window, cx);
+            if *hovered {
+                let issue_id = preview_issue.clone();
+                let bounds = anchor.get();
+                host.update(cx, |host, cx| {
+                    host.request(preview_key.clone(), issue_id, bounds, cx)
+                });
+            } else {
+                host.update(cx, |host, cx| host.release(preview_key.clone(), cx));
+            }
+        })
+        .group(ROW_GROUP)
+        .flex()
+        .w_full()
+        .min_w_0()
+        .relative()
+        .items_center()
+        .gap_2()
+        .px_3()
+        .py_1()
+        .when(depth > 0, |row| {
+            row.pl(px(ISSUE_ROW_PAD + crate::tree_guides::LEVEL_PITCH * depth as f32))
+        })
+        .children(
+            guides
+                .as_ref()
+                .and_then(|guides| crate::tree_guides::guide_layer(guides, ISSUE_ROW_PAD, 0.)),
+        )
+        .cursor_pointer()
+        .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+        .on_click(move |_, window, cx| {
+            let screen = Screen::IssueDetail {
+                issue_id: issue_id.clone(),
+            };
+            if in_dialog {
+                crate::native_dialog::close_then(window, cx, move |window, cx| {
+                    navigate(window, cx, screen);
+                });
+            } else {
+                navigate(window, cx, screen);
+            }
+        })
+        .child(
+            crate::icons::resolved_status_icon(&status, cx)
+                .small()
+                .flex_shrink_0(),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(SharedString::from(other.identifier.clone())),
+        )
+        .child(title)
+        .children(remove)
+        .children(assignee)
+        .into_any_element()
 }
 
 /// The hover-revealed "Remove relation" ✕ of a row (or the parent line).
@@ -856,5 +991,14 @@ mod tests {
         assert_eq!(ring_percent(0, 0), 0.);
         assert_eq!(ring_percent(2, 4), 50.);
         assert_eq!(ring_percent(5, 4), 100.);
+    }
+
+    /// SLOP-16 round 5 — the dialog's bands cap exactly like the model's.
+    #[test]
+    fn band_window_mirrors_the_models_cap() {
+        assert_eq!(band_window(2, true, false), (2, None));
+        assert_eq!(band_window(5, true, false), (3, Some("Show 2 more".to_string())));
+        assert_eq!(band_window(5, true, true), (5, Some("Show less".to_string())));
+        assert_eq!(band_window(5, false, false), (0, None));
     }
 }

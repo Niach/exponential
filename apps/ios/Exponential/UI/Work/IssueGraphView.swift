@@ -18,7 +18,7 @@ struct NestedIssueRow: Identifiable {
 /// the flat "Blocked by" chip section) and the blocked-start sheet.
 ///
 /// EXP-1057: it draws the SAME grid web, desktop and Android draw — the shared
-/// ExpUI `IssueGraphPopover` (waves × lanes, chip boxes, cubic edges, red on a
+/// ExpUI `IssueGraphPopover` (vertical: wave rows × lane columns, chip boxes, cubic edges, red on a
 /// cycle, geometry locked by `issue-graph-geometry.json`). An empty graph
 /// says so instead of drawing nothing.
 struct IssueGraphView: View {
@@ -26,6 +26,9 @@ struct IssueGraphView: View {
     /// The synced rows the nodes are named from; a node with no row prints its
     /// id, exactly like the rule's ordering fallback.
     let issues: [IssueEntity]
+    /// SLOP-16: `.compact` = small chips in `compactNodeWidth` boxes (the
+    /// badge overlay and the rail sheet); the rest draw full.
+    var density: IssueGraph.Geometry.Density = .full
     let onOpenIssue: (String) -> Void
 
     var body: some View {
@@ -38,12 +41,15 @@ struct IssueGraphView: View {
                 .padding(.top, 8)
                 .accessibilityIdentifier("issue-graph")
         } else {
-            IssueGraphPopover(graph: graph, issues: issues, onOpenIssue: onOpenIssue)
+            IssueGraphPopover(
+                graph: graph, issues: issues, density: density, onOpenIssue: onOpenIssue
+            )
         }
     }
 }
 
-/// The graph as its own sheet — what a list row's blocks badge opens.
+/// The graph as its own sheet — what a list row's blocks badge opens (the
+/// phone's rail popover, so compact like the web hover graph, SLOP-16).
 struct IssueGraphSheet: View {
     let graph: IssueGraph.Graph
     let issues: [IssueEntity]
@@ -51,7 +57,9 @@ struct IssueGraphSheet: View {
 
     var body: some View {
         GlassSheetChrome(title: "Blocked work", height: .fitted) {
-            IssueGraphView(graph: graph, issues: issues, onOpenIssue: onOpenIssue)
+            IssueGraphView(
+                graph: graph, issues: issues, density: .compact, onOpenIssue: onOpenIssue
+            )
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
         }

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactElement, type ReactNode } from "react"
 import { eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User } from "@/db/schema"
 import type { IssueRelationType, IssueStatus } from "@/lib/domain"
@@ -15,6 +15,8 @@ import {
   ListRow,
   Pill,
   ProgressRing,
+  TREE_BASE,
+  TREE_INDENT,
   UserAvatar,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
@@ -400,9 +402,140 @@ const BAND_ICON: Record<RelationBandKey, ReturnType<typeof conceptIcon>> = {
   related: RelationRelatedIcon,
 }
 
+/** What the opener of a `RelationIssueRow` is handed when a caller renders it
+ *  as a real link (the "Related work" dialog's `<Link>`). */
+export interface RelationIssueRowLinkProps {
+  className: string
+  children: ReactNode
+}
+
 /** THE relation row ×4 — sub-issues and every band share it: status glyph ·
- *  mono identifier · title · assignee, the whole row opening the issue. */
-function RelationIssueRow({
+ *  mono identifier · title · assignee, the whole row opening the issue.
+ *  SLOP-16 r3: exported, so the "Related work" dialog draws THIS row for its
+ *  issues rather than a look-alike. `link` swaps the opener for a real link;
+ *  `trailing` sits before the assignee (the card's remove button). */
+export function RelationIssueRow({
+  issue,
+  open,
+  assignee,
+  phone,
+  onOpen,
+  link,
+  trailing,
+  depth,
+  leading,
+  glyph,
+  code,
+  noAssignee = false,
+  className,
+}: {
+  issue: {
+    id: string
+    identifier: string
+    title: string
+    status: string
+    statusId?: string | null
+  }
+  /** Not completed/cancelled — a closed issue's title dims. */
+  open: boolean
+  assignee?: User
+  phone: boolean
+  onOpen?: () => void
+  link?: (props: RelationIssueRowLinkProps) => ReactElement
+  trailing?: ReactNode
+  /** Tree nesting (a batch PR's folded issues): the left padding per level;
+   *  absent = the card's own 12px padding. */
+  depth?: number
+  /** Drawn first inside the row — the tree connector of a nested row. */
+  leading?: ReactNode
+  /** SLOP-16 r5: replaces the status glyph (a pull request row's PR glyph). */
+  glyph?: ReactNode
+  /** SLOP-16 r5: replaces the mono identifier (a pull request's `#n`). */
+  code?: string
+  /** SLOP-16 r5: a pull request row ends on its state pill, no assignee. */
+  noAssignee?: boolean
+  className?: string
+}) {
+  const openerClass = cn(
+    `flex min-w-0 flex-1 items-center self-stretch text-left outline-none`,
+    phone ? `gap-3` : `gap-2`
+  )
+  const openerBody = (
+    <>
+      {glyph ?? (
+        <IssueStatusIcon
+          issue={{
+            status: issue.status as IssueStatus,
+            statusId: issue.statusId ?? null,
+          }}
+          className={phone ? `size-4 shrink-0` : `size-3.5 shrink-0`}
+        />
+      )}
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+        {code ?? issue.identifier}
+      </span>
+      <span
+        className={cn(
+          `min-w-0 flex-1 truncate`,
+          phone ? `text-[0.9375rem]` : `text-sm`,
+          !open && `text-foreground/60`
+        )}
+      >
+        {issue.title}
+      </span>
+    </>
+  )
+  return (
+    <ListRow
+      interactive
+      density={phone ? `list` : `compact`}
+      data-testid={`relation-row-${issue.identifier}`}
+      className={cn(
+        `group min-w-0`,
+        phone ? `min-h-12 gap-3 rounded-none px-3 py-0` : `h-8 rounded-md px-3`,
+        depth !== undefined && `relative`,
+        className
+      )}
+      style={
+        depth !== undefined
+          ? { paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }
+          : undefined
+      }
+      {...issueMenuProps(issue.id)}
+    >
+      {leading}
+      {/* The hover preview wraps the identifier + title cluster; the remove
+          button stays OUTSIDE the trigger so pointing at it never opens a
+          card over the thing being clicked. */}
+      <IssuePreviewHoverCard issueId={issue.id}>
+        {link ? (
+          link({ className: openerClass, children: openerBody })
+        ) : (
+          <button type="button" onClick={onOpen} className={openerClass}>
+            {openerBody}
+          </button>
+        )}
+      </IssuePreviewHoverCard>
+      {trailing}
+      {noAssignee ? null : assignee ? (
+        <UserAvatar user={assignee} size={phone ? 24 : 20} />
+      ) : (
+        <span
+          className={cn(
+            `flex shrink-0 items-center justify-center text-muted-foreground/50`,
+            phone ? `size-6` : `size-5`
+          )}
+        >
+          <UnassignedIcon className={phone ? `size-5` : `size-4`} />
+        </span>
+      )}
+    </ListRow>
+  )
+}
+
+/** The card's row: `RelationIssueRow` bound to the relations model — its
+ *  resolved status row, its assignee, and the remove button. */
+function RelationBandRow({
   row,
   slot,
   model,
@@ -423,80 +556,43 @@ function RelationIssueRow({
   const assigneeId = model.assigneeOf(row.id)
   const assignee = assigneeId ? users.get(assigneeId) : undefined
   return (
-    <ListRow
-      interactive
-      density={phone ? `list` : `compact`}
-      data-testid={`relation-row-${row.identifier}`}
-      className={cn(
-        `group min-w-0`,
-        phone ? `min-h-12 gap-3 rounded-none px-3 py-0` : `h-8 rounded-md px-3`
-      )}
-      {...issueMenuProps(row.id)}
-    >
-      {/* The hover preview wraps the identifier + title cluster; the remove
-          button stays OUTSIDE the trigger so pointing at it never opens a
-          card over the thing being clicked. */}
-      <IssuePreviewHoverCard issueId={row.id}>
-        <button
-          type="button"
-          onClick={() => issueRefs?.open(row.identifier)}
-          className={cn(
-            `flex min-w-0 flex-1 items-center self-stretch text-left outline-none`,
-            phone ? `gap-3` : `gap-2`
-          )}
-        >
-          <IssueStatusIcon
-            issue={ref ?? { status: row.status as IssueStatus, statusId: null }}
-            className={phone ? `size-4 shrink-0` : `size-3.5 shrink-0`}
-          />
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
-            {row.identifier}
-          </span>
-          <span
+    <RelationIssueRow
+      issue={{
+        id: row.id,
+        identifier: row.identifier,
+        title: row.title,
+        status: ref?.status ?? row.status,
+        statusId: ref ? ref.statusId : null,
+      }}
+      open={row.open}
+      assignee={assignee}
+      phone={phone}
+      onOpen={() => issueRefs?.open(row.identifier)}
+      trailing={
+        !readOnly && relation ? (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Remove relation to ${row.identifier}`}
+            // A phone has no hover: an invisible tap target beside the avatar
+            // would delete a link unseen, so there it is always drawn.
             className={cn(
-              `min-w-0 flex-1 truncate`,
-              phone ? `text-[0.9375rem]` : `text-sm`,
-              !row.open && `text-foreground/60`
+              `shrink-0 text-muted-foreground`,
+              !phone &&
+                `opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100`
             )}
+            onClick={() => removeRelation(relation)}
           >
-            {row.title}
-          </span>
-        </button>
-      </IssuePreviewHoverCard>
-      {!readOnly && relation && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={`Remove relation to ${row.identifier}`}
-          // A phone has no hover: an invisible tap target beside the avatar
-          // would delete a link unseen, so there it is always drawn.
-          className={cn(
-            `shrink-0 text-muted-foreground`,
-            !phone &&
-              `opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100`
-          )}
-          onClick={() => removeRelation(relation)}
-        >
-          <UiCloseIcon className="size-3.5" />
-        </Button>
-      )}
-      {assignee ? (
-        <UserAvatar user={assignee} size={phone ? 24 : 20} />
-      ) : (
-        <span
-          className={cn(
-            `flex shrink-0 items-center justify-center text-muted-foreground/50`,
-            phone ? `size-6` : `size-5`
-          )}
-        >
-          <UnassignedIcon className={phone ? `size-5` : `size-4`} />
-        </span>
-      )}
-    </ListRow>
+            <UiCloseIcon className="size-3.5" />
+          </Button>
+        ) : null
+      }
+    />
   )
 }
 
-function RowList({ phone, children }: { phone: boolean; children: ReactNode }) {
+/** The rows under a band: flat on md+, hairline-divided on phones. */
+export function RowList({ phone, children }: { phone: boolean; children: ReactNode }) {
   return (
     <div className={cn(`flex flex-col`, phone && `divide-y divide-glass-stroke`)}>
       {children}
@@ -504,8 +600,65 @@ function RowList({ phone, children }: { phone: boolean; children: ReactNode }) {
   )
 }
 
-/** One foldable band of the view: chevron · icon · title · count, its rows,
- *  then "Show N more" / "Show less". */
+/** THE foldable band ×4: chevron · icon · title · count, its rows, then
+ *  "Show N more" / "Show less". SLOP-16 r5: exported, so the "Related work"
+ *  dialog draws THIS band over its own rows rather than a look-alike. */
+export function RelationBandFrame({
+  testId,
+  icon: Icon,
+  title,
+  count,
+  expanded,
+  onToggle,
+  tail,
+  onTail,
+  phone,
+  children,
+}: {
+  testId: string
+  icon: ReturnType<typeof conceptIcon>
+  title: string
+  count: number
+  expanded: boolean
+  onToggle: () => void
+  /** "Show N more" / "Show less"; null when nothing is hidden. */
+  tail: string | null
+  onTail: () => void
+  phone: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className="flex flex-col" data-testid={testId}>
+      <GlassSectionHeader
+        label={title}
+        leading={<Icon className="size-3.5 shrink-0 text-muted-foreground" />}
+        count={count}
+        expanded={expanded}
+        onToggle={onToggle}
+        className={phone ? `mb-0 py-2` : `mb-0.5`}
+      />
+      {expanded && (
+        <RowList phone={phone}>
+          {children}
+          {tail && (
+            <button
+              type="button"
+              onClick={onTail}
+              className={cn(
+                `flex items-center rounded-md text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+                phone ? `h-11 px-3 text-sm` : `h-7 px-3 text-xs`
+              )}
+            >
+              {tail}
+            </button>
+          )}
+        </RowList>
+      )}
+    </div>
+  )
+}
+
+/** One foldable band of the view, bound to the relations model. */
 function RelationBand({
   band,
   model,
@@ -519,46 +672,30 @@ function RelationBand({
   phone: boolean
   readOnly: boolean
 }) {
-  const Icon = BAND_ICON[band.key]
-  const tail = band.more ?? band.less
   return (
-    <div className="flex flex-col" data-testid={`relation-band-${band.key}`}>
-      <GlassSectionHeader
-        label={band.title}
-        leading={<Icon className="size-3.5 shrink-0 text-muted-foreground" />}
-        count={band.count}
-        expanded={band.expanded}
-        onToggle={() => model.toggle(band.key)}
-        className={phone ? `mb-0 py-2` : `mb-0.5`}
-      />
-      {band.expanded && (
-        <RowList phone={phone}>
-          {band.rows.map((row) => (
-            <RelationIssueRow
-              key={row.id}
-              row={row}
-              slot={band.key}
-              model={model}
-              users={users}
-              phone={phone}
-              readOnly={readOnly}
-            />
-          ))}
-          {tail && (
-            <button
-              type="button"
-              onClick={() => model.toggleShowAll(band.key)}
-              className={cn(
-                `flex items-center rounded-md text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50`,
-                phone ? `h-11 px-3 text-sm` : `h-7 px-3 text-xs`
-              )}
-            >
-              {tail}
-            </button>
-          )}
-        </RowList>
-      )}
-    </div>
+    <RelationBandFrame
+      testId={`relation-band-${band.key}`}
+      icon={BAND_ICON[band.key]}
+      title={band.title}
+      count={band.count}
+      expanded={band.expanded}
+      onToggle={() => model.toggle(band.key)}
+      tail={band.more ?? band.less}
+      onTail={() => model.toggleShowAll(band.key)}
+      phone={phone}
+    >
+      {band.rows.map((row) => (
+        <RelationBandRow
+          key={row.id}
+          row={row}
+          slot={band.key}
+          model={model}
+          users={users}
+          phone={phone}
+          readOnly={readOnly}
+        />
+      ))}
+    </RelationBandFrame>
   )
 }
 
@@ -671,7 +808,7 @@ function SubIssuesBlock({
       />
       <RowList phone={phone}>
         {rows.map((row) => (
-          <RelationIssueRow
+          <RelationBandRow
             key={row.id}
             row={row}
             slot="child"

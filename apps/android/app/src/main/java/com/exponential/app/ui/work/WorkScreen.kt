@@ -469,12 +469,8 @@ fun WorkScreen(
     val graphVm: PrGraphViewModel = hiltViewModel()
     LaunchedEffect(issueId, shownSessionId) { graphVm.bind(issueId, shownSessionId) }
     val graph by graphVm.graph.collectAsStateWithLifecycle()
-    val graphMerging by graphVm.merging.collectAsStateWithLifecycle()
-    val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
-    // EXP-1058/EXP-1097: the header chip's front issue, resolved against its team.
-    val graphChipStatus by graphVm.chipStatus.collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
@@ -517,15 +513,11 @@ fun WorkScreen(
                     action = changesPrUrl?.takeIf { face == WorkFaceKind.Changes }?.let { url ->
                         { GithubHeaderAction(url) }
                     },
-                    // EXP-1058: the STACKED issue chip; a run with no issue
-                    // fronts it with the run's own name. EXP-1097: the same
-                    // compact chip on every face, beside the `…`.
+                    // SLOP-16: a quiet icon button beside the `…` whose glyph
+                    // names the shape (stack, batch, runs, blockers); the
+                    // chip it replaced only repeated the title.
                     badge = {
-                        PrGraphBadge(
-                            graph = graph,
-                            chipStatus = graphChipStatus,
-                            runTitle = shownSession?.let { sessionRowTitle(it, issue, batchIssues) },
-                        ) { graphSheetOpen = true }
+                        PrGraphBadge(graph = graph) { graphSheetOpen = true }
                     },
                     // EXP-934: the `…` belongs to the ISSUE, so it shows on the
                     // Issue face alone (`faceShowsContextMenu`) — Run, Changes
@@ -622,26 +614,20 @@ fun WorkScreen(
         }
     }
 
-    // EXP-897: the badge's overlay — the section follows the face on screen.
+    // EXP-897: the badge's "Related work" sheet.
     if (graphSheetOpen) {
-        // EXP-980: the Issue face draws the blocks CHAIN, not a chip row.
-        val blocksGraph by graphVm.blocksGraph.collectAsStateWithLifecycle()
-        val graphIssuesById by graphVm.issuesById.collectAsStateWithLifecycle()
+        val graphStatuses by graphVm.issueStatuses.collectAsStateWithLifecycle()
+        val graphUsers by graphVm.users.collectAsStateWithLifecycle()
         PrGraphSheet(
             graph = graph,
-            face = face,
-            nowMs = liveClock,
-            merging = graphMerging,
-            mergeError = graphMergeError,
-            blocksGraph = blocksGraph,
-            issuesById = graphIssuesById,
+            statuses = graphStatuses,
+            users = graphUsers,
             onOpenIssue = onOpenIssue,
-            onOpenRun = { id ->
-                shownSessionId = id
-                pinnedByUser = true
-                faceName = WorkFaceKind.Run.name
+            // SLOP-16 r3: a pull request row opens its Changes — this
+            // screen's own face for the subject's PR, else the review route.
+            onOpenPr = { id ->
+                if (id == issueId && hasChanges) faceName = WorkFaceKind.Changes.name else onOpenChanges(id)
             },
-            onMergeStack = graphVm::mergeStack,
             onDismiss = { graphSheetOpen = false },
         )
     }

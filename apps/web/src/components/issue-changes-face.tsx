@@ -122,7 +122,6 @@ export function IssueChangesFace({
           <PrGraphBadge
             teamId={teamId}
             teamSlug={teamSlug}
-            face="changes"
             issue={issue}
           />
         }

@@ -584,13 +584,11 @@ export function IssueDetailView({
       dot={mobileWork?.dot ?? null}
       tabs={mobileWork?.tabs}
       graphBadge={
-        /* EXP-897: the same stacked chip the md+ header wears, opening the same
-           overlay as a sheet (EXP-1097: compact on the phone — glyph ·
-           identifier · `+N`, beside the `…`). */
+        /* EXP-897: the same badge the md+ header wears (SLOP-16: an icon
+           button + `+N` beside the `…`), opening the overlay as a sheet. */
         <PrGraphBadge
           teamId={teamId}
           teamSlug={teamSlug}
-          face="issue"
           issue={issue}
         />
       }
@@ -774,12 +772,11 @@ export function IssueDetailView({
         trailing={
           <>
             {/* EXP-897: what this issue is part of — its stack, its batch
-                (EXP-1058: the stacked issue chip), its run family or its
-                open blockers (EXP-1097: the same chip on every face). */}
+                (SLOP-16: an icon button per shape), its run family or its
+                open blockers (EXP-1097: the same badge on every face). */}
             <PrGraphBadge
               teamId={teamId}
               teamSlug={teamSlug}
-              face="issue"
               issue={issue}
             />
             {faceToggle}

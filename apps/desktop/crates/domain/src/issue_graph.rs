@@ -348,13 +348,25 @@ pub fn block_graph<'a>(
 /// EXP-1057 — THE mini-graph look, identical ×4 (web `ISSUE_GRAPH_GEOMETRY`,
 /// iOS `IssueGraph.Geometry`, Android `IssueGraph.Geometry`), locked by
 /// `packages/domain-contract/fixtures/issue-graph-geometry.json`. Points
-/// (desktop px = web px). A node box sits at `inset + wave * (node + gap)`;
+/// (desktop px = web px). The graph is VERTICAL: waves are ROWS (top = the
+/// first blockers, bottom = the blocked subject), lanes are COLUMNS, so a
+/// chain never scrolls sideways. A node box sits at
+/// `(inset + lane * (node + LANE_GAP), inset + wave * (NODE_HEIGHT + WAVE_GAP))`;
 /// the grid is the boxes plus `inset` on every side, so rings never clip.
+///
+/// SLOP-16: the HOVER graphs (the rail popover, the work header badge
+/// overlay) draw the SMALL chip in [`geometry::COMPACT_NODE_WIDTH`] boxes;
+/// dialogs keep [`geometry::NODE_WIDTH`]. Every rule takes the node width as
+/// an override (`*_with`), and the fixture's `compact` cases lock it.
 pub mod geometry {
     pub const NODE_WIDTH: f32 = 176.;
+    /// SLOP-16 — the hover graphs' box: the small chip (glyph · identifier).
+    pub const COMPACT_NODE_WIDTH: f32 = 112.;
     pub const NODE_HEIGHT: f32 = 28.;
-    pub const WAVE_GAP: f32 = 40.;
-    pub const LANE_GAP: f32 = 8.;
+    /// The VERTICAL gap between wave rows.
+    pub const WAVE_GAP: f32 = 24.;
+    /// The HORIZONTAL gap between lane columns.
+    pub const LANE_GAP: f32 = 12.;
     pub const INSET: f32 = 4.;
     pub const MAX_VIEW_WIDTH: f32 = 520.;
     pub const MAX_VIEW_HEIGHT: f32 = 320.;
@@ -379,21 +391,49 @@ pub mod geometry {
     /// One edge as a cubic: `(start, control1, control2, end)`, each `(x, y)`.
     pub type GraphEdgeCurve = ((f32, f32), (f32, f32), (f32, f32), (f32, f32));
 
+    /// SLOP-16 — which box a graph draws its nodes in: the full chip
+    /// (dialogs) or the small one (hover graphs).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub enum Density {
+        #[default]
+        Full,
+        Compact,
+    }
+
+    impl Density {
+        pub fn node_width(self) -> f32 {
+            match self {
+                Density::Full => NODE_WIDTH,
+                Density::Compact => COMPACT_NODE_WIDTH,
+            }
+        }
+    }
+
     /// A node box's top-left inside the grid.
     pub fn origin(wave: usize, lane: usize) -> (f32, f32) {
+        origin_with(NODE_WIDTH, wave, lane)
+    }
+
+    /// [`origin`] at a given node width.
+    pub fn origin_with(node_width: f32, wave: usize, lane: usize) -> (f32, f32) {
         (
-            INSET + wave as f32 * (NODE_WIDTH + WAVE_GAP),
-            INSET + lane as f32 * (NODE_HEIGHT + LANE_GAP),
+            INSET + lane as f32 * (node_width + LANE_GAP),
+            INSET + wave as f32 * (NODE_HEIGHT + WAVE_GAP),
         )
     }
 
     /// The grid for `waves` × `lanes`; nothing at all without a node.
     pub fn size(waves: usize, lanes: usize) -> GraphSize {
+        size_with(NODE_WIDTH, waves, lanes)
+    }
+
+    /// [`size`] at a given node width.
+    pub fn size_with(node_width: f32, waves: usize, lanes: usize) -> GraphSize {
         if waves == 0 || lanes == 0 {
             return GraphSize::default();
         }
-        let width = 2. * INSET + waves as f32 * (NODE_WIDTH + WAVE_GAP) - WAVE_GAP;
-        let height = 2. * INSET + lanes as f32 * (NODE_HEIGHT + LANE_GAP) - LANE_GAP;
+        let width = 2. * INSET + lanes as f32 * (node_width + LANE_GAP) - LANE_GAP;
+        let height = 2. * INSET + waves as f32 * (NODE_HEIGHT + WAVE_GAP) - WAVE_GAP;
         GraphSize {
             width,
             height,
@@ -402,24 +442,30 @@ pub mod geometry {
         }
     }
 
-    /// How far a curve's control points sit from its ends: forward, the
-    /// gap's middle; backward (a cycle), `max(gap / 2, |dx| / 2)`.
-    pub fn bend(start_x: f32, end_x: f32, gap: f32) -> f32 {
-        if end_x > start_x {
-            (end_x - start_x) / 2.
+    /// How far a curve's control points sit from its ends along the wave
+    /// (vertical) axis: forward, the gap's middle; backward (a cycle),
+    /// `max(gap / 2, |dy| / 2)`.
+    pub fn bend(start_y: f32, end_y: f32, gap: f32) -> f32 {
+        if end_y > start_y {
+            (end_y - start_y) / 2.
         } else {
-            (gap / 2.).max((end_x - start_x).abs() / 2.)
+            (gap / 2.).max((end_y - start_y).abs() / 2.)
         }
     }
 
-    /// The blocker's right-middle → the blocked box's left-middle.
+    /// The blocker's bottom-middle → the blocked box's top-middle.
     pub fn edge(from: (usize, usize), to: (usize, usize)) -> GraphEdgeCurve {
-        let (ax, ay) = origin(from.0, from.1);
-        let (bx, by) = origin(to.0, to.1);
-        let start = (ax + NODE_WIDTH, ay + NODE_HEIGHT / 2.);
-        let end = (bx, by + NODE_HEIGHT / 2.);
-        let bend = bend(start.0, end.0, WAVE_GAP);
-        (start, (start.0 + bend, start.1), (end.0 - bend, end.1), end)
+        edge_with(NODE_WIDTH, from, to)
+    }
+
+    /// [`edge`] at a given node width.
+    pub fn edge_with(node_width: f32, from: (usize, usize), to: (usize, usize)) -> GraphEdgeCurve {
+        let (ax, ay) = origin_with(node_width, from.0, from.1);
+        let (bx, by) = origin_with(node_width, to.0, to.1);
+        let start = (ax + node_width / 2., ay + NODE_HEIGHT);
+        let end = (bx + node_width / 2., by);
+        let bend = bend(start.1, end.1, WAVE_GAP);
+        (start, (start.0, start.1 + bend), (end.0, end.1 - bend), end)
     }
 }
 
@@ -650,11 +696,20 @@ mod tests {
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
+    struct GeometryCompact {
+        sizes: Vec<GeometrySize>,
+        origins: Vec<GeometryOrigin>,
+        edges: Vec<GeometryEdge>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct GeometryFixture {
         constants: HashMap<String, f32>,
         sizes: Vec<GeometrySize>,
         origins: Vec<GeometryOrigin>,
         edges: Vec<GeometryEdge>,
+        compact: GeometryCompact,
     }
 
     /// EXP-1057 — the geometry fixture: constants, sizes, origins and edges,
@@ -679,47 +734,74 @@ mod tests {
             ("railNodeWidth", RAIL_NODE_WIDTH),
             ("railDot", RAIL_DOT),
             ("railDotRing", RAIL_DOT_RING),
+            ("compactNodeWidth", COMPACT_NODE_WIDTH),
         ];
         assert_eq!(fixture.constants.len(), constants.len(), "every constant mirrored");
         for (name, value) in constants {
             assert_eq!(fixture.constants.get(name), Some(&value), "constant: {name}");
         }
-        for case in &fixture.sizes {
-            assert_eq!(
-                size(case.waves, case.lanes),
-                GraphSize {
-                    width: case.width,
-                    height: case.height,
-                    view_width: case.view_width,
-                    view_height: case.view_height,
-                },
-                "size: {}",
-                case.name
-            );
-        }
-        for case in &fixture.origins {
-            assert_eq!(
-                origin(case.wave, case.lane),
-                (case.x, case.y),
-                "origin: {} {}",
-                case.wave,
-                case.lane
-            );
-        }
+        // SLOP-16: the same rules at a node-width override.
+        let replay = |node_width: f32,
+                      sizes: &[GeometrySize],
+                      origins: &[GeometryOrigin],
+                      edges: &[GeometryEdge],
+                      label: &str| {
+            for case in sizes {
+                assert_eq!(
+                    size_with(node_width, case.waves, case.lanes),
+                    GraphSize {
+                        width: case.width,
+                        height: case.height,
+                        view_width: case.view_width,
+                        view_height: case.view_height,
+                    },
+                    "{label} size: {}",
+                    case.name
+                );
+            }
+            for case in origins {
+                assert_eq!(
+                    origin_with(node_width, case.wave, case.lane),
+                    (case.x, case.y),
+                    "{label} origin: {} {}",
+                    case.wave,
+                    case.lane
+                );
+            }
+            for case in edges {
+                let point = |p: &GeometryPoint| (p.x, p.y);
+                assert_eq!(
+                    edge_with(
+                        node_width,
+                        (case.from.wave, case.from.lane),
+                        (case.to.wave, case.to.lane)
+                    ),
+                    (
+                        point(&case.start),
+                        point(&case.control1),
+                        point(&case.control2),
+                        point(&case.end)
+                    ),
+                    "{label} edge: {}",
+                    case.name
+                );
+            }
+        };
+        replay(NODE_WIDTH, &fixture.sizes, &fixture.origins, &fixture.edges, "full");
+        replay(
+            COMPACT_NODE_WIDTH,
+            &fixture.compact.sizes,
+            &fixture.compact.origins,
+            &fixture.compact.edges,
+            "compact",
+        );
+        // The full delegates stay byte-identical to the override at NODE_WIDTH.
         for case in &fixture.edges {
-            let point = |p: &GeometryPoint| (p.x, p.y);
-            assert_eq!(
-                edge((case.from.wave, case.from.lane), (case.to.wave, case.to.lane)),
-                (
-                    point(&case.start),
-                    point(&case.control1),
-                    point(&case.control2),
-                    point(&case.end)
-                ),
-                "edge: {}",
-                case.name
-            );
+            let (from, to) = ((case.from.wave, case.from.lane), (case.to.wave, case.to.lane));
+            assert_eq!(edge(from, to), edge_with(NODE_WIDTH, from, to));
         }
+        assert_eq!(size(3, 2), size_with(NODE_WIDTH, 3, 2));
+        assert_eq!(origin(2, 3), origin_with(NODE_WIDTH, 2, 3));
     }
 
     /// `blocks badge label` → `names the side that has a count`.

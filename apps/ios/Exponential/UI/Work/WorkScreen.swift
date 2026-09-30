@@ -372,32 +372,17 @@ struct WorkScreen: View {
         )
     }
 
-    /// EXP-930: the issue rows the overlay names its runs from — the graph's
-    /// own pool (pull requests + blockers), the batch's covered set and the
-    /// subject itself, in that order of authority.
-    private var graphIssuePool: [IssueEntity] {
-        var pool = prGraphModel?.knownIssues ?? []
-        var seen = Set(pool.map(\.id))
-        for row in (subjectModel?.batchIssues ?? []) + (issue.map { [$0] } ?? []) {
-            if seen.insert(row.id).inserted { pool.append(row) }
-        }
-        return pool
-    }
-
-    /// EXP-1058: the header's stacked issue chip, when there IS a stack, a
-    /// batch, a run tree or (EXP-1097) an open blocker to name — the same on
+    /// SLOP-16 r2: the header's graph icon button, when there IS a stack, a
+    /// batch or (EXP-1097) an open blocker to name — the same on
     /// every face.
     @ViewBuilder
     private var prGraphBadge: some View {
         if let graph = prGraph, let chip = PrGraph.badgeChip(graph) {
+            let shape = PrGraph.badgeShape(graph)
             PrGraphBadge(
-                chip: chip,
-                runName: chip.issue == nil
-                    ? shownSession.map {
-                        sessionRowTitle(issue: nil, session: $0, batchIssues: graphIssuePool)
-                    }
-                    : nil,
-                accessibilityName: PrGraphBadge.accessibilityName(PrGraph.badgeShape(graph))
+                shape: shape,
+                count: chip.count,
+                accessibilityName: PrGraphBadge.accessibilityName(shape)
             ) {
                 prGraphOpen = true
             }
@@ -616,12 +601,12 @@ struct WorkScreen: View {
                 ToolbarItem(placement: .principal) {
                     WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
                 }
-                // EXP-1097: the ONE graph chip (compact: glyph · identifier ·
-                // `+N`) sits on the action edge, left of `…` / Stop, on EVERY
-                // face. Always mounted (EXP-942: an action-edge item that
-                // comes and goes sometimes failed to reappear) and drawn
-                // WITHOUT the bar's shared capsule — it is a chip, not a
-                // button glyph.
+                // SLOP-16 r2: the ONE graph icon button sits on the action
+                // edge, left of `…` / Stop, on EVERY face, in the bar's own
+                // capsule like `…`. Always mounted (EXP-942: an action-edge
+                // item that comes and goes sometimes failed to reappear).
+                // Borderless like everywhere else: on iOS 26 the bar would
+                // otherwise fuse it with `…` into one shared capsule.
                 if #available(iOS 26.0, *) {
                     ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
                         .sharedBackgroundVisibility(.hidden)
@@ -741,35 +726,23 @@ struct WorkScreen: View {
             } message: {
                 Text("This action cannot be undone.")
             }
-            // EXP-897 Part 4: the badge's overlay — its sections follow the
-            // face underneath.
+            // EXP-897 Part 4: the badge's overlay, the same on every face.
             .background {
                 Color.clear
                     .sheet(isPresented: $prGraphOpen) {
                         if let graph = prGraph {
                             PrGraphSheet(
                                 graph: graph,
-                                face: face,
-                                issues: graphIssuePool,
-                                // EXP-980: the Issue face leads with the
-                                // transitive blocks chain, not a chip list.
-                                blockGraph: prGraphModel?.blockGraph(
-                                    issue: issue, pool: graphIssuePool
-                                ) ?? IssueGraph.Graph(
-                                    nodes: [], edges: [], hasCycle: false, truncated: false
-                                ),
                                 subjectIssueId: issue?.id,
+                                users: prGraphModel?.users ?? [],
+                                teamStatuses: issueVM?.teamStatuses ?? [],
                                 onOpenIssue: { id in
                                     prGraphOpen = false
                                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
                                 },
-                                onOpenRun: { id in
+                                onOpenPullRequest: { entry in
                                     prGraphOpen = false
-                                    swapIn(id)
-                                },
-                                onMergeStack: { id in
-                                    prGraphOpen = false
-                                    mergeStack(issueId: id)
+                                    openPullRequest(entry, subject: graph)
                                 }
                             )
                         }
@@ -961,32 +934,6 @@ struct WorkScreen: View {
             }
     }
 
-    /// EXP-897: merging the whole stack from the overlay — one call on the
-    /// BOTTOM entry's issue; the server resolves the top and merges every
-    /// unmerged member below it.
-    ///
-    /// EXP-917: a refusal is reported (the Reviews list captions its row; here
-    /// the overlay has already closed, so a toast carries it). A stack
-    /// refusal offers no Fix conflicts — the recovery run takes ONE pull
-    /// request — the same rule as every other client's stack merge.
-    private func mergeStack(issueId: String) {
-        let accountId = accountId
-        let issuesApi = deps.issuesApi
-        let toaster = toaster
-        Task {
-            do {
-                try await issuesApi.mergePr(
-                    accountId: accountId, issueId: issueId, mergeStack: true
-                )
-            } catch {
-                toaster.error(
-                    "Couldn't merge the stack",
-                    description: MergeFailure(error: error).message
-                )
-            }
-        }
-    }
-
     private func appear() {
         if subjectModel == nil {
             subjectModel = WorkSubjectModel(
@@ -1143,6 +1090,18 @@ struct WorkScreen: View {
     /// A tab tap (or an in-face link): the pages SLIDE to the face.
     private func selectFace(_ next: WorkFaceKind) {
         withAnimation(motion.standard) { switchFace(next) }
+    }
+
+    /// SLOP-16 r3: a Related work PR row — the subject's own PR is this
+    /// screen's Changes face; any other one opens on its own.
+    private func openPullRequest(_ entry: PrGraph.Entry, subject graph: PrGraph.Graph) {
+        if entry.id == graph.entry?.id, availableFaces.contains(.changes) {
+            selectFace(.changes)
+        } else {
+            deps.deepLinkBus.navigateToIssue(
+                entry.representative.id, accountId: accountId, face: .changes
+            )
+        }
     }
 
     private func switchFace(_ next: WorkFaceKind) {

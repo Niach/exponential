@@ -101,12 +101,14 @@ fun IssueGraphList(
     issuesById: Map<String, IssueEntity>,
     onOpenIssue: (String) -> Unit,
     modifier: Modifier = Modifier,
+    density: IssueGraph.Geometry.Density = IssueGraph.Geometry.Density.FULL,
 ) {
     IssueGraphPopover(
         graph = graph,
         issuesById = issuesById,
         onOpenIssue = onOpenIssue,
         modifier = modifier,
+        density = density,
     )
 }
 
@@ -150,6 +152,8 @@ fun IssueGraphSheet(
                     onDismiss()
                     onOpenIssue(id)
                 },
+                // SLOP-16: the phone's rail popover = the web's compact hover graph.
+                density = IssueGraph.Geometry.Density.COMPACT,
             )
         }
         Spacer(Modifier.size(8.dp))

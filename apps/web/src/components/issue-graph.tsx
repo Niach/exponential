@@ -6,7 +6,6 @@ import { boardCollection, teamCollection } from "@/lib/collections"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import {
   blockGraph,
-  ISSUE_GRAPH_COMPACT_NODE_WIDTH,
   ISSUE_GRAPH_CYCLE_NOTE,
   ISSUE_GRAPH_GEOMETRY,
   issueGraphEdgePath,
@@ -21,11 +20,13 @@ import { cn } from "@/lib/utils"
 // EXP-980: THE blocks mini-graph. One component behind the list's blocks
 // badge, the PrGraphBadge overlay's Issue face and the blocked-start dialog.
 //
-// No graph library: every node arrives with a `wave` (column) and a `lane`
-// (row) — derived here by `lib/issue-graph.ts`, synced from the server for a
-// workflow (EXP-981) — so this is a grid of boxes with one SVG of edges
-// behind it. An edge runs from its blocker's right edge to the blocked node's
-// left edge: grey, RED on a blocking cycle. Subjects wear the accent ring,
+// No graph library: every node arrives with a `wave` (ROW) and a `lane`
+// (COLUMN) — derived here by `lib/issue-graph.ts` — so this is a grid of
+// boxes with one SVG of edges behind it. SLOP-16: the graph is VERTICAL, top
+// = the first blockers, bottom = the blocked subject, so a chain grows
+// downward and never scrolls sideways. An edge runs from its blocker's
+// bottom-middle to the blocked node's top-middle: grey, RED on a blocking
+// cycle. Subjects wear the accent ring,
 // cycle members a red one. Phones get the same rows as a list grouped by wave
 // (`IssueGraphList` on the natives); the web keeps the grid and scrolls it.
 //
@@ -49,8 +50,7 @@ import { cn } from "@/lib/utils"
 //
 // SLOP-15: `density="compact"` is the HOVER graph — the rail's popover, the
 // work header's overlay — drawn with the small chip (glyph · identifier) in
-// `ISSUE_GRAPH_COMPACT_NODE_WIDTH` boxes, so a three-wave chain fits without
-// scrolling sideways. A dialog keeps the full box and the titles.
+// `compactNodeWidth` boxes (the fixture's, ×4). A dialog keeps the full box and the titles.
 
 export type IssueGraphDensity = `full` | `compact`
 
@@ -73,7 +73,7 @@ export function IssueGraphView({
 
   const g = ISSUE_GRAPH_GEOMETRY
   const metrics = {
-    nodeWidth: density === `compact` ? ISSUE_GRAPH_COMPACT_NODE_WIDTH : g.nodeWidth,
+    nodeWidth: density === `compact` ? g.compactNodeWidth : g.nodeWidth,
   }
   const size = issueGraphSize(
     Math.max(...graph.nodes.map((node) => node.wave)) + 1,
@@ -110,6 +110,7 @@ export function IssueGraphView({
           nodeHeight={g.nodeHeight}
           waveGap={g.waveGap}
           laneGap={g.laneGap}
+          orientation="vertical"
           edgeStrokeWidth={g.edgeStroke}
           pathFor={(_edge, { from, to }) =>
             issueGraphEdgePath(from, to, { insetIncluded: false, ...metrics })

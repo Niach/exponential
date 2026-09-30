@@ -27,6 +27,13 @@ public enum IssueChipTokens {
     public static let titleMaxWidth: CGFloat = 220
 }
 
+/// SLOP-15/16 — the chip's two sizes. `.sm` = the SAME box with glyph ·
+/// identifier only, no title; the title rides in the pointer tooltip and the
+/// accessibility label (web `IssueChip size="sm"`).
+public enum IssueChipSize: Sendable {
+    case md, sm
+}
+
 /// EXP-885 — the ONE issue badge. Every chip-shaped issue reference outside the
 /// markdown text painter renders through this view, and it is styled from the
 /// SAME `MarkdownStyle` chip tokens that painter uses, so the two cannot drift:
@@ -43,6 +50,8 @@ public struct IssueChip: View {
     private let iconName: String?
     private let statusColor: Color?
     private let bodySize: CGFloat?
+    private let size: IssueChipSize
+    private let fillsFrame: Bool
     private let onTap: (() -> Void)?
     private let onRemove: (() -> Void)?
 
@@ -50,12 +59,16 @@ public struct IssueChip: View {
     ///   - bodySize: the prose measure the chip sits in (EXP-787's seam — the
     ///     transcript reads at `DesignTokens.Transcript.bodySize`). `nil` = the
     ///     interchange body font, exactly like `MarkdownStyle.bodyFont`.
+    ///   - fillsFrame: SLOP-16 — the box covers the whole frame it is given
+    ///     (the mini-graph's node boxes); off, the chip keeps its own size.
     public init(
         identifier: String?,
         title: String?,
         iconName: String?,
         statusColor: Color?,
         bodySize: CGFloat? = nil,
+        size: IssueChipSize = .md,
+        fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
         onRemove: (() -> Void)? = nil
     ) {
@@ -64,6 +77,8 @@ public struct IssueChip: View {
         self.iconName = iconName
         self.statusColor = statusColor
         self.bodySize = bodySize
+        self.size = size
+        self.fillsFrame = fillsFrame
         self.onTap = onTap
         self.onRemove = onRemove
     }
@@ -75,6 +90,8 @@ public struct IssueChip: View {
         title: String?,
         status: ResolvedIssueStatus?,
         bodySize: CGFloat? = nil,
+        size: IssueChipSize = .md,
+        fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
         onRemove: (() -> Void)? = nil
     ) {
@@ -84,6 +101,8 @@ public struct IssueChip: View {
             iconName: status?.iconName,
             statusColor: status?.color,
             bodySize: bodySize,
+            size: size,
+            fillsFrame: fillsFrame,
             onTap: onTap,
             onRemove: onRemove
         )
@@ -96,6 +115,8 @@ public struct IssueChip: View {
         title: String?,
         status: IssueStatus,
         bodySize: CGFloat? = nil,
+        size: IssueChipSize = .md,
+        fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
         onRemove: (() -> Void)? = nil
     ) {
@@ -105,6 +126,8 @@ public struct IssueChip: View {
             iconName: status.iconName,
             statusColor: status.color,
             bodySize: bodySize,
+            size: size,
+            fillsFrame: fillsFrame,
             onTap: onTap,
             onRemove: onRemove
         )
@@ -122,7 +145,23 @@ public struct IssueChip: View {
         [identifier, chipTitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
     }
 
+    /// The small chip's pointer tooltip: identifier · title.
+    private var helpText: String? {
+        guard size == .sm, let chipTitle else { return nil }
+        guard let identifier, !identifier.isEmpty else { return chipTitle }
+        return "\(identifier) · \(chipTitle)"
+    }
+
     public var body: some View {
+        if let helpText {
+            content.help(helpText)
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if onRemove == nil {
             // One element: the chip reads as "EXP-42 Fix login flow", and as a
             // button when it opens the issue.
@@ -153,9 +192,10 @@ public struct IssueChip: View {
     private var surface: some View {
         ChipBox(
             identifier: identifier,
-            title: chipTitle,
+            title: size == .sm ? nil : chipTitle,
             bodySize: bodySize,
-            showsRemoveGlyph: onRemove != nil
+            showsRemoveGlyph: onRemove != nil,
+            fillsFrame: fillsFrame
         ) {
             if let iconName {
                 AppIcon(iconName, size: MarkdownStyle.chipStatusIconSize)

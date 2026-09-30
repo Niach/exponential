@@ -221,22 +221,6 @@ function ReviewDetailPage() {
       })
   }
 
-  // EXP-897: merge the WHOLE stack, from its top — the server merges every
-  // unmerged member below it. A refusal captions the bar, like a refused close.
-  const mergeStack = (topIssueId: string) => {
-    setCloseError(null)
-    trpc.issues.mergePr
-      .mutate(
-        { issueId: topIssueId, mergeStack: true },
-        { context: { skipErrorToast: true } }
-      )
-      .catch((error: unknown) => {
-        setCloseError(
-          mergeFailure(error, `The stack could not be merged`).message
-        )
-      })
-  }
-
   const openIssue = (linkedIssue: Issue) => {
     const boardSlug = boardSlugById.get(linkedIssue.boardId)
     if (!boardSlug) return
@@ -347,15 +331,12 @@ function ReviewDetailPage() {
         onClosePr={() => setConfirmCloseOpen(true)}
         closing={closing}
         trailing={
-          /* EXP-897: the review page IS the Changes face — the same stack /
-             batch chip the run's header wears, with `Merge stack` on the
-             bottom entry of the stack. */
+          /* EXP-897: the review page IS the Changes face — the same
+             "Related work" button the run's header wears. */
           <PrGraphBadge
             teamId={team.id}
             teamSlug={teamSlug}
-            face="changes"
             issue={issue}
-            onMergeStack={mergeStack}
           />
         }
       />

@@ -63,10 +63,13 @@ const ISSUE_CHIP_GAP: f32 = 4.0;
 const ISSUE_CHIP_REMOVE_SIZE: f32 = 16.0;
 /// EXP-1014 — the STACKED variant's step: each ghost sits this far up and to
 /// the right of the one in front of it, so a compound node reads as a deck of
-/// chips at a glance.
-pub(crate) const ISSUE_CHIP_STACK_STEP: f32 = 3.0;
+/// chips at a glance. SLOP-15/16: 2px, the web's `STACK_OFFSETS = [4, 2]`.
+pub(crate) const ISSUE_CHIP_STACK_STEP: f32 = 2.0;
 /// How many ghosts peek out behind the front chip.
 const ISSUE_CHIP_STACK_GHOSTS: usize = 2;
+/// SLOP-15/16 — the FAR ghost draws at half strength (web
+/// `.issue-chip-ghost[data-depth="2"] { opacity: 0.5 }`).
+pub(crate) const ISSUE_CHIP_STACK_FAR_OPACITY: f32 = 0.5;
 
 /// The vendored editor crate carries its OWN copy of the geometry (it is a
 /// standalone crate with a host-supplied theme, so it cannot import ours).
@@ -118,6 +121,8 @@ pub(crate) struct IssueChip {
     /// (the workflow graph's compound node: a parent run with its
     /// sub-issues).
     stacked: bool,
+    /// SLOP-15/16: the SMALL chip — glyph · identifier, no title.
+    small: bool,
     /// EXP-1014: the hairline, overridden — red inside a cycle, dashed for a
     /// node that is only proposed.
     outline: Option<(gpui::Hsla, bool)>,
@@ -143,6 +148,7 @@ pub(crate) fn issue_chip(
         note: None,
         trailing: None,
         stacked: false,
+        small: false,
         outline: None,
         on_click: None,
         on_remove: None,
@@ -201,6 +207,13 @@ impl IssueChip {
     /// and to the right behind it (a compound workflow node).
     pub(crate) fn stacked(mut self) -> Self {
         self.stacked = true;
+        self
+    }
+
+    /// SLOP-15/16 — the web's `IssueChip size="sm"`: the same box, glyph ·
+    /// mono identifier, NO title; the title rides in the tooltip instead.
+    pub(crate) fn small(mut self) -> Self {
+        self.small = true;
         self
     }
 
@@ -291,6 +304,14 @@ impl RenderOnce for IssueChip {
             .bg(background)
             .text_xs()
             .child(lead);
+        // SLOP-15/16: the small chip names the issue in its tooltip.
+        let tooltip = (self.small && !self.title.is_empty()).then(|| {
+            SharedString::from(if self.identifier.is_empty() {
+                self.title.to_string()
+            } else {
+                format!("{} · {}", self.identifier, self.title)
+            })
+        });
         if !self.identifier.is_empty() {
             chip = chip.child(
                 div()
@@ -300,7 +321,7 @@ impl RenderOnce for IssueChip {
                     .child(self.identifier),
             );
         }
-        if !self.title.is_empty() {
+        if !self.title.is_empty() && !self.small {
             let mut title = div()
                 .min_w_0()
                 .truncate()
@@ -350,14 +371,21 @@ impl RenderOnce for IssueChip {
             chip.cursor_pointer()
                 .hover(|style| style.border_color(ring))
         });
+        let chip = chip.when_some(tooltip, |chip, text| {
+            chip.tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+            })
+        });
         if !self.stacked {
             return chip.into_any_element();
         }
         // The DECK: the ghosts are the same rounded rect stepped up and to
         // the right, painted BEFORE the chip so it sits on top of them.
+        // SLOP-15/16: outline-only like the web's `.issue-chip-ghost` (no
+        // fill), 2px steps, the far one at half strength.
         let mut deck = div().relative().min_w_0().when(spans, |deck| deck.w_full());
-        for step in (1..=ISSUE_CHIP_STACK_GHOSTS).rev() {
-            let step = ISSUE_CHIP_STACK_STEP * step as f32;
+        for index in (1..=ISSUE_CHIP_STACK_GHOSTS).rev() {
+            let step = ISSUE_CHIP_STACK_STEP * index as f32;
             deck = deck.child(
                 div()
                     .absolute()
@@ -368,7 +396,9 @@ impl RenderOnce for IssueChip {
                     .rounded(px(ISSUE_CHIP_RADIUS))
                     .border_1()
                     .border_color(border)
-                    .bg(background),
+                    .when(index == ISSUE_CHIP_STACK_GHOSTS, |ghost| {
+                        ghost.opacity(ISSUE_CHIP_STACK_FAR_OPACITY)
+                    }),
             );
         }
         deck.child(chip).into_any_element()
@@ -395,6 +425,15 @@ mod tests {
         assert_eq!(ISSUE_CHIP_PAD_X, 3.0);
         assert_eq!(ISSUE_CHIP_PAD_Y, 1.0);
         assert_eq!(ISSUE_CHIP_ICON_MAX, 14.0);
+    }
+
+    /// SLOP-15/16: mirrors the web's `STACK_OFFSETS = [4, 2]` (2px steps, two
+    /// ghosts) and `.issue-chip-ghost[data-depth="2"] { opacity: 0.5 }`.
+    #[test]
+    fn the_stack_ghosts_match_the_web() {
+        assert_eq!(ISSUE_CHIP_STACK_STEP, 2.);
+        assert_eq!(ISSUE_CHIP_STACK_GHOSTS, 2);
+        assert_eq!(ISSUE_CHIP_STACK_FAR_OPACITY, 0.5);
     }
 
     #[test]

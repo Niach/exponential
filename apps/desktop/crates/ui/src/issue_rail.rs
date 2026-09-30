@@ -90,7 +90,12 @@ pub(crate) fn rail_node(
                                     .text_color(cx.theme().muted_foreground)
                                     .child(label.clone()),
                             )
-                            .child(graph_overlay(&graph, VIEW_W, cx))
+                            .child(graph_overlay(
+                                &graph,
+                                VIEW_W,
+                                domain::issue_graph::geometry::Density::Compact,
+                                cx,
+                            ))
                     }),
             )
             .into_any_element(),

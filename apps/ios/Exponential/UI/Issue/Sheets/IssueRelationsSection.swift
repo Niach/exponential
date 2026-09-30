@@ -18,8 +18,6 @@ struct IssueRelationsSection: View {
     let onOpen: (String) -> Void
     let onRemove: (IssueRelationRow) -> Void
 
-    @Environment(\.motion) private var motion
-
     var body: some View {
         let view = vm.relationsView
         VStack(alignment: .leading, spacing: 8) {
@@ -41,55 +39,98 @@ struct IssueRelationsSection: View {
         }
     }
 
-    @ViewBuilder
     private func bandView(_ band: IssueRelationsView.Band) -> some View {
+        IssueRelationBand(
+            title: band.title,
+            icon: Self.iconName(band.key),
+            count: band.count,
+            expanded: band.expanded,
+            moreLabel: band.more ?? band.less,
+            identifier: "relation-band-\(band.key.rawValue)",
+            onToggle: { vm.toggleRelationBand(band.key) },
+            onToggleShowAll: { vm.toggleRelationBandShowAll(band.key) }
+        ) {
+            IssueRelationRowList(
+                rows: band.rows,
+                vm: vm,
+                removeLabel: "Remove relation",
+                onOpen: onOpen,
+                onRemove: { otherId in
+                    guard let row = vm.relationRow(band: band.key, otherId: otherId) else {
+                        return
+                    }
+                    onRemove(row)
+                }
+            )
+        }
+    }
+
+    /// One concept glyph per relation SIDE (EXP-736).
+    static func iconName(_ key: IssueRelationsView.BandKey) -> String {
+        switch key {
+        case .blockedBy: AppIcons.relationBlockedBy
+        case .blocking: AppIcons.relationBlocks
+        case .duplicateOf, .duplicatedBy: AppIcons.relationDuplicate
+        case .related: AppIcons.relationRelated
+        }
+    }
+}
+
+/// THE relations card's foldable band ×4 (EXP-1097): chevron · side glyph ·
+/// title · count right, then its flat rows and — when rows exceed the cap —
+/// the "Show N more" / "Show less" row. The properties sheet's Relations
+/// block and the Related work sheet (SLOP-16 r5) both draw it.
+struct IssueRelationBand<Rows: View>: View {
+    let title: String
+    let icon: String
+    let count: Int
+    let expanded: Bool
+    /// "Show N more" / "Show less", nil when nothing overflows the cap.
+    let moreLabel: String?
+    let identifier: String
+    let onToggle: () -> Void
+    let onToggleShowAll: () -> Void
+    @ViewBuilder let rows: () -> Rows
+
+    @Environment(\.motion) private var motion
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(motion.standard) { vm.toggleRelationBand(band.key) }
+                withAnimation(motion.standard) { onToggle() }
             } label: {
-                GlassSectionBand(band.title) {
+                GlassSectionBand(title) {
                     HStack(spacing: 6) {
                         AppIcon(
-                            band.expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight,
+                            expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight,
                             size: 12,
                             weight: .medium
                         )
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .frame(width: 14)
-                        AppIcon(Self.iconName(band.key), size: 14)
+                        AppIcon(icon, size: 14)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
                 } trailing: {
-                    Text("\(band.count)")
+                    Text("\(count)")
                         .font(.caption.monospaced())
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(band.title), \(band.count)")
-            .accessibilityValue(band.expanded ? "Expanded" : "Collapsed")
-            .accessibilityIdentifier("relation-band-\(band.key.rawValue)")
+            .accessibilityLabel("\(title), \(count)")
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            .accessibilityIdentifier(identifier)
 
-            if band.expanded {
-                IssueRelationRowList(
-                    rows: band.rows,
-                    vm: vm,
-                    removeLabel: "Remove relation",
-                    onOpen: onOpen,
-                    onRemove: { otherId in
-                        guard let row = vm.relationRow(band: band.key, otherId: otherId) else {
-                            return
-                        }
-                        onRemove(row)
-                    }
-                )
-                if let label = band.more ?? band.less {
+            if expanded {
+                rows()
+                if let moreLabel {
                     GlassDivider()
                     Button {
-                        withAnimation(motion.standard) { vm.toggleRelationBandShowAll(band.key) }
+                        withAnimation(motion.standard) { onToggleShowAll() }
                     } label: {
-                        Text(label)
+                        Text(moreLabel)
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .padding(.horizontal, 12)
@@ -103,16 +144,6 @@ struct IssueRelationsSection: View {
                     .buttonStyle(.plain)
                 }
             }
-        }
-    }
-
-    /// One concept glyph per relation SIDE (EXP-736).
-    static func iconName(_ key: IssueRelationsView.BandKey) -> String {
-        switch key {
-        case .blockedBy: AppIcons.relationBlockedBy
-        case .blocking: AppIcons.relationBlocks
-        case .duplicateOf, .duplicatedBy: AppIcons.relationDuplicate
-        case .related: AppIcons.relationRelated
         }
     }
 }

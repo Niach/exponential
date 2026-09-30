@@ -63,6 +63,10 @@ public struct ChipBox<Leading: View>: View {
     let titleColor: Color
     let bodySize: CGFloat?
     let showsRemoveGlyph: Bool
+    /// SLOP-16: stretch the box (paint + border) over the whole frame the
+    /// parent offers, content at the leading edge, the title truncating: the
+    /// mini-graph's node boxes, whose edges meet the box's edges.
+    let fillsFrame: Bool
     @ViewBuilder let leading: () -> Leading
 
     public init(
@@ -71,6 +75,7 @@ public struct ChipBox<Leading: View>: View {
         titleColor: Color = Color(MarkdownStyle.textColor),
         bodySize: CGFloat? = nil,
         showsRemoveGlyph: Bool = false,
+        fillsFrame: Bool = false,
         @ViewBuilder leading: @escaping () -> Leading
     ) {
         self.identifier = identifier
@@ -78,6 +83,7 @@ public struct ChipBox<Leading: View>: View {
         self.titleColor = titleColor
         self.bodySize = bodySize
         self.showsRemoveGlyph = showsRemoveGlyph
+        self.fillsFrame = fillsFrame
         self.leading = leading
     }
 
@@ -105,6 +111,11 @@ public struct ChipBox<Leading: View>: View {
                     .foregroundStyle(Color(MarkdownStyle.chipTokenColor))
             }
         }
+        .frame(
+            maxWidth: fillsFrame ? .infinity : nil,
+            maxHeight: fillsFrame ? .infinity : nil,
+            alignment: .leading
+        )
         .padding(.horizontal, IssueChipTokens.horizontalPadding)
         .padding(.vertical, IssueChipTokens.verticalPadding)
         .background(
