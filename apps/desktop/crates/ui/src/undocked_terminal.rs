@@ -171,10 +171,10 @@ impl Render for UndockedTerminalWindow {
                 .into_any_element()
         };
 
-        // Root layers for parity with every other window (notifications).
+        // Root layers for parity with every other window (toasts).
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
+        let toast_layer = crate::toast::render_layer(window, cx);
 
         let mut body = v_flex().size_full().child(header);
         if let Some(view) = view {
@@ -200,7 +200,7 @@ impl Render for UndockedTerminalWindow {
                 .child(crate::text_selection_guard::selection_guard())
                 .children(sheet_layer)
                 .children(dialog_layer)
-                .children(notification_layer),
+                .child(toast_layer),
         )
     }
 }

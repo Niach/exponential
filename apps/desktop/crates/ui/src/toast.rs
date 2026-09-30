@@ -2,49 +2,75 @@
 //! `Toast.swift` and Android `Toast.kt`, all drawn from ONE contract:
 //! `packages/domain-contract/fixtures/toast-stack.json`.
 //!
-//! The IDE's stack is gpui-component's `Notification` list: its engine
-//! (`gpui_base::ToastMotion::sonner()`) already stacks like sonner — newest
-//! in front, three visible collapsed, older ones peeking by 14 and shrinking
-//! by 5% per rank, hover expands them 14 apart and pauses the clock. This
-//! module owns only the FACE: the kind colour on the ICON alone (registry
-//! concepts `ui-success` / `ui-error` / `ui-info` / `ui-warning`), the text in
-//! the foreground, the opaque glass card fill under the card hairline at
-//! radius lg and NO shadow. Placement (bottom-right, 24 from the edges) and
-//! width (356) are `theme::apply_exponential_dark`'s `theme.notification`.
+//! The IDE owns the whole layer: one [`ToastLayer`] per window (found by
+//! window id, rendered by every root via [`render_layer`]) keeps the toasts
+//! in gpui-base's PURE lifecycle model (`ToastManager`, enter/exit phases +
+//! the pausable 4 s clock) and draws them itself — bottom-right, 24 from the
+//! edges, 356 wide; newest in front, the older ones peeking 14 above and
+//! shrinking 5% per rank, 3 visible; hover EXPANDS them 14 apart and pauses
+//! the clock. The geometry is [`stack_layout`] (fixture-locked); every
+//! movement is a `theme::motion` token (enter STANDARD/decelerate, exit
+//! FAST/accelerate, stack changes SLOW/standard) — never the crate's easing.
 //!
-//! [`show`] pushes a live toast; [`card`] draws the same face as a plain
-//! element for the styleguide. Both go through [`chrome`] + [`body`], so the
-//! two cannot drift.
-//!
-//! Accepted leftovers (the vendored crate's): the 5 s auto-dismiss (the
-//! contract says 4 s), the close glyph that only shows on hover, and the
-//! crate's own enter/exit easing.
+//! The card is the kind colour on the ICON alone (registry concepts
+//! `ui-success` / `ui-error` / `ui-info` / `ui-warning`), the text in the
+//! foreground, the opaque glass card fill under the card hairline at radius
+//! lg, NO shadow, and an always-visible `ui-close` glyph. [`card`] draws the
+//! same face for the styleguide; both go through [`face`], so they cannot
+//! drift.
 
-use std::rc::Rc;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, Div, Hsla, IntoElement as _, ParentElement as _, SharedString, Styled, Window,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Context, Div,
+    ElementId, Entity, Global, Hsla, InteractiveElement as _, IntoElement, MouseButton,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Task, Window, WindowId,
+};
+use gpui_base::{
+    transition, ElementExt as _, ToastManager, ToastMotion, ToastOptions, ToastTransitionStatus, Transition,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex,
-    notification::Notification,
-    v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use theme::tokens as t;
 
 use crate::icons::{registry, ExpIcon};
 
 /// The contract's numbers (`toast-stack.json` `constants`), locked by the
-/// tests below. `durationMs` is the contract's; the IDE's crate keeps 5 s.
+/// tests below.
 pub(crate) mod constants {
-    pub(crate) const WIDTH: f32 = theme::TOAST_WIDTH;
+    use std::time::Duration;
+
+    pub(crate) const WIDTH: f32 = 356.;
     pub(crate) const GAP: f32 = 14.;
     pub(crate) const PEEK: f32 = 14.;
     pub(crate) const SCALE_STEP: f32 = 0.05;
     pub(crate) const VISIBLE: usize = 3;
-    #[cfg_attr(not(test), allow(dead_code))] // placement is theme.notification
-    pub(crate) const VIEWPORT_OFFSET: f32 = theme::TOAST_VIEWPORT_OFFSET;
+    pub(crate) const VIEWPORT_OFFSET: f32 = 24.;
+    /// `durationMs`: the auto-dismiss clock, paused while the stack is hovered.
+    pub(crate) const DURATION: Duration = Duration::from_millis(4000);
+    /// How far a card travels while it enters or leaves.
+    pub(crate) const TRAVEL: f32 = 14.;
+}
+
+/// The lifecycle model's motion: our tokens for the enter (STANDARD) and
+/// exit (FAST) phases, the fixture's numbers for the stack.
+pub(crate) fn motion() -> ToastMotion {
+    ToastMotion {
+        duration: theme::motion::STANDARD,
+        exit_duration: theme::motion::FAST,
+        collapsed_peek: px(constants::PEEK),
+        expanded_gap: px(constants::GAP),
+        collapsed_scale_step: constants::SCALE_STEP,
+        collapsed_visible: constants::VISIBLE,
+    }
 }
 
 /// A toast's kind: it colours the icon, nothing else.
@@ -148,9 +174,12 @@ impl Toast {
     }
 }
 
-/// Push `toast` onto `window`'s stack (the window's `Root` owns it).
+/// Push `toast` onto `window`'s stack (the window's [`ToastLayer`]).
 pub(crate) fn show(toast: Toast, window: &mut Window, cx: &mut App) {
-    window.push_notification(notification(toast, cx), cx);
+    let layer = layer_for_window(window, cx);
+    layer.update(cx, |layer, cx| {
+        layer.push(toast, cx);
+    });
 }
 
 /// Push onto the active (else primary) window — for callers without one.
@@ -175,35 +204,8 @@ pub(crate) fn warning(title: impl Into<SharedString>, window: &mut Window, cx: &
     show(Toast::warning(title), window, cx);
 }
 
-/// The crate `Notification` carrying our face. NO `with_type` — that would
-/// force the crate's icon and tint; with none the crate draws our `.icon`.
-fn notification(toast: Toast, cx: &App) -> Notification {
-    let icon = kind_icon(toast.kind, cx);
-    let action = toast.action.clone();
-    let content = toast.clone();
-    let note = Notification::new()
-        .icon(icon)
-        .content(move |_, _, cx| body(&content, cx).into_any_element());
-    let note = match action {
-        // `.action` turns autohide off; the contract keeps the clock running.
-        Some(action) => note
-            .action(move |_, _, cx| {
-                let on_click = action.on_click.clone();
-                action_button(action.label.clone()).on_click(cx.listener(
-                    move |this, _, window, cx| {
-                        this.dismiss(window, cx);
-                        on_click(window, cx);
-                    },
-                ))
-            })
-            .autohide(true),
-        None => note,
-    };
-    chrome(note, cx)
-}
-
 /// The card: opaque glass card fill, card hairline, radius lg, no shadow,
-/// 16 in from every edge. Applied AFTER the crate's own chrome, so it wins.
+/// 16 in from every edge.
 fn chrome<T: Styled>(el: T, cx: &App) -> T {
     el.bg(cx.theme().popover)
         .border_1()
@@ -234,35 +236,380 @@ fn body(toast: &Toast, cx: &App) -> Div {
         })
 }
 
-fn action_button(label: SharedString) -> Button {
-    Button::new("toast-action").label(label).primary()
+type Dismiss = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// THE face, live or at rest: icon 16 in the kind colour (18 / 16 in), the
+/// body 24 in, the small action last, the ALWAYS-visible 20 px close glyph
+/// top-right. `content` fades everything inside the card (a card behind the
+/// front one in a collapsed stack shows only its edge, like the web's
+/// `data-[front=false]`). `dismiss` = the live layer's close; the action runs
+/// its own handler, then dismisses.
+fn face(toast: &Toast, content: f32, dismiss: Option<Dismiss>, cx: &App) -> Div {
+    let frame = h_flex().relative().w(px(constants::WIDTH)).gap_3();
+    let action = toast.action.clone().map(|action| {
+        let dismiss = dismiss.clone();
+        let button = Button::new("toast-action").label(action.label.clone()).primary().small();
+        let button = match dismiss {
+            Some(dismiss) => button.on_click(move |_, window, cx| {
+                (action.on_click)(window, cx);
+                dismiss(window, cx);
+            }),
+            None => button,
+        };
+        div().mr_3p5().opacity(content).child(button)
+    });
+    let close = Button::new("toast-close")
+        .icon(Icon::new(registry::UI_CLOSE))
+        .ghost()
+        .xsmall()
+        .when_some(dismiss, |button, dismiss| {
+            button.on_click(move |_, window, cx| dismiss(window, cx))
+        });
+    chrome(frame, cx)
+        .child(
+            div()
+                .absolute()
+                .top(px(18.))
+                .left_4()
+                .opacity(content)
+                .child(kind_icon(toast.kind, cx)),
+        )
+        .child(
+            v_flex()
+                .flex_1()
+                .overflow_hidden()
+                .pl_6()
+                .opacity(content)
+                .child(body(toast, cx)),
+        )
+        .children(action)
+        .child(div().absolute().top_1().right_1().opacity(content).child(close))
 }
 
 /// The toast AT REST as a plain element (the styleguide's specimen): the
-/// crate's frame (icon absolute at 18 / 16, content 24 in, action last,
-/// close top-right) wearing the same [`chrome`] and [`body`] as [`show`].
+/// same [`face`] the live layer draws.
 pub(crate) fn card(toast: &Toast, cx: &App) -> Div {
-    let frame = h_flex().relative().w(px(constants::WIDTH)).gap_3();
-    chrome(frame, cx)
-        .child(div().absolute().top(px(18.)).left_4().child(kind_icon(toast.kind, cx)))
-        .child(v_flex().flex_1().overflow_hidden().pl_6().child(body(toast, cx)))
-        .when_some(toast.action.clone(), |this, action| {
-            this.child(action_button(action.label).small().mr_3p5())
-        })
-        .child(
-            div().absolute().top_1().right_1().child(
-                Button::new("toast-close")
-                    .icon(Icon::new(registry::UI_CLOSE))
-                    .ghost()
-                    .xsmall(),
-            ),
-        )
+    face(toast, 1., None, cx)
 }
 
-/// A card BEHIND the front one in a collapsed stack: the chrome alone (web
-/// `data-[front=false]` hides a back card's contents the same way).
-pub(crate) fn card_back(cx: &App) -> Div {
-    chrome(div().w(px(constants::WIDTH)), cx)
+/// A card BEHIND the front one in a collapsed stack: the edge alone.
+pub(crate) fn card_back(toast: &Toast, cx: &App) -> Div {
+    face(toast, 0., None, cx)
+}
+
+// ---------------------------------------------------------------------------
+// The live layer
+// ---------------------------------------------------------------------------
+
+/// How often the lifecycle clock advances while a toast is up.
+const TICK: Duration = Duration::from_millis(50);
+/// A card's height before its first measurement.
+const ESTIMATED_HEIGHT: f32 = 54.;
+
+/// Where a card was last placed: its bottom edge above the stack box's,
+/// its side inset, whether it draws, whether its content shows, and — for a
+/// card behind the front one in a collapsed stack — the front card's height
+/// it is drawn at. An ENDING card keeps the place it had, the rest re-stack
+/// without it.
+#[derive(Clone, Copy)]
+struct Place {
+    bottom: f32,
+    inset: f32,
+    visible: bool,
+    content: bool,
+    clamp: Option<f32>,
+}
+
+/// One window's toast stack.
+pub(crate) struct ToastLayer {
+    manager: ToastManager<u64, Toast>,
+    next_id: u64,
+    hovered: bool,
+    heights: Rc<RefCell<HashMap<u64, f32>>>,
+    /// When each toast's current phase (entering / ending) began.
+    phase_at: HashMap<u64, Instant>,
+    places: HashMap<u64, Place>,
+    ticking: bool,
+    _ticker: Option<Task<()>>,
+}
+
+impl ToastLayer {
+    pub(crate) fn new() -> Self {
+        Self {
+            manager: ToastManager::new(motion()),
+            next_id: 0,
+            hovered: false,
+            heights: Rc::default(),
+            phase_at: HashMap::new(),
+            places: HashMap::new(),
+            ticking: false,
+            _ticker: None,
+        }
+    }
+
+    /// Push a newest toast; returns its id.
+    pub(crate) fn push(&mut self, toast: Toast, cx: &mut Context<Self>) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        let now = cx.background_executor().now();
+        self.manager.push(id, toast, ToastOptions { timeout: Some(constants::DURATION) }, now);
+        self.phase_at.insert(id, now);
+        self.ensure_ticking(cx);
+        cx.notify();
+        id
+    }
+
+    /// Start `id`'s exit (close glyph, action, middle click).
+    pub(crate) fn dismiss(&mut self, id: u64, cx: &mut Context<Self>) {
+        let now = cx.background_executor().now();
+        if self.manager.dismiss(&id, now) {
+            self.phase_at.insert(id, now);
+            cx.notify();
+        }
+    }
+
+    /// Hovering expands the stack and pauses the clock.
+    pub(crate) fn set_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if self.hovered != hovered {
+            self.hovered = hovered;
+            cx.notify();
+        }
+    }
+
+    /// Mounted toasts, ending ones included.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn len(&self) -> usize {
+        self.manager.len()
+    }
+
+    fn ensure_ticking(&mut self, cx: &mut Context<Self>) {
+        if self.ticking {
+            return;
+        }
+        self.ticking = true;
+        self._ticker = Some(cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(TICK).await;
+            match this.update(cx, |this, cx| this.tick(cx)) {
+                Ok(true) => {}
+                _ => break,
+            }
+        }));
+    }
+
+    /// Advance the lifecycle clock; `false` once the stack is empty (the
+    /// ticker stops until the next push).
+    fn tick(&mut self, cx: &mut Context<Self>) -> bool {
+        let now = cx.background_executor().now();
+        let advance = self.manager.advance(now, self.hovered);
+        for id in advance.ending {
+            self.phase_at.insert(id, now);
+        }
+        for (id, _) in advance.removed {
+            self.phase_at.remove(&id);
+            self.places.remove(&id);
+            self.heights.borrow_mut().remove(&id);
+        }
+        if advance.changed {
+            cx.notify();
+        }
+        if self.manager.is_empty() {
+            self.hovered = false;
+            self.ticking = false;
+            return false;
+        }
+        true
+    }
+}
+
+fn slow() -> Transition {
+    Transition::new(theme::motion::SLOW).ease(theme::motion::standard())
+}
+
+/// Progress of a phase that began at `since` and lasts `duration`, eased.
+fn phase(now: Instant, since: Option<Instant>, duration: Duration, ease: impl Fn(f32) -> f32) -> (f32, bool) {
+    let elapsed = since.map_or(duration, |since| now.saturating_duration_since(since));
+    let raw = (elapsed.as_secs_f32() / duration.as_secs_f32()).min(1.);
+    (ease(raw), raw < 1.)
+}
+
+impl Render for ToastLayer {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.manager.is_empty() {
+            return div().into_any_element();
+        }
+        let now = cx.background_executor().now();
+        let expanded = self.hovered;
+
+        // Lay out the live toasts (ending ones keep their last place).
+        let active: Vec<u64> = self
+            .manager
+            .iter()
+            .filter(|(_, _, status)| *status != ToastTransitionStatus::Ending)
+            .map(|(id, _, _)| *id)
+            .collect();
+        let heights: Vec<f32> = {
+            let measured = self.heights.borrow();
+            active.iter().map(|id| measured.get(id).copied().unwrap_or(ESTIMATED_HEIGHT)).collect()
+        };
+        // Collapsed, every card takes the FRONT card's height (sonner's
+        // `--initial-height`), so each older one peeks exactly `PEEK` above
+        // it whatever its own height; expanded, each has its own.
+        let front = active.last().copied();
+        let front_height = heights.last().copied().unwrap_or(ESTIMATED_HEIGHT);
+        let heights = if expanded { heights } else { vec![front_height; heights.len()] };
+        let (box_height, items) = stack_layout(&heights, expanded, true);
+        for ((id, item), height) in active.iter().zip(&items).zip(&heights) {
+            let is_front = Some(*id) == front;
+            self.places.insert(
+                *id,
+                Place {
+                    bottom: box_height - item.offset - height,
+                    inset: constants::WIDTH * (1. - item.scale) / 2.,
+                    visible: item.visible,
+                    content: expanded || is_front,
+                    clamp: (!expanded && !is_front).then_some(front_height),
+                },
+            );
+        }
+
+        let layer = cx.entity().downgrade();
+        let entity_id = cx.entity_id();
+        let mut animating = false;
+        let mut cards: Vec<AnyElement> = Vec::with_capacity(self.manager.len());
+        for (&id, toast, status) in self.manager.iter() {
+            let place = self.places.get(&id).copied().unwrap_or(Place {
+                bottom: 0.,
+                inset: 0.,
+                visible: true,
+                content: true,
+                clamp: None,
+            });
+            let key = ElementId::NamedInteger("exp-toast".into(), id);
+            let bottom = transition((key.clone(), "bottom"), px(place.bottom), slow(), window, cx);
+            let inset = transition((key.clone(), "inset"), px(place.inset), slow(), window, cx);
+            let shown = transition(
+                (key.clone(), "shown"),
+                if place.visible { 1f32 } else { 0. },
+                slow(),
+                window,
+                cx,
+            );
+            let content = transition(
+                (key.clone(), "content"),
+                if place.content { 1f32 } else { 0. },
+                slow(),
+                window,
+                cx,
+            );
+            // Enter: fade + rise from TRAVEL below; exit: fade + sink.
+            let since = self.phase_at.get(&id).copied();
+            let (fade, drop) = match status {
+                ToastTransitionStatus::Starting => {
+                    let (p, running) =
+                        phase(now, since, theme::motion::STANDARD, theme::motion::decelerate());
+                    animating |= running;
+                    (p, constants::TRAVEL * (1. - p))
+                }
+                ToastTransitionStatus::Present => (1., 0.),
+                ToastTransitionStatus::Ending => {
+                    let (p, running) =
+                        phase(now, since, theme::motion::FAST, theme::motion::accelerate());
+                    animating |= running;
+                    (1. - p, constants::TRAVEL * p)
+                }
+            };
+            let dismiss: Dismiss = {
+                let layer = layer.clone();
+                Rc::new(move |_, cx| {
+                    let _ = layer.update(cx, |layer, cx| layer.dismiss(id, cx));
+                })
+            };
+            let middle = dismiss.clone();
+            let measured = self.heights.clone();
+            let clamped = place.clamp.is_some();
+            cards.push(
+                div()
+                    .id(key)
+                    .absolute()
+                    .left(inset)
+                    .right(inset)
+                    .bottom(bottom - px(drop))
+                    .opacity(shown * fade)
+                    .when_some(place.clamp, |this, height| this.h(px(height)).overflow_hidden())
+                    .on_mouse_down(MouseButton::Middle, move |_, window, cx| middle(window, cx))
+                    .on_prepaint(move |bounds, _, cx| {
+                        // A clamped card's bounds are the front's height.
+                        if clamped {
+                            return;
+                        }
+                        let height = f32::from(bounds.size.height);
+                        let mut heights = measured.borrow_mut();
+                        if heights.get(&id).is_none_or(|h| (h - height).abs() > 0.5) {
+                            heights.insert(id, height);
+                            cx.notify(entity_id);
+                        }
+                    })
+                    .child(face(toast, content, Some(dismiss), cx).w_full())
+                    .into_any_element(),
+            );
+        }
+        if animating {
+            window.request_animation_frame();
+        }
+
+        div()
+            .id("exp-toast-stack")
+            .absolute()
+            .right(px(constants::VIEWPORT_OFFSET))
+            .bottom(px(constants::VIEWPORT_OFFSET))
+            .w(px(constants::WIDTH))
+            .h(px(box_height))
+            .occlude()
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| this.set_hovered(*hovered, cx)))
+            .children(cards)
+            .into_any_element()
+    }
+}
+
+/// Every window's layer, by window id; a closed window's goes with it.
+#[derive(Default)]
+struct LayerRegistry {
+    by_window: HashMap<WindowId, Entity<ToastLayer>>,
+    _closed: Option<Subscription>,
+}
+
+impl Global for LayerRegistry {}
+
+/// This window's toast layer, created on first access.
+pub(crate) fn layer_for_window(window: &Window, cx: &mut App) -> Entity<ToastLayer> {
+    let window_id = window.window_handle().window_id();
+    if let Some(existing) = cx
+        .try_global::<LayerRegistry>()
+        .and_then(|registry| registry.by_window.get(&window_id).cloned())
+    {
+        return existing;
+    }
+    let layer = cx.new(|_| ToastLayer::new());
+    if !cx.has_global::<LayerRegistry>() {
+        let closed = cx.on_window_closed(|cx, window_id| {
+            if cx.has_global::<LayerRegistry>() {
+                cx.global_mut::<LayerRegistry>().by_window.remove(&window_id);
+            }
+        });
+        cx.default_global::<LayerRegistry>()._closed = Some(closed);
+    }
+    cx.default_global::<LayerRegistry>().by_window.insert(window_id, layer.clone());
+    layer
+}
+
+/// The toast layer as a root overlay (after the dialog layer, so a toast
+/// sits over a dialog): every window root renders this.
+pub(crate) fn render_layer(window: &mut Window, cx: &mut App) -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .child(layer_for_window(window, cx))
+        .into_any_element()
 }
 
 /// One item of a laid-out stack: its top inside the stack box, its width
@@ -333,15 +680,20 @@ mod tests {
         (a - b).abs() < 1e-4
     }
 
-    /// The crate's stack engine IS the contract's numbers.
+    /// The lifecycle model runs on our motion tokens and the contract's
+    /// stack numbers.
     #[test]
-    fn sonner_motion_matches_the_fixture() {
+    fn motion_is_our_tokens_and_the_fixture() {
         let f = fixture();
-        let m = gpui_base::ToastMotion::sonner();
+        let m = motion();
+        assert_eq!(m.duration, Duration::from_millis(180));
+        assert_eq!(m.duration, theme::motion::STANDARD);
+        assert_eq!(m.exit_duration, theme::motion::FAST);
         assert!(close(f64::from(f32::from(m.collapsed_peek)), num(&f, "peek")));
         assert!(close(f64::from(f32::from(m.expanded_gap)), num(&f, "gap")));
         assert!(close(f64::from(m.collapsed_scale_step), num(&f, "scaleStep")));
         assert_eq!(m.collapsed_visible as f64, num(&f, "visible"));
+        assert_eq!(constants::DURATION.as_millis() as f64, num(&f, "durationMs"));
     }
 
     #[test]
@@ -404,62 +756,89 @@ mod tests {
         }
     }
 
-    /// `theme::init` puts the stack bottom-right, 24 in, 356 wide.
-    #[gpui::test]
-    fn theme_places_the_stack_bottom_right(cx: &mut gpui::TestAppContext) {
-        cx.update(|cx| {
-            gpui_component::init(cx);
-            theme::init(cx);
-            let n = &cx.theme().notification;
-            assert_eq!(n.placement, gpui::Anchor::BottomRight);
-            assert_eq!(n.width, px(356.));
-            assert_eq!(n.max_items, 10);
-            for edge in [n.margins.top, n.margins.right, n.margins.bottom, n.margins.left] {
-                assert_eq!(edge, px(24.));
-            }
-        });
+    struct Host {
+        layer: gpui::Entity<ToastLayer>,
     }
 
-    /// A pushed toast lands as exactly one notification and paints (with and
-    /// without an action). A `Root` cannot be built in a macOS test window
-    /// (see `markdown/editor.rs`), so this drives the crate's list directly —
-    /// the one `Root::push_notification` forwards to.
-    #[gpui::test]
-    fn a_toast_lands_as_one_notification(cx: &mut gpui::TestAppContext) {
-        use gpui::{AppContext as _, Context, Entity, IntoElement, Render};
-        use gpui_component::notification::NotificationList;
-
-        struct Host {
-            list: Entity<NotificationList>,
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().relative().size_full().child(self.layer.clone())
         }
-        impl Render for Host {
-            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-                div().size_full().child(self.list.clone())
-            }
-        }
+    }
 
+    fn host(cx: &mut gpui::TestAppContext) -> (gpui::Entity<Host>, &mut gpui::VisualTestContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
             theme::init(cx);
         });
-        let (host, cx) = cx.add_window_view(|window, cx| Host {
-            list: cx.new(|cx| NotificationList::new(window, cx)),
-        });
-        let list = host.read_with(cx, |host, _| host.list.clone());
-        list.update_in(cx, |list, window, cx| {
-            let note = notification(Toast::error("Could not merge the pull request"), cx);
-            list.push(note, window, cx);
-        });
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-        assert_eq!(list.read_with(cx, |list, _| list.notifications().len()), 1);
+        cx.add_window_view(|window, cx| Host { layer: layer_for_window(window, cx) })
+    }
 
-        list.update_in(cx, |list, window, cx| {
+    /// Step the fake clock `total` in `TICK`-sized strides, letting the
+    /// ticker run after each.
+    fn run_for(cx: &mut gpui::VisualTestContext, total: Duration) {
+        let mut elapsed = Duration::ZERO;
+        while elapsed < total {
+            cx.background_executor.advance_clock(TICK);
+            cx.run_until_parked();
+            elapsed += TICK;
+        }
+    }
+
+    /// `show` lands on the window's layer; the 4 s clock ends it when
+    /// nothing hovers the stack and pauses while something does.
+    #[gpui::test]
+    fn the_clock_runs_four_seconds_and_pauses_on_hover(cx: &mut gpui::TestAppContext) {
+        let (host, cx) = host(cx);
+        let layer = host.read_with(cx, |host, _| host.layer.clone());
+        cx.update(|window, cx| show(Toast::error("Could not merge the pull request"), window, cx));
+        assert_eq!(layer.read_with(cx, |layer, _| layer.len()), 1);
+
+        // Hovered: well past 4 s, still up.
+        layer.update(cx, |layer, cx| layer.set_hovered(true, cx));
+        run_for(cx, Duration::from_secs(6));
+        assert_eq!(layer.read_with(cx, |layer, _| layer.len()), 1);
+
+        // Released: still up just short of 4 s, gone after it (+ the exit).
+        layer.update(cx, |layer, cx| layer.set_hovered(false, cx));
+        run_for(cx, Duration::from_millis(3800));
+        assert_eq!(layer.read_with(cx, |layer, _| layer.len()), 1);
+        run_for(cx, Duration::from_millis(500));
+        assert_eq!(layer.read_with(cx, |layer, _| layer.len()), 0);
+    }
+
+    /// The close glyph's dismiss ends a toast after the FAST exit.
+    #[gpui::test]
+    fn dismiss_leaves_after_the_exit(cx: &mut gpui::TestAppContext) {
+        let (host, cx) = host(cx);
+        let layer = host.read_with(cx, |host, _| host.layer.clone());
+        let id = layer.update(cx, |layer, cx| layer.push(Toast::info("Hello"), cx));
+        run_for(cx, Duration::from_millis(300));
+        layer.update(cx, |layer, cx| layer.dismiss(id, cx));
+        assert_eq!(layer.read_with(cx, |layer, _| layer.len()), 1);
+        run_for(cx, Duration::from_millis(200));
+        assert_eq!(layer.read_with(cx, |layer, _| layer.len()), 0);
+    }
+
+    /// Two toasts (one with a description + action) paint, collapsed and
+    /// expanded.
+    #[gpui::test]
+    fn a_window_paints_two_toasts(cx: &mut gpui::TestAppContext) {
+        let (host, cx) = host(cx);
+        let layer = host.read_with(cx, |host, _| host.layer.clone());
+        cx.update(|window, cx| {
+            error("Could not merge the pull request", window, cx);
             let toast = Toast::success("Issue created")
                 .description("EXP-1031 is on the board")
                 .action("Open", |_, _| {});
-            list.push(notification(toast, cx), window, cx);
+            show(toast, window, cx);
         });
         cx.update(|window, cx| window.draw(cx).clear(cx));
-        assert_eq!(list.read_with(cx, |list, _| list.notifications().len()), 2);
+        run_for(cx, Duration::from_millis(300));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(layer.read_with(cx, |layer, _| layer.len()), 2);
+        layer.update(cx, |layer, cx| layer.set_hovered(true, cx));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(layer.read_with(cx, |layer, _| layer.len()), 2);
     }
 }

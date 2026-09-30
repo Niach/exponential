@@ -1,12 +1,13 @@
 //! EXP-1031 — `toast` (2 General components): THE toast, drawn AT REST.
 //!
-//! A live toast is a `Notification` on the window's `Root` (`toast::show`),
-//! and the gallery paints with no `Root`, so this entry draws the SAME face
-//! as plain elements (`toast::card`, which shares its chrome and body with
-//! `show`) and places the stacks by `toast::stack_layout` — the fixture's
-//! geometry (`toast-stack.json`), locked by `toast.rs`'s tests. The width
-//! factor is drawn the way gpui-base's stack draws it: an inset of
-//! `width × (1 − scale) / 2` on both sides.
+//! A live toast rides the window's `toast::ToastLayer` (`toast::show`), and
+//! the gallery paints with no window root, so this entry draws the SAME face
+//! as plain elements (`toast::card`, the layer's own face) and places the
+//! stacks by `toast::stack_layout` BOTTOM-anchored, as the layer does (the
+//! older cards peek ABOVE the front one) — the fixture's geometry
+//! (`toast-stack.json`), locked by `toast.rs`'s tests. The width factor is
+//! drawn the way the layer draws it: an inset of `width × (1 − scale) / 2`
+//! on both sides.
 
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
@@ -17,7 +18,8 @@ pub(crate) const ID: &str = "toast";
 pub(crate) const OWNER: &str = "EXP-1031";
 
 /// The fixture's "three equal toasts" height: every card in a stack demo is
-/// drawn this tall so the offsets read exactly 28/14/0 and 148/74/0.
+/// drawn this tall so the offsets (from the box top, oldest first) read
+/// exactly 0/14/28 collapsed and 0/74/148 expanded.
 const STACK_CARD_HEIGHT: f32 = 60.;
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
@@ -62,7 +64,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
 /// A static stack: the cards oldest first, placed by `stack_layout`.
 fn stack(cards: &[Toast], expanded: bool, cx: &App) -> Div {
     let heights = vec![STACK_CARD_HEIGHT; cards.len()];
-    let (height, items) = toast::stack_layout(&heights, expanded, false);
+    let (height, items) = toast::stack_layout(&heights, expanded, true);
     let front = cards.len().saturating_sub(1);
     let mut el = div().relative().w(px(constants::WIDTH)).h(px(height));
     for (ix, (card, item)) in cards.iter().zip(items).enumerate() {
@@ -74,7 +76,7 @@ fn stack(cards: &[Toast], expanded: bool, cx: &App) -> Div {
         let face = if expanded || ix == front {
             toast::card(card, cx)
         } else {
-            toast::card_back(cx)
+            toast::card_back(card, cx)
         };
         el = el.child(
             div()

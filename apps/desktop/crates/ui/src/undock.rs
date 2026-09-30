@@ -557,7 +557,7 @@ impl Render for UndockedScreenWindow {
         // preview) would silently never paint in this window.
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
+        let toast_layer = crate::toast::render_layer(window, cx);
 
         crate::window_frame::window_frame().child(
             // EXP-269 corners: the page gradient paints to the window edge,
@@ -621,7 +621,7 @@ impl Render for UndockedScreenWindow {
                 .child(crate::text_selection_guard::selection_guard())
                 .children(sheet_layer)
                 .children(dialog_layer)
-                .children(notification_layer),
+                .child(toast_layer),
         )
     }
 }

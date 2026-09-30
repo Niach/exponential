@@ -1070,7 +1070,7 @@ impl Render for Shell {
         if blocked {
             let sheet_layer = Root::render_sheet_layer(window, cx);
             let dialog_layer = Root::render_dialog_layer(window, cx);
-            let notification_layer = Root::render_notification_layer(window, cx);
+            let toast_layer = crate::toast::render_layer(window, cx);
             // The titlebar renders here too — without it this window would be
             // undraggable/unclosable on Windows/Linux (no native chrome) —
             // but as the CHROME-ONLY strip (EXP-364): the tab row belongs to
@@ -1105,7 +1105,7 @@ impl Render for Shell {
                         .child(crate::text_selection_guard::selection_guard())
                         .children(sheet_layer)
                         .children(dialog_layer)
-                        .children(notification_layer),
+                        .child(toast_layer),
                 )
                 .into_any_element();
         }
@@ -1285,8 +1285,8 @@ impl Render for Shell {
 
         // Root overlay layers (the sanctioned gpui-component pattern — story
         // lib.rs `StoryRoot::render`): the app's root view must compose the
-        // sheet/dialog/notification layers or `window.open_dialog` /
-        // `push_notification` silently never paint (§3.3 "Root MUST be the
+        // sheet/dialog layers (+ our toast layer) or `window.open_dialog` /
+        // `toast::show` silently never paint (§3.3 "Root MUST be the
         // first view" is necessary but not sufficient).
         // EXP-760: the issue-chip hover PREVIEW's overlay — one host per
         // window, mounted here so every surface that reports a pill hover
@@ -1297,7 +1297,7 @@ impl Render for Shell {
         let preview_host = crate::issue_preview::host_for_window(window, cx);
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
+        let toast_layer = crate::toast::render_layer(window, cx);
 
         // window_frame: Linux CSD shadow + rounded frame + resize zones
         // (pass-through elsewhere). The sheet/dialog/notification layers stay
@@ -1353,7 +1353,7 @@ impl Render for Shell {
                     .child(preview_host)
                     .children(sheet_layer)
                     .children(dialog_layer)
-                    .children(notification_layer),
+                    .child(toast_layer),
             )
             .into_any_element()
     }
