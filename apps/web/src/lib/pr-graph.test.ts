@@ -3,8 +3,11 @@ import {
   badgeChip,
   badgeKind,
   badgeShape,
+  batchBandTitle,
   overlaySections,
+  PR_GRAPH_OVERLAY_COPY,
   prGraph,
+  RELATED_WORK_TITLE,
 } from "./pr-graph"
 
 // EXP-897 Part 4 — the badge model. Every `it` name here is mirrored by iOS
@@ -341,5 +344,28 @@ describe(`prGraph`, () => {
       ],
     })
     expect(graph.blockedBy.map((row) => row.id)).toEqual([`blocker`])
+  })
+})
+
+// SLOP-16 r3: THE "Related work" view's strings, byte-identical ×4.
+describe(`related work copy`, () => {
+  it(`pins the related work strings`, () => {
+    expect(RELATED_WORK_TITLE).toBe(`Related work`)
+    expect(PR_GRAPH_OVERLAY_COPY).toEqual({
+      title: `Related work`,
+      blocked: `Blocked by`,
+      batch: `In batch with`,
+      batchRun: `Issues`,
+      runs: `Runs`,
+      stack: `Pull requests`,
+      mergeStack: `Merge stack`,
+      empty: `Nothing else is linked to this issue.`,
+    })
+  })
+
+  it(`titles the batch band per face`, () => {
+    expect(batchBandTitle(`issue`)).toBe(`In batch with`)
+    expect(batchBandTitle(`changes`)).toBe(`In batch with`)
+    expect(batchBandTitle(`run`)).toBe(`Issues`)
   })
 })

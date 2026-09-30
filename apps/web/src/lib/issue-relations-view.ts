@@ -108,6 +108,11 @@ export const RELATIONS_BAND_CAP = 3
 
 const CLOSED_ANCHORS = new Set<string>([`done`, `cancelled`, `duplicate`])
 
+/** A row's `open` — any anchor but done/cancelled/duplicate. */
+export function relationRowIsOpen(status: string): boolean {
+  return !CLOSED_ANCHORS.has(status)
+}
+
 const BAND_ORDER: RelationBandKey[] = [
   `blocked_by`,
   `blocking`,
@@ -148,7 +153,7 @@ function toRow(issue: RelationsViewIssue): RelationsViewRow {
     identifier: issue.identifier,
     title: issue.title,
     status: issue.status,
-    open: !CLOSED_ANCHORS.has(issue.status),
+    open: relationRowIsOpen(issue.status),
   }
 }
 

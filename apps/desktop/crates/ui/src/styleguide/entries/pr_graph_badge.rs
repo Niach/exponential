@@ -6,7 +6,9 @@
 //! round 2): the glyph names the shape — `pr-stack`, `pr-batch`,
 //! `session-tree`, `relation-blocked-by` — with a mono `+N` beside it when
 //! others ride along; the shape's name is its tooltip. A click opens the
-//! graph dialog.
+//! "Related work" dialog (round 3): per section a group band over the
+//! product's own flat rows (issue, pull request, run) or the compact blocks
+//! graph, the same layout and copy ×4.
 //!
 //! EXP-1092: the demo draws the REAL badge — `crate::pr_graph::badge` over a
 //! `BadgeSpec` whose graph comes from `domain::pr_graph::pr_graph`, the header's
@@ -82,6 +84,8 @@ fn specs() -> Vec<(&'static str, BadgeSpec)> {
         graph,
         face,
         blocks_graph: domain::issue_graph::IssueGraph::default(),
+        subject_issue_id: None,
+        subject_session_id: None,
     };
     vec![
         (

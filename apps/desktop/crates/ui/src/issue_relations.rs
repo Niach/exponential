@@ -29,6 +29,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, ClickEvent, ElementId, InteractiveElement as _, IntoElement,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled, Window,
@@ -518,9 +519,58 @@ fn render_row(
         .read(cx)
         .get(&row.id)
         .cloned()?;
-    let status = queries::resolve_issue_status(cx, &other);
+    let remove = relation_id
+        .map(|relation_id| remove_button(&format!("{slug}-{}", other.id), relation_id));
+    Some(issue_row(
+        &format!("relation-row-{slug}-{}", other.id),
+        &other,
+        IssueRowOpts {
+            title: Some(SharedString::from(row.title.clone())),
+            open: row.open,
+            remove,
+            guides: None,
+            in_dialog: false,
+        },
+        cx,
+    ))
+}
+
+/// SLOP-16 round 3 — how one [`issue_row`] sits in its list.
+pub(crate) struct IssueRowOpts {
+    /// The title text; `None` = the issue's own title.
+    pub(crate) title: Option<SharedString>,
+    /// A closed issue's title is dimmed.
+    pub(crate) open: bool,
+    /// The relations card's hover-revealed ✕.
+    pub(crate) remove: Option<AnyElement>,
+    /// EXP-965: a NESTED row's place in its tree (a batch PR's folded
+    /// issues); `None` = a flat top-level row.
+    pub(crate) guides: Option<domain::tree_guides::Guides>,
+    /// Drawn in a dialog window: a click closes it and opens the issue in the
+    /// opener.
+    pub(crate) in_dialog: bool,
+}
+
+/// The base left padding of an [`issue_row`] (`px_3`); a nested row's
+/// connector gutter is measured off it.
+const ISSUE_ROW_PAD: f32 = 12.;
+
+/// SLOP-16 round 3 — THE issue row: status glyph · mono identifier · title
+/// · (hover ✕) · assignee, a flat `px_3 py_1` row. Opens the issue; hovering
+/// shows the shared issue preview card. The relations card draws it, and so
+/// does the work header's "Related work" dialog (`pr_graph`).
+pub(crate) fn issue_row(key: &str, other: &Issue, opts: IssueRowOpts, cx: &mut App) -> AnyElement {
+    let IssueRowOpts {
+        title: title_text,
+        open,
+        remove,
+        guides,
+        in_dialog,
+    } = opts;
+    let status = queries::resolve_issue_status(cx, other);
     let assignee = other.assignee_id.as_deref().map(|user_id| {
-        let user = Store::global(cx).collections().users.read(cx).get(user_id).cloned();
+        let user = Store::try_global(cx)
+            .and_then(|store| store.collections().users.read(cx).get(user_id).cloned());
         crate::user_avatar::user_avatar(
             user_id,
             &crate::comments::user_label(user_id, user.as_ref()),
@@ -535,77 +585,85 @@ fn render_row(
         .min_w_0()
         .text_sm()
         .truncate()
-        .child(SharedString::from(row.title.clone()));
+        .child(title_text.unwrap_or_else(|| SharedString::from(other.title.clone())));
     // A closed issue's title is dimmed (web `text-foreground/60`).
-    if !row.open {
+    if !open {
         title = title.text_color(cx.theme().foreground.opacity(0.6));
     }
     // EXP-760: the row opens the shared issue hover preview — the same card
     // the `#IDENT` pills in prose show. The row's painted rectangle is the
     // anchor, captured at prepaint (the `Popup` recipe) because a hover
     // listener is handed the pointer, not the element.
-    let row_key = format!("relation-row-{slug}-{}", other.id);
+    let row_key = key.to_string();
     let preview_key = row_key.clone();
     let preview_issue = other.id.clone();
     let anchor: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>> =
         Rc::new(std::cell::Cell::new(gpui::Bounds::default()));
     let anchor_write = anchor.clone();
-    Some(
-        crate::surface::flat_row()
-            .id(ElementId::from(SharedString::from(row_key)))
-            .on_prepaint(move |bounds, _window, _cx| anchor_write.set(bounds))
-            .on_hover(move |hovered, window, cx| {
-                let host = crate::issue_preview::host_for_window(window, cx);
-                if *hovered {
-                    let issue_id = preview_issue.clone();
-                    let bounds = anchor.get();
-                    host.update(cx, |host, cx| {
-                        host.request(preview_key.clone(), issue_id, bounds, cx)
-                    });
-                } else {
-                    host.update(cx, |host, cx| host.release(preview_key.clone(), cx));
-                }
-            })
-            .group(ROW_GROUP)
-            .flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_1()
-            .cursor_pointer()
-            .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-            .on_click(move |_, window, cx| {
-                navigate(
-                    window,
-                    cx,
-                    Screen::IssueDetail {
-                        issue_id: issue_id.clone(),
-                    },
-                );
-            })
-            .child(
-                crate::icons::resolved_status_icon(&status, cx)
-                    .small()
-                    .flex_shrink_0(),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(row.identifier.clone())),
-            )
-            .child(title)
-            .children(
-                relation_id
-                    .map(|relation_id| remove_button(&format!("{slug}-{}", other.id), relation_id)),
-            )
-            .children(assignee)
-            .into_any_element(),
-    )
+    let depth = guides.as_ref().map_or(0, |guides| guides.depth());
+    crate::surface::flat_row()
+        .id(ElementId::from(SharedString::from(row_key)))
+        .on_prepaint(move |bounds, _window, _cx| anchor_write.set(bounds))
+        .on_hover(move |hovered, window, cx| {
+            let host = crate::issue_preview::host_for_window(window, cx);
+            if *hovered {
+                let issue_id = preview_issue.clone();
+                let bounds = anchor.get();
+                host.update(cx, |host, cx| {
+                    host.request(preview_key.clone(), issue_id, bounds, cx)
+                });
+            } else {
+                host.update(cx, |host, cx| host.release(preview_key.clone(), cx));
+            }
+        })
+        .group(ROW_GROUP)
+        .flex()
+        .w_full()
+        .min_w_0()
+        .relative()
+        .items_center()
+        .gap_2()
+        .px_3()
+        .py_1()
+        .when(depth > 0, |row| {
+            row.pl(px(ISSUE_ROW_PAD + crate::tree_guides::LEVEL_PITCH * depth as f32))
+        })
+        .children(
+            guides
+                .as_ref()
+                .and_then(|guides| crate::tree_guides::guide_layer(guides, ISSUE_ROW_PAD, 0.)),
+        )
+        .cursor_pointer()
+        .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+        .on_click(move |_, window, cx| {
+            let screen = Screen::IssueDetail {
+                issue_id: issue_id.clone(),
+            };
+            if in_dialog {
+                crate::native_dialog::close_then(window, cx, move |window, cx| {
+                    navigate(window, cx, screen);
+                });
+            } else {
+                navigate(window, cx, screen);
+            }
+        })
+        .child(
+            crate::icons::resolved_status_icon(&status, cx)
+                .small()
+                .flex_shrink_0(),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(SharedString::from(other.identifier.clone())),
+        )
+        .child(title)
+        .children(remove)
+        .children(assignee)
+        .into_any_element()
 }
 
 /// The hover-revealed "Remove relation" ✕ of a row (or the parent line).

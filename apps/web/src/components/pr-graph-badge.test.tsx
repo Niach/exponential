@@ -5,22 +5,31 @@ import type { CodingSession, Issue } from "@/db/schema"
 // EXP-897 Part 4: the overlay's SECTIONS per face. The model has its own
 // tests (`lib/pr-graph.test.ts`); this proves each face shows its own section
 // off the same graph, with the same row primitives.
+// SLOP-16 r3: THE "Related work" view — group bands over existing rows.
 
 const openSession = vi.hoisted(() => vi.fn())
+const navigate = vi.hoisted(() => vi.fn())
+const viewport = vi.hoisted(() => ({ phone: false }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   Link: ({ children, ...rest }: { children: React.ReactNode }) => (
     <a {...rest}>{children}</a>
   ),
+  useNavigate: () => navigate,
 }))
 vi.mock(`@/hooks/use-open-session`, () => ({
   useOpenSession: () => openSession,
 }))
-// EXP-930: the chip's LINK half matters now — a batch row that does not open
-// its issue is the whole bug. The stub renders whatever link the overlay hands
-// it, so the assertions can see an anchor.
-// SLOP-15: the stub also reports the SIZE it was asked for — the overlay
-// draws the small chip everywhere.
+// SLOP-16 r3: the dialog is the ONE surface at every size — the phone flag
+// only changes the rows' density (the sheet arm is the dialog's own).
+vi.mock(`@exp/ui`, async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>
+  return { ...actual, useIsMobile: () => viewport.phone }
+})
+// EXP-930: the chip's LINK half matters — a node that does not open its issue
+// is the bug. The stub renders whatever link the view hands it.
+// SLOP-15: the stub also reports the SIZE it was asked for — the blocked-by
+// mini-graph draws the small chip.
 vi.mock(`@/components/issue-chip`, () => ({
   IssueChip: ({
     issue,
@@ -39,11 +48,68 @@ vi.mock(`@/components/issue-chip`, () => ({
     return link ? link({ children: body }) : body
   },
 }))
+// SLOP-16 r3: the rows are the product's EXISTING ones — the relations card's
+// issue row and the session tree's run rows. Stubbed to what they are handed.
+vi.mock(`@/components/issue-relations-card`, () => ({
+  RowList: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  RelationIssueRow: ({
+    issue,
+    link,
+    depth,
+    phone,
+  }: {
+    issue: { identifier: string }
+    link?: (props: {
+      className: string
+      children: React.ReactNode
+    }) => React.ReactElement
+    depth?: number
+    phone: boolean
+  }) => (
+    <div
+      data-testid={`relation-row-${issue.identifier}`}
+      data-depth={depth ?? 0}
+      data-phone={String(phone)}
+    >
+      {link
+        ? link({ className: ``, children: issue.identifier })
+        : issue.identifier}
+    </div>
+  ),
+}))
+vi.mock(`@/components/session-list-rows`, () => ({
+  RunningSessionRow: ({
+    row,
+    depth,
+  }: {
+    row: { session: { id: string } }
+    depth: number
+  }) => (
+    <div data-testid={`run-row-${row.session.id}`} data-depth={depth}>
+      <span data-testid="run-dot" />
+    </div>
+  ),
+  PastSessionRow: ({ sessionId, depth }: { sessionId: string; depth: number }) => (
+    <div data-testid={`run-row-${sessionId}`} data-depth={depth} />
+  ),
+}))
+vi.mock(`@/hooks/use-agents-data`, () => ({
+  useSessionListRows: (_teamId: string | undefined, sessions: unknown[]) =>
+    sessions.map((session) => ({
+      session,
+      issue: undefined,
+      device: { label: null },
+      paused: false,
+    })),
+}))
+vi.mock(`@/hooks/use-team-data`, () => ({
+  useTeamUsers: () => ({ userMap: new Map() }),
+}))
 vi.mock(`@/components/issue-coding-rows`, () => ({
   PrStateBadge: ({ state }: { state: string | null }) => <span>{state}</span>,
 }))
 vi.mock(`@/components/agent-session-row`, () => ({
-  RunningIndicator: () => <span data-testid="run-dot" />,
+  pastRunRowByline: () => ``,
 }))
 vi.mock(`@/lib/collections`, () => ({
   boardCollection: {},
@@ -151,10 +217,14 @@ describe(`PrGraphOverlay`, () => {
         { type: `blocks`, issueId: `blocker`, relatedIssueId: `bata` },
       ],
     })
+    // The face's own band leads.
+    const bands = screen
+      .getAllByTestId(/^pr-graph-band-/)
+      .map((node) => node.getAttribute(`data-testid`))
+    expect(bands).toEqual([`pr-graph-band-blocked`, `pr-graph-band-batch`])
     expect(screen.getByText(`Blocked by`)).toBeTruthy()
     expect(screen.getByTestId(`chip-BLOCKER`)).toBeTruthy()
     expect(screen.getByText(`In batch with`)).toBeTruthy()
-    expect(screen.getByTestId(`chip-BATB`)).toBeTruthy()
     // EXP-980: the blocked-by section is the mini-graph — blocker in wave 0,
     // the subject behind it in wave 1.
     expect(
@@ -163,12 +233,13 @@ describe(`PrGraphOverlay`, () => {
     expect(
       screen.getByTestId(`issue-graph-node-BATA`).getAttribute(`data-wave`)
     ).toBe(`1`)
-    // The subject never lists itself as its own batch partner.
+    // The batch band = the relations card's rows, each a link; the subject
+    // never lists itself as its own batch partner.
+    const partners = screen.getByTestId(`pr-graph-batch-partners`)
     expect(
-      within(screen.getByTestId(`pr-graph-batch-partners`)).queryByTestId(
-        `chip-BATA`
-      )
-    ).toBeNull()
+      within(partners).getByTestId(`relation-row-BATB`).querySelector(`a`)
+    ).toBeTruthy()
+    expect(within(partners).queryByTestId(`relation-row-BATA`)).toBeNull()
   })
 
   it(`shows the session tree on the run face`, () => {
@@ -180,16 +251,21 @@ describe(`PrGraphOverlay`, () => {
       sessions: rows,
     })
     expect(screen.getByText(`Runs`)).toBeTruthy()
-    // Root first, then its child — the nested order.
-    const names = screen.getAllByText(/LOWER|UPPER/).map((node) => node.textContent)
-    expect(names).toEqual([`LOWER`, `UPPER`])
-    expect(screen.getAllByTestId(`run-dot`)).toHaveLength(2)
+    // The session tree's own rows: root first, then its child, nested.
+    const runs = screen.getAllByTestId(/^run-row-/)
+    expect(runs.map((node) => node.getAttribute(`data-testid`))).toEqual([
+      `run-row-root`,
+      `run-row-child`,
+    ])
+    expect(runs.map((node) => node.getAttribute(`data-depth`))).toEqual([
+      `0`,
+      `1`,
+    ])
   })
 
   // EXP-930: the pill on a batch run says `2 issues`; behind it those two
   // issues, each opening. A batch row links NO issue (`issue_id` is null) —
-  // the covered set comes off `batch_issue_ids`, so keying the overlay off
-  // `issue_id` was what left it with nothing to show.
+  // the covered set comes off `batch_issue_ids`.
   it(`lists the batch's issues on a batch run's run face`, () => {
     const batchRun = {
       ...session(`batch`),
@@ -204,8 +280,8 @@ describe(`PrGraphOverlay`, () => {
       sessions: [batchRun],
     })
     expect(screen.getByText(`Issues`)).toBeTruthy()
-    expect(screen.getByTestId(`chip-BATA`).closest(`a`)).toBeTruthy()
-    expect(screen.getByTestId(`chip-BATB`).closest(`a`)).toBeTruthy()
+    expect(screen.getByTestId(`relation-row-BATA`).querySelector(`a`)).toBeTruthy()
+    expect(screen.getByTestId(`relation-row-BATB`).querySelector(`a`)).toBeTruthy()
     // The run tree is still there, under the issues it covers.
     expect(screen.getByText(`Runs`)).toBeTruthy()
   })
@@ -218,24 +294,74 @@ describe(`PrGraphOverlay`, () => {
       onMergeStack
     )
     expect(screen.getByText(`Pull requests`)).toBeTruthy()
-    const numbers = screen
-      .getAllByText(/^#\d+$/)
-      .map((node) => node.textContent)
-    expect(numbers).toEqual([`#1`, `#2`])
-    expect(screen.getByTestId(`pr-graph-merge-stack`)).toBeTruthy()
+    // The Reviews queue's own stack row, bottom first.
+    const rows = screen.getAllByTestId(/^review-row-/)
+    expect(rows.map((node) => node.getAttribute(`data-testid`))).toEqual([
+      `review-row-LOWER`,
+      `review-row-UPPER`,
+    ])
+    // `Merge stack` = the BOTTOM row's trailing control, as on Reviews.
+    const merge = within(rows[0]).getByTestId(`pr-graph-merge-stack`)
+    expect(merge.textContent).toContain(`Merge stack`)
+    fireEvent.click(merge)
+    expect(onMergeStack).toHaveBeenCalledWith(`upper`)
+    // The row opens the entry's review page.
+    fireEvent.click(rows[1])
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/reviews/$issueIdentifier`,
+      params: { teamSlug: `acme`, issueIdentifier: `UPPER` },
+    })
   })
 
-  it(`folds a batch entry's issues under it on the changes face`, () => {
+  // No duplicated information: the batch band lists the batch, so its PR row
+  // folds nothing.
+  it(`lists a batch's issues once on the changes face`, () => {
     overlay(`changes`, {
       issue: batchA,
       issues: [batchA, batchB],
       sessions: [],
     })
     expect(screen.getByText(`#9`)).toBeTruthy()
-    expect(screen.getByTestId(`chip-BATA`)).toBeTruthy()
-    expect(screen.getByTestId(`chip-BATB`)).toBeTruthy()
+    expect(screen.getAllByTestId(`relation-row-BATB`)).toHaveLength(1)
+    expect(
+      within(screen.getByTestId(`pr-graph-batch-partners`)).getByTestId(
+        `relation-row-BATB`
+      )
+    ).toBeTruthy()
     // Nothing to merge as a stack: a lone batch PR is one entry.
     expect(screen.queryByTestId(`pr-graph-merge-stack`)).toBeNull()
+  })
+
+  // …and with no batch band (the subject sits ABOVE a batch PR), the batch
+  // PR's issues fold under its row at depth 1.
+  it(`folds a lower batch entry's issues under its pr row`, () => {
+    const top = issue(`top`, { prBaseBranch: `exp/batch-1`, prNumber: 10 })
+    overlay(`changes`, {
+      issue: top,
+      issues: [batchA, batchB, top],
+      sessions: [],
+    })
+    expect(screen.queryByTestId(`pr-graph-band-batch`)).toBeNull()
+    const stack = screen.getByTestId(`pr-graph-band-stack`)
+    const order = within(stack)
+      .getAllByTestId(/^(review|relation)-row-/)
+      .map((node) => node.getAttribute(`data-testid`))
+    expect(order).toEqual([
+      `review-row-BATA`,
+      `relation-row-BATA`,
+      `relation-row-BATB`,
+      `review-row-TOP`,
+    ])
+    expect(
+      within(stack).getByTestId(`relation-row-BATB`).getAttribute(`data-depth`)
+    ).toBe(`1`)
+  })
+
+  it(`says so when nothing else is linked`, () => {
+    overlay(`issue`, { issue: issue(`lone`), issues: [], sessions: [] })
+    expect(
+      screen.getByText(`Nothing else is linked to this issue.`)
+    ).toBeTruthy()
   })
 })
 
@@ -352,7 +478,13 @@ describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
     expect(within(badge).getByText(`+1`)).toBeTruthy()
   })
 
-  it(`opens the overlay as a dialog on click (≥md)`, () => {
+  // SLOP-16 r3: ONE surface at every size — the standard dialog, titled
+  // "Related work" (a phone gets its bottom-sheet arm from the dialog itself).
+  it.each([
+    [`≥md`, false],
+    [`a phone`, true],
+  ])(`opens the Related work dialog on click (%s)`, (_label, phone) => {
+    viewport.phone = phone
     liveRows.tables = { i: [batchA, batchB], b: [{ id: `b1`, slug: `web` }] }
     render(
       <PrGraphBadge teamId="t1" teamSlug="acme" face="issue" issue={batchB} />
@@ -360,8 +492,15 @@ describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
     expect(screen.queryByRole(`dialog`)).toBeNull()
     fireEvent.click(screen.getByTestId(`pr-graph-badge`))
     const dialog = screen.getByRole(`dialog`)
-    expect(within(dialog).getByText(`Batch pull request`)).toBeTruthy()
+    expect(dialog.getAttribute(`data-testid`)).toBe(`pr-graph-overlay`)
+    expect(within(dialog).getByText(`Related work`)).toBeTruthy()
     expect(within(dialog).getByText(`In batch with`)).toBeTruthy()
+    expect(
+      within(dialog)
+        .getByTestId(`relation-row-BATA`)
+        .getAttribute(`data-phone`)
+    ).toBe(String(phone))
+    viewport.phone = false
   })
 })
 
@@ -393,8 +532,8 @@ describe(`PrGraphBadge for a blocked issue (EXP-1097)`, () => {
   })
 })
 
-// SLOP-15: the hover tree is compact — the blocked-by graph in narrow boxes,
-// every issue in the overlay as the SMALL chip (glyph · identifier).
+// SLOP-15 / SLOP-16 r3: Blocked by = the COMPACT mini-graph on every
+// platform — narrow boxes, the small chip.
 describe(`PrGraphOverlay compactness (SLOP-15)`, () => {
   it(`draws the blocked-by graph compact, with small chips`, () => {
     overlay(`issue`, {
@@ -407,39 +546,5 @@ describe(`PrGraphOverlay compactness (SLOP-15)`, () => {
     expect(screen.getByTestId(`issue-graph`).getAttribute(`data-density`)).toBe(`compact`)
     const node = screen.getByTestId(`issue-graph-node-BLOCKER`)
     expect(within(node).getByTestId(`chip-BLOCKER`).getAttribute(`data-size`)).toBe(`sm`)
-    // The batch partner beside it is small too.
-    const partners = screen.getByTestId(`pr-graph-batch-partners`)
-    expect(within(partners).getByTestId(`chip-BATB`).getAttribute(`data-size`)).toBe(`sm`)
-  })
-})
-
-// SLOP-16: the dialog is FULL density — graph nodes carry their titles (the
-// `md` chip) and the viewport takes the dialog's width, not the fixture's.
-describe(`PrGraphOverlay in the dialog (SLOP-16)`, () => {
-  it(`draws the blocked-by graph full, with md nodes and a wide viewport`, () => {
-    const input = {
-      issue: batchA,
-      session: null,
-      issues: [batchA, batchB, blocker],
-      sessions: [],
-      relations: [{ type: `blocks` as const, issueId: `blocker`, relatedIssueId: `bata` }],
-    }
-    render(
-      <PrGraphOverlay
-        face="issue"
-        graph={prGraph(input)}
-        issues={input.issues}
-        relations={input.relations}
-        subjectIssue={batchA}
-        teamSlug="acme"
-        onClose={vi.fn()}
-        density="full"
-      />
-    )
-    expect(screen.getByTestId(`issue-graph`).getAttribute(`data-density`)).toBe(`full`)
-    const node = screen.getByTestId(`issue-graph-node-BLOCKER`)
-    expect(within(node).getByTestId(`chip-BLOCKER`).getAttribute(`data-size`)).toBe(`md`)
-    const partners = screen.getByTestId(`pr-graph-batch-partners`)
-    expect(within(partners).getByTestId(`chip-BATB`).getAttribute(`data-size`)).toBe(`sm`)
   })
 })

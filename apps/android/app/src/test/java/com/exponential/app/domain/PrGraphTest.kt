@@ -352,4 +352,22 @@ class PrGraphTest {
         assertEquals(listOf("root", "child", "grand"), built.tree.map { it.session.id })
         assertEquals(listOf(0, 1, 2), built.tree.map { it.depth })
     }
+
+    // SLOP-16 r3: THE "Related work" view's words, byte-identical ×4 (web
+    // `PR_GRAPH_OVERLAY_COPY`, iOS `PrGraphBadge.swift`, desktop `pr_graph.rs`).
+    @Test
+    fun `pins the related work view's copy`() {
+        assertEquals("Related work", PrGraph.OverlayCopy.RELATED_WORK_TITLE)
+        assertEquals("Blocked by", PrGraph.OverlayCopy.BLOCKED)
+        assertEquals("In batch with", PrGraph.OverlayCopy.BATCH)
+        assertEquals("Issues", PrGraph.OverlayCopy.BATCH_RUN)
+        assertEquals("Runs", PrGraph.OverlayCopy.RUNS)
+        assertEquals("Pull requests", PrGraph.OverlayCopy.STACK)
+        assertEquals("Merge stack", PrGraph.OverlayCopy.MERGE_STACK)
+        assertEquals("Nothing else is linked to this issue.", PrGraph.OverlayCopy.EMPTY)
+        assertEquals("In batch with", PrGraph.OverlayCopy.batchBandTitle(WorkFaceKind.Issue))
+        assertEquals("In batch with", PrGraph.OverlayCopy.batchBandTitle(WorkFaceKind.Changes))
+        assertEquals("Issues", PrGraph.OverlayCopy.batchBandTitle(WorkFaceKind.Run))
+        assertEquals("Issues", PrGraph.OverlayCopy.batchBandTitle(WorkFaceKind.Results))
+    }
 }

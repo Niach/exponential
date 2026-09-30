@@ -6,11 +6,16 @@ import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueStatusEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.IssueGraph
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.batchRunIssues
@@ -93,6 +98,23 @@ class PrGraphViewModel @Inject constructor(
     val issuesById: StateFlow<Map<String, IssueEntity>> = allIssues
         .map { issues -> issues.associateBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** SLOP-16 r3: every synced status, resolved — the "Related work"
+     *  view's relation rows resolve their glyph by `status_id` against it. */
+    val issueStatuses: StateFlow<List<ResolvedIssueStatus>> =
+        dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() }
+            .map { IssueStatusResolver.teamStatuses(it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** SLOP-16 r3: the relation rows' assignee avatars. */
+    val users: StateFlow<List<UserEntity>> =
+        dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** SLOP-16 r3: the run rows' host machines (the Running band's byline). */
+    val devices: StateFlow<List<DeviceEntity>> =
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-876: the issues the SHOWN run covers when it is a BATCH — what names

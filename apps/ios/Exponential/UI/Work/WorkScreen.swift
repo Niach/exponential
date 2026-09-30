@@ -749,6 +749,8 @@ struct WorkScreen: View {
                                     nodes: [], edges: [], hasCycle: false, truncated: false
                                 ),
                                 subjectIssueId: issue?.id,
+                                users: prGraphModel?.users ?? [],
+                                teamStatuses: issueVM?.teamStatuses ?? [],
                                 onOpenIssue: { id in
                                     prGraphOpen = false
                                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
@@ -756,6 +758,10 @@ struct WorkScreen: View {
                                 onOpenRun: { id in
                                     prGraphOpen = false
                                     swapIn(id)
+                                },
+                                onOpenPullRequest: { entry in
+                                    prGraphOpen = false
+                                    openPullRequest(entry, subject: graph)
                                 },
                                 onMergeStack: { id in
                                     prGraphOpen = false
@@ -1133,6 +1139,18 @@ struct WorkScreen: View {
     /// A tab tap (or an in-face link): the pages SLIDE to the face.
     private func selectFace(_ next: WorkFaceKind) {
         withAnimation(motion.standard) { switchFace(next) }
+    }
+
+    /// SLOP-16 r3: a Related work PR row — the subject's own PR is this
+    /// screen's Changes face; any other one opens on its own.
+    private func openPullRequest(_ entry: PrGraph.Entry, subject graph: PrGraph.Graph) {
+        if entry.id == graph.entry?.id, availableFaces.contains(.changes) {
+            selectFace(.changes)
+        } else {
+            deps.deepLinkBus.navigateToIssue(
+                entry.representative.id, accountId: accountId, face: .changes
+            )
+        }
     }
 
     private func switchFace(_ next: WorkFaceKind) {

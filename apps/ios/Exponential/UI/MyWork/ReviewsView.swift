@@ -153,7 +153,11 @@ struct ReviewsListContent: View {
         }
         // EXP-897 Part 4: a batch row's issues are the overlay's content.
         .sheet(item: $batchTarget) { entry in
-            PrGraphIssueSheet(title: "In this pull request", issues: entry.issues) { issueId in
+            PrGraphIssueSheet(
+                title: "In this pull request",
+                issues: entry.issues,
+                users: viewModel?.users ?? []
+            ) { issueId in
                 batchTarget = nil
                 deps.deepLinkBus.navigateToIssue(issueId)
             }
@@ -664,121 +668,11 @@ struct ReviewsListContent: View {
         // The Review detail (the diff + Merge/Close screen) is what a reviewer
         // wants first (EXP-168); the issue itself is one tap away in the menu.
         NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: entry.representative.id)) {
-            HStack(alignment: .center, spacing: 10) {
-                // PR glyph — the in_review status icon, green, vertically
-                // centered like the Android row (EXP-248). EXP-897 Part 4: a
-                // BATCH pull request wears the `pr-batch` glyph instead, so
-                // one row for several issues reads as one at a glance.
-                AppIcon(
-                    entry.isBatch ? AppIcons.prBatch : AppIcons.prOpen,
-                    size: AppIcon.Size.small
-                )
-                .foregroundStyle(IssueStatus.inReview.color)
-                .frame(width: 16)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    if entry.isBatch {
-                        HStack(spacing: 6) {
-                            if let prNumber = entry.prNumber {
-                                Text("#\(prNumber)")
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            }
-                            Text("\(entry.issues.count) issues")
-                                .font(.subheadline)
-                                .foregroundStyle(.white)
-                        }
-                        if !entry.identifiers.isEmpty {
-                            Text(entry.identifiers.joined(separator: ", "))
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .lineLimit(1)
-                        }
-                    } else {
-                        HStack(spacing: 6) {
-                            if let identifier = entry.representative.identifier {
-                                Text(identifier)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            }
-                            Text(entry.representative.title)
-                                .font(.subheadline)
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    if let branch = entry.branch, !branch.isEmpty {
-                        Text(branch)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                // Inline merge — same confirm-gated flow as the swipe action
-                // (EXP-248: uniform with the web/Android review rows). NOT a
-                // Button: nested in a NavigationLink label the link swallows
-                // its tap and only pushes the detail, so this uses the same
-                // contentShape + onTapGesture pattern as IssueListView's
-                // inline status/priority glyphs.
-                //
-                // EXP-706: once the merge failed on a REAL conflict, merging
-                // again is the one thing that cannot work — so the recovery
-                // run REPLACES Merge in this slot instead of crowding a
-                // second button into the caption below. One trailing action,
-                // always the one worth tapping.
-                //
-                // EXP-1094: exactly ONE merge control per row, from the shared
-                // rule: a stack's bottom merges the stack, an upper member and
-                // a live workflow's node PR carry a muted reason instead.
-                if canFixConflicts(entry) {
-                    GlassPill("Fix conflicts", icon: AppIcons.uiBranch)
-                    .contentShape(Capsule())
-                    .onTapGesture {
-                        fixConflicts(entry)
-                    }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("Fix merge conflicts")
-                } else {
-                    switch row.mergeAction {
-                    case .merge:
-                        GlassPill(ReviewsMerge.mergeLabel) {
-                            mergeGlyph(entry, icon: AppIcons.prMerged)
-                        }
-                        .contentShape(Capsule())
-                        .onTapGesture {
-                            guard !merging.contains(entry.id) else { return }
-                            mergeTarget = entry
-                        }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityLabel("Merge pull request")
-                    case .mergeStack:
-                        GlassPill(ReviewsMerge.mergeStackLabel) {
-                            mergeGlyph(entry, icon: AppIcons.prStack)
-                        }
-                        .contentShape(Capsule())
-                        .onTapGesture {
-                            guard !merging.contains(entry.id) else { return }
-                            stackMergeTarget = row
-                        }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityLabel("Merge the whole stack")
-                    case .none:
-                        if let reason = row.mergeDisabledReason {
-                            Text(reason)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .lineLimit(1)
-                                .accessibilityIdentifier("review-merge-reason")
-                        }
-                    }
-                }
+            // SLOP-16 r3: the row CONTENT is shared with the Related work
+            // sheet (`PrReviewRowContent`); only the card around it is ours.
+            PrReviewRowContent(issues: entry.issues) {
+                mergeSlot(row)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
             .glassRow()
         }
         .buttonStyle(.plain)
@@ -840,6 +734,71 @@ struct ReviewsListContent: View {
                     openURL(url)
                 } label: {
                     Label(DomainContract.diffUiOpenOnGithub, appIcon: AppIcons.uiGithub)
+                }
+            }
+        }
+    }
+
+    /// The row's ONE trailing control (EXP-1094), Reviews-only — the shared
+    /// content hosts it in its trailing slot.
+    @ViewBuilder
+    private func mergeSlot(_ row: ReviewRow) -> some View {
+        let entry = row.entry
+        // Inline merge — same confirm-gated flow as the swipe action
+        // (EXP-248: uniform with the web/Android review rows). NOT a
+        // Button: nested in a NavigationLink label the link swallows
+        // its tap and only pushes the detail, so this uses the same
+        // contentShape + onTapGesture pattern as IssueListView's
+        // inline status/priority glyphs.
+        //
+        // EXP-706: once the merge failed on a REAL conflict, merging
+        // again is the one thing that cannot work — so the recovery
+        // run REPLACES Merge in this slot instead of crowding a
+        // second button into the caption below. One trailing action,
+        // always the one worth tapping.
+        //
+        // EXP-1094: exactly ONE merge control per row, from the shared
+        // rule: a stack's bottom merges the stack, an upper member and
+        // a live workflow's node PR carry a muted reason instead.
+        if canFixConflicts(entry) {
+            GlassPill("Fix conflicts", icon: AppIcons.uiBranch)
+            .contentShape(Capsule())
+            .onTapGesture {
+                fixConflicts(entry)
+            }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Fix merge conflicts")
+        } else {
+            switch row.mergeAction {
+            case .merge:
+                GlassPill(ReviewsMerge.mergeLabel) {
+                    mergeGlyph(entry, icon: AppIcons.prMerged)
+                }
+                .contentShape(Capsule())
+                .onTapGesture {
+                    guard !merging.contains(entry.id) else { return }
+                    mergeTarget = entry
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Merge pull request")
+            case .mergeStack:
+                GlassPill(ReviewsMerge.mergeStackLabel) {
+                    mergeGlyph(entry, icon: AppIcons.prStack)
+                }
+                .contentShape(Capsule())
+                .onTapGesture {
+                    guard !merging.contains(entry.id) else { return }
+                    stackMergeTarget = row
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Merge the whole stack")
+            case .none:
+                if let reason = row.mergeDisabledReason {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                        .accessibilityIdentifier("review-merge-reason")
                 }
             }
         }
@@ -928,5 +887,82 @@ struct ReviewsListContent: View {
                 prIssueId: entry.representative.id
             )
         ))
+    }
+}
+
+/// SLOP-16 r3: THE pull-request row's content — the batch/PR glyph, the
+/// identifier (a batch: `#n` + its issue count over the identifiers) and the
+/// branch, then a trailing slot. Reviews wears it on a `.glassRow()` card
+/// with its merge control; the Related work sheet on a `.flatRow()` with the
+/// PR state and "Merge stack". One content, so the two cannot drift.
+struct PrReviewRowContent<Trailing: View>: View {
+    /// The issues sharing the pull request, newest first; the first one
+    /// represents it.
+    let issues: [IssueEntity]
+    @ViewBuilder let trailing: () -> Trailing
+
+    private var representative: IssueEntity { issues[0] }
+    private var isBatch: Bool { issues.count > 1 }
+    private var identifiers: [String] { issues.compactMap(\.identifier) }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            // PR glyph — the in_review status icon, green, vertically
+            // centered like the Android row (EXP-248). EXP-897 Part 4: a
+            // BATCH pull request wears the `pr-batch` glyph instead, so
+            // one row for several issues reads as one at a glance.
+            AppIcon(
+                isBatch ? AppIcons.prBatch : AppIcons.prOpen,
+                size: AppIcon.Size.small
+            )
+            .foregroundStyle(IssueStatus.inReview.color)
+            .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                if isBatch {
+                    HStack(spacing: 6) {
+                        if let prNumber = representative.prNumber {
+                            Text("#\(prNumber)")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        Text("\(issues.count) issues")
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                    }
+                    if !identifiers.isEmpty {
+                        Text(identifiers.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .lineLimit(1)
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        if let identifier = representative.identifier {
+                            Text(identifier)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        Text(representative.title)
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+                }
+
+                if let branch = representative.branch, !branch.isEmpty {
+                    Text(branch)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            trailing()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }

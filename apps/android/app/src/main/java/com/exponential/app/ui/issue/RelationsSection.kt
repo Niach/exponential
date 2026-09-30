@@ -393,6 +393,34 @@ private fun RelationRows(
     }
 }
 
+/**
+ * SLOP-16 r3: THE relation row for a plain synced [issue] — the "Related
+ * work" view and the Reviews batch sheet list issues with it, so an issue
+ * reads the same wherever it is listed. No long-press: nothing to remove.
+ */
+@Composable
+internal fun RelationIssueRow(
+    issue: IssueEntity,
+    statuses: List<ResolvedIssueStatus>,
+    users: List<UserEntity>,
+    onClick: () -> Unit,
+) {
+    RelationIssueRow(
+        row = IssueRelationsView.Row(
+            id = issue.id,
+            identifier = issue.identifier,
+            title = issue.title,
+            status = issue.status,
+            open = IssueRelationsView.isOpenAnchor(issue.status),
+        ),
+        status = IssueStatusResolver.resolve(issue, statuses),
+        assignee = issue.assigneeId?.let { id -> users.firstOrNull { it.id == id } },
+        assigneeId = issue.assigneeId,
+        onClick = onClick,
+        onRemove = null,
+    )
+}
+
 /** THE relation row ×4: status glyph · identifier · title · assignee. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

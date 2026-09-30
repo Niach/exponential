@@ -123,6 +123,9 @@ object IssueRelationsView {
 
     private val CLOSED_ANCHORS = setOf("done", "cancelled", "duplicate")
 
+    /** Whether an issue on this status anchor reads as OPEN (not closed). */
+    fun isOpenAnchor(status: String): Boolean = status !in CLOSED_ANCHORS
+
     private val BAND_ORDER = listOf(
         BandKey.BlockedBy,
         BandKey.Blocking,

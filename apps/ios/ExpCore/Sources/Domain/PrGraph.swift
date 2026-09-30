@@ -243,6 +243,34 @@ public enum PrGraph {
         case blocked, batch, runs, stack
     }
 
+    /// SLOP-16 r3: the "Related work" view's copy, byte-identical ×4 (web
+    /// `RELATED_WORK_TITLE` + `OVERLAY_COPY`, desktop, Android). ONE title on
+    /// every face, one band per section, ONE empty note — a lone pull request
+    /// is one PR row, never a note of its own.
+    public enum OverlayCopy {
+        public static let relatedWorkTitle = "Related work"
+        public static let blocked = IssueRelationsView.Copy.blockedBy
+        /// The Issue and Changes faces: the subject's batch PARTNERS.
+        public static let batchPartners = "In batch with"
+        /// The Run and Results faces: the run's whole covered set.
+        public static let batchIssues = "Issues"
+        public static let runs = "Runs"
+        public static let stack = "Pull requests"
+        public static let mergeStack = ReviewsMerge.mergeStackLabel
+        public static let empty = "Nothing else is linked to this issue."
+    }
+
+    /// A section's band title on a face.
+    public static func overlayBandTitle(_ section: OverlaySection, face: WorkFaceKind) -> String {
+        switch section {
+        case .blocked: OverlayCopy.blocked
+        case .batch: face == .run || face == .results
+            ? OverlayCopy.batchIssues : OverlayCopy.batchPartners
+        case .runs: OverlayCopy.runs
+        case .stack: OverlayCopy.stack
+        }
+    }
+
     /// EXP-1097: the overlay's sections — every relation the subject HAS, the
     /// face's own section first (Issue: Blocked by; Run: the run's issues and
     /// its tree; Changes: the pull requests). A section with nothing to list

@@ -231,6 +231,29 @@ object PrGraph {
     }
 
     /**
+     * SLOP-16 r3: THE "Related work" view's copy, byte-identical ×4 (web
+     * `PR_GRAPH_OVERLAY_COPY`, iOS `PrGraphBadge.swift`, desktop
+     * `pr_graph.rs`). Each section = a group band over the product's existing
+     * rows; [EMPTY] is the ONLY empty note.
+     */
+    object OverlayCopy {
+        const val RELATED_WORK_TITLE = "Related work"
+        const val BLOCKED = IssueRelationsView.Copy.BLOCKED_BY
+        /** The batch band on the Issue and Changes faces. */
+        const val BATCH = "In batch with"
+        /** The batch band on the Run face — the run's own subject. */
+        const val BATCH_RUN = "Issues"
+        const val RUNS = "Runs"
+        const val STACK = "Pull requests"
+        const val MERGE_STACK = PrStack.MERGE_STACK_LABEL
+        const val EMPTY = "Nothing else is linked to this issue."
+
+        /** The batch band's title on [face]. */
+        fun batchBandTitle(face: WorkFaceKind): String =
+            if (face == WorkFaceKind.Run || face == WorkFaceKind.Results) BATCH_RUN else BATCH
+    }
+
+    /**
      * EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
      * `pr_url` of its own, so before this it resolved nothing at all — the
      * pill and its sheet, the one surface built to name work that spans

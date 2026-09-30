@@ -130,6 +130,9 @@ final class ReviewsViewModel {
     /// through its running/paused workflow instead of from the row.
     var allWorkflows: [WorkflowEntity] = []
     var workflowNodes: [WorkflowNodeEntity] = []
+    /// SLOP-16 r3: every synced member — a batch sheet's issue rows (THE
+    /// relation row) wear their assignee's avatar.
+    var users: [UserEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
@@ -140,6 +143,7 @@ final class ReviewsViewModel {
     private var workflowTask: Task<Void, Never>?
     private var allWorkflowTask: Task<Void, Never>?
     private var nodeTask: Task<Void, Never>?
+    private var userTask: Task<Void, Never>?
     /// The team the workflow observations are scoped to (nil = none armed).
     private var workflowTeamId: String?
 
@@ -196,6 +200,15 @@ final class ReviewsViewModel {
             do {
                 for try await sessions in sessionObservation.values(in: pool) {
                     self?.runSessions = sessions
+                }
+            } catch {}
+        }
+
+        let userObservation = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
+        userTask = Task { [weak self] in
+            do {
+                for try await users in userObservation.values(in: pool) {
+                    self?.users = users
                 }
             } catch {}
         }
@@ -276,6 +289,8 @@ final class ReviewsViewModel {
         allWorkflowTask = nil
         nodeTask?.cancel()
         nodeTask = nil
+        userTask?.cancel()
+        userTask = nil
         workflowTeamId = nil
     }
 

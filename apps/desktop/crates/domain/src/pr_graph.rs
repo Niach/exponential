@@ -279,6 +279,39 @@ pub fn overlay_sections(graph: &PrGraph, face: PrGraphFace) -> Vec<OverlaySectio
         .collect()
 }
 
+/// SLOP-16 round 3 — the "Related work" dialog's copy, byte-identical ×4
+/// (web `lib/pr-graph.ts`, iOS, Android): the title, one band label per
+/// [`OverlaySection`], the empty state.
+pub mod overlay_copy {
+    use super::{OverlaySection, PrGraphFace};
+
+    /// The dialog's title (constant, whatever the badge's shape).
+    pub const RELATED_WORK_TITLE: &str = "Related work";
+    /// The "Blocked by" band — the relations card's copy.
+    pub const BLOCKED_BY: &str = "Blocked by";
+    /// The batch band on the Issue and Changes faces.
+    pub const IN_BATCH_WITH: &str = "In batch with";
+    /// The batch band on the Run face (the run's covered set).
+    pub const ISSUES: &str = "Issues";
+    /// The run tree's band.
+    pub const RUNS: &str = "Runs";
+    /// The PR stack's band.
+    pub const PULL_REQUESTS: &str = "Pull requests";
+    /// Nothing to list.
+    pub const EMPTY: &str = "Nothing else is linked to this issue.";
+
+    /// The band over one section on `face`.
+    pub fn band_label(section: OverlaySection, face: PrGraphFace) -> &'static str {
+        match section {
+            OverlaySection::Blocked => BLOCKED_BY,
+            OverlaySection::Batch if face == PrGraphFace::Run => ISSUES,
+            OverlaySection::Batch => IN_BATCH_WITH,
+            OverlaySection::Runs => RUNS,
+            OverlaySection::Stack => PULL_REQUESTS,
+        }
+    }
+}
+
 fn non_empty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
@@ -788,5 +821,22 @@ mod tests {
         // A run with neither a parent nor children has no tree to show.
         let alone = pr_graph(None, Some(&sessions[2]), &issues, &sessions);
         assert!(alone.tree.is_empty());
+    }
+
+    /// SLOP-16 round 3 — the "Related work" copy is byte-identical ×4.
+    #[test]
+    fn the_related_work_copy_is_pinned() {
+        use overlay_copy::*;
+        assert_eq!(RELATED_WORK_TITLE, "Related work");
+        assert_eq!(EMPTY, "Nothing else is linked to this issue.");
+        let label = |section, face| band_label(section, face);
+        for face in [PrGraphFace::Issue, PrGraphFace::Run, PrGraphFace::Changes] {
+            assert_eq!(label(OverlaySection::Blocked, face), "Blocked by");
+            assert_eq!(label(OverlaySection::Runs, face), "Runs");
+            assert_eq!(label(OverlaySection::Stack, face), "Pull requests");
+        }
+        assert_eq!(label(OverlaySection::Batch, PrGraphFace::Issue), "In batch with");
+        assert_eq!(label(OverlaySection::Batch, PrGraphFace::Changes), "In batch with");
+        assert_eq!(label(OverlaySection::Batch, PrGraphFace::Run), "Issues");
     }
 }

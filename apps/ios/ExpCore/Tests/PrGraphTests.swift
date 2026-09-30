@@ -348,6 +348,25 @@ final class PrGraphTests: XCTestCase {
         XCTAssertEqual(PrGraph.overlaySections(graph(lone, [lone]), face: .issue), [])
     }
 
+    /// SLOP-16 r3: the "Related work" copy, byte-identical ×4.
+    func testPinsTheRelatedWorkCopy() {
+        XCTAssertEqual(PrGraph.OverlayCopy.relatedWorkTitle, "Related work")
+        XCTAssertEqual(PrGraph.OverlayCopy.blocked, "Blocked by")
+        XCTAssertEqual(PrGraph.OverlayCopy.batchPartners, "In batch with")
+        XCTAssertEqual(PrGraph.OverlayCopy.batchIssues, "Issues")
+        XCTAssertEqual(PrGraph.OverlayCopy.runs, "Runs")
+        XCTAssertEqual(PrGraph.OverlayCopy.stack, "Pull requests")
+        XCTAssertEqual(PrGraph.OverlayCopy.mergeStack, "Merge stack")
+        XCTAssertEqual(PrGraph.OverlayCopy.empty, "Nothing else is linked to this issue.")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.batch, face: .issue), "In batch with")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.batch, face: .changes), "In batch with")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.batch, face: .run), "Issues")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.batch, face: .results), "Issues")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.blocked, face: .issue), "Blocked by")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.runs, face: .run), "Runs")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.stack, face: .changes), "Pull requests")
+    }
+
     private func relation(_ id: String, from: String, to: String) -> IssueRelationEntity {
         IssueRelationEntity(
             id: id, issueId: from, relatedIssueId: to, type: "blocks", source: "user",

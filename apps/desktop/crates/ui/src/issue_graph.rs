@@ -472,19 +472,18 @@ fn dialog_pick() -> OnPickIssue {
     })
 }
 
-/// SLOP-16 round 2 — the WHOLE graph in the work header's graph dialog: full
-/// boxes, the viewport = the dialog's own box (NOT the contract's
-/// `MAX_VIEW_*` popover cap); past it the grid scrolls.
-pub(crate) fn graph_in_wide_dialog(
+/// SLOP-16 round 3 — the "Related work" dialog's "Blocked by" band: the
+/// COMPACT graph (small chips, the popover's viewport; past it the grid
+/// scrolls), a node tap opening the issue in the opener.
+pub(crate) fn graph_in_dialog_compact(
     graph: &IssueGraph,
     view_width: f32,
-    view_height: f32,
     cx: &App,
 ) -> gpui::AnyElement {
-    let mut grid = GridGeometry::boxes(view_width, geometry::Density::Full);
-    grid.view_w = view_width;
-    grid.view_h = view_height;
-    graph_grid(graph, grid, geometry::Density::Full, dialog_pick(), cx)
+    h_flex()
+        .min_w_0()
+        .child(graph_view(graph, view_width, geometry::Density::Compact, dialog_pick(), cx))
+        .into_any_element()
 }
 
 /// The grid plus its notes, for the EXP-980 `blocks` graph. Empty (no nodes)

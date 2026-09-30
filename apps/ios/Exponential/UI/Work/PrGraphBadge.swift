@@ -12,15 +12,10 @@ import SwiftUI
 /// stacked issue chip that repeated the title. Its glyph follows the badge
 /// SHAPE (`PrGraph.badgeShape`: a stack or batch, else a run family, else
 /// open blockers), a small mono `+N` beside it; the tap opens the overlay,
-/// whose sections are every relation the subject has, the face's own FIRST
-/// (`PrGraph.overlaySections`) — the same rows and copy on every face:
-///
-/// - Issue face → EXP-980: the blocks MINI-GRAPH (the transitive chain, waves
-///   and all — it replaced the flat "Blocked by" chips) + "In batch with"
-/// - Run face → EXP-930: a BATCH run's covered "Issues" first, then the
-///   session tree (nested, live dots, tap opens the run)
-/// - Changes face → the PR stack bottom-up (identifiers, PR state, a batch's
-///   issues folded underneath, "Merge stack" on the bottom entry)
+/// the "Related work" sheet (`PrGraphSheet`, SLOP-16 r3): every relation
+/// the subject has, the face's own FIRST (`PrGraph.overlaySections`), each a
+/// group band over flat rows the product already draws — the same layout and
+/// copy on every face and every platform.
 struct PrGraphBadge: View {
     let shape: PrGraph.BadgeShape?
     /// How many other pieces of work ride with the subject (`chip.count`).
@@ -80,8 +75,12 @@ struct PrGraphBadge: View {
 
 // MARK: - The overlay
 
-/// The badge's sheet. Same row primitives on every face — a `.glassRow()` band
-/// per section — so switching faces changes WHAT is listed, never how.
+/// SLOP-16 r3: THE "Related work" view, one layout ×4 — the platform's
+/// standard sheet, then per `PrGraph.overlaySections` section ONE group band
+/// (`GlassSectionBand`) over FLAT hairline-divided rows, nothing else. Every
+/// row is a row the product already draws: the relations card's issue row,
+/// the Reviews PR row content, the running list's run row, and the compact
+/// blocks mini-graph under "Blocked by". A face changes WHAT leads, never how.
 struct PrGraphSheet: View {
     let graph: PrGraph.Graph
     let face: WorkFaceKind
@@ -90,13 +89,18 @@ struct PrGraphSheet: View {
     /// of the "Untitled issue" every issue-less row used to read.
     var issues: [IssueEntity] = []
     /// EXP-980: the transitive blocks graph around the subject issue — what
-    /// the Issue face leads with now. Empty (or a lone subject node) means
-    /// nothing blocks it and it blocks nothing.
+    /// the blocked section draws. Empty (or a lone subject node) = the direct
+    /// blockers as issue rows.
     var blockGraph = IssueGraph.Graph(nodes: [], edges: [], hasCycle: false, truncated: false)
     /// The subject issue — the Issue face's batch section lists its PARTNERS.
     var subjectIssueId: String?
+    /// The issue rows' assignee avatars and team-resolved status glyphs.
+    var users: [UserEntity] = []
+    var teamStatuses: [ResolvedIssueStatus] = []
     let onOpenIssue: (String) -> Void
     let onOpenRun: (String) -> Void
+    /// A PR row: its Changes face / review.
+    let onOpenPullRequest: (PrGraph.Entry) -> Void
     let onMergeStack: (String) -> Void
 
     /// EXP-1097: every relation the subject HAS gets its section on every
@@ -106,59 +110,53 @@ struct PrGraphSheet: View {
     /// subject is empty while its partners have not synced).
     private var sections: [PrGraph.OverlaySection] {
         PrGraph.overlaySections(graph, face: face).filter { section in
-            section != .batch || !batchRows.isEmpty
+            switch section {
+            case .batch: !batchRows.isEmpty
+            case .stack: !stackEntries.isEmpty
+            case .blocked, .runs: true
+            }
         }
     }
 
     var body: some View {
-        // SLOP-16 r2: open LARGE so the whole graph shows at once; `.full`
-        // leaves the scrolling to us.
-        GlassSheetChrome(title: title, height: .full) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(sections, id: \.self) { section in
+        // Content-sized (≤85 %, the chrome scrolls past it): the sheet is as
+        // tall as what it lists, never a mostly empty full-height page.
+        GlassSheetChrome(title: PrGraph.OverlayCopy.relatedWorkTitle, height: .fitted) {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(sections, id: \.self) { section in
+                    VStack(alignment: .leading, spacing: 0) {
+                        GlassSectionBand(PrGraph.overlayBandTitle(section, face: face))
                         switch section {
-                        case .blocked: blockedSection
-                        case .batch: batchSection
-                        case .runs: runsSection
-                        case .stack: stackSection
+                        case .blocked: blockedRows
+                        case .batch: flatRows(batchRows.map { RelatedRow.issue($0, depth: 0) })
+                        case .runs: flatRows(graph.tree.map { RelatedRow.run($0.session, depth: $0.depth) })
+                        case .stack: flatRows(stackRows)
                         }
                     }
-                    if sections.isEmpty {
-                        emptyNote("Nothing else is linked to this issue.")
-                    }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                if sections.isEmpty {
+                    RelatedWorkEmptyRow(text: PrGraph.OverlayCopy.empty)
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
         }
         .accessibilityIdentifier("pr-graph-sheet")
     }
 
-    private var title: String {
-        switch face {
-        // EXP-930: the run face lists the batch's issues as well as its runs,
-        // so the sheet wears the neutral heading both sections sit under.
-        case .issue, .run, .results: "Related work"
-        case .changes: "Pull requests"
-        }
-    }
-
     // MARK: Sections
 
-    /// EXP-980: the transitive blocks chain as THE mini-graph (its own
-    /// `Wave n` bands are the headings), the direct blockers as rows when the
-    /// graph has not resolved.
+    /// EXP-980: the transitive blocks chain as THE compact mini-graph (it
+    /// scrolls sideways on its own), the direct blockers as issue rows when
+    /// the graph has not resolved.
     @ViewBuilder
-    private var blockedSection: some View {
+    private var blockedRows: some View {
         if blockGraph.nodes.count > 1 {
             IssueGraphView(
                 graph: blockGraph, issues: issues, density: .compact, onOpenIssue: onOpenIssue
             )
         } else {
-            section(IssueRelationsView.Copy.blockedBy) {
-                chipBand(graph.blockers)
-            }
+            flatRows(graph.blockers.map { RelatedRow.issue($0, depth: 0) })
         }
     }
 
@@ -171,213 +169,179 @@ struct PrGraphSheet: View {
         }
     }
 
-    private var batchSection: some View {
-        section(face == .issue ? "In batch with" : "Issues") {
-            chipBand(batchRows)
+    /// The pull requests bottom-up: the stack, else the subject's lone PR
+    /// (the Changes face leads with it — ONE PR row, never a note).
+    private var stackEntries: [(entry: PrGraph.Entry, depth: Int)] {
+        if !graph.stack.isEmpty { return graph.stack.map { ($0.entry, $0.depth) } }
+        return graph.entry.map { [($0, 0)] } ?? []
+    }
+
+    /// The PR rows, a batch PR's issues folded one level under it — unless
+    /// the batch section is drawn, which already lists them (no duplicates).
+    private var stackRows: [RelatedRow] {
+        let foldBatch = !sections.contains(.batch)
+        return stackEntries.flatMap { rung -> [RelatedRow] in
+            let pr = RelatedRow.pullRequest(rung.entry, depth: rung.depth)
+            guard foldBatch, rung.entry.isBatch else { return [pr] }
+            return [pr] + rung.entry.issues.map { RelatedRow.issue($0, depth: rung.depth + 1) }
+        }
+    }
+
+    // MARK: Rows
+
+    /// A section's rows: flat, hairline-divided, nested by `treeGuides`.
+    @ViewBuilder
+    private func flatRows(_ rows: [RelatedRow]) -> some View {
+        let guides = TreeGuides.compute(depths: rows.map(\.depth))
+        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+            if index > 0 { GlassDivider() }
+            rowView(row)
+                .treeGuides(guides[index], gap: GlassTokens.hairline)
         }
     }
 
     @ViewBuilder
-    private var runsSection: some View {
-        section("Runs") {
-            // EXP-965: the run tree's connector, off its depths. The section
-            // stacks its rows flush (spacing 0), so no gap to bridge.
-            let guides = TreeGuides.compute(depths: graph.tree.map(\.depth))
-            ForEach(Array(graph.tree.enumerated()), id: \.element.session.id) { index, row in
-                runRow(row, guide: guides[index])
-            }
+    private func rowView(_ row: RelatedRow) -> some View {
+        switch row {
+        case let .issue(issue, _):
+            RelatedIssueRow(
+                issue: issue, users: users, teamStatuses: teamStatuses,
+                onOpen: { onOpenIssue(issue.id) }
+            )
+        case let .run(session, _):
+            runRow(session)
+        case let .pullRequest(entry, depth):
+            pullRequestRow(entry, depth: depth)
         }
     }
 
+    /// The running list's run row (`RunningSessionRow`), opening the run.
     @ViewBuilder
-    private func runRow(
-        _ row: SessionTree.Row<CodingSessionEntity>, guide: TreeGuide
-    ) -> some View {
-        let session = row.session
-        let state = CodingSessionDisplayState.of(session: session, prState: session.prState)
-        Button { onOpenRun(session.id) } label: {
-            HStack(spacing: 8) {
-                SessionStateDot(
-                    tone: CodingSessionLiveness.isLive(session)
-                        ? SessionStateDot.tone(of: state) : .muted,
-                    pulsing: session.agentBusy,
-                    size: 8
-                )
-                // EXP-930: named off the rows this screen holds — the run's own
-                // issue when it has one, the batch's covered set when it does
-                // not (`BatchRun.name` reads only the ones it covers).
-                Text(
-                    sessionRowTitle(
-                        issue: session.issueId.flatMap { id in issues.first { $0.id == id } },
-                        session: session,
-                        batchIssues: issues
-                    )
-                )
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, CGFloat(row.depth) * TreeGuides.indentPerLevel)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(TreeGuidesOverlay(guide: guide))
-            .glassRow()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+    private func runRow(_ session: CodingSessionEntity) -> some View {
+        let issue = session.issueId.flatMap { id in issues.first { $0.id == id } }
+        RunningSessionRow(
+            session: session,
+            // An issue run's id, a batch's `EXP-874 +2` (EXP-876).
+            identifier: sessionRowIdentifier(issue: issue, session: session, batchIssues: issues),
+            title: sessionRowTitle(issue: issue, session: session, batchIssues: issues),
+            state: CodingSessionDisplayState.of(
+                session: session, prState: issue?.prState ?? session.prState
+            ),
+            device: SessionDevicePresentation.resolve(session: session, devices: []),
+            open: .action { onOpenRun(session.id) }
+        )
     }
 
-    /// The pull requests bottom-up — the stack, or the subject's lone PR
-    /// when the Changes face leads with it.
-    @ViewBuilder
-    private var stackSection: some View {
-        if graph.stack.isEmpty {
-            emptyNote("This pull request stands on its own.")
-        } else {
-            section("The stack, bottom first") {
-                // EXP-965: the same connector the lists draw, over the rungs.
-                let guides = TreeGuides.compute(depths: graph.stack.map(\.depth))
-                ForEach(Array(graph.stack.enumerated()), id: \.element.id) { index, rung in
-                    stackRow(rung, guide: guides[index])
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func stackRow(_ rung: PrGraph.StackEntry, guide: TreeGuide) -> some View {
-        let entry = rung.entry
-        let isCurrent = entry.id == graph.entry?.id
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                AppIcon(entry.isBatch ? AppIcons.prBatch : AppIcons.prOpen, size: 12)
-                    .foregroundStyle(IssueStatus.inReview.color)
-                Text(entry.identifiers.joined(separator: ", "))
-                    .font(isCurrent ? .subheadline.weight(.semibold) : .subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+    /// The Reviews PR row content on a flat row: the PR state, and "Merge
+    /// stack" on the BOTTOM row of a real stack. Tapping opens its review.
+    private func pullRequestRow(_ entry: PrGraph.Entry, depth: Int) -> some View {
+        Button { onOpenPullRequest(entry) } label: {
+            PrReviewRowContent(issues: entry.issues) {
                 if let state = entry.prState, !state.isEmpty {
                     Text(state)
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
                 }
-                Spacer(minLength: 0)
-                if rung.depth == 0, graph.size > 1 {
-                    GlassPill("Merge stack", icon: AppIcons.prStack)
+                if depth == 0, graph.stack.count > 1 {
+                    // Not a Button: nested in the row's label its tap would
+                    // be swallowed (the Reviews rows' pattern).
+                    GlassPill(PrGraph.OverlayCopy.mergeStack, icon: AppIcons.prStack)
                         .contentShape(Capsule())
                         .onTapGesture { onMergeStack(entry.representative.id) }
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel("Merge the whole stack")
                 }
             }
-            // The batch's own issues, folded underneath its entry as ONE
-            // wrapped row of small chips one level deeper (SLOP-16; EXP-965:
-            // 14 pt like everywhere else, with the connector that says they
-            // hang off this row).
-            if entry.isBatch, !sections.contains(.batch), !entry.issues.isEmpty {
-                let childGuides = TreeGuides.compute(depths: [1])
-                smallChips(entry.issues)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // The stack row's own VStack spaces it 6pt below.
-                    .treeGuides(childGuides[0], base: 0, gap: 6)
-            }
+            .contentShape(Rectangle())
         }
-        .padding(.leading, CGFloat(rung.depth) * TreeGuides.indentPerLevel)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(TreeGuidesOverlay(guide: guide))
-        .glassRow()
-    }
-
-    // MARK: Primitives
-
-    @ViewBuilder
-    private func section(
-        _ title: String, @ViewBuilder rows: () -> some View
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand(title)
-            rows()
-        }
-    }
-
-    /// SLOP-16: a section's issues as ONE `.glassRow()` band holding a
-    /// wrapped row of SMALL chips (web `gap-1.5` flex-wrap), not a row each.
-    @ViewBuilder
-    private func chipBand(_ rows: [IssueEntity]) -> some View {
-        smallChips(rows)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .glassRow()
-    }
-
-    private func smallChips(_ rows: [IssueEntity]) -> some View {
-        PrGraphSmallChips(issues: rows, onOpenIssue: onOpenIssue)
-    }
-
-    @ViewBuilder
-    private func emptyNote(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .glassRow()
+        .buttonStyle(.plain)
+        .flatRow()
     }
 }
 
-/// SLOP-16: every chip in the badge overlay is the SMALL chip (glyph ·
-/// identifier, title in the tooltip / accessibility), wrapped 6pt apart.
-struct PrGraphSmallChips: View {
-    let issues: [IssueEntity]
-    let onOpenIssue: (String) -> Void
+/// One row of the Related work sheet, with the depth its tree guide nests it at.
+private enum RelatedRow: Identifiable {
+    case issue(IssueEntity, depth: Int)
+    case run(CodingSessionEntity, depth: Int)
+    case pullRequest(PrGraph.Entry, depth: Int)
+
+    var id: String {
+        switch self {
+        case let .issue(issue, depth): "issue:\(issue.id):\(depth)"
+        case let .run(session, _): "run:\(session.id)"
+        case let .pullRequest(entry, _): "pr:\(entry.id)"
+        }
+    }
+
+    var depth: Int {
+        switch self {
+        case let .issue(_, depth), let .run(_, depth), let .pullRequest(_, depth): depth
+        }
+    }
+}
+
+/// THE relation row (`IssueRelationListRow`) fed a synced issue: status
+/// glyph · mono identifier · title · assignee, tap opens it, nothing to
+/// unlink from here.
+struct RelatedIssueRow: View {
+    let issue: IssueEntity
+    var users: [UserEntity] = []
+    var teamStatuses: [ResolvedIssueStatus] = []
+    let onOpen: () -> Void
 
     var body: some View {
-        FlowLayout(spacing: 6) {
-            ForEach(issues, id: \.id) { issue in
-                IssueChip(
-                    identifier: issue.identifier,
+        IssueRelationListRow(
+            row: IssueRelationsView.row(
+                IssueRelationsView.Issue(
+                    id: issue.id,
+                    identifier: issue.identifier ?? "",
                     title: issue.title,
-                    status: IssueStatus.from(issue.status),
-                    size: .sm,
-                    onTap: { onOpenIssue(issue.id) }
+                    status: issue.status
                 )
-                .fixedSize()
-            }
-        }
+            ),
+            status: teamStatuses.isEmpty
+                ? nil : IssueStatusResolver.resolve(issue, team: teamStatuses),
+            assignee: issue.assigneeId.flatMap { id in users.first { $0.id == id } },
+            assigneeId: issue.assigneeId,
+            removeLabel: "",
+            onOpen: onOpen,
+            onRemove: nil
+        )
     }
 }
 
-/// EXP-897 Part 4: the plain issue list a batch row's glyph opens (Reviews).
-/// Same row primitive as the badge's overlay, so the two read alike.
+/// The sheet's ONE empty note, on a flat row like the running list's.
+private struct RelatedWorkEmptyRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .flatRow()
+    }
+}
+
+/// EXP-897 Part 4: the plain issue list a batch row's glyph opens (Reviews) —
+/// the same flat issue rows as the Related work sheet.
 struct PrGraphIssueSheet: View {
     let title: String
     let issues: [IssueEntity]
+    var users: [UserEntity] = []
     let onOpenIssue: (String) -> Void
 
     var body: some View {
         GlassSheetChrome(title: title, height: .fitted) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(issues, id: \.id) { issue in
-                    Button { onOpenIssue(issue.id) } label: {
-                        HStack(spacing: 8) {
-                            IssueChip(
-                                identifier: issue.identifier,
-                                title: issue.title,
-                                status: IssueStatus.from(issue.status),
-                                size: .sm
-                            )
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .glassRow()
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                ForEach(Array(issues.enumerated()), id: \.element.id) { index, issue in
+                    if index > 0 { GlassDivider() }
+                    RelatedIssueRow(issue: issue, users: users) { onOpenIssue(issue.id) }
                 }
             }
             .padding(.horizontal, 16)
@@ -403,6 +367,9 @@ final class PrGraphModel {
     /// pull request yet (and no blocker tie) is named off these rather than
     /// falling through to "Untitled issue".
     private(set) var sessionIssues: [IssueEntity] = []
+    /// SLOP-16 r3: every synced member — the overlay's issue rows (THE
+    /// relation row) wear their assignee's avatar.
+    private(set) var users: [UserEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
@@ -412,6 +379,7 @@ final class PrGraphModel {
     private var prTask: Task<Void, Never>?
     private var blockerTask: Task<Void, Never>?
     private var sessionTask: Task<Void, Never>?
+    private var userTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager) {
         self.accountId = accountId
@@ -494,6 +462,7 @@ final class PrGraphModel {
         observePullRequests()
         observeBlockers()
         observeSessions()
+        observeUsers()
     }
 
     func stop() {
@@ -503,6 +472,20 @@ final class PrGraphModel {
         blockerTask = nil
         sessionTask?.cancel()
         sessionTask = nil
+        userTask?.cancel()
+        userTask = nil
+    }
+
+    private func observeUsers() {
+        guard userTask == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
+        userTask = Task { [weak self] in
+            do {
+                for try await rows in observation.values(in: pool) {
+                    self?.users = rows
+                }
+            } catch {}
+        }
     }
 
     private func observePullRequests() {

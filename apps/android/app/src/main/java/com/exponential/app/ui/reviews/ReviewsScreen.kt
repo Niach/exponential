@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.issue.RelationIssueRow
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
@@ -117,6 +123,9 @@ private fun ReviewsListContent(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
     val merging by viewModel.merging.collectAsStateWithLifecycle()
+    // SLOP-16 r3: what the batch sheet's relation rows resolve against.
+    val issueStatuses by viewModel.issueStatuses.collectAsStateWithLifecycle()
+    val users by viewModel.users.collectAsStateWithLifecycle()
     var mergeTarget by remember { mutableStateOf<ReviewEntry?>(null) }
     // EXP-734: an issueless run's own PR — merged through the session, so it
     // gets its own confirm target.
@@ -156,6 +165,9 @@ private fun ReviewsListContent(
                         merging = entry.groupKey in merging,
                         onClick = { onOpenChanges(entry.representative.id) },
                         onOpenIssue = { onOpenIssue(entry.representative.id) },
+                        onOpenBatchIssue = onOpenIssue,
+                        statuses = issueStatuses,
+                        users = users,
                         onMerge = { mergeTarget = entry },
                         // EXP-897: only the BOTTOM row of a real stack offers it.
                         onMergeStack = { mergeStackTarget = row },
@@ -553,6 +565,10 @@ private fun ReviewRow(
     merging: Boolean,
     onClick: () -> Unit,
     onOpenIssue: () -> Unit,
+    /** SLOP-16 r3: the batch sheet's rows open THEIR issue. */
+    onOpenBatchIssue: (String) -> Unit,
+    statuses: List<ResolvedIssueStatus>,
+    users: List<UserEntity>,
     onMerge: () -> Unit,
     onMergeStack: () -> Unit,
     onFixConflicts: () -> Unit,
@@ -574,131 +590,71 @@ private fun ReviewRow(
     val mergeReason = ReviewsMerge.reviewsMergeDisabledReason(row.mergeInput)
 
     // EXP-897: one stack level is 14dp of indent, on every client; EXP-965:
-    // with the connector drawn in the gutter that indent leaves.
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            // EXP-965: `gap` = the list's own row spacing below, so the
-            // branch runs through it instead of breaking at every row.
-            .treeGuides(guide, REVIEW_ROW_GAP)
-            .padding(start = (TreeGuides.INDENT_DP * row.depth).dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .flatRow()
-                .combinedClickable(onClick = onClick, onLongClick = { showActions = true })
-                .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // PR glyph — green like the iOS/web review rows (EXP-248).
-            Icon(
-                ExpIcons.prOpen,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = DesignTokens.Semantic.Green,
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (entry.isBatch) {
-                        // The batch mark (EXP-897): a tap lists the issues, in
-                        // its own hit area so the row's own tap still opens the
-                        // review.
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clickable { showBatch = true }
-                                .testTag("review-batch-glyph"),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                ExpIcons.prBatch,
-                                contentDescription = "Issues in this batch",
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            entry.prNumber?.let { "#$it" } ?: "Batch",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            maxLines = 1,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "${entry.issues.size} issues",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    } else {
-                        Text(
-                            entry.representative.identifier,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            maxLines = 1,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            entry.representative.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                    }
-                }
-                // EXP-897: an upper stack member names its foundation, in the
-                // same words on every client.
-                row.stackedOn?.let { below ->
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "on top of #$below",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("review-stacked-on"),
-                    )
-                }
-                // Secondary line: the batch entry lists its issue identifiers; every
-                // entry shows its branch (parity with the web/desktop Reviews rows).
-                val subtitle = buildString {
-                    if (entry.isBatch) append(entry.identifiers.joinToString(", "))
-                    if (entry.branch != null) {
-                        if (isNotEmpty()) append(" · ")
-                        append(entry.branch)
-                    }
-                }
-                if (subtitle.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (mergeReason != null && !canFixConflicts) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        mergeReason,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                        modifier = Modifier.testTag("review-merge-reason"),
-                    )
+    // with the connector drawn in the gutter that indent leaves. SLOP-16 r3:
+    // the row itself is [PrStackRow], the one the "Related work" view draws.
+    PrStackRow(
+        isBatch = entry.isBatch,
+        label = if (entry.isBatch) {
+            entry.prNumber?.let { "#$it" } ?: "Batch"
+        } else {
+            entry.representative.identifier
+        },
+        title = if (entry.isBatch) "${entry.issues.size} issues" else entry.representative.title,
+        depth = row.depth,
+        guide = guide,
+        // EXP-965: `gap` = the list's own row spacing below, so the branch
+        // runs through it instead of breaking at every row.
+        gap = REVIEW_ROW_GAP,
+        onClick = onClick,
+        onLongClick = { showActions = true },
+        // EXP-897: the batch glyph opens the issues its ONE pull request spans.
+        onBatchMark = { showBatch = true },
+        details = {
+            // EXP-897: an upper stack member names its foundation, in the
+            // same words on every client.
+            row.stackedOn?.let { below ->
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "on top of #$below",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("review-stacked-on"),
+                )
+            }
+            // Secondary line: the batch entry lists its issue identifiers; every
+            // entry shows its branch (parity with the web/desktop Reviews rows).
+            val subtitle = buildString {
+                if (entry.isBatch) append(entry.identifiers.joinToString(", "))
+                if (entry.branch != null) {
+                    if (isNotEmpty()) append(" · ")
+                    append(entry.branch)
                 }
             }
-            Spacer(Modifier.width(6.dp))
+            if (subtitle.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (mergeReason != null && !canFixConflicts) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    mergeReason,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    modifier = Modifier.testTag("review-merge-reason"),
+                )
+            }
+        },
+        trailing = {
             // Inline merge — same confirm-gated flow as the long-press sheet
             // (EXP-248: uniform with the web/iOS review rows). EXP-706: a
             // conflict-refused merge REPLACES the pill with the recovery run
@@ -733,32 +689,42 @@ private fun ReviewRow(
                 )
                 else -> Unit
             }
-        }
-
-        // A refused merge (conflicts, branch protection, GitHub App errors, an
-        // unreachable server) captions THIS row (EXP-323) — inside the list,
-        // which already clears the floating nav pill, so the reason is always
-        // readable. EXP-706: the message ONLY; the recovery run took the merge
-        // pill's place in the row above.
-        if (failure != null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 3.dp)
-                    .glassCard()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    failure.message,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+        },
+        footer = {
+            // A refused merge (conflicts, branch protection, GitHub App errors, an
+            // unreachable server) captions THIS row (EXP-323) — inside the list,
+            // which already clears the floating nav pill, so the reason is always
+            // readable. EXP-706: the message ONLY; the recovery run took the merge
+            // pill's place in the row above.
+            if (failure != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 3.dp)
+                        .glassCard()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        failure.message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
-        }
-    }
+        },
+    )
 
     if (showBatch) {
-        BatchIssuesSheet(entry = entry, onDismiss = { showBatch = false })
+        BatchIssuesSheet(
+            entry = entry,
+            statuses = statuses,
+            users = users,
+            onOpenIssue = { id ->
+                showBatch = false
+                onOpenBatchIssue(id)
+            },
+            onDismiss = { showBatch = false },
+        )
     }
 
     if (showActions) {
@@ -855,26 +821,37 @@ private val REVIEW_ROW_GAP = 6.dp
 
 /**
  * EXP-897: the issues a batch pull request spans — the Reviews list's half of
- * the Work screen badge's "In batch with" section, same rows, same words.
+ * the Work screen's "Related work" batch band. SLOP-16 r3: the SAME relation
+ * rows, flat under the sheet's 16dp gutter, and each one opens its issue.
  */
 @Composable
-private fun BatchIssuesSheet(entry: ReviewEntry, onDismiss: () -> Unit) {
+private fun BatchIssuesSheet(
+    entry: ReviewEntry,
+    statuses: List<ResolvedIssueStatus>,
+    users: List<UserEntity>,
+    onOpenIssue: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     GlassSheet(
         title = entry.prNumber?.let { "PR #$it" } ?: "Batch PR",
         onDismiss = onDismiss,
     ) {
-        entry.issues.forEach { issue ->
-            GlassSheetRow(
-                label = "${issue.identifier} · ${issue.title}",
-                onClick = onDismiss,
-                leading = {
-                    Icon(
-                        ExpIcons.navMyIssues,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                },
-            )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 8.dp),
+        ) {
+            entry.issues.forEachIndexed { index, issue ->
+                if (index > 0) GroupDivider()
+                RelationIssueRow(
+                    issue = issue,
+                    statuses = statuses,
+                    users = users,
+                    onClick = { onOpenIssue(issue.id) },
+                )
+            }
         }
     }
 }

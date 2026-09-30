@@ -49,10 +49,10 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingIssueId = issueId
     }
 
-    func navigateToIssue(_ issueId: String, accountId: String) {
+    func navigateToIssue(_ issueId: String, accountId: String, face: WorkFaceKind = .issue) {
         pendingIssueUserId = nil
         pendingIssueAccountId = accountId
-        pendingIssueFace = .issue
+        pendingIssueFace = face
         pendingIssueId = issueId
     }
 

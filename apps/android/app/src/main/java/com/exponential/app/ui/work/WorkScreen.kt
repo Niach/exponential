@@ -621,6 +621,9 @@ fun WorkScreen(
         // EXP-980: the Issue face draws the blocks CHAIN, not a chip row.
         val blocksGraph by graphVm.blocksGraph.collectAsStateWithLifecycle()
         val graphIssuesById by graphVm.issuesById.collectAsStateWithLifecycle()
+        val graphStatuses by graphVm.issueStatuses.collectAsStateWithLifecycle()
+        val graphUsers by graphVm.users.collectAsStateWithLifecycle()
+        val graphDevices by graphVm.devices.collectAsStateWithLifecycle()
         PrGraphSheet(
             graph = graph,
             face = face,
@@ -629,7 +632,15 @@ fun WorkScreen(
             mergeError = graphMergeError,
             blocksGraph = blocksGraph,
             issuesById = graphIssuesById,
+            statuses = graphStatuses,
+            users = graphUsers,
+            devices = graphDevices,
             onOpenIssue = onOpenIssue,
+            // SLOP-16 r3: a pull request row opens its Changes — this
+            // screen's own face for the subject's PR, else the review route.
+            onOpenPr = { id ->
+                if (id == issueId && hasChanges) faceName = WorkFaceKind.Changes.name else onOpenChanges(id)
+            },
             onOpenRun = { id ->
                 shownSessionId = id
                 pinnedByUser = true

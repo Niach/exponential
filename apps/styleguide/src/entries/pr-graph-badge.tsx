@@ -6,9 +6,9 @@ import type { StyleguideEntry } from "./types.ts"
 // the stacked issue chip (EXP-1058) restated the title right beside it. The
 // glyph names the badge SHAPE (`lib/pr-graph.ts` `badgeShape`, ×4,
 // face-independent since EXP-1097), a muted mono `+N` counts the rest
-// (`badgeChip`). Click opens the overlay: a DIALOG with the full graph on
-// pointer platforms, the bottom sheet with the compact graph on phones. The
-// specimen shows the button only, since the overlay reads four Electric
+// (`badgeChip`). Click opens THE "Related work" view (SLOP-16 r3): the
+// standard modal, group bands over rows the product already draws. The
+// specimen shows the button only, since the view reads four Electric
 // collections.
 
 const StackIcon = conceptIcon(`pr-stack`)
@@ -47,31 +47,31 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1058`,
   title: `Work header badge`,
-  blurb: `What this work is PART OF, as a quiet icon button beside the \`…\` (SLOP-16; it replaced EXP-1058's stacked issue chip, which restated the title). The glyph follows the badge SHAPE: a pull request stack (or stack + batch) = \`pr-stack\`, a batch = \`pr-batch\`, a run family = \`session-tree\`, open blockers = \`relation-blocked-by\`; a muted mono \`+N\` beside it counts every other issue on the stack or batch, every other run of the family, or the other open blockers (nothing when N is 0). FACE-INDEPENDENT (EXP-1097): the same button on Issue, Run and Changes; absent when there is nothing to say. The tooltip names the shape. Click opens the overlay, the face's own section first — Blocked by on Issue, Runs on Run, the pull request stack bottom-up on Changes: on pointer platforms a DIALOG with the WHOLE graph (full chips with titles, the viewport as wide as the dialog, scrolling only when it is really huge); on phones the bottom sheet with the compact graph (SLOP-15's small chips).`,
+  blurb: `What this work is PART OF, as a quiet icon button beside the \`…\` (SLOP-16; it replaced EXP-1058's stacked issue chip, which restated the title). The glyph follows the badge SHAPE: a pull request stack (or stack + batch) = \`pr-stack\`, a batch = \`pr-batch\`, a run family = \`session-tree\`, open blockers = \`relation-blocked-by\`; a muted mono \`+N\` beside it counts every other issue on the stack or batch, every other run of the family, or the other open blockers (nothing when N is 0). FACE-INDEPENDENT (EXP-1097): the same button on Issue, Run and Changes; absent when there is nothing to say. The tooltip names the shape. Click opens THE "Related work" view, ONE layout on every platform (SLOP-16 r3): the platform's standard modal (web: the \`dialog\` at its default width, which drops to its bottom-sheet arm on a phone), one GROUP BAND (\`section-header\`, never folding) per section in \`overlaySections\` order, the face's own first, over rows the product already draws: "Blocked by" over the COMPACT mini-graph (small chips, scrolling sideways); "In batch with" (Issue, Changes) / "Issues" (Run) over the relations card's issue rows; "Runs" over the session tree's run rows; "Pull requests" over the Reviews queue's stack row, bottom-up with tree guides, \`Merge stack\` on the bottom row. A batch's issues appear ONCE: under the batch band, or folded under their PR row when that band is absent. No new layout, no captions, no cards.`,
   status: {
     web: {
       state: `ok`,
       symbol: `PrGraphBadge`,
       file: `apps/web/src/components/pr-graph-badge.tsx`,
-      note: `icon button per lib/pr-graph.ts badgeShape + badgeChip count; click opens the Dialog`,
+      note: `icon button per lib/pr-graph.ts badgeShape + badgeChip count; Related work dialog/sheet: bands over the existing rows`,
     },
     desktop: {
       state: `ok`,
       symbol: `pr_graph::badge`,
       file: `apps/desktop/crates/ui/src/pr_graph.rs`,
-      note: `icon button per domain pr_graph::badge_shape + badge_chip count; click opens the graph dialog`,
+      note: `icon button per domain pr_graph::badge_shape + badge_chip count; Related work dialog: bands over the existing rows`,
     },
     ios: {
       state: `ok`,
       symbol: `PrGraphBadge`,
       file: `apps/ios/Exponential/UI/Work/PrGraphBadge.swift`,
-      note: `icon button per ExpCore PrGraph.badgeShape + badgeChip count; tap opens the sheet`,
+      note: `icon button per ExpCore PrGraph.badgeShape + badgeChip count; Related work sheet: bands over the existing rows`,
     },
     android: {
       state: `ok`,
       symbol: `PrGraphBadge`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/work/PrGraphBadge.kt`,
-      note: `icon button per domain PrGraph.badgeShape + badgeChip count; tap opens the sheet`,
+      note: `icon button per domain PrGraph.badgeShape + badgeChip count; Related work sheet: bands over the existing rows`,
     },
   },
   island: () => (

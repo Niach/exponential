@@ -16,7 +16,12 @@
 // stack`, `reports nothing for a lone pr`.
 
 import { nestSessions, type SessionTreeRow, type TreeSession } from "@/lib/session-tree"
-import { stackChain, type PrStackNode } from "@/lib/pr-stack"
+import {
+  MERGE_STACK_LABEL,
+  stackChain,
+  type PrStackNode,
+} from "@/lib/pr-stack"
+import { RELATIONS_VIEW_COPY } from "@/lib/issue-relations-view"
 import { openBlockers, type StackStartRelation } from "@/lib/stack-start"
 import { batchRunIssues, isBatchRun, type BatchRunIssue } from "@/lib/batch-run"
 
@@ -338,4 +343,31 @@ export function overlaySections<I, S>(
       graph.stack.length >= 2 || (face === `changes` && graph.entry !== null),
   }
   return FACE_SECTION_ORDER[face].filter((section) => present[section])
+}
+
+/** SLOP-16 r3: THE "Related work" view's title — the platform's standard
+ *  modal (web `Dialog`, which drops to its sheet arm on phones). */
+export const RELATED_WORK_TITLE = `Related work`
+
+/** SLOP-16 r3: the "Related work" view's copy, byte-identical ×4 (desktop
+ *  `pr_graph.rs`, iOS `PrGraphBadge.swift`, Android `PrGraphBadge.kt`). Each
+ *  section = a group band over the product's existing rows. */
+export const PR_GRAPH_OVERLAY_COPY = {
+  title: RELATED_WORK_TITLE,
+  blocked: RELATIONS_VIEW_COPY.blockedBy,
+  /** The batch band on the Issue and Changes faces. */
+  batch: `In batch with`,
+  /** The batch band on the Run face — the run's own subject. */
+  batchRun: `Issues`,
+  runs: `Runs`,
+  stack: `Pull requests`,
+  mergeStack: MERGE_STACK_LABEL,
+  empty: `Nothing else is linked to this issue.`,
+} as const
+
+/** The batch band's title on a face. */
+export function batchBandTitle(face: PrGraphFace): string {
+  return face === `run`
+    ? PR_GRAPH_OVERLAY_COPY.batchRun
+    : PR_GRAPH_OVERLAY_COPY.batch
 }

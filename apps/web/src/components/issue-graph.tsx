@@ -50,10 +50,6 @@ import { cn } from "@/lib/utils"
 // work header's overlay — drawn with the small chip (glyph · identifier) in
 // `compactNodeWidth` boxes (the fixture's, ×4), so a three-wave chain fits without
 // scrolling sideways. A dialog keeps the full box and the titles.
-//
-// SLOP-16: a DIALOG hands its own content width as `viewWidth` — the viewport
-// then caps there instead of at the fixture's `maxViewWidth` (a hover card's
-// width), so the whole graph shows and only a really wide one scrolls.
 
 export type IssueGraphDensity = `full` | `compact`
 
@@ -62,7 +58,6 @@ export function IssueGraphView({
   issueById,
   renderNode,
   density = `full`,
-  viewWidth,
   className,
 }: {
   graph: IssueGraph
@@ -71,9 +66,6 @@ export function IssueGraphView({
   renderNode: (issue: Issue) => ReactNode
   /** `compact` = the hover graph's narrow boxes (SLOP-15). */
   density?: IssueGraphDensity
-  /** SLOP-16: the host's width cap for the viewport (a dialog's content
-   *  width); absent = the fixture's `maxViewWidth`. Wider grids still scroll. */
-  viewWidth?: number
   className?: string
 }) {
   if (graph.nodes.length === 0) return null
@@ -106,11 +98,7 @@ export function IssueGraphView({
     >
       <div
         className="overflow-auto"
-        style={{
-          maxWidth:
-            viewWidth != null ? Math.min(size.width, viewWidth) : size.viewWidth,
-          maxHeight: size.viewHeight,
-        }}
+        style={{ maxWidth: size.viewWidth, maxHeight: size.viewHeight }}
         data-testid="issue-graph-viewport"
       >
         <div style={{ padding: g.inset, width: size.width, height: size.height }}>
@@ -161,7 +149,6 @@ export function TeamIssueGraph({
   onNavigate,
   empty,
   density = `full`,
-  viewWidth,
   className,
 }: {
   teamId: string
@@ -172,8 +159,6 @@ export function TeamIssueGraph({
   empty?: ReactNode
   /** `compact` = the hover graph: narrow boxes, small chips (SLOP-15). */
   density?: IssueGraphDensity
-  /** SLOP-16: see `IssueGraphView`. */
-  viewWidth?: number
   className?: string
 }) {
   // The GRAPH's team, not the route's: an inbox or My Issues row can sit in
@@ -211,7 +196,6 @@ export function TeamIssueGraph({
       graph={graph}
       issueById={issueById}
       density={density}
-      viewWidth={viewWidth}
       className={className}
       renderNode={(issue) => {
         const boardSlug = boardSlugById.get(issue.boardId)

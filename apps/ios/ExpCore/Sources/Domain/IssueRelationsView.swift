@@ -218,7 +218,8 @@ public enum IssueRelationsView {
             .map(\.element)
     }
 
-    private static func row(_ issue: Issue) -> Row {
+    /// One synced issue as THE relation row (the Related work sheet reuses it).
+    public static func row(_ issue: Issue) -> Row {
         Row(
             id: issue.id,
             identifier: issue.identifier,
