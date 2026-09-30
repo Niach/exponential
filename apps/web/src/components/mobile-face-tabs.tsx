@@ -1,4 +1,5 @@
-import { useRef, type TouchEvent } from "react"
+import { useRef, type ReactNode, type TouchEvent } from "react"
+import { cn } from "@/lib/utils"
 import type { CodingSession } from "@/db/schema"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
@@ -24,7 +25,9 @@ import {
 // bottom-right switcher circle of EXP-893, whose one-or-menu behaviour read
 // as a toggle nobody could predict. The strip is absent with a single face
 // (nothing to switch), and it never moves between faces: every face renders
-// it in the same slot under the same header. iOS `WorkScreen` and Android
+// it INSIDE the header band, under the title row and over the band's one
+// hairline (`MobileDetailHeader` `below`), so title and tabs read as one
+// header. iOS `WorkScreen` and Android
 // `WorkScreen` draw their `GlassSegmentedControl` in the same place.
 //
 // A horizontal swipe on the face's body walks the strip (`swipeTarget`):
@@ -156,6 +159,10 @@ export interface MobileFaceTabsProps {
   viewedRunId?: string | null
   onFace: (face: WorkFaceKind) => void
   onOpenRun?: (session: CodingSession) => void
+  /** EXP-1150: the band's Merge PR pill (`MergePrPill placement="header"`),
+   *  at the row's trailing end on every face while the PR is open — the ONE
+   *  merge of the phone Work screen. The strip gives way to it. */
+  trailing?: ReactNode
 }
 
 export function MobileFaceTabs({
@@ -165,6 +172,7 @@ export function MobileFaceTabs({
   viewedRunId = null,
   onFace,
   onOpenRun,
+  trailing,
 }: MobileFaceTabsProps) {
   const multipleRuns = runs.length > 1
   const items: WorkFaceItem[] = faces.map((kind) => ({
@@ -182,12 +190,23 @@ export function MobileFaceTabs({
   // The toggle itself renders nothing under two segments (unless the Runs
   // caret alone earns it); the row must vanish with it or it leaves a gap.
   const hasRunMenu = multipleRuns && faces.includes(`run`) && Boolean(onOpenRun)
-  if (items.length < 2 && !hasRunMenu) return null
+  const hasTabs = items.length >= 2 || hasRunMenu
+  const hasTrailing = trailing !== undefined && trailing !== null
+  if (!hasTabs && !hasTrailing) return null
   return (
     <div
-      className="flex shrink-0 justify-center px-4 pt-2 pb-1"
+      className={cn(
+        `flex shrink-0 items-center gap-2 px-4 pb-2`,
+        hasTrailing ? `justify-between` : `justify-center`
+      )}
       data-testid="mobile-face-tabs"
     >
+      <div
+        className={cn(
+          `flex min-w-0 overflow-x-auto [scrollbar-width:none]`,
+          hasTrailing ? `justify-start` : `justify-center`
+        )}
+      >
       <WorkFaceToggle
         face={toToggleFace(face)}
         items={items}
@@ -203,6 +222,8 @@ export function MobileFaceTabs({
             : undefined
         }
       />
+      </div>
+      {trailing}
     </div>
   )
 }

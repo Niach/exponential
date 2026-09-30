@@ -8,9 +8,9 @@ import com.exponential.app.data.db.CodingSessionEntity
 // a segmented strip under the top bar (the ONE segmented control every list
 // strip wears) names every available face in its fixed order, and a
 // horizontal swipe on the face's body moves to the neighbour ([swipeTarget]).
-// The bottom bar keeps only the face's OWN controls: Stop / Resume sit in the
-// top bar's trailing slot while the Run face shows, and the Run face's bar
-// carries the Merge circle while its PR is open ([runBarTrailing]). These are
+// The header band carries the strip with the Merge PR pill at its end (every
+// face); the bottom bar keeps only the face's OWN controls, and Stop / Resume
+// sit in the top bar's trailing slot while the Run face shows. These are
 // the PURE rules every phone client mirrors byte for byte: web
 // `lib/work-faces.ts` (the spec and its tests), iOS `ExpCore/Domain/WorkFaces.swift` — same names, same cases,
 // same test names (`WorkFacesTest`).
@@ -33,7 +33,7 @@ const val RESULTS_FACE_LABEL = "Results"
  *  Work screen to its Results face. */
 const val OPEN_RESULTS_LABEL = "Open Results"
 /** The Start circle's label — the Run face's bar once the shown run ended
- *  for good, the Issue face's bar while nothing runs. */
+ *  for good, the Issue face's bar while the issue can start. */
 const val START_CODING_LABEL = "Start coding"
 
 /** The steer composer's placeholder, byte-identical ×4 (desktop
@@ -165,18 +165,6 @@ fun swipeTarget(faces: List<WorkFaceKind>, shown: WorkFaceKind, direction: Swipe
     if (index < 0) return null
     val next = if (direction == SwipeDirection.Left) index + 1 else index - 1
     return faces.getOrNull(next)
-}
-
-enum class RunBarTrailing { Merge, Start, None }
-
-/** The Run face's bar keeps ONE circle on its right, now that the switcher
- *  is a strip: Merge PR while the run's PR is open and mergeable from here
- *  (EXP-1150: the same confirm the Changes face's capsule runs), else Start
- *  coding once the shown run ended for good, else nothing. */
-fun runBarTrailing(canMerge: Boolean, offerStart: Boolean): RunBarTrailing = when {
-    canMerge -> RunBarTrailing.Merge
-    offerStart -> RunBarTrailing.Start
-    else -> RunBarTrailing.None
 }
 
 /** EXP-862: the ONE session-dot palette, mirrored from web `session-dot.ts`

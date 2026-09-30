@@ -15,8 +15,8 @@ import SwiftUI
 /// - Reviews (`reviewMode`): file sheet · Merge / Fix conflicts · close-PR
 ///   circle, plus the close-without-merge dialog (Close exists nowhere else
 ///   on iOS).
-/// - The Work screen: file sheet · Merge / Fix conflicts, nothing trailing
-///   (EXP-1150: the faces are the screen's tab strip).
+/// - The Work screen: the file sheet alone (EXP-1150: the faces are the
+///   screen's tab strip, and Merge PR its header band's `WorkMergePill`).
 ///
 /// EXP-952: the Work screen hands its OWN `ChangesViewModel` in (`model`),
 /// so the files are loaded before the face was ever opened. nil = this face
@@ -257,10 +257,9 @@ struct PrChangesFace: View {
     }
 
     /// The bar shows only with something to act on (the pushed-branch tier
-    /// has none) — EXP-1150: on the Work screen too, now that no switcher
-    /// rides it.
+    /// has none) — EXP-1150: on the Work screen that is the file list alone.
     private func barVisible(_ vm: ChangesViewModel) -> Bool {
-        canReview(vm) || loadedFiles(vm)?.isEmpty == false
+        (reviewMode && canReview(vm)) || loadedFiles(vm)?.isEmpty == false
     }
 
     /// Review actions (EXP-248) on the shared floating bar. A failed
@@ -282,8 +281,8 @@ struct PrChangesFace: View {
                         .padding(.horizontal, 16)
                 }
                 // EXP-916: the centred cluster ×3 — files · Merge PR ·
-                // reject on the Reviews page, files · Merge PR on the Work
-                // screen's Changes face. One bar for both.
+                // reject on the Reviews page, the files alone on the Work
+                // screen's Changes face (EXP-1150). One bar for both.
                 FloatingBarCluster {
                     barLeading(vm)
                 } center: {
@@ -302,7 +301,7 @@ struct PrChangesFace: View {
     /// EXP-895: the bar's LEADING slot is the phone's file list, on every
     /// Changes surface — GitHub moved up into the nav bar's action slot, where
     /// a phone header has room for it. The locked layout is
-    /// `[file sheet][merge capsule]`.
+    /// `[file sheet][merge capsule]` (Reviews), `[file sheet]` (Work screen).
     @ViewBuilder
     private func barLeading(_ vm: ChangesViewModel) -> some View {
         if let files = loadedFiles(vm), !files.isEmpty {
@@ -319,7 +318,8 @@ struct PrChangesFace: View {
     /// the bar, on both hosts (Android's `BarSolidPill`).
     @ViewBuilder
     private func barCenter(_ vm: ChangesViewModel) -> some View {
-        if canReview(vm) {
+        // EXP-1150: the Work screen's Merge PR is its header band's pill.
+        if reviewMode, canReview(vm) {
             let fix = canFixConflicts(vm)
             FloatingBarSolidPill(
                 accessibilityLabel: fix ? "Fix merge conflicts" : "Merge pull request",

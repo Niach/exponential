@@ -16,9 +16,11 @@ import SwiftUI
 /// it the face TABS (`WorkFaceTabs`, two or more faces) sit at the same place
 /// on every face — tapping the selected `Runs` tab opens the run menu — and a
 /// horizontal swipe on the face body moves to the neighbouring face
-/// (`WorkFaces.swipeTarget`). The floating bottom bar is per face: Issue
-/// `[Properties][+ Comment][Start]`, Run `[usage][composer][Merge | Start]`
-/// (`WorkFaces.runBarTrailing`), Changes `[files][Merge PR]`, Results none.
+/// (`WorkFaces.swipeTarget`). The tab row ends in the ONE Merge PR pill
+/// (`WorkMergePill`) on every face while there is a PR to merge. The floating
+/// bottom bar is per face: Issue `[Properties][+ Comment][Start]`, Run
+/// `[usage][composer][Start once ended for good]`, Changes `[files]`,
+/// Results none.
 struct WorkScreen: View {
     let subject: WorkSubject
 
@@ -388,24 +390,87 @@ struct WorkScreen: View {
     }
 
     /// EXP-1150: the tab strip OUTSIDE every face, so it never jumps, and
-    /// the swipe on the face body under it.
+    /// the swipe on the face body under it. Standalone, the strip is part of
+    /// the HEADER BAND (title row, then tabs, one hairline under both — see
+    /// `workHeaderBand`); embedded in the workflow page (which draws its own
+    /// rows under its nav bar) it stays a plain row above the face.
+    @ViewBuilder
     private var screenContent: some View {
         ZStack {
             AppBackground()
-            VStack(spacing: 0) {
-                WorkFaceTabs(
-                    faces: availableFaces,
-                    shown: face,
-                    multipleRuns: multipleRuns,
-                    runsAnchor: $runsMenuAnchor,
-                    onSelect: switchFace,
-                    onReselectRuns: toggleRunsMenu
-                )
-                faceBody
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .workFaceSwipe(faces: availableFaces, shown: face, onSwitch: switchFace)
+            if isEmbedded {
+                VStack(spacing: 0) {
+                    faceTabs
+                    swipeableFaceBody
+                }
+            } else {
+                swipeableFaceBody
+                    .workHeaderBand { faceTabs }
             }
         }
+    }
+
+    /// Hosted by the workflow page (EXP-1086), which owns the nav bar.
+    private var isEmbedded: Bool { onFaceChange != nil }
+
+    private var faceTabs: some View {
+        WorkFaceTabs(
+            faces: availableFaces,
+            shown: face,
+            multipleRuns: multipleRuns,
+            runsAnchor: $runsMenuAnchor,
+            onSelect: switchFace,
+            onReselectRuns: toggleRunsMenu,
+            showsTrailing: mergeTarget != nil
+        ) {
+            if let mergeTarget {
+                WorkMergePill(
+                    target: mergeTarget,
+                    issue: mergeIssue(for: mergeTarget),
+                    prIssues: prGraphModel?.prIssues ?? [],
+                    steerEnabled: steerEnabled
+                )
+                // A new target starts clean (no stale conflict caption).
+                .id(mergeTargetKey(mergeTarget))
+            }
+        }
+    }
+
+    // MARK: - Merge (EXP-1150: the header band's pill)
+
+    /// What the band's Merge PR merges: the shown run's own target while the
+    /// run can merge (its retained model), else the issue's open PR for a
+    /// member. nil = no pill.
+    private var mergeTarget: MergeTarget? {
+        if let model = shownModel, model.canMerge, let target = model.mergeTarget {
+            return target
+        }
+        if let issue, issueVM?.permissions.isMember == true,
+           issue.prState == DomainContract.prStateOpen,
+           issue.prUrl?.isEmpty == false {
+            return .issue(issueId: issue.id)
+        }
+        return nil
+    }
+
+    private func mergeIssue(for target: MergeTarget) -> IssueEntity? {
+        guard case let .issue(id) = target else { return nil }
+        if let issue, issue.id == id { return issue }
+        if let row = shownModel?.mergeIssue, row.id == id { return row }
+        return prGraphModel?.issue(id: id)
+    }
+
+    private func mergeTargetKey(_ target: MergeTarget) -> String {
+        switch target {
+        case let .issue(id): "issue:\(id)"
+        case let .session(id): "session:\(id)"
+        }
+    }
+
+    private var swipeableFaceBody: some View {
+        faceBody
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .workFaceSwipe(faces: availableFaces, shown: face, onSwitch: switchFace)
     }
 
     /// The Run and Changes-with-a-diff faces are ONE `AgentSessionView`
@@ -509,6 +574,10 @@ struct WorkScreen: View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            // EXP-1150: standalone, the header band draws the bar's material
+            // over the title row AND the tabs, with its own hairline — the
+            // nav bar's background and divider stand down.
+            .toolbarBackground(isEmbedded ? .visible : .hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)

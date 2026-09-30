@@ -235,41 +235,6 @@ public struct FloatingBarSolidPill<Content: View>: View {
     }
 }
 
-/// EXP-1150: the solid pill's CIRCLE twin — the Run face's trailing Merge PR
-/// (or Fix conflicts): a 52pt solid white disc with a dark glyph, painted
-/// exactly like `FloatingBarSolidPill`, no hairline.
-public struct FloatingBarSolidCircle<Content: View>: View {
-    let accessibilityLabel: String
-    let enabled: Bool
-    let action: () -> Void
-    let content: Content
-
-    public init(
-        accessibilityLabel: String,
-        enabled: Bool = true,
-        action: @escaping () -> Void,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.accessibilityLabel = accessibilityLabel
-        self.enabled = enabled
-        self.action = action
-        self.content = content()
-    }
-
-    public var body: some View {
-        Button(action: action) {
-            content
-                .foregroundStyle(.black.opacity(0.9))
-                .frame(width: FloatingBarTokens.slot, height: FloatingBarTokens.slot)
-                .background(Circle().fill(.white))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
 // MARK: - The bar
 
 /// `[leading] [centre] [trailing]` on one centre line. Any slot may be empty:

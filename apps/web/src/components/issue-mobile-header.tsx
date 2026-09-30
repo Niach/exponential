@@ -81,8 +81,8 @@ export function IssueMobileHeader({
   graphBadge?: ReactNode
   /** The shown session's state; absent = no dot (no live run). */
   dot?: { tone: SessionDotTone; connecting?: boolean } | null
-  /** EXP-1150: the face strip under the bar (`MobileFaceTabs`) — absent with
-   *  a single face. */
+  /** EXP-1150: the face strip INSIDE the header band, under the title row
+   *  (`MobileFaceTabs`) — absent with a single face. */
   tabs?: ReactNode
 }) {
   const navigate = useNavigate()
@@ -111,8 +111,8 @@ export function IssueMobileHeader({
   }
 
   return (
-    <>
     <MobileDetailHeader
+      below={tabs}
       title={
         <>
           {dot && <TitleStateDot tone={dot.tone} connecting={dot.connecting} />}
@@ -152,7 +152,5 @@ export function IssueMobileHeader({
         </div>
       }
     />
-    {tabs}
-    </>
   )
 }

@@ -8,10 +8,11 @@ import { hasSessionResults, type SessionDotTone } from "@exp/ui"
 // `issue`, `run`, `changes` and `results`. EXP-1150: the faces are TABS — a
 // segmented strip under the header (the ONE segmented control every list
 // strip wears) names every available face in its fixed order, and a
-// horizontal swipe on the face's body moves to the neighbour. The bottom bar
-// keeps only the face's OWN controls: Stop / Resume sit in the nav bar's
-// trailing slot while the Run face shows, and the Run face's bar carries the
-// Merge circle while its PR is open (`runBarTrailing`). These are the PURE
+// horizontal swipe on the face's body moves to the neighbour. The header
+// band carries the Merge PR pill beside the tabs on EVERY face while the PR
+// is open (the one merge of the phone Work screen); the bottom bar keeps
+// only the face's OWN controls, and Stop / Resume sit in the nav bar's
+// trailing slot while the Run face shows. These are the PURE
 // rules every phone client mirrors byte for byte: iOS
 // `ExpCore/Domain/WorkFaces.swift`, Android `domain/WorkFaces.kt` — same
 // names, same cases, same test names.
@@ -32,7 +33,7 @@ export const RESULTS_FACE_LABEL = `Results`
  *  switches the run to its Results face. */
 export const OPEN_RESULTS_LABEL = `Open Results`
 /** The Start circle's label — the Run face's bar once the shown run ended
- *  for good, the Issue face's bar while nothing runs. */
+ *  for good, the Issue face's bar always. */
 export const START_CODING_LABEL = `Start coding`
 
 /** The steer composer's placeholder, byte-identical ×4 (desktop
@@ -200,21 +201,6 @@ export function swipeTarget(
   if (index < 0) return null
   const next = direction === `left` ? index + 1 : index - 1
   return faces[next] ?? null
-}
-
-export type RunBarTrailing = `merge` | `start` | `none`
-
-/** The Run face's bar keeps ONE circle on its right, now that the switcher
- *  is a strip: Merge PR while the run's PR is open and mergeable from here
- *  (EXP-1150: the same confirm the Changes face's capsule runs), else Start
- *  coding once the shown run ended for good, else nothing. */
-export function runBarTrailing(input: {
-  canMerge: boolean
-  offerStart: boolean
-}): RunBarTrailing {
-  if (input.canMerge) return `merge`
-  if (input.offerStart) return `start`
-  return `none`
 }
 
 /** Where a face lands when it vanishes under the reader (the diff cleared,

@@ -538,7 +538,7 @@ export function IssueDetailView({
   // the ONE coding action inside it (`issue-properties-tray.tsx`). The phone
   // renders the same node at the top of its scroll column, minus the coding
   // action: its floating bar's circle owns the start there.
-  const propsTray = (showCodingAction: boolean) => (
+  const propsTray = (showCodingAction: boolean, showMerge = true) => (
     <IssuePropertiesTray
       issue={issue}
       board={board}
@@ -548,6 +548,7 @@ export function IssueDetailView({
       readOnly={readOnly}
       handlers={handlers}
       showCodingAction={showCodingAction}
+      showMerge={showMerge}
     />
   )
 
@@ -715,7 +716,7 @@ export function IssueDetailView({
           ref={bodyScrollRef}
           className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
         >
-          {propsTray(false)}
+          {propsTray(false, false)}
           {parentLine}
           {titleField}
           {editor}

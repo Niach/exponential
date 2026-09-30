@@ -20,7 +20,6 @@ import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import { MobileFaceTabs, useFaceSwipe } from "@/components/mobile-face-tabs"
-import { MergeCapsule, MergeCircle } from "@/components/issue-changes-face"
 import { ChangesView } from "@/components/changes-view"
 import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
@@ -66,7 +65,6 @@ import {
   availableFaces,
   OPEN_RESULTS_LABEL,
   phaseDotTone,
-  runBarTrailing,
   START_CODING_LABEL,
   type WorkFaceKind,
 } from "@/lib/work-faces"
@@ -1122,20 +1120,25 @@ export function AgentSessionView({
       viewedRunId={session.id}
       onFace={onPhoneFace}
       onOpenRun={onOpenRun}
+      trailing={
+        /* EXP-1150: the ONE merge of the phone Work screen — the md+ header's
+           own pill, beside the tabs on every face while the PR is open. */
+        canMerge && mergeProps ? (
+          <MergePrPill
+            {...mergeProps}
+            steerEnabled={steerEnabled}
+            placement="header"
+          />
+        ) : undefined
+      }
     />
   ) : null
 
-  /** EXP-1150: the Run face's bar keeps ONE circle on its right — Merge PR
-   *  while this run's PR is open (the Changes capsule's own control, as a
-   *  circle), else Start coding once the run ended for good, else nothing. */
-  const phoneTrailing = runBarTrailing({
-    canMerge: Boolean(canMerge && mergeProps),
-    offerStart: Boolean(onStart) && sessionEnded && !canResumeAny,
-  })
+  /** EXP-1150: the Run face's bar keeps ONE circle on its right — Start
+   *  coding once the run ended for good, else nothing (Merge rides the
+   *  header band). */
   const phoneTrailingNode =
-    phoneTrailing === `merge` && mergeProps ? (
-      <MergeCircle {...mergeProps} steerEnabled={steerEnabled} />
-    ) : phoneTrailing === `start` ? (
+    Boolean(onStart) && sessionEnded && !canResumeAny ? (
       <FabButton
         emphasis="primary"
         aria-label={START_CODING_LABEL}
@@ -1148,15 +1151,15 @@ export function AgentSessionView({
     ) : undefined
 
   /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
-   *  composer capsule (expanding into the composer), the Merge / Start
-   *  circle. Run over: that circle alone, or no bar. Changes: the file
-   *  sheet and Merge PR while mergeable. EXP-879 Results: NO bar — only the
-   *  Run face owns Stop / Resume, only Changes the merge capsule. */
+   *  composer capsule (expanding into the composer), the Start circle once
+   *  the run ended for good. Run over: that circle alone, or no bar.
+   *  Changes: the file sheet. EXP-879 Results: NO bar — only the Run face
+   *  owns Stop / Resume; Merge rides the header band on every face. */
   const mobileBar = !isMobile ? null : showResultsFace ? null : showDiffFace ? (
     <MobileWorkBar
       /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides
          the header's action slot (EXP-949: on this face alone, issue-bound or
-         not). EXP-916: the Reviews page's cluster — files · Merge PR. The
+         not). EXP-916: the Reviews page's cluster — the sheet alone here. The
          face only stands with files, so the sheet is always there. */
       cluster
       leading={
@@ -1165,11 +1168,6 @@ export function AgentSessionView({
           selected={diffFile}
           onSelect={setDiffFile}
         />
-      }
-      capsule={
-        canMerge && mergeProps ? (
-          <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
-        ) : undefined
       }
     />
   ) : composerVisible || phoneTrailingNode ? (
@@ -1248,8 +1246,8 @@ export function AgentSessionView({
         renderMobileHeader ? (
           renderMobileHeader({ dot, shownFace, tabs: mobileTabs })
         ) : (
-          <>
           <MobileDetailHeader
+            below={mobileTabs}
             title={
               <>
                 <TitleStateDot tone={dot.tone} connecting={dot.connecting} />
@@ -1276,8 +1274,6 @@ export function AgentSessionView({
               </div>
             }
           />
-          {mobileTabs}
-          </>
         )
       ) : (
         /* EXP-877: the ONE work header — the same node the issue route

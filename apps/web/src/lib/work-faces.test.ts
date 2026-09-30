@@ -7,7 +7,6 @@ import {
   fallbackFace,
   phaseDotTone,
   primaryAction,
-  runBarTrailing,
   sessionModel,
   swipeTarget,
   PLAN_MODE_LABEL,
@@ -166,12 +165,6 @@ describe(`work faces`, () => {
     // A face that is not in the strip swipes nowhere.
     expect(swipeTarget([`issue`], `run`, `left`)).toBeNull()
     expect(swipeTarget([], `issue`, `left`)).toBeNull()
-  })
-
-  it(`picks the run bar's trailing circle, merge first`, () => {
-    expect(runBarTrailing({ canMerge: true, offerStart: true })).toBe(`merge`)
-    expect(runBarTrailing({ canMerge: false, offerStart: true })).toBe(`start`)
-    expect(runBarTrailing({ canMerge: false, offerStart: false })).toBe(`none`)
   })
 
   it(`falls back changes to run to issue`, () => {

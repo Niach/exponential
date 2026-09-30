@@ -331,7 +331,7 @@ private val AgentPhase.isWaitingForStream: Boolean
  * EXP-893: the Work screen's RUN FACE — the transcript directly under the
  * host's top bar, the strips above the composer, and the floating bottom bar
  * (usage ring · `Type / for commands` capsule · the host's trailing circle,
- * EXP-1150 `runBarTrailing`: Merge PR or Start coding) while the run is live;
+ * EXP-1150: Start coding once the run ended for good) while the run is live;
  * the bare bar with only the trailing circle — or no bar without one — once it
  * ended or a card holds the input. The host (`WorkScreen`) owns the Scaffold,
  * the title dot, Stop / Resume, the kill and resume confirms, the merge
@@ -344,8 +344,8 @@ fun RunFace(
     padding: PaddingValues,
     // EXP-760: a chipped identifier in the feed opens that issue.
     onOpenIssue: (String) -> Unit,
-    /** The bar's right circle (EXP-1150 `runBarTrailing`: the Merge PR or
-     *  the Start circle); null = none. */
+    /** The bar's right circle (EXP-1150: the Start circle once the run
+     *  ended for good — Merge PR lives in the header); null = none. */
     trailingBarSlot: (@Composable () -> Unit)?,
     /** EXP-933: switches the host to its Results face — the inline
      *  `sessions_results` card's `Open Results` button. Null hides it. */
@@ -4675,8 +4675,8 @@ private fun SteerComposer(
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
-    /** The collapsed bar's right circle — the host's Merge PR or Start
-     *  (EXP-1150); null = none. The expanded composer carries no switcher:
+    /** The collapsed bar's right circle — the host's Start (EXP-1150);
+     *  null = none. The expanded composer carries no switcher:
      *  the face tabs sit above it, under the top bar. */
     trailing: (@Composable () -> Unit)?,
 ) {

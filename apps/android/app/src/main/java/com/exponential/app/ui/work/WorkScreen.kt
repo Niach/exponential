@@ -1,6 +1,7 @@
 package com.exponential.app.ui.work
 
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -28,7 +29,6 @@ import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeTarget
-import com.exponential.app.domain.RunBarTrailing
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.availableFaces
@@ -39,7 +39,6 @@ import com.exponential.app.domain.fallbackFace
 import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.issueResultsRun
 import com.exponential.app.domain.parseSessionResultGroups
-import com.exponential.app.domain.runBarTrailing
 import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.shouldAutoBack
 import com.exponential.app.domain.CodingReadiness
@@ -55,6 +54,7 @@ import com.exponential.app.ui.issue.StartButtonUi
 import com.exponential.app.ui.issue.StartCircle
 import com.exponential.app.ui.issue.rememberIssueFaceController
 import com.exponential.app.ui.issue.toDiffFile
+import com.exponential.app.ui.components.GlassSegmentedControlDefaults
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.session.RunFace
@@ -68,12 +68,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 // Issue, Run, Changes and Results (`domain/WorkFaces.kt`, the ×4 rules).
 // System Back pops the whole screen. Opening a run from any list opens it on
 // the Run face; opening an issue lands on the Issue face. EXP-1150: the faces
-// are TABS — [WorkFaceFrame]'s segmented strip under the top bar, the same on
+// are TABS — [WorkFaceTabs] in the header under the title row, the same on
 // every face, plus a horizontal swipe on the body (`swipeTarget`); `Runs`
 // tapped again opens the run menu. The host owns the Scaffold, the top bar
 // (title dot + verbs + the issue menu), the kill / resume confirms, the ended
-// edge, the ONE session merge control (the Run face's circle via
-// `runBarTrailing`, the Changes face's pill) and each face's trailing circle.
+// edge, the ONE Merge PR control (the header's pill beside the tabs, every
+// face) and each face's trailing circle.
 
 /** What a Work screen is about — the route decides, the screen resolves. */
 sealed interface WorkSubject {
@@ -324,15 +324,12 @@ fun WorkScreen(
     }
 
     val dotTone = sessionDotTone(shownSession, issue?.prState, liveClock, awaitingInput)
-    // EXP-1150: the Run face's bar keeps ONE trailing circle
-    // (`runBarTrailing`): Merge PR while the shown run's PR is open and
-    // mergeable from here, else Start coding once the run ended for good.
+    // EXP-1150: Start coding once the shown run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
     val sessionStackChoice by (sessionVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
         .collectAsStateWithLifecycle()
-    // The live run merges its own target (EXP-678/734) — ONE control, worn
-    // by the Run face as its circle and by the Changes face as its pill.
+    // The live run merges its own target (EXP-678/734).
     val sessionCanMerge = sessionVm != null && mergeTarget != null &&
         !sessionEnded && phase !is AgentPhase.Ended
     val sessionMerge: ChangesMergeControl? = if (sessionCanMerge) {
@@ -367,12 +364,52 @@ fun WorkScreen(
     } else {
         null
     }
-    val runTrailing: (@Composable () -> Unit)? =
-        when (runBarTrailing(canMerge = sessionMerge != null, offerStart = offerStart && startUi != null)) {
-            RunBarTrailing.Merge -> sessionMerge?.let { merge -> { MergeRunCircle(merge) } }
-            RunBarTrailing.Start -> startUi?.let { ui -> { StartCircle(ui = ui, onClick = { startCoding() }) } }
-            RunBarTrailing.None -> null
+    // The PR-only source merges through the issue (EXP-156).
+    val changesMerging by (changesVm?.merging ?: remember { MutableStateFlow(false) })
+        .collectAsStateWithLifecycle()
+    val changesError by (changesVm?.actionError ?: remember { MutableStateFlow(null) })
+        .collectAsStateWithLifecycle()
+    val changesErrorFrom by (changesVm?.actionErrorFrom ?: remember { MutableStateFlow(null) })
+        .collectAsStateWithLifecycle()
+    val changesConflict by (changesVm?.actionErrorIsConflict ?: remember { MutableStateFlow(false) })
+        .collectAsStateWithLifecycle()
+    // EXP-1145: a stack member's Merge asks first, per merge source.
+    val changesStackChoice by (changesVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
+        .collectAsStateWithLifecycle()
+    // EXP-1150: the header's ONE Merge PR, on every face — the live run's own
+    // target first, else the issue's open PR.
+    val headerMerge: ChangesMergeControl? = when {
+        sessionMerge != null -> sessionMerge
+        changesVm != null && prOpen && permissions?.isMember == true -> {
+            val fix = changesConflict &&
+                changesErrorFrom == ChangesViewModel.PrAction.Merge &&
+                steerEnabled == true && !issue.branch.isNullOrBlank()
+            ChangesMergeControl(
+                label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
+                fixConflicts = fix,
+                loading = changesMerging,
+                error = changesError,
+                confirmText = "Squash-merges PR #${issue.prNumber ?: ""} via the GitHub App. " +
+                    "Any live coding session for it closes.",
+                onConfirm = { changesVm.mergePr() },
+                stackChoice = if (fix) null else changesStackChoice,
+                onMergeStack = { top -> changesVm.mergeStack(top) },
+                onFixConflicts = {
+                    onOpenAgent(
+                        AgentComposerSeed(
+                            actionId = DomainContract.builtinFixConflictsId,
+                            prIssueId = issueId,
+                        ),
+                    )
+                },
+            )
         }
+        else -> null
+    }
+    // The Run face's bar: Start coding once the shown run ended for good.
+    val runTrailing: (@Composable () -> Unit)? = startUi?.takeIf { offerStart }?.let { ui ->
+        { StartCircle(ui = ui, onClick = { startCoding() }) }
+    }
     // The Issue face's right circle: Start coding whenever the issue can be
     // started — the only trailing candidate now the switcher is gone.
     val issueTrailing: @Composable () -> Unit = {
@@ -491,23 +528,39 @@ fun WorkScreen(
                     } else {
                         null
                     },
+                    // EXP-1150: the face TABS, part of the header on every face.
+                    tabs = {
+                        WorkFaceTabs(
+                            faces = faces,
+                            face = face,
+                            onFace = { faceName = it.name },
+                            runs = menuRuns,
+                            shownRunId = shownSessionId,
+                            onPickRun = { id ->
+                                shownSessionId = id
+                                pinnedByUser = true
+                                faceName = WorkFaceKind.Run.name
+                            },
+                            trailing = headerMerge?.let { merge ->
+                                {
+                                    MergePrHeaderPill(
+                                        merge,
+                                        modifier = Modifier.height(GlassSegmentedControlDefaults.Height),
+                                    )
+                                }
+                            },
+                        )
+                    },
                 )
             },
         ) { scaffoldPadding ->
-            // EXP-1150: the face TABS, above the body on every face, and the
-            // body swipe to the neighbour.
+            // EXP-1150: the body swipe to the neighbour (the tabs ride the
+            // header).
             WorkFaceFrame(
                 faces = faces,
                 face = face,
                 padding = scaffoldPadding,
                 onFace = { faceName = it.name },
-                runs = menuRuns,
-                shownRunId = shownSessionId,
-                onPickRun = { id ->
-                    shownSessionId = id
-                    pinnedByUser = true
-                    faceName = WorkFaceKind.Run.name
-                },
             ) { padding ->
                 when (face) {
                     WorkFaceKind.Issue -> if (issueVm != null && commentVm != null) {
@@ -543,54 +596,11 @@ fun WorkScreen(
                         }
                     }
                     WorkFaceKind.Changes -> key(shownSessionId) {
-                        val changesMerging by (changesVm?.merging ?: remember { MutableStateFlow(false) })
-                            .collectAsStateWithLifecycle()
-                        val changesError by (changesVm?.actionError ?: remember { MutableStateFlow(null) })
-                            .collectAsStateWithLifecycle()
-                        val changesErrorFrom by (changesVm?.actionErrorFrom ?: remember { MutableStateFlow(null) })
-                            .collectAsStateWithLifecycle()
-                        val changesConflict by (changesVm?.actionErrorIsConflict ?: remember { MutableStateFlow(false) })
-                            .collectAsStateWithLifecycle()
-                        // EXP-1145: a stack member's Merge asks first, per merge source.
-                        val changesStackChoice by (changesVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
-                            .collectAsStateWithLifecycle()
-                        // The live run merges its own target (the host's ONE
-                        // [sessionMerge]); a PR-only face merges through the issue
-                        // (EXP-156).
-                        val merge = when {
-                            sessionMerge != null -> sessionMerge
-                            changesVm != null && prOpen && permissions?.isMember == true -> {
-                                val fix = changesConflict &&
-                                    changesErrorFrom == ChangesViewModel.PrAction.Merge &&
-                                    steerEnabled == true && !issue?.branch.isNullOrBlank()
-                                ChangesMergeControl(
-                                    label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
-                                    fixConflicts = fix,
-                                    loading = changesMerging,
-                                    error = changesError,
-                                    confirmText = "Squash-merges PR #${issue?.prNumber ?: ""} via the GitHub App. " +
-                                        "Any live coding session for it closes.",
-                                    onConfirm = { changesVm.mergePr() },
-                                    stackChoice = if (fix) null else changesStackChoice,
-                                    onMergeStack = { top -> changesVm.mergeStack(top) },
-                                    onFixConflicts = {
-                                        onOpenAgent(
-                                            AgentComposerSeed(
-                                                actionId = DomainContract.builtinFixConflictsId,
-                                                prIssueId = issueId,
-                                            ),
-                                        )
-                                    },
-                                )
-                            }
-                            else -> null
-                        }
                         ChangesFace(
                             padding = padding,
                             // EXP-932: the files the host resolved.
                             files = changesFiles,
                             prLoad = prLoad,
-                            merge = merge,
                         )
                     }
                     WorkFaceKind.Results -> ResultsFace(

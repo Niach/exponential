@@ -24,11 +24,16 @@ export const HEADER_SLOT_CLASS = `size-9 shrink-0`
 /** The bar itself: one line, a hairline under it, no card. */
 export const MOBILE_DETAIL_HEADER_CLASS = `flex h-12 shrink-0 items-center gap-1 border-b border-border px-2`
 
+/** EXP-1150: the header BAND — the title row plus whatever rides under it
+ *  (the Work screen's face tabs), one block over one hairline. */
+const MOBILE_DETAIL_HEADER_BAND_CLASS = `shrink-0 border-b border-border`
+
 export function MobileDetailHeader({
   title,
   onBack,
   backLabel = `Back`,
   menu,
+  below,
   className,
 }: {
   /** The identifier or title, centred. */
@@ -38,10 +43,20 @@ export function MobileDetailHeader({
   backLabel?: string
   /** The overflow `…` (or any trailing control) — a round ghost button. */
   menu?: ReactNode
+  /** EXP-1150: a row INSIDE the header band, under the title row — the Work
+   *  screen's face tabs. The hairline moves under it, so the title and the
+   *  tabs read as one header. */
+  below?: ReactNode
   className?: string
 }) {
-  return (
-    <div className={cn(MOBILE_DETAIL_HEADER_CLASS, className)}>
+  const row = (
+    <div
+      className={cn(
+        MOBILE_DETAIL_HEADER_CLASS,
+        below !== undefined && below !== null && `border-b-0`,
+        className
+      )}
+    >
       {onBack ? (
         <Button
           variant="ghost"
@@ -60,6 +75,13 @@ export function MobileDetailHeader({
         {title}
       </span>
       {menu ?? <span aria-hidden className={HEADER_SLOT_CLASS} />}
+    </div>
+  )
+  if (below === undefined || below === null) return row
+  return (
+    <div className={MOBILE_DETAIL_HEADER_BAND_CLASS} data-testid="mobile-detail-header-band">
+      {row}
+      {below}
     </div>
   )
 }

@@ -7,8 +7,8 @@ import Foundation
 // `faceLabel` (tapping the selected `Runs` tab opens the run menu), and a
 // horizontal swipe on the face body moves to the neighbour (`swipeTarget`).
 // Stop / Resume sit in the nav bar's trailing slot only while the Run face
-// shows, the merge bar only on Changes, and the Run face's bar keeps ONE
-// trailing circle (`runBarTrailing`). These are the PURE rules every
+// shows, and the Merge PR pill trails the tab row on every face. These are
+// the PURE rules every
 // phone client mirrors byte for byte: web `lib/work-faces.ts` (the spec),
 // Android `domain/WorkFaces.kt` — same names, same cases, same test names.
 
@@ -189,21 +189,6 @@ public enum WorkFaces {
         let next = direction == .left ? index + 1 : index - 1
         guard faces.indices.contains(next) else { return nil }
         return faces[next]
-    }
-
-    public enum RunBarTrailing: String, Equatable, Sendable {
-        case merge
-        case start
-        case none
-    }
-
-    /// The Run face's bar keeps ONE circle on its right: Merge PR while the run's
-    /// PR is open and mergeable from here, else Start coding once the shown run
-    /// ended for good, else nothing.
-    public static func runBarTrailing(canMerge: Bool, offerStart: Bool) -> RunBarTrailing {
-        if canMerge { return .merge }
-        if offerStart { return .start }
-        return .none
     }
 
     /// Where a face lands when it vanishes under the reader (the diff cleared,

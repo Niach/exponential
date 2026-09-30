@@ -11,7 +11,14 @@ import {
   type SessionResultGroup,
 } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
-import { useIssueRuns, type PastRunRow } from "@/hooks/use-agents-data"
+import {
+  mergeTargetProps,
+  useIssueRuns,
+  type PastRunRow,
+} from "@/hooks/use-agents-data"
+import { useWorkflowOwnsMerge } from "@/hooks/use-reviews-data"
+import { useIsTeamMember } from "@/components/issue-coding-rows"
+import { MergePrPill } from "@/components/run-action-pills"
 import { useReviewFiles, type ReviewFilesState } from "@/hooks/use-review-files"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -309,6 +316,7 @@ function IssueDetailPage() {
         team={team}
         users={users}
         teamSlug={teamSlug}
+        currentUserId={currentUserId}
         readOnly={readOnly}
         origin={search.from}
         view={search.view}
@@ -412,6 +420,7 @@ function MobileIssuePage({
   team,
   users,
   teamSlug,
+  currentUserId,
   readOnly,
   origin,
   view,
@@ -433,6 +442,7 @@ function MobileIssuePage({
   team: NonNullable<ReturnType<typeof useBoardViewData>[`team`]>
   users: ReturnType<typeof useBoardViewData>[`users`]
   teamSlug: string
+  currentUserId: string | undefined
   readOnly: boolean
   origin?: string
   view?: `diff` | `results`
@@ -480,6 +490,20 @@ function MobileIssuePage({
     }
   }
   const swipe = useFaceSwipe(faces, face, onFace)
+  // EXP-1150: the ONE merge of the phone Work screen rides the header band
+  // beside the tabs — the tray's own gating (membership, the relay, a
+  // workflow-owned node PR), the md+ header's own pill.
+  const isMember = useIsTeamMember(team.id, currentUserId ?? ``)
+  const steerConfig = useSteerConfig()
+  const workflowOwnsMerge = useWorkflowOwnsMerge(team.id, issue.id)
+  const mergePill =
+    currentUserId && isMember && issue.prState === `open` && !workflowOwnsMerge ? (
+      <MergePrPill
+        {...mergeTargetProps({ kind: `issue`, issue })}
+        steerEnabled={steerConfig?.enabled === true}
+        placement="header"
+      />
+    ) : undefined
   const tabs = (
     <MobileFaceTabs
       faces={faces}
@@ -488,6 +512,7 @@ function MobileIssuePage({
       viewedRunId={runTarget?.id ?? null}
       onFace={onFace}
       onOpenRun={(target) => goRun(target.id)}
+      trailing={mergePill}
     />
   )
   const dot = sessionTone ? { tone: sessionTone } : null

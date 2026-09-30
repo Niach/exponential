@@ -12,8 +12,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// EXP-893: the phone Work screen's pure rules — EXP-1150: face tabs, the
-// body swipe (`swipeTarget`) and the Run bar's one circle (`runBarTrailing`).
+// EXP-893: the phone Work screen's pure rules — EXP-1150: face tabs and the
+// body swipe (`swipeTarget`).
 // Test names mirror web
 // `work-faces.test.ts` and iOS `WorkFacesTests.swift`.
 class WorkFacesTest {
@@ -144,13 +144,6 @@ class WorkFacesTest {
         )
         assertNull(swipeTarget(listOf(WorkFaceKind.Issue), WorkFaceKind.Run, SwipeDirection.Left))
         assertNull(swipeTarget(emptyList(), WorkFaceKind.Issue, SwipeDirection.Left))
-    }
-
-    @Test
-    fun `picks the run bar's trailing circle, merge first`() {
-        assertEquals(RunBarTrailing.Merge, runBarTrailing(canMerge = true, offerStart = true))
-        assertEquals(RunBarTrailing.Start, runBarTrailing(canMerge = false, offerStart = true))
-        assertEquals(RunBarTrailing.None, runBarTrailing(canMerge = false, offerStart = false))
     }
 
     @Test

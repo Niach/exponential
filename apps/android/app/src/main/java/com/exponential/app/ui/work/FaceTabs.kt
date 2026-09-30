@@ -2,10 +2,15 @@ package com.exponential.app.ui.work
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.HorizontalDivider
+import com.exponential.app.ui.theme.GlassTokens
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,12 +22,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,124 +41,115 @@ import com.exponential.app.domain.swipeTarget
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassSegmentedControl
-import com.exponential.app.ui.components.GlassSegmentedControlDefaults
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.session.PastRunRow
 import kotlin.math.abs
 
 // EXP-1150: the Work screen's face TABS — the ONE segmented strip (the Inbox /
-// My Issues control) directly under the top bar, naming every available face
-// in its fixed order (`availableFaces` + `faceLabel`), plus the body SWIPE
-// that moves to the neighbour (`swipeTarget`). It replaces the EXP-893
-// bottom-right switcher circle. [WorkFaceFrame] is the one host both the Work
-// screen and the workflow page mount ABOVE their `when (face)` body, so the
-// strip keeps its position and height on every face. With two or more own
-// runs the Run tab reads `Runs`, and tapping it while it is ALREADY selected
-// opens the run menu under the strip (`<device> · <when>`, a check on the
-// shown run).
-
-/** The strip's block: its gap above, the control, its gap below. */
-private val TabsTopGap: Dp = 4.dp
-private val TabsBottomGap: Dp = 8.dp
-private val TabsBlock: Dp = TabsTopGap + GlassSegmentedControlDefaults.Height + TabsBottomGap
+// My Issues control) naming every available face in its fixed order
+// (`availableFaces` + `faceLabel`), plus the body SWIPE that moves to the
+// neighbour (`swipeTarget`). It replaces the EXP-893 bottom-right switcher
+// circle. The strip is part of the HEADER: [WorkFaceTabs] composes under the
+// top bar's title row inside the Scaffold's `topBar` slot (8dp below it, ONE
+// hairline under the strip), so title and tabs read as one band that never
+// moves between faces. The row is `[strip][Merge PR pill]`: with a merge
+// the strip shrinks left and the pill trails at the row's end (every face).
+// [WorkFaceFrame] wraps the face BODY with the swipe.
+// With two or more own runs the Run tab reads `Runs`, and tapping it while it
+// is ALREADY selected opens the run menu under the strip (`<device> ·
+// <when>`, a check on the shown run).
 
 /** The minimum horizontal travel that counts as a face swipe. */
 private val SwipeThreshold: Dp = 56.dp
 
-/**
- * The tabs over the face body. [padding] is the host Scaffold's; the body gets
- * it back with the strip's block added on top (only while the strip shows —
- * one face, no strip). [runs] feed the `Runs` menu (two or more = a menu).
- */
+/** The face body with the neighbour swipe; [padding] passes straight through. */
 @Composable
 fun WorkFaceFrame(
     faces: List<WorkFaceKind>,
     face: WorkFaceKind,
     padding: PaddingValues,
     onFace: (WorkFaceKind) -> Unit,
-    runs: List<PastRunRow> = emptyList(),
-    shownRunId: String? = null,
-    onPickRun: (String) -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    val showTabs = faces.size >= 2
-    val direction = LocalLayoutDirection.current
-    val top = padding.calculateTopPadding()
     val latestOnFace by rememberUpdatedState(onFace)
-    val inner = if (showTabs) {
-        PaddingValues(
-            start = padding.calculateStartPadding(direction),
-            top = top + TabsBlock,
-            end = padding.calculateEndPadding(direction),
-            bottom = padding.calculateBottomPadding(),
-        )
-    } else {
-        padding
-    }
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().faceSwipe(faces, face) { latestOnFace(it) }) {
-            content(inner)
-        }
-        if (showTabs) {
-            WorkFaceTabs(
-                faces = faces,
-                face = face,
-                onFace = onFace,
-                runs = runs,
-                shownRunId = shownRunId,
-                onPickRun = onPickRun,
-                modifier = Modifier.padding(top = top),
-            )
-        }
+    Box(modifier = Modifier.fillMaxSize().faceSwipe(faces, face) { latestOnFace(it) }) {
+        content(padding)
     }
 }
 
+/**
+ * The header's strip: 8dp under the title row, then ONE hairline closing the
+ * band. Nothing at all (no strip, no hairline) with fewer than two faces.
+ * [runs] feed the `Runs` menu (two or more = a menu).
+ */
 @Composable
-private fun WorkFaceTabs(
+fun WorkFaceTabs(
     faces: List<WorkFaceKind>,
     face: WorkFaceKind,
     onFace: (WorkFaceKind) -> Unit,
-    runs: List<PastRunRow>,
-    shownRunId: String?,
-    onPickRun: (String) -> Unit,
-    modifier: Modifier = Modifier,
+    runs: List<PastRunRow> = emptyList(),
+    shownRunId: String? = null,
+    onPickRun: (String) -> Unit = {},
+    /** EXP-1150: the header's Merge PR ([MergePrHeaderPill]); null = none. */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
+    if (faces.size < 2 && trailing == null) return
     val multipleRuns = runs.size >= 2
     var menuOpen by remember { mutableStateOf(false) }
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = TabsTopGap, bottom = TabsBottomGap),
-    ) {
-        GlassSegmentedControl(
-            options = faces,
-            selected = face,
-            label = { faceLabel(it, multipleRuns) },
-            onSelect = { picked ->
-                // `selectable` fires for the ALREADY selected segment too: a
-                // second tap on `Runs` is the way into the run menu.
-                if (picked == WorkFaceKind.Run && face == WorkFaceKind.Run && multipleRuns) {
-                    menuOpen = true
-                } else {
-                    onFace(picked)
-                }
-            },
-            testTag = { faceTag(it) },
-            modifier = Modifier.testTag("work-face-tabs"),
-        )
-        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            runs.forEach { run ->
-                RunMenuRow(
-                    run = run,
-                    shown = run.session.id == shownRunId,
-                    onClick = {
-                        menuOpen = false
-                        onPickRun(run.session.id)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                if (faces.size >= 2) GlassSegmentedControl(
+                    options = faces,
+                    selected = face,
+                    label = { faceLabel(it, multipleRuns) },
+                    onSelect = { picked ->
+                        // `selectable` fires for the ALREADY selected segment too:
+                        // a second tap on `Runs` is the way into the run menu.
+                        if (picked == WorkFaceKind.Run && face == WorkFaceKind.Run && multipleRuns) {
+                            menuOpen = true
+                        } else {
+                            onFace(picked)
+                        }
                     },
+                    testTag = { faceTag(it) },
+                    modifier = Modifier.testTag("work-face-tabs"),
                 )
+                // Anchored under the `Runs` segment: an invisible box spanning
+                // exactly that segment's share of the strip hosts the menu.
+                val runIndex = faces.indexOf(WorkFaceKind.Run)
+                if (runIndex >= 0 && multipleRuns) {
+                    Row(modifier = Modifier.matchParentSize()) {
+                        if (runIndex > 0) Spacer(Modifier.weight(runIndex.toFloat()))
+                        Box(Modifier.weight(1f).fillMaxHeight()) {
+                            GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                runs.forEach { run ->
+                                    RunMenuRow(
+                                        run = run,
+                                        shown = run.session.id == shownRunId,
+                                        onClick = {
+                                            menuOpen = false
+                                            onPickRun(run.session.id)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        val after = faces.size - runIndex - 1
+                        if (after > 0) Spacer(Modifier.weight(after.toFloat()))
+                    }
+                }
             }
+            trailing?.invoke()
         }
+        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
     }
 }
 

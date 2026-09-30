@@ -28,11 +28,11 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-09-30-phone-work-tabs`,
     date: `2026-09-30`,
     title: `Issue, Run, Changes and Results are tabs on the phone`,
-    summary: `The phone's Work screen shows its faces as swipeable tabs under the header, and Merge sits on the Run face while the pull request is open, on web, iOS and Android.`,
-    body: `- **Tabs**: Issue, Run, Changes and Results sit in one segmented strip directly under the header, the same control as the Inbox strip, listing only the faces the issue has. Tap one or swipe the body left or right to move between them. The bottom-right switcher circle is gone.
+    summary: `The phone's Work screen shows its faces as swipeable tabs in the header, with Merge beside them while the pull request is open, on web, iOS and Android.`,
+    body: `- **Tabs**: Issue, Run, Changes and Results sit in one segmented strip inside the header, under the title, the same control as the Inbox strip, listing only the faces the issue has. Tap one or swipe the body left or right to move between them. The bottom-right switcher circle is gone.
 - **Runs**: with several runs on an issue the strip reads Runs, and the run menu opens from it.
-- **Merge from the run**: while the run's pull request is open, a Merge circle sits on the right of the Run face's bar, running the same confirmation as the Merge button on Changes. Once a run has ended for good, the same slot offers Start coding.
-- **Bars**: the Issue face keeps Properties, Comment and Start coding; Changes keeps the file list and Merge; Results has no bar.`,
+- **Merge beside the tabs**: while the pull request is open, the Merge button sits next to the tabs on every face, so a run can be merged without leaving it. It left the properties card and the Changes bar.
+- **Bars**: the Issue face keeps Properties, Comment and Start coding; Changes keeps the file list; the Run face offers Start coding once a run has ended for good; Results has no bar.`,
   },
   {
     id: `2026-09-30-sign-in-methods`,

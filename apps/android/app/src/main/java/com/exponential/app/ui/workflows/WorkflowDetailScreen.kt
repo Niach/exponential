@@ -139,6 +139,7 @@ import com.exponential.app.ui.work.ChangesMergeControl
 import com.exponential.app.ui.work.GithubHeaderAction
 import com.exponential.app.ui.work.ResultsFace
 import com.exponential.app.ui.work.WorkFaceFrame
+import com.exponential.app.ui.work.WorkFaceTabs
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
@@ -219,6 +220,16 @@ fun WorkflowDetailScreen(
     val finalPrUrl = row?.finalPrUrl?.takeIf { it.isNotBlank() }
     val selectedNode = selection.single?.let { id -> graph.nodes.firstOrNull { it.id == id } }
     val allFace = WorkFaceKind.entries.firstOrNull { it.name == faceName }
+    // EXP-1150: the faces are resolved HERE, because their tabs ride the
+    // header — the same strip the Work screen's top bar carries.
+    val selectedRunId = selectedNode?.let { graph.runsByNodeId[it.id]?.sessionId }
+    val pageFaces = workflowFaces(
+        node = selectedNode != null,
+        ownRun = selectedRunId == null || selectedRunId in ownSessionIds,
+        hasFinalPr = finalPrUrl != null,
+        hasNodes = graph.nodes.isNotEmpty(),
+    )
+    val pageFace = fallbackFace(allFace ?: WorkFaceKind.Issue, pageFaces) ?: WorkFaceKind.Issue
 
     ProvideMarkdownToolbar {
         Scaffold(
@@ -439,6 +450,11 @@ fun WorkflowDetailScreen(
                             },
                         )
                     }
+                    // EXP-1150: the face TABS close the header band, right
+                    // above the face body (hidden until the workflow synced).
+                    if (row != null) {
+                        WorkFaceTabs(faces = pageFaces, face = pageFace, onFace = { faceName = it.name })
+                    }
                 }
             },
         ) { padding ->
@@ -455,6 +471,7 @@ fun WorkflowDetailScreen(
                 key(selectedNode.id) {
                     val runId = graph.runsByNodeId[selectedNode.id]?.sessionId
                     NodeFaces(
+                        faces = pageFaces,
                         issueId = selectedNode.issueId,
                         sessionId = runId,
                         ownRun = runId != null && runId in ownSessionIds,
@@ -469,6 +486,7 @@ fun WorkflowDetailScreen(
                 }
             } else {
                 AllFaces(
+                    faces = pageFaces,
                     viewModel = viewModel,
                     graph = graph,
                     finalPrOpen = finalPrUrl != null && row.finalPrState == DomainContract.prStateOpen,
@@ -883,6 +901,8 @@ private fun NodeSheet(
  */
 @Composable
 private fun NodeFaces(
+    /** The page's faces for this node — the header's tabs ([workflowFaces]). */
+    faces: List<WorkFaceKind>,
     issueId: String,
     sessionId: String?,
     ownRun: Boolean,
@@ -948,14 +968,6 @@ private fun NodeFaces(
     }
     val runResults = session?.results ?: sessionRow.firstOrNull { it.id == sessionId }?.results
     val results = remember(runResults) { parseSessionResultGroups(runResults) }
-    // Every face stays on the tabs (an empty one says so); only a
-    // teammate's run is theirs alone (EXP-312) and hides the Run face.
-    val faces = availableFaces(
-        hasIssue = true,
-        hasRun = sessionId == null || ownRun,
-        hasChanges = true,
-        hasResults = true,
-    )
     val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
 
     // EXP-1150: the Work screen's face tabs + body swipe, the same host.
@@ -992,7 +1004,6 @@ private fun NodeFaces(
                     padding = padding,
                     files = files,
                     prLoad = prLoad,
-                    merge = null,
                 )
             } else {
                 EmptyFace(WorkflowView.NO_CHANGES_LABEL, padding, "workflow-node-changes-empty")
@@ -1006,9 +1017,25 @@ private fun NodeFaces(
     }
 }
 
+/**
+ * The page's faces. A node: every face stays on the tabs (an empty one says
+ * so); only a teammate's run is theirs alone (EXP-312) and hides Run. All:
+ * Changes exists before the final PR (every node keeps its row there), and an
+ * empty Runs / Results face says so ([WorkflowView.NO_RUNS_LABEL] /
+ * [WorkflowView.NO_RESULTS_LABEL]) rather than leaving the tabs.
+ */
+private fun workflowFaces(node: Boolean, ownRun: Boolean, hasFinalPr: Boolean, hasNodes: Boolean): List<WorkFaceKind> =
+    if (node) {
+        availableFaces(hasIssue = true, hasRun = ownRun, hasChanges = true, hasResults = true)
+    } else {
+        availableFaces(hasIssue = true, hasRun = true, hasChanges = hasFinalPr || hasNodes, hasResults = true)
+    }
+
 /** All: the workflow's issues, its runs, its final pull request, its screenshots. */
 @Composable
 private fun AllFaces(
+    /** The page's faces for All — the header's tabs ([workflowFaces]). */
+    faces: List<WorkFaceKind>,
     viewModel: WorkflowDetailViewModel,
     graph: WorkflowGraph,
     finalPrOpen: Boolean,
@@ -1030,17 +1057,7 @@ private fun AllFaces(
     val workflow by viewModel.workflow.collectAsStateWithLifecycle()
     var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var decisionsOpen by rememberSaveable { mutableStateOf(false) }
-    val hasFinalPr = !workflow?.finalPrUrl.isNullOrBlank()
 
-    // Changes exists before the final PR: every node keeps its row there.
-    // An empty Runs / Results face says so ([WorkflowView.NO_RUNS_LABEL] /
-    // [WorkflowView.NO_RESULTS_LABEL]) rather than leaving the tabs.
-    val faces = availableFaces(
-        hasIssue = true,
-        hasRun = true,
-        hasChanges = hasFinalPr || graph.nodes.isNotEmpty(),
-        hasResults = true,
-    )
     val wanted = WorkFaceKind.entries.firstOrNull { it.name == faceName } ?: WorkFaceKind.Issue
     val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
 

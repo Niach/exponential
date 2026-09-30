@@ -3,9 +3,8 @@ import XCTest
 
 @testable import ExpCore
 
-// EXP-893: the phone Work screen's pure rules — EXP-1150: the face tabs, the
-// body swipe (`swipeTarget`) and the Run bar's one trailing circle
-// (`runBarTrailing`). Test names mirror the web spec
+// EXP-893: the phone Work screen's pure rules — EXP-1150: the face tabs and
+// the body swipe (`swipeTarget`). Test names mirror the web spec
 // `lib/work-faces.test.ts` and Android `WorkFacesTest.kt`.
 final class WorkFacesTests: XCTestCase {
 
@@ -162,12 +161,6 @@ final class WorkFacesTests: XCTestCase {
         )
         XCTAssertNil(WorkFaces.swipeTarget(faces: [.issue], shown: .run, direction: .left))
         XCTAssertNil(WorkFaces.swipeTarget(faces: [], shown: .issue, direction: .left))
-    }
-
-    func testPicksTheRunBarsTrailingCircleMergeFirst() {
-        XCTAssertEqual(WorkFaces.runBarTrailing(canMerge: true, offerStart: true), .merge)
-        XCTAssertEqual(WorkFaces.runBarTrailing(canMerge: false, offerStart: true), .start)
-        XCTAssertEqual(WorkFaces.runBarTrailing(canMerge: false, offerStart: false), .none)
     }
 
     func testFallsBackChangesToRunToIssue() {

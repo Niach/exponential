@@ -6,14 +6,12 @@ import {
   type SessionDotTone,
   MOBILE_WORK_BAR_CLEARANCE,
   MOBILE_WORK_CAPSULE_CLASS,
-  MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
   ChangesFileSheet,
   PrGithubButton,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import type { ReviewFilesState } from "@/hooks/use-review-files"
-import { useSteerConfig } from "@/components/agent-session"
 import { ChangesView } from "@/components/changes-view"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import type { FaceSwipeHandlers } from "@/components/mobile-face-tabs"
@@ -21,7 +19,6 @@ import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionMergePill } from "@/components/session-merge-button"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
-import { useWorkflowOwnsMerge } from "@/hooks/use-reviews-data"
 
 // EXP-893: the Changes FACE of an issue subject with NO shown run — the
 // issue has an open PR (or a pushed branch), so its files are the face
@@ -30,20 +27,18 @@ import { useWorkflowOwnsMerge } from "@/hooks/use-reviews-data"
 // same files before this face was ever opened). Same header as the
 // Issue face, the diff in the column, and the bar: the file SHEET on the left
 // (EXP-895 — GitHub moved up into the header's action slot, where a phone
-// header has room for it), the Merge PR capsule in the centre while the PR is
-// open. EXP-1150: no switcher circle — the face TABS sit under the header
-// and the body swipes between faces. A run's live diff draws the same face
-// inside the session view.
+// header has room for it). EXP-1150: no switcher circle and no Merge capsule
+// — the face TABS sit in the header band with the Merge PR pill beside them
+// on every face, and the body swipes between faces. A run's live diff draws
+// the same face inside the session view.
 
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 
-/** The Changes face's Merge PR capsule: the 52px work capsule painted with
- *  `Pill`'s own `primary` accent (which has to come LAST — the capsule brings
- *  its own glass fill), carrying the two-click confirm and the Fix-conflicts
- *  swap `SessionMergePill` already has. It self-hides unless the PR is open. */
-/** EXP-916: the phone's ONE Merge control — a SOLID white pill hugging its
- *  label (28px padding, a 20px glyph) in the bar's centred cluster, on the
- *  Reviews page and the Work screen's Changes face alike. */
+/** EXP-916: the phone's Merge PR capsule of the REVIEWS page — a SOLID white
+ *  pill hugging its label (28px padding, a 20px glyph) in the bar's centred
+ *  cluster, carrying `SessionMergePill`'s confirm and Fix-conflicts swap. It
+ *  self-hides unless the PR is open. EXP-1150: the Work screen's Changes face
+ *  no longer draws it — there the Merge pill rides the header band. */
 export function MergeCapsule(props: {
   issueId?: string
   sessionId?: string
@@ -60,30 +55,6 @@ export function MergeCapsule(props: {
       className={cn(
         MOBILE_WORK_CAPSULE_CLASS,
         `flex-none justify-center rounded-full px-7 font-medium [&_svg]:size-5`,
-        PILL_PRIMARY_PAINT
-      )}
-    />
-  )
-}
-
-/** EXP-1150: the RUN face's Merge — the very same control as a 52px circle
- *  in the bar's trailing slot, icon-only (the glyph says merge, the confirm
- *  dialog says the rest). `runBarTrailing` decides when it shows. */
-export function MergeCircle(props: {
-  issueId?: string
-  sessionId?: string
-  prState: string | null
-  prNumber: number | null
-  branch: string | null
-  updatedAt: string | Date | null
-  steerEnabled: boolean
-}) {
-  return (
-    <SessionMergePill
-      {...props}
-      className={cn(
-        MOBILE_WORK_CIRCLE_CLASS,
-        `w-[52px] justify-center rounded-full p-0 [&_svg]:size-5`,
         PILL_PRIMARY_PAINT
       )}
     />
@@ -121,11 +92,6 @@ export function IssueChangesFace({
   // The `…` menu's Move to board / Unmark duplicate, the same handlers the
   // issue face binds (`use-issue-property-handlers.ts`).
   const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
-  const steerConfig = useSteerConfig()
-  const steerEnabled = Boolean(steerConfig?.enabled) && !readOnly
-  // EXP-1094: a workflow NODE PR merges through its workflow, never from the
-  // bar; the server refuses it (PR #864), so the capsule stays away.
-  const workflowOwnsMerge = useWorkflowOwnsMerge(teamId, issue.id)
   const files = state.kind === `files` ? state.files : []
 
   return (
@@ -194,31 +160,20 @@ export function IssueChangesFace({
           />
         )}
       </div>
-      <MobileWorkBar
-        /* EXP-916: the Reviews page's cluster — files · Merge PR. */
-        cluster
-        leading={
-          files.length > 0 ? (
+      {files.length > 0 && (
+        <MobileWorkBar
+          /* EXP-916: the Reviews page's cluster — the file sheet alone here
+             (EXP-1150: Merge rides the header band). */
+          cluster
+          leading={
             <ChangesFileSheet
               files={files}
               selected={selected}
               onSelect={setSelected}
             />
-          ) : undefined
-        }
-        capsule={
-          issue.prState === `open` && !workflowOwnsMerge ? (
-            <MergeCapsule
-              issueId={issue.id}
-              prState={issue.prState}
-              prNumber={issue.prNumber}
-              branch={issue.branch}
-              updatedAt={issue.updatedAt}
-              steerEnabled={steerEnabled}
-            />
-          ) : undefined
-        }
-      />
+          }
+        />
+      )}
       {handlers.duplicatePicker}
     </div>
   )

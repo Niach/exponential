@@ -69,7 +69,7 @@ struct AgentSessionView: View {
     let continuation: RunContinuation
     /// EXP-1150: non-nil = the screen offers Start coding (the shown run
     /// ended for good, own, nothing to resume, an issue subject) — the Run
-    /// bar's trailing circle when no merge outranks it (`runBarTrailing`).
+    /// bar's only trailing circle.
     var startReadiness: CodingReadiness.Readiness? = nil
     var onStartCoding: () -> Void = {}
 
@@ -84,20 +84,6 @@ struct AgentSessionView: View {
     /// EXP-688: the Usage sheet — the per-window cards that used to be a
     /// hairline strip under the nav bar. EXP-893: opened by the usage RING.
     @State private var showUsageSheet = false
-    /// EXP-678: the Merge pill's confirm + in-flight call. No success state:
-    /// the server ends the run and flips `pr_state`, and the pill disappears
-    /// when that echo syncs back.
-    @State private var showMergeConfirm = false
-    /// EXP-1145: the stack merge dialog, and the choice it was opened with.
-    @State private var stackMergeChoice: PrStack.StackMergeChoice?
-    @State private var merging = false
-    /// EXP-706: the refusal AND whether the server diagnosed a REAL content
-    /// conflict — the only case a retry can never fix, and the only one the
-    /// recovery run can. A conflict swaps the Merge pill for "Fix conflicts".
-    @State private var mergeFailure: MergeFailure?
-    // "Fix conflicts" (EXP-323 rails, EXP-706 on this screen): the builtin
-    // recovery run — EXP-825: NAVIGATION into the Agent page composer.
-    @State private var steerEnabled = false
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
@@ -244,41 +230,6 @@ struct AgentSessionView: View {
             } message: {
                 Text("This stops the agent on the desktop and ends the session.")
             }
-            // EXP-678: merging from the steering screen — same confirm-gated flow
-            // as Reviews.
-            .alert("Merge pull request?", isPresented: $showMergeConfirm) {
-                Button("Merge", role: .destructive) {
-                    if let model { merge(model) }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                // EXP-734: this run's OWN pull request links no issue, so
-                // promising completed issues would be a lie.
-                if case .session = model?.mergeTarget {
-                    Text("Merges this run's pull request and closes the coding session.")
-                } else {
-                    Text("Merges the pull request, completes every linked issue, and closes the coding session.")
-                }
-            }
-            // EXP-1145: an issue PR that is a stack member with other open
-            // members asks first; a run's own `.session` PR never does.
-            .confirmationDialog(
-                PrStack.stackMergeChoiceTitle,
-                isPresented: Binding(
-                    get: { stackMergeChoice != nil },
-                    set: { if !$0 { stackMergeChoice = nil } }
-                ),
-                titleVisibility: .visible,
-                presenting: stackMergeChoice
-            ) { choice in
-                Button(PrStack.mergeStackLabel) { mergeStack(topIssueId: choice.topIssueId) }
-                Button(PrStack.mergeThisPrLabel) {
-                    if let model { merge(model) }
-                }
-                Button(PrStack.stackMergeCancelLabel, role: .cancel) {}
-            } message: { choice in
-                Text(choice.body)
-            }
             // EXP-724: `/clear` discards the conversation, so confirm rows
             // confirm before the frames go out. Copy is byte-identical ×4.
             .alert(
@@ -395,11 +346,6 @@ struct AgentSessionView: View {
                 // back on return and pop the keyboard over a screen nobody typed
                 // into. (The text is untouched; only the caret's claim goes.)
                 model?.draftEditor.setFocused(nil)
-            }
-            // Steering on/off gates the recovery run.
-            .task(id: accountId) {
-                let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
-                steerEnabled = config.enabled
             }
     }
 
@@ -1538,7 +1484,7 @@ struct AgentSessionView: View {
         if bandRetired(model) {
             // EXP-1150: the trailing circle alone, or no bar — the faces are
             // the screen's tab strip.
-            if runTrailing(model) != .none {
+            if startReadiness != nil {
                 FloatingBottomBar {
                     EmptyView()
                 } center: {
@@ -1609,8 +1555,8 @@ struct AgentSessionView: View {
 
     /// EXP-893: the folded composer on the shared bar — the usage ring on the
     /// left (the Usage sheet), the capsule wearing the placeholder the open
-    /// field would, and (EXP-1150) ONE trailing circle — Merge PR, else Start
-    /// coding, else nothing (`WorkFaces.runBarTrailing`). The separate
+    /// field would, and (EXP-1150) the Start circle once the run ended for
+    /// good, else nothing (Merge PR is the header band's). The separate
     /// interrupt circle is gone: Stop stays the expanded composer's own glyph.
     private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
         FloatingBottomBar {
@@ -1629,44 +1575,13 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-1150: which ONE circle trails the Run bar.
-    private func runTrailing(_ model: AgentSessionModel) -> WorkFaces.RunBarTrailing {
-        WorkFaces.runBarTrailing(canMerge: model.canMerge, offerStart: startReadiness != nil)
-    }
-
-    /// Merge PR runs the Changes face's own flow (`requestMerge`: the stack
-    /// dialog or the confirm); a merge refused on a real conflict turns it
-    /// into the Fix conflicts circle (EXP-706). Start is the Issue face's
-    /// circle.
+    /// EXP-1150: the Run bar's ONE trailing circle — Start coding once the
+    /// shown run ended for good, else nothing. Merge PR lives in the Work
+    /// screen's header band (`WorkMergePill`).
     @ViewBuilder
     private func runTrailingCircle(_ model: AgentSessionModel) -> some View {
-        switch runTrailing(model) {
-        case .merge:
-            if canFixConflicts {
-                FloatingBarSolidCircle(accessibilityLabel: "Fix merge conflicts", action: openFixConflicts) {
-                    AppIcon(AppIcons.uiBranch, size: FloatingBarTokens.glyph, weight: .medium)
-                }
-                .accessibilityIdentifier("run-fix-conflicts")
-            } else {
-                FloatingBarSolidCircle(
-                    accessibilityLabel: "Merge PR",
-                    enabled: !merging,
-                    action: { requestMerge(model) }
-                ) {
-                    if merging {
-                        ProgressView().controlSize(.small).tint(.black.opacity(0.6))
-                    } else {
-                        AppIcon(AppIcons.prMerged, size: FloatingBarTokens.glyph, weight: .medium)
-                    }
-                }
-                .accessibilityIdentifier("run-merge-pr")
-            }
-        case .start:
-            if let startReadiness {
-                StartCodingCircle(readiness: startReadiness, onStart: onStartCoding)
-            }
-        case .none:
-            EmptyView()
+        if let startReadiness {
+            StartCodingCircle(readiness: startReadiness, onStart: onStartCoding)
         }
     }
 
@@ -1778,12 +1693,11 @@ struct AgentSessionView: View {
         (model.mergeIssue?.prUrl ?? model.session?.prUrl).flatMap { URL(string: $0) }
     }
 
-    /// Files (else GitHub) · Merge / Fix conflicts, as a centred cluster with
-    /// nothing trailing (EXP-1150). Merge only while there
-    /// IS an open PR on a session this screen still considers live
-    /// (`model.canMerge`); a merge refused on a REAL conflict swaps the pill
-    /// for the recovery run (EXP-706).
+    /// The file list (else GitHub), alone — EXP-1150 moved Merge PR up into
+    /// the Work screen's header band (`WorkMergePill`).
+    @ViewBuilder
     private func changesFaceBar(_ model: AgentSessionModel) -> some View {
+        if !parsedDiff.files.isEmpty || prURL(model) != nil {
         FloatingBarCluster {
             // EXP-895: the leading slot is the file list. GitHub keeps the
             // slot only where there is no list to put there — an issue-less
@@ -1800,130 +1714,10 @@ struct AgentSessionView: View {
                 }
             }
         } center: {
-            if model.canMerge {
-                if canFixConflicts {
-                    fixConflictsPill()
-                } else {
-                    mergePill(model)
-                }
-            }
+            EmptyView()
         } trailing: {
             EmptyView()
         }
-    }
-
-    /// The Merge pill — merging always ends the run too (EXP-498).
-    private func mergePill(_ model: AgentSessionModel) -> some View {
-        FloatingBarSolidPill(
-            accessibilityLabel: "Merge pull request",
-            enabled: !merging,
-            action: { requestMerge(model) }
-        ) {
-            if merging {
-                ProgressView().controlSize(.small).tint(.black.opacity(0.6))
-            } else {
-                AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium, weight: .medium)
-            }
-            Text(DomainContract.diffUiMergePr)
-                .font(.subheadline.weight(.medium))
-        }
-    }
-
-    /// EXP-706: the recovery run in the Merge pill's slot. EXP-825: it pushes
-    /// the Agent page composer with the "Fix merge conflicts" builtin picked
-    /// and THIS run's pull request pre-picked.
-    private func fixConflictsPill() -> some View {
-        FloatingBarSolidPill(accessibilityLabel: "Fix merge conflicts", action: openFixConflicts) {
-            AppIcon(AppIcons.uiBranch, size: AppIcon.Size.medium, weight: .medium)
-            Text("Fix conflicts")
-                .font(.subheadline.weight(.medium))
-        }
-    }
-
-    private func openFixConflicts() {
-        guard let issueId = model?.mergeIssue?.id else { return }
-        pushRoute(.agent(
-            accountId: accountId,
-            seed: AgentComposerSeed(
-                actionId: DomainContract.builtinFixConflictsId,
-                prIssueId: issueId
-            )
-        ))
-    }
-
-    /// Only a REAL content conflict (EXP-533) gets the run — every other
-    /// refusal (stale head, branch protection, a misconfigured GitHub App) is
-    /// something no rebase can fix. The run rebases the PR's branch, so one
-    /// must be recorded on the issue behind the merge. EXP-734: the builtin
-    /// takes an ISSUE-linked PR, so a run's own issue-less PR gets no recovery
-    /// offer (the caption still names the refusal).
-    private var canFixConflicts: Bool {
-        guard case .issue = model?.mergeTarget else { return false }
-        return steerEnabled
-            && mergeFailure?.isConflict == true
-            && !(model?.mergeIssue?.branch ?? "").isEmpty
-    }
-
-    /// EXP-1145: the stack dialog for an issue PR in a stack with other open
-    /// members, the plain merge confirm otherwise.
-    private func requestMerge(_ model: AgentSessionModel) {
-        if let choice = stackMergeChoice(for: model) {
-            stackMergeChoice = choice
-        } else {
-            showMergeConfirm = true
-        }
-    }
-
-    private func stackMergeChoice(for model: AgentSessionModel) -> PrStack.StackMergeChoice? {
-        guard case let .issue(issueId) = model.mergeTarget, let stackModel else { return nil }
-        let issue = model.mergeIssue.flatMap { $0.id == issueId ? $0 : nil }
-            ?? stackModel.issue(id: issueId)
-        guard let issue else { return nil }
-        return PrStack.stackMergeChoice(issue, issues: stackModel.prIssues)
-    }
-
-    /// EXP-1145: "Merge stack" merges the whole stack through its TOP member.
-    private func mergeStack(topIssueId: String) {
-        mergeFailure = nil
-        merging = true
-        Task {
-            do {
-                try await deps.issuesApi.mergePr(
-                    accountId: accountId, issueId: topIssueId, mergeStack: true
-                )
-            } catch {
-                let failure = MergeFailure(error: error)
-                mergeFailure = failure
-                toaster.error(failure.message)
-            }
-            merging = false
-        }
-    }
-
-    /// Merge the session's PR. No local surgery on success: the server ends
-    /// the session and flips `pr_state`, and both land here through sync.
-    /// EXP-734: an action or chat run's PR links no issue, so it merges
-    /// through the session row the server stamped it on.
-    private func merge(_ model: AgentSessionModel) {
-        guard let target = model.mergeTarget else { return }
-        mergeFailure = nil
-        merging = true
-        Task {
-            do {
-                switch target {
-                case let .issue(issueId):
-                    try await deps.issuesApi.mergePr(accountId: accountId, issueId: issueId)
-                case let .session(sessionId):
-                    try await deps.codingSessionsApi.mergePr(
-                        accountId: accountId, sessionId: sessionId
-                    )
-                }
-            } catch {
-                let failure = MergeFailure(error: error)
-                mergeFailure = failure
-                toaster.error(failure.message)
-            }
-            merging = false
         }
     }
 
