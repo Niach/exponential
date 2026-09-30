@@ -3134,6 +3134,7 @@ function RateLimitBanner({
           <Pill
             size="sm"
             mode="action"
+            primary
             className="ml-auto shrink-0"
             onClick={onSwitchAccount}
           >
@@ -3510,7 +3511,7 @@ function ApiErrorRow({
 }) {
   return (
     <div
-      className={cn(`flex min-w-0 items-start gap-2 pl-0.5`, TRANSCRIPT_TOOL_TEXT)}
+      className={cn(`flex min-w-0 items-start gap-1.5 pl-0.5`, TRANSCRIPT_TOOL_TEXT)}
       title={errorType}
       data-testid="api-error-row"
     >

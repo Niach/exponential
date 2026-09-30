@@ -290,9 +290,6 @@ import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1030,8 +1027,8 @@ private fun RunFaceContent(
             }
 
             // EXP-784: the agent's rate-limit window — ONE banner from the
-            // latest-wins slot (never a run of identical feed rows), with the
-            // reset instant in local time when the agent named one. Gone the
+            // latest-wins slot (never a run of identical feed rows), with how
+            // long until the reset when the agent named one. Gone the
             // moment an empty/`ok` status clears the slot; never up for a
             // bare warning (EXP-818) and, on the 30s clock, dropped a minute
             // past the reset it named (EXP-831).
@@ -1039,27 +1036,48 @@ private fun RunFaceContent(
             if (rateLimit != null && phase !is AgentPhase.Ended &&
                 rateLimitBannerShows(rateLimit, nowMs)
             ) {
+                val caption = rateLimitCaption(rateLimit.message, rateLimit.resetsAt, nowMs)
+                // Web `RateLimitBanner` is the reference: ONE row, 6dp gaps,
+                // centered — the usage glyph + the message in the semantic
+                // yellow (one truncating line), the relative countdown as a
+                // separate muted caption, then the Switch account pill.
                 ReadingColumn {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .glassRow()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .testTag("agent-rate-limit")
+                            .semantics(mergeDescendants = true) {
+                                contentDescription = caption.accessibilityLabel
+                            },
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(
-                            ExpIcons.uiWarning,
+                            ExpIcons.uiUsage,
                             contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = ConnectingYellow,
+                            modifier = Modifier.size(12.dp),
+                            tint = DesignTokens.Semantic.Yellow,
                         )
                         Text(
-                            rateLimitCaption(rateLimit.message, rateLimit.resetsAt),
+                            caption.message,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
+                            color = DesignTokens.Semantic.Yellow,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
+                        caption.countdown?.let { countdown ->
+                            Text(
+                                countdown,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
                         // EXP-849: the PRIMARY move on a usage wall is another
                         // account, not waiting for the reset — the button opens the
                         // account rows (with their own numbers) and the switch
@@ -1070,8 +1088,11 @@ private fun RunFaceContent(
                             GlassPill(
                                 SessionAccountSwitch.WALL_SWITCH_LABEL,
                                 onClick = { usageSheetOpen = true },
+                                size = PillSize.Sm,
+                                mode = PillMode.Action,
                                 icon = ExpIcons.uiSwap,
                                 primary = true,
+                                modifier = Modifier.testTag("rate-limit-switch-account"),
                             )
                         }
                     }
@@ -5143,23 +5164,24 @@ private fun SessionAccountRow(
 }
 
 /**
- * EXP-784: the rate-limit banner's one line — the agent's own message (or a
- * plain fallback) and, when it named a reset instant, "resets HH:MM" in the
- * phone's local time.
+ * EXP-784/818: the rate-limit banner's two strings, web `rateLimitBanner`: the
+ * agent's own message (trimmed, else `Rate limit reached`) and, when it named
+ * a reset, the RELATIVE countdown (`resets in 2h 57m`, the usage cards'
+ * wording) shown as a separate muted caption, never joined. Mirrored ×4.
  */
-internal fun rateLimitCaption(
-    message: String?,
-    resetsAtMs: Long?,
-    zone: ZoneId = ZoneId.systemDefault(),
-): String {
-    val head = message?.trim()?.takeIf { it.isNotEmpty() } ?: "Rate limit reached"
-    val resets = resetsAtMs?.takeIf { it > 0 }?.let {
-        RESET_TIME.withZone(zone).format(Instant.ofEpochMilli(it))
-    } ?: return head
-    return "$head · resets $resets"
+internal data class RateLimitCaption(val message: String, val countdown: String?) {
+    /** The banner's accessibility label: `"<message> <countdown>"`. */
+    val accessibilityLabel: String
+        get() = if (countdown == null) message else "$message $countdown"
 }
 
-private val RESET_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+internal fun rateLimitCaption(message: String?, resetsAtMs: Long?, nowMs: Long): RateLimitCaption {
+    val head = message?.trim()?.takeIf { it.isNotEmpty() } ?: "Rate limit reached"
+    val countdown = resetsAtMs?.takeIf { it > 0 }?.let {
+        AgentUsagePresentation.resetCountdownAt(it, nowMs)
+    }
+    return RateLimitCaption(head, countdown)
+}
 
 /**
  * EXP-773: what the journal fetch is doing, named after the machine that holds

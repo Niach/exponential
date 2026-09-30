@@ -1414,7 +1414,7 @@ struct AgentSessionView: View {
     // MARK: - Rate-limit banner (EXP-784)
 
     /// The agent's rate-limit window, in the compaction strip's slot: its own
-    /// message and when the window resets, local time. It stands only while
+    /// message and how long until the window resets. It stands only while
     /// the slot holds a WALL (EXP-818: a warning over a working run is not
     /// one) whose reset has not passed (EXP-831: it re-reads the model's 30s
     /// activity clock and drops itself a minute past the stamp) — an
@@ -1423,14 +1423,26 @@ struct AgentSessionView: View {
     private func rateLimitBanner(_ model: AgentSessionModel) -> some View {
         if let limit = model.sessionRateLimit, !model.isOver,
            AgentFeed.rateLimitBannerShows(limit, now: model.activityNow) {
-            let caption = AgentFeed.rateLimitCaption(limit)
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+            let caption = AgentFeed.rateLimitCaption(limit, now: model.activityNow)
+            // Web `RateLimitBanner` is the reference: ONE row, 6pt gaps,
+            // centered — the usage glyph + the message in the semantic
+            // yellow (one truncating line), the relative countdown as a
+            // separate muted caption, then the Switch account pill.
+            HStack(alignment: .center, spacing: 6) {
+                AppIcon(AppIcons.uiUsage, size: AppIcon.Size.small)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
-                Text(caption)
+                Text(verbatim: caption.message)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let countdown = caption.countdown {
+                    Text(verbatim: countdown)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                 Spacer(minLength: 0)
                 // EXP-849: the wall's PRIMARY answer — the other account. It
                 // opens the readout's account rows (bars and health included),
@@ -1443,9 +1455,11 @@ struct AgentSessionView: View {
                     GlassPill(
                         SessionAccountSwitch.wallSwitchLabel,
                         icon: AppIcons.uiSwap,
+                        size: .sm,
                         mode: .action { showUsageSheet = true },
                         primary: true
                     )
+                    .fixedSize()
                     .accessibilityIdentifier("rate-limit-switch-account")
                 }
             }
@@ -1455,7 +1469,9 @@ struct AgentSessionView: View {
             // The transcript's reading column (EXP-927 §2c), like the strips.
             .transcriptColumn()
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(caption)
+            .accessibilityLabel(
+                AgentFeed.rateLimitAccessibilityLabel(limit, now: model.activityNow)
+            )
             .accessibilityIdentifier("agent-rate-limit")
         }
     }

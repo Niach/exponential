@@ -370,6 +370,12 @@ public enum AgentUsagePresentation {
     /// zero smaller unit is dropped (`resets in 2h`, never `resets in 2h 0m`).
     public static func resetCountdown(resetsAt: String?, now: Date = Date()) -> String? {
         guard let resetsAt, let reset = WireTimestamps.parse(resetsAt) else { return nil }
+        return resetCountdown(reset: reset, now: now)
+    }
+
+    /// The same countdown off a parsed instant (the rate-limit banner's
+    /// `resetsAt` arrives as epoch milliseconds, not a wire stamp).
+    public static func resetCountdown(reset: Date, now: Date = Date()) -> String {
         let minutes = Int(reset.timeIntervalSince(now) / 60)
         guard minutes >= 1 else { return "resets soon" }
         let days = minutes / (60 * 24)

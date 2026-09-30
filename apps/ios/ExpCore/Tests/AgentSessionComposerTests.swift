@@ -67,32 +67,50 @@ final class AgentSessionComposerTests: XCTestCase {
 
     // MARK: - Rate-limit banner (EXP-784)
 
-    func testRateLimitCaptionCarriesTheMessageAndALocalResetClock() {
-        let utc = TimeZone(identifier: "UTC")!
-        let vienna = TimeZone(identifier: "Europe/Vienna")!
+    func testRateLimitCaptionSplitsTheMessageFromARelativeCountdown() {
         // 2026-09-09T10:05:00Z
         let resetsAt = 1_788_948_300_000
+        let reset = Date(timeIntervalSince1970: 1_788_948_300)
         let limit = AgentSessionRateLimit(
-            status: "rejected", resetsAt: resetsAt, message: "Weekly limit reached"
+            status: "rejected", resetsAt: resetsAt, message: "  Weekly limit reached "
         )
-        XCTAssertEqual(
-            AgentFeed.rateLimitCaption(limit, timeZone: utc),
-            "Weekly limit reached · resets 10:05"
+        let inTwoHours = AgentFeed.rateLimitCaption(
+            limit, now: reset.addingTimeInterval(-(2 * 3600 + 57 * 60 + 30))
         )
-        XCTAssertEqual(
-            AgentFeed.rateLimitCaption(limit, timeZone: vienna),
-            "Weekly limit reached · resets 12:05"
-        )
-        XCTAssertEqual(
-            AgentFeed.rateLimitCaption(AgentSessionRateLimit(status: "rejected"), timeZone: utc),
-            "Rate limited"
-        )
+        XCTAssertEqual(inTwoHours.message, "Weekly limit reached")
+        XCTAssertEqual(inTwoHours.countdown, "resets in 2h 57m")
         XCTAssertEqual(
             AgentFeed.rateLimitCaption(
-                AgentSessionRateLimit(status: "rejected", resetsAt: resetsAt, message: ""),
-                timeZone: utc
-            ),
-            "Rate limited · resets 10:05"
+                limit, now: reset.addingTimeInterval(-(3 * 86400 + 14 * 3600))
+            ).countdown,
+            "resets in 3d 14h"
+        )
+        XCTAssertEqual(
+            AgentFeed.rateLimitCaption(limit, now: reset.addingTimeInterval(-45 * 60)).countdown,
+            "resets in 45m"
+        )
+        XCTAssertEqual(
+            AgentFeed.rateLimitCaption(limit, now: reset.addingTimeInterval(-20)).countdown,
+            "resets soon"
+        )
+        let bare = AgentFeed.rateLimitCaption(AgentSessionRateLimit(status: "rejected"), now: reset)
+        XCTAssertEqual(bare.message, "Rate limit reached")
+        XCTAssertNil(bare.countdown)
+        XCTAssertEqual(
+            AgentFeed.rateLimitCaption(
+                AgentSessionRateLimit(status: "rejected", resetsAt: resetsAt, message: "  "),
+                now: reset.addingTimeInterval(-45 * 60)
+            ).message,
+            "Rate limit reached"
+        )
+        // The accessibility label reads both, space-joined, no ` · `.
+        XCTAssertEqual(
+            AgentFeed.rateLimitAccessibilityLabel(limit, now: reset.addingTimeInterval(-45 * 60)),
+            "Weekly limit reached resets in 45m"
+        )
+        XCTAssertEqual(
+            AgentFeed.rateLimitAccessibilityLabel(AgentSessionRateLimit(status: "rejected"), now: reset),
+            "Rate limit reached"
         )
     }
 
