@@ -180,6 +180,12 @@ import {
 } from "@/lib/trpc/repositories"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
 import { endSessionByAgent } from "@/lib/coding-session-end"
+import {
+  priorOf,
+  revertMergedOwnPr as revertOwnPr,
+  stampMergedOwnPr as stampOwnPr,
+} from "@/lib/sessions/merged-own-pr"
+import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
 import {
   formatChildQuestion,
@@ -2344,12 +2350,21 @@ export function registerExponentialTools(
   )
 
   // EXP-1105: yolo mode. A team that switched it on merges every PR
-  // exponential_pr_open opens right away, through the SAME path as
-  // exponential_pr_merge (the caller's own-PR spare, status automation and the
-  // session sweep all apply). A refused merge (conflict, branch protection,
-  // required checks) never fails the open: the PR stays open — so Reviews
-  // reappears on every client — and the result tells the agent to fix it.
-  // Workflow nodes land through their merge train only.
+  // exponential_pr_open opens, through the SAME path as exponential_pr_merge
+  // (the caller's own-PR spare, status automation and the session sweep all
+  // apply). A refused merge (conflict, branch protection, required checks)
+  // never fails the open: the PR stays open — so Reviews reappears on every
+  // client — and the result tells the agent to fix it. Workflow nodes land
+  // through their merge train only.
+  // EXP-1146: with a session header the PR belongs to a run that may still
+  // spawn follow-up runs based on this very branch, so nothing merges while
+  // that run is busy: `maybeMergeYoloTree` lands the run's whole PR tree once
+  // every run in it is idle with its PR open (root first, EXP-324 retarget
+  // between), and it is the busy→idle edge, `sessions_end`, the client end,
+  // the kill and the sweep that fire it later. A tree of one that is already
+  // idle (a device that never writes `agent_busy`) still merges right here.
+  // Without a session header (an `expu_` key, no launched run) the PR cannot
+  // grow a tree: it merges at once as before.
   const autoMergeIfYolo = async (
     args: z.infer<typeof prOpenInput>,
     opened: Awaited<ReturnType<typeof prOpen>>
@@ -2377,6 +2392,50 @@ export function registerExponentialTools(
         return opened
       }
       const pr = JSON.parse(opened.content[0]!.text) as { number: number }
+      const callerSession = await loadCallerSession()
+      if (callerSession) {
+        const outcome = await maybeMergeYoloTree(callerSession.id)
+        const own =
+          outcome.status === `merged`
+            ? outcome.outcomes[callerSession.id]
+            : undefined
+        const deferred = {
+          merged: false,
+          deferred: true,
+          note: `Yolo mode merges this run's PR tree once every run in it is idle with its PR open — root first, children retargeted onto the default branch between merges. Start any follow-up runs now; the tree merges when the last one ends. Do not merge it yourself.`,
+        }
+        if (!own) {
+          return ok({
+            ...pr,
+            autoMerge:
+              outcome.status === `error`
+                ? {
+                    merged: false,
+                    error: outcome.error,
+                    note: `Yolo mode could not merge this PR. Fix the cause (rebase, resolve conflicts, wait for checks), push, then call exponential_pr_merge.`,
+                  }
+                : deferred,
+          })
+        }
+        return ok({
+          ...pr,
+          autoMerge:
+            own.kind === `merged` || own.kind === `merged_before`
+              ? { merged: true }
+              : own.kind === `queued`
+                ? { merged: false, queued: true }
+                : own.kind === `waiting`
+                  ? deferred
+                  : {
+                      merged: false,
+                      error:
+                        own.kind === `dirty`
+                          ? `The PR has merge conflicts with its base.`
+                          : (own.detail ?? own.kind),
+                      note: `Yolo mode could not merge this PR. Fix the cause (rebase, resolve conflicts, wait for checks), push, then call exponential_pr_merge.`,
+                    },
+        })
+      }
       const merged = await prMerge(
         args.repositoryId
           ? { repositoryId: args.repositoryId, prNumber: pr.number }
@@ -2939,22 +2998,13 @@ export function registerExponentialTools(
 
         // EXP-637 decision 6, corrected in EXP-639. A run that merges the PR
         // IT opened must survive its own merge: the durable `merged_own_pr`
-        // spare filters every merge-driven end (this call's in-tx sweep,
-        // GitHub's webhook, the outbound poller), and the run ends later
-        // through exponential_sessions_end or its own exit. `running` is
-        // restored with it so the badge reads "coding" again instead of
-        // staying parked in review. Two rules the first cut missed:
+        // spare (lib/sessions/merged-own-pr.ts owns the stamp-then-merge
+        // order and the revert). Two rules the first cut missed:
         //   * ONLY the run's OWN PR may stamp it. The column is durable, so
         //     stamping it while landing a teammate's PR would also spare the
         //     row from the later merge of its own PR — a run nothing ends.
         //   * A merge that never happened may not leave the stamp (nor the
         //     in_review → running flip) behind.
-        // The ORDER is forced by the issue path: issues.mergePr runs
-        // applyPrMergeState in the SAME call and that in-tx sweep filters on
-        // `merged_own_pr = false`, so the stamp has to be committed BEFORE
-        // the merge or the run is ended by its own success. Hence
-        // stamp-then-merge behind the own-PR check, reverted when the merge
-        // it was stamped for does not land.
         const callerSession = await loadCallerSession()
         const stampable =
           callerSession &&
@@ -2962,49 +3012,9 @@ export function registerExponentialTools(
           !callerSession.mergedOwnPr
             ? callerSession
             : null
-        // The state to restore on revert (the stamp only ever applies to
-        // these two, and `ended` rows are excluded above).
-        const priorStatus =
-          stampable?.status === `in_review`
-            ? (`in_review` as const)
-            : (`running` as const)
-        const stampMergedOwnPr = async () => {
-          await db
-            .update(codingSessions)
-            .set({
-              mergedOwnPr: true,
-              status: `running`,
-              needsInput: false,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(codingSessions.id, stampable!.id),
-                inArray(codingSessions.status, [`running`, `in_review`])
-              )
-            )
-        }
-        const revertMergedOwnPr = async () => {
-          // Put the row back exactly as it was, so the run is still ended by
-          // the merge it did NOT perform. Guarded on the stamp itself and on
-          // the status this call wrote — a concurrent kill or close-out is
-          // never resurrected.
-          await db
-            .update(codingSessions)
-            .set({
-              mergedOwnPr: false,
-              status: priorStatus,
-              needsInput: stampable!.needsInput,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(codingSessions.id, stampable!.id),
-                eq(codingSessions.mergedOwnPr, true),
-                eq(codingSessions.status, `running`)
-              )
-            )
-        }
+        const stampMergedOwnPr = () => stampOwnPr(db, stampable!.id)
+        const revertMergedOwnPr = () =>
+          revertOwnPr(db, stampable!.id, priorOf(stampable!))
 
         // EXP-626: the issue-LESS chore PR. repositories.mergePull owns the
         // guards (membership, App config, installation link-gate) and the
@@ -3531,6 +3541,9 @@ export function registerExponentialTools(
               endedBy: `agent`,
             })
             reportedToParent = delivered
+            // EXP-1146: an ended run may complete its yolo tree. Fire and
+            // forget — the close-out never waits on GitHub.
+            void maybeMergeYoloTree(sessionId)
           }
           return ok({ ...result, reportedToParent })
         } catch (e) {

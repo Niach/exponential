@@ -275,6 +275,9 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepositoryByFullName: vi.fn(),
 }))
 vi.mock(`@/lib/coding-session-end`, () => ({ endSessionByAgent: vi.fn() }))
+// EXP-1146: the tree merge is exercised by its own test; here it is a fake
+// whose result pr_open's yolo path reports.
+vi.mock(`@/lib/yolo-tree-merge`, () => ({ maybeMergeYoloTree: vi.fn() }))
 // EXP-700: the relay injection rail. Partial mocks — the formatters and the
 // one-select lookup stay real (the lookup runs against the drizzle stub), so
 // ask_parent/message tests exercise the actual message convention.
@@ -307,6 +310,7 @@ import {
   relayPostInput,
 } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
+import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
 import {
   createPullRequest,
   findOpenPullByHead,
@@ -3414,6 +3418,60 @@ describe(`exponential_pr_open — repositoryId path`, () => {
         merged: false,
         error: `Required status check "ci" is expected.`,
       },
+    })
+  })
+
+  // EXP-1146: with a session header the PR belongs to a run that may still
+  // start follow-up runs on this branch — nothing merges while it is busy;
+  // the tree merge (fired again on its idle edge) lands it root first.
+  it(`defers the yolo merge to the run's tree while the caller is busy`, async () => {
+    armRepoPr()
+    dbRows.current = [
+      { id: SESSION, teamId: WS, status: `running`, userId: `user-1`, hostUserId: null, yoloMode: true },
+    ]
+    vi.mocked(maybeMergeYoloTree).mockResolvedValue({
+      status: `incomplete`,
+      blocking: [`Chat`],
+    })
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(maybeMergeYoloTree).toHaveBeenCalledWith(SESSION)
+    expect(caller.repositories.mergePull).not.toHaveBeenCalled()
+    expect(parseOk(result)).toMatchObject({
+      number: 9,
+      autoMerge: { merged: false, deferred: true },
+    })
+    expect(
+      (parseOk(result) as { autoMerge: { note: string } }).autoMerge.note
+    ).toContain(`root first`)
+  })
+
+  it(`reports the caller's own PR merged when its idle tree of one landed at pr_open`, async () => {
+    armRepoPr()
+    dbRows.current = [
+      { id: SESSION, teamId: WS, status: `running`, userId: `user-1`, hostUserId: null, yoloMode: true },
+    ]
+    vi.mocked(maybeMergeYoloTree).mockResolvedValue({
+      status: `merged`,
+      mergedNow: 1,
+      outcomes: { [SESSION]: { kind: `merged` } },
+    })
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(parseOk(result)).toEqual({
+      url: `https://github.com/acme/app/pull/9`,
+      number: 9,
+      autoMerge: { merged: true },
     })
   })
 
