@@ -15,15 +15,14 @@ import UIKit
 /// download-to-temp path the comment strips use; a TALL picture (EXP-1128, a
 /// full-page capture) opens `TallImageViewerSheet` instead, a width-fit
 /// vertical scroll. This face owns NEITHER Stop /
-/// Resume (the Run face's) NOR the merge bar (the Changes face's): its bottom
-/// bar carries the face switcher and nothing else.
+/// Resume (the Run face's) NOR the merge bar (the Changes face's), and
+/// (EXP-1150) no bottom bar at all — the faces are the screen's tab strip.
 ///
 /// The pure rules — parse, group, tile size — are `ExpCore/SessionResults`,
 /// mirrored by web `lib/session-results.ts`, desktop `session_results.rs` and
 /// Android `domain/SessionResults.kt`.
-struct SessionResultsFace<Trailing: View>: View {
+struct SessionResultsFace: View {
     let groups: [SessionResultGroup]
-    @ViewBuilder let trailing: () -> Trailing
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -96,16 +95,6 @@ struct SessionResultsFace<Trailing: View>: View {
             TallImageViewerSheet(entry: preview.entry)
         }
         .accessibilityIdentifier("session-results")
-        // The face switcher, alone — Results has no verb of its own.
-        .safeAreaInset(edge: .bottom) {
-            FloatingBottomBar {
-                EmptyView()
-            } center: {
-                EmptyView()
-            } trailing: {
-                trailing()
-            }
-        }
     }
 
     private func tile(_ entry: SessionResultEntry) -> some View {

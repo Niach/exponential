@@ -302,7 +302,7 @@ import kotlinx.coroutines.withContext
 // terminal rendering: narration bubbles, compact tool rows, collapsible
 // subagent groups, question steppers, and message-shaped steering (text +
 // \r, perm-gated by the relay). The diff is the Changes face; Stop / Resume,
-// the title dot and the face switcher belong to the host (`WorkScreen`).
+// the title dot and the face tabs belong to the host (`WorkScreen`).
 // Identical UX to the iOS RunFace (glass design system).
 
 private val LiveGreen = Color(0xFF34D399)
@@ -330,8 +330,9 @@ private val AgentPhase.isWaitingForStream: Boolean
 /**
  * EXP-893: the Work screen's RUN FACE — the transcript directly under the
  * host's top bar, the strips above the composer, and the floating bottom bar
- * (usage ring · `Type / for commands` capsule · the host's trailing circle)
- * while the run is live; the bare bar with only the trailing circle once it
+ * (usage ring · `Type / for commands` capsule · the host's trailing circle,
+ * EXP-1150: Start coding once the run ended for good) while the run is live;
+ * the bare bar with only the trailing circle — or no bar without one — once it
  * ended or a card holds the input. The host (`WorkScreen`) owns the Scaffold,
  * the title dot, Stop / Resume, the kill and resume confirms, the merge
  * (Changes face) and the ended-edge navigation; this renders INSIDE its
@@ -343,20 +344,15 @@ fun RunFace(
     padding: PaddingValues,
     // EXP-760: a chipped identifier in the feed opens that issue.
     onOpenIssue: (String) -> Unit,
-    /** The bar's right circle — the host's face switcher. */
-    trailingBarSlot: @Composable () -> Unit,
-    /**
-     * EXP-931: the same switcher in the expanded composer's control row. The
-     * expanded composer covers the bar, so without this Issue / Changes /
-     * Results become unreachable while it is open.
-     */
-    composerSwitcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
+    /** The bar's right circle (EXP-1150: the Start circle once the run
+     *  ended for good — Merge PR lives in the header); null = none. */
+    trailingBarSlot: (@Composable () -> Unit)?,
     /** EXP-933: switches the host to its Results face — the inline
      *  `sessions_results` card's `Open Results` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
 ) {
     CompositionLocalProvider(LocalOpenResults provides onOpenResults) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, composerSwitcherSlot)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot)
     }
 }
 
@@ -369,8 +365,7 @@ private fun RunFaceContent(
     viewModel: AgentSessionViewModel,
     padding: PaddingValues,
     onOpenIssue: (String) -> Unit,
-    trailingBarSlot: @Composable () -> Unit,
-    composerSwitcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)?,
+    trailingBarSlot: (@Composable () -> Unit)?,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -1213,7 +1208,7 @@ private fun RunFaceContent(
         // it; until the stream is live, sending is disabled rather than
         // hidden. EXP-820: a card waiting on this viewer takes its place (see
         // [composerHidden]). EXP-893: retired or displaced, the BAR stays —
-        // with only the host's trailing circle — so the switcher never moves.
+        // with only the host's trailing circle — and goes without one.
         if (!sessionEnded && phase !is AgentPhase.Ended && !composerHidden) {
             SteerComposer(
                 value = composerField,
@@ -1342,9 +1337,8 @@ private fun RunFaceContent(
                 hasUsage = hasUsage,
                 onOpenUsage = { usageSheetOpen = true },
                 trailing = trailingBarSlot,
-                switcherSlot = composerSwitcherSlot,
             )
-        } else {
+        } else if (trailingBarSlot != null) {
             FloatingBottomBar(right = trailingBarSlot) { Spacer(Modifier.weight(1f)) }
         }
     }
@@ -1635,7 +1629,7 @@ private fun RunFaceContent(
 }
 
 /**
- * EXP-893: the tone the host's title dot and switcher badge take for the
+ * EXP-893: the tone the host's title dot takes for the
  * shown run — the synced row's display state (`codingSessionDisplayState`,
  * the ×4 list rule) with the live viewer's "waiting on a human" overlaid.
  * Null for an ended row: the top bar shows no dot without a live run.
@@ -4681,20 +4675,10 @@ private fun SteerComposer(
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
-    /** The collapsed bar's right circle — the host's face switcher. */
-    trailing: @Composable () -> Unit,
-    /**
-     * EXP-931: the SAME face switcher, the composer's size. While this
-     * composer is expanded it covers the work bar, and with it the bar's
-     * switcher circle — so the way to the linked Issue / Changes / Results
-     * moves in here, beside the usage ring, rather than disappearing. Exactly
-     * one of the two is mounted at a time.
-     *
-     * The lambda it is handed reports its MENU's open state: a menu opened
-     * from inside the composer takes focus out of the field, and that must not
-     * collapse the composer under its own open menu.
-     */
-    switcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
+    /** The collapsed bar's right circle — the host's Start (EXP-1150);
+     *  null = none. The expanded composer carries no switcher:
+     *  the face tabs sit above it, under the top bar. */
+    trailing: (@Composable () -> Unit)?,
 ) {
     // EXP-893: ONE placeholder ×4 (`STEER_COMPOSER_PLACEHOLDER`); typing is
     // always allowed while the stream is down, the message just waits for it
@@ -4713,12 +4697,11 @@ private fun SteerComposer(
     // period, only with an empty draft and no queued image (never lose one),
     // and only while resumed (the photo picker backgrounds the activity).
     var fieldFocused by remember { mutableStateOf(false) }
-    // EXP-931: a menu opened from INSIDE this composer — the model picker, the
-    // inline face switcher — portals itself out and takes focus with it. That
-    // is not the reader leaving the composer, so neither collapse rule below
-    // may fire on it: the trigger would unmount under its own open menu.
-    // Keyed per menu (`model`, `switcher`): one closing must not clear the
-    // other's guard.
+    // EXP-931: a menu opened from INSIDE this composer — the model picker —
+    // portals itself out and takes focus with it. That is not the reader
+    // leaving the composer, so neither collapse rule below may fire on it: the
+    // trigger would unmount under its own open menu. Keyed per menu (`model`),
+    // so one closing never clears another's guard.
     var innerMenus by remember { mutableStateOf(emptySet<String>()) }
     val innerMenuState = rememberUpdatedState(innerMenus.isNotEmpty())
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
@@ -4747,7 +4730,7 @@ private fun SteerComposer(
     }
     // EXP-931: once the agent picks the turn up, an expanded composer with
     // nothing in it and nobody typing in it is just a lid over the work bar —
-    // it stands down so the bar, and the face switcher on it, come back. A
+    // it stands down so the bar, and the circle on it, come back. A
     // focused field, a draft, a pending image or one of this composer's own
     // menus all keep it open; the moment the reader taps the capsule (or a
     // draft arrives) it expands again.
@@ -4807,7 +4790,6 @@ private fun SteerComposer(
                 contextPercent = contextPercent,
                 hasUsage = hasUsage,
                 onOpenUsage = onOpenUsage,
-                switcherSlot = switcherSlot,
                 onMenuOpenChange = { id, open -> innerMenus = if (open) innerMenus + id else innerMenus - id },
             )
         } else {
@@ -4836,7 +4818,6 @@ private fun SteerComposer(
 
 /** EXP-931: the expanded composer's own menus, as the keys of its open set. */
 private const val COMPOSER_MENU_MODEL = "model"
-private const val COMPOSER_MENU_SWITCHER = "switcher"
 
 @Composable
 private fun ExpandedSteerComposer(
@@ -4860,11 +4841,8 @@ private fun ExpandedSteerComposer(
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
-    /** EXP-931: the face switcher, the usage ring's neighbour. */
-    switcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
     /** EXP-931: this composer's own menus, so the host never collapses under
-     *  one — keyed per menu, so the model picker and the face switcher never
-     *  clear each other's guard. */
+     *  one — keyed per menu, so two menus never clear each other's guard. */
     onMenuOpenChange: (id: String, open: Boolean) -> Unit = { _, _ -> },
 ) {
     val canSend = (value.text.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
@@ -5000,9 +4978,6 @@ private fun ExpandedSteerComposer(
                     ContextRing(percent = contextPercent, size = 20.dp)
                 }
             }
-            // EXP-931: the face switcher, the ring's neighbour — the bar it
-            // normally rides is under this composer.
-            switcherSlot?.invoke { open -> onMenuOpenChange(COMPOSER_MENU_SWITCHER, open) }
             ComposerSubmitButton(
                 if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
                 contentDescription = if (stop) "Stop" else "Send",

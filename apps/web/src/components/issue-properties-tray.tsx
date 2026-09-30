@@ -29,6 +29,7 @@ export function IssuePropertiesTray({
   readOnly = false,
   handlers,
   showCodingAction = true,
+  showMerge = true,
   preferredSessionId,
 }: {
   issue: Issue
@@ -40,6 +41,9 @@ export function IssuePropertiesTray({
   handlers: IssuePropertyHandlers
   /** The phone keeps its start in the floating bar, not here. */
   showCodingAction?: boolean
+  /** EXP-1150: the phone's Merge sits in the header band beside the face
+   *  tabs, not in this card. */
+  showMerge?: boolean
   /** The run this header is bound to (the session route) — Stop/Resume act
    *  on it when it qualifies. */
   preferredSessionId?: string
@@ -61,7 +65,7 @@ export function IssuePropertiesTray({
   const dueDate = issue.dueDate ?? null
 
   const mergeButton =
-    currentUserId && isMember && prOpen ? (
+    !showMerge ? null : currentUserId && isMember && prOpen ? (
       <MergePrPill
         {...mergeTargetProps({ kind: `issue`, issue })}
         steerEnabled={steerConfig?.enabled === true}

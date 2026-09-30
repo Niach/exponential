@@ -7,29 +7,27 @@ import UIKit
 import UniformTypeIdentifiers
 
 /// What the bar's right-hand circle does (EXP-240, EXP-893). Computed by the
-/// Work screen from the view model's steer state so the bar stays dumb: with
-/// no own run the circle STARTS one; once a run exists the circle is the face
-/// switcher the screen passes in.
+/// Work screen from the view model's steer state so the bar stays dumb.
+/// EXP-1150: the faces moved to the tab strip, so the Start circle is the
+/// ONLY trailing candidate — drawn whenever the issue can be started.
 enum IssueBarTrailing: Equatable {
     case hidden
     /// EXP-1121: Start coding, always drawn for a member while remote start
     /// is on. Ready = the plain circle; not ready = a dashed edge + an amber
     /// dot (the tap opens "Ready to code?"); loading = plain, muted, inert.
     case start(CodingReadiness.Readiness)
-    /// The Work screen's face switcher circle (`switcher` slot).
-    case switcher
 }
 
 /// The issue-detail floating bottom bar (EXP-240): properties circle +
-/// expanding comment pill + the trailing circle (start coding, or the Work
-/// screen's face switcher), on the ONE `FloatingBottomBar` recipe (EXP-893).
+/// expanding comment pill + the trailing Start coding circle, on the ONE
+/// `FloatingBottomBar` recipe (EXP-893).
 /// Tapping the pill expands it into the docked comment composer — a
 /// full-width glass card that rides the keyboard (the bar lives in a bottom
 /// `safeAreaInset`). Collapse on blur only when the draft is empty (drafts
 /// are never lost) and after a successful submit. While another editor owns
 /// the keyboard (title / description / comment edit) the collapsed bar hides
 /// itself — but stays mounted at zero height so the draft state survives.
-struct IssueDetailBottomBar<Switcher: View>: View {
+struct IssueDetailBottomBar: View {
     let issue: IssueEntity
     let mentionMembers: [MentionMember]
     /// Solo teams hide the composer's @ button (nobody to mention but
@@ -43,9 +41,6 @@ struct IssueDetailBottomBar<Switcher: View>: View {
     /// composer in reply mode ("Replying to …" + `parentId` on send); the ✕,
     /// a send and a collapse clear it.
     @Binding var replyTarget: CommentReplyTarget?
-    /// EXP-893: the Work screen's face switcher, drawn in the trailing slot
-    /// while `trailing == .switcher`.
-    @ViewBuilder let switcher: () -> Switcher
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -180,32 +175,9 @@ struct IssueDetailBottomBar<Switcher: View>: View {
         switch trailing {
         case .hidden:
             EmptyView()
-        case .switcher:
-            switcher()
         case let .start(readiness):
-            startCircle(readiness)
+            StartCodingCircle(readiness: readiness, onStart: onStartCoding)
         }
-    }
-
-    /// EXP-1121: the Start coding circle in its three looks. The tap always
-    /// reaches the host (`onStartCoding`), which starts when ready and opens
-    /// the checklist otherwise; while loading the circle is inert.
-    private func startCircle(_ readiness: CodingReadiness.Readiness) -> some View {
-        let notReady = !readiness.loading && !readiness.ready
-        return FloatingBarCircle(
-            accessibilityLabel: CodingReadiness.Copy.start,
-            dashed: notReady,
-            action: { if !readiness.loading { onStartCoding() } }
-        ) {
-            AppIcon(AppIcons.actionRun, size: FloatingBarTokens.glyph, weight: .medium)
-                .foregroundStyle(.white.opacity(readiness.ready ? TextOpacity.primary : TextOpacity.tertiary))
-        } badge: {
-            if notReady {
-                CodingReadinessBadgeDot()
-            }
-        }
-        .accessibilityValue(readiness.caption ?? "")
-        .accessibilityIdentifier("issue-start-coding")
     }
 
     // MARK: - Expanded composer
@@ -493,5 +465,32 @@ struct IssueDetailBottomBar<Switcher: View>: View {
                 attachmentError = outcome.failure
             }
         }
+    }
+}
+
+/// EXP-1121: the Start coding circle in its three looks — the Issue face's
+/// trailing circle and (EXP-1150) the Run face's once the shown run ended for
+/// good. The tap always reaches the host (`onStart`), which starts when ready
+/// and opens the checklist otherwise; while loading the circle is inert.
+struct StartCodingCircle: View {
+    let readiness: CodingReadiness.Readiness
+    let onStart: () -> Void
+
+    var body: some View {
+        let notReady = !readiness.loading && !readiness.ready
+        FloatingBarCircle(
+            accessibilityLabel: CodingReadiness.Copy.start,
+            dashed: notReady,
+            action: { if !readiness.loading { onStart() } }
+        ) {
+            AppIcon(AppIcons.actionRun, size: FloatingBarTokens.glyph, weight: .medium)
+                .foregroundStyle(.white.opacity(readiness.ready ? TextOpacity.primary : TextOpacity.tertiary))
+        } badge: {
+            if notReady {
+                CodingReadinessBadgeDot()
+            }
+        }
+        .accessibilityValue(readiness.caption ?? "")
+        .accessibilityIdentifier("issue-start-coding")
     }
 }

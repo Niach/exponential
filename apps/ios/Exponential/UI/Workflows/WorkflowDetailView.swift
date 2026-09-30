@@ -7,7 +7,7 @@ import SwiftUI
 /// chip strip (one row per wave, `All` first), and under it the Work screen's
 /// faces. `All` draws the workflow's own faces — its issues nested (Issue),
 /// its runs as the session tree (Run), the final pull request (Changes) and
-/// every run's screenshots (Results) — behind the SAME face switcher; one
+/// every run's screenshots (Results) — behind the SAME face tabs; one
 /// picked node is that issue's Work screen, in place.
 ///
 /// What the page says is the shared view model (`WorkflowView`, ×4); which
@@ -27,8 +27,8 @@ struct WorkflowDetailView: View {
     /// opens on; a face switched inside that screen lifts back here, so a
     /// step to the next node keeps it.
     @State private var face: WorkFaceKind = .issue
-    @State private var switcherAnchor: CGRect = .zero
-    @State private var switcherOpen = false
+    /// The tabs' Run-segment frame (the workflow has no run menu of its own).
+    @State private var runsAnchor: CGRect = .zero
     @State private var menuAnchor: CGRect = .zero
     @State private var menuOpen = false
     @State private var devicePickerOpen = false
@@ -128,9 +128,6 @@ struct WorkflowDetailView: View {
         .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
             overflowItems
         }
-        .glassMenuOverlay(isPresented: $switcherOpen, anchor: switcherAnchor, presentation: .inline) {
-            switcherItems
-        }
         .background {
             if let model {
                 DevicePicker(
@@ -213,7 +210,20 @@ struct WorkflowDetailView: View {
                 )
                 .id("\(node.id)|\(work.subject)")
             } else {
+                // EXP-1150: the Work screen's own tab strip, at the same place
+                // a picked node's screen draws it, and the same body swipe.
+                WorkFaceTabs(
+                    faces: availableFaces(model),
+                    shown: allShownFace(model),
+                    multipleRuns: model.sessions.count > 1,
+                    runsAnchor: $runsAnchor,
+                    onSelect: { face = $0 }
+                )
                 allFace(model)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .workFaceSwipe(faces: availableFaces(model), shown: allShownFace(model)) {
+                        face = $0
+                    }
             }
         }
         .onChange(of: availableFaces(model)) { _, faces in
@@ -482,7 +492,7 @@ struct WorkflowDetailView: View {
     }
 
     /// One node picked: step along the strip in DAG order, All at position 0
-    /// (`WorkflowSelection.step`). The Work screen's own switcher belongs to
+    /// (`WorkflowSelection.step`). The Work screen's own face tabs belong to
     /// the issue, so the stepping sits here, under the strip.
     @ViewBuilder
     private func stepper(_ model: WorkflowDetailModel) -> some View {
@@ -650,74 +660,42 @@ struct WorkflowDetailView: View {
         )
     }
 
-    private func switcherTargets(_ model: WorkflowDetailModel) -> [WorkFaces.SwitcherTarget] {
-        WorkFaces.switcherTargets(
-            faces: availableFaces(model), shown: face, runIds: [], shownRunId: nil, offerStart: false
-        )
-    }
-
-    @ViewBuilder
-    private var switcherItems: some View {
-        if let model {
-            ForEach(switcherTargets(model), id: \.self) { target in
-                if case let .face(next) = target {
-                    GlassMenuItem(
-                        WorkFaces.faceLabel(next, multipleRuns: model.sessions.count > 1),
-                        icon: WorkFaceSwitcher.icon(target)
-                    ) { face = next }
-                }
-            }
-        }
-    }
-
-    private func switcher(_ model: WorkflowDetailModel) -> some View {
-        WorkFaceSwitcher(
-            mode: WorkFaces.switcherMode(switcherTargets(model)),
-            badge: nil,
-            badgePulsing: false,
-            anchor: $switcherAnchor,
-            menuOpen: $switcherOpen,
-            onSelect: { target in
-                if case let .face(next) = target { face = next }
-            }
-        )
+    private func allShownFace(_ model: WorkflowDetailModel) -> WorkFaceKind {
+        availableFaces(model).contains(face) ? face : .issue
     }
 
     @ViewBuilder
     private func allFace(_ model: WorkflowDetailModel) -> some View {
-        let shown = availableFaces(model).contains(face) ? face : .issue
-        switch shown {
+        switch allShownFace(model) {
         case .results:
             if model.resultGroups.isEmpty {
-                barred(model) { emptyNote(WorkflowView.noResultsLabel, id: "workflow-results-empty") }
+                topAligned { emptyNote(WorkflowView.noResultsLabel, id: "workflow-results-empty") }
             } else {
-                SessionResultsFace(groups: model.resultGroups) { switcher(model) }
+                SessionResultsFace(groups: model.resultGroups)
             }
         case .run:
-            barred(model) { runsFace(model) }
+            topAligned { runsFace(model) }
         case .changes:
-            barred(model, center: { mergeButton(model) }) { changesFace(model) }
+            // EXP-1150: the merge is the one bar left on `All` — the faces
+            // are the tab strip above.
+            topAligned { changesFace(model) }
+                .safeAreaInset(edge: .bottom) {
+                    FloatingBottomBar {
+                        EmptyView()
+                    } center: {
+                        mergeButton(model)
+                    } trailing: {
+                        EmptyView()
+                    }
+                }
         case .issue:
-            barred(model) { issuesFace(model) }
+            topAligned { issuesFace(model) }
         }
     }
 
-    private func barred<Content: View, Center: View>(
-        _ model: WorkflowDetailModel,
-        @ViewBuilder center: () -> Center = { EmptyView() },
-        @ViewBuilder content: () -> Content
-    ) -> some View {
+    private func topAligned<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .safeAreaInset(edge: .bottom) {
-                FloatingBottomBar {
-                    EmptyView()
-                } center: {
-                    center()
-                } trailing: {
-                    switcher(model)
-                }
-            }
     }
 
     /// A face with nothing in scope yet: one quiet line.

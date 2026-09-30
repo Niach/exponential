@@ -74,16 +74,15 @@ func issuePickerOpen(
 /// bar. Everything around it — the nav bar, the `…` menu, share, delete, the
 /// view model's lifetime — is the Work screen's; the face is swapped in and
 /// out as screen STATE, so it must be re-mountable without losing the issue.
-struct IssueFaceView<Switcher: View>: View {
+struct IssueFaceView: View {
     let vm: IssueDetailViewModel
     let issue: IssueEntity
-    /// The bar's trailing circle: Start coding while there is no own run,
-    /// the face switcher once there is one.
+    /// The bar's trailing circle: Start coding whenever the issue can be
+    /// started (EXP-1150: the faces are the screen's tab strip now).
     let barTrailing: IssueBarTrailing
     let onStartCoding: () -> Void
     /// The PR / branch row switches the screen to its Changes face.
     let onOpenChanges: () -> Void
-    @ViewBuilder let switcher: () -> Switcher
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -351,8 +350,7 @@ struct IssueFaceView<Switcher: View>: View {
                     trailing: barTrailing,
                     onOpenProperties: { activeSheet = .properties },
                     onStartCoding: onStartCoding,
-                    replyTarget: $commentReplyTarget,
-                    switcher: switcher
+                    replyTarget: $commentReplyTarget
                 )
             }
         }

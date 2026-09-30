@@ -216,7 +216,7 @@ fun IssueMenuActions(
 // (EXP-240): large editable title, the property chip box, the description
 // editor, the PR row, files and the activity timeline, with the floating
 // three-element bottom bar (properties circle, expanding comment pill, the
-// host's trailing circle: Start coding, or the face switcher). The host
+// host's trailing circle: Start coding while it can start). The host
 // (`WorkScreen`) owns the Scaffold, the top bar, the markdown toolbar
 // provider (errors are toasts, EXP-1031); this renders INSIDE its content slot. The old
 // Watch / "Coding now" row is gone — the run is a face of the same screen.
@@ -231,7 +231,7 @@ fun IssueFace(
     /** The PR / branch row's tap — the host lands on its Changes face when it
      *  has one, else the standalone route. */
     onOpenChanges: () -> Unit,
-    /** The bar's right circle — the host's face switcher or its Start play. */
+    /** The bar's right circle — the host's Start play, else empty. */
     trailingBarSlot: @Composable () -> Unit,
     /** EXP-1097: the Sub-issues `+` — the create screen with this issue as
      *  the parent. Null hides it (and the empty "Add sub-issues" band). */
@@ -670,8 +670,8 @@ fun IssueFace(
                 )
 
                 // EXP-893: no Coding-now / Watch row under the chips any more —
-                // the run is the Run face of this very screen, one switcher
-                // tap away, and the top bar's dot says its state.
+                // the run is the Run face of this very screen, one tab away,
+                // and the top bar's dot says its state.
                 Spacer(Modifier.height(16.dp))
                 MarkdownEditor(
                     model = descriptionModel,

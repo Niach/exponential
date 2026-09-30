@@ -4,12 +4,15 @@ import com.exponential.app.data.db.CodingSessionEntity
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
 // session) with up to four FACES held as screen state, never as navigation:
-// Issue, Run, Changes and Results (EXP-879). The desktop's face toggle (EXP-877) becomes a
-// floating bottom-right circle that either switches straight to the one other
-// face or opens a menu above itself; Stop / Resume sit in the top bar's
-// trailing slot only while the Run face shows. These are the PURE rules every
-// phone client mirrors byte for byte: web `lib/work-faces.ts` (the spec and
-// its tests), iOS `ExpCore/Domain/WorkFaces.swift` — same names, same cases,
+// Issue, Run, Changes and Results (EXP-879). EXP-1150: the faces are TABS —
+// a segmented strip under the top bar (the ONE segmented control every list
+// strip wears) names every available face in its fixed order, and a
+// horizontal swipe on the face's body moves to the neighbour ([swipeTarget]).
+// The header band carries the strip with the Merge PR pill at its end (every
+// face); the bottom bar keeps only the face's OWN controls, and Stop / Resume
+// sit in the top bar's trailing slot while the Run face shows. These are
+// the PURE rules every phone client mirrors byte for byte: web
+// `lib/work-faces.ts` (the spec and its tests), iOS `ExpCore/Domain/WorkFaces.swift` — same names, same cases,
 // same test names (`WorkFacesTest`).
 
 /**
@@ -29,7 +32,8 @@ const val RESULTS_FACE_LABEL = "Results"
 /** EXP-933: the inline `sessions_results` card's button that switches the
  *  Work screen to its Results face. */
 const val OPEN_RESULTS_LABEL = "Open Results"
-/** The switcher menu's extra row once the shown run ended for good. */
+/** The Start circle's label — the Run face's bar once the shown run ended
+ *  for good, the Issue face's bar while the issue can start. */
 const val START_CODING_LABEL = "Start coding"
 
 /** The steer composer's placeholder, byte-identical ×4 (desktop
@@ -149,73 +153,24 @@ fun primaryAction(ownLive: Boolean, ownEndedResumable: Boolean, canStart: Boolea
         else -> PrimaryAction.None
     }
 
-sealed interface SwitcherTarget {
-    data class Face(val face: WorkFaceKind) : SwitcherTarget
-    data class Run(val id: String) : SwitcherTarget
-    data object StartCoding : SwitcherTarget
-}
+/** EXP-1150: which way the finger went. Left = the content followed the
+ *  finger leftwards, so the NEXT face slides in; Right = the previous. */
+enum class SwipeDirection { Left, Right }
 
-/** What the switcher circle offers from the shown face: the OTHER faces in
- *  order, the Run face expanded into one row per own run when there are two
- *  or more (EXP-886), and `Start coding` first when the shown run ended and
- *  cannot be resumed (desktop shows Start in that state; on the phone the
- *  circle is the switcher, so the menu carries it). */
-fun switcherTargets(
-    faces: List<WorkFaceKind>,
-    shown: WorkFaceKind,
-    runIds: List<String>,
-    shownRunId: String?,
-    offerStart: Boolean,
-): List<SwitcherTarget> = buildList {
-    if (offerStart) add(SwitcherTarget.StartCoding)
-    for (face in faces) {
-        if (face == WorkFaceKind.Run && runIds.size >= 2) {
-            for (id in runIds) {
-                if (shown == WorkFaceKind.Run && id == shownRunId) continue
-                add(SwitcherTarget.Run(id))
-            }
-            continue
-        }
-        if (face == shown) continue
-        add(SwitcherTarget.Face(face))
-    }
-}
-
-sealed interface SwitcherMode {
-    data object Hidden : SwitcherMode
-    data class Toggle(val target: SwitcherTarget) : SwitcherMode
-    data class Menu(val targets: List<SwitcherTarget>) : SwitcherMode
-}
-
-/** No target = no circle; exactly one = a direct switch wearing the
- *  destination's icon; two or more = the faces glyph and a menu above. */
-fun switcherMode(targets: List<SwitcherTarget>): SwitcherMode = when (targets.size) {
-    0 -> SwitcherMode.Hidden
-    1 -> SwitcherMode.Toggle(targets[0])
-    else -> SwitcherMode.Menu(targets.toList())
+/** The face a horizontal swipe on the body lands on: the neighbour in the
+ *  strip's order, null at either end (or when the shown face is not in the
+ *  strip at all — nothing to swipe from). */
+fun swipeTarget(faces: List<WorkFaceKind>, shown: WorkFaceKind, direction: SwipeDirection): WorkFaceKind? {
+    val index = faces.indexOf(shown)
+    if (index < 0) return null
+    val next = if (direction == SwipeDirection.Left) index + 1 else index - 1
+    return faces.getOrNull(next)
 }
 
 /** EXP-862: the ONE session-dot palette, mirrored from web `session-dot.ts`
  *  and the desktop's `session_dot_tone` — running/review emerald, needs-input
  *  amber, done sky, ended/paused muted. */
 enum class SessionDotTone { Running, Review, NeedsInput, Done, Muted }
-
-sealed interface SwitcherBadge {
-    data class Session(val tone: SessionDotTone) : SwitcherBadge
-    data object Changes : SwitcherBadge
-}
-
-/** The circle's badge dot: off the Run face the shown session's state dot
- *  (none without a session); on the Run face a green dot while changes exist,
- *  so the reader knows a diff is waiting behind the switcher. */
-fun switcherBadge(
-    shown: WorkFaceKind,
-    sessionTone: SessionDotTone?,
-    hasChanges: Boolean,
-): SwitcherBadge? {
-    if (shown == WorkFaceKind.Run) return if (hasChanges) SwitcherBadge.Changes else null
-    return sessionTone?.let { SwitcherBadge.Session(it) }
-}
 
 /** Where a face lands when it vanishes under the reader (the diff cleared,
  *  the run row went): changes → run → issue, and results → run → issue.

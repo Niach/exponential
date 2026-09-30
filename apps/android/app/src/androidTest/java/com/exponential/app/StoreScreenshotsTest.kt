@@ -141,23 +141,17 @@ class StoreScreenshotsTest {
         // unavailable on this instance".
         composeRule.onAllNodes(hasText(SHOWCASE_ISSUE_TITLE)).onFirst().performClick()
         flow.waitFor(hasText("Startup profiling", substring = true), NAV_TIMEOUT)
-        // EXP-893: the run is a FACE of the Work screen now — the bar's
-        // bottom-right circle becomes the face switcher once the reader's own
-        // run synced in, so the switcher (not a Watch pill) is what proves it.
-        flow.waitFor(hasTestTag("work-face-switcher"), SYNC_TIMEOUT)
+        // EXP-893/EXP-1150: the run is a FACE of the Work screen — its `Run`
+        // tab appears in the face strip once the reader's own run synced in,
+        // so the tab (not a Watch pill) is what proves it.
+        flow.waitFor(hasTestTag("work-face-run"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("2_issue-detail", popRects = true)
 
-        // --- Live steering: the switcher opens the Run face in place — a
-        // direct switch with one target, a menu row (`work-face-run`) with
-        // several. Gate on the FEED tag, not the face: it shows "Connecting…"
-        // / "Waiting for activity…" placeholders until the first relay frame
-        // lands.
-        composeRule.onNode(hasTestTag("work-face-switcher")).performClick()
-        flow.settle()
-        if (composeRule.onAllNodes(hasTestTag("work-face-run")).fetchSemanticsNodes().isNotEmpty()) {
-            composeRule.onNode(hasTestTag("work-face-run")).performClick()
-        }
+        // --- Live steering: the `Run` tab opens the Run face in place. Gate
+        // on the FEED tag, not the face: it shows "Connecting…" / "Waiting
+        // for activity…" placeholders until the first relay frame lands.
+        composeRule.onNode(hasTestTag("work-face-run")).performClick()
         flow.waitFor(hasTestTag("agent-feed"), SYNC_TIMEOUT)
         // An EMPTY feed still renders the container (a relay the emulator can't
         // reach leaves the view "Reconnecting…" with nothing in it), so the tag

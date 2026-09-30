@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react"
+import { useCallback, useMemo, type ReactNode } from "react"
 import {
   createFileRoute,
   Link,
@@ -347,15 +347,17 @@ function OwnSessionPage({
   // EXP-893: an issue subject's phone header — the SAME bar the issue face
   // wears, with Stop / Resume in its trailing slot on the Run face only
   // (`IssueCodingAction` without its Start capsule: the bar's circle owns
-  // Start).
+  // Start). EXP-1150: the face tabs ride under it.
   const renderMobileHeader =
     issue && board
       ? ({
           dot,
           shownFace,
+          tabs,
         }: {
           dot: { tone: SessionDotTone; connecting: boolean }
           shownFace: `run` | `changes` | `results`
+          tabs: ReactNode
         }) => (
           <IssueMobileHeader
             issue={issue}
@@ -366,6 +368,7 @@ function OwnSessionPage({
             origin={from}
             handlers={handlers}
             dot={dot}
+            tabs={tabs}
             /* EXP-934: a session route never shows the ISSUE face (that is the
                issue's own URL), so the `…` never belongs in this bar — only
                Stop / Resume do. */

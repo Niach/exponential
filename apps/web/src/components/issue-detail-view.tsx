@@ -50,6 +50,7 @@ import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
+import type { FaceSwipeHandlers } from "@/components/mobile-face-tabs"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import {
@@ -86,11 +87,13 @@ interface IssueDetailViewProps {
   /** EXP-933: md+ — a non-issue face (the issue's Results) drawn in the work
    *  column IN PLACE of the issue body, under the same header. */
   faceBody?: React.ReactNode
-  /** EXP-893: the phone's Work screen parts — the face switcher for the
-   *  bar's right circle (absent = the Start coding circle) and the shown
-   *  session's state dot for the header title. */
+  /** EXP-893: the phone's Work screen parts — EXP-1150: the face TABS under
+   *  the header (`MobileFaceTabs`), the swipe handlers the root spreads
+   *  (`useFaceSwipe`) and the shown session's state dot for the header
+   *  title. The bar's right circle is always Start coding now. */
   mobileWork?: {
-    switcher?: React.ReactNode
+    tabs?: React.ReactNode
+    swipe?: FaceSwipeHandlers
     dot?: { tone: SessionDotTone; connecting?: boolean } | null
   }
 }
@@ -482,11 +485,12 @@ export function IssueDetailView({
     }
   }
 
-  // EXP-893: the bar's right circle is Start coding only while the issue has
-  // nothing to switch to; the moment a run (or a PR) of mine exists the route
-  // hands down the face switcher instead.
+  // EXP-893: the bar's right circle is Start coding (EXP-1150: on every
+  // Issue face — the switcher that used to take the slot is the strip of
+  // tabs under the header now; the control hides itself while it has
+  // nothing to start).
   const codingFab =
-    currentUserId && isMobile && !mobileWork?.switcher ? (
+    currentUserId && isMobile ? (
       <IssueCodingControl
         issue={issue}
         board={board}
@@ -534,7 +538,7 @@ export function IssueDetailView({
   // the ONE coding action inside it (`issue-properties-tray.tsx`). The phone
   // renders the same node at the top of its scroll column, minus the coding
   // action: its floating bar's circle owns the start there.
-  const propsTray = (showCodingAction: boolean) => (
+  const propsTray = (showCodingAction: boolean, showMerge = true) => (
     <IssuePropertiesTray
       issue={issue}
       board={board}
@@ -544,6 +548,7 @@ export function IssueDetailView({
       readOnly={readOnly}
       handlers={handlers}
       showCodingAction={showCodingAction}
+      showMerge={showMerge}
     />
   )
 
@@ -574,6 +579,7 @@ export function IssueDetailView({
       origin={origin}
       handlers={handlers}
       dot={mobileWork?.dot ?? null}
+      tabs={mobileWork?.tabs}
       graphBadge={
         /* EXP-897: the same stacked chip the md+ header wears, opening the same
            overlay as a sheet (EXP-1097: compact on the phone — glyph ·
@@ -699,7 +705,7 @@ export function IssueDetailView({
 
   if (isMobile) {
     return (
-      <div className="flex flex-col h-full min-h-0">
+      <div className="flex flex-col h-full min-h-0" {...mobileWork?.swipe}>
         {showMobileHeader && mobileHeader}
         {duplicateBanner}
         {/* EXP-698: clearance for the floating bar below, so the last comment
@@ -710,7 +716,7 @@ export function IssueDetailView({
           ref={bodyScrollRef}
           className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
         >
-          {propsTray(false)}
+          {propsTray(false, false)}
           {parentLine}
           {titleField}
           {editor}
@@ -727,7 +733,7 @@ export function IssueDetailView({
             issueId={issue.id}
             users={users}
             propertiesNode={mobilePropertiesPanel}
-            trailingNode={mobileWork?.switcher ?? codingFab}
+            trailingNode={codingFab}
             onSubmitComment={handleCommentSubmit}
             hidden={descriptionFocused}
           />

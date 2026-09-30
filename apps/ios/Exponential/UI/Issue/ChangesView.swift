@@ -229,7 +229,7 @@ struct ChangesView: View {
     var body: some View {
         ZStack {
             AppBackground()
-            PrChangesFace(issueId: issueId, reviewMode: true) { EmptyView() }
+            PrChangesFace(issueId: issueId, reviewMode: true)
         }
         .navigationTitle("Review")
         .navigationBarTitleDisplayMode(.inline)

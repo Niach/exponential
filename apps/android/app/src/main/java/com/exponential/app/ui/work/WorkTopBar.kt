@@ -2,8 +2,10 @@ package com.exponential.app.ui.work
 
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -40,6 +42,7 @@ import com.exponential.app.ui.session.LostGray
 // subject) or the session's title (an issue-less run) · the trailing verbs.
 // Stop / Resume show on the Run face ONLY; the issue `…` menu on every face
 // of an issue subject. No second caption line, no plan chip, no Reconnect.
+// EXP-1150: the face tabs ride the header under the title row ([tabs]).
 
 /** The trailing verb the Run face wears — see `primaryAction`. */
 enum class WorkBarVerb { Stop, Resume }
@@ -70,7 +73,14 @@ fun WorkTopBar(
     badge: (@Composable () -> Unit)? = null,
     /** The issue `…` menu, for an issue subject. */
     menu: (@Composable () -> Unit)?,
+    /**
+     * EXP-1150: the face tabs ([WorkFaceTabs]) — part of the HEADER, under
+     * the title row, on the same (transparent) band; the strip draws the
+     * band's one hairline. Null = the bare title row.
+     */
+    tabs: (@Composable () -> Unit)? = null,
 ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
     CenterAlignedTopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -121,6 +131,8 @@ fun WorkTopBar(
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
     )
+    tabs?.invoke()
+    }
 }
 
 /**

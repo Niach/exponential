@@ -42,8 +42,17 @@ vi.mock(`@/hooks/use-issue-property-handlers`, () => ({
 // A stub header that only re-renders its ACTION slot — that slot is what
 // EXP-895 moved GitHub into, and it is all this test needs from the bar.
 vi.mock(`@/components/issue-mobile-header`, () => ({
-  IssueMobileHeader: ({ action }: { action?: React.ReactNode }) => (
-    <div data-testid="issue-mobile-header">{action}</div>
+  IssueMobileHeader: ({
+    action,
+    tabs,
+  }: {
+    action?: React.ReactNode
+    tabs?: React.ReactNode
+  }) => (
+    <>
+      <div data-testid="issue-mobile-header">{action}</div>
+      {tabs}
+    </>
   ),
   TitleStateDot: () => null,
 }))
@@ -83,13 +92,13 @@ function renderFace() {
       teamId="t1"
       readOnly={false}
       filesState={filesState.value}
-      switcher={<div data-testid="switcher" />}
+      tabs={<div data-testid="tabs" />}
     />
   )
 }
 
 // EXP-895: an issue's Changes face — the FILE SHEET on the bar's leading slot,
-// GitHub up in the header's action slot, exactly one Merge (the capsule).
+// GitHub up in the header's action slot, no Merge of its own (EXP-1150).
 describe(`IssueChangesFace`, () => {
   it(`puts GitHub in the header action slot and the file sheet in the bar`, () => {
     filesState.value = { kind: `files`, files: [file(`src/a.ts`), file(`src/b.ts`)] }
@@ -102,7 +111,7 @@ describe(`IssueChangesFace`, () => {
     // The bar's leading slot is the sheet, not GitHub any more.
     expect(screen.getByTestId(`changes-file-sheet-button`).textContent).toBe(`2`)
     expect(screen.queryByTestId(`changes-github-circle`)).toBeNull()
-    expect(screen.getByTestId(`switcher`)).toBeTruthy()
+    expect(screen.getByTestId(`tabs`)).toBeTruthy()
   })
 
   it(`draws the cards alone — the sheet owns the list — and OPEN (EXP-916)`, () => {
@@ -132,56 +141,14 @@ describe(`IssueChangesFace`, () => {
     raf.mockRestore()
   })
 
-  it(`the bar carries EXACTLY ONE merge control while the PR is open`, () => {
+  // EXP-1150: the Merge PR pill rides the header band beside the face tabs
+  // (the route builds it), so the face itself draws NO merge control.
+  it(`carries no merge control — the header band's pill owns it`, () => {
     filesState.value = { kind: `files`, files: [file(`src/a.ts`)] }
     renderFace()
     expect(
-      screen.getAllByRole(`button`, { name: `Merge pull request` })
-    ).toHaveLength(1)
-  })
-
-  // EXP-1094: a workflow NODE PR merges through the workflow (the server
-  // refuses the row merge, PR #864), so the bar carries NO Merge capsule
-  // while that workflow is running or paused, and offers it again once the
-  // workflow is done.
-  it(`hides the Merge capsule on a node PR of a live workflow`, () => {
-    filesState.value = { kind: `files`, files: [file(`src/a.ts`)] }
-    const { rerender, unmount } = renderFace()
-    workflowState.workflows = [{ id: `w1`, status: `running`, teamId: `t1` }]
-    workflowState.nodes = [
-      { workflowId: `w1`, issueId: `other`, memberIssueIds: [`i1`], teamId: `t1` },
-    ]
-    rerender(
-      <IssueChangesFace
-        issue={issue}
-        board={board}
-        teamSlug="acme"
-        teamId="t1"
-        readOnly={false}
-        filesState={filesState.value}
-        switcher={<div data-testid="switcher" />}
-      />
-    )
-    expect(
       screen.queryByRole(`button`, { name: `Merge pull request` })
     ).toBeNull()
-    unmount()
-
-    workflowState.workflows = [{ id: `w1`, status: `done`, teamId: `t1` }]
-    render(
-      <IssueChangesFace
-        issue={issue}
-        board={board}
-        teamSlug="acme"
-        teamId="t1"
-        readOnly={false}
-        filesState={filesState.value}
-        switcher={<div data-testid="switcher" />}
-      />
-    )
-    expect(
-      screen.getAllByRole(`button`, { name: `Merge pull request` })
-    ).toHaveLength(1)
   })
 
   it(`nothing pushed = the empty note, no sheet, no merge`, () => {

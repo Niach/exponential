@@ -3,7 +3,8 @@ import XCTest
 
 @testable import ExpCore
 
-// EXP-893: the phone Work screen's pure rules. Test names mirror the web spec
+// EXP-893: the phone Work screen's pure rules — EXP-1150: the face tabs and
+// the body swipe (`swipeTarget`). Test names mirror the web spec
 // `lib/work-faces.test.ts` and Android `WorkFacesTest.kt`.
 final class WorkFacesTests: XCTestCase {
 
@@ -146,74 +147,20 @@ final class WorkFacesTests: XCTestCase {
         )
     }
 
-    func testOffersTheOtherFacesAsSwitcherTargets() {
+    func testSwipesToTheNeighbouringFace() {
+        let all: [WorkFaceKind] = [.issue, .run, .changes, .results]
+        XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .issue, direction: .left), .run)
+        XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .run, direction: .left), .changes)
+        XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .changes, direction: .right), .run)
+        XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .run, direction: .right), .issue)
+        XCTAssertNil(WorkFaces.swipeTarget(faces: all, shown: .issue, direction: .right))
+        XCTAssertNil(WorkFaces.swipeTarget(faces: all, shown: .results, direction: .left))
         XCTAssertEqual(
-            WorkFaces.switcherTargets(
-                faces: [.issue, .run, .changes], shown: .run, runIds: ["a"], shownRunId: "a",
-                offerStart: false
-            ),
-            [.face(.issue), .face(.changes)]
+            WorkFaces.swipeTarget(faces: [.issue, .results], shown: .issue, direction: .left),
+            .results
         )
-        XCTAssertEqual(
-            WorkFaces.switcherTargets(
-                faces: [.issue], shown: .issue, runIds: [], shownRunId: nil, offerStart: false
-            ),
-            []
-        )
-    }
-
-    func testExpandsTheRunFaceIntoOneRowPerRunWithTwoOrMore() {
-        XCTAssertEqual(
-            WorkFaces.switcherTargets(
-                faces: [.issue, .run], shown: .issue, runIds: ["a", "b"], shownRunId: "a",
-                offerStart: false
-            ),
-            [.run(id: "a"), .run(id: "b")]
-        )
-        // On the Run face the shown run is not a target.
-        XCTAssertEqual(
-            WorkFaces.switcherTargets(
-                faces: [.issue, .run, .changes], shown: .run, runIds: ["a", "b"], shownRunId: "a",
-                offerStart: false
-            ),
-            [.face(.issue), .run(id: "b"), .face(.changes)]
-        )
-    }
-
-    func testPrependsStartCodingWhenTheShownRunEndedForGood() {
-        XCTAssertEqual(
-            WorkFaces.switcherTargets(
-                faces: [.issue, .run], shown: .run, runIds: ["a"], shownRunId: "a", offerStart: true
-            ),
-            [.startCoding, .face(.issue)]
-        )
-    }
-
-    func testHidesTogglesOrOpensAMenuByTargetCount() {
-        XCTAssertEqual(WorkFaces.switcherMode([]), .hidden)
-        XCTAssertEqual(WorkFaces.switcherMode([.face(.run)]), .toggle(.face(.run)))
-        guard case .menu = WorkFaces.switcherMode([.face(.issue), .face(.changes)]) else {
-            return XCTFail("two targets open a menu")
-        }
-    }
-
-    func testBadgesTheCircleWithTheSessionToneOffTheRunFace() {
-        XCTAssertEqual(
-            WorkFaces.switcherBadge(shown: .issue, sessionTone: .running, hasChanges: true),
-            .tone(.running)
-        )
-        XCTAssertEqual(
-            WorkFaces.switcherBadge(shown: .changes, sessionTone: .needsInput, hasChanges: false),
-            .tone(.needsInput)
-        )
-        XCTAssertNil(WorkFaces.switcherBadge(shown: .issue, sessionTone: nil, hasChanges: true))
-    }
-
-    func testBadgesTheCircleWithChangesOnTheRunFace() {
-        XCTAssertEqual(
-            WorkFaces.switcherBadge(shown: .run, sessionTone: .running, hasChanges: true), .changes
-        )
-        XCTAssertNil(WorkFaces.switcherBadge(shown: .run, sessionTone: .running, hasChanges: false))
+        XCTAssertNil(WorkFaces.swipeTarget(faces: [.issue], shown: .run, direction: .left))
+        XCTAssertNil(WorkFaces.swipeTarget(faces: [], shown: .issue, direction: .left))
     }
 
     func testFallsBackChangesToRunToIssue() {

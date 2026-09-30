@@ -273,7 +273,7 @@ public struct FloatingBottomBar<Leading: View, Center: View, Trailing: View>: Vi
 /// EXP-916: the CHANGES bar — `[leading] [centre] [trailing]` as a CENTRED
 /// cluster whose slots hug their content, 12pt apart (Android's
 /// `FloatingBarCluster`): files · Merge PR · reject on the Reviews page,
-/// files · Merge PR · switcher on the Work screen's Changes face. Nothing
+/// files · Merge PR on the Work screen's Changes face (EXP-1150). Nothing
 /// stretches: the white Merge pill is as wide as its label, and a missing
 /// slot leaves no gap.
 public struct FloatingBarCluster<Leading: View, Center: View, Trailing: View>: View {

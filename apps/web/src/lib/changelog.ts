@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-30-phone-work-tabs`,
+    date: `2026-09-30`,
+    title: `Issue, Run, Changes and Results are tabs on the phone`,
+    summary: `The phone's Work screen shows its faces as swipeable tabs in the header, with Merge beside them while the pull request is open, on web, iOS and Android.`,
+    body: `- **Tabs**: Issue, Run, Changes and Results sit in one segmented strip inside the header, under the title, the same control as the Inbox strip, listing only the faces the issue has. Tap one or swipe the body left or right to move between them. The bottom-right switcher circle is gone.
+- **Runs**: with several runs on an issue the strip reads Runs, and the run menu opens from it.
+- **Merge beside the tabs**: while the pull request is open, the Merge button sits next to the tabs on every face, so a run can be merged without leaving it. It left the properties card and the Changes bar.
+- **Bars**: the Issue face keeps Properties, Comment and Start coding; Changes keeps the file list; the Run face offers Start coding once a run has ended for good; Results has no bar.`,
+  },
+  {
     id: `2026-09-30-sign-in-methods`,
     date: `2026-09-30`,
     title: `Sign-in methods and a changeable email`,
