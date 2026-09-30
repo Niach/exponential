@@ -95,6 +95,13 @@ class AuthWireTest {
             "Too many attempts. Request a new code.",
             AuthWire.otpErrorMessage("TOO_MANY_ATTEMPTS", "Too many attempts"),
         )
+        // EXP-1126: the email-change request's address validation.
+        assertEquals(
+            "Enter a valid email address.",
+            AuthWire.otpErrorMessage("INVALID_EMAIL", "Invalid email"),
+        )
+        // And a code-less refusal keeps the server's own message.
+        assertEquals("Email is the same", AuthWire.otpErrorMessage(null, "Email is the same"))
     }
 
     @Test

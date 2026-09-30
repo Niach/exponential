@@ -53,6 +53,8 @@ mod statuses;
 mod local_repos;
 mod members;
 mod archived_boards;
+mod change_email_dialog;
+mod sign_in_methods;
 mod notifications_prefs;
 mod board_detail;
 mod repositories;
@@ -518,7 +520,7 @@ impl SettingsView {
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
         let sessions = cx.new(SessionsPane::new);
-        let account = cx.new(|cx| AccountPane::new(window, cx));
+        let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
         let notifications = cx.new(NotificationsPrefsPane::new);
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
         let about = cx.new(|_| AboutPane::new());

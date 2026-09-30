@@ -110,6 +110,17 @@ class AccountStore @Inject constructor(
         }
     }
 
+    // EXP-1126: an email change re-reads the session and refreshes the stored
+    // identity, leaving the token and everything else untouched.
+    fun setIdentity(id: String, email: String?, name: String?) {
+        synchronized(lock) {
+            _accounts.value = _accounts.value.map {
+                if (it.id == id) it.copy(userEmail = email ?: it.userEmail, userName = name ?: it.userName) else it
+            }
+            persistLocked()
+        }
+    }
+
     fun clearActiveToken() {
         synchronized(lock) {
             clearToken(_activeAccountId.value ?: return)

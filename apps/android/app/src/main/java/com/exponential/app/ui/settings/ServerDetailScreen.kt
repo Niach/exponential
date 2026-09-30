@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,8 +35,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.AuthApi
+import com.exponential.app.data.api.AuthWire
+import com.exponential.app.data.api.SignInMethodsDto
 import com.exponential.app.data.api.UsersApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -57,6 +61,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
@@ -141,6 +146,180 @@ class ServerDetailViewModel @Inject constructor(
         }
     }
 
+    // ---- EXP-1126: sign-in methods ------------------------------------------
+    // Every call names the SCREEN's accountId: this screen can show an account
+    // that is not the active one.
+
+    var methods by mutableStateOf<SignInMethodsState>(SignInMethodsState.Loading)
+        private set
+
+    /** The provider whose link is being started (the row reads "Redirecting…"). */
+    var linkingProvider by mutableStateOf<String?>(null)
+        private set
+
+    /** One line under the section: a link/unlink outcome or a failure. */
+    var methodsNotice by mutableStateOf<MethodsNotice?>(null)
+
+    /** A removal in flight (unlink or passkey) and the refusal it hit, shown in its dialog. */
+    var removing by mutableStateOf(false)
+        private set
+    var removeError by mutableStateOf<String?>(null)
+
+    var changeEmail by mutableStateOf<ChangeEmailState?>(null)
+        private set
+
+    private var methodsAccountId: String? = null
+
+    init {
+        // The oauth-return deep link (MainActivity) finishes a link attempt;
+        // the initial StateFlow value is not an outcome.
+        viewModelScope.launch {
+            auth.linkResult.drop(1).collect { result ->
+                val id = methodsAccountId ?: return@collect
+                if (result.accountId != null && result.accountId != id) return@collect
+                linkingProvider = null
+                methodsNotice = if (result.error != null) {
+                    MethodsNotice(result.error, isError = true)
+                } else {
+                    val name = (methods as? SignInMethodsState.Ready)?.methods?.providers
+                        ?.firstOrNull { it.id == result.providerId }?.name ?: result.providerId
+                    MethodsNotice("$name is now linked.", isError = false)
+                }
+                loadMethods(id)
+            }
+        }
+    }
+
+    fun loadMethods(accountId: String) {
+        methodsAccountId = accountId
+        viewModelScope.launch {
+            try {
+                methods = SignInMethodsState.Ready(usersApi.signInMethods(accountId))
+            } catch (e: Exception) {
+                // Keep a loaded list on a failed refresh; only a first load shows the error.
+                if (methods !is SignInMethodsState.Ready) {
+                    methods = SignInMethodsState.Error(trpcErrorMessage(e, "Couldn't load your sign-in methods."))
+                }
+            }
+        }
+    }
+
+    /**
+     * Link a provider: mint a ticket for this account's session, remember the
+     * attempt, and hand the link-mode start URL to [open] (a Custom Tab). The
+     * result comes back through the oauth-return deep link → [AuthRepository.linkResult].
+     */
+    fun startLink(accountId: String, providerId: String, open: (String) -> Unit) {
+        if (linkingProvider != null) return
+        val baseUrl = auth.accounts.value.firstOrNull { it.id == accountId }?.instanceUrl ?: return
+        linkingProvider = providerId
+        methodsNotice = null
+        viewModelScope.launch {
+            try {
+                val ticket = usersApi.mintSignInLinkTicket(accountId, providerId)
+                val challenge = auth.beginLinkAttempt(accountId, providerId)
+                open(AuthWire.linkStartUrl(baseUrl, ticket.ticket, providerId, challenge))
+            } catch (e: Exception) {
+                methodsNotice = MethodsNotice(trpcErrorMessage(e, "Couldn't start linking. Try again."), isError = true)
+            } finally {
+                // The Custom Tab owns the flow now; a user who closes it without
+                // finishing must not be left with a stuck "Redirecting…" row.
+                linkingProvider = null
+            }
+        }
+    }
+
+    fun unlink(accountId: String, providerId: String, onDone: () -> Unit) =
+        remove(onDone, fallback = "Couldn't remove that sign-in method.") {
+            usersApi.unlinkSignInMethod(accountId, providerId)
+            loadMethods(accountId)
+        }
+
+    fun deletePasskey(accountId: String, id: String, onDone: () -> Unit) =
+        remove(onDone, fallback = "Couldn't remove the passkey.") {
+            usersApi.deletePasskey(accountId, id)
+            loadMethods(accountId)
+        }
+
+    // A refusal (PRECONDITION_FAILED: the last way in) carries the server's
+    // own message, which the dialog shows as-is.
+    private fun remove(onDone: () -> Unit, fallback: String, call: suspend () -> Unit) {
+        if (removing) return
+        removing = true
+        removeError = null
+        viewModelScope.launch {
+            try {
+                call()
+                onDone()
+            } catch (e: Exception) {
+                removeError = trpcErrorMessage(e, fallback)
+            } finally {
+                removing = false
+            }
+        }
+    }
+
+    fun openChangeEmail() {
+        changeEmail = ChangeEmailState()
+    }
+
+    fun dismissChangeEmail() {
+        changeEmail = null
+    }
+
+    /** Step 1: mail a code to the new address (also "Resend code"). */
+    fun sendEmailChangeCode(accountId: String, newEmail: String) {
+        val state = changeEmail ?: return
+        if (state.sending || state.verifying) return
+        val email = newEmail.trim()
+        val current = (methods as? SignInMethodsState.Ready)?.methods?.email
+            ?: auth.accounts.value.firstOrNull { it.id == accountId }?.userEmail
+        if (current != null && email.equals(current, ignoreCase = true)) {
+            changeEmail = state.copy(error = "That is already your email.")
+            return
+        }
+        val account = auth.accounts.value.firstOrNull { it.id == accountId } ?: return
+        val token = account.token ?: return
+        changeEmail = state.copy(sending = true, error = null)
+        viewModelScope.launch {
+            val result = authApi.requestEmailChange(account.instanceUrl, token, email)
+            val latest = changeEmail ?: return@launch
+            changeEmail = result.fold(
+                onSuccess = { latest.copy(step = ChangeEmailStep.Code, newEmail = email, sending = false, error = null) },
+                onFailure = { latest.copy(sending = false, error = it.message ?: "Couldn't send the code.") },
+            )
+        }
+    }
+
+    /** Step 2: redeem the code, then re-read the session for the new identity. */
+    fun confirmEmailChange(accountId: String, code: String) {
+        val state = changeEmail ?: return
+        if (state.sending || state.verifying) return
+        val account = auth.accounts.value.firstOrNull { it.id == accountId } ?: return
+        val token = account.token ?: return
+        changeEmail = state.copy(verifying = true, error = null)
+        viewModelScope.launch {
+            val result = authApi.changeEmail(account.instanceUrl, token, state.newEmail, code.trim())
+            if (result.isFailure) {
+                changeEmail = changeEmail?.copy(
+                    verifying = false,
+                    error = result.exceptionOrNull()?.message ?: "Couldn't change the email.",
+                )
+                return@launch
+            }
+            val info = authApi.fetchSession(accountId)
+            auth.updateIdentity(accountId, info?.email ?: state.newEmail, info?.name)
+            changeEmail = null
+            methodsNotice = MethodsNotice("Your email is now ${info?.email ?: state.newEmail}.", isError = false)
+            loadMethods(accountId)
+        }
+    }
+
+    /** "Use a different email": back to the address step. */
+    fun backToEmailAddress() {
+        changeEmail = changeEmail?.copy(step = ChangeEmailStep.Address, error = null)
+    }
+
     fun reauthenticate(instanceUrl: String) {
         auth.setInstanceUrl(instanceUrl)
     }
@@ -161,6 +340,26 @@ class ServerDetailViewModel @Inject constructor(
         }
     }
 }
+
+/** EXP-1126: the sign-in methods load. */
+sealed interface SignInMethodsState {
+    data object Loading : SignInMethodsState
+    data class Ready(val methods: SignInMethodsDto) : SignInMethodsState
+    data class Error(val message: String) : SignInMethodsState
+}
+
+data class MethodsNotice(val message: String, val isError: Boolean)
+
+enum class ChangeEmailStep { Address, Code }
+
+/** The change-email sheet's state machine (web `ChangeEmailDialog` twin). */
+data class ChangeEmailState(
+    val step: ChangeEmailStep = ChangeEmailStep.Address,
+    val newEmail: String = "",
+    val sending: Boolean = false,
+    val verifying: Boolean = false,
+    val error: String? = null,
+)
 
 // iOS-parity server detail: glass-grouped sections over the shared
 // AppBackground, mirroring SettingsScreen's grouped-card row pattern.
@@ -266,6 +465,12 @@ fun ServerDetailScreen(
                         }
                     }
                 }
+            }
+
+            // EXP-1126: how this account signs in — only with a live session.
+            if (account?.token != null) {
+                LaunchedEffect(accountId, account.token) { viewModel.loadMethods(accountId) }
+                SignInMethodsSection(accountId = accountId, viewModel = viewModel)
             }
 
             // Actions card.

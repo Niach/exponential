@@ -27,7 +27,7 @@
 use std::sync::Arc;
 
 use api::login::OAuthCallback;
-use gpui::{App, Global};
+use gpui::{App, Global, SharedString};
 use sync::{SessionPhase, Store};
 
 use crate::session::{connect_account, AuthContext};
@@ -41,9 +41,34 @@ use crate::session::{connect_account, AuthContext};
 struct PendingOAuth {
     instance_url: Option<String>,
     verifier: Option<String>,
+    /// EXP-1126: a LINK-mode attempt (Settings → Account → Sign-in methods)
+    /// is in flight. Its callbacks (`?linked=` / `?error=`) route to
+    /// [`SignInLinkOutcome`] instead of the login surface.
+    link: Option<PendingLink>,
 }
 
 impl Global for PendingOAuth {}
+
+/// The account + provider a link-mode attempt attaches.
+#[derive(Clone, Debug)]
+struct PendingLink {
+    account_id: String,
+    provider_id: String,
+}
+
+/// EXP-1126: the last link-mode outcome. The completion runs on the `App`
+/// (the settings window may be gone by the time the browser hands back), so
+/// the Sign-in methods section adopts it through `observe_global`, keyed on
+/// `seq` so the same outcome is never shown twice. `result`: `Ok(providerId)`
+/// on success, `Err(copy)` with the web's `oauthLinkErrorMessage` line.
+#[derive(Default)]
+pub(crate) struct SignInLinkOutcome {
+    pub seq: u64,
+    pub account_id: Option<String>,
+    pub result: Option<Result<String, SharedString>>,
+}
+
+impl Global for SignInLinkOutcome {}
 
 /// Open the browser for an OAuth start URL. `verifier` is the PKCE verifier
 /// whose challenge is baked into `start_url`. `Err(url)` = the ENTIRE opener
@@ -58,6 +83,35 @@ pub(crate) fn start(
     let pending = cx.default_global::<PendingOAuth>();
     pending.instance_url = Some(instance_url);
     pending.verifier = Some(verifier);
+    // A sign-in attempt replaces any link attempt still pending.
+    pending.link = None;
+    open_start_url(start_url)
+}
+
+/// EXP-1126: open the browser handoff in LINK mode
+/// (`api::login::link_start_url`) to attach `provider_id` to the signed-in
+/// `account_id`. The verifier is held like a sign-in's (the route requires
+/// PKCE), but `instance_url` stays `None`, so a stray `code=` callback can
+/// never sign anybody in off this attempt. Same `Err(url)` degradation as
+/// [`start`].
+pub(crate) fn start_link(
+    account_id: String,
+    provider_id: String,
+    start_url: String,
+    verifier: String,
+    cx: &mut App,
+) -> Result<(), String> {
+    let pending = cx.default_global::<PendingOAuth>();
+    pending.instance_url = None;
+    pending.verifier = Some(verifier);
+    pending.link = Some(PendingLink {
+        account_id,
+        provider_id,
+    });
+    open_start_url(start_url)
+}
+
+fn open_start_url(start_url: String) -> Result<(), String> {
     match api::opener::open_in_browser(&start_url) {
         Ok(()) => Ok(()),
         Err(err) => {
@@ -65,6 +119,20 @@ pub(crate) fn start(
             Err(start_url)
         }
     }
+}
+
+/// EXP-1126: end a link-mode attempt — clear it, publish the outcome.
+fn finish_link(result: Result<String, SharedString>, cx: &mut App) {
+    let pending = cx.default_global::<PendingOAuth>();
+    let link = pending.link.take();
+    pending.verifier = None;
+    if let Some(link) = &link {
+        log::info!("[ui] oauth: link attempt for {} ended", link.provider_id);
+    }
+    let outcome = cx.default_global::<SignInLinkOutcome>();
+    outcome.seq += 1;
+    outcome.account_id = link.map(|link| link.account_id);
+    outcome.result = Some(result);
 }
 
 /// The `on_open_urls` sink (call from the app shell's foreground drain).
@@ -176,6 +244,29 @@ fn oauth_error_message(reason: &str) -> &'static str {
 /// validate the token via `get-session`, persist the account, connect sync —
 /// the same path as a password sign-in (§5.7 step 4).
 fn complete(callback: OAuthCallback, cx: &mut App) {
+    // EXP-1126 link mode, BEFORE the signed-in guard below: linking happens
+    // while signed in by definition. A `linked=` hand-back carries no
+    // credential (it only says "refresh"), and a failure while a link is
+    // pending belongs to the Sign-in methods section, not the login surface.
+    let link_pending = cx
+        .try_global::<PendingOAuth>()
+        .is_some_and(|pending| pending.link.is_some());
+    match &callback {
+        OAuthCallback::Linked(provider_id) => {
+            log::info!("[ui] oauth: provider {provider_id} linked");
+            finish_link(Ok(provider_id.clone()), cx);
+            return;
+        }
+        OAuthCallback::Error(reason) if link_pending => {
+            log::warn!("[ui] oauth: server reported link failure ({reason})");
+            finish_link(
+                Err(api::login::link_error_message(reason).into()),
+                cx,
+            );
+            return;
+        }
+        _ => {}
+    }
     let store = Store::global(cx).clone();
     if matches!(store.session(cx), SessionPhase::Synced { .. }) {
         log::info!("[ui] oauth: callback while already signed in — ignored");
@@ -244,6 +335,12 @@ fn complete(callback: OAuthCallback, cx: &mut App) {
                     OAuthCallback::Error(reason) => {
                         return Err(api::ApiError::Decode(format!(
                             "oauth error callback: {reason}"
+                        )))
+                    }
+                    // Unreachable too — link hand-backs return above.
+                    OAuthCallback::Linked(provider) => {
+                        return Err(api::ApiError::Decode(format!(
+                            "oauth linked callback: {provider}"
                         )))
                     }
                 };
@@ -341,6 +438,38 @@ mod tests {
                 "{reason}"
             );
         }
+    }
+
+    #[test]
+    fn oauth_link_error_copy_matches_the_web() {
+        // EXP-1126: byte-parity with the web `oauthLinkErrorMessage`
+        // (apps/web/src/lib/deep-link.ts) — the link surface's copy, distinct
+        // from the sign-in lines above.
+        let Some(OAuthCallback::Error(reason)) = api::login::parse_oauth_callback(
+            "exponential://oauth-return?error=account_already_linked_to_different_user",
+        ) else {
+            panic!("link failure deep link did not parse as an error callback");
+        };
+        assert_eq!(
+            api::login::link_error_message(&reason),
+            "That account is already linked to a different user."
+        );
+        assert_eq!(
+            api::login::link_error_message("access_denied"),
+            "Linking was cancelled."
+        );
+        assert_eq!(
+            api::login::link_error_message("link_ticket_invalid"),
+            "That link request expired. Please try again."
+        );
+        assert_eq!(
+            api::login::link_error_message("unable_to_link_account"),
+            "Couldn't link that account. Please try again."
+        );
+        assert_eq!(
+            api::login::parse_oauth_callback("exponential://oauth-return?linked=google#linked=google"),
+            Some(OAuthCallback::Linked("google".to_string()))
+        );
     }
 
     #[test]

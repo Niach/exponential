@@ -15,6 +15,68 @@ private data class SetTimezoneInput(
     @SerialName("onlyIfUnset") val onlyIfUnset: Boolean,
 )
 
+// EXP-1126: `users.signInMethods` — apps/web/src/lib/auth/sign-in-methods.ts
+// is the source of truth. `kind` stays a String (apple|google|oidc|password) so
+// a future kind decodes instead of failing the whole payload.
+@Serializable
+data class SignInProviderDto(
+    val id: String,
+    val name: String,
+    val kind: String,
+    val available: Boolean = true,
+    val linked: Boolean = false,
+    val linkedAt: String? = null,
+)
+
+@Serializable
+data class SignInPasskeyDto(
+    val id: String,
+    val name: String? = null,
+    val createdAt: String? = null,
+    val backedUp: Boolean = false,
+)
+
+@Serializable
+data class SignInMethodsDto(
+    val email: String,
+    val emailVerified: Boolean = false,
+    val emailOtpEnabled: Boolean = false,
+    val passwordEnabled: Boolean = false,
+    val passkeyEnabled: Boolean = false,
+    val providers: List<SignInProviderDto> = emptyList(),
+    val passkeys: List<SignInPasskeyDto> = emptyList(),
+    val waysIn: Int = 0,
+)
+
+@Serializable
+data class SignInLinkTicketDto(
+    val ticket: String,
+    val expiresInSeconds: Int = 120,
+)
+
+@Serializable
+private object SignInMethodsEmptyInput
+
+@Serializable
+internal data class UnlinkSignInMethodInput(@SerialName("providerId") val providerId: String)
+
+@Serializable
+internal data class DeletePasskeyInput(@SerialName("id") val id: String)
+
+@Serializable
+internal data class MintSignInLinkTicketInput(@SerialName("provider") val provider: String)
+
+/**
+ * EXP-1126: a linked row may be unlinked only while another way in remains —
+ * the server refuses the last one (PRECONDITION_FAILED); this is the same rule
+ * the UI disables the button on. Also used for passkeys (always "linked").
+ */
+fun canUnlink(methods: SignInMethodsDto, provider: SignInProviderDto): Boolean =
+    provider.linked && methods.waysIn > 1
+
+/** Removing a passkey follows the same last-way-in rule as unlinking. */
+fun canRemovePasskey(methods: SignInMethodsDto): Boolean = methods.waysIn > 1
+
 @Singleton
 class UsersApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -49,4 +111,47 @@ class UsersApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = ConfirmInput.serializer(),
         )
     }
+
+    /** EXP-1126: every way the account can sign in on this instance. */
+    suspend fun signInMethods(accountId: String): SignInMethodsDto =
+        trpc.query(
+            accountId,
+            path = "users.signInMethods",
+            input = SignInMethodsEmptyInput,
+            inputSerializer = SignInMethodsEmptyInput.serializer(),
+            outputSerializer = SignInMethodsDto.serializer(),
+        )
+
+    /** Refused with PRECONDITION_FAILED when it is the account's last way in. */
+    suspend fun unlinkSignInMethod(accountId: String, providerId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "users.unlinkSignInMethod",
+            input = UnlinkSignInMethodInput(providerId),
+            inputSerializer = UnlinkSignInMethodInput.serializer(),
+        )
+    }
+
+    /** Refused with PRECONDITION_FAILED when it is the account's last way in. */
+    suspend fun deletePasskey(accountId: String, id: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "users.deletePasskey",
+            input = DeletePasskeyInput(id),
+            inputSerializer = DeletePasskeyInput.serializer(),
+        )
+    }
+
+    /**
+     * A single-use, 2-minute ticket naming this session + [provider]; the
+     * browser handoff's link mode (`mobile-oauth-start?link=`) redeems it.
+     */
+    suspend fun mintSignInLinkTicket(accountId: String, provider: String): SignInLinkTicketDto =
+        trpc.mutation(
+            accountId,
+            path = "users.mintSignInLinkTicket",
+            input = MintSignInLinkTicketInput(provider),
+            inputSerializer = MintSignInLinkTicketInput.serializer(),
+            outputSerializer = SignInLinkTicketDto.serializer(),
+        )
 }

@@ -330,6 +330,70 @@ impl AuthClient {
         parse_sign_in_success(response)
     }
 
+    /// EXP-1126 `POST /api/auth/email-otp/request-email-change` — mail a
+    /// 6-digit code to `new_email` for the SIGNED-IN account (bearer + the
+    /// Origin Better Auth's CSRF check wants). Failures carry the contract's
+    /// copy ([`otp_error_message`]: `INVALID_EMAIL`, or the server's own
+    /// "Email is the same").
+    pub fn request_email_change(
+        &self,
+        instance_url: &str,
+        token: &str,
+        new_email: &str,
+    ) -> Result<(), ApiError> {
+        let payload = serde_json::json!({ "newEmail": new_email });
+        self.post_authed_otp(
+            instance_url,
+            token,
+            "/api/auth/email-otp/request-email-change",
+            payload,
+        )
+    }
+
+    /// EXP-1126 `POST /api/auth/email-otp/change-email` — redeem the mailed
+    /// code: the users row takes `new_email` (verified). The caller re-reads
+    /// the session ([`Self::fetch_session`]) to pick up the new address.
+    pub fn change_email(
+        &self,
+        instance_url: &str,
+        token: &str,
+        new_email: &str,
+        otp: &str,
+    ) -> Result<(), ApiError> {
+        let payload = serde_json::json!({ "newEmail": new_email, "otp": otp });
+        self.post_authed_otp(
+            instance_url,
+            token,
+            "/api/auth/email-otp/change-email",
+            payload,
+        )
+    }
+
+    /// A bearer-authenticated Better Auth email-otp POST whose failures map
+    /// through [`otp_response_error`].
+    fn post_authed_otp(
+        &self,
+        instance_url: &str,
+        token: &str,
+        path: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), ApiError> {
+        let base = normalize_instance_url(instance_url);
+        let response = send(
+            versioned(self.client.post(format!("{base}{path}")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
+                // Better Auth's CSRF check 403s POSTs without an Origin header.
+                .header("Origin", &base)
+                .body(payload.to_string()),
+        )?;
+        if !(200..300).contains(&response.status) {
+            return Err(otp_response_error(response.status, &response.body));
+        }
+        Ok(())
+    }
+
     /// `POST /api/auth/device/code` — start the RFC 8628 device-code grant
     /// (EXP-403 CLI login). Unauthenticated. The caller shows
     /// `verification_uri` + `user_code`, then polls [`Self::poll_device_token`]
@@ -623,6 +687,7 @@ pub fn otp_error_message(status: u16, body: &str) -> String {
         Some("TOO_MANY_ATTEMPTS") => {
             return "Too many attempts. Request a new code.".to_string()
         }
+        Some("INVALID_EMAIL") => return "Enter a valid email address.".to_string(),
         _ => {}
     }
     if let Some(message) = parsed
@@ -753,6 +818,49 @@ pub fn oidc_oauth_start_url(instance_url: &str, provider_id: &str, code_challeng
     )
 }
 
+/// EXP-1126 browser handoff in LINK mode: attach `provider` (`google`,
+/// `apple` or an OIDC id) to the signed-in account named by `ticket`
+/// (`users.mintSignInLinkTicket`). Social providers ride `provider=`, OIDC
+/// ones `providerId=`, exactly like the sign-in start URLs. The route still
+/// requires a PKCE challenge, but link mode ends on
+/// `exponential://oauth-return?linked=<id>` (no code to redeem).
+pub fn link_start_url(
+    instance_url: &str,
+    ticket: &str,
+    provider: &str,
+    code_challenge: &str,
+) -> String {
+    let base = normalize_instance_url(instance_url);
+    let ticket = percent_encode(ticket);
+    match provider {
+        "google" | "apple" => format!(
+            "{base}/api/mobile-oauth-start?link={ticket}&provider={provider}&code_challenge={code_challenge}"
+        ),
+        _ => format!(
+            "{base}/api/mobile-oauth-start?link={ticket}&providerId={}&code_challenge={code_challenge}",
+            percent_encode(provider)
+        ),
+    }
+}
+
+/// EXP-1126: human copy for a failed LINK hop's `error` slug — byte-equal to
+/// the web `oauthLinkErrorMessage` (apps/web/src/lib/deep-link.ts), so a
+/// reason reads the same on every client; an unknown slug gets the generic
+/// line, never the raw value.
+pub fn link_error_message(reason: &str) -> &'static str {
+    match reason {
+        "access_denied" => "Linking was cancelled.",
+        "link_ticket_invalid" | "state_missing" | "state_invalid" | "state_mismatch"
+        | "state_not_found" | "please_restart_the_process" => {
+            "That link request expired. Please try again."
+        }
+        "account_already_linked_to_different_user" => {
+            "That account is already linked to a different user."
+        }
+        _ => "Couldn't link that account. Please try again.",
+    }
+}
+
 /// What an OAuth callback URL carried (REV-13).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OAuthCallback {
@@ -769,14 +877,20 @@ pub enum OAuthCallback {
     /// clamps (`normalizeOauthErrorReason`, apps/web/src/lib/deep-link.ts) —
     /// map it to human copy, never render it raw.
     Error(String),
+    /// EXP-1126 LINK-mode success:
+    /// `exponential://oauth-return?linked=<providerId>#linked=<providerId>` —
+    /// a provider was attached to the SIGNED-IN account. Carries no
+    /// credential; it only tells the settings surface to refresh.
+    Linked(String),
 }
 
 /// Extract the payload from an OAuth callback URL. Handles both capture
 /// mechanisms of §5.7 — for each param the URL **fragment** wins over the
 /// query (the fragment never leaves the client; the query survives the
 /// browser→OS custom-scheme hop, EXP-21) — and all three payload forms,
-/// `error` (the REV2-53 failure handoff) winning over `code` (new PKCE flow)
-/// winning over `token` (legacy):
+/// `error` (the REV2-53 failure handoff) winning over `linked` (the EXP-1126
+/// link-mode success) winning over `code` (new PKCE flow) winning over
+/// `token` (legacy):
 ///
 /// - PRIMARY custom scheme: `exponential://oauth-return?code=<c>#code=<c>`
 ///   (or legacy `…?token=<t>#token=<t>`).
@@ -818,13 +932,14 @@ pub fn parse_oauth_callback(url: &str) -> Option<OAuthCallback> {
         .split_once('?')
         .map(|(_, query)| query);
 
-    for key in ["error", "code", "token"] {
+    for key in ["error", "linked", "code", "token"] {
         let value = fragment
             .and_then(|pairs| find_param(pairs, key))
             .or_else(|| query.and_then(|pairs| find_param(pairs, key)));
         if let Some(value) = value {
             return Some(match key {
                 "error" => OAuthCallback::Error(value),
+                "linked" => OAuthCallback::Linked(value),
                 "code" => OAuthCallback::Code(value),
                 _ => OAuthCallback::Token(value),
             });
@@ -922,8 +1037,8 @@ mod tests {
         );
         // An unknown code falls back to the server's message…
         assert_eq!(
-            otp_error_message(400, r#"{"code":"INVALID_EMAIL","message":"Invalid email"}"#),
-            "Invalid email"
+            otp_error_message(400, r#"{"code":"SOMETHING_NEW","message":"Something new"}"#),
+            "Something new"
         );
         // …a body without one to a generic line (429 says what to do).
         assert_eq!(
@@ -966,6 +1081,42 @@ mod tests {
         let request = captured.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
         assert!(request.to_ascii_lowercase().contains("x-exp-ask-name: 1"), "{request}");
         assert!(request.contains(r#""name":"Ada""#), "{request}");
+    }
+
+    #[test]
+    fn email_change_sends_bearer_origin_and_body() {
+        use crate::trpc::tests::one_shot_server;
+        let (base, captured) = one_shot_server(200, r#"{"success":true}"#);
+        AuthClient::new()
+            .change_email(&base, "tok-1", "new@example.com", "123456")
+            .unwrap();
+        let request = captured.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(
+            request.starts_with("POST /api/auth/email-otp/change-email HTTP/1.1"),
+            "{request}"
+        );
+        let lower = request.to_ascii_lowercase();
+        assert!(lower.contains("authorization: bearer tok-1"), "{request}");
+        assert!(lower.contains(&format!("origin: {base}")), "{request}");
+        assert!(
+            request.ends_with(r#"{"newEmail":"new@example.com","otp":"123456"}"#),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn email_change_request_maps_refusals_to_copy() {
+        use crate::trpc::tests::one_shot_server;
+        let (base, captured) =
+            one_shot_server(400, r#"{"code":"INVALID_EMAIL","message":"Invalid email"}"#);
+        let err = AuthClient::new()
+            .request_email_change(&base, "tok-1", "nope")
+            .unwrap_err();
+        assert_eq!(err.user_message(), "Enter a valid email address.");
+        let request = captured.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(request
+            .starts_with("POST /api/auth/email-otp/request-email-change HTTP/1.1"));
+        assert!(request.ends_with(r#"{"newEmail":"nope"}"#));
     }
 
     #[test]
@@ -1071,6 +1222,103 @@ mod tests {
         assert_eq!(
             parse_oauth_callback("exponential://oauth-return?error=access_denied&code=c#token=t"),
             Some(OAuthCallback::Error("access_denied".to_string()))
+        );
+    }
+
+    #[test]
+    fn parses_linked_callback() {
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?linked=google#linked=google"),
+            Some(OAuthCallback::Linked("google".to_string()))
+        );
+        // An OIDC id is percent-decoded like every other payload.
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?linked=my%20idp"),
+            Some(OAuthCallback::Linked("my idp".to_string()))
+        );
+    }
+
+    #[test]
+    fn linked_fragment_wins_over_query() {
+        assert_eq!(
+            parse_oauth_callback("exponential://oauth-return?linked=apple#linked=google"),
+            Some(OAuthCallback::Linked("google".to_string()))
+        );
+    }
+
+    #[test]
+    fn error_wins_over_linked() {
+        assert_eq!(
+            parse_oauth_callback(
+                "exponential://oauth-return?linked=google&error=access_denied#linked=google"
+            ),
+            Some(OAuthCallback::Error("access_denied".to_string()))
+        );
+    }
+
+    #[test]
+    fn linked_on_another_host_is_not_a_callback() {
+        assert_eq!(
+            parse_oauth_callback("exponential://github-connected?linked=google"),
+            None
+        );
+    }
+
+    #[test]
+    fn link_start_urls() {
+        assert_eq!(
+            link_start_url("https://x.test/", "t.1", "google", "chal"),
+            "https://x.test/api/mobile-oauth-start?link=t.1&provider=google&code_challenge=chal"
+        );
+        assert_eq!(
+            link_start_url("https://x.test", "t.1", "apple", "chal"),
+            "https://x.test/api/mobile-oauth-start?link=t.1&provider=apple&code_challenge=chal"
+        );
+        assert_eq!(
+            link_start_url("https://x.test", "t.1", "my idp", "chal"),
+            "https://x.test/api/mobile-oauth-start?link=t.1&providerId=my%20idp&code_challenge=chal"
+        );
+    }
+
+    #[test]
+    fn link_error_copy_matches_the_web() {
+        assert_eq!(link_error_message("access_denied"), "Linking was cancelled.");
+        for reason in [
+            "link_ticket_invalid",
+            "state_missing",
+            "state_invalid",
+            "state_mismatch",
+            "state_not_found",
+            "please_restart_the_process",
+        ] {
+            assert_eq!(
+                link_error_message(reason),
+                "That link request expired. Please try again.",
+                "{reason}"
+            );
+        }
+        assert_eq!(
+            link_error_message("account_already_linked_to_different_user"),
+            "That account is already linked to a different user."
+        );
+        for reason in ["unable_to_link_account", "oauth_failed", ""] {
+            assert_eq!(
+                link_error_message(reason),
+                "Couldn't link that account. Please try again.",
+                "{reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_email_gets_the_contract_copy() {
+        assert_eq!(
+            otp_error_message(400, r#"{"code":"INVALID_EMAIL","message":"Invalid email"}"#),
+            "Enter a valid email address."
+        );
+        assert_eq!(
+            otp_error_message(400, r#"{"message":"Email is the same"}"#),
+            "Email is the same"
         );
     }
 

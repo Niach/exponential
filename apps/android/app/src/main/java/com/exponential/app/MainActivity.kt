@@ -15,6 +15,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.OauthReturn
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.data.share.ShareIntentParser
@@ -240,21 +241,36 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleOauthReturn(data: android.net.Uri) {
-        // Failure handoff (REV2-53): every failing branch of the web hop now
-        // deep-links back with `error=<reason>` instead of stranding the user
-        // on an https page the Custom Tab can't hand back. Surface it on the
-        // login screen (which mirrors + consumes reportLoginError).
-        val error = oauthReturnParam(data, "error")
-        if (error != null) {
-            authRepository.consumeOauthVerifier() // this attempt is over
-            authRepository.reportLoginError(oauthErrorMessage(error))
-            return
+        // The encoded fragment + query are parsed by the pure OauthReturn and
+        // decoded URI-style with Uri.decode (`+` stays literal — a form decode
+        // would corrupt a value carrying one).
+        val result = OauthReturn.parse(data.encodedFragment, data.encodedQuery) { android.net.Uri.decode(it) }
+        val code = when (result) {
+            // Failure handoff (REV2-53): every failing branch of the web hop
+            // deep-links back with `error=<reason>` instead of stranding the
+            // user on an https page the Custom Tab can't hand back. A pending
+            // LINK (EXP-1126) owns it — the settings screen shows it — else it
+            // lands on the login screen (which mirrors + consumes it).
+            is OauthReturn.Result.Error -> {
+                if (authRepository.hasPendingLink()) {
+                    authRepository.finishLink(null, OauthReturn.linkErrorMessage(result.reason))
+                } else {
+                    authRepository.consumeOauthVerifier() // this attempt is over
+                    authRepository.reportLoginError(oauthErrorMessage(result.reason))
+                }
+                return
+            }
+            // EXP-1126 link mode: a method was added to the signed-in account.
+            // Nothing to redeem and the session token is NEVER touched.
+            is OauthReturn.Result.Linked -> {
+                authRepository.finishLink(result.providerId, null)
+                return
+            }
+            // The server delivers a single-use PKCE `code` (REV-13) we redeem
+            // via /api/mobile-oauth-exchange with the in-memory verifier.
+            is OauthReturn.Result.Code -> result.code
+            OauthReturn.Result.None -> return
         }
-        // The server delivers a single-use PKCE `code` (REV-13) we redeem via
-        // /api/mobile-oauth-exchange with the in-memory verifier. It rides in
-        // the fragment AND the query (EXP-21 — browsers drop the #fragment when
-        // handing a custom scheme to the OS, so scan both).
-        val code = oauthReturnParam(data, "code") ?: return
         val verifier = authRepository.consumeOauthVerifier()
         if (verifier == null) {
             // A code arrived without an attempt this process started —
@@ -273,24 +289,6 @@ class MainActivity : ComponentActivity() {
             }
             completeOauthLogin(token)
         }
-    }
-
-    // Scan the *encoded* fragment first (primary form), then the encoded query,
-    // and decode once with Uri.decode (URI-style, `+` stays literal).
-    // data.fragment + URLDecoder.decode would form-decode `+` → space, so a
-    // value carrying one would arrive corrupted; decoding here stays URI-style
-    // for every parameter regardless of alphabet.
-    private fun oauthReturnParam(data: android.net.Uri, key: String): String? {
-        for (encoded in listOfNotNull(data.encodedFragment, data.encodedQuery)) {
-            val value = encoded
-                .split("&")
-                .map { it.split("=", limit = 2) }
-                .firstOrNull { it.firstOrNull() == key }
-                ?.getOrNull(1)
-                ?.let { android.net.Uri.decode(it) }
-            if (!value.isNullOrEmpty()) return value
-        }
-        return null
     }
 
     private suspend fun completeOauthLogin(token: String) {
