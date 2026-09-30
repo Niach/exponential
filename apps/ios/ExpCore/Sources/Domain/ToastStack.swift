@@ -66,6 +66,11 @@ public enum ToastStack {
         public static let swipeThreshold: Double = 45
         public static let viewportOffset: Double = 24
         public static let mobileViewportOffset: Double = 16
+        /// `placement.pointer`: web from `touchMaxWidth` up, the IDE.
+        public static let placementPointer: String = "bottom-right"
+        /// `placement.touch`: phones — iOS hangs the stack from the top.
+        public static let placementTouch: String = "top-center"
+        public static let touchMaxWidth: Double = 600
         public static let kinds: [ToastKind] = ToastKind.allCases
     }
 

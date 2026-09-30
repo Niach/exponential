@@ -14,7 +14,21 @@ final class ToastTokenTests: XCTestCase {
 
     func testInsetsAreTheMobileViewportOffset() {
         XCTAssertEqual(Double(ToastHostMetrics.screenInset), ToastStack.Constants.mobileViewportOffset)
-        XCTAssertEqual(ToastHostMetrics.tabBarClearance, 80)
+        XCTAssertEqual(ToastHostMetrics.screenInset, 16)
+    }
+
+    func testTheHostHangsFromTheTop() {
+        XCTAssertEqual(ToastHostMetrics.placement, "top-center")
+        XCTAssertEqual(ToastHostMetrics.placement, ToastStack.Constants.placementTouch)
+        XCTAssertFalse(ToastHostMetrics.anchoredBottom)
+        XCTAssertEqual(ToastHostMetrics.alignment, .top)
+        XCTAssertEqual(ToastHostMetrics.scaleAnchor, .bottom)
+        XCTAssertEqual(ToastHostMetrics.transitionEdge, .top)
+        // Collapsed from the top: the older cards peek out BELOW the front one.
+        let collapsed = ToastStack.geometry(
+            heights: [60, 60, 60], expanded: false, anchoredBottom: ToastHostMetrics.anchoredBottom
+        )
+        XCTAssertEqual(collapsed.items.map(\.offset), [28, 14, 0])
     }
 
     func testPhoneWidthIsFullWidthMinusTheInsets() {
@@ -28,12 +42,12 @@ final class ToastTokenTests: XCTestCase {
         XCTAssertEqual(ToastHostMetrics.cardWidth(container: 300, regular: true), 268)
     }
 
-    func testBottomPaddingClearsTheBarOrTheViewportOffset() {
-        XCTAssertEqual(ToastHostMetrics.bottomPadding(bottomInset: 0), ToastHostMetrics.screenInset)
-        XCTAssertEqual(
-            ToastHostMetrics.bottomPadding(bottomInset: ToastHostMetrics.tabBarClearance),
-            ToastHostMetrics.tabBarClearance
-        )
+    /// Safe-area top (the overlay window's own layout) + 16, plus the root
+    /// status banner's height while one is up.
+    func testTopPaddingIsTheViewportOffsetBelowTheBanner() {
+        XCTAssertEqual(ToastHostMetrics.topPadding(bannerHeight: 0), 16)
+        XCTAssertEqual(ToastHostMetrics.topPadding(bannerHeight: 24), 40)
+        XCTAssertEqual(ToastHostMetrics.topPadding(bannerHeight: -5), 16)
     }
 
     func testSwipeDismissesPastTheThresholdOnly() {
@@ -41,8 +55,14 @@ final class ToastTokenTests: XCTestCase {
         XCTAssertFalse(ToastHostMetrics.dismissesOnSwipe(CGSize(width: 45, height: 0)))
         XCTAssertTrue(ToastHostMetrics.dismissesOnSwipe(CGSize(width: 46, height: 0)))
         XCTAssertTrue(ToastHostMetrics.dismissesOnSwipe(CGSize(width: -46, height: 0)))
-        XCTAssertTrue(ToastHostMetrics.dismissesOnSwipe(CGSize(width: 0, height: 46)))
-        XCTAssertFalse(ToastHostMetrics.dismissesOnSwipe(CGSize(width: 0, height: -200)))
+        XCTAssertTrue(ToastHostMetrics.dismissesOnSwipe(CGSize(width: 0, height: -46)))
+        XCTAssertFalse(ToastHostMetrics.dismissesOnSwipe(CGSize(width: 0, height: -45)))
+        XCTAssertFalse(ToastHostMetrics.dismissesOnSwipe(CGSize(width: 0, height: 200)))
+    }
+
+    func testDownwardDragsClamp() {
+        XCTAssertEqual(ToastHostMetrics.clampedDrag(CGSize(width: 10, height: 30)), CGSize(width: 10, height: 0))
+        XCTAssertEqual(ToastHostMetrics.clampedDrag(CGSize(width: -10, height: -30)), CGSize(width: -10, height: -30))
     }
 
     func testEveryKindHasAConceptIcon() {

@@ -20,7 +20,14 @@ final class ToastStackTests: XCTestCase {
         let swipeThreshold: Double
         let viewportOffset: Double
         let mobileViewportOffset: Double
+        let placement: Placement
+        let touchMaxWidth: Double
         let kinds: [String]
+    }
+
+    private struct Placement: Decodable {
+        let pointer: String
+        let touch: String
     }
 
     private struct GeometryCase: Decodable {
@@ -61,6 +68,9 @@ final class ToastStackTests: XCTestCase {
         XCTAssertEqual(K.swipeThreshold, c.swipeThreshold)
         XCTAssertEqual(K.viewportOffset, c.viewportOffset)
         XCTAssertEqual(K.mobileViewportOffset, c.mobileViewportOffset)
+        XCTAssertEqual(K.placementPointer, c.placement.pointer)
+        XCTAssertEqual(K.placementTouch, c.placement.touch)
+        XCTAssertEqual(K.touchMaxWidth, c.touchMaxWidth)
         XCTAssertEqual(K.kinds.map(\.rawValue), c.kinds)
     }
 

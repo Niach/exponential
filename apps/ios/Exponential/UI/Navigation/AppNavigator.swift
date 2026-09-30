@@ -85,9 +85,9 @@ struct AppNavigator: View {
     /// onboarding and main screens all reach it. The shared instance is also
     /// the environment default, so nothing can toast into a void.
     private let toaster = Toaster.shared
-    /// The clearance MainNavigator reports while its tab bar slot is up
-    /// (`ToastBottomInsetKey`); 0 everywhere else.
-    @State private var toastBottomInset: CGFloat = 0
+    /// The height of MainNavigator's top status banner while one is up
+    /// (`ToastTopInsetKey`), so the top-hung stack sits below it; 0 else.
+    @State private var toastBannerHeight: CGFloat = 0
 
     private struct ExternalUrl: Identifiable {
         let url: URL
@@ -153,11 +153,11 @@ struct AppNavigator: View {
                 .ignoresSafeArea()
         }
         .transaction { $0.animation = nil }
-        .onPreferenceChange(ToastBottomInsetKey.self) { inset in
-            MainActor.assumeIsolated { toastBottomInset = inset }
+        .onPreferenceChange(ToastTopInsetKey.self) { height in
+            MainActor.assumeIsolated { toastBannerHeight = height }
         }
         .environment(\.toaster, toaster)
-        .toastHost(toaster, bottomInset: toastBottomInset)
+        .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
 
     /// The active account when ITS server has rejected this build (EXP-104).
@@ -474,7 +474,13 @@ struct MainNavigator: View {
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingAgentTeamSlug != nil { openAgentFromLink() }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { syncBanner }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            syncBanner
+                // EXP-1031: the top-hung toast stack sits below the banner.
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: ToastTopInsetKey.self, value: proxy.size.height)
+                })
+        }
         // Attached as an OVERLAY, not a safeAreaInset (EXP-36): an ancestor
         // inset outside the NavigationStack never reliably reaches the pushed
         // scrollables' content insets, so each bar-visible scrollable reserves
@@ -520,12 +526,6 @@ struct MainNavigator: View {
             }
         }
         .animation(motion.standard, value: tabBarChrome.suppressed)
-        // EXP-1031: toasts clear the tab bar's slot while it exists — the bar
-        // itself or the selection bar that took its place (`suppressed`).
-        .preference(
-            key: ToastBottomInsetKey.self,
-            value: showsTabBar ? ToastHostMetrics.tabBarClearance : 0
-        )
         // The Support tab exists only while the flag is on — if it flips off
         // (team switch, feature disabled) while the Support surface is up,
         // land back on Issues instead of stranding a tab-less screen.

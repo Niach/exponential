@@ -11,11 +11,15 @@ import UIKit
 // - A toast is one sentence, an optional description, an optional action and
 //   a kind whose colour sits on the ICON alone.
 // - The card is the opaque glass card at radius lg — no shadow, no material.
-// - Phones: full width minus `mobileViewportOffset`, bottom-centre, above the
-//   tab bar when one is up (`ToastBottomInsetKey`).
-// - Newest in front, `visible` of them collapsed; a tap expands the stack
-//   (every toast at full size, `gap` apart) and pauses the clock.
-// - Dismiss = the close glyph, a swipe past `swipeThreshold`, or the action.
+// - Phones: full width minus `mobileViewportOffset`, TOP-centre (the
+//   fixture's `placement.touch`), `mobileViewportOffset` below the safe area
+//   and below the root status banner when one is up (`ToastTopInsetKey`), so
+//   no sheet, tab bar or keyboard ever covers it.
+// - Newest in front, `visible` of them collapsed, the older ones peeking out
+//   BELOW it; a tap expands the stack downward (every toast at full size,
+//   `gap` apart) and pauses the clock.
+// - Dismiss = the close glyph, a swipe up or sideways past `swipeThreshold`,
+//   or the action.
 //
 // Mounted ONCE (`.toastHost`, AppNavigator). The stack draws in its own
 // pass-through overlay window so a toast fired from inside a sheet is still
@@ -141,13 +145,22 @@ public extension EnvironmentValues {
 public enum ToastHostMetrics {
     /// The card's radius (`Radius.lg`, the fixture's "radius lg").
     public static let cardRadius: CGFloat = DesignTokens.Radius.lg
-    /// The phone's screen inset on each side and below when no bar is up.
+    /// The phone's screen inset on each side and below the safe-area top.
     public static let screenInset: CGFloat = CGFloat(ToastStack.Constants.mobileViewportOffset)
     /// A regular-width (iPad) stack keeps the pointer width.
     public static let regularWidth: CGFloat = CGFloat(ToastStack.Constants.width)
-    /// Above the floating tab bar: its 64pt band + the 16pt viewport offset
-    /// (the same 80pt `.tabBarBottomInset()` reserves).
-    public static let tabBarClearance: CGFloat = 64 + screenInset
+    /// The fixture's touch placement: the stack hangs from the TOP edge.
+    public static let placement: String = ToastStack.Constants.placementTouch
+    /// Fed to `ToastStack.geometry`: a top stack measures from the box top
+    /// and grows downward.
+    public static let anchoredBottom: Bool = false
+    /// The stack box's alignment inside the screen.
+    public static let alignment: Alignment = .top
+    /// Back cards scale about their BOTTOM edge (they shrink from the top),
+    /// so each peeks exactly `peek` below the card in front of it.
+    public static let scaleAnchor: UnitPoint = .bottom
+    /// Enter slides down from the top edge, exit slides back up.
+    public static let transitionEdge: Edge = .top
     /// A drag past this dismisses.
     public static let swipeThreshold: CGFloat = CGFloat(ToastStack.Constants.swipeThreshold)
     /// A card's height before it has been measured.
@@ -162,22 +175,28 @@ public enum ToastHostMetrics {
         return regular ? min(full, regularWidth) : full
     }
 
-    /// Space below the stack above the safe area: the bar's clearance when a
-    /// screen reports one, else the viewport offset.
-    public static func bottomPadding(bottomInset: CGFloat) -> CGFloat {
-        max(bottomInset, screenInset)
+    /// Space above the stack below the safe-area top (the overlay window
+    /// lays out inside its safe area already): the root status banner's
+    /// height when one is up, plus the viewport offset.
+    public static func topPadding(bannerHeight: CGFloat) -> CGFloat {
+        max(bannerHeight, 0) + screenInset
     }
 
     /// Whether a drag of `translation` dismisses: sideways either way, or
-    /// downward (the stack sits at the bottom).
+    /// UP (the stack hangs from the top edge; down is clamped).
     public static func dismissesOnSwipe(_ translation: CGSize) -> Bool {
-        abs(translation.width) > swipeThreshold || translation.height > swipeThreshold
+        abs(translation.width) > swipeThreshold || -translation.height > swipeThreshold
+    }
+
+    /// The drag a card follows: sideways freely, upward only.
+    public static func clampedDrag(_ translation: CGSize) -> CGSize {
+        CGSize(width: translation.width, height: min(translation.height, 0))
     }
 }
 
-/// The bottom clearance a screen asks the root host for (the tab bar's). The
-/// largest reported value wins.
-public struct ToastBottomInsetKey: PreferenceKey {
+/// The height of the root's top status banner (sync health / version gate)
+/// the toast stack sits below. The largest reported value wins.
+public struct ToastTopInsetKey: PreferenceKey {
     public static let defaultValue: CGFloat = 0
     public static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
@@ -284,7 +303,7 @@ private struct ToastActionAccessibility: ViewModifier {
 
 // MARK: - Stack
 
-/// The stack itself, bottom-centre. Drawn inside the overlay window.
+/// The stack itself, top-centre. Drawn inside the overlay window.
 struct ToastStackView: View {
     let toaster: Toaster
     let state: ToastOverlayState
@@ -300,13 +319,13 @@ struct ToastStackView: View {
                 container: proxy.size.width, regular: sizeClass == .regular
             )
             VStack(spacing: 0) {
-                Spacer(minLength: 0)
                 stack(width: width)
+                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
-            .padding(.bottom, ToastHostMetrics.bottomPadding(bottomInset: state.bottomInset))
+            .padding(.top, ToastHostMetrics.topPadding(bannerHeight: state.bannerHeight))
         }
-        .animation(motion.slow, value: state.bottomInset)
+        .animation(motion.slow, value: state.bannerHeight)
     }
 
     private func stack(width: CGFloat) -> some View {
@@ -321,7 +340,7 @@ struct ToastStackView: View {
         let layout = ToastStack.geometry(
             heights: drawn.map(Double.init),
             expanded: expanded,
-            anchoredBottom: true
+            anchoredBottom: ToastHostMetrics.anchoredBottom
         )
         return ZStack(alignment: .top) {
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -345,16 +364,16 @@ struct ToastStackView: View {
                     alignment: .top
                 )
                 .clipShape(RoundedRectangle(cornerRadius: ToastHostMetrics.cardRadius))
-                // Anchored at the TOP so an older card's `peek` stays visible
-                // above the one in front of it.
-                .scaleEffect(placement.scale, anchor: .top)
+                // Anchored at the BOTTOM so an older card's `peek` stays
+                // exactly visible below the one in front of it.
+                .scaleEffect(placement.scale, anchor: ToastHostMetrics.scaleAnchor)
                 .offset(x: drag.width, y: CGFloat(placement.offset) + drag.height)
                 .opacity(placement.visible ? 1 : 0)
                 .zIndex(Double(index))
                 .allowsHitTesting(placement.visible)
                 .onTapGesture { toaster.expanded.toggle() }
                 .gesture(swipe(item.id))
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.move(edge: ToastHostMetrics.transitionEdge).combined(with: .opacity))
             }
         }
         .frame(width: width, height: CGFloat(layout.height), alignment: .top)
@@ -374,12 +393,9 @@ struct ToastStackView: View {
     private func swipe(_ id: UUID) -> some Gesture {
         DragGesture(minimumDistance: 10)
             .onChanged { value in
-                // Sideways either way, downward only — the stack sits on the
-                // bottom edge, so up has nowhere to go.
-                drags[id] = CGSize(
-                    width: value.translation.width,
-                    height: max(value.translation.height, 0)
-                )
+                // Sideways either way, upward only — the stack hangs from the
+                // top edge, so down has nowhere to go.
+                drags[id] = ToastHostMetrics.clampedDrag(value.translation)
             }
             .onEnded { value in
                 if ToastHostMetrics.dismissesOnSwipe(value.translation) {
@@ -400,21 +416,21 @@ struct ToastStackView: View {
 // MARK: - Host
 
 public extension View {
-    /// Mount the app's ONE toast stack. `bottomInset` = the clearance above
-    /// the safe area (the tab bar's when it is up; 0 = the viewport offset).
-    func toastHost(_ toaster: Toaster, bottomInset: CGFloat = 0) -> some View {
-        modifier(ToastHost(toaster: toaster, bottomInset: bottomInset))
+    /// Mount the app's ONE toast stack. `bannerHeight` = the root top
+    /// banner the stack sits below (0 = just the safe area + viewport offset).
+    func toastHost(_ toaster: Toaster, bannerHeight: CGFloat = 0) -> some View {
+        modifier(ToastHost(toaster: toaster, bannerHeight: bannerHeight))
     }
 }
 
 public struct ToastHost: ViewModifier {
     let toaster: Toaster
-    let bottomInset: CGFloat
+    let bannerHeight: CGFloat
     @State private var overlay = ToastOverlay()
 
-    public init(toaster: Toaster, bottomInset: CGFloat) {
+    public init(toaster: Toaster, bannerHeight: CGFloat) {
         self.toaster = toaster
-        self.bottomInset = bottomInset
+        self.bannerHeight = bannerHeight
     }
 
     public func body(content: Content) -> some View {
@@ -425,8 +441,8 @@ public struct ToastHost: ViewModifier {
                 }
                 .allowsHitTesting(false)
             )
-            .onChange(of: bottomInset, initial: true) { _, inset in
-                overlay.state.bottomInset = inset
+            .onChange(of: bannerHeight, initial: true) { _, height in
+                overlay.state.bannerHeight = height
             }
     }
 }
@@ -435,7 +451,7 @@ public struct ToastHost: ViewModifier {
 @MainActor
 @Observable
 final class ToastOverlayState {
-    var bottomInset: CGFloat = 0
+    var bannerHeight: CGFloat = 0
     /// The stack box in window coordinates — the only touch target.
     var hitRect: CGRect = .zero
 }
