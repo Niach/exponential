@@ -37,7 +37,10 @@ import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.IssueChipSize
 import com.exponential.app.ui.components.IssueChipStack
+import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.markdown.MdStyle
 import androidx.compose.ui.semantics.Role
 import com.exponential.app.ui.components.GlassSheet
@@ -67,7 +70,8 @@ import com.exponential.app.ui.theme.flatRow
  * ([PrGraph.badgeChip]) with ghost outlines saying there is more than one,
  * `+N` BESIDE the stack for everything behind it. EXP-1097: the SAME chip on
  * every face ([PrGraph.badgeShape] is face-independent: a stack/batch, a run
- * family, else open blockers) and COMPACT — glyph + identifier, no title. A
+ * family, else open blockers) and COMPACT — SLOP-15/16: the chip's own small
+ * mode ([IssueChipSize.Sm]: glyph + identifier, the title on long press). A
  * run with no issue (the run tree alone) fronts the same chip box with the
  * session-tree glyph and the run's own name ([runTitle]). The chip is inert:
  * the WHOLE thing is one tap target that opens the overlay ([onOpen]).
@@ -93,8 +97,9 @@ fun PrGraphBadge(
             if (front != null) {
                 IssueChip(
                     identifier = front.identifier,
-                    title = null,
+                    title = front.title,
                     status = chipStatus,
+                    size = IssueChipSize.Sm,
                 )
             } else {
                 IssueChip(
@@ -175,6 +180,8 @@ fun PrGraphSheet(
                         graph = blocksGraph,
                         issuesById = issuesById,
                         onOpenIssue = { onDismiss(); onOpenIssue(it) },
+                        // SLOP-16: the web's `density="compact"` blocked-by graph.
+                        density = IssueGraph.Geometry.Density.COMPACT,
                     )
                 }
 
@@ -216,6 +223,8 @@ fun PrGraphSheet(
                                 .takeIf { member.depth == 0 && graph.stack.size > 1 },
                             merging = merging,
                             onMergeStack = onMergeStack,
+                            onOpenIssue = onOpenIssue,
+                            onDismiss = onDismiss,
                         )
                     }
                     mergeError?.let { failure ->
@@ -291,18 +300,30 @@ private fun IssueChipRow(issues: List<IssueEntity>, onOpen: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        issues.forEach { issue ->
-            IssueChip(
-                identifier = issue.identifier,
-                title = issue.title,
-                status = null,
-                onClick = { onOpen(issue.id) },
-            )
-        }
+        issues.forEach { issue -> SmallIssueChip(issue) { onOpen(issue.id) } }
     }
 }
 
+/**
+ * SLOP-15/16: every overlay chip is the SMALL chip (web `size="sm"`) wearing
+ * its own status glyph — the recipe `IssueGraphPopover` draws its nodes with.
+ */
+@Composable
+private fun SmallIssueChip(issue: IssueEntity, onClick: () -> Unit) {
+    IssueChip(
+        identifier = issue.identifier,
+        title = issue.title,
+        status = null,
+        size = IssueChipSize.Sm,
+        onClick = onClick,
+        leading = {
+            StatusIcon(IssueStatus.fromWire(issue.status), size = MdStyle.chipIconSize)
+        },
+    )
+}
+
 /** One pull request in the stack: its identifiers, its state, its batch. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StackMemberRow(
     member: PrGraph.StackEntry,
@@ -311,6 +332,8 @@ private fun StackMemberRow(
     mergeStackIssueId: String?,
     merging: Boolean,
     onMergeStack: (String) -> Unit,
+    onOpenIssue: (String) -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val entry = member.entry
     Column(
@@ -357,17 +380,18 @@ private fun StackMemberRow(
                 )
             }
         }
-        // A batch member folds its issues right underneath it.
+        // A batch member folds its issues right underneath it — SLOP-16: a
+        // wrapped row of small chips, indented one level (web parity).
         if (entry.isBatch) {
-            Text(
-                entry.identifiers.joinToString(", "),
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+            FlowRow(
+                modifier = Modifier.padding(start = TreeGuides.INDENT_DP.dp, top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                entry.issues.forEach { issue ->
+                    SmallIssueChip(issue) { onDismiss(); onOpenIssue(issue.id) }
+                }
+            }
         }
     }
 }

@@ -6,7 +6,6 @@ import { boardCollection, teamCollection } from "@/lib/collections"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import {
   blockGraph,
-  ISSUE_GRAPH_COMPACT_NODE_WIDTH,
   ISSUE_GRAPH_CYCLE_NOTE,
   ISSUE_GRAPH_GEOMETRY,
   issueGraphEdgePath,
@@ -49,7 +48,7 @@ import { cn } from "@/lib/utils"
 //
 // SLOP-15: `density="compact"` is the HOVER graph — the rail's popover, the
 // work header's overlay — drawn with the small chip (glyph · identifier) in
-// `ISSUE_GRAPH_COMPACT_NODE_WIDTH` boxes, so a three-wave chain fits without
+// `compactNodeWidth` boxes (the fixture's, ×4), so a three-wave chain fits without
 // scrolling sideways. A dialog keeps the full box and the titles.
 
 export type IssueGraphDensity = `full` | `compact`
@@ -73,7 +72,7 @@ export function IssueGraphView({
 
   const g = ISSUE_GRAPH_GEOMETRY
   const metrics = {
-    nodeWidth: density === `compact` ? ISSUE_GRAPH_COMPACT_NODE_WIDTH : g.nodeWidth,
+    nodeWidth: density === `compact` ? g.compactNodeWidth : g.nodeWidth,
   }
   const size = issueGraphSize(
     Math.max(...graph.nodes.map((node) => node.wave)) + 1,

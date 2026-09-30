@@ -232,6 +232,7 @@ class IssueGraphTest {
             "railNodeWidth" to g.RAIL_NODE_WIDTH,
             "railDot" to g.RAIL_DOT,
             "railDotRing" to g.RAIL_DOT_RING,
+            "compactNodeWidth" to g.COMPACT_NODE_WIDTH,
         )
         assertEquals(c.keys, expected.keys)
         for ((key, value) in expected) assertEquals(key, c.num(key), value, 0f)
@@ -298,6 +299,66 @@ class IssueGraphTest {
                     from.getValue("lane").jsonPrimitive.int,
                     to.getValue("wave").jsonPrimitive.int,
                     to.getValue("lane").jsonPrimitive.int,
+                ),
+            )
+        }
+    }
+
+    /** SLOP-16: the contract's `compact` block replays at [IssueGraph.Geometry.COMPACT_NODE_WIDTH]. */
+    @Test
+    fun `every compact case replays at the compact width`() {
+        val compact = geometry().getValue("compact").jsonObject
+        val w = IssueGraph.Geometry.COMPACT_NODE_WIDTH
+        assertEquals(w, IssueGraph.Geometry.Density.COMPACT.nodeWidth, 0f)
+        val sizes = compact.getValue("sizes").jsonArray
+        val origins = compact.getValue("origins").jsonArray
+        val edges = compact.getValue("edges").jsonArray
+        assertTrue(sizes.isNotEmpty() && origins.isNotEmpty() && edges.isNotEmpty())
+        for (element in sizes) {
+            val case = element.jsonObject
+            assertEquals(
+                case.getValue("name").jsonPrimitive.content,
+                IssueGraph.Geometry.Size(
+                    width = case.num("width"),
+                    height = case.num("height"),
+                    viewWidth = case.num("viewWidth"),
+                    viewHeight = case.num("viewHeight"),
+                ),
+                IssueGraph.Geometry.size(
+                    case.getValue("waves").jsonPrimitive.int,
+                    case.getValue("lanes").jsonPrimitive.int,
+                    nodeWidth = w,
+                ),
+            )
+        }
+        for (element in origins) {
+            val case = element.jsonObject
+            val wave = case.getValue("wave").jsonPrimitive.int
+            val lane = case.getValue("lane").jsonPrimitive.int
+            assertEquals(
+                "compact origin($wave, $lane)",
+                IssueGraph.Geometry.Point(case.num("x"), case.num("y")),
+                IssueGraph.Geometry.origin(wave, lane, nodeWidth = w),
+            )
+        }
+        for (element in edges) {
+            val case = element.jsonObject
+            val from = case.getValue("from").jsonObject
+            val to = case.getValue("to").jsonObject
+            assertEquals(
+                case.getValue("name").jsonPrimitive.content,
+                IssueGraph.Geometry.Curve(
+                    start = case.point("start"),
+                    control1 = case.point("control1"),
+                    control2 = case.point("control2"),
+                    end = case.point("end"),
+                ),
+                IssueGraph.Geometry.edge(
+                    from.getValue("wave").jsonPrimitive.int,
+                    from.getValue("lane").jsonPrimitive.int,
+                    to.getValue("wave").jsonPrimitive.int,
+                    to.getValue("lane").jsonPrimitive.int,
+                    nodeWidth = w,
                 ),
             )
         }

@@ -34,7 +34,7 @@ struct PrGraphBadge: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 0) {
-                IssueChipStack(depth: min(max(chip.count, 1), 2)) { front }
+                IssueChipStack { front }
                 // The `+N` rides BESIDE the stack, clear of the ghosts (web
                 // `IssueChipStack`'s count slot, EXP-1097).
                 if let countSuffix {
@@ -59,16 +59,18 @@ struct PrGraphBadge: View {
         chip.count > 0 ? "+\(chip.count)" : nil
     }
 
-    /// EXP-1097: the phone header's COMPACT chip — status glyph + identifier,
-    /// no title, on every face. A run family with no issue names the run
-    /// behind the session-tree glyph instead.
+    /// EXP-1097 / SLOP-16: the phone header's chip is the chip's OWN small
+    /// mode (`size: .sm` — glyph · identifier, the title in the tooltip and
+    /// the accessibility label), nothing hand-rolled. A run family with no
+    /// issue names the run behind the session-tree glyph instead.
     @ViewBuilder
     private var front: some View {
         if let issue = chip.issue {
             IssueChip(
                 identifier: issue.identifier,
-                title: nil,
-                status: IssueStatus.from(issue.status)
+                title: issue.title,
+                status: IssueStatus.from(issue.status),
+                size: .sm
             )
             .fixedSize()
         } else {
@@ -167,12 +169,12 @@ struct PrGraphSheet: View {
     @ViewBuilder
     private var blockedSection: some View {
         if blockGraph.nodes.count > 1 {
-            IssueGraphView(graph: blockGraph, issues: issues, onOpenIssue: onOpenIssue)
+            IssueGraphView(
+                graph: blockGraph, issues: issues, density: .compact, onOpenIssue: onOpenIssue
+            )
         } else {
             section(IssueRelationsView.Copy.blockedBy) {
-                ForEach(graph.blockers, id: \.id) { issue in
-                    issueRow(issue)
-                }
+                chipBand(graph.blockers)
             }
         }
     }
@@ -188,9 +190,7 @@ struct PrGraphSheet: View {
 
     private var batchSection: some View {
         section(face == .issue ? "In batch with" : "Issues") {
-            ForEach(batchRows, id: \.id) { issue in
-                issueRow(issue)
-            }
+            chipBand(batchRows)
         }
     }
 
@@ -288,23 +288,16 @@ struct PrGraphSheet: View {
                         .accessibilityLabel("Merge the whole stack")
                 }
             }
-            // The batch's own issues, folded underneath its entry — one
-            // level deeper (EXP-965: 14 pt like everywhere else, with the
-            // connector that says they hang off this row).
-            if entry.isBatch, !sections.contains(.batch) {
-                let childGuides = TreeGuides.compute(depths: entry.issues.map { _ in 1 })
-                ForEach(Array(entry.issues.enumerated()), id: \.element.id) { index, issue in
-                    Button { onOpenIssue(issue.id) } label: {
-                        Text("\(issue.identifier ?? "") \(issue.title)")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    // The stack row's own VStack spaces them 6pt apart.
-                    .treeGuides(childGuides[index], base: 0, gap: 6)
-                }
+            // The batch's own issues, folded underneath its entry as ONE
+            // wrapped row of small chips one level deeper (SLOP-16; EXP-965:
+            // 14 pt like everywhere else, with the connector that says they
+            // hang off this row).
+            if entry.isBatch, !sections.contains(.batch), !entry.issues.isEmpty {
+                let childGuides = TreeGuides.compute(depths: [1])
+                smallChips(entry.issues)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // The stack row's own VStack spaces it 6pt below.
+                    .treeGuides(childGuides[0], base: 0, gap: 6)
             }
         }
         .padding(.leading, CGFloat(rung.depth) * TreeGuides.indentPerLevel)
@@ -326,23 +319,19 @@ struct PrGraphSheet: View {
         }
     }
 
+    /// SLOP-16: a section's issues as ONE `.glassRow()` band holding a
+    /// wrapped row of SMALL chips (web `gap-1.5` flex-wrap), not a row each.
     @ViewBuilder
-    private func issueRow(_ issue: IssueEntity) -> some View {
-        Button { onOpenIssue(issue.id) } label: {
-            HStack(spacing: 8) {
-                IssueChip(
-                    identifier: issue.identifier,
-                    title: issue.title,
-                    status: IssueStatus.from(issue.status)
-                )
-                Spacer(minLength: 0)
-            }
+    private func chipBand(_ rows: [IssueEntity]) -> some View {
+        smallChips(rows)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+    }
+
+    private func smallChips(_ rows: [IssueEntity]) -> some View {
+        PrGraphSmallChips(issues: rows, onOpenIssue: onOpenIssue)
     }
 
     @ViewBuilder
@@ -354,6 +343,28 @@ struct PrGraphSheet: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
             .glassRow()
+    }
+}
+
+/// SLOP-16: every chip in the badge overlay is the SMALL chip (glyph ·
+/// identifier, title in the tooltip / accessibility), wrapped 6pt apart.
+struct PrGraphSmallChips: View {
+    let issues: [IssueEntity]
+    let onOpenIssue: (String) -> Void
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(issues, id: \.id) { issue in
+                IssueChip(
+                    identifier: issue.identifier,
+                    title: issue.title,
+                    status: IssueStatus.from(issue.status),
+                    size: .sm,
+                    onTap: { onOpenIssue(issue.id) }
+                )
+                .fixedSize()
+            }
+        }
     }
 }
 
@@ -373,7 +384,8 @@ struct PrGraphIssueSheet: View {
                             IssueChip(
                                 identifier: issue.identifier,
                                 title: issue.title,
-                                status: IssueStatus.from(issue.status)
+                                status: IssueStatus.from(issue.status),
+                                size: .sm
                             )
                             Spacer(minLength: 0)
                         }

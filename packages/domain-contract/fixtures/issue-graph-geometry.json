@@ -1,5 +1,5 @@
 {
-  "_comment": "EXP-1057: THE mini-graph look, identical x4 (web lib/issue-graph.ts, desktop domain::issue_graph, iOS ExpCore IssueGraph.Geometry, Android domain/IssueGraph.Geometry). Points (web px = desktop px = iOS pt = Android dp). A node box sits at x = inset + wave * (nodeWidth + waveGap), y = inset + lane * (nodeHeight + laneGap); the grid is the boxes plus `inset` on every side (room for the rings, never clipped). The viewport is min(grid, maxView*) and scrolls past it. An edge leaves its blocker's right-middle and enters the blocked box's left-middle; forward it curves inside the gap, both control points on the gap's middle; a backward (cycle) edge bows by max(waveGap / 2, |dx| / 2). The rail (web + desktop lists) draws DOTS only: `railGutter` + `railNodeWidth` wide, a `railDot` dot with a `railDotRing` ring; hovering a dot opens the mini-graph.",
+  "_comment": "EXP-1057: THE mini-graph look, identical x4 (web lib/issue-graph.ts, desktop domain::issue_graph, iOS ExpCore IssueGraph.Geometry, Android domain/IssueGraph.Geometry). Points (web px = desktop px = iOS pt = Android dp). A node box sits at x = inset + wave * (nodeWidth + waveGap), y = inset + lane * (nodeHeight + laneGap); the grid is the boxes plus `inset` on every side (room for the rings, never clipped). The viewport is min(grid, maxView*) and scrolls past it. An edge leaves its blocker's right-middle and enters the blocked box's left-middle; forward it curves inside the gap, both control points on the gap's middle; a backward (cycle) edge bows by max(waveGap / 2, |dx| / 2). The rail (web + desktop lists) draws DOTS only: `railGutter` + `railNodeWidth` wide, a `railDot` dot with a `railDotRing` ring; hovering a dot opens the mini-graph. SLOP-15/16: the HOVER graphs (the rail popover, the work header badge overlay, the phone list-badge sheet) draw the SMALL chip in `compactNodeWidth` boxes; dialogs keep `nodeWidth`. Every origin/size/edge rule takes the node width as an override, and the `compact` cases are the same rules at that width.",
   "constants": {
     "nodeWidth": 176,
     "nodeHeight": 28,
@@ -14,7 +14,8 @@
     "railGutter": 8,
     "railNodeWidth": 24,
     "railDot": 10,
-    "railDotRing": 2
+    "railDotRing": 2,
+    "compactNodeWidth": 112
   },
   "sizes": [
     { "name": "no node draws nothing", "waves": 0, "lanes": 0, "width": 0, "height": 0, "viewWidth": 0, "viewHeight": 0 },
@@ -57,4 +58,33 @@
       "end": { "x": 4, "y": 54 }
     }
   ]
+,
+  "compact": {
+    "sizes": [
+      { "name": "three waves fit compact", "waves": 3, "lanes": 2, "width": 424, "height": 72, "viewWidth": 424, "viewHeight": 72 }
+    ],
+    "origins": [
+      { "wave": 1, "lane": 0, "x": 156, "y": 4 }
+    ],
+    "edges": [
+      {
+        "name": "a compact edge leaves the narrow box",
+        "from": { "wave": 0, "lane": 0 },
+        "to": { "wave": 1, "lane": 0 },
+        "start": { "x": 116, "y": 18 },
+        "control1": { "x": 136, "y": 18 },
+        "control2": { "x": 136, "y": 18 },
+        "end": { "x": 156, "y": 18 }
+      },
+      {
+        "name": "a compact cycle edge bows by half its run",
+        "from": { "wave": 1, "lane": 0 },
+        "to": { "wave": 0, "lane": 1 },
+        "start": { "x": 268, "y": 18 },
+        "control1": { "x": 400, "y": 18 },
+        "control2": { "x": -128, "y": 54 },
+        "end": { "x": 4, "y": 54 }
+      }
+    ]
+  }
 }

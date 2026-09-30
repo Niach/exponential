@@ -18,8 +18,9 @@ import type { StyleguideEntry } from "./types.ts"
 // since the overlay reads four Electric collections.
 //
 // SLOP-15: the ghosts became faint outlines (2px steps, no fill) and the
-// phone's compact chip is the chip's own `size="sm"`. The natives still draw
-// filled 3pt ghosts and have no small chip: `leftover` until the follow-up.
+// phone's compact chip is the chip's own `size="sm"`. SLOP-16 brought the
+// three natives along: outline ghosts, the small chip, the compact hover
+// graph (`compactNodeWidth`, fixture-locked ×4).
 
 const TreeIcon = conceptIcon(`session-tree`)
 
@@ -47,22 +48,22 @@ export const entry: StyleguideEntry = {
       note: `the rule is lib/pr-graph.ts badgeChip`,
     },
     desktop: {
-      state: `leftover`,
+      state: `ok`,
       symbol: `pr_graph::badge`,
       file: `apps/desktop/crates/ui/src/pr_graph.rs`,
-      note: `the rule is domain pr_graph::badge_chip; SLOP-16 pending: filled 3px ghosts, no small chip, full-width hover graph`,
+      note: `the rule is domain pr_graph::badge_chip; SLOP-16: outline ghosts, small chips in the overlay, compact hover graph`,
     },
     ios: {
-      state: `leftover`,
+      state: `ok`,
       symbol: `PrGraphBadge`,
       file: `apps/ios/Exponential/UI/Work/PrGraphBadge.swift`,
-      note: `the rule is ExpCore PrGraph.badgeChip; SLOP-16 pending: filled 3pt ghosts, no small chip, full-width hover graph`,
+      note: `the rule is ExpCore PrGraph.badgeChip; SLOP-16: outline ghosts, IssueChip size .sm, compact hover graph`,
     },
     android: {
-      state: `leftover`,
+      state: `ok`,
       symbol: `PrGraphBadge`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/work/PrGraphBadge.kt`,
-      note: `the rule is domain PrGraph.badgeChip; SLOP-16 pending: filled 3dp ghosts, no small chip, full-width hover graph`,
+      note: `the rule is domain PrGraph.badgeChip; SLOP-16: outline ghosts, IssueChipSize.Sm, compact hover graph`,
     },
   },
   island: () => (

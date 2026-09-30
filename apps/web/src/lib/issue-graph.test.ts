@@ -5,7 +5,6 @@ import {
   blockCounts,
   blockGraph,
   blocksBadgeLabel,
-  ISSUE_GRAPH_COMPACT_NODE_WIDTH,
   ISSUE_GRAPH_GEOMETRY,
   ISSUE_GRAPH_MAX_NODES,
   issueGraphEdge,
@@ -129,41 +128,59 @@ describe(`issue graph geometry`, () => {
   }
 })
 
-// SLOP-15: the hover graph narrows its nodes for the small chip. The override
-// moves every wave, the grid and the edges together; the contract constants
-// above are untouched.
+// SLOP-15/16: the hover graph narrows its nodes for the small chip. The
+// override moves every wave, the grid and the edges together; the fixture's
+// `compact` cases replay the same rules at `compactNodeWidth` on all four
+// clients, and the contract constants above are untouched.
 describe(`compact hover graph (SLOP-15)`, () => {
-  const over = { nodeWidth: ISSUE_GRAPH_COMPACT_NODE_WIDTH }
+  const g = ISSUE_GRAPH_GEOMETRY
+  const over = { nodeWidth: g.compactNodeWidth }
 
   it(`is narrower than the full box`, () => {
-    expect(ISSUE_GRAPH_COMPACT_NODE_WIDTH).toBeLessThan(ISSUE_GRAPH_GEOMETRY.nodeWidth)
+    expect(g.compactNodeWidth).toBeLessThan(g.nodeWidth)
   })
 
   it(`places the waves by the compact width`, () => {
-    const g = ISSUE_GRAPH_GEOMETRY
     expect(issueGraphOrigin(1, 0, over)).toEqual({
-      x: g.inset + ISSUE_GRAPH_COMPACT_NODE_WIDTH + g.waveGap,
+      x: g.inset + g.compactNodeWidth + g.waveGap,
       y: g.inset,
     })
     expect(issueGraphOrigin(1, 0, {})).toEqual(issueGraphOrigin(1, 0))
   })
 
-  it(`fits three waves in the viewport where the full width scrolled`, () => {
-    const full = issueGraphSize(3, 2)
-    const compact = issueGraphSize(3, 2, over)
-    expect(full.viewWidth).toBeLessThan(full.width)
-    expect(compact.width).toBe(424)
-    expect(compact.viewWidth).toBe(compact.width)
-    expect(compact.height).toBe(full.height)
+  for (const entry of geometry.compact.sizes) {
+    it(`compact size: ${entry.name}`, () => {
+      const { name: _name, waves, lanes, ...expected } = entry
+      const full = issueGraphSize(waves, lanes)
+      const compact = issueGraphSize(waves, lanes, over)
+      expect(compact).toEqual(expected)
+      // Three waves fit the viewport where the full width scrolled.
+      expect(full.viewWidth).toBeLessThan(full.width)
+      expect(compact.viewWidth).toBe(compact.width)
+      expect(compact.height).toBe(full.height)
+    })
+  }
+
+  it(`places compact node origins`, () => {
+    for (const entry of geometry.compact.origins) {
+      expect(issueGraphOrigin(entry.wave, entry.lane, over)).toEqual({ x: entry.x, y: entry.y })
+    }
   })
 
-  it(`starts an edge at the compact node's right edge`, () => {
-    const g = ISSUE_GRAPH_GEOMETRY
-    const curve = issueGraphEdge({ wave: 0, lane: 0 }, { wave: 1, lane: 0 }, over)
-    expect(curve.start.x).toBe(g.inset + ISSUE_GRAPH_COMPACT_NODE_WIDTH)
-    expect(curve.end.x).toBe(g.inset + ISSUE_GRAPH_COMPACT_NODE_WIDTH + g.waveGap)
+  for (const entry of geometry.compact.edges) {
+    it(`compact edge: ${entry.name}`, () => {
+      const { name: _name, from, to, ...expected } = entry
+      expect(issueGraphEdge(from, to, over)).toEqual(expected)
+    })
+  }
+
+  it(`starts an edge at the compact node's right edge, inset-shifted for a padded grid`, () => {
+    const entry = geometry.compact.edges[0]!
+    const curve = issueGraphEdge(entry.from, entry.to, over)
+    expect(curve.start.x).toBe(g.inset + g.compactNodeWidth)
+    expect(curve.end.x).toBe(g.inset + g.compactNodeWidth + g.waveGap)
     expect(
-      issueGraphEdgePath({ wave: 0, lane: 0 }, { wave: 1, lane: 0 }, { ...over, insetIncluded: false })
+      issueGraphEdgePath(entry.from, entry.to, { ...over, insetIncluded: false })
     ).toBe(
       `M ${curve.start.x - g.inset} ${curve.start.y - g.inset} C ${curve.control1.x - g.inset} ${curve.control1.y - g.inset}, ${curve.control2.x - g.inset} ${curve.control2.y - g.inset}, ${curve.end.x - g.inset} ${curve.end.y - g.inset}`
     )

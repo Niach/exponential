@@ -47,4 +47,12 @@ class IssueChipStyleTest {
         assertEquals(20.dp, IssueChipDefaults.RemoveHitArea)
         assertEquals(10.dp, IssueChipDefaults.RemoveGlyph)
     }
+
+    /** SLOP-15/16: two ghosts in 2dp steps, the far one at half strength (web `.issue-chip-ghost`). */
+    @Test
+    fun theStackIsTwoGhostsInTwoDpStepsTheFarOneAtHalfStrength() {
+        assertEquals(2.dp, IssueChipDefaults.StackStep)
+        assertEquals(2, IssueChipDefaults.StackGhosts)
+        assertEquals(0.5f, IssueChipDefaults.StackFarGhostAlpha)
+    }
 }

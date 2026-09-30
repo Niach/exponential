@@ -12,18 +12,25 @@ import SwiftUI
 /// `issue-graph-geometry.json`); the inset is part of the grid, so the rings
 /// are never clipped. Past `maxViewWidth` / `maxViewHeight` (or the width the
 /// parent offers) the grid scrolls both ways.
+///
+/// SLOP-16: `density: .compact` (the badge overlay, the phone's rail sheet)
+/// draws the SMALL chip in `compactNodeWidth` boxes — the title rides in the
+/// chip's tooltip and accessibility label.
 public struct IssueGraphPopover: View {
     public let graph: IssueGraph.Graph
     public let issues: [IssueEntity]
+    public let density: IssueGraph.Geometry.Density
     public let onOpenIssue: (String) -> Void
 
     public init(
         graph: IssueGraph.Graph,
         issues: [IssueEntity],
+        density: IssueGraph.Geometry.Density = .full,
         onOpenIssue: @escaping (String) -> Void
     ) {
         self.graph = graph
         self.issues = issues
+        self.density = density
         self.onOpenIssue = onOpenIssue
     }
 
@@ -64,7 +71,7 @@ public struct IssueGraphPopover: View {
     // MARK: - Grid
 
     private var grid: some View {
-        let size = G.size(of: graph)
+        let size = G.size(of: graph, nodeWidth: density.nodeWidth)
         let byId = issuesById
         let cycleIds = onCycle
         return ScrollView([.horizontal, .vertical], showsIndicators: false) {
@@ -87,10 +94,11 @@ public struct IssueGraphPopover: View {
             uniquingKeysWith: { a, _ in a }
         )
         let edges = graph.edges
+        let nodeWidth = density.nodeWidth
         return Canvas { context, _ in
             for edge in edges {
                 guard let from = cells[edge.from], let to = cells[edge.to] else { continue }
-                let curve = G.edge(from: from, to: to)
+                let curve = G.edge(from: from, to: to, nodeWidth: nodeWidth)
                 var path = Path()
                 path.move(to: point(curve.start))
                 path.addCurve(
@@ -117,7 +125,7 @@ public struct IssueGraphPopover: View {
     /// its origin, ringed when it is a subject or on a cycle.
     @ViewBuilder
     private func nodeBox(_ node: IssueGraph.Node, issue: IssueEntity?, cycle: Bool) -> some View {
-        let origin = G.origin(wave: node.wave, lane: node.lane)
+        let origin = G.origin(wave: node.wave, lane: node.lane, nodeWidth: density.nodeWidth)
         let status = IssueStatus.from(issue?.status)
         let identifier = issue?.identifier ?? node.id
         let ring: Color? = cycle
@@ -130,10 +138,11 @@ public struct IssueGraphPopover: View {
                 title: issue?.title,
                 iconName: status.iconName,
                 statusColor: status.color,
-                bodySize: Self.chipBodySize
+                bodySize: Self.chipBodySize,
+                size: density == .compact ? .sm : .md
             )
             .frame(
-                width: CGFloat(G.nodeWidth),
+                width: CGFloat(density.nodeWidth),
                 height: CGFloat(G.nodeHeight),
                 alignment: .leading
             )

@@ -23,6 +23,12 @@
 //!   batch glyph with the batch's issues folded underneath, and "Merge stack"
 //!   on the bottom entry.
 //!
+//! SLOP-15/16 (the web's stacked-chip redesign): the deck's ghosts are faint
+//! OUTLINES; inside the overlay every issue is the SMALL chip
+//! ([`crate::issue_chip::IssueChip::small`], the title in its tooltip) in a
+//! wrapped row, and the "Blocked by" graph is the COMPACT one
+//! (`geometry::Density::Compact`). The header chip itself stays full.
+//!
 //! The model is [`domain::pr_graph`] — this module is presentation only.
 
 use std::time::Duration;
@@ -244,13 +250,15 @@ pub(crate) fn chip_face(id: &str, face: ChipFace, muted: Hsla) -> gpui::Div {
     h_flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(CHIP_DECK_OFFSET + 4.))
+        // SLOP-15: the web's `pl-1.5` beside the stack, in the mono face.
+        .gap(px(6.))
         .child(front)
         .when(face.count > 0, |row| {
             row.child(
                 div()
                     .flex_shrink_0()
                     .text_xs()
+                    .font_family(theme::terminal::FONT_FAMILY)
                     .text_color(muted)
                     .child(SharedString::from(format!("+{}", face.count))),
             )
@@ -452,6 +460,7 @@ fn overlay(spec: &BadgeSpec, _window: &mut Window, cx: &App) -> AnyElement {
                 vec![crate::issue_graph::graph_overlay(
                     &spec.blocks_graph,
                     OVERLAY_W,
+                    domain::issue_graph::geometry::Density::Compact,
                     cx,
                 )],
                 cx,
@@ -538,41 +547,41 @@ fn mono(text: impl Into<SharedString>, color: Hsla) -> gpui::Div {
         .child(text.into())
 }
 
-/// Issue rows — `#IDENT title`, a click opens the issue.
-fn issue_rows(issues: &[Issue], cx: &App) -> Vec<AnyElement> {
-    let muted = cx.theme().muted_foreground;
-    let foreground = cx.theme().foreground;
-    issues
-        .iter()
-        .map(|issue| {
+/// SLOP-15/16 — the issues as ONE wrapped row of SMALL chips (the web's
+/// `flex-wrap gap-1.5`), each opening its issue; the title rides in the
+/// chip's tooltip.
+fn small_chip_row(issues: &[Issue], cx: &App) -> gpui::Div {
+    h_flex()
+        .flex_wrap()
+        .min_w_0()
+        .gap(px(6.))
+        .children(issues.iter().map(|issue| {
             let issue_id = issue.id.clone();
-            row_shell(
+            issue_chip(
                 SharedString::from(format!("pr-graph-issue-{issue_id}")),
-                &domain::tree_guides::Guides::default(),
-                cx,
+                issue.identifier.clone(),
+                issue.title.clone(),
             )
-                .child(mono(issue.identifier.clone(), muted))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_xs()
-                        .truncate()
-                        .text_color(foreground)
-                        .child(SharedString::from(issue.title.clone())),
-                )
-                .on_click(move |_: &ClickEvent, window, cx| {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::IssueDetail {
-                            issue_id: issue_id.clone(),
-                        },
-                    );
-                })
-                .into_any_element()
-        })
-        .collect()
+            .small()
+            .status(crate::queries::resolve_issue_status(cx, issue))
+            .on_click(move |_: &ClickEvent, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::IssueDetail {
+                        issue_id: issue_id.clone(),
+                    },
+                );
+            })
+        }))
+}
+
+/// "In batch with" (and the Reviews batch popover): ONE wrapped row of small
+/// chips, a click opens the issue.
+fn issue_rows(issues: &[Issue], cx: &App) -> Vec<AnyElement> {
+    vec![small_chip_row(issues, cx)
+        .px(px(ROW_PAD))
+        .into_any_element()]
 }
 
 /// The run tree — nested rows with the list's own live dot; a click opens the
@@ -662,7 +671,8 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
     for member in stack.iter() {
         depths.push(member.depth);
         if member.entry.is_batch() {
-            depths.extend(std::iter::repeat_n(member.depth + 1, member.entry.issues.len()));
+            // SLOP-16: its folded issues are ONE wrapped row of small chips.
+            depths.push(member.depth + 1);
         }
     }
     let guides = domain::tree_guides::guides_for(&depths);
@@ -720,28 +730,27 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
             })
             .into_any_element(),
         );
-        // A batch member folds its issues out underneath.
+        // A batch member folds its issues out underneath: ONE nested row of
+        // small chips (the web's `flex-wrap gap-1.5 pl-5`). The chips click,
+        // so the shell neither hovers nor clicks; it only keeps the
+        // connector (EXP-965) and the indent.
         if entry.is_batch() {
-            for issue in &entry.issues {
-                rows.push(
-                    row_shell(
-                        SharedString::from(format!("pr-graph-batch-{}", issue.id)),
-                        &guide_at(rows.len()),
-                        cx,
-                    )
-                    .child(mono(issue.identifier.clone(), muted))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .truncate()
-                            .text_color(foreground)
-                            .child(SharedString::from(issue.title.clone())),
-                    )
+            let guides = guide_at(rows.len());
+            rows.push(
+                div()
+                    .id(SharedString::from(format!("pr-graph-batch-{issue_id}")))
+                    .flex()
+                    .w_full()
+                    .min_w_0()
+                    .relative()
+                    .items_center()
+                    .py_1()
+                    .pr_2()
+                    .pl(px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
+                    .children(crate::tree_guides::guide_layer(&guides, ROW_PAD, ROW_GAP))
+                    .child(small_chip_row(&entry.issues, cx).flex_1())
                     .into_any_element(),
-                );
-            }
+            );
         }
     }
     rows

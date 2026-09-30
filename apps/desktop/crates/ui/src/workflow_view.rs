@@ -1715,7 +1715,12 @@ impl Render for NodeTip {
                     .child(SharedString::from(self.state_line.clone())),
             )
             .children(self.graph.as_ref().map(|graph| {
-                crate::issue_graph::graph_overlay(graph, crate::issue_graph::VIEW_W, cx)
+                crate::issue_graph::graph_overlay(
+                    graph,
+                    crate::issue_graph::VIEW_W,
+                    domain::issue_graph::geometry::Density::Full,
+                    cx,
+                )
             }))
     }
 }

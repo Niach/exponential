@@ -70,17 +70,20 @@ pub(crate) struct GridGeometry {
 
 impl GridGeometry {
     /// The blocks mini-graph: one-line boxes, edges side to side — the
-    /// contract geometry, the viewport capped at `view_w`.
-    pub(crate) fn boxes(view_w: f32) -> Self {
+    /// contract geometry, the viewport capped at `view_w`. SLOP-16: a
+    /// `Compact` graph (the hover ones) draws the small chip in
+    /// `COMPACT_NODE_WIDTH` boxes.
+    pub(crate) fn boxes(view_w: f32, density: geometry::Density) -> Self {
         use geometry::*;
+        let node_w = density.node_width();
         Self {
-            node_w: NODE_WIDTH,
+            node_w,
             node_h: NODE_HEIGHT,
             col_gap: WAVE_GAP,
             lane_gap: LANE_GAP,
             view_w: view_w.min(MAX_VIEW_WIDTH),
             view_h: MAX_VIEW_HEIGHT,
-            edge_out: (NODE_WIDTH, NODE_HEIGHT / 2.),
+            edge_out: (node_w, NODE_HEIGHT / 2.),
             edge_in: (0., NODE_HEIGHT / 2.),
             inset: INSET,
             stroke: EDGE_STROKE,
@@ -461,7 +464,7 @@ pub(crate) fn graph_in_dialog(
             );
         });
     });
-    graph_view(graph, view_width, on_pick, cx)
+    graph_view(graph, view_width, geometry::Density::Full, on_pick, cx)
 }
 
 /// The grid plus its notes, for the EXP-980 `blocks` graph. Empty (no nodes)
@@ -471,6 +474,7 @@ pub(crate) fn graph_in_dialog(
 pub(crate) fn graph_view(
     graph: &IssueGraph,
     view_width: f32,
+    density: geometry::Density,
     on_pick: OnPickIssue,
     cx: &App,
 ) -> gpui::AnyElement {
@@ -521,16 +525,19 @@ pub(crate) fn graph_view(
         } else {
             None
         };
-        node_chip(&node.key, outline, on_pick.clone(), cx)
+        let compact = density == geometry::Density::Compact;
+        node_chip(&node.key, outline, compact, on_pick.clone(), cx)
     };
-    grid_view(&nodes, &edges, GridGeometry::boxes(view_width), &notes, &render, cx)
+    grid_view(&nodes, &edges, GridGeometry::boxes(view_width, density), &notes, &render, cx)
 }
 
 /// One node: the shared issue chip (status glyph + identifier + as much title
-/// as the box holds), inside the ring its role earns.
+/// as the box holds), inside the ring its role earns. SLOP-16: `compact` =
+/// the small chip (glyph · identifier, the title in its tooltip).
 fn node_chip(
     issue_id: &str,
     outline: Option<Hsla>,
+    compact: bool,
     on_pick: OnPickIssue,
     cx: &App,
 ) -> gpui::AnyElement {
@@ -552,6 +559,9 @@ fn node_chip(
     )
     .flexible()
     .on_click(move |_: &ClickEvent, window, cx| on_pick(&target, window, cx));
+    if compact {
+        chip = chip.small();
+    }
     if let Some(status) = crate::issue_chip::synced_issue_status(issue_id, cx) {
         chip = chip.status(status);
     }
@@ -568,7 +578,12 @@ fn node_chip(
 }
 
 /// The popover body: the graph, navigating in the window it is drawn in.
-pub(crate) fn graph_overlay(graph: &IssueGraph, view_width: f32, cx: &App) -> gpui::AnyElement {
+pub(crate) fn graph_overlay(
+    graph: &IssueGraph,
+    view_width: f32,
+    density: geometry::Density,
+    cx: &App,
+) -> gpui::AnyElement {
     let on_pick: OnPickIssue = Rc::new(|issue_id: &str, window, cx| {
         crate::navigation::navigate(
             window,
@@ -580,13 +595,31 @@ pub(crate) fn graph_overlay(graph: &IssueGraph, view_width: f32, cx: &App) -> gp
     });
     h_flex()
         .min_w_0()
-        .child(graph_view(graph, view_width, on_pick, cx))
+        .child(graph_view(graph, view_width, density, on_pick, cx))
         .into_any_element()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SLOP-16 — both densities measure the grid by the contract's
+    /// `*_with` rules at their own node width.
+    #[test]
+    fn both_densities_follow_the_contract_geometry() {
+        use geometry::Density;
+        for density in [Density::Full, Density::Compact] {
+            let node_width = density.node_width();
+            let grid = GridGeometry::boxes(520., density);
+            assert_eq!(grid.node_w, node_width);
+            assert_eq!(grid.x(1), geometry::origin_with(node_width, 1, 0).0);
+            assert_eq!(grid.y(1), geometry::origin_with(node_width, 0, 1).1);
+            assert_eq!(grid.edge_out.0, node_width);
+            let edge = geometry::edge_with(node_width, (0, 0), (1, 0));
+            assert_eq!(edge.0 .0, grid.x(0) + grid.edge_out.0);
+        }
+        assert_eq!(GridGeometry::boxes(520., Density::Compact).node_w, 112.);
+    }
 
     /// EXP-983 — a speculative edge is DASHED: gpui paints paths, not
     /// patterns, so the line becomes a run of short segments that still

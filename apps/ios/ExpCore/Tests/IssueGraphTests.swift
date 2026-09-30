@@ -170,6 +170,14 @@ final class IssueGraphGeometryTests: XCTestCase {
         let sizes: [SizeCase]
         let origins: [OriginCase]
         let edges: [EdgeCase]
+        let compact: CompactCases
+    }
+
+    /// SLOP-16: the same three kinds of case, replayed at `compactNodeWidth`.
+    private struct CompactCases: Decodable {
+        let sizes: [SizeCase]
+        let origins: [OriginCase]
+        let edges: [EdgeCase]
     }
 
     private struct SizeCase: Decodable {
@@ -228,6 +236,7 @@ final class IssueGraphGeometryTests: XCTestCase {
         let constants = try fixture().constants
         let mirrored: [String: Double] = [
             "nodeWidth": G.nodeWidth,
+            "compactNodeWidth": G.compactNodeWidth,
             "nodeHeight": G.nodeHeight,
             "waveGap": G.waveGap,
             "laneGap": G.laneGap,
@@ -308,6 +317,53 @@ final class IssueGraphGeometryTests: XCTestCase {
         try assertEdge("a backward cycle edge bows by half its run")
     }
 
+    /// SLOP-16: the compact graph's boxes are `compactNodeWidth` wide; the
+    /// rest of the geometry is the full one's.
+    func testCompactCases() throws {
+        let compact = try fixture().compact
+        let width = G.compactNodeWidth
+        XCTAssertEqual(G.Density.compact.nodeWidth, width)
+        XCTAssertEqual(G.Density.full.nodeWidth, G.nodeWidth)
+        XCTAssertFalse(compact.sizes.isEmpty)
+        for testCase in compact.sizes {
+            XCTAssertEqual(
+                G.size(waves: testCase.waves, lanes: testCase.lanes, nodeWidth: width),
+                G.Size(
+                    width: testCase.width,
+                    height: testCase.height,
+                    viewWidth: testCase.viewWidth,
+                    viewHeight: testCase.viewHeight
+                ),
+                testCase.name
+            )
+        }
+        XCTAssertFalse(compact.origins.isEmpty)
+        for origin in compact.origins {
+            XCTAssertEqual(
+                G.origin(wave: origin.wave, lane: origin.lane, nodeWidth: width),
+                G.Point(x: origin.x, y: origin.y),
+                "compact wave \(origin.wave) lane \(origin.lane)"
+            )
+        }
+        XCTAssertFalse(compact.edges.isEmpty)
+        for testCase in compact.edges {
+            XCTAssertEqual(
+                G.edge(
+                    from: (testCase.from.wave, testCase.from.lane),
+                    to: (testCase.to.wave, testCase.to.lane),
+                    nodeWidth: width
+                ),
+                G.EdgeCurve(
+                    start: testCase.start.point,
+                    control1: testCase.control1.point,
+                    control2: testCase.control2.point,
+                    end: testCase.end.point
+                ),
+                testCase.name
+            )
+        }
+    }
+
     /// Every named case above exists in the fixture, and nothing new slipped in
     /// untested.
     func testEveryFixtureCaseIsCovered() throws {
@@ -325,6 +381,14 @@ final class IssueGraphGeometryTests: XCTestCase {
                 "a forward edge bends on the gap's middle",
                 "a skipping edge stays level",
                 "a backward cycle edge bows by half its run",
+            ]
+        )
+        XCTAssertEqual(fixture.compact.sizes.map(\.name), ["three waves fit compact"])
+        XCTAssertEqual(
+            fixture.compact.edges.map(\.name),
+            [
+                "a compact edge leaves the narrow box",
+                "a compact cycle edge bows by half its run",
             ]
         )
     }

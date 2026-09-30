@@ -278,6 +278,13 @@ export function blockGraph(
 // box so the rings are never clipped.
 export const ISSUE_GRAPH_GEOMETRY = {
   nodeWidth: 176,
+  // SLOP-15/16: the HOVER graph (the rail popover, the work header overlay)
+  // draws the SMALL chip (`IssueChip size="sm"`) in boxes this wide, so three
+  // waves fit the viewport (424px) where the full width scrolled (616px);
+  // dialogs keep `nodeWidth`. Every geometry function takes the node width as
+  // an override (`IssueGraphMetrics`), and the fixture's `compact` cases lock
+  // the override ×4.
+  compactNodeWidth: 112,
   nodeHeight: 28,
   waveGap: 40,
   laneGap: 8,
@@ -292,17 +299,6 @@ export const ISSUE_GRAPH_GEOMETRY = {
   railDot: 10,
   railDotRing: 2,
 } as const
-
-/**
- * SLOP-15: the HOVER graph's node width — the list rail's popover and the work
- * header's overlay draw the SMALL chip (glyph · identifier, `IssueChip
- * size="sm"`), which needs well under the full box: three waves then fit the
- * viewport (424px) where the full width scrolled (616px). Every geometry
- * function below takes it as an override; the fixture's constants stay THE
- * ×4 contract, untouched. Web only for now — the natives still draw their
- * hover graphs at the full width (follow-up filed on the issue).
- */
-export const ISSUE_GRAPH_COMPACT_NODE_WIDTH = 112
 
 /** What a host may override per surface: the node width alone so far. */
 export interface IssueGraphMetrics {

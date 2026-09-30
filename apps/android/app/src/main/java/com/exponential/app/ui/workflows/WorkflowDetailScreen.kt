@@ -767,7 +767,7 @@ private fun StripChip(
                 leading = { NodeGlyph(chip, status) },
             )
         }
-        if (chip.stacked) IssueChipStack(ghosts = chip.members.coerceAtMost(2)) { body() } else body()
+        if (chip.stacked) IssueChipStack { body() } else body()
         if (chip.needsYou) {
             Box(Modifier.testTag("workflow-chip-needs-you")) { StaticDot(NeedsInputAmber) }
         }

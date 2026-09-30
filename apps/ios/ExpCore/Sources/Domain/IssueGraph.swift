@@ -267,8 +267,23 @@ public enum IssueGraph {
     /// `domain::issue_graph::geometry`, Android `IssueGraph.Geometry`). Points:
     /// web px = desktop px = iOS pt = Android dp. The grid sits `inset` inside
     /// its scroll box so the rings are never clipped.
+    ///
+    /// SLOP-16: the hover/overlay graph draws the SMALL chip in
+    /// `compactNodeWidth` boxes (`Density.compact`); every builder takes a
+    /// trailing `nodeWidth` (default the full one), fixture-locked by the
+    /// fixture's `compact` block.
     public enum Geometry {
         public static let nodeWidth: Double = 176
+        public static let compactNodeWidth: Double = 112
+
+        /// Which box width a graph is drawn at.
+        public enum Density: Sendable {
+            case full, compact
+
+            public var nodeWidth: Double {
+                self == .compact ? Geometry.compactNodeWidth : Geometry.nodeWidth
+            }
+        }
         public static let nodeHeight: Double = 28
         public static let waveGap: Double = 40
         public static let laneGap: Double = 8
@@ -325,7 +340,9 @@ public enum IssueGraph {
         }
 
         /// A node box's top-left inside the grid.
-        public static func origin(wave: Int, lane: Int) -> Point {
+        public static func origin(
+            wave: Int, lane: Int, nodeWidth: Double = Self.nodeWidth
+        ) -> Point {
             Point(
                 x: inset + Double(wave) * (nodeWidth + waveGap),
                 y: inset + Double(lane) * (nodeHeight + laneGap)
@@ -333,7 +350,9 @@ public enum IssueGraph {
         }
 
         /// The grid for `waves` × `lanes`; nothing at all when either is 0.
-        public static func size(waves: Int, lanes: Int) -> Size {
+        public static func size(
+            waves: Int, lanes: Int, nodeWidth: Double = Self.nodeWidth
+        ) -> Size {
             guard waves > 0, lanes > 0 else {
                 return Size(width: 0, height: 0, viewWidth: 0, viewHeight: 0)
             }
@@ -348,10 +367,11 @@ public enum IssueGraph {
         }
 
         /// The grid a graph needs: its highest wave and lane, plus one.
-        public static func size(of graph: Graph) -> Size {
+        public static func size(of graph: Graph, nodeWidth: Double = Self.nodeWidth) -> Size {
             size(
                 waves: (graph.nodes.map(\.wave).max() ?? -1) + 1,
-                lanes: (graph.nodes.map(\.lane).max() ?? -1) + 1
+                lanes: (graph.nodes.map(\.lane).max() ?? -1) + 1,
+                nodeWidth: nodeWidth
             )
         }
 
@@ -359,10 +379,11 @@ public enum IssueGraph {
         /// edge bows by max(waveGap / 2, |dx| / 2).
         public static func edge(
             from: (wave: Int, lane: Int),
-            to: (wave: Int, lane: Int)
+            to: (wave: Int, lane: Int),
+            nodeWidth: Double = Self.nodeWidth
         ) -> EdgeCurve {
-            let a = origin(wave: from.wave, lane: from.lane)
-            let b = origin(wave: to.wave, lane: to.lane)
+            let a = origin(wave: from.wave, lane: from.lane, nodeWidth: nodeWidth)
+            let b = origin(wave: to.wave, lane: to.lane, nodeWidth: nodeWidth)
             let start = Point(x: a.x + nodeWidth, y: a.y + nodeHeight / 2)
             let end = Point(x: b.x, y: b.y + nodeHeight / 2)
             let bend = end.x > start.x
