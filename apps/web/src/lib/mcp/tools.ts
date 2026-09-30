@@ -82,6 +82,7 @@ import { teamColumns } from "@/lib/team-columns"
 import {
   builtinCreateAction,
   builtinFixConflictsAction,
+  builtinTidyUpAction,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 import {
@@ -5114,13 +5115,15 @@ export function registerExponentialTools(
         const result = await caller(user, request).actions.list({ teamId })
         // EXP-539: actions.list stopped appending the virtual builtins
         // (native clients construct them locally); agents still need them
-        // listed, so this tool appends both.
+        // listed, so this tool appends the three listed ones (FEED-50:
+        // + Tidy up).
         return ok(
           page(
             [
               ...result.actions,
               builtinCreateAction(teamId),
               builtinFixConflictsAction(teamId),
+              builtinTidyUpAction(teamId),
             ],
             limit,
             offset
@@ -5216,10 +5219,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_automations_create`,
     {
-      description: `Create an automation (owner only) running actionId on deviceId; pass provided values verbatim. trigger = {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}. account = an agent profile id on that device (needs agent).`,
+      description: `Create an automation (owner only) running actionId on deviceId; pass provided values verbatim. trigger = {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}. account = an agent profile id on that device (needs agent). actionId may be builtin:tidy-up.`,
       inputSchema: strictInput({
         teamId: uuidString,
-        actionId: uuidString,
+        // A uuid or builtin:tidy-up (FEED-50); loose for the context
+        // budget, the router validates.
+        actionId: z.string(),
         deviceId: z.string().min(1).max(128),
         trigger: z.record(z.string(), z.unknown()),
         // Null and absent both mean the device's launch defaults — the same
@@ -5275,10 +5280,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_automations_update`,
     {
-      description: `Update an automation (owner only); pass only the fields to change. trigger takes the same shape as exponential_automations_create; null agent/account/model/effort clears the pin. An enabled automation needs every action input optional.`,
+      description: `Update an automation (owner only); pass only changed fields. trigger/actionId as in exponential_automations_create; null agent/account/model/effort = unpinned. Enabling needs every action input optional.`,
       inputSchema: strictInput({
         id: uuidString,
-        actionId: uuidString.optional(),
+        actionId: z.string().optional(),
         deviceId: z.string().min(1).max(128).optional(),
         trigger: z.record(z.string(), z.unknown()).optional(),
         enabled: z.boolean().optional(),

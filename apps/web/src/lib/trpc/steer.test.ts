@@ -1109,6 +1109,39 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
   })
 })
 
+// ── The listed tidy-up builtin (FEED-50) ─────────────────────────────────────
+
+describe(`steer.startSession — builtin tidy-up (FEED-50)`, () => {
+  const TIDY_UP = `builtin:tidy-up`
+  const BOARD_INPUT_ID = `99999999-9999-4999-8999-999999999999`
+
+  it(`routes a repo-less tidy-up with its board pick and no prompt`, async () => {
+    h.dbQueue.push([{ teamId: BUILTIN_TEAM_ID, name: `Web` }]) // board resolver
+    queueOwnDevice({ caps: [`actions`, `start-prompt`] })
+    await caller.startSession({
+      actionId: TIDY_UP,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      inputs: { board: BOARD_INPUT_ID },
+    })
+    expect(lastStartBody()).toMatchObject({
+      actionId: TIDY_UP,
+      actionName: `Tidy up`,
+      teamId: BUILTIN_TEAM_ID,
+    })
+    expect(`repo` in lastStartBody()).toBe(false)
+    expect(lastStartBody().inputs).toEqual([
+      {
+        key: `board`,
+        label: `Board`,
+        type: `board`,
+        value: BOARD_INPUT_ID,
+        display: `Web`,
+      },
+    ])
+  })
+})
+
 // ── The hidden chat builtin (EXP-615) ────────────────────────────────────────
 
 const CHAT_ID = `builtin:chat`

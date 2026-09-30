@@ -48,16 +48,15 @@ struct AutomationFormSheet: View {
     @State private var filterOptions = AutomationFilterOptions()
     @State private var seeded = false
 
-    /// Real actions only — builtins never automate.
+    /// Real actions plus the ONE automatable builtin, "Tidy up" (FEED-50);
+    /// Create action and Fix conflicts never automate.
     private var customActions: [ActionDto] {
-        actions.filter { !$0.isBuiltin }
+        actions.filter { !$0.isBuiltin || $0.id == DomainContract.builtinTidyUpId }
     }
 
-    /// Automatable targets: real actions with no required input.
+    /// Automatable targets: those with no required input (`isAutomatable`).
     private var eligibleActions: [ActionDto] {
-        customActions.filter { action in
-            !(action.inputs ?? []).contains(where: \.isRequired)
-        }
+        customActions.filter(\.isAutomatable)
     }
 
     private var selectedDevice: SteerDevice? {

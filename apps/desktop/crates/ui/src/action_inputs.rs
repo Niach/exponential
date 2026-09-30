@@ -180,6 +180,28 @@ impl ActionInputPicks {
         true
     }
 
+    /// FEED-50: the board list's Tidy up button seeds the (first) `board`
+    /// input with the board it was pressed on — `(board id, board name)`
+    /// as the field's own pick stores it.
+    pub(crate) fn preselect_board(
+        &mut self,
+        action: &api::actions::Action,
+        board_id: &str,
+        board_name: &str,
+    ) -> bool {
+        let Some(key) = action
+            .inputs
+            .iter()
+            .find(|input| input.input_type == "board")
+            .map(|input| input.key.clone())
+        else {
+            return false;
+        };
+        self.board
+            .insert(key, (board_id.to_string(), board_name.to_string()));
+        true
+    }
+
     /// EXP-273: a suggestion's icon seeds the (first) `icon` input.
     pub(crate) fn preselect_icon(&mut self, action: &api::actions::Action, icon: &str) -> bool {
         let Some(key) = action
@@ -609,5 +631,22 @@ mod tests {
         assert!(!picks.filled(&input("b", "board", false)));
         // A retired type is never "filled" and never collected.
         assert!(!picks.filled(&input("scope", "textarea", true)));
+    }
+
+    /// FEED-50: the board list's Tidy up seed fills the builtin's `board`
+    /// input (the prompt then names it), and an action without one ignores it.
+    #[test]
+    fn board_preselect_fills_the_tidy_up_board_input() {
+        let mut picks = ActionInputPicks::default();
+        let tidy = api::actions::builtin_tidy_up_action("team-1");
+        assert!(picks.preselect_board(&tidy, "board-1", "Mobile"));
+        let values = picks.collect(&tidy);
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].key, "board");
+        assert_eq!(values[0].value, "board-1");
+        assert_eq!(values[0].display.as_deref(), Some("Mobile"));
+        let mut picks = ActionInputPicks::default();
+        let boardless = action(vec![input("r", "repo", false)], None);
+        assert!(!picks.preselect_board(&boardless, "board-1", "Mobile"));
     }
 }

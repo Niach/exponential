@@ -44,6 +44,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.builtinTidyUpAction
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
@@ -131,6 +132,11 @@ fun ActionsScreen(
     val automations by viewModel.automations.collectAsStateWithLifecycle()
     val automationDevices by viewModel.automationDevices.collectAsStateWithLifecycle()
     val lastRunByAutomation by viewModel.lastRunByAutomation.collectAsStateWithLifecycle()
+    // FEED-50: the automation surfaces also know the automatable Tidy up
+    // builtin — a target in the form, a name + icon on its automations' rows.
+    val automationActions = remember(state.actions, selectedTeamId) {
+        selectedTeamId?.let { state.actions + builtinTidyUpAction(it) } ?: state.actions
+    }
     val automationBusy by viewModel.automationBusy.collectAsStateWithLifecycle()
     val automationError by viewModel.automationError.collectAsStateWithLifecycle()
 
@@ -187,7 +193,7 @@ fun ActionsScreen(
                     SEGMENT_AUTOMATIONS -> AutomationsContent(
                         automations = automations,
                         onOpenSteer = onOpenSteer,
-                        actions = state.actions,
+                        actions = automationActions,
                         devices = syncedDevices,
                         lastRuns = lastRunByAutomation,
                         runs = automationRuns,
@@ -307,7 +313,7 @@ fun ActionsScreen(
     if (automationForm || automationEditTarget != null) {
         val editing = automationEditTarget
         AutomationFormSheet(
-            actions = state.actions,
+            actions = automationActions,
             devices = automationDevices,
             busy = automationBusy,
             error = automationError,

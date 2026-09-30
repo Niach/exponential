@@ -18,7 +18,7 @@ public enum DomainContract {
     public static let issueSourceValues: [String] = ["user", "widget", "agent"]
     public static let issueEstimationValues: [String] = ["none", "exponential", "fibonacci", "linear", "tshirt"]
     public static let teamRoleValues: [String] = ["owner", "member"]
-    public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car", "music", "camera", "video", "image", "headphones", "mic", "gift", "shopping-bag", "store", "truck", "map", "mountain", "tree-pine", "flame", "droplet", "moon", "anchor", "crown", "gem", "award", "dumbbell", "stethoscope", "microscope", "atom", "brain", "eye", "fingerprint", "hammer", "paintbrush", "calculator", "landmark", "wallet", "tag", "bookmark", "newspaper", "smartphone"]
+    public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car", "music", "camera", "video", "image", "headphones", "mic", "gift", "shopping-bag", "store", "truck", "map", "mountain", "tree-pine", "flame", "droplet", "moon", "anchor", "crown", "gem", "award", "dumbbell", "stethoscope", "microscope", "atom", "brain", "eye", "fingerprint", "hammer", "paintbrush", "calculator", "landmark", "wallet", "tag", "bookmark", "newspaper", "smartphone", "brush-cleaning"]
     public static let deviceIconValues: [String] = ["monitor", "server", "laptop", "os-apple", "os-windows", "os-linux"]
     public static let commentKindValues: [String] = ["regular"]
     public static let commentSourceValues: [String] = ["user", "mcp"]
@@ -108,6 +108,7 @@ public enum DomainContract {
     public static let builtinPlanWorkflowId: String = "builtin:plan-workflow"
     public static let builtinReviewNodeId: String = "builtin:review-node"
     public static let builtinFixReviewFindingsId: String = "builtin:fix-review-findings"
+    public static let builtinTidyUpId: String = "builtin:tidy-up"
     public static let workflowMaxReviewRounds: Int = 3
     public static let workflowEventsMax: Int = 50
     public static let workflowMaxParallelDefault: Int = 3

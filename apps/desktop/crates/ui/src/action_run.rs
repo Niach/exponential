@@ -24,7 +24,7 @@ use crate::coding_flow::{self, SessionSubject};
 use crate::queries;
 use api::actions::{
     is_builtin_action_id, BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID,
-    BUILTIN_PLAN_WORKFLOW_ID,
+    BUILTIN_PLAN_WORKFLOW_ID, BUILTIN_TIDY_UP_ID,
 };
 use coding::{
     ActionInputValue, ActionLaunchRequest, ActionRunKind, LaunchOptions, LaunchOrigin, Prepared,
@@ -287,7 +287,8 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
     });
     // EXP-615: the chat run's `repo` input, snapshotted for the background
     // resolution (`inputs` itself rides on into the launch request).
-    let chat_repo_input = (action_id == BUILTIN_CHAT_ID)
+    // FEED-50: Tidy up's optional `repo` input resolves the same way.
+    let chat_repo_input = (action_id == BUILTIN_CHAT_ID || action_id == BUILTIN_TIDY_UP_ID)
         .then(|| {
             inputs
                 .iter()
@@ -313,6 +314,9 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                 if builtin {
                     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
                     let chatting = action_id == BUILTIN_CHAT_ID;
+                    // FEED-50: Tidy up's repo is optional read-only context,
+                    // resolved exactly like a chat's.
+                    let tidying = action_id == BUILTIN_TIDY_UP_ID;
                     // EXP-981: named explicitly, never an `else` — an id this
                     // build does not know must REFUSE, not fall through to
                     // the creator and author an action nobody asked for.
@@ -321,6 +325,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                             api::actions::builtin_fix_conflicts_action(&team_id)
                         }
                         BUILTIN_CHAT_ID => api::actions::builtin_chat_action(&team_id),
+                        BUILTIN_TIDY_UP_ID => api::actions::builtin_tidy_up_action(&team_id),
                         BUILTIN_PLAN_WORKFLOW_ID => {
                             api::actions::builtin_plan_workflow_action(&team_id)
                         }
@@ -342,8 +347,8 @@ Update Exponential on this machine."
                     // written). EXP-739 made it OPTIONAL: no pick at all is a
                     // repo-LESS chat, which the launcher runs worktree-less in
                     // a scratch dir — only a pick that no longer resolves is an
-                    // error.
-                    if chatting {
+                    // error. FEED-50: Tidy up's optional repo, likewise.
+                    if chatting || tidying {
                         let repo_group = match repo {
                             // Remote start: the server-resolved group.
                             ActionRepo::Provided(group) => group,
@@ -507,6 +512,7 @@ team settings → Repositories.";
                 // already refused an unknown one), so `builtin` can never
                 // silently mean "creator" again.
                 None if action.id == BUILTIN_CHAT_ID => ActionRunKind::Chat,
+                None if action.id == BUILTIN_TIDY_UP_ID => ActionRunKind::TidyUp,
                 None if action.id == BUILTIN_PLAN_WORKFLOW_ID => ActionRunKind::PlanWorkflow,
                 None if builtin => ActionRunKind::CreateAction,
                 None => ActionRunKind::Team,

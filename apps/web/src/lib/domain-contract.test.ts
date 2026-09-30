@@ -58,6 +58,7 @@ import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
+  BUILTIN_TIDY_UP_ID,
 } from "@/lib/builtin-actions"
 import {
   getIssuePriorityConfig,
@@ -304,6 +305,9 @@ describe(`domain-contract parity`, () => {
     expect(BUILTIN_FIX_CONFLICTS_ID).toBe(
       contract.builtinAction.fixConflictsId
     )
+    // FEED-50: the listed, automatable board cleanup.
+    expect(BUILTIN_TIDY_UP_ID).toBe(contract.builtinAction.tidyUpId)
+    expect(BUILTIN_TIDY_UP_ID).toBe(`builtin:tidy-up`)
   })
 
   it(`action trigger vocabulary + filter cap match the contract (EXP-530)`, () => {

@@ -120,6 +120,14 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
 
     /// The virtual builtin row (EXP-257).
     public var isBuiltin: Bool { builtin == true }
+
+    /// FEED-50: may an `automations` row target this action? Every real
+    /// action with no required input, and of the builtins ONLY "Tidy up"
+    /// (Create action needs free text, Fix conflicts a required `pr`).
+    public var isAutomatable: Bool {
+        (!isBuiltin || id == DomainContract.builtinTidyUpId)
+            && !(inputs ?? []).contains(where: \.isRequired)
+    }
 }
 
 public extension ActionDto {
@@ -184,6 +192,31 @@ public extension ActionDto {
         )
     }
 
+    /// The virtual "Tidy up" builtin (FEED-50): the agent dedupes, labels
+    /// and links a board's issues and deletes nothing. Both inputs are
+    /// OPTIONAL picks, which makes it the ONLY automatable builtin. Mirrors
+    /// apps/web/src/lib/builtin-actions.ts field-for-field.
+    static func builtinTidyUpAction(teamId: String) -> ActionDto {
+        ActionDto(
+            id: DomainContract.builtinTidyUpId,
+            teamId: teamId,
+            repositoryId: nil,
+            name: "Tidy up",
+            description: "Let your agent dedupe, label and link a board's issues. Nothing is deleted",
+            icon: "brush-cleaning",
+            body: "",
+            sortOrder: 1e9 + 4,
+            createdAt: "1970-01-01T00:00:00.000Z",
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            inputs: [
+                ActionInputDto(key: "board", label: "Board", type: "board", required: false),
+                ActionInputDto(key: "repo", label: "Repository", type: "repo", required: false),
+            ],
+            builtin: true,
+            promptPlaceholder: "Anything the tidy-up should focus on or leave alone (optional)…"
+        )
+    }
+
     /// The HIDDEN "Chat" builtin (EXP-615): a conversation with your agent over
     /// the tracker's MCP tools, OPTIONALLY anchored to a repository (EXP-739) —
     /// the iOS twin of the desktop's chat tab. Unlike the other two it is
@@ -242,12 +275,16 @@ public extension ActionDto {
         )
     }
 
-    /// Both LISTED builtins, in the order every client pins them (EXP-270 — mobile
-    /// used to construct only "Create action", so "Fix merge conflicts"
-    /// silently disappeared from iOS when EXP-268 moved the list onto the
-    /// synced shape).
+    /// The three LISTED builtins, in the order every client pins them (EXP-270 —
+    /// mobile used to construct only "Create action", so "Fix merge
+    /// conflicts" silently disappeared from iOS when EXP-268 moved the list
+    /// onto the synced shape; FEED-50 appends "Tidy up").
     static func builtinActions(teamId: String) -> [ActionDto] {
-        [builtinCreateAction(teamId: teamId), builtinFixConflictsAction(teamId: teamId)]
+        [
+            builtinCreateAction(teamId: teamId),
+            builtinFixConflictsAction(teamId: teamId),
+            builtinTidyUpAction(teamId: teamId),
+        ]
     }
 
     /// Build a list-surface DTO from the synced local row (EXP-268). `body`

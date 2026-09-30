@@ -21,7 +21,15 @@ class BuiltinActionTeamIdTest {
     @Test
     fun `every builtin row keys teamId for the steer start`() {
         val builtins = builtinActions(teamId)
-        assertEquals(2, builtins.size)
+        assertEquals(3, builtins.size)
+        assertEquals(
+            listOf(
+                DomainContract.builtinCreateActionId,
+                DomainContract.builtinFixConflictsId,
+                DomainContract.builtinTidyUpId,
+            ),
+            builtins.map { it.id },
+        )
         builtins.forEach { action ->
             assertTrue("${action.id} must report isBuiltin", action.isBuiltin)
             // The exact keying expression used by all four runAction call sites.
@@ -97,6 +105,10 @@ class BuiltinActionTeamIdTest {
             builtinCreateAction(teamId).promptPlaceholder,
         )
         assertNull(builtinFixConflictsAction(teamId).promptPlaceholder)
+        assertEquals(
+            "Anything the tidy-up should focus on or leave alone (optional)…",
+            builtinTidyUpAction(teamId).promptPlaceholder,
+        )
         assertNull(builtinChatAction(teamId).promptPlaceholder)
     }
 
@@ -131,6 +143,53 @@ class BuiltinActionTeamIdTest {
         // No inputs at all: the workflow IS the subject, and the free text is
         // the start's optional `prompt`.
         assertEquals(emptyList<ActionInputDto>(), plan.inputs)
+    }
+
+    /** FEED-50: byte-identical ×4 with apps/web/src/lib/builtin-actions.ts. */
+    @Test
+    fun `tidy up is byte identical to the server row`() {
+        val tidy = builtinTidyUpAction(teamId)
+        assertEquals("builtin:tidy-up", tidy.id)
+        assertEquals(DomainContract.builtinTidyUpId, tidy.id)
+        assertEquals(teamId, tidy.teamId.takeIf { tidy.isBuiltin })
+        assertEquals("Tidy up", tidy.name)
+        assertEquals(
+            "Let your agent dedupe, label and link a board's issues. Nothing is deleted",
+            tidy.description,
+        )
+        assertEquals("brush-cleaning", tidy.icon)
+        assertEquals("", tidy.body)
+        assertNull(tidy.repositoryId)
+        assertTrue(tidy.isBuiltin)
+        assertEquals(1e9 + 4, tidy.sortOrder, 0.0)
+        assertEquals(
+            listOf(
+                ActionInputDto(key = "board", label = "Board", type = "board", required = false),
+                ActionInputDto(key = "repo", label = "Repository", type = "repo", required = false),
+            ),
+            tidy.inputs,
+        )
+    }
+
+    /**
+     * FEED-50: Tidy up is the ONLY automatable builtin — Create action needs
+     * free text, Fix conflicts a required `pr`; the hidden ones never list.
+     */
+    @Test
+    fun `only tidy up is automatable among builtins`() {
+        val builtins = builtinActions(teamId) + builtinChatAction(teamId) + builtinPlanWorkflowAction(teamId)
+        assertEquals(
+            listOf(DomainContract.builtinTidyUpId),
+            builtins.filter { it.automatable }.map { it.id },
+        )
+        // A team row with only optional inputs stays automatable; a required
+        // input still blocks it.
+        val synced = ActionDto(id = "a3f0c9d2-0000-0000-0000-000000000001", teamId = teamId, name = "Deploy")
+        assertTrue(synced.automatable)
+        val required = synced.copy(
+            inputs = listOf(ActionInputDto(key = "pr", label = "PR", type = "pr", required = true)),
+        )
+        assertTrue(!required.automatable)
     }
 
     @Test

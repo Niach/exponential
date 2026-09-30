@@ -6,8 +6,12 @@
 //! the view. The same view also backs **My Issues** (web
 //! `my-issues/index.tsx` renders the identical list with `canCreate=false`).
 //!
-//! EXP-862 removed issue filtering from every client, so the board is the
-//! list and nothing above it — the list starts at the top of its panel.
+//! EXP-862 removed issue filtering from every client; FEED-50 put back ONE
+//! slim strip above a BOARD's list (never My Issues): an icon-only "Tidy up"
+//! quick action on its right edge, opening the composer with the Tidy up
+//! builtin and this board picked. The strip wears the tool-tab strip's
+//! metrics (32px control, `px_2`/`py_1p5`), so the rows sit where every
+//! other tool window's rows sit.
 //!
 //! EXP-289/EXP-426: the list's bulk-action bar is still rendered by THIS
 //! view, never by the list itself. Without the filter bar's control row to
@@ -22,9 +26,11 @@
 use gpui::{
     div, AppContext as _, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{h_flex, v_flex, Disableable as _, Icon};
 
+use crate::icons::registry;
 use crate::issue_list::{IssueListView, IssueQuery};
+use crate::navigation::ChatSeed;
 
 pub struct BoardView {
     query: IssueQuery,
@@ -67,10 +73,15 @@ impl BoardView {
 impl Render for BoardView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let bulk_bar = self.issue_list.update(cx, |list, cx| list.bulk_bar(cx));
+        let quick_actions = match &self.query {
+            IssueQuery::Board { board_id } => Some(tidy_up_strip(board_id.clone(), cx)),
+            _ => None,
+        };
 
         v_flex()
             .size_full()
             .relative()
+            .children(quick_actions)
             .child(div().flex_1().min_h_0().child(self.issue_list.clone()))
             .children(bulk_bar.map(|bulk| {
                 h_flex()
@@ -83,4 +94,30 @@ impl Render for BoardView {
                     .child(bulk)
             }))
     }
+}
+
+/// FEED-50: the board's quick-action strip — ONE icon-only Tidy up button,
+/// right-aligned (disabled with the reason when no agent CLI is runnable,
+/// never hidden, EXP-367).
+fn tidy_up_strip(board_id: String, cx: &gpui::App) -> gpui::Div {
+    let no_agent = crate::coding_flow::no_agent_reason(cx);
+    h_flex()
+        .flex_shrink_0()
+        .w_full()
+        .px_2()
+        .py_1p5()
+        .items_center()
+        .justify_end()
+        .child(
+            crate::controls::ghost_icon_button("board-tidy-up", Icon::from(registry::UI_CLEAN), cx)
+                .tooltip(no_agent.clone().unwrap_or_else(|| "Tidy up".into()))
+                .disabled(no_agent.is_some())
+                .on_click(move |_, window, cx| {
+                    crate::navigation::navigate_to_chat(
+                        window,
+                        cx,
+                        ChatSeed::tidy_up(board_id.clone()),
+                    );
+                }),
+        )
 }

@@ -74,10 +74,54 @@ final class BuiltinActionsTests: XCTestCase {
         let listed = ActionDto.builtinActions(teamId: "t-1")
         XCTAssertEqual(
             listed.map(\.id),
-            [DomainContract.builtinCreateActionId, DomainContract.builtinFixConflictsId]
+            [
+                DomainContract.builtinCreateActionId,
+                DomainContract.builtinFixConflictsId,
+                DomainContract.builtinTidyUpId,
+            ]
         )
         XCTAssertFalse(listed.contains { $0.id == DomainContract.builtinChatId })
         XCTAssertFalse(listed.contains { $0.id == DomainContract.builtinPlanWorkflowId })
+    }
+
+    // FEED-50: "Tidy up" — the third LISTED builtin and the ONLY automatable
+    // one. Pinned literals, byte-identical to the web.
+    func testTheTidyUpBuiltinMatchesTheWebDefinition() {
+        let tidy = ActionDto.builtinTidyUpAction(teamId: "t-1")
+        XCTAssertEqual(tidy.id, DomainContract.builtinTidyUpId)
+        XCTAssertEqual(tidy.id, "builtin:tidy-up")
+        XCTAssertEqual(tidy.teamId, "t-1")
+        XCTAssertEqual(tidy.name, "Tidy up")
+        XCTAssertEqual(
+            tidy.description,
+            "Let your agent dedupe, label and link a board's issues. Nothing is deleted"
+        )
+        XCTAssertEqual(tidy.icon, "brush-cleaning")
+        XCTAssertTrue(tidy.isBuiltin)
+        XCTAssertNil(tidy.repositoryId)
+        XCTAssertEqual(tidy.body, "")
+        XCTAssertEqual(tidy.sortOrder, 1e9 + 4)
+        XCTAssertEqual(
+            tidy.promptPlaceholder,
+            "Anything the tidy-up should focus on or leave alone (optional)…"
+        )
+
+        let inputs = tidy.inputs ?? []
+        XCTAssertEqual(inputs.map(\.key), ["board", "repo"])
+        XCTAssertEqual(inputs.map(\.label), ["Board", "Repository"])
+        XCTAssertEqual(inputs.map(\.type), ["board", "repo"])
+        XCTAssertFalse(inputs.contains { $0.isRequired })
+    }
+
+    func testOnlyTidyUpIsAnAutomatableBuiltin() {
+        let builtins = ActionDto.builtinActions(teamId: "t-1") + [
+            ActionDto.builtinChatAction(teamId: "t-1"),
+            ActionDto.builtinPlanWorkflowAction(teamId: "t-1"),
+        ]
+        XCTAssertEqual(
+            builtins.filter(\.isAutomatable).map(\.id),
+            [DomainContract.builtinTidyUpId]
+        )
     }
 
     func testTheCreateBuiltinMatchesTheWebDefinition() {

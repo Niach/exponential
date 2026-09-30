@@ -5,6 +5,7 @@ import {
   BUILTIN_CHAT_ID,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
+  BUILTIN_TIDY_UP_ID,
   BUILTIN_PLAN_WORKFLOW_ID,
   BUILTIN_PLAN_WORKFLOW_NAME,
 } from "@/lib/builtin-actions"
@@ -207,11 +208,12 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.subject).toBeNull()
   })
 
-  it(`lists fix-conflicts, then Create action, then the team's rows`, () => {
+  it(`lists fix-conflicts, Create action, Tidy up, then the team's rows`, () => {
     const { result } = mount()
     expect(result.current.actions?.map((a) => a.id)).toEqual([
       BUILTIN_FIX_CONFLICTS_ID,
       BUILTIN_CREATE_ACTION_ID,
+      BUILTIN_TIDY_UP_ID,
       `act-1`,
     ])
   })

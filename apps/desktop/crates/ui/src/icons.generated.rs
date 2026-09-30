@@ -135,6 +135,7 @@ pub const PICKABLE_ICONS: &[&str] = &[
     "bookmark",
     "newspaper",
     "smartphone",
+    "brush-cleaning",
 ];
 
 /// The device icon picker's set (EXP-924), in display order.

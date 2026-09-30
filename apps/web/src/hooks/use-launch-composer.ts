@@ -24,6 +24,7 @@ import {
   builtinCreateAction,
   builtinFixConflictsAction,
   builtinPlanWorkflowAction,
+  builtinTidyUpAction,
 } from "@/lib/builtin-actions"
 import { buildInputsPayload, missingRequiredInputs } from "@/lib/action-inputs"
 import {
@@ -255,7 +256,7 @@ export function useLaunchComposer({
   }, [repos])
   const repoOptions = useMemo(() => chatRepoOptions(repos ?? []), [repos])
 
-  // Live synced actions (EXP-268 — the body-less list projection); the two
+  // Live synced actions (EXP-268 — the body-less list projection); the three
   // listed builtins (not DB rows) pinned first, the rest re-apply the
   // server's ordering (sortOrder, name). Chat is never listed: it IS the
   // no-subject state.
@@ -272,6 +273,7 @@ export function useLaunchComposer({
     return [
       builtinFixConflictsAction(teamId),
       builtinCreateAction(teamId),
+      builtinTidyUpAction(teamId),
       ...rows,
     ]
   }, [teamId, actionRows])

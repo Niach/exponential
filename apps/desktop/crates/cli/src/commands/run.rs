@@ -8,7 +8,9 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context as _};
-use api::actions::{BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID};
+use api::actions::{
+    BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID, BUILTIN_TIDY_UP_ID,
+};
 use coding::{ActionInputValue, Prepared, PrepareRequest};
 
 use super::{reject_unknown_flags, take_flag, take_value, take_values, CommandResult};
@@ -183,12 +185,15 @@ fn resolve_action_ref(
         BUILTIN_FIX_CONFLICTS_ID | "fix-conflicts" => Some(BUILTIN_FIX_CONFLICTS_ID),
         // EXP-1110: the composer's subject-less chat (`--prompt` = the message).
         BUILTIN_CHAT_ID | "chat" => Some(BUILTIN_CHAT_ID),
+        // FEED-50: the board cleanup (`--input board=<id>` optional).
+        BUILTIN_TIDY_UP_ID | "tidy-up" => Some(BUILTIN_TIDY_UP_ID),
         _ => None,
     };
     if let Some(id) = builtin {
         let action = match id {
             BUILTIN_FIX_CONFLICTS_ID => api::actions::builtin_fix_conflicts_action(team_id),
             BUILTIN_CHAT_ID => api::actions::builtin_chat_action(team_id),
+            BUILTIN_TIDY_UP_ID => api::actions::builtin_tidy_up_action(team_id),
             _ => api::actions::builtin_create_action(team_id),
         };
         return Ok((id.to_string(), action.inputs));

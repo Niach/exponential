@@ -2403,8 +2403,9 @@ export const actions = pgTable(
 // effort. Synced via the 19th Electric shape (team-scoped). LOCAL-ONLY by
 // design: `device_id` is the steer device_id (not a row uuid) of the machine
 // whose desktop/daemon watches its own sync and fires the run; there is no
-// server scheduler. CASCADE on the action: an automation without its target
-// is meaningless. Agent/model/effort NULL = the device's launch defaults.
+// server scheduler. `action_id` = TEXT with NO FK (FEED-50): it names a team
+// action's uuid OR the tidy-up builtin id; `actions.delete` removes the
+// automations targeting it in the same transaction. Agent/model/effort NULL = the device's launch defaults.
 // EXP-995: `account` = the agent PROFILE id on the bound device the run
 // spends (`agent_profiles`, like `coding_sessions.agent_account`); it belongs
 // to the pinned `agent` and NULL = that machine's default login. Every editor
@@ -2416,9 +2417,7 @@ export const automations = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    actionId: uuid(`action_id`)
-      .notNull()
-      .references(() => actions.id, { onDelete: `cascade` }),
+    actionId: text(`action_id`).notNull(),
     deviceId: varchar(`device_id`, { length: 128 }).notNull(),
     enabled: boolean().notNull().default(true),
     trigger: jsonb().$type<AutomationTrigger>().notNull(),

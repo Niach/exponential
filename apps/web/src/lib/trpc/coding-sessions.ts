@@ -48,6 +48,7 @@ import {
   BUILTIN_FIX_REVIEW_FINDINGS_ID,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
+  BUILTIN_TIDY_UP_ID,
   builtinActionName,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
@@ -67,6 +68,7 @@ const actionIdInput = z
   .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
   .or(z.literal(BUILTIN_REVIEW_NODE_ID))
   .or(z.literal(BUILTIN_FIX_REVIEW_FINDINGS_ID))
+  .or(z.literal(BUILTIN_TIDY_UP_ID))
 
 // EXP-432: a remote start on a teammate's SHARED server device is attributed
 // to the requester — `startedBy` rides the relay frame and the daemon echoes
@@ -478,17 +480,25 @@ async function adoptPredecessor(
 // No generateTxId — native callers don't need the Electric tx-wait, and the
 // row's own synced propagation carries the badge.
 // EXP-583: the automation a device claims fired this run must exist and
-// target this very action — a stale/foreign id degrades to NULL (history
-// only; never a reason to refuse the start).
+// target this very action IN this team (FEED-50: a builtin id like tidy-up's
+// repeats across teams) — a stale/foreign id degrades to NULL (history only;
+// never a reason to refuse the start).
 async function resolveAutomationId(
   db: Context[`db`],
   automationId: string,
-  actionId: string
+  actionId: string,
+  teamId: string
 ): Promise<string | null> {
   const [row] = await db
     .select({ id: automations.id })
     .from(automations)
-    .where(and(eq(automations.id, automationId), eq(automations.actionId, actionId)))
+    .where(
+      and(
+        eq(automations.id, automationId),
+        eq(automations.actionId, actionId),
+        eq(automations.teamId, teamId)
+      )
+    )
     .limit(1)
   return row?.id ?? null
 }
@@ -964,8 +974,10 @@ export const codingSessionsRouter = router({
             // EXP-679: an agent-started run has no automation behind it and
             // no subject restriction — issue, batch, action, builtin and
             // resume all qualify. Only schedule/event still need a real
-            // action row (an automation targets one).
+            // action row (an automation targets one) or the tidy-up builtin
+            // (FEED-50, the ONLY automatable builtin).
             value.startedReason === `agent` ||
+            value.actionId === BUILTIN_TIDY_UP_ID ||
             // EXP-982: a workflow node is an issue or a batch run.
             value.startedReason === `workflow` ||
             (Boolean(value.actionId) && !isBuiltinActionId(value.actionId!)),
@@ -1036,8 +1048,18 @@ export const codingSessionsRouter = router({
             actionId: null,
             actionName: builtinActionName(input.actionId),
             // EXP-679: only `agent` reaches a builtin (the refine keeps
-            // schedule/event on real action rows).
+            // schedule/event on real action rows), except tidy-up (FEED-50),
+            // whose schedule/event starts carry their automation.
             ...tree,
+            automationId:
+              input.automationId && input.actionId === BUILTIN_TIDY_UP_ID
+                ? await resolveAutomationId(
+                    ctx.db,
+                    input.automationId,
+                    BUILTIN_TIDY_UP_ID,
+                    input.teamId!
+                  )
+                : null,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
@@ -1104,7 +1126,12 @@ export const codingSessionsRouter = router({
             actionName: action.name,
             ...tree,
             automationId: input.automationId
-              ? await resolveAutomationId(ctx.db, input.automationId, action.id)
+              ? await resolveAutomationId(
+                  ctx.db,
+                  input.automationId,
+                  action.id,
+                  action.teamId
+                )
               : null,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
@@ -1423,6 +1450,7 @@ export const codingSessionsRouter = router({
             // (the server constant, never client text, labels them).
             const builtin =
               input.actionId !== undefined && isBuiltinActionId(input.actionId)
+            const tidyUp = input.actionId === BUILTIN_TIDY_UP_ID
             let actionId: string | null = null
             if (input.actionId && !builtin) {
               const [action] = await ctx.db
@@ -1433,6 +1461,9 @@ export const codingSessionsRouter = router({
               actionId =
                 action && action.teamId === input.teamId ? action.id : null
             }
+            // The id an automation names: the action row, or tidy-up's
+            // builtin id (its row's action_id stays NULL, a uuid FK).
+            const automationTarget = tidyUp ? BUILTIN_TIDY_UP_ID : actionId
             // EXP-876: only a batch echo carries these (an action scope
             // names itself off its snapshot), and they are re-scoped to
             // the team exactly like the start path.
@@ -1464,23 +1495,26 @@ export const codingSessionsRouter = router({
                 : input.actionId
                   ? (input.actionName ?? null)
                   : null,
-              // Automated-run parity with `start`: only a real action row
-              // can carry a schedule/event reason (builtins/batch never
-              // automate) — but EXP-679's `agent` rides every subject, so it
-              // echoes unconditionally.
+              // Automated-run parity with `start`: only a real action row or
+              // the tidy-up builtin (FEED-50) can carry a schedule/event
+              // reason (other builtins/batch never automate) — but EXP-679's
+              // `agent` rides every subject, so it echoes unconditionally.
               startedReason:
                 input.startedReason === `agent`
                   ? `agent`
-                  : input.actionId && !builtin
+                  : input.actionId && (!builtin || tidyUp)
                     ? (input.startedReason ?? null)
                     : null,
               automationId:
                 input.startedReason !== `agent` &&
-                input.actionId &&
-                !builtin &&
                 input.automationId &&
-                actionId
-                  ? await resolveAutomationId(ctx.db, input.automationId, actionId)
+                automationTarget
+                  ? await resolveAutomationId(
+                      ctx.db,
+                      input.automationId,
+                      automationTarget,
+                      input.teamId!
+                    )
                   : null,
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,

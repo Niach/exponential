@@ -384,6 +384,84 @@ rebase instead. {report_rule}"
     crate::prompt::append_additional_instructions(prompt, extra)
 }
 
+/// FEED-50 — the shipped program of the "Tidy up" builtin, a CONSTANT
+/// shipped by the launcher alone (the web row's `body` stays empty): a
+/// non-destructive cleanup of a board's issues over MCP — duplicates linked
+/// (or combined, never lost), EXISTING labels applied, `blocks`/`parent`
+/// relations recorded. Nothing is deleted and no issue field is edited.
+pub const TIDY_UP_PROGRAM: &str = r##"Tidy the team's issue boards without changing any issue: link duplicates, apply existing labels and record the relations between issues. Every write goes through the Exponential MCP tools. The repository, when one is attached, is READ-ONLY context for understanding issues — never edit, commit or push.
+
+## Hard rules
+
+- Never edit an issue's title, description, status, priority, assignee, estimate or due date — do not call `exponential_issues_update`. Never delete an issue, a label or a relation; never remove a label.
+- Never create, rename or delete labels: only labels returned by `exponential_labels_list` are eligible.
+- Allowed writes: `exponential_issue_labels_add`, `exponential_issue_relations_add`, and `exponential_issues_create` for ONE combined issue when two near-duplicates hold different information (step 4).
+- Leave no comments except the one closing comment on a combined issue (step 4). Never comment that no label fits.
+
+## 1. Vocabulary
+
+`exponential_labels_list` for the team: the name and description of every label. An empty set means no labeling.
+
+## 2. Scope
+
+- The `board` input names the board; without it, every board from `exponential_boards_list`.
+- `exponential_issues_list` per board with `limit: 200`, `sort: "createdAt"`, paging with `offset` on exactly 200 rows. Open work only (the default).
+- Skip issues that carry a `prUrl` or sit in a started or in-review status: work in flight is not yours to reorganise.
+- When a `## Trigger` section names issues, tidy THOSE against the rest of the scope instead of the whole board.
+- Additional instructions narrow this scope; they never loosen the hard rules.
+
+## 3. Read
+
+`exponential_issues_get` for every candidate: title, description, comments, attachments, labels, relations. Fan out background Agents over slices of the list; each returns per issue a one-line gist, candidate labels, suspected duplicates, ordering dependencies and part-of relations, with evidence.
+
+## 4. Duplicates
+
+Two issues are duplicates only when they describe the SAME problem or request.
+
+- Same information: `exponential_issue_relations_add({ issueId: <newer>, relatedIssueId: <older>, type: "duplicate" })` — the newer duplicates the older, which also moves the newer one to the Duplicate status.
+- Near-duplicates (same problem, different details, screenshots, reporters or steps): `exponential_issues_create` ONE combined issue on the same board holding ALL information from both (plain text; name the sources as `#IDENT`), mark both as duplicates of it, and post one comment on the combined issue naming its sources. No information may be lost.
+- Unsure: leave both open and link them `related`.
+
+## 5. Labels
+
+Apply every existing label that clearly fits the issue's content (type of work, area, platform), typically 1–3 per issue, one `exponential_issue_labels_add` call per issue. Nothing fits: no label, no comment.
+
+## 6. Relations
+
+- `blocks` when one issue must land before another can start (`issueId` blocks `relatedIssueId`).
+- `parent` when one issue is clearly a piece of another (`issueId` is the parent).
+- Prefer no relation over a speculative one. The server refuses cycles; do not retry a refused edge.
+
+## 7. Report
+
+Per board: candidates, duplicates linked, combined issues created, labels applied, relations added, as a compact table (identifier · action · target). List labels you found yourself wanting as suggestions; never create them."##;
+
+/// FEED-50: the "Tidy up" run's seed prompt — [`TIDY_UP_PROGRAM`] behind the
+/// generic action preamble, so the optional `board`/`repo` picks render as
+/// `## Inputs`, an automation's `## Trigger` narrows the scope (the ONLY
+/// builtin that honours one — the only automatable builtin), the workspace
+/// section says worktree vs scratch dir, and `extra` (the composer's free
+/// text) lands as `## Additional instructions`. The team id heads the body
+/// so the MCP calls need no lookup.
+pub fn tidy_up_prompt(
+    team_id: &str,
+    inputs: &[ActionInputValue],
+    trigger: Option<&TriggerNote>,
+    workspace: Option<&WorkspaceNote>,
+    unattended: bool,
+    extra: Option<&str>,
+) -> String {
+    render_action_prompt_full(
+        "Tidy up",
+        &format!("Team: `{team_id}`\n\n{TIDY_UP_PROGRAM}"),
+        inputs,
+        trigger,
+        workspace,
+        unattended,
+        extra,
+    )
+}
+
 /// EXP-981 — the FIRST LINE of a planner run's prompt: the server writes
 /// `Workflow: <uuid>` ahead of whatever the user typed, and the shipped
 /// program tells the agent to read the workflow it names. Byte-identical ×4
@@ -664,6 +742,16 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
                 findings: "<what its reviewer asked for>".to_string(),
                 failed_check: None,
             }],
+        )),
+        // FEED-50: the tidy-up program previews as a hand-started, input-less
+        // scratch run (every board, no repository).
+        domain::contract::BUILTIN_TIDY_UP_ID => Some(tidy_up_prompt(
+            "<this team>",
+            &[],
+            None,
+            None,
+            false,
+            None,
         )),
         domain::contract::BUILTIN_FIX_CONFLICTS_ID => Some(fix_pr_conflicts_prompt(
             "<the issue you pick>",
@@ -1428,5 +1516,89 @@ Then finish with exponential_sessions_end."
         for absent in ["summary", "transcript", "pull request description"] {
             assert!(!prompt.to_lowercase().contains(absent), "{absent}");
         }
+    }
+
+    fn tidy_input(key: &str, label: &str, input_type: &str, value: &str, display: &str) -> ActionInputValue {
+        ActionInputValue {
+            key: key.to_string(),
+            label: label.to_string(),
+            input_type: input_type.to_string(),
+            value: value.to_string(),
+            display: Some(display.to_string()),
+        }
+    }
+
+    /// FEED-50: a hand-started Tidy up with no picks = every board, no
+    /// repository — the scratch-dir note, the attended close-out, the team id
+    /// and the whole shipped program.
+    #[test]
+    fn tidy_up_prompt_scratch_run_without_inputs() {
+        let prompt = tidy_up_prompt("team-1", &[], None, None, false, None);
+        assert!(prompt.starts_with("You are running the team action \"Tidy up\""));
+        assert!(prompt.contains(SCRATCH_CWD_NOTE));
+        assert!(!prompt.contains("## Inputs"));
+        // (The program itself names the `## Trigger` section, so check the
+        // rendered section's sentence instead.)
+        assert!(!prompt.contains("This run was started automatically"));
+        assert!(!prompt.contains(crate::prompt::ADDITIONAL_INSTRUCTIONS_HEADING));
+        assert!(prompt.contains("This session stays open after you finish"));
+        assert!(!prompt.contains("exponential_sessions_end"));
+        assert!(prompt.ends_with(&format!("---\n\nTeam: `team-1`\n\n{TIDY_UP_PROGRAM}")));
+        // The hard rules survive verbatim.
+        assert!(TIDY_UP_PROGRAM.contains("do not call `exponential_issues_update`"));
+        assert!(TIDY_UP_PROGRAM.contains("## 7. Report"));
+        assert_eq!(
+            builtin_prompt_preview(domain::contract::BUILTIN_TIDY_UP_ID),
+            Some(tidy_up_prompt("<this team>", &[], None, None, false, None))
+        );
+    }
+
+    /// FEED-50: a board pick renders under `## Inputs` with its raw id.
+    #[test]
+    fn tidy_up_prompt_board_only() {
+        let board = tidy_input("board", "Board", "board", "board-uuid", "Mobile");
+        let prompt = tidy_up_prompt("team-1", &[board], None, None, false, None);
+        assert!(prompt.contains("## Inputs"));
+        assert!(prompt.contains("- Board (board): Mobile (`board-uuid`)"));
+        assert!(prompt.contains(SCRATCH_CWD_NOTE));
+    }
+
+    /// FEED-50: the only automatable builtin honours the `## Trigger`
+    /// section, and an automation's run closes out through
+    /// `exponential_sessions_end`.
+    #[test]
+    fn tidy_up_prompt_carries_the_trigger_and_the_unattended_close_out() {
+        let trigger = TriggerNote {
+            kind: TriggerNoteKind::Event {
+                lines: vec!["APP-7 Crash on launch (created)".to_string()],
+                omitted: 0,
+            },
+        };
+        let workspace = WorkspaceNote {
+            branch: "exp/tidy-up-abcd1234".to_string(),
+            default_branch: "main".to_string(),
+            repository_id: "repo-1".to_string(),
+        };
+        let prompt =
+            tidy_up_prompt("team-1", &[], Some(&trigger), Some(&workspace), false, None);
+        assert!(prompt.contains("## Trigger"));
+        assert!(prompt.contains("- APP-7 Crash on launch (created)"));
+        assert!(prompt.contains("exponential_sessions_end"));
+        assert!(prompt.contains("`exp/tidy-up-abcd1234`"));
+        assert!(!prompt.contains(SCRATCH_CWD_NOTE));
+    }
+
+    /// FEED-50: the composer's free text rides as the additional-instructions
+    /// section, before the program.
+    #[test]
+    fn tidy_up_prompt_appends_the_extra_text() {
+        let prompt =
+            tidy_up_prompt("team-1", &[], None, None, false, Some("Only the iOS issues."));
+        let heading = prompt
+            .find(crate::prompt::ADDITIONAL_INSTRUCTIONS_HEADING)
+            .expect("heading");
+        let text = prompt.find("Only the iOS issues.").expect("text");
+        let program = prompt.find(TIDY_UP_PROGRAM).expect("program");
+        assert!(heading < text && text < program);
     }
 }

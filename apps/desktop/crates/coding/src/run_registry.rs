@@ -137,6 +137,11 @@ pub enum RunKind {
     /// one fix run, in a worktree of its own on the wave's fix branch.
     FixReviewFindings,
     FixConflicts,
+    /// FEED-50: the "Tidy up" builtin — with a repo it owns an
+    /// `exp/tidy-up-<id8>` worktree like a Team/Chat run, without one it is a
+    /// scratch run. Serialized `tidyUp`; an older build carries such an
+    /// entry through as an unknown one ([`Registry::unknown`]).
+    TidyUp,
     Issue,
     Batch,
 }
@@ -154,7 +159,7 @@ impl RunKind {
     /// fix-conflicts run works in the PR branch's shared worktree, and
     /// issue/batch worktrees survive their session by design.
     pub fn owns_run_worktree(self) -> bool {
-        matches!(self, Self::Team | Self::Chat | Self::ReviewNode)
+        matches!(self, Self::Team | Self::Chat | Self::TidyUp | Self::ReviewNode)
     }
 }
 
@@ -1527,6 +1532,34 @@ mod tests {
         assert!(entries
             .iter()
             .all(|entry| entry.get("skipPermissions").is_none()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FEED-50: a Tidy up run records as `tidyUp` and decodes back; it owns
+    /// its run worktree like a Team/Chat run.
+    #[test]
+    fn a_tidy_up_run_round_trips_as_tidy_up() {
+        assert_eq!(serde_json::to_value(RunKind::TidyUp).unwrap(), "tidyUp");
+        assert_eq!(
+            serde_json::from_value::<RunKind>(serde_json::json!("tidyUp")).unwrap(),
+            RunKind::TidyUp
+        );
+        assert!(RunKind::TidyUp.is_action());
+        assert!(RunKind::TidyUp.owns_run_worktree());
+
+        let dir = temp_dir("tidy-up-entry");
+        let now = now_secs();
+        let json = format!(
+            r#"[{{
+                "sessionId":"sess-tidy","accountId":"acc-1","agent":"claude","kind":"tidyUp",
+                "actionId":"builtin:tidy-up","actionName":"Tidy up","teamId":"ws-1",
+                "cwd":"/data/actions/builtin-tidy-up/run-1","recordedAt":{now}
+            }}]"#
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+        let record = get(&dir, "sess-tidy").expect("the tidy-up entry decodes");
+        assert_eq!(record.kind, RunKind::TidyUp);
+        assert_eq!(record.action_name, "Tidy up");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

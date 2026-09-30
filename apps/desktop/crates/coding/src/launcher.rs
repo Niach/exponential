@@ -48,7 +48,7 @@ use crate::action_prompt::{
 };
 use crate::action_prompt::{
     create_action_prompt, fix_pr_conflicts_prompt, fix_review_findings_prompt,
-    plan_workflow_prompt, review_landed_node_prompt, review_node_prompt,
+    plan_workflow_prompt, review_landed_node_prompt, review_node_prompt, tidy_up_prompt,
     PLAN_WORKFLOW_PROMPT_PREFIX,
 };
 use crate::batch_launcher::{
@@ -537,6 +537,15 @@ pub enum ActionRunKind {
     /// talk to the agent" shape, so anything we wrapped around it would be
     /// words the user did not write.
     Chat,
+    /// The "Tidy up" builtin (FEED-50): a non-destructive cleanup of a
+    /// board's issues over MCP (duplicates, existing labels, relations). Its
+    /// repository is OPTIONAL read-only context, like [`Self::Chat`]: given
+    /// one, the run gets its own `exp/tidy-up-<id8>` worktree (the generic
+    /// action slug branch); without one it runs in the scratch dir. The
+    /// prompt is the shipped `TIDY_UP_PROGRAM` behind the action preamble,
+    /// so `## Inputs` (board/repo) and an automation's `## Trigger` render —
+    /// the only builtin that honours a trigger (the only automatable one).
+    TidyUp,
 }
 
 impl ActionRunKind {
@@ -576,7 +585,8 @@ pub struct ActionLaunchRequest {
     /// resolve it from the window resolver; relay starts carry it in the
     /// frame (batch precedent — the desktop syncs no repositories). Ignored
     /// for the creator builtin (its repo INPUT only pins the authored
-    /// action's `repositoryId`).
+    /// action's `repositoryId`). OPTIONAL for Chat and Tidy up (FEED-50):
+    /// `Some` = their own run worktree, `None` = the scratch dir.
     pub repo: Option<RepoGroup>,
     /// The resolved run-time input values (EXP-257), definition-ordered:
     /// real actions inject them as the prompt's `## Inputs` section; the
@@ -587,8 +597,9 @@ pub struct ActionLaunchRequest {
     pub kind: ActionRunKind,
     /// `Some` when an AUTOMATION started this run (EXP-530): renders the
     /// prompt's `## Trigger` section and stamps `startedReason` on the
-    /// session row. Always `None` for user starts and the builtins (their
-    /// generated prompts ignore it).
+    /// session row. Always `None` for user starts. Of the builtins only Tidy
+    /// up (FEED-50, the one automatable builtin) renders it; the others'
+    /// generated prompts ignore it.
     pub trigger: Option<TriggerNote>,
     /// EXP-583: the `automations` row that fired it, stamped on the session
     /// row beside `startedReason`. `None` on every user start — the server
@@ -2655,7 +2666,9 @@ fn prepare_action(
                 // changes is then either committed onto a branch that can
                 // become a PR, or discarded with the worktree — the trunk
                 // stays clean and autopull keeps running.
-                ActionRunKind::Team | ActionRunKind::Chat => {
+                // FEED-50: Tidy up with a repo takes the same fresh branch —
+                // the generic slug gives `exp/tidy-up-<id8>`.
+                ActionRunKind::Team | ActionRunKind::Chat | ActionRunKind::TidyUp => {
                     let branch = match &req.kind {
                         ActionRunKind::Chat => chat_run_branch(&req.run_id),
                         _ => action_run_branch(&req.action_name, &req.run_id),
@@ -2870,6 +2883,16 @@ fn prepare_action(
             unattended,
             req.prompt.as_deref(),
         )),
+        // FEED-50: the shipped tidy-up program, with the board/repo inputs,
+        // an automation's trigger and the composer's text.
+        ActionRunKind::TidyUp => Some(tidy_up_prompt(
+            &req.team_id,
+            &req.inputs,
+            req.trigger.as_ref(),
+            workspace.as_ref(),
+            unattended,
+            req.prompt.as_deref(),
+        )),
         ActionRunKind::Team => Some(render_action_prompt_full(
             &req.action_name,
             &req.body,
@@ -3008,6 +3031,7 @@ fn prepare_action(
         (
             ActionRunKind::Team
             | ActionRunKind::Chat
+            | ActionRunKind::TidyUp
             | ActionRunKind::ReviewNode { .. }
             | ActionRunKind::FixReviewFindings { .. },
             Some(clone),
@@ -3034,6 +3058,7 @@ fn prepare_action(
             kind: match &req.kind {
                 ActionRunKind::Team => RunKind::Team,
                 ActionRunKind::Chat => RunKind::Chat,
+                ActionRunKind::TidyUp => RunKind::TidyUp,
                 ActionRunKind::CreateAction => RunKind::CreateAction,
                 ActionRunKind::PlanWorkflow => RunKind::PlanWorkflow,
                 ActionRunKind::ReviewNode { .. } => RunKind::ReviewNode,
@@ -8688,5 +8713,18 @@ mod tests {
             }
             other => panic!("expected DoctorFailed, got {other:?}"),
         }
+    }
+
+    /// FEED-50: a Tidy up run with a repo takes the generic action branch
+    /// (`exp/tidy-up-<id8>`), owns its worktree, and records as `TidyUp`.
+    #[test]
+    fn tidy_up_runs_on_the_generic_action_branch() {
+        let run_id = crate::batch_launcher::new_run_id();
+        assert_eq!(
+            action_run_branch("Tidy up", &run_id),
+            format!("exp/tidy-up-{run_id}")
+        );
+        assert!(ActionRunKind::TidyUp.is_builtin());
+        assert!(RunKind::TidyUp.owns_run_worktree());
     }
 }

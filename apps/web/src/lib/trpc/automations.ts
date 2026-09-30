@@ -18,7 +18,11 @@ import {
   teamMembers,
 } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
-import { isBuiltinActionId } from "@/lib/builtin-actions"
+import {
+  BUILTIN_TIDY_UP_ID,
+  builtinTidyUpAction,
+  isBuiltinActionId,
+} from "@/lib/builtin-actions"
 import {
   AUTOMATION_REQUIRED_INPUTS_MESSAGE,
   hasRequiredInput,
@@ -115,11 +119,16 @@ async function loadAutomation(id: string) {
   return row
 }
 
-// The target must be a real custom action of the same team (builtins never
-// automate) and, while the automation is enabled, declare no required input —
-// automated runs fill none.
+// The target must be a real custom action of the same team or the tidy-up
+// builtin (FEED-50, the ONLY automatable builtin: every input optional) and,
+// while the automation is enabled, declare no required input — automated runs
+// fill none.
 async function loadTargetAction(actionId: string, teamId: string) {
   const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
+  if (actionId === BUILTIN_TIDY_UP_ID) {
+    const builtin = builtinTidyUpAction(teamId)
+    return { id: builtin.id, teamId, inputs: builtin.inputs }
+  }
   if (isBuiltinActionId(actionId)) throw bad(`Built-in actions can't be automated`)
   const { db } = await import(`@/db/connection`)
   const [action] = await db
@@ -131,6 +140,8 @@ async function loadTargetAction(actionId: string, teamId: string) {
   if (action.teamId !== teamId) throw bad(`Action must belong to the team`)
   return action
 }
+
+const automationActionIdSchema = z.string().uuid().or(z.literal(BUILTIN_TIDY_UP_ID))
 
 function assertRunnable(inputs: unknown, enabled: boolean): void {
   if (enabled && hasRequiredInput(inputs)) {
@@ -258,7 +269,7 @@ export const automationsRouter = router({
       z
         .object({
           teamId: z.string().uuid(),
-          actionId: z.string().uuid(),
+          actionId: automationActionIdSchema,
           deviceId: automationDeviceIdSchema,
           trigger: automationTriggerSchema,
           enabled: z.boolean().optional(),
@@ -312,7 +323,7 @@ export const automationsRouter = router({
       z
         .object({
           id: z.string().uuid(),
-          actionId: z.string().uuid().optional(),
+          actionId: automationActionIdSchema.optional(),
           deviceId: automationDeviceIdSchema.optional(),
           trigger: automationTriggerSchema.optional(),
           enabled: z.boolean().optional(),
