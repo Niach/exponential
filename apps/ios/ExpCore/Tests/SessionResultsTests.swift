@@ -144,6 +144,44 @@ final class SessionResultsTests: XCTestCase {
         XCTAssertEqual(sessionResultTileHeightFitting([], availableWidth: 358), 320)
     }
 
+    /// EXP-1128: the tall rule, the fixture's `tiles` cases ×4 — a full-page
+    /// capture flags tall and takes the 4:3 frame; a phone shot never does.
+    func testFramesATallCaptureAt43AndFlagsIt() throws {
+        let tiles = try XCTUnwrap(try fixture()["tiles"] as? [String: Any])
+        let cases = try XCTUnwrap(tiles["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let entry = SessionResultEntry(
+                topic: "t",
+                label: "l",
+                attachmentId: "a",
+                width: testCase["width"] as? Int,
+                height: testCase["height"] as? Int
+            )
+            XCTAssertEqual(sessionResultIsTall(entry), try XCTUnwrap(testCase["tall"] as? Bool), name)
+            XCTAssertEqual(
+                sessionResultTileWidth(entry, height: 320),
+                CGFloat(try XCTUnwrap(testCase["widthAt320"] as? Int)),
+                name
+            )
+        }
+    }
+
+    /// EXP-1128: the tall viewer's strips stay under the texture cap.
+    func testSplitsATallImageIntoStripRanges() {
+        XCTAssertTrue(tallImageStripRanges(height: 0).isEmpty)
+        let one = tallImageStripRanges(height: 4096)
+        XCTAssertEqual(one.count, 1)
+        XCTAssertEqual(one.first?.y, 0)
+        XCTAssertEqual(one.first?.rows, 4096)
+        let strips = tallImageStripRanges(height: 25094)
+        XCTAssertEqual(strips.count, 7)
+        XCTAssertEqual(strips.map(\.y), [0, 4096, 8192, 12288, 16384, 20480, 24576])
+        XCTAssertEqual(strips.last?.rows, 518)
+        XCTAssertEqual(strips.reduce(0) { $0 + $1.rows }, 25094)
+    }
+
     // MARK: EXP-933 — the report fixture (`session-results.json`), same case
     // names ×4.
 

@@ -376,7 +376,9 @@ pub(crate) fn render_media_tile(
                             .size_full()
                             .object_fit(gpui::ObjectFit::Cover),
                     ),
-                    _ => el,
+                    // A poster frame over the texture cap (EXP-1128) is not a
+                    // real case — the neutral fill stands in, like Loading.
+                    ImageSlot::ReadyTall(_) | ImageSlot::Loading | ImageSlot::Failed(_) => el,
                 })
                 .child(
                     div()

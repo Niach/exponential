@@ -207,6 +207,10 @@ impl RefResolver {
 pub(crate) enum ImageSlot {
     Loading,
     Ready(Arc<gpui::Image>),
+    /// EXP-1128: a picture over the GPU texture cap, decoded off the
+    /// foreground and cut into strips ([`crate::tall_image`]) — as one
+    /// texture it would paint nothing.
+    ReadyTall(Arc<crate::tall_image::TallImage>),
     /// A fetch failure is NEVER permanent: the timestamp gates a re-fetch on
     /// the next render after [`RETRY_AFTER`] — a transient network hiccup
     /// (stale keep-alive socket, brief offline) must not brick every image
@@ -247,6 +251,9 @@ impl ImageCache {
     pub(crate) fn ready_image(&self, url: &str) -> Option<Arc<gpui::Image>> {
         match self.slots.get(url) {
             Some(ImageSlot::Ready(image)) => Some(image.clone()),
+            // A strip-decoded picture has no single encoded image to put on
+            // the clipboard (and at >16k px it would be unusable there).
+            Some(ImageSlot::ReadyTall(_)) => None,
             _ => None,
         }
     }
@@ -294,21 +301,34 @@ impl ImageCache {
         let url_owned = url.to_string();
         cx.spawn(async move |this, cx| {
             let fetch_url = url_owned.clone();
-            let result = cx
+            let log_url = url_owned.clone();
+            // The slot is built on the BACKGROUND executor too: a picture over
+            // the texture cap is fully decoded + stripped here (EXP-1128).
+            let slot = cx
                 .background_executor()
-                .spawn(async move { transport.fetch(&fetch_url) })
+                .spawn(async move {
+                    match transport.fetch(&fetch_url) {
+                        Ok(bytes) if crate::tall_image::needs_strips(&bytes) => {
+                            match crate::tall_image::decode_tall(&bytes) {
+                                Ok(tall) => ImageSlot::ReadyTall(Arc::new(tall)),
+                                Err(error) => {
+                                    log::warn!("tall image decode failed for {log_url}: {error}");
+                                    ImageSlot::Failed(std::time::Instant::now())
+                                }
+                            }
+                        }
+                        Ok(bytes) => {
+                            let format = sniff_format("", &bytes);
+                            ImageSlot::Ready(Arc::new(gpui::Image::from_bytes(format, bytes)))
+                        }
+                        Err(error) => {
+                            log::warn!("attachment fetch failed for {log_url}: {error}");
+                            ImageSlot::Failed(std::time::Instant::now())
+                        }
+                    }
+                })
                 .await;
             this.update(cx, |cache, cx| {
-                let slot = match result {
-                    Ok(bytes) => {
-                        let format = sniff_format("", &bytes);
-                        ImageSlot::Ready(Arc::new(gpui::Image::from_bytes(format, bytes)))
-                    }
-                    Err(error) => {
-                        log::warn!("attachment fetch failed for {url_owned}: {error}");
-                        ImageSlot::Failed(std::time::Instant::now())
-                    }
-                };
                 cache.slots.insert(url_owned.clone(), slot);
                 cx.notify();
             })
@@ -440,6 +460,10 @@ pub(crate) fn download_image(
     .detach();
 }
 
+/// EXP-1128: the widest a strip-rendered (>16k px) inline picture draws
+/// without a `?w=` — a readable column, not its natural 16k.
+const TALL_INLINE_MAX_W: f32 = 720.;
+
 /// Web-parity image slot (EXP-256): centered in the column, sized by the
 /// `?w=` width param carried in the markdown URL (query-stripped for the
 /// cache fetch — the server ignores `?w=`, resizing is a client display
@@ -555,6 +579,47 @@ fn render_image_slot(
                 hooks.as_ref(),
             )
             .into_any_element()
+        }
+        // EXP-1128: a picture over the texture cap renders as stacked strips
+        // at the `?w=` width (else its natural width, capped so it reads as
+        // a column, never wider than the slot). Click still opens the
+        // lightbox; the resize/remove hooks and the context menu stay on the
+        // ordinary path — a >16k px inline picture is a rarity.
+        ImageSlot::ReadyTall(tall) => {
+            let display_width = hooks
+                .as_ref()
+                .and_then(|hooks| hooks.drag_width)
+                .or_else(|| {
+                    image_url::attachment_id_from_src(url)
+                        .and_then(|_| image_url::width_param_from_src(url))
+                })
+                .unwrap_or(tall.width as f32)
+                .min(TALL_INLINE_MAX_W);
+            let natural = attachment_natural_size(&fetch_url, cx)
+                .or(Some((tall.width as f32, tall.height as f32)));
+            let mut wrapper = div()
+                .id(id.into())
+                .max_w_full()
+                .overflow_hidden()
+                .rounded(px(4.))
+                .child(crate::tall_image::render_tall(&tall, display_width));
+            if let Some(images) = images {
+                let images = images.clone();
+                let url = fetch_url.clone();
+                let alt = alt.to_string();
+                wrapper = wrapper.cursor_pointer().on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    crate::image_preview::open_image_preview(
+                        url.clone(),
+                        alt.clone(),
+                        natural,
+                        Some(images.clone()),
+                        window,
+                        cx,
+                    );
+                });
+            }
+            wrapper.into_any_element()
         }
         ImageSlot::Loading => placeholder_box("Loading image…", cx),
         ImageSlot::Failed(_) => placeholder_box(

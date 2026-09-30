@@ -42,6 +42,10 @@ ropey = "2.0.0-beta.1"
 # editor images so gpui's `img` never letterboxes them (already in the tree
 # transitively via gpui).
 imagesize = "0.13"
+# EXP-1128: decode a picture over the GPU texture cap (a >16k px full-page
+# screenshot) and cut it into strips — see tall_image.rs. Already in the tree
+# via gpui; default features stay off, only the accepted formats.
+image = { workspace = true, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 # §4.7 ExpIcon: icon_named!(ExpIcon, "../../assets/icons") — the project-local
 # Lucide set (status circles, priority signal bars, …).
 gpui-component-macros.workspace = true

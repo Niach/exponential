@@ -12,7 +12,9 @@ import UIKit
 /// ONE scrolling page: a filled group band (EXP-818) per topic, then a
 /// WRAPPING ROW of equal-height tiles under it, each captioned with its label.
 /// A tap opens the platform preview (Quick Look) over the same
-/// download-to-temp path the comment strips use. This face owns NEITHER Stop /
+/// download-to-temp path the comment strips use; a TALL picture (EXP-1128, a
+/// full-page capture) opens `TallImageViewerSheet` instead, a width-fit
+/// vertical scroll. This face owns NEITHER Stop /
 /// Resume (the Run face's) NOR the merge bar (the Changes face's): its bottom
 /// bar carries the face switcher and nothing else.
 ///
@@ -28,6 +30,8 @@ struct SessionResultsFace<Trailing: View>: View {
 
     @State private var previewURL: URL?
     @State private var downloadingId: String?
+    /// EXP-1128: the tall picture the scroll viewer shows, nil when closed.
+    @State private var tallPreview: TallPreview?
     /// The page's content width, measured once — a phone is narrower than the
     /// pinned 320pt tile is wide for anything landscape, so the whole page
     /// scales DOWN by one factor. Every tile keeps its probed aspect and every
@@ -88,6 +92,9 @@ struct SessionResultsFace<Trailing: View>: View {
             contentWidth = width
         }
         .quickLookPreview($previewURL)
+        .sheet(item: $tallPreview) { preview in
+            TallImageViewerSheet(entry: preview.entry)
+        }
         .accessibilityIdentifier("session-results")
         // The face switcher, alone — Results has no verb of its own.
         .safeAreaInset(edge: .bottom) {
@@ -126,7 +133,11 @@ struct SessionResultsFace<Trailing: View>: View {
                 .frame(width: width, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(entry.topic), \(entry.label)")
+        .accessibilityLabel(
+            sessionResultIsTall(entry)
+                ? "\(entry.topic), \(entry.label), tall"
+                : "\(entry.topic), \(entry.label)"
+        )
     }
 
     // MARK: - Quick Look
@@ -134,6 +145,10 @@ struct SessionResultsFace<Trailing: View>: View {
     /// Same contract as the comment strip's: the bytes land in a
     /// per-attachment temp folder and are reused on a second tap.
     private func preview(_ entry: SessionResultEntry) {
+        if sessionResultIsTall(entry) {
+            tallPreview = TallPreview(entry: entry)
+            return
+        }
         guard downloadingId == nil else { return }
         downloadingId = entry.attachmentId
         Task {
@@ -165,6 +180,12 @@ struct SessionResultsFace<Trailing: View>: View {
     }
 }
 
+/// EXP-1128: the tall viewer's sheet item, keyed by the attachment.
+private struct TallPreview: Identifiable {
+    let entry: SessionResultEntry
+    var id: String { entry.attachmentId }
+}
+
 /// One published screenshot at the page's tile size, skinned like a posted
 /// comment's image (`LargeAttachmentImage`): rounded, hairline-bordered,
 /// aspect-FILLED into its box, and fetched through the shared attachment
@@ -181,6 +202,8 @@ private struct SessionResultTile: View {
 
     @State private var image: UIImage?
 
+    private var isTall: Bool { sessionResultIsTall(entry) }
+
     var body: some View {
         ZStack {
             if let image {
@@ -189,6 +212,32 @@ private struct SessionResultTile: View {
                     .scaledToFill()
             } else {
                 Color.white.opacity(0.06)
+            }
+            // EXP-1128: a tall picture shows its top under a fade and a
+            // `Tall` pill (same copy ×4); the tap opens the scroll viewer.
+            if isTall {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.5)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 48)
+                }
+                .allowsHitTesting(false)
+                Text("Tall")
+                    .font(.caption2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(.black.opacity(0.6)))
+                    .overlay(
+                        Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+                    )
+                    .padding(6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .allowsHitTesting(false)
             }
             if isLoading {
                 ProgressView()
@@ -209,7 +258,14 @@ private struct SessionResultTile: View {
                 httpClient: httpClient,
                 pendingImages: [:]
             )
-            image = try? await loader.load(entry.url)
+            let loaded = try? await loader.load(entry.url)
+            // A tall capture keeps only its 4:3 top: the whole page would
+            // draw blank past the texture cap, and the tile shows the top.
+            if isTall, let loaded {
+                image = sessionResultTallTopCrop(loaded) ?? loaded
+            } else {
+                image = loaded
+            }
         }
     }
 }

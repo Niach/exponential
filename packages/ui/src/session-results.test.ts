@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   MAX_SESSION_RESULTS,
+  SESSION_RESULT_TALL_ASPECT,
   SESSION_RESULT_TILE_HEIGHT,
   groupSessionResults,
   parseSessionResults,
+  sessionResultIsTall,
   sessionResultTileHeightFitting,
   sessionResultTileWidth,
 } from "./session-results"
@@ -161,4 +163,15 @@ describe(`session results report fixture`, () => {
       expect(groups).toEqual(c.expected)
     })
   }
+
+  // EXP-1128: the tall rule, the fixture's `tiles` cases ×4.
+  it(`frames a tall capture at 4:3 and flags it`, () => {
+    expect(SESSION_RESULT_TALL_ASPECT).toBeCloseTo(1 / 3, 10)
+    expect(fixture.tiles.cases.length).toBeGreaterThan(0)
+    for (const c of fixture.tiles.cases) {
+      const entry = { width: c.width, height: c.height }
+      expect(sessionResultIsTall(entry), c.name).toBe(c.tall)
+      expect(sessionResultTileWidth(entry, 320), c.name).toBe(c.widthAt320)
+    }
+  })
 })

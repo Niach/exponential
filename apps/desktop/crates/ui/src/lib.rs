@@ -102,6 +102,7 @@ mod drafts_view;
 mod device_sync;
 mod machines;
 mod media_tile;
+mod tall_image;
 #[cfg(target_os = "macos")]
 pub mod macos_blur;
 mod macos_window;
