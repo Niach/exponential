@@ -11,6 +11,7 @@ import { ImagePreviewDialog } from "./image-preview-dialog"
 import {
   groupSessionResults,
   SESSION_RESULT_TILE_HEIGHT,
+  sessionResultIsTall,
   sessionResultPictures,
   type SessionResultGroup,
   sessionResultTileHeightFitting,
@@ -33,6 +34,11 @@ import { cn } from "./cn"
 // clips it, so the page is measured ONCE and every tile shares the one
 // `sessionResultTileHeightFitting` factor (the shared rule ×4) — per-row
 // fitting would break the equal-height strip.
+//
+// EXP-1128: a TALL picture (a full-page capture, `sessionResultIsTall`) takes
+// the 4:3 frame cropped to its TOP under a bottom fade and a `Tall` pill, so it
+// reads as its first viewport instead of a 10px sliver; the lightbox then
+// opens it fit-to-width in a vertical scroll. Same look ×4.
 
 /** The measured CONTENT width of a node, 0 until the first measurement (and in
  *  jsdom, which has no layout): the callers render at the base height then. */
@@ -68,6 +74,7 @@ function ResultTile({
   src: string
   onOpen: () => void
 }) {
+  const tall = sessionResultIsTall(entry)
   return (
     <Button
       variant="ghost"
@@ -79,21 +86,42 @@ function ResultTile({
         `hover:bg-transparent`
       )}
     >
-      <img
-        src={src}
-        alt={entry.label}
-        loading="lazy"
-        // ONE height for the whole page (the 320px base, or the fitted one on
-        // a narrow column — never an `h-[320px]` literal that would drift from
-        // the constant), the probed aspect for the width: the tile keeps the
-        // shot's shape and a 4:3 desktop frame stands in when the upload could
-        // not be measured (`sessionResultTileWidth`).
-        style={{
-          height,
-          aspectRatio: `${sessionResultTileWidth(entry, height)} / ${height}`,
-        }}
-        className="w-auto rounded-lg border border-glass-stroke-card object-cover"
-      />
+      <span className="relative flex">
+        <img
+          src={src}
+          alt={entry.label}
+          loading="lazy"
+          data-tall={tall || undefined}
+          // ONE height for the whole page (the 320px base, or the fitted one
+          // on a narrow column — never an `h-[320px]` literal that would drift
+          // from the constant), the probed aspect for the width: the tile
+          // keeps the shot's shape and a 4:3 desktop frame stands in when the
+          // upload could not be measured OR is tall (`sessionResultTileWidth`);
+          // a tall one anchors to its top so the crop is the first viewport.
+          style={{
+            height,
+            aspectRatio: `${sessionResultTileWidth(entry, height)} / ${height}`,
+          }}
+          className={cn(
+            `w-auto rounded-lg border border-glass-stroke-card object-cover`,
+            tall && `object-top`
+          )}
+        />
+        {tall && (
+          <>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-12 rounded-b-lg bg-linear-to-t from-black/50 to-transparent"
+            />
+            <span
+              data-testid="session-result-tall"
+              className="pointer-events-none absolute right-1.5 bottom-1.5 rounded-full border border-glass-stroke-card bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white/90"
+            >
+              Tall
+            </span>
+          </>
+        )}
+      </span>
       <span className="w-full truncate text-xs text-muted-foreground">
         {entry.label}
       </span>
@@ -189,6 +217,11 @@ export function SessionResultsView({
           src={attachmentSrc(preview.attachmentId)}
           alt={preview.label}
           label={preview.label}
+          naturalSize={
+            preview.width !== null && preview.height !== null
+              ? { width: preview.width, height: preview.height }
+              : null
+          }
         />
       )}
     </div>

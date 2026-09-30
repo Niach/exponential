@@ -1,6 +1,27 @@
 import { Dialog, DialogContent, DialogTitle } from "./dialog"
+import { SESSION_RESULT_TALL_ASPECT } from "./session-results"
 
 export type PreviewMediaKind = `image` | `video` | `audio`
+
+export interface PreviewNaturalSize {
+  width: number
+  height: number
+}
+
+/** EXP-1128: a picture taller than 3× its width (a full-page capture) would
+ *  fit the viewport's height as a sliver, so the lightbox lays it out at full
+ *  width and scrolls it vertically instead. ONE threshold ×4, the Results
+ *  tiles' `sessionResultIsTall`. */
+export function isTallPreview(
+  naturalSize: PreviewNaturalSize | null | undefined
+): boolean {
+  return (
+    !!naturalSize &&
+    naturalSize.width > 0 &&
+    naturalSize.height > 0 &&
+    naturalSize.width / naturalSize.height < SESSION_RESULT_TALL_ASPECT
+  )
+}
 
 interface PreviewMediaProps {
   src: string
@@ -12,6 +33,9 @@ interface PreviewMediaProps {
   kind?: PreviewMediaKind
   /** Poster frame shown until a video starts (video only). */
   poster?: string
+  /** EXP-1128: the picture's probed pixel size when the caller knows it; a
+   *  tall one (`isTallPreview`) opens fit-to-width in a vertical scroll. */
+  naturalSize?: PreviewNaturalSize | null
 }
 
 interface ImagePreviewDialogProps extends PreviewMediaProps {
@@ -30,6 +54,7 @@ export function PreviewMedia({
   label,
   kind = `image`,
   poster,
+  naturalSize,
 }: PreviewMediaProps) {
   if (kind === `video`) {
     // Only mounted while open, so autoplay fires on every open and the
@@ -50,6 +75,21 @@ export function PreviewMedia({
       <div className="flex min-w-72 flex-col gap-2 p-2">
         <span className="truncate text-sm">{label}</span>
         <audio src={src} controls autoPlay className="w-full" />
+      </div>
+    )
+  }
+  if (isTallPreview(naturalSize)) {
+    // Fit to width, scroll vertically: the column is the viewport's width up
+    // to 60rem and never wider than the picture itself (no upscaling), the
+    // image runs its full height inside the scroller. The browser decodes
+    // the one tall <img> itself; no strips needed here.
+    return (
+      <div
+        data-testid="preview-tall-scroll"
+        className="max-h-[85vh] w-[min(96vw,60rem)] overflow-y-auto overscroll-contain rounded-md"
+        style={{ maxWidth: naturalSize?.width }}
+      >
+        <img src={src} alt={alt} className="block h-auto w-full" />
       </div>
     )
   }
@@ -76,6 +116,7 @@ export function ImagePreviewDialog({
   label,
   kind = `image`,
   poster,
+  naturalSize,
 }: ImagePreviewDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -99,6 +140,7 @@ export function ImagePreviewDialog({
           label={label}
           kind={kind}
           poster={poster}
+          naturalSize={naturalSize}
         />
       </DialogContent>
     </Dialog>

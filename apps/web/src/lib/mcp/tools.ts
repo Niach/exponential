@@ -3781,7 +3781,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_results`,
       {
-        description: `Publish your run's REPORT on the issue's Results face in every client: per topic, a GFM text (what you did; headings, bullets, code, #IDENT refs) above its screenshots, topics in first-seen order ('Summary' first). text sets the topic's text. label asks for a picture (web/ios/android): an uploadUrl, its 10-minute expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Returns the run's list.`,
+        description: `Publish your run's REPORT on the issue's Results face: per topic, a GFM text (what you did, #IDENT refs) above its screenshots, topics in first-seen order ('Summary' first). text sets the topic's text. label asks for a picture (web/ios/android): an uploadUrl, its expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Returns the run's list. Prefer viewport-sized shots: a full page crops to its top.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),

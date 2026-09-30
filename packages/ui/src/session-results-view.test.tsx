@@ -71,6 +71,37 @@ describe(`SessionResultsView`, () => {
     expect(preview?.getAttribute(`alt`)).toBe(`android`)
   })
 
+  // EXP-1128: a full-page capture takes the 4:3 frame, top-cropped under a
+  // Tall pill, and opens in the scrolling lightbox; its landscape sibling is
+  // untouched.
+  it(`frames a tall capture at 4:3, top-cropped with a Tall badge`, () => {
+    render(
+      <SessionResultsView
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+        results={[
+          entry({ label: `web-mobile`, attachmentId: `tall-1`, width: 780, height: 25094 }),
+          entry({ attachmentId: `att-2` }),
+        ]}
+      />
+    )
+    const images = Array.from(document.querySelectorAll(`img`))
+    expect(images[0].style.height).toBe(`320px`)
+    expect(images[0].style.aspectRatio).toBe(`427 / 320`)
+    expect(images[0].className).toContain(`object-top`)
+    expect(images[0].getAttribute(`data-tall`)).toBe(`true`)
+    expect(images[1].className).not.toContain(`object-top`)
+    expect(images[1].getAttribute(`data-tall`)).toBeNull()
+    expect(screen.getAllByTestId(`session-result-tall`)).toHaveLength(1)
+    expect(screen.getByText(`Tall`)).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId(`session-result-tall-1`))
+    const scroller = document.querySelector(`[data-testid="preview-tall-scroll"]`)
+    expect(scroller).toBeTruthy()
+    expect(scroller?.querySelector(`img`)?.getAttribute(`src`)).toBe(
+      `/api/attachments/tall-1`
+    )
+  })
+
   it(`draws nothing without results`, () => {
     render(
       <SessionResultsView

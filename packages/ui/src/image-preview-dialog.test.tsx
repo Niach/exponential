@@ -53,6 +53,46 @@ describe(`ImagePreviewDialog`, () => {
     expect(dialog?.querySelector(`img`)?.getAttribute(`src`)).toBe(`/x.png`)
   })
 
+  // EXP-1128: a full-page capture scrolls at full width; a phone shot keeps
+  // the fitted lightbox.
+  it(`scrolls a tall picture at full width`, () => {
+    render(
+      <ImagePreviewDialog
+        open
+        onOpenChange={() => {}}
+        src="/tall.jpg"
+        alt="frontpage"
+        label="web-mobile"
+        naturalSize={{ width: 780, height: 25094 }}
+      />
+    )
+    const scroller = document.querySelector(
+      `[data-testid="preview-tall-scroll"]`
+    ) as HTMLElement | null
+    expect(scroller).toBeTruthy()
+    expect(scroller?.className).toContain(`overflow-y-auto`)
+    expect(scroller?.style.maxWidth).toBe(`780px`)
+    const img = scroller?.querySelector(`img`)
+    expect(img?.getAttribute(`src`)).toBe(`/tall.jpg`)
+    expect(img?.className).toContain(`w-full`)
+  })
+
+  it(`keeps a phone shot in the fitted lightbox`, () => {
+    render(
+      <ImagePreviewDialog
+        open
+        onOpenChange={() => {}}
+        src="/phone.png"
+        label="ios"
+        naturalSize={{ width: 1170, height: 2532 }}
+      />
+    )
+    expect(document.querySelector(`[data-testid="preview-tall-scroll"]`)).toBeNull()
+    expect(document.querySelector(`[role="dialog"] img`)?.className).toContain(
+      `object-contain`
+    )
+  })
+
   it(`renders nothing while closed`, () => {
     render(
       <ImagePreviewDialog
