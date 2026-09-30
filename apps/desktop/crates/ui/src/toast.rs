@@ -227,6 +227,7 @@ fn body(toast: &Toast, cx: &App) -> Div {
         .child(
             div()
                 .text_sm()
+                .line_height(px(LINE))
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .text_color(theme.foreground)
                 .child(toast.title.clone()),
@@ -238,52 +239,51 @@ fn body(toast: &Toast, cx: &App) -> Div {
 
 type Dismiss = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// THE face, live or at rest: icon 16 in the kind colour (18 / 16 in), the
-/// body 24 in, the small action last, the ALWAYS-visible 20 px close glyph
-/// top-right. `content` fades everything inside the card (a card behind the
-/// front one in a collapsed stack shows only its edge, like the web's
-/// `data-[front=false]`). `dismiss` = the live layer's close; the action runs
-/// its own handler, then dismisses.
+/// The title's line height: the icon, the action and the close box centre
+/// on it (web: `items-start`, each 20 tall).
+const LINE: f32 = 20.;
+
+/// THE face, live or at rest — web's row inside the card's 16 padding:
+/// [icon 16 in the kind colour][title + description, flex 1][action][close
+/// 20 box, 14 glyph, muted until hovered], top-aligned with the icon, the
+/// action and the close box centred on the title's line. `content` fades
+/// everything inside the card (a card behind the front one in a collapsed
+/// stack shows only its edge, like the web's `data-[front=false]`).
+/// `dismiss` = the live layer's close; the action runs its own handler,
+/// then dismisses.
 fn face(toast: &Toast, content: f32, dismiss: Option<Dismiss>, cx: &App) -> Div {
-    let frame = h_flex().relative().w(px(constants::WIDTH)).gap_3();
+    let theme = cx.theme();
+    let line = || h_flex().flex_none().h(px(LINE)).items_center().opacity(content);
     let action = toast.action.clone().map(|action| {
-        let dismiss = dismiss.clone();
         let button = Button::new("toast-action").label(action.label.clone()).primary().small();
-        let button = match dismiss {
+        let button = match dismiss.clone() {
             Some(dismiss) => button.on_click(move |_, window, cx| {
                 (action.on_click)(window, cx);
                 dismiss(window, cx);
             }),
             None => button,
         };
-        div().mr_3p5().opacity(content).child(button)
+        line().child(button)
     });
-    let close = Button::new("toast-close")
-        .icon(Icon::new(registry::UI_CLOSE))
-        .ghost()
-        .xsmall()
-        .when_some(dismiss, |button, dismiss| {
-            button.on_click(move |_, window, cx| dismiss(window, cx))
+    let close = div()
+        .id("toast-close")
+        .size(px(LINE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(t::radius::SM))
+        .cursor_pointer()
+        .text_color(theme.muted_foreground)
+        .hover(|this| this.text_color(theme.foreground))
+        .child(Icon::new(registry::UI_CLOSE).size(px(14.)))
+        .when_some(dismiss, |this, dismiss| {
+            this.on_click(move |_, window, cx| dismiss(window, cx))
         });
-    chrome(frame, cx)
-        .child(
-            div()
-                .absolute()
-                .top(px(18.))
-                .left_4()
-                .opacity(content)
-                .child(kind_icon(toast.kind, cx)),
-        )
-        .child(
-            v_flex()
-                .flex_1()
-                .overflow_hidden()
-                .pl_6()
-                .opacity(content)
-                .child(body(toast, cx)),
-        )
+    chrome(h_flex().w(px(constants::WIDTH)).items_start().gap_3(), cx)
+        .child(line().child(kind_icon(toast.kind, cx)))
+        .child(v_flex().flex_1().min_w_0().opacity(content).child(body(toast, cx)))
         .children(action)
-        .child(div().absolute().top_1().right_1().opacity(content).child(close))
+        .child(line().child(close))
 }
 
 /// The toast AT REST as a plain element (the styleguide's specimen): the
