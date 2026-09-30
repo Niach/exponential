@@ -258,6 +258,7 @@ export const boardIconValues = [
   `bookmark`,
   `newspaper`,
   `smartphone`,
+  `brush-cleaning`,
 ] as const
 
 // EXP-924: the device icon set (devices.icon), a SECOND curated set next to
